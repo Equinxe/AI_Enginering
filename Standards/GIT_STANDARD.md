@@ -12,9 +12,11 @@ Severity: Mandatory
 
 # Purpose
 
-This standard defines how Git must be used within IA Engineering.
+This standard defines the role of Git within IA Engineering.
 
-Git is an engineering communication tool. A clean Git history improves collaboration, reviewability, traceability, and long-term maintainability.
+Git is the official source control system used to manage the evolution of every project.
+
+Git history is considered part of the engineering documentation.
 
 ---
 
@@ -28,94 +30,89 @@ This standard applies to:
 
 ---
 
-# Rules
+# Principles
 
-## One Work Unit, One Commit
+## Git is Mandatory
 
-Each completed Work Unit should produce one logical commit.
+Every project must use Git.
 
-A commit represents a completed engineering milestone, not a backup.
-
----
-
-## Atomic Changes
-
-Each commit must address a single objective.
-
-Do not combine unrelated changes.
+Development outside of version control is prohibited.
 
 ---
 
-## Small Commits
+## Git is an Engineering Tool
 
-Commits should remain small enough to be reviewed comfortably.
+Git is not only used to store code.
 
-When a commit becomes difficult to review, split the work into multiple Work Units.
+It provides:
+
+- Traceability
+- Collaboration
+- Reviewability
+- Project history
 
 ---
 
 ## Incremental Development
 
-Features should be developed incrementally.
+Projects should evolve through small engineering milestones.
 
-Partial but functional progress is encouraged.
-
-Avoid implementing large features in a single commit.
+Large, monolithic changes are discouraged.
 
 ---
 
 ## Traceability
 
-Every commit should clearly explain the evolution of the project.
+Every engineering change must be traceable through Git history.
 
-Future contributors should understand what changed and why.
+The evolution of the project should always remain understandable.
 
 ---
 
-## Commit Before Context Switch
+## Collaboration
 
-Before switching to another engineering task, commit the current Work Unit if it is complete.
+Git enables collaboration between humans and AI Employees.
 
-Avoid mixing unrelated modifications.
+Engineering history must remain clear and maintainable.
+
+---
+
+# Responsibilities
+
+Git usage is further defined by the following Engineering Standards:
+
+- Commit Standard
+- Branch Standard
+- Pull Request Standard
 
 ---
 
 # Forbidden Practices
 
-The following practices are prohibited:
+Do not:
 
-- Huge commits containing multiple unrelated changes.
-- Mixing refactoring with feature development.
-- Committing unfinished unrelated work.
-- Using Git only as a backup solution.
-- Skipping logical commit history.
-
----
-
-# Engineering Principle
-
-Git history is part of the engineering documentation.
-
-A well-structured history is as valuable as clean source code.
+- develop outside Git;
+- rewrite project history without justification;
+- bypass version control;
+- remove engineering history without approval.
 
 ---
 
 # Rationale
 
-Following this standard provides:
+Using Git correctly provides:
 
-- Easier code reviews
-- Better collaboration
-- Simpler debugging
-- Clear project history
-- Reduced regression risk
+- Reliable collaboration
+- Complete traceability
+- Safer development
+- Better maintainability
 
 ---
 
 # References
 
-- Work Unit
 - Commit Standard
+- Branch Standard
 - Pull Request Standard
 
 ---
