@@ -12,11 +12,11 @@ Severity: Mandatory
 
 # Purpose
 
-This standard defines the role of Git within IA Engineering.
+This standard defines how Git is used within IA Engineering.
 
-Git is the official source control system used to manage the evolution of every project.
+Git is the mandatory version control system for every project.
 
-Git history is considered part of the engineering documentation.
+IA Engineering follows official Git documentation and recognized Git workflows instead of defining its own version control rules.
 
 ---
 
@@ -30,60 +30,62 @@ This standard applies to:
 
 ---
 
-# Principles
+# Official References
 
-## Git is Mandatory
+The following references are considered authoritative:
 
-Every project must use Git.
-
-Development outside of version control is prohibited.
-
----
-
-## Git is an Engineering Tool
-
-Git is not only used to store code.
-
-It provides:
-
-- Traceability
-- Collaboration
-- Reviewability
-- Project history
+- Git Documentation
+- Pro Git Book
 
 ---
 
-## Incremental Development
+# Industry Best Practices
 
-Projects should evolve through small engineering milestones.
+Projects should adopt a documented branching strategy appropriate for their needs.
 
-Large, monolithic changes are discouraged.
+Common strategies include:
 
----
+- GitHub Flow
+- Git Flow
+- Trunk-Based Development
 
-## Traceability
-
-Every engineering change must be traceable through Git history.
-
-The evolution of the project should always remain understandable.
+The selected workflow must be documented at project initialization.
 
 ---
 
-## Collaboration
+# IA Engineering Additions
 
-Git enables collaboration between humans and AI Employees.
+IA Engineering extends Git through complementary standards.
 
-Engineering history must remain clear and maintainable.
+These include:
+
+- Commit Standard
+- Branch Standard
+- Pull Request Standard
+
+Git itself is never redefined.
+
+---
+
+# Repository Requirements
+
+Every IA Engineering project must:
+
+- use Git as its version control system;
+- maintain a complete project history;
+- ensure repository integrity;
+- document the chosen Git workflow.
 
 ---
 
 # Responsibilities
 
-Git usage is further defined by the following Engineering Standards:
+Every Employee must:
 
-- Commit Standard
-- Branch Standard
-- Pull Request Standard
+- work inside a Git repository;
+- preserve project history;
+- follow the project's documented Git workflow;
+- comply with all Git-related IA Engineering standards.
 
 ---
 
@@ -91,26 +93,28 @@ Git usage is further defined by the following Engineering Standards:
 
 Do not:
 
-- develop outside Git;
-- rewrite project history without justification;
-- bypass version control;
-- remove engineering history without approval.
+- develop outside version control;
+- bypass the project's Git workflow;
+- rewrite shared history without approval;
+- remove project history without justification.
 
 ---
 
 # Rationale
 
-Using Git correctly provides:
+Using Git consistently provides:
 
-- Reliable collaboration
-- Complete traceability
-- Safer development
-- Better maintainability
+- traceability;
+- collaboration;
+- reproducibility;
+- maintainability;
+- reliable project history.
 
 ---
 
-# References
+# Related Standards
 
+- Standards First
 - Commit Standard
 - Branch Standard
 - Pull Request Standard
