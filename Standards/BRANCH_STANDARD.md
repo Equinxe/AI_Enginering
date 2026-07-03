@@ -12,9 +12,9 @@ Severity: Mandatory
 
 # Purpose
 
-This standard defines how Git branches must be created, named, and managed within IA Engineering.
+This standard defines how Git branches are managed within IA Engineering.
 
-Branches isolate engineering work, improve collaboration, and protect the stability of the project.
+IA Engineering does not enforce a specific branching strategy. Instead, it adopts the branching workflow selected by the project and ensures that every Employee follows it consistently.
 
 ---
 
@@ -28,163 +28,86 @@ This standard applies to:
 
 ---
 
-# Principles
+# Official References
 
-## Stable Main Branch
+The following references are considered authoritative:
 
-The `main` branch always represents the latest stable version of the project.
-
-Direct development on `main` is prohibited.
-
----
-
-## Development Branch
-
-The `develop` branch is the integration branch.
-
-Completed work is merged into `develop` before being released to `main`.
+- Git Documentation
+- GitHub Flow
+- Git Flow
+- Trunk-Based Development
 
 ---
 
-## Milestone Branches
+# Industry Best Practices
 
-Engineering work must be performed inside milestone branches.
+Projects should:
 
-Each milestone has its own dedicated branch.
-
-Example:
-
-```
-milestone/v0.0.2-engineering-standards
-```
-
-A milestone branch groups multiple related Work Units into one engineering objective.
+- document their branching strategy;
+- use meaningful branch names;
+- isolate work in dedicated branches;
+- keep branches focused on a single objective;
+- regularly synchronize with the integration branch.
 
 ---
 
-## Branch Isolation
+# IA Engineering Additions
 
-A branch must have a single engineering objective.
+## Project Branch Strategy
 
-Avoid mixing unrelated work inside the same branch.
+Every project must define its branching strategy during initialization.
 
----
-
-## Branch Lifetime
-
-Branches are temporary.
-
-Once merged, they should be deleted unless there is a valid engineering reason to keep them.
+All Employees must follow this strategy consistently.
 
 ---
 
-# Branch Naming
+## Branch Naming
 
-IA Engineering defines the following branch naming convention.
+Branch names should follow the project's documented convention.
 
-## Production
+Examples include:
 
 ```
-main
+feature/project-crud
+feature/user-authentication
+
+fix/login-timeout
+
+hotfix/security-patch
+
+release/v1.2.0
 ```
+
+The naming convention must remain consistent throughout the project.
 
 ---
 
-## Integration
+## Single Objective
 
-```
-develop
-```
+A branch should contain one engineering objective.
 
----
-
-## Milestones
-
-```
-milestone/<version>-<name>
-```
-
-Examples:
-
-```
-milestone/v0.0.2-engineering-standards
-
-milestone/v0.0.3-employees
-
-milestone/v0.1.0-mvp
-```
+Avoid mixing unrelated work within the same branch.
 
 ---
 
-## Hotfixes
+## Branch Lifecycle
 
-```
-hotfix/<description>
-```
+Branches should be:
 
-Example:
-
-```
-hotfix/login-crash
-```
-
----
-
-## Experiments
-
-Experimental work should never impact production development.
-
-```
-experiment/<description>
-```
-
-Example:
-
-```
-experiment/context-loader
-```
-
----
-
-# Branch Workflow
-
-Default workflow:
-
-```
-main
-│
-└── develop
-      │
-      └── milestone/*
-```
-
-Engineering changes follow this lifecycle:
-
-```
-Milestone Branch
-        │
-        ▼
-Pull Request
-        │
-        ▼
-develop
-        │
-        ▼
-Release Review
-        │
-        ▼
-main
-```
+- created for a defined purpose;
+- merged once completed;
+- deleted when no longer needed.
 
 ---
 
 # Responsibilities
 
-Each branch should represent one engineering objective.
+Every Employee must:
 
-Commits represent Work Units.
-
-Branches represent Milestones.
+- create branches according to the project workflow;
+- respect the naming convention;
+- keep branches focused;
+- synchronize with the project workflow.
 
 ---
 
@@ -192,28 +115,28 @@ Branches represent Milestones.
 
 Do not:
 
-- develop directly on `main`;
-- mix multiple milestones in one branch;
+- develop directly on protected branches;
+- create branches without a clear objective;
 - keep obsolete branches indefinitely;
-- create branches without a defined engineering objective;
 - use inconsistent branch names.
 
 ---
 
 # Rationale
 
-Using a consistent branching strategy provides:
+Following a consistent branching strategy provides:
 
-- Better collaboration
-- Safer releases
-- Easier milestone tracking
-- Cleaner Git history
-- Better support for AI Employees
+- better collaboration;
+- easier reviews;
+- safer integrations;
+- cleaner project history;
+- predictable AI workflows.
 
 ---
 
-# References
+# Related Standards
 
+- Standards First
 - Git Standard
 - Commit Standard
 - Pull Request Standard
