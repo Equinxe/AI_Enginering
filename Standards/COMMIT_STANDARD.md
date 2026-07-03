@@ -12,15 +12,9 @@ Severity: Mandatory
 
 # Purpose
 
-This standard defines how commits must be created within IA Engineering.
+This standard defines how commits are created within IA Engineering.
 
-A commit represents a completed engineering milestone.
-
-It is not a backup.
-
-It is not a checkpoint.
-
-It is a documented engineering decision.
+IA Engineering adopts the Conventional Commits specification and extends it with engineering practices that improve traceability, collaboration, and AI-assisted development.
 
 ---
 
@@ -34,128 +28,66 @@ This standard applies to:
 
 ---
 
-# Principles
+# Official References
 
-## One Work Unit → One Commit
+The following references are considered authoritative:
 
-Every completed Work Unit should produce exactly one commit.
+- Conventional Commits Specification
+- Git Documentation
 
-A commit must represent one logical engineering objective.
+---
+
+# Industry Best Practices
+
+Projects should:
+
+- create small, focused commits;
+- write meaningful commit messages;
+- keep commits atomic;
+- maintain a readable Git history.
+
+---
+
+# IA Engineering Additions
+
+## One Work Unit = One Commit
+
+A completed Work Unit should produce one commit.
+
+A commit represents one engineering objective.
+
+---
+
+## Commit Readiness
+
+Before creating a commit, verify that:
+
+- the Work Unit is complete;
+- the project builds (when applicable);
+- tests pass (when applicable);
+- no temporary or generated files are included;
+- documentation has been updated if required.
 
 ---
 
 ## Engineering Intent
 
-Every commit must clearly answer one question:
+Every commit should clearly answer:
 
-> Why does this commit exist?
+> Why does this change exist?
 
 If the answer cannot be expressed in one sentence, the Work Unit should probably be divided.
 
 ---
 
-## Atomicity
+# Responsibilities
 
-A commit should modify one logical concern.
+Every Employee must:
 
-Unrelated work must never be committed together.
-
----
-
-## Reviewability
-
-Every commit should be small enough to review comfortably.
-
-If reviewing a commit becomes difficult, the Work Unit is too large.
-
----
-
-## Independence
-
-A commit should remain understandable on its own.
-
-A reviewer should not need future commits to understand its purpose.
-
----
-
-# Commit Readiness
-
-Before creating a commit, verify that:
-
-- the assigned Work Unit is complete;
-- the project builds (when applicable);
-- no temporary files are included;
-- unrelated modifications have been removed;
-- documentation has been updated if required;
-- the commit satisfies this standard.
-
-Only then should the commit be created.
-
----
-
-# Commit Message Format
-
-IA Engineering adopts the Conventional Commits specification.
-
-```
-<type>(<scope>): <description>
-```
-
-Examples:
-
-```
-feat(auth): implement JWT authentication
-
-fix(api): validate missing project identifier
-
-docs(standards): add commit standard
-
-refactor(database): simplify repository layer
-
-test(auth): add login integration tests
-```
-
----
-
-# Approved Types
-
-The following commit types are approved:
-
-- feat
-- fix
-- docs
-- refactor
-- test
-- perf
-- build
-- ci
-- chore
-
-Additional types may be introduced through future standards.
-
----
-
-# Commit Scope
-
-A single commit should contain only one of the following:
-
-- one feature;
-- one bug fix;
-- one documentation update;
-- one refactoring;
-- one engineering improvement.
-
-Mixing multiple engineering objectives is discouraged.
-
----
-
-# Commit Frequency
-
-Create a commit immediately after completing a Work Unit.
-
-Avoid accumulating unrelated changes before committing.
-
-Frequent, meaningful commits are preferred over large, infrequent commits.
+- follow the Conventional Commits specification;
+- create small and reviewable commits;
+- avoid mixing unrelated changes;
+- commit only completed Work Units.
 
 ---
 
@@ -164,49 +96,10 @@ Frequent, meaningful commits are preferred over large, infrequent commits.
 Do not:
 
 - create meaningless commit messages;
-- commit unfinished unrelated work;
-- mix features and refactoring;
-- commit debugging artifacts;
-- create "WIP" commits on shared branches;
-- use commits as temporary backups.
-
----
-
-# Good Examples
-
-```
-feat(project): create project entity
-
-fix(auth): validate expired JWT tokens
-
-docs(readme): explain project installation
-
-refactor(api): simplify dependency injection
-
-test(project): add CRUD integration tests
-```
-
----
-
-# Bad Examples
-
-```
-update
-
-fix
-
-changes
-
-misc
-
-test
-
-final
-
-wip
-
-new code
-```
+- commit unfinished work on shared branches;
+- mix multiple engineering objectives;
+- use commits as temporary backups;
+- commit debugging artifacts or temporary files.
 
 ---
 
@@ -214,21 +107,20 @@ new code
 
 Following this standard provides:
 
-- Better code reviews
-- Clear engineering history
-- Faster collaboration
-- Easier debugging
-- Smaller Pull Requests
-- Better AI task decomposition
+- better code reviews;
+- clearer project history;
+- easier debugging;
+- improved collaboration;
+- predictable AI-generated commits.
 
 ---
 
-# References
+# Related Standards
 
+- Standards First
 - Git Standard
 - Branch Standard
 - Pull Request Standard
-- Work Unit Specification _(future)_
 
 ---
 
