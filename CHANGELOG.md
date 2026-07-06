@@ -6,6 +6,19 @@ This project follows Semantic Versioning.
 
 ---
 
+## [0.0.3] - Employees
+
+### Added
+
+- 42 AI Employee definitions across 8 categories: Management, Architecture, Development, DevOps, Quality, Data, Documentation, Specialized
+- Each Employee defines: Mission, Responsibilities, Authority, Standards Applied, Inputs, Process, Outputs, Output Format, Definition of Done, Escalation Rules, Failure Modes
+
+### Notes
+
+This release delivers the complete IA Engineering employee library. Every employee is an operational manual — not a role description — defining precisely what the employee does, what authority they hold, and what constitutes completion.
+
+---
+
 ## [0.0.2] - Engineering Standards
 
 ### Added
@@ -46,4 +59,4 @@ This release establishes the core principles and behavioral contracts that all f
 
 ## Next
 
-v0.0.3 - Employees
+v0.0.4 - Workflows
