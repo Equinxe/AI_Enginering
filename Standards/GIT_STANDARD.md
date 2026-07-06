@@ -1,20 +1,14 @@
 # Git Standard
 
-Version: 0.0.2
-
-Status: Draft
-
-Category: Engineering Standard
-
-Severity: Mandatory
-
 ---
 
 # Purpose
 
-This standard defines how Git must be used within IA Engineering.
+This standard defines how Git is used within IA Engineering.
 
-Git is an engineering communication tool. A clean Git history improves collaboration, reviewability, traceability, and long-term maintainability.
+Git is the mandatory version control system for every project.
+
+IA Engineering follows official Git documentation and recognized Git workflows instead of defining its own version control rules.
 
 ---
 
@@ -28,94 +22,93 @@ This standard applies to:
 
 ---
 
-# Rules
+# Official References
 
-## One Work Unit, One Commit
+The following references are considered authoritative:
 
-Each completed Work Unit should produce one logical commit.
-
-A commit represents a completed engineering milestone, not a backup.
-
----
-
-## Atomic Changes
-
-Each commit must address a single objective.
-
-Do not combine unrelated changes.
+- Git Documentation
+- Pro Git Book
 
 ---
 
-## Small Commits
+# Industry Best Practices
 
-Commits should remain small enough to be reviewed comfortably.
+Projects should adopt a documented branching strategy appropriate for their needs.
 
-When a commit becomes difficult to review, split the work into multiple Work Units.
+Common strategies include:
 
----
+- GitHub Flow
+- Git Flow
+- Trunk-Based Development
 
-## Incremental Development
-
-Features should be developed incrementally.
-
-Partial but functional progress is encouraged.
-
-Avoid implementing large features in a single commit.
+The selected workflow must be documented at project initialization.
 
 ---
 
-## Traceability
+# IA Engineering Additions
 
-Every commit should clearly explain the evolution of the project.
+IA Engineering extends Git through complementary standards.
 
-Future contributors should understand what changed and why.
+These include:
+
+- Commit Standard
+- Branch Standard
+- Pull Request Standard
+
+Git itself is never redefined.
 
 ---
 
-## Commit Before Context Switch
+# Repository Requirements
 
-Before switching to another engineering task, commit the current Work Unit if it is complete.
+Every IA Engineering project must:
 
-Avoid mixing unrelated modifications.
+- use Git as its version control system;
+- maintain a complete project history;
+- ensure repository integrity;
+- document the chosen Git workflow.
+
+---
+
+# Responsibilities
+
+Every Employee must:
+
+- work inside a Git repository;
+- preserve project history;
+- follow the project's documented Git workflow;
+- comply with all Git-related IA Engineering standards.
 
 ---
 
 # Forbidden Practices
 
-The following practices are prohibited:
+Do not:
 
-- Huge commits containing multiple unrelated changes.
-- Mixing refactoring with feature development.
-- Committing unfinished unrelated work.
-- Using Git only as a backup solution.
-- Skipping logical commit history.
-
----
-
-# Engineering Principle
-
-Git history is part of the engineering documentation.
-
-A well-structured history is as valuable as clean source code.
+- develop outside version control;
+- bypass the project's Git workflow;
+- rewrite shared history without approval;
+- remove project history without justification.
 
 ---
 
 # Rationale
 
-Following this standard provides:
+Using Git consistently provides:
 
-- Easier code reviews
-- Better collaboration
-- Simpler debugging
-- Clear project history
-- Reduced regression risk
+- traceability;
+- collaboration;
+- reproducibility;
+- maintainability;
+- reliable project history.
 
 ---
 
-# References
+# Related Standards
 
-- Work Unit
+- Standards First
 - Commit Standard
+- Branch Standard
 - Pull Request Standard
 
 ---

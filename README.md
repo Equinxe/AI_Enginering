@@ -71,25 +71,22 @@ Current Version
 
 ```
 
-v0.1.0 - Foundation
+v0.0.2 - Engineering Standards
 
 ```
 
 Completed
 
-- ✅ AI Manifest
-
-In Progress
-
-- 🚧 README
+- ✅ Core (AI Manifest, Glossary, Decision Tree, Agent Conduct)
+- ✅ Standards (Standards First, Git, Commit, Branch, Pull Request, Documentation, Code Quality, Testing)
 
 Planned
 
-- Core
-- Standards
-- Workflows
 - Employees
-- Adapters
+- Workflows
+- Templates
+- Knowledge
+- Orchestration
 
 ---
 
