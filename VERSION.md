@@ -2,11 +2,11 @@
 
 Current Version
 
-**v0.0.1**
+**v0.0.2**
 
 Codename
 
-**Foundation**
+**Engineering Standards**
 
 Status
 
@@ -25,11 +25,16 @@ Status
 - [x] Main Agent Conduct
 - [x] Agent Conduct
 
----
+### Standards
 
-## In Progress
-
-- Standards
+- [x] Standards First
+- [x] Git Standard
+- [x] Commit Standard
+- [x] Branch Standard
+- [x] Pull Request Standard
+- [x] Documentation Standard
+- [x] Code Quality Standard
+- [x] Testing Standard
 
 ---
 
@@ -38,13 +43,12 @@ Status
 - Employees
 - Workflows
 - Templates
-- Prompts
+- Knowledge
+- Orchestration
 - Adapters
-- Governance
-- Examples
 
 ---
 
 ## Next Milestone
 
-v0.0.2 — Standards
+v0.0.3 — Employees
