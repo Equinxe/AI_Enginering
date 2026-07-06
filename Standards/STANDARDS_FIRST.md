@@ -1,13 +1,5 @@
 # Standards First
 
-Version: 0.0.2
-
-Status: Draft
-
-Category: Core Principle
-
-Severity: Mandatory
-
 ---
 
 # Purpose

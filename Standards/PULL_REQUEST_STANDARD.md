@@ -1,13 +1,5 @@
 # Pull Request Standard
 
-Version: 0.0.2
-
-Status: Draft
-
-Category: Engineering Standard
-
-Severity: Mandatory
-
 ---
 
 # Purpose
