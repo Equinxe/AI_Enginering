@@ -2,11 +2,11 @@
 
 Current Version
 
-**v0.0.4**
+**v0.0.5**
 
 Codename
 
-**Workflows**
+**Templates**
 
 Status
 
@@ -62,15 +62,26 @@ Status
 
 ---
 
+### Templates (6)
+
+- [x] Work Unit
+- [x] Pull Request
+- [x] Architecture Decision Record
+- [x] Incident Report
+- [x] Test Plan
+- [x] Employee Brief
+
+---
+
 ## Planned
 
-- Templates
 - Orchestration
-- Knowledge
+- Examples
+- Governance
 - Adapters
 
 ---
 
 ## Next Milestone
 
-v0.0.5 — Templates
+v0.0.6 — Orchestration

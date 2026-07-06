@@ -6,6 +6,19 @@ This project follows Semantic Versioning.
 
 ---
 
+## [0.0.5] - Templates
+
+### Added
+
+- 6 Engineering Templates: Work Unit, Pull Request, Architecture Decision Record, Incident Report, Test Plan, Employee Brief
+- Employee Brief template formalizes the Context Engine: employees receive only the context they need, never the whole repository
+
+### Notes
+
+This release delivers the complete IA Engineering template library. Combined with Employees (v0.0.3) and Workflows (v0.0.4), every engineering action now has a standard format. The framework is ready for orchestration.
+
+---
+
 ## [0.0.4] - Workflows
 
 ### Added
@@ -72,4 +85,4 @@ This release establishes the core principles and behavioral contracts that all f
 
 ## Next
 
-v0.0.5 - Templates
+v0.0.6 - Orchestration
