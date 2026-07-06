@@ -6,6 +6,19 @@ This project follows Semantic Versioning.
 
 ---
 
+## [0.0.4] - Workflows
+
+### Added
+
+- 8 Engineering Workflows: Feature Development, Code Review, Release, Hotfix, Incident Response, Architecture Decision, Onboarding, Sprint Ceremony
+- Each workflow defines: Trigger, Actors, Prerequisites, Step-by-step process with handoffs, Exit Criteria, Escalation rules
+
+### Notes
+
+This release delivers the complete IA Engineering workflow library. Combined with the 42 Employees from v0.0.3, the framework can now orchestrate end-to-end engineering sequences from requirements to production.
+
+---
+
 ## [0.0.3] - Employees
 
 ### Added
@@ -59,4 +72,4 @@ This release establishes the core principles and behavioral contracts that all f
 
 ## Next
 
-v0.0.4 - Workflows
+v0.0.5 - Templates

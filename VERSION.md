@@ -2,11 +2,11 @@
 
 Current Version
 
-**v0.0.3**
+**v0.0.4**
 
 Codename
 
-**Employees**
+**Workflows**
 
 Status
 
@@ -49,16 +49,28 @@ Status
 
 ---
 
+### Workflows (8)
+
+- [x] Feature Development
+- [x] Code Review
+- [x] Release
+- [x] Hotfix
+- [x] Incident Response
+- [x] Architecture Decision
+- [x] Onboarding
+- [x] Sprint Ceremony
+
+---
+
 ## Planned
 
-- Workflows
 - Templates
-- Knowledge
 - Orchestration
+- Knowledge
 - Adapters
 
 ---
 
 ## Next Milestone
 
-v0.0.4 — Workflows
+v0.0.5 — Templates
