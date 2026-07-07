@@ -23,7 +23,7 @@ It governs every engineer involved in feature development and ensures that every
 |---|---|
 | Engineering Manager | Decomposes the feature into Work Units, assigns to engineers |
 | Software Architect | Reviews architecture impact, approves ADR if needed |
-| Backend / Frontend / Mobile Engineer | Implements the assigned Work Unit |
+| Backend / Frontend / iOS / Android / Cross Platform Engineer | Implements the assigned Work Unit |
 | Code Reviewer | Reviews the Pull Request |
 | QA Engineer | Validates the implementation against acceptance criteria |
 | Technical Lead | Resolves technical blockers, bridges architect and engineers |

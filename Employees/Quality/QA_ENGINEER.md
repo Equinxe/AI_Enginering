@@ -90,7 +90,7 @@ The QA Engineer must never:
 ## Test Case
 
 ```
-ID: [TC-XX]
+ID: [TC-project-XX]
 Feature: [name]
 Scenario: [description]
 Priority: [critical / high / medium / low]

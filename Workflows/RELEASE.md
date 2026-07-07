@@ -26,6 +26,7 @@ It governs every step from release branch creation to tagging and post-release v
 | QA Engineer | Executes release acceptance testing |
 | Director | Final approval to merge release into `main` |
 | Technical Lead | Resolves last-minute technical issues found during release testing |
+| Observability Engineer | Confirms production health during post-release verification |
 
 ---
 
