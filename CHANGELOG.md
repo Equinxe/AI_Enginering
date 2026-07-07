@@ -6,6 +6,19 @@ This project follows Semantic Versioning.
 
 ---
 
+## [0.0.7] - Examples
+
+### Added
+
+- 6 end-to-end chain walkthroughs on a single fictional project (TaskFlow): Feature, Review, Release, Hotfix, Incident, Architecture Chains
+- `Examples/README.md` — index and recommended reading order
+
+### Notes
+
+This release makes the Orchestration Protocol and Agent Chains concrete. Each example shows real Work Units, Employee Briefs, and templates filled in, and shows how chains hand off into each other (Incident → Hotfix, Architecture → Feature). Combined with all prior milestones, the framework has everything needed for a real end-to-end test on a new project.
+
+---
+
 ## [0.0.6] - Orchestration
 
 ### Added
@@ -103,4 +116,4 @@ This release establishes the core principles and behavioral contracts that all f
 
 ## Next
 
-v0.0.7 — Examples
+v0.0.8 — Governance
