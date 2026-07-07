@@ -2,11 +2,11 @@
 
 Current Version
 
-**v0.0.7**
+**v0.0.7.1**
 
 Codename
 
-**Examples**
+**Audit Fixes**
 
 Status
 
@@ -90,6 +90,20 @@ Status
 - [x] Incident Chain Example
 - [x] Architecture Chain Example
 - [x] Examples Index
+
+### Audit Fixes (v0.0.7.1)
+
+- [x] 18 consistency fixes across Core, Employees, Workflows, and Examples — found via a full content audit of all 65 repository files
+
+---
+
+## Versioning Policy
+
+Format: `MAJOR.MINOR.MILESTONE[.FIX]`
+
+- `MAJOR.MINOR` remain `0.0` until the framework reaches a stable public release.
+- `MILESTONE` increments once per completed milestone (Foundation, Standards, Employees, Workflows, Templates, Orchestration, Examples, Governance, Adapters, ...).
+- `.FIX` is an optional 4th segment used only for post-release consistency corrections that do not introduce new capability and do not warrant consuming the next milestone number.
 
 ---
 

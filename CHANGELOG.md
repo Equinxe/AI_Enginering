@@ -2,23 +2,33 @@
 
 All notable changes to IA Engineering will be documented in this file.
 
-This project follows Semantic Versioning.
+This project follows Semantic Versioning, extended with an informal 4th segment (`MAJOR.MINOR.MILESTONE.FIX`) for post-release consistency fixes that do not warrant a new milestone number. See `VERSION.md` for the versioning policy.
 
 ---
 
-## [Unreleased] - Audit Fixes
+## [0.0.7.1] - Audit Fixes
 
 ### Fixed
 
 - `Core/GLOSSARY.MD` renamed to `Core/GLOSSARY.md` — fixes broken references on case-sensitive filesystems (Linux/CI)
 - `Core/AGENT_CONDUCT.md`, `DECISION_TREE.md`, `GLOSSARY.md`, `MAIN_AGENT_CONDUCT.md` — version corrected from `0.1.0` to `0.0.1` to match the Foundation milestone
 - `Core/AI_MANIFEST.md` — added missing Document Metadata section
+- `Core/AI_MANIFEST.md` — decision hierarchy corrected to list Employees before Workflows, aligning with `CLAUDE.md` and `README.md`
+- `Core/GLOSSARY.md` — added missing "Director" and "Chain (Agent Chain)" entries
 - `Prompts/` — added missing directory placeholder (documented in `CLAUDE.md` but absent on disk)
 - `README.md` — full refresh from v0.0.2 to v0.0.7: completed list, framework hierarchy diagram, repository structure, roadmap
+- `Employees/Development/FRONTEND_ENGINEER.md`, `IOS_ENGINEER.md`, `ANDROID_ENGINEER.md`, `CROSS_PLATFORM_ENGINEER.md` — "UX Designer and UI Designer" corrected to the single combined `UX/UI Designer` role
+- `Employees/Architecture/DATA_ARCHITECT.md` — ADR ID convention aligned to `ADR-[project]-[number]`
+- `Employees/Quality/SECURITY_ENGINEER.md` — vulnerability ID convention aligned to `SEC-[project]-[number]`
+- `Employees/Quality/QA_ENGINEER.md` — Test Case ID convention aligned to `TC-[project]-[number]`
+- `Workflows/FEATURE_DEVELOPMENT.md` — non-existent "Mobile Engineer" actor replaced with the actual iOS/Android/Cross Platform Engineer roles; Business Analyst added to the Actors table
+- `Workflows/HOTFIX.md`, `RELEASE.md` — Observability Engineer added to the Actors table (was used in steps but not declared)
+- `Examples/INCIDENT_CHAIN_EXAMPLE.md` — now uses the Incident Commander role defined in `Workflows/INCIDENT_RESPONSE.md`
+- `Examples/ARCHITECTURE_CHAIN_EXAMPLE.md` — "Recommendation" renamed to "Decision" to match `Templates/ADR.md`
 
 ### Notes
 
-These fixes came from a full consistency audit of the repository (65 files) performed after v0.0.7. No content or behavior changes — documentation accuracy only.
+These fixes came from a full content and consistency audit of all 65 repository files performed after v0.0.7. No content or behavior changes beyond consistency — documentation accuracy only.
 
 ---
 
