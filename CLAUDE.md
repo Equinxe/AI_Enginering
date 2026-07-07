@@ -119,6 +119,6 @@ Adapters/      — Tool integrations
 
 # Current Version
 
-v0.0.2 — Engineering Standards
+v0.0.5 — Templates
 
-Next: v0.0.3 — Employees
+Next: v0.0.6 — Orchestration

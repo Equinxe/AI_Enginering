@@ -6,6 +6,24 @@ This project follows Semantic Versioning.
 
 ---
 
+## [0.0.6] - Orchestration
+
+### Added
+
+- `Core/ORCHESTRATION.md` — Main Agent dispatch protocol: receive, analyze, plan, dispatch, collect, review, deliver
+- `Core/AGENT_CHAINS.md` — 6 named orchestration chains: Feature, Review, Release, Hotfix, Incident, Architecture
+
+### Fixed
+
+- `CLAUDE.md` version updated from v0.0.2 to v0.0.5 (was outdated since Templates milestone)
+- `MAIN_AGENT_CONDUCT.md` now references ORCHESTRATION.md and AGENT_CHAINS.md
+
+### Notes
+
+This release formalizes the orchestration layer — how the Main Agent receives a Director request, decomposes it into Work Units, dispatches Employee Briefs, collects outputs, and delivers a validated result. Combined with the 42 Employees, 8 Workflows, and 6 Templates from previous milestones, the framework is now ready for end-to-end testing on a real project.
+
+---
+
 ## [0.0.5] - Templates
 
 ### Added
@@ -85,4 +103,4 @@ This release establishes the core principles and behavioral contracts that all f
 
 ## Next
 
-v0.0.6 - Orchestration
+v0.0.7 — Examples
