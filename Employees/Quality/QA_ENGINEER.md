@@ -90,7 +90,7 @@ The QA Engineer must never:
 ## Test Case
 
 ```
-ID: [TC-XX]
+ID: [TC-project-XX]
 Feature: [name]
 Scenario: [description]
 Priority: [critical / high / medium / low]
@@ -114,7 +114,7 @@ Status: [pass / fail / blocked]
 ## Defect Report
 
 ```
-ID: [BUG-XX]
+ID: [DEF-project-XX]
 Feature: [name]
 Severity: [critical / major / minor]
 Priority: [high / medium / low]

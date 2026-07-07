@@ -33,6 +33,7 @@ If the defect is not in production or the impact is medium or lower: use the Fea
 | Code Reviewer | Reviews the fix — no hotfix is merged without review |
 | QA Engineer | Validates the fix resolves the defect without regression |
 | Release Manager | Executes the merge, tag, and back-merge |
+| Observability Engineer | Confirms production health during post-fix verification |
 
 ---
 

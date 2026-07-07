@@ -86,7 +86,7 @@ The Software Architect must never:
 ## Architecture Decision Record (ADR)
 
 ```
-ADR-[number]: [title]
+ADR-[project]-[number]: [title]
 Date: [date]
 Status: [proposed / accepted / deprecated / superseded]
 

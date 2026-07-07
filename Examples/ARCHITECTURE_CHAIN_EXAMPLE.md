@@ -41,7 +41,7 @@ Evaluates options and drafts an ADR (`Templates/ADR.md`):
 2. Store a recurrence rule on a parent "series" record; generate and persist child task rows on a schedule.
 3. Require the client to create each occurrence manually (no server-side recurrence).
 
-**Recommendation:** Option 2 — persisted child rows.
+**Decision:** We will implement Option 2 — persisted child rows.
 **Rationale:** Option 1 breaks per-instance editing (nothing to attach the edit to). Option 3 pushes complexity to every client. Option 2 supports per-instance edits and keeps query performance predictable at TaskFlow's expected scale.
 
 **Consequences:**

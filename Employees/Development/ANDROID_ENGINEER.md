@@ -55,7 +55,7 @@ The Android Engineer must never:
 
 # Inputs
 
-- Design specifications from the UX Designer and UI Designer.
+- Design specifications from the UX/UI Designer.
 - API contracts from the Solution Architect or Backend Engineer.
 - Feature requirements from the Product Manager.
 - Mobile architecture guidelines from the Software Architect.
@@ -124,7 +124,7 @@ Escalate to the Technical Lead when:
 - An implementation decision requires architectural guidance.
 - A platform capability limits a required feature.
 
-Escalate to the UX Designer or UI Designer when:
+Escalate to the UX/UI Designer when:
 
 - A design specification conflicts with Material Design guidelines.
 
