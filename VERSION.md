@@ -2,11 +2,11 @@
 
 Current Version
 
-**v0.0.6**
+**v0.0.7**
 
 Codename
 
-**Orchestration**
+**Examples**
 
 Status
 
@@ -81,9 +81,20 @@ Status
 
 ---
 
+### Examples (7)
+
+- [x] Feature Chain Example
+- [x] Review Chain Example
+- [x] Release Chain Example
+- [x] Hotfix Chain Example
+- [x] Incident Chain Example
+- [x] Architecture Chain Example
+- [x] Examples Index
+
+---
+
 ## Planned
 
-- Examples
 - Governance
 - Adapters
 
@@ -91,4 +102,4 @@ Status
 
 ## Next Milestone
 
-v0.0.7 — Examples
+v0.0.8 — Governance
