@@ -51,13 +51,13 @@ AI Manifest
 ↓
 Standards
 ↓
-Workflows
-↓
 Employees
 ↓
-Adapters
+Workflows
 ↓
-Projects
+Project Context
+↓
+Implementation
 
 ```
 
@@ -71,22 +71,24 @@ Current Version
 
 ```
 
-v0.0.2 - Engineering Standards
+v0.0.7 - Examples
 
 ```
 
 Completed
 
-- ✅ Core (AI Manifest, Glossary, Decision Tree, Agent Conduct)
+- ✅ Core (AI Manifest, Glossary, Decision Tree, Main Agent Conduct, Agent Conduct, Orchestration, Agent Chains)
 - ✅ Standards (Standards First, Git, Commit, Branch, Pull Request, Documentation, Code Quality, Testing)
+- ✅ Employees (42 AI Employee definitions across 8 categories)
+- ✅ Workflows (8 engineering workflows, from feature development to incident response)
+- ✅ Templates (Work Unit, Pull Request, ADR, Incident Report, Test Plan, Employee Brief)
+- ✅ Orchestration (Main Agent dispatch protocol, 6 named Agent Chains)
+- ✅ Examples (6 end-to-end chain walkthroughs on a single fictional project)
 
 Planned
 
-- Employees
-- Workflows
-- Templates
-- Knowledge
-- Orchestration
+- Governance
+- Adapters
 
 ---
 
@@ -96,11 +98,13 @@ Planned
 
 Core/
 Standards/
-Workflows/
 Employees/
-Adapters/
+Workflows/
 Templates/
 Examples/
+Governance/
+Prompts/
+Adapters/
 
 ```
 
@@ -112,6 +116,10 @@ Examples/
 - Engineering Standards
 - Employee System
 - Workflow Engine
+- Templates
+- Orchestration
+- Examples
+- Governance
 - Adapters
 - Public Release
 
