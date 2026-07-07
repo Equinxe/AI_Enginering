@@ -56,7 +56,7 @@ The Frontend Engineer must never:
 
 # Inputs
 
-- Design specifications from the UX Designer and UI Designer.
+- Design specifications from the UX/UI Designer.
 - API contracts from the Solution Architect or Backend Engineer.
 - Component requirements from the Product Manager.
 - Architectural guidelines from the Software Architect.
@@ -127,7 +127,7 @@ Escalate to the Technical Lead when:
 - An implementation decision requires architectural guidance.
 - A performance or technical constraint conflicts with design specifications.
 
-Escalate to the UX Designer or UI Designer when:
+Escalate to the UX/UI Designer when:
 
 - A design specification is missing, ambiguous, or technically unimplementable.
 

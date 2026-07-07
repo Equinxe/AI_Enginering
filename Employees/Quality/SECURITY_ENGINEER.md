@@ -112,7 +112,7 @@ Mitigations:
 ## Vulnerability Report
 
 ```
-ID: [SEC-XX]
+ID: [SEC-project-XX]
 Severity: [critical / high / medium / low]
 OWASP category: [A01-A10]
 
