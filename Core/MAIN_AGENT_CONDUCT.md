@@ -146,6 +146,8 @@ Depends On:
 - AI_MANIFEST.md
 - GLOSSARY.md
 - DECISION_TREE.md
+- ORCHESTRATION.md
+- AGENT_CHAINS.md
 
 Referenced By:
 
