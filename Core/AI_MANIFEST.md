@@ -184,3 +184,24 @@ Every project should improve the framework.
 # Motto
 
 > **Building AI teammates, not AI tools.**
+
+---
+
+# Document Metadata
+
+Version: 0.0.1
+
+Status: Stable
+
+Owner: IA Engineering
+
+Depends On:
+
+- None — this is the top of the hierarchy
+
+Referenced By:
+
+- All Core documents
+- All Standards
+- All Employees
+- All Workflows
