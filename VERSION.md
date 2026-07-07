@@ -2,11 +2,11 @@
 
 Current Version
 
-**v0.0.5**
+**v0.0.6**
 
 Codename
 
-**Templates**
+**Orchestration**
 
 Status
 
@@ -73,9 +73,16 @@ Status
 
 ---
 
+### Orchestration (3)
+
+- [x] Orchestration Protocol
+- [x] Agent Chains
+- [x] CLAUDE.md updated to current version
+
+---
+
 ## Planned
 
-- Orchestration
 - Examples
 - Governance
 - Adapters
@@ -84,4 +91,4 @@ Status
 
 ## Next Milestone
 
-v0.0.6 — Orchestration
+v0.0.7 — Examples
