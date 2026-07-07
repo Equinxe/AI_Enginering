@@ -150,9 +150,9 @@ Manifest
     ↓
 Standards
     ↓
-Workflows
-    ↓
 Employees
+    ↓
+Workflows
     ↓
 Project Context
     ↓
