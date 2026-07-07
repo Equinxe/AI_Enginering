@@ -19,25 +19,31 @@ TaskFlow's database connection pool is exhausted. All API requests are timing ou
 
 ---
 
-# Step 2 — Main Agent → Director (Mandatory Notification)
+# Step 2 — Engineering Manager: Assign Incident Commander
 
-> "P1 incident declared: TaskFlow API fully down, database connection pool exhausted. SRE Engineer is containing now. Will update within 15 minutes."
+Engineering Manager assigns the SRE Engineer as Incident Commander for this incident — the first qualified engineer available, per `Workflows/INCIDENT_RESPONSE.md`. The Incident Commander owns the incident end-to-end and coordinates every actor below.
+
+---
+
+# Step 3 — Main Agent → Director (Mandatory Notification)
+
+> "P1 incident declared: TaskFlow API fully down, database connection pool exhausted. Incident Commander is containing now. Will update within 15 minutes."
 
 **P1/P2 notification to Director is mandatory and immediate** — not after resolution.
 
 ---
 
-# Step 3 — Containment
+# Step 4 — Containment
 
-**SRE Engineer + Engineering Manager:**
-- SRE Engineer restarts the connection pool and applies a temporary connection limit increase to stop the immediate bleeding.
+**Incident Commander (SRE Engineer) + Engineering Manager:**
+- Incident Commander restarts the connection pool and applies a temporary connection limit increase to stop the immediate bleeding.
 - Engineering Manager coordinates — confirms no other team is mid-deploy, ensures single point of action.
 
 **Result:** Service restored within 12 minutes. Root cause not yet fixed — this is mitigation, not resolution.
 
 ---
 
-# Step 4 — Root Cause Fix
+# Step 5 — Root Cause Fix
 
 Investigation finds a recent Work Unit (WU-TASKFLOW-011, merged two days prior) introduced a query that does not release its connection on a specific error path.
 
@@ -47,7 +53,7 @@ Since this requires a code change to production:
 
 ---
 
-# Step 5 — Recovery Confirmation
+# Step 6 — Recovery Confirmation
 
 **SRE Engineer:**
 - Confirms connection pool metrics are stable for 30 minutes post-deploy.
@@ -55,7 +61,7 @@ Since this requires a code change to production:
 
 ---
 
-# Step 6 — Post-Mortem
+# Step 7 — Post-Mortem
 
 **Engineering Manager**, using `Templates/INCIDENT_REPORT.md`:
 
@@ -82,7 +88,7 @@ Since this requires a code change to production:
 
 ---
 
-# Step 7 — Deliver (Main Agent → Director)
+# Step 8 — Deliver (Main Agent → Director)
 
 > "Incident INC-TASKFLOW-003 resolved. Root cause: unreleased DB connection on an untested error path. Fixed via hotfix v1.3.2. Two corrective actions opened to prevent recurrence. Full report attached."
 

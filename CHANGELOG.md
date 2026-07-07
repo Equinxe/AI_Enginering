@@ -6,6 +6,22 @@ This project follows Semantic Versioning.
 
 ---
 
+## [Unreleased] - Audit Fixes
+
+### Fixed
+
+- `Core/GLOSSARY.MD` renamed to `Core/GLOSSARY.md` — fixes broken references on case-sensitive filesystems (Linux/CI)
+- `Core/AGENT_CONDUCT.md`, `DECISION_TREE.md`, `GLOSSARY.md`, `MAIN_AGENT_CONDUCT.md` — version corrected from `0.1.0` to `0.0.1` to match the Foundation milestone
+- `Core/AI_MANIFEST.md` — added missing Document Metadata section
+- `Prompts/` — added missing directory placeholder (documented in `CLAUDE.md` but absent on disk)
+- `README.md` — full refresh from v0.0.2 to v0.0.7: completed list, framework hierarchy diagram, repository structure, roadmap
+
+### Notes
+
+These fixes came from a full consistency audit of the repository (65 files) performed after v0.0.7. No content or behavior changes — documentation accuracy only.
+
+---
+
 ## [0.0.7] - Examples
 
 ### Added

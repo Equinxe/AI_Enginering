@@ -55,7 +55,7 @@ The Cross-Platform Engineer must never:
 
 # Inputs
 
-- Design specifications from the UX Designer and UI Designer.
+- Design specifications from the UX/UI Designer.
 - API contracts from the Solution Architect or Backend Engineer.
 - Feature requirements from the Product Manager.
 - Mobile architecture guidelines from the Software Architect.

@@ -122,7 +122,7 @@ Breaking changes: [policy]
 ## ADR (Data)
 
 ```
-ADR-D[number]: [title]
+ADR-[project]-[number]: [title]
 Date: [date]
 Status: [proposed / accepted]
 

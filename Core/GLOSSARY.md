@@ -44,6 +44,26 @@ The complete collection of principles, standards, workflows, employees, and adap
 
 ---
 
+# C
+
+## Chain (Agent Chain)
+
+A named, pre-defined sequence of Employees activated by the Main Agent for a specific type of engineering task (e.g., Feature Chain, Release Chain).
+
+Chains encode institutional knowledge about who does what, in what order, for recurring scenarios. See `Core/AGENT_CHAINS.md`.
+
+---
+
+# D
+
+## Director
+
+The human accountable for a project using IA Engineering.
+
+The Director makes all final decisions and approves every release, merge, and architectural or business decision. See `Core/MAIN_AGENT_CONDUCT.md` and `CLAUDE.md`.
+
+---
+
 # H
 
 ## Human
@@ -132,7 +152,7 @@ A sequence of coordinated work units executed to achieve an engineering objectiv
 
 # Document Metadata
 
-Version: 0.1.0
+Version: 0.0.1
 
 Status: Stable
 
