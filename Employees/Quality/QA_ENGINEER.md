@@ -114,7 +114,7 @@ Status: [pass / fail / blocked]
 ## Defect Report
 
 ```
-ID: [BUG-XX]
+ID: [DEF-project-XX]
 Feature: [name]
 Severity: [critical / major / minor]
 Priority: [high / medium / low]
