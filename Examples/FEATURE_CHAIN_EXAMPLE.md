@@ -15,6 +15,7 @@ Reference: `Core/AGENT_CHAINS.md` — Feature Chain, `Workflows/FEATURE_DEVELOPM
 # Step 1 — Receive (Main Agent)
 
 Extracted:
+
 - **Objective:** Users can mark a task as complete via the API.
 - **Scope:** New endpoint, no changes to task creation or listing.
 - **Constraints:** Must follow existing REST conventions in TaskFlow.
@@ -42,14 +43,17 @@ Extracted:
 **Context:** TaskFlow tasks currently support create, read, update, delete. There is no dedicated way to mark completion without a full update call.
 
 **Inputs:**
+
 - Existing task schema: `models/task.py`
 - Existing router pattern: `routes/tasks.py`
 
 **Outputs:**
+
 - `PATCH /tasks/{id}/complete` endpoint
 - Unit tests for success and not-found cases
 
 **Definition of Done:**
+
 - Endpoint returns 200 with the updated task on success.
 - Endpoint returns 404 if the task does not exist.
 - Endpoint returns 409 if the task is already complete.
@@ -88,14 +92,17 @@ Business Analyst → Software Architect → Backend Engineer → Code Reviewer �
 **Current state:** `routes/tasks.py` has create/read/update/delete. `models/task.py` has a `status` field with values `open`, `complete`.
 
 **Your Inputs:**
+
 - [x] `models/task.py` — status field already exists
 - [x] `routes/tasks.py` — existing router pattern to follow
 
 **Your Outputs:**
+
 - [ ] PATCH /tasks/{id}/complete endpoint
 - [ ] Unit tests: success, not-found, already-complete
 
 **Constraints:**
+
 - Do not modify the update (PUT) endpoint — that is out of scope.
 - Do not add new dependencies.
 
@@ -119,6 +126,7 @@ All outputs validated. No remediation Work Unit needed.
 # Step 6 — Review (Main Agent)
 
 Chain-level check:
+
 - All Work Units complete and DoDs met.
 - Outputs coherent — endpoint matches existing REST conventions.
 - No gaps or unresolved blockers.
