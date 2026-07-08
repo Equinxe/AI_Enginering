@@ -102,6 +102,7 @@ Status
 ### Roster Gaps (v0.0.7.3)
 
 - [x] `Core/MAIN_AGENT_CONDUCT.md` — Roster Gaps rule: propose roster expansion to Director instead of silently absorbing out-of-scope work — second finding from the live end-to-end test
+- [x] `Core/MAIN_AGENT_CONDUCT.md` — closed the generic-label loophole in Dispatch Discipline (naming a subagent "executor" instead of the Employee it should represent) — third finding from the live end-to-end test
 
 ---
 
