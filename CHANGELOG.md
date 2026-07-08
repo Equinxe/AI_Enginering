@@ -6,6 +6,18 @@ This project follows Semantic Versioning, extended with an informal 4th segment 
 
 ---
 
+## [0.0.7.2] - Dispatch Discipline
+
+### Fixed
+
+- `Core/MAIN_AGENT_CONDUCT.md` — added a "Dispatch Discipline" section mandating Employee Brief dispatch for every delegation, forbidding substitution of native/generic AI runtime subagents for a named Employee
+
+### Notes
+
+Finding from the first live end-to-end test of IA Engineering on a real project (a browser 2048 game). The Main Agent defaulted to a generic native reviewer subagent instead of dispatching to the Code Reviewer, QA Engineer, and Security Engineer through Employee Briefs, because the conduct document told it what to do but never explicitly forbade this substitution. This is a direct application of Core Principle IX (Continuous Improvement): every project should improve the framework.
+
+---
+
 ## [0.0.7.1] - Audit Fixes
 
 ### Fixed
