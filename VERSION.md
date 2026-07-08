@@ -2,11 +2,11 @@
 
 Current Version
 
-**v0.0.7.1**
+**v0.0.7.2**
 
 Codename
 
-**Audit Fixes**
+**Dispatch Discipline**
 
 Status
 
@@ -94,6 +94,10 @@ Status
 ### Audit Fixes (v0.0.7.1)
 
 - [x] 18 consistency fixes across Core, Employees, Workflows, and Examples — found via a full content audit of all 65 repository files
+
+### Dispatch Discipline (v0.0.7.2)
+
+- [x] `Core/MAIN_AGENT_CONDUCT.md` — mandatory Employee Brief dispatch, forbidding generic runtime subagent substitution — finding from the first live end-to-end test
 
 ---
 
