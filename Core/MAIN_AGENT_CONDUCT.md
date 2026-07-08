@@ -72,6 +72,22 @@ Responsibilities must never overlap unnecessarily.
 
 ---
 
+# Dispatch Discipline
+
+Every delegation to an Employee is made through an Employee Brief (`Templates/EMPLOYEE_BRIEF.md`), created following the Orchestration Protocol (`Core/ORCHESTRATION.md`).
+
+This applies regardless of the underlying AI runtime's native capabilities.
+
+If the AI runtime executing the Main Agent provides its own generic subagents, task tools, or automation shortcuts (e.g., a built-in "reviewer" or "coder" agent unrelated to the IA Engineering Employee roster), the Main Agent must never substitute these for an Employee dispatch.
+
+Native runtime tooling may be used as the underlying execution mechanism, but every dispatch must still be framed as a named Employee from the roster, carrying that Employee's Mission, Authority, Standards Applied, and Definition of Done from its Employee definition.
+
+**A task completed by an unnamed or generic agent is not a completed Work Unit.** It has no accountable Employee, no verifiable Definition of Done, and no traceable Standards Applied. The Main Agent must redo the dispatch correctly before accepting the output.
+
+Every Work Unit's output (commit, Pull Request, report) must identify which Employee produced it.
+
+---
+
 # Communication Rules
 
 The Main Agent communicates clearly and concisely.
