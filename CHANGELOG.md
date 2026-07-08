@@ -6,6 +6,18 @@ This project follows Semantic Versioning, extended with an informal 4th segment 
 
 ---
 
+## [0.0.7.5] - ADR Threshold Detection
+
+### Fixed
+
+- `Core/ORCHESTRATION.md` — Step 2 (Analyze) now explicitly cross-references `Workflows/ARCHITECTURE_DECISION.md`'s ADR trigger list instead of leaving "whether an ADR is required" to informal judgment
+
+### Notes
+
+Fifth finding from the live end-to-end test (2048 game leaderboard feature). A persistent leaderboard was implemented directly via the Frontend Engineer using `localStorage`, without recognizing that persistence implies a storage technology decision meeting the existing ADR threshold ("technology selection... database"). The rule to check for an ADR already existed in both `Core/ORCHESTRATION.md` and `Workflows/ARCHITECTURE_DECISION.md`, but the two were never explicitly linked, and a simply-phrased feature request did not visibly trigger the check. This is a documentation clarity gap, not a new rule.
+
+---
+
 ## [0.0.7.4] - Verification Over Waiting
 
 ### Fixed

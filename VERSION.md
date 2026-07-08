@@ -2,11 +2,11 @@
 
 Current Version
 
-**v0.0.7.4**
+**v0.0.7.5**
 
 Codename
 
-**Verification Over Waiting**
+**ADR Threshold Detection**
 
 Status
 
@@ -107,6 +107,10 @@ Status
 ### Verification Over Waiting (v0.0.7.4)
 
 - [x] `Core/MAIN_AGENT_CONDUCT.md` — Verification Over Waiting rule: verify repository state directly instead of stalling when a dispatch completion report never arrives — fourth finding from the live end-to-end test
+
+### ADR Threshold Detection (v0.0.7.5)
+
+- [x] `Core/ORCHESTRATION.md` — Step 2 now explicitly cross-references the ADR trigger list in `Workflows/ARCHITECTURE_DECISION.md` — fifth finding from the live end-to-end test
 
 ---
 

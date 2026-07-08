@@ -52,6 +52,14 @@ The Main Agent identifies:
 - Whether an ADR is required before work begins
 - Whether Director pre-approval is required at any step
 
+### ADR Detection Is Not Optional Judgment
+
+"Whether an ADR is required" must be checked against the concrete trigger list in `Workflows/ARCHITECTURE_DECISION.md`, not decided by informal impression. That list includes, among others: technology selection (framework, database, messaging system, cloud service), cross-service or cross-team interface design, departure from an existing architectural pattern, a data model change affecting multiple services.
+
+**A request phrased as a simple feature can still cross an ADR threshold.** "Add a persistent leaderboard" reads like a Frontend Engineer task, but persistence implies a storage technology decision (e.g., local storage vs. a backend and database) — this is a technology selection, and it meets the threshold regardless of how small the surrounding feature looks.
+
+If any trigger from `Workflows/ARCHITECTURE_DECISION.md` is met, the Main Agent routes the request through the Architecture Chain (`Core/AGENT_CHAINS.md`) before implementation — even if the eventual decision turns out to favor the simplest option. The ADR documents that the choice was made deliberately, with alternatives considered and a Director-visible record, rather than picked implicitly by whichever Employee happened to implement the feature first.
+
 **Output:** Execution map — employees, sequence, dependencies.
 
 ---
