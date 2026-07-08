@@ -6,6 +6,19 @@ This project follows Semantic Versioning, extended with an informal 4th segment 
 
 ---
 
+## [0.0.7.3] - Roster Gaps
+
+### Fixed
+
+- `Core/MAIN_AGENT_CONDUCT.md` — added a "Roster Gaps" section: when a request requires an Employee outside the project's active roster, the Main Agent must stop, propose the roster expansion to the Director, update `CLAUDE.md`, and only then dispatch — instead of silently performing the work itself
+- `Core/MAIN_AGENT_CONDUCT.md` — closed a loophole in Dispatch Discipline (v0.0.7.2): naming a subagent by function or tool label (e.g., "executor") instead of by the responsible Employee's name is now explicitly treated as equivalent to not delegating at all
+
+### Notes
+
+Second and third findings from the live end-to-end test (2048 game leaderboard feature). (2) The project's onboarding-time roster excluded Architecture/Backend/Data roles as out of scope for a frontend-only game — when a later request genuinely required a Software Architect ADR and Backend/Database/API Engineers, the Main Agent absorbed the work itself rather than recognizing the scope had changed. (3) After being corrected, the Main Agent did delegate — but to a subagent named "executor" rather than the responsible "Frontend Engineer", satisfying the letter of Dispatch Discipline while discarding its purpose (traceable Mission, Authority, Standards Applied, and Definition of Done).
+
+---
+
 ## [0.0.7.2] - Dispatch Discipline
 
 ### Fixed
