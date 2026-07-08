@@ -2,11 +2,11 @@
 
 Current Version
 
-**v0.0.7.3**
+**v0.0.7.4**
 
 Codename
 
-**Roster Gaps**
+**Verification Over Waiting**
 
 Status
 
@@ -103,6 +103,10 @@ Status
 
 - [x] `Core/MAIN_AGENT_CONDUCT.md` — Roster Gaps rule: propose roster expansion to Director instead of silently absorbing out-of-scope work — second finding from the live end-to-end test
 - [x] `Core/MAIN_AGENT_CONDUCT.md` — closed the generic-label loophole in Dispatch Discipline (naming a subagent "executor" instead of the Employee it should represent) — third finding from the live end-to-end test
+
+### Verification Over Waiting (v0.0.7.4)
+
+- [x] `Core/MAIN_AGENT_CONDUCT.md` — Verification Over Waiting rule: verify repository state directly instead of stalling when a dispatch completion report never arrives — fourth finding from the live end-to-end test
 
 ---
 
