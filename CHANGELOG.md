@@ -6,6 +6,18 @@ This project follows Semantic Versioning, extended with an informal 4th segment 
 
 ---
 
+## [0.0.7.3] - Roster Gaps
+
+### Fixed
+
+- `Core/MAIN_AGENT_CONDUCT.md` — added a "Roster Gaps" section: when a request requires an Employee outside the project's active roster, the Main Agent must stop, propose the roster expansion to the Director, update `CLAUDE.md`, and only then dispatch — instead of silently performing the work itself
+
+### Notes
+
+Second finding from the live end-to-end test (2048 game leaderboard feature). The project's onboarding-time roster excluded Architecture/Backend/Data roles as out of scope for a frontend-only game. When a later request (persistent leaderboard) genuinely required a Software Architect ADR and Backend/Database/API Engineers, the Main Agent absorbed the work itself rather than recognizing the scope had changed. A roster gap is a scope signal that must reach the Director, not something the Main Agent routes around.
+
+---
+
 ## [0.0.7.2] - Dispatch Discipline
 
 ### Fixed
