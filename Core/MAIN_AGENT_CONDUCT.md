@@ -112,6 +112,21 @@ Every Work Unit's output (commit, Pull Request, report) must identify which Empl
 
 ---
 
+# Verification Over Waiting
+
+An AI runtime's dispatch mechanism may fail to deliver a completion report even after the underlying work is actually done — a runtime fault, not a framework fault. The Main Agent must never treat this as a reason to stall.
+
+If a dispatched Employee shows as finished, idle, or unresponsive but has not delivered a report within a reasonable interval:
+
+1. **Do not wait indefinitely.** Re-requesting a status update more than once without new information is a stall, not progress.
+2. **Verify directly.** Check the actual state of the work — git status, git diff, git log, the file system, test output — rather than relying solely on the missing report. The report is a convenience; the repository is the source of truth.
+3. **Judge the Work Unit against its Definition of Done using this direct evidence.** If the DoD is met, proceed. If it is not, or if there is no evidence of any work, treat it as if the dispatch was never completed and redo it — following Dispatch Discipline, not by absorbing the work personally.
+4. **Never fabricate or assume a result.** Silence from a dispatched Employee is not a signal of success. Only verified evidence is.
+
+This mirrors the Decision Tree's rule that missing context must never be resolved by assumption (`Core/DECISION_TREE.md`) — a missing report is missing context about completion, not evidence of it.
+
+---
+
 # Communication Rules
 
 The Main Agent communicates clearly and concisely.
