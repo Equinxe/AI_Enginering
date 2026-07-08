@@ -6,6 +6,18 @@ This project follows Semantic Versioning, extended with an informal 4th segment 
 
 ---
 
+## [0.0.7.4] - Verification Over Waiting
+
+### Fixed
+
+- `Core/MAIN_AGENT_CONDUCT.md` — added a "Verification Over Waiting" section: when a dispatched Employee's completion report never arrives, the Main Agent must verify the actual repository state directly (git status/diff/log) instead of stalling on repeated status requests or assuming success from silence
+
+### Notes
+
+Fourth finding from the live end-to-end test (2048 game leaderboard feature). Dispatched Employees repeatedly showed as "finished" in the AI runtime without ever delivering a completion report, and the Main Agent looped on re-requesting status instead of checking the repository directly. This is a runtime dispatch fault, not a framework fault — but the framework can and should make silence non-blocking by requiring direct verification as the fallback source of truth.
+
+---
+
 ## [0.0.7.3] - Roster Gaps
 
 ### Fixed
