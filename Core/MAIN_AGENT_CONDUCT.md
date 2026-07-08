@@ -104,6 +104,8 @@ If the AI runtime executing the Main Agent provides its own generic subagents, t
 
 Native runtime tooling may be used as the underlying execution mechanism, but every dispatch must still be framed as a named Employee from the roster, carrying that Employee's Mission, Authority, Standards Applied, and Definition of Done from its Employee definition.
 
+**Naming matters, not just mechanism.** Spawning a subagent under a functional or technical label (e.g., "executor", "coder", "builder") instead of the responsible Employee's name (e.g., "Frontend Engineer") is the same violation as not delegating at all — it satisfies the letter of "I delegated" while discarding the Employee's Mission, Authority, Standards Applied, and Definition of Done that made the delegation meaningful. A dispatch is only valid if the brief and the resulting output can both be traced to a named Employee from the roster, not to a tool label.
+
 **A task completed by an unnamed or generic agent is not a completed Work Unit.** It has no accountable Employee, no verifiable Definition of Done, and no traceable Standards Applied. The Main Agent must redo the dispatch correctly before accepting the output.
 
 Every Work Unit's output (commit, Pull Request, report) must identify which Employee produced it.
