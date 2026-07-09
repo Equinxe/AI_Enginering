@@ -71,19 +71,20 @@ Current Version
 
 ```
 
-v0.0.7 - Examples
+v0.0.8 - Capability Tiers
 
 ```
 
 Completed
 
-- ✅ Core (AI Manifest, Glossary, Decision Tree, Main Agent Conduct, Agent Conduct, Orchestration, Agent Chains)
+- ✅ Core (AI Manifest, Glossary, Decision Tree, Main Agent Conduct, Agent Conduct, Orchestration, Agent Chains, Capability Tiers)
 - ✅ Standards (Standards First, Git, Commit, Branch, Pull Request, Documentation, Code Quality, Testing)
-- ✅ Employees (42 AI Employee definitions across 8 categories)
+- ✅ Employees (42 AI Employee definitions across 8 categories, each with a Default Complexity Tier)
 - ✅ Workflows (8 engineering workflows, from feature development to incident response)
 - ✅ Templates (Work Unit, Pull Request, ADR, Incident Report, Test Plan, Employee Brief)
 - ✅ Orchestration (Main Agent dispatch protocol, 6 named Agent Chains)
 - ✅ Examples (6 end-to-end chain walkthroughs on a single fictional project)
+- ✅ Capability Tiers (AI-agnostic execution tiers matching capability to Work Unit complexity)
 
 Planned
 
@@ -119,6 +120,7 @@ Adapters/
 - Templates
 - Orchestration
 - Examples
+- Capability Tiers
 - Governance
 - Adapters
 - Public Release

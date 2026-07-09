@@ -161,3 +161,5 @@ Status: Draft
 Category: Employee — Development
 
 Severity: Mandatory
+
+Default Complexity Tier: Standard Execution
