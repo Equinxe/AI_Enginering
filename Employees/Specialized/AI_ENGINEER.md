@@ -194,3 +194,5 @@ Status: Draft
 Category: Employee — Specialized
 
 Severity: Mandatory
+
+Default Complexity Tier: Strategic Judgment

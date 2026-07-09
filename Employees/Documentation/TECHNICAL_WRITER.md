@@ -189,3 +189,5 @@ Status: Draft
 Category: Employee — Documentation
 
 Severity: Mandatory
+
+Default Complexity Tier: Standard Execution

@@ -162,3 +162,5 @@ Status: Draft
 Category: Employee — DevOps
 
 Severity: Mandatory
+
+Default Complexity Tier: Standard Execution
