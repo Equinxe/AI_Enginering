@@ -168,3 +168,5 @@ Status: Draft
 Category: Employee — Architecture
 
 Severity: Mandatory
+
+Default Complexity Tier: Strategic Judgment

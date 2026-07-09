@@ -6,6 +6,20 @@ This project follows Semantic Versioning, extended with an informal 4th segment 
 
 ---
 
+## [0.0.8] - Capability Tiers
+
+### Added
+
+- `Core/CAPABILITY_TIERS.md` — two AI-agnostic execution tiers (Strategic Judgment, Standard Execution) the Main Agent uses to match execution capability to Work Unit complexity, without ever naming a specific model, plus a per-Work-Unit Lightweight Override mechanism
+- `Employees/` — Default Complexity Tier added to all 42 Employees' Metadata (12 Strategic Judgment: architects, Security Engineer, Compliance Engineer, Penetration Tester, Business Analyst, Data Scientist, AI Engineer, Prompt Engineer, Engineering Manager, Technical Lead; 30 Standard Execution: all others)
+- `Core/ORCHESTRATION.md` — Step 4 (Dispatch) now selects execution capability per Capability Tiers before creating each Employee Brief
+
+### Notes
+
+Prioritized ahead of Governance (now v0.0.9) in response to live-test token/session-limit pressure observed during the 2048 game test. This is the framework's only concrete lever for execution efficiency: routing mechanical Work Units to lighter capability while reserving strategic judgment for decisions that need it, without compromising Dispatch Discipline or AI Agnosticism (Principle X).
+
+---
+
 ## [0.0.7.5] - ADR Threshold Detection
 
 ### Fixed
@@ -191,4 +205,4 @@ This release establishes the core principles and behavioral contracts that all f
 
 ## Next
 
-v0.0.8 — Governance
+v0.0.9 — Governance

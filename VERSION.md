@@ -2,11 +2,11 @@
 
 Current Version
 
-**v0.0.7.5**
+**v0.0.8**
 
 Codename
 
-**ADR Threshold Detection**
+**Capability Tiers**
 
 Status
 
@@ -112,6 +112,12 @@ Status
 
 - [x] `Core/ORCHESTRATION.md` — Step 2 now explicitly cross-references the ADR trigger list in `Workflows/ARCHITECTURE_DECISION.md` — fifth finding from the live end-to-end test
 
+### Capability Tiers (v0.0.8)
+
+- [x] `Core/CAPABILITY_TIERS.md` — two AI-agnostic execution tiers (Strategic Judgment, Standard Execution) plus a per-Work-Unit Lightweight Override mechanism
+- [x] `Employees/` — Default Complexity Tier added to all 42 Employees' Metadata
+- [x] `Core/ORCHESTRATION.md` — Step 4 (Dispatch) selects execution capability per Capability Tiers before creating the Employee Brief
+
 ---
 
 ## Versioning Policy
@@ -119,7 +125,7 @@ Status
 Format: `MAJOR.MINOR.MILESTONE[.FIX]`
 
 - `MAJOR.MINOR` remain `0.0` until the framework reaches a stable public release.
-- `MILESTONE` increments once per completed milestone (Foundation, Standards, Employees, Workflows, Templates, Orchestration, Examples, Governance, Adapters, ...).
+- `MILESTONE` increments once per completed milestone (Foundation, Standards, Employees, Workflows, Templates, Orchestration, Examples, Capability Tiers, Governance, Adapters, ...).
 - `.FIX` is an optional 4th segment used only for post-release consistency corrections that do not introduce new capability and do not warrant consuming the next milestone number.
 
 ---
@@ -133,4 +139,4 @@ Format: `MAJOR.MINOR.MILESTONE[.FIX]`
 
 ## Next Milestone
 
-v0.0.8 — Governance
+v0.0.9 — Governance

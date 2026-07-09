@@ -175,3 +175,5 @@ Status: Draft
 Category: Employee — Quality
 
 Severity: Mandatory
+
+Default Complexity Tier: Standard Execution

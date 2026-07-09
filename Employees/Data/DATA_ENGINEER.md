@@ -178,3 +178,5 @@ Status: Draft
 Category: Employee — Data
 
 Severity: Mandatory
+
+Default Complexity Tier: Standard Execution
