@@ -90,6 +90,8 @@ The plan is presented to the Director before execution begins.
 
 For each Work Unit, the Main Agent creates an Employee Brief (see `Templates/EMPLOYEE_BRIEF.md`) and dispatches it to the responsible Employee.
 
+Before dispatching, the Main Agent selects an execution capability for the Work Unit per `Core/CAPABILITY_TIERS.md` — the Employee's Default Complexity Tier, unless the specific Work Unit warrants a Lightweight Override in either direction. This selection never changes which Employee is dispatched, its Mission, Authority, Standards Applied, or Definition of Done — only the execution capability applied.
+
 ### Dispatch Rules
 
 **Sequential dispatch** — when outputs of one Work Unit are inputs of the next:
@@ -204,6 +206,7 @@ Escalation pauses the chain. Work resumes only after Director responds.
 | `Core/DECISION_TREE.md` | Each Employee uses this during their Work Unit |
 | `Templates/EMPLOYEE_BRIEF.md` | Used in Step 4 for every dispatch |
 | `Templates/WORK_UNIT.md` | Used in Step 3 to define each Work Unit |
+| `Core/CAPABILITY_TIERS.md` | Used in Step 4 to select execution capability before dispatch |
 
 ---
 
