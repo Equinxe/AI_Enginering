@@ -6,6 +6,19 @@ This project follows Semantic Versioning, extended with an informal 4th segment 
 
 ---
 
+## [0.0.9.1] - Solo-Maintainer Fixes
+
+### Fixed
+
+- `Adapters/scripts/setup-branch-protection.sh` — removed a self-review deadlock: `required_approving_review_count` changed from 1 to 0 and `enforce_admins` from true to false, since GitHub does not allow a PR author to approve their own PR and every Employee (and the Director) currently shares one authenticated `gh` identity. The real review gate is the required `validate` CI check plus the Code Reviewer's documented review comment, not a GitHub-native approval count.
+- `Core/MAIN_AGENT_CONDUCT.md` — added a "Workspace Isolation" section: the Main Agent must not run its own git commands in the same working directory while a dispatched Employee is actively committing — wait, or use a separate worktree/clone.
+
+### Notes
+
+Sixth and seventh findings from dogfooding — this time from applying our own Adapters to this repository for the first time (WU-IAENG-091), rather than from the 2048 game test. Discovered immediately on the very first PR after enabling branch protection here: could not merge PR #27 because nobody could formally approve it, and a real commit landed on `main` because the Main Agent ran git commands in the same working directory as the dispatched DevOps Engineer. Both are now documented and fixed at their source rather than worked around.
+
+---
+
 ## [0.0.9] - Adapters
 
 ### Added
