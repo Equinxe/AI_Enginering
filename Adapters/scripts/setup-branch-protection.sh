@@ -5,8 +5,9 @@
 # instead of relying on written policy alone, matching:
 #   - Standards/BRANCH_STANDARD.md — no direct push to protected branches
 #   - Workflows/CODE_REVIEW.md — a Pull Request must be reviewed before merge
-#   - Adapters/github-actions/pr-validation.yml — its "validate" job becomes
-#     a required status check once this script has run
+#   - Adapters/github-actions/pr-validation.yml — its three jobs (PR
+#     Compliance, Shellcheck Adapters, Validate Workflow YAML) become
+#     required status checks once this script has run
 #
 # Requires: GitHub CLI (`gh`), authenticated (`gh auth status`).
 #
@@ -19,7 +20,8 @@
 # identity, there is no second account available to provide that approval —
 # requiring a formal approving review deadlocks every PR. The real review gate
 # here is the Code Reviewer Employee's documented review comment
-# (Workflows/CODE_REVIEW.md) plus the required "validate" status check, not a
+# (Workflows/CODE_REVIEW.md) plus the required PR Compliance/Shellcheck/YAML
+# status checks, not a
 # GitHub-native approval count. `required_approving_review_count` is therefore
 # 0, and `enforce_admins` is false so the repository owner (Director) can
 # still merge. If a project later has genuinely separate human/bot GitHub
@@ -51,7 +53,7 @@ protect_branch() {
 {
   "required_status_checks": {
     "strict": true,
-    "contexts": ["validate"]
+    "contexts": ["PR Compliance", "Shellcheck Adapters", "Validate Workflow YAML"]
   },
   "enforce_admins": false,
   "required_pull_request_reviews": {

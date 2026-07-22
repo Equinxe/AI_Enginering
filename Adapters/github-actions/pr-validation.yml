@@ -1,23 +1,33 @@
 name: IA Engineering - PR Validation
 
-# Mechanically enforces two rules from Templates/WORK_UNIT.md and
-# Templates/PULL_REQUEST.md instead of relying on a human or AI reviewer to
-# remember to check them: every Pull Request must trace to a Work Unit, and
-# the PR description must not be left as an empty or unfilled template.
+# Three checks, each mechanically enforcing something the framework already
+# documents instead of relying on a human or AI reviewer to remember it:
+#   - pr-compliance: every PR must trace to a Work Unit and have a real,
+#     filled-in description (Templates/WORK_UNIT.md, Templates/PULL_REQUEST.md)
+#   - shellcheck-adapters: the git hooks and scripts we ship must actually be
+#     valid, warning-free shell (Standards/CODE_QUALITY_STANDARD.md applies to
+#     Adapters code exactly as it does to any other code)
+#   - yaml-lint: every workflow file we ship must at minimum parse as valid YAML
 #
 # Install in a project that has imported IA Engineering as a submodule:
 #   mkdir -p .github/workflows
 #   cp ia-engineering/Adapters/github-actions/pr-validation.yml .github/workflows/
 #
-# Then add "IA Engineering - PR Validation / validate" as a required status
-# check in branch protection (see Adapters/scripts/setup-branch-protection.sh).
+# Then add "PR Compliance", "Shellcheck Adapters", and "Validate Workflow YAML"
+# as required status checks in branch protection (see
+# Adapters/scripts/setup-branch-protection.sh, which sets all three).
+#
+# Scoped to PRs targeting main or develop only (see `branches:` below) — this
+# workflow enforces the Git Standard's protected-branch gate, not every branch.
 
 on:
   pull_request:
+    branches: [main, develop]
     types: [opened, edited, synchronize, reopened]
 
 jobs:
-  validate:
+  pr-compliance:
+    name: PR Compliance
     runs-on: ubuntu-latest
     steps:
       - name: Check for a Work Unit reference
@@ -50,3 +60,33 @@ jobs:
           fi
 
           echo "PR description present and filled in."
+
+  shellcheck-adapters:
+    name: Shellcheck Adapters
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run shellcheck on git hooks and scripts
+        run: |
+          # shellcheck is preinstalled on GitHub-hosted ubuntu-latest runners —
+          # no third-party action, no extra install step.
+          shellcheck Adapters/git-hooks/commit-msg Adapters/git-hooks/pre-push Adapters/scripts/*.sh
+
+  yaml-lint:
+    name: Validate Workflow YAML
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate YAML syntax
+        run: |
+          fail=0
+          for f in Adapters/github-actions/*.yml .github/workflows/*.yml; do
+            [ -f "$f" ] || continue
+            if npx --yes -q js-yaml "$f" > /dev/null 2>&1; then
+              echo "OK: $f"
+            else
+              echo "::error::Invalid YAML syntax in $f"
+              fail=1
+            fi
+          done
+          exit "$fail"

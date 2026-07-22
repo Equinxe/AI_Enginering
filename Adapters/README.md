@@ -18,9 +18,9 @@ Adapters are AI-agnostic in the sense that matters: they check work by any Emplo
 |---|---|---|
 | `git-hooks/commit-msg` | Conventional Commits subject line; mandatory `Employee: <Name>` trailer validated against the 42-Employee roster | `Standards/COMMIT_STANDARD.md`, `Core/MAIN_AGENT_CONDUCT.md` (Dispatch Discipline) |
 | `git-hooks/pre-push` | No direct push to `main` or `develop` | `Standards/BRANCH_STANDARD.md` |
-| `github-actions/pr-validation.yml` | Every PR references a Work Unit ID (`WU-[project]-[number]`); PR description is not empty or left as an unfilled template | `Templates/WORK_UNIT.md`, `Templates/PULL_REQUEST.md` |
+| `github-actions/pr-validation.yml` | Three checks on every PR targeting `main` or `develop`: (1) **PR Compliance** — references a Work Unit ID and has a real, filled-in description; (2) **Shellcheck Adapters** — the git hooks/scripts we ship are valid, warning-free shell; (3) **Validate Workflow YAML** — every workflow file at minimum parses | `Templates/WORK_UNIT.md`, `Templates/PULL_REQUEST.md`, `Standards/CODE_QUALITY_STANDARD.md` |
 | `github/PULL_REQUEST_TEMPLATE.md` | Every new PR starts from the mandatory template — mirrors `Templates/PULL_REQUEST.md` exactly | `Templates/PULL_REQUEST.md` |
-| `scripts/setup-branch-protection.sh` | `main`/`develop` require a passing review and the `validate` status check before merge; no force-push, no branch deletion | `Standards/BRANCH_STANDARD.md`, `Workflows/CODE_REVIEW.md` |
+| `scripts/setup-branch-protection.sh` | `main`/`develop` require the three status checks above before merge; no force-push, no branch deletion. Formal approving review count is 0 by design (see the script's own comments — a single shared `gh` identity across all Employees and the Director makes GitHub-native self-approval impossible) | `Standards/BRANCH_STANDARD.md`, `Workflows/CODE_REVIEW.md` |
 
 ---
 
