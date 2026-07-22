@@ -6,6 +6,18 @@ This project follows Semantic Versioning, extended with an informal 4th segment 
 
 ---
 
+## [0.0.9.3] - Back-Merge via Pull Request
+
+### Fixed
+
+- `Workflows/RELEASE.md` (Step 7) and `Workflows/HOTFIX.md` (Step 9) — the "Back-merge to develop" step now describes opening a Pull Request from `main` into `develop` and merging it once CI passes, instead of a direct `git push`. This resolves a contradiction with the `pre-push` git hook (`Adapters/git-hooks/pre-push`, shipped in v0.0.9), which unconditionally blocks all direct pushes to `develop` and `main`: the Workflow told the Main Agent to do something the Adapter mechanically forbids.
+
+### Notes
+
+Ninth finding from dogfooding. After releasing v0.0.9.2, the Main Agent tried to back-merge `main` into `develop` with a direct push and was blocked live by our own `pre-push` hook — the Workflow documents and the Adapter contradicted each other. The fix documents the PR-based procedure that was actually used to resolve the block, closing the gap so the written Workflow matches what technical enforcement allows.
+
+---
+
 ## [0.0.9.2] - No Direct Implementation
 
 ### Fixed
