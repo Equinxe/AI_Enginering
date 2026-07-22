@@ -17,6 +17,10 @@ set -euo pipefail
 
 PROTECTED_BRANCHES=("main" "develop")
 
+# Git's pre-push hook contract always passes four fields per ref update; only
+# remote_ref is needed here, but the other three must still be read to consume
+# stdin correctly. Not unused code — an unavoidable part of the hook interface.
+# shellcheck disable=SC2034
 while read -r local_ref local_sha remote_ref remote_sha; do
   branch="${remote_ref#refs/heads/}"
 
