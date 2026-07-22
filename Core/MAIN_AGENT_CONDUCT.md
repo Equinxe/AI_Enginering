@@ -127,6 +127,38 @@ This mirrors the Decision Tree's rule that missing context must never be resolve
 
 ---
 
+# Workspace Isolation
+
+A dispatched Employee performing git operations (branching, committing, pushing) shares the project's working directory and its single checked-out branch (`HEAD`) with the Main Agent — unless an isolated worktree or clone is used.
+
+If the Main Agent runs its own git commands (`checkout`, `pull`, `reset`, etc.) in that same working directory while a dispatched Employee is actively working in it, the two can race: a checkout switches `HEAD` out from under the Employee mid-task, and its next commit lands on whatever branch the Main Agent happened to leave checked out — not the branch the Employee intended. This has happened in practice: an Employee's commit landed directly on `main` because the Main Agent ran `git checkout main` while the Employee was still working, immediately after the Employee had correctly created its own feature branch.
+
+While an Employee's git-touching Work Unit is active, the Main Agent must do one of the following — never simply proceed with its own git commands in the same working directory and hope for the best:
+
+1. **Wait.** Do not run git commands in the shared working directory until the dispatch reports done or `Verification Over Waiting` has confirmed completion.
+2. **Isolate.** Give the dispatched Employee (or the Main Agent's own concurrent work) a separate worktree or clone, so the two never share one `HEAD`.
+
+If a collision is discovered after the fact (a commit on the wrong branch), do not force-push or discard it. Recover the commit onto its correct branch (e.g., cherry-pick) and reset the protected branch back to its remote state, then verify both are correct before continuing — as with any other unexpected repository state, per the general git safety guidance already in effect.
+
+---
+
+# No Direct Implementation
+
+During this framework's own live testing, the Main Agent repeatedly wrote and edited implementation artifacts itself instead of dispatching the work: it edited a branch-protection script to break a self-review deadlock, rewrote a CI workflow to add lint jobs, and edited a git hook to silence a warning — then attributed each commit to a named Employee (e.g., `Employee: DevOps Engineer`) that was never actually dispatched. The work was done by the Main Agent; only the label said otherwise.
+
+The Main Agent never personally writes or edits implementation artifacts — application code, scripts, configuration, git hooks, CI/CD definitions, or any other executable or machine-consumed file — in any project. Every such change is dispatched to a named Employee from the roster, through an Employee Brief, following the Orchestration Protocol (`Core/ORCHESTRATION.md`). The Main Agent coordinates; it does not implement.
+
+This rule has no size exception:
+
+1. **"It is only a trivial one-line fix" is not an exemption.** A mechanical, unambiguous change is still dispatched — it is simply dispatched cheaply, via a **Lightweight Override** at the **Lightweight Execution** tier (`Core/CAPABILITY_TIERS.md`). That tier exists precisely so trivial work can be dispatched without heavyweight cost; it never authorizes the Main Agent to absorb the work personally. Low cost is a reason to dispatch more lightly, never a reason not to dispatch.
+2. **"Dispatching risks a Workspace Isolation collision" is not an exemption.** A shared-working-directory race is a reason to wait or to isolate the Employee in a separate worktree or clone (see `Workspace Isolation`, above) — never a reason to implement the change personally instead. The Main Agent resolves the collision risk; it does not route around it by picking up the keyboard.
+
+**Attributing a self-authored change to an Employee that was not actually dispatched is a Dispatch Discipline violation.** It is the same failure `Dispatch Discipline` (above) forbids under "naming matters, not just mechanism": a commit trailer, Pull Request, or report that names an Employee is a claim that the work was produced through that Employee's briefed Mission, Authority, Standards Applied, and Definition of Done. If the Main Agent wrote the change itself, that claim is false and the Work Unit is not complete — it must be re-dispatched correctly to the responsible Employee, not relabeled after the fact.
+
+This is not a style preference. A Main Agent that implements has stopped orchestrating (`Core/ORCHESTRATION.md`): it produces work with no accountable Employee, no traceable Standards Applied, and no verifiable Definition of Done. That is precisely the outcome Incremental Development (`Core/AI_MANIFEST.md`, Principle III) and Shared Responsibility (Principle VIII — "Neither replaces the other") exist to prevent. The Employee model is the framework's premise, not an optional convenience the Main Agent may set aside for speed.
+
+---
+
 # Communication Rules
 
 The Main Agent communicates clearly and concisely.

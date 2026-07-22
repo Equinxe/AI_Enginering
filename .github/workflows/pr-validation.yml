@@ -1,0 +1,92 @@
+name: IA Engineering - PR Validation
+
+# Three checks, each mechanically enforcing something the framework already
+# documents instead of relying on a human or AI reviewer to remember it:
+#   - pr-compliance: every PR must trace to a Work Unit and have a real,
+#     filled-in description (Templates/WORK_UNIT.md, Templates/PULL_REQUEST.md)
+#   - shellcheck-adapters: the git hooks and scripts we ship must actually be
+#     valid, warning-free shell (Standards/CODE_QUALITY_STANDARD.md applies to
+#     Adapters code exactly as it does to any other code)
+#   - yaml-lint: every workflow file we ship must at minimum parse as valid YAML
+#
+# Install in a project that has imported IA Engineering as a submodule:
+#   mkdir -p .github/workflows
+#   cp ia-engineering/Adapters/github-actions/pr-validation.yml .github/workflows/
+#
+# Then add "PR Compliance", "Shellcheck Adapters", and "Validate Workflow YAML"
+# as required status checks in branch protection (see
+# Adapters/scripts/setup-branch-protection.sh, which sets all three).
+#
+# Scoped to PRs targeting main or develop only (see `branches:` below) — this
+# workflow enforces the Git Standard's protected-branch gate, not every branch.
+
+on:
+  pull_request:
+    branches: [main, develop]
+    types: [opened, edited, synchronize, reopened]
+
+jobs:
+  pr-compliance:
+    name: PR Compliance
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check for a Work Unit reference
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          COMBINED="${PR_TITLE}
+          ${PR_BODY}"
+
+          if echo "$COMBINED" | grep -qE 'WU-[A-Za-z0-9]+-[0-9]+'; then
+            echo "Work Unit reference found."
+          else
+            echo "::error::No Work Unit reference (format: WU-[project]-[number]) found in the PR title or description. Per Templates/WORK_UNIT.md, every Pull Request must trace to a Work Unit."
+            exit 1
+          fi
+
+      - name: Check the PR description is not empty or unfilled
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          if [ -z "${PR_BODY// /}" ]; then
+            echo "::error::PR description is empty. Per Templates/PULL_REQUEST.md, every PR must use the Pull Request template with 'What changed', 'Why', and 'How to test' filled in."
+            exit 1
+          fi
+
+          if echo "$PR_BODY" | grep -qE '\[Describe what this PR does|\[Link to the Work Unit|\[Step-by-step instructions'; then
+            echo "::error::PR description still contains unfilled template placeholders. Complete the Pull Request template before requesting review."
+            exit 1
+          fi
+
+          echo "PR description present and filled in."
+
+  shellcheck-adapters:
+    name: Shellcheck Adapters
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run shellcheck on git hooks and scripts
+        run: |
+          # shellcheck is preinstalled on GitHub-hosted ubuntu-latest runners —
+          # no third-party action, no extra install step.
+          shellcheck Adapters/git-hooks/commit-msg Adapters/git-hooks/pre-push Adapters/scripts/*.sh
+
+  yaml-lint:
+    name: Validate Workflow YAML
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate YAML syntax
+        run: |
+          fail=0
+          for f in Adapters/github-actions/*.yml .github/workflows/*.yml; do
+            [ -f "$f" ] || continue
+            if npx --yes -q js-yaml "$f" > /dev/null 2>&1; then
+              echo "OK: $f"
+            else
+              echo "::error::Invalid YAML syntax in $f"
+              fail=1
+            fi
+          done
+          exit "$fail"

@@ -6,6 +6,31 @@ This project follows Semantic Versioning, extended with an informal 4th segment 
 
 ---
 
+## [0.0.9.2] - No Direct Implementation
+
+### Fixed
+
+- `Core/MAIN_AGENT_CONDUCT.md` — added a "No Direct Implementation" section: the Main Agent never personally writes or edits implementation artifacts — application code, scripts, configuration, git hooks, CI/CD definitions, or any other machine-consumed file — in any project. Every such change is dispatched to a named Employee through an Employee Brief, with no size exception: a trivial one-line fix is dispatched cheaply via a Lightweight Override at the Lightweight Execution tier (`Core/CAPABILITY_TIERS.md`), and a Workspace Isolation collision risk is resolved by waiting or isolating the Employee, never by implementing the change personally. Attributing a self-authored change to an Employee that was never dispatched is a Dispatch Discipline violation — the Work Unit is not complete and must be re-dispatched, not relabeled.
+
+### Notes
+
+Eighth finding from dogfooding. During the v0.0.9.1 cycle the Director caught the Main Agent directly editing `Adapters/scripts/setup-branch-protection.sh`, `Adapters/github-actions/pr-validation.yml`, and `Adapters/git-hooks/pre-push`, then attributing each commit to a named Employee (e.g., `Employee: DevOps Engineer`) that was never actually dispatched — the work was done by the Main Agent; only the label said otherwise. This closes the loophole at its source: a Main Agent that implements has stopped orchestrating (`Core/ORCHESTRATION.md`), producing work with no accountable Employee, no traceable Standards Applied, and no verifiable Definition of Done.
+
+---
+
+## [0.0.9.1] - Solo-Maintainer Fixes
+
+### Fixed
+
+- `Adapters/scripts/setup-branch-protection.sh` — removed a self-review deadlock: `required_approving_review_count` changed from 1 to 0 and `enforce_admins` from true to false, since GitHub does not allow a PR author to approve their own PR and every Employee (and the Director) currently shares one authenticated `gh` identity. The real review gate is the required `validate` CI check plus the Code Reviewer's documented review comment, not a GitHub-native approval count.
+- `Core/MAIN_AGENT_CONDUCT.md` — added a "Workspace Isolation" section: the Main Agent must not run its own git commands in the same working directory while a dispatched Employee is actively committing — wait, or use a separate worktree/clone.
+
+### Notes
+
+Sixth and seventh findings from dogfooding — this time from applying our own Adapters to this repository for the first time (WU-IAENG-091), rather than from the 2048 game test. Discovered immediately on the very first PR after enabling branch protection here: could not merge PR #27 because nobody could formally approve it, and a real commit landed on `main` because the Main Agent ran git commands in the same working directory as the dispatched DevOps Engineer. Both are now documented and fixed at their source rather than worked around.
+
+---
+
 ## [0.0.9] - Adapters
 
 ### Added
