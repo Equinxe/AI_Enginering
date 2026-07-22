@@ -1,0 +1,52 @@
+name: IA Engineering - PR Validation
+
+# Mechanically enforces two rules from Templates/WORK_UNIT.md and
+# Templates/PULL_REQUEST.md instead of relying on a human or AI reviewer to
+# remember to check them: every Pull Request must trace to a Work Unit, and
+# the PR description must not be left as an empty or unfilled template.
+#
+# Install in a project that has imported IA Engineering as a submodule:
+#   mkdir -p .github/workflows
+#   cp ia-engineering/Adapters/github-actions/pr-validation.yml .github/workflows/
+#
+# Then add "IA Engineering - PR Validation / validate" as a required status
+# check in branch protection (see Adapters/scripts/setup-branch-protection.sh).
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check for a Work Unit reference
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          COMBINED="${PR_TITLE}
+          ${PR_BODY}"
+
+          if echo "$COMBINED" | grep -qE 'WU-[A-Za-z0-9]+-[0-9]+'; then
+            echo "Work Unit reference found."
+          else
+            echo "::error::No Work Unit reference (format: WU-[project]-[number]) found in the PR title or description. Per Templates/WORK_UNIT.md, every Pull Request must trace to a Work Unit."
+            exit 1
+          fi
+
+      - name: Check the PR description is not empty or unfilled
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          if [ -z "${PR_BODY// /}" ]; then
+            echo "::error::PR description is empty. Per Templates/PULL_REQUEST.md, every PR must use the Pull Request template with 'What changed', 'Why', and 'How to test' filled in."
+            exit 1
+          fi
+
+          if echo "$PR_BODY" | grep -qE '\[Describe what this PR does|\[Link to the Work Unit|\[Step-by-step instructions'; then
+            echo "::error::PR description still contains unfilled template placeholders. Complete the Pull Request template before requesting review."
+            exit 1
+          fi
+
+          echo "PR description present and filled in."
