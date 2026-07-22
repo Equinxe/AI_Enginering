@@ -150,9 +150,10 @@ Follow the Code Review Workflow. In a hotfix context:
 
 **Actor:** Release Manager
 
-1. Merge `hotfix/short-description` into `develop` to ensure the fix is present in future releases.
-2. Resolve any merge conflicts.
-3. Push `develop`.
+The `pre-push` hook (`Adapters/git-hooks/pre-push`) blocks direct pushes to `develop`, so the back-merge goes through a Pull Request like any other change.
+
+1. Open a Pull Request from `main` to `develop` to ensure the fix is present in future releases.
+2. Merge the PR once CI passes. The fix already went through review on its way into `main`, so no new conflicts are expected.
 
 **Output:** `develop` contains the hotfix.
 

@@ -132,8 +132,10 @@ No merge to `main` happens without explicit Director approval.
 
 **Actor:** Release Manager
 
-1. Merge `release/vX.X.X` back into `develop` to capture any release-branch fixes.
-2. Push `develop`.
+The `pre-push` hook (`Adapters/git-hooks/pre-push`) blocks direct pushes to `develop`, so the back-merge goes through a Pull Request like any other change.
+
+1. Open a Pull Request from `main` to `develop` to capture any release-branch fixes.
+2. Merge the PR once CI passes. The content already went through review on its way into `main`, so no new conflicts are expected.
 
 **Output:** `develop` is in sync with `main`.
 
