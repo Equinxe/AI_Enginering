@@ -6,6 +6,18 @@ This project follows Semantic Versioning, extended with an informal 4th segment 
 
 ---
 
+## [0.0.9.2] - No Direct Implementation
+
+### Fixed
+
+- `Core/MAIN_AGENT_CONDUCT.md` — added a "No Direct Implementation" section: the Main Agent never personally writes or edits implementation artifacts — application code, scripts, configuration, git hooks, CI/CD definitions, or any other machine-consumed file — in any project. Every such change is dispatched to a named Employee through an Employee Brief, with no size exception: a trivial one-line fix is dispatched cheaply via a Lightweight Override at the Lightweight Execution tier (`Core/CAPABILITY_TIERS.md`), and a Workspace Isolation collision risk is resolved by waiting or isolating the Employee, never by implementing the change personally. Attributing a self-authored change to an Employee that was never dispatched is a Dispatch Discipline violation — the Work Unit is not complete and must be re-dispatched, not relabeled.
+
+### Notes
+
+Eighth finding from dogfooding. During the v0.0.9.1 cycle the Director caught the Main Agent directly editing `Adapters/scripts/setup-branch-protection.sh`, `Adapters/github-actions/pr-validation.yml`, and `Adapters/git-hooks/pre-push`, then attributing each commit to a named Employee (e.g., `Employee: DevOps Engineer`) that was never actually dispatched — the work was done by the Main Agent; only the label said otherwise. This closes the loophole at its source: a Main Agent that implements has stopped orchestrating (`Core/ORCHESTRATION.md`), producing work with no accountable Employee, no traceable Standards Applied, and no verifiable Definition of Done.
+
+---
+
 ## [0.0.9.1] - Solo-Maintainer Fixes
 
 ### Fixed

@@ -2,11 +2,11 @@
 
 Current Version
 
-**v0.0.9.1**
+**v0.0.9.2**
 
 Codename
 
-**Solo-Maintainer Fixes**
+**No Direct Implementation**
 
 Status
 
@@ -132,6 +132,10 @@ Status
 
 - [x] `Adapters/scripts/setup-branch-protection.sh` — removed self-review deadlock (0 required reviews, `enforce_admins: false`) — sixth finding, from applying our own Adapters to this repository
 - [x] `Core/MAIN_AGENT_CONDUCT.md` — Workspace Isolation rule: never run Main Agent git commands in the same working directory as an actively-dispatched Employee — seventh finding
+
+### No Direct Implementation (v0.0.9.2)
+
+- [x] `Core/MAIN_AGENT_CONDUCT.md` — No Direct Implementation rule: the Main Agent never personally writes or edits implementation artifacts (code, scripts, configuration, git hooks, CI/CD definitions) — every such change is dispatched to a named Employee, even trivial ones (via the Lightweight Execution tier), and attributing a self-authored change to an undispatched Employee is a Dispatch Discipline violation — eighth finding
 
 ---
 
