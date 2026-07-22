@@ -2,11 +2,11 @@
 
 Current Version
 
-**v0.0.9.2**
+**v0.0.9.3**
 
 Codename
 
-**No Direct Implementation**
+**Back-Merge via Pull Request**
 
 Status
 
@@ -136,6 +136,10 @@ Status
 ### No Direct Implementation (v0.0.9.2)
 
 - [x] `Core/MAIN_AGENT_CONDUCT.md` — No Direct Implementation rule: the Main Agent never personally writes or edits implementation artifacts (code, scripts, configuration, git hooks, CI/CD definitions) — every such change is dispatched to a named Employee, even trivial ones (via the Lightweight Execution tier), and attributing a self-authored change to an undispatched Employee is a Dispatch Discipline violation — eighth finding
+
+### Back-Merge via Pull Request (v0.0.9.3)
+
+- [x] `Workflows/RELEASE.md` Step 7 and `Workflows/HOTFIX.md` Step 9 — both "Back-merge to develop" steps now describe opening a Pull Request (`main` → `develop`) merged once CI passes, instead of a direct `git push` that the `pre-push` hook (`Adapters/git-hooks/pre-push`, v0.0.9) unconditionally blocks — ninth finding
 
 ---
 
