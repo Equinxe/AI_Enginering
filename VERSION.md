@@ -2,11 +2,11 @@
 
 Current Version
 
-**v0.0.8**
+**v0.0.9**
 
 Codename
 
-**Capability Tiers**
+**Adapters**
 
 Status
 
@@ -118,6 +118,16 @@ Status
 - [x] `Employees/` — Default Complexity Tier added to all 42 Employees' Metadata
 - [x] `Core/ORCHESTRATION.md` — Step 4 (Dispatch) selects execution capability per Capability Tiers before creating the Employee Brief
 
+### Adapters (v0.0.9)
+
+- [x] `Adapters/git-hooks/commit-msg` — mechanically enforces Conventional Commits format and mandatory `Employee: <Name>` trailer validated against the 42-Employee roster
+- [x] `Adapters/git-hooks/pre-push` — blocks direct push to `main` and `develop`
+- [x] `Adapters/github-actions/pr-validation.yml` — CI check requiring every PR to reference a Work Unit ID and have a non-empty description
+- [x] `Adapters/github/PULL_REQUEST_TEMPLATE.md` — GitHub PR template mirroring the framework standard
+- [x] `Adapters/scripts/setup-branch-protection.sh` — one-shot script to configure GitHub branch protection via the GitHub API
+- [x] `Adapters/README.md` — installation guide and index for all adapters
+- [x] `.gitattributes` — enforces LF line endings under `Adapters/` for cross-platform compatibility
+
 ---
 
 ## Versioning Policy
@@ -133,10 +143,9 @@ Format: `MAJOR.MINOR.MILESTONE[.FIX]`
 ## Planned
 
 - Governance
-- Adapters
 
 ---
 
 ## Next Milestone
 
-v0.0.9 — Governance
+v0.0.10 — Governance
