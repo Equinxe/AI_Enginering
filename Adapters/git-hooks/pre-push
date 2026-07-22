@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+# IA Engineering — pre-push hook
+#
+# Mechanically enforces Standards/BRANCH_STANDARD.md: "Do not develop directly
+# on protected branches" / no direct push to main or develop. Changes reach
+# these branches only through a reviewed Pull Request merged on the remote,
+# never through a local `git push` to them directly.
+#
+# Install in a project that has imported IA Engineering as a submodule:
+#   cp ia-engineering/Adapters/git-hooks/pre-push .git/hooks/pre-push
+#   chmod +x .git/hooks/pre-push
+#
+# If a project's protected-branch names differ from main/develop, edit
+# PROTECTED_BRANCHES below to match.
+
+set -euo pipefail
+
+PROTECTED_BRANCHES=("main" "develop")
+
+while read -r local_ref local_sha remote_ref remote_sha; do
+  branch="${remote_ref#refs/heads/}"
+
+  for protected in "${PROTECTED_BRANCHES[@]}"; do
+    if [ "$branch" = "$protected" ]; then
+      echo "pre-push: rejected — direct push to '$protected' is not allowed." >&2
+      echo "  Per Standards/BRANCH_STANDARD.md, changes reach '$protected' only" >&2
+      echo "  through a reviewed Pull Request merged on the remote." >&2
+      echo "  Open a feature/fix/hotfix branch and submit a PR instead." >&2
+      exit 1
+    fi
+  done
+done
+
+exit 0

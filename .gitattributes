@@ -1,0 +1,6 @@
+# Adapters ship as executable scripts and CI configs installed directly into
+# other projects' .git/hooks/ or .github/workflows/. A CRLF line ending breaks
+# a shebang line on Linux/CI even though the file still "looks fine" on
+# Windows editors. Force LF for everything under Adapters/, regardless of the
+# checkout platform or user's core.autocrlf setting.
+/Adapters/** text eol=lf

@@ -71,7 +71,7 @@ Current Version
 
 ```
 
-v0.0.8 - Capability Tiers
+v0.0.9 - Adapters
 
 ```
 
@@ -85,11 +85,11 @@ Completed
 - ✅ Orchestration (Main Agent dispatch protocol, 6 named Agent Chains)
 - ✅ Examples (6 end-to-end chain walkthroughs on a single fictional project)
 - ✅ Capability Tiers (AI-agnostic execution tiers matching capability to Work Unit complexity)
+- ✅ Adapters (GitHub git hooks, Actions CI checks, PR template, branch protection setup script)
 
 Planned
 
 - Governance
-- Adapters
 
 ---
 
@@ -121,8 +121,8 @@ Adapters/
 - Orchestration
 - Examples
 - Capability Tiers
-- Governance
 - Adapters
+- Governance
 - Public Release
 
 ---

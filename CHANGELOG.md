@@ -6,6 +6,24 @@ This project follows Semantic Versioning, extended with an informal 4th segment 
 
 ---
 
+## [0.0.9] - Adapters
+
+### Added
+
+- `Adapters/git-hooks/commit-msg` — mechanically enforces Conventional Commits format and a mandatory `Employee: <Name>` trailer validated against the 42-Employee roster (Dispatch Discipline)
+- `Adapters/git-hooks/pre-push` — blocks direct push to `main` and `develop`
+- `Adapters/github-actions/pr-validation.yml` — CI check requiring every PR to reference a Work Unit ID (`WU-[project]-[number]`) and have a non-empty, filled-in description
+- `Adapters/github/PULL_REQUEST_TEMPLATE.md` — GitHub PR template mirroring `Templates/PULL_REQUEST.md` exactly
+- `Adapters/scripts/setup-branch-protection.sh` — one-shot script to configure GitHub branch protection (required review, required status check, no force-push/deletion) via the GitHub API
+- `Adapters/README.md` — installation guide and index tying all adapters together
+- `.gitattributes` — forces LF line endings under `Adapters/` so shell scripts don't break on Linux/CI after a Windows checkout
+
+### Notes
+
+Prioritized ahead of Governance (now v0.0.10) in response to live-test findings from the v0.0.8 Capability Tiers deployment. Adapters close the gap between written policy and technical enforcement — every violation caught by git hooks or CI checks before it reaches review, not after. This is the framework's concrete lever for preventing the v0.0.7.x categories of silent violations (malformed commits, missing Employee attribution, unreviewed direct pushes).
+
+---
+
 ## [0.0.8] - Capability Tiers
 
 ### Added
@@ -205,4 +223,4 @@ This release establishes the core principles and behavioral contracts that all f
 
 ## Next
 
-v0.0.9 — Governance
+v0.0.10 — Governance
