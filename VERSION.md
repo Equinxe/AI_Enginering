@@ -2,11 +2,11 @@
 
 Current Version
 
-**v0.0.9**
+**v0.0.9.1**
 
 Codename
 
-**Adapters**
+**Solo-Maintainer Fixes**
 
 Status
 
@@ -127,6 +127,11 @@ Status
 - [x] `Adapters/scripts/setup-branch-protection.sh` — one-shot script to configure GitHub branch protection via the GitHub API
 - [x] `Adapters/README.md` — installation guide and index for all adapters
 - [x] `.gitattributes` — enforces LF line endings under `Adapters/` for cross-platform compatibility
+
+### Solo-Maintainer Fixes (v0.0.9.1)
+
+- [x] `Adapters/scripts/setup-branch-protection.sh` — removed self-review deadlock (0 required reviews, `enforce_admins: false`) — sixth finding, from applying our own Adapters to this repository
+- [x] `Core/MAIN_AGENT_CONDUCT.md` — Workspace Isolation rule: never run Main Agent git commands in the same working directory as an actively-dispatched Employee — seventh finding
 
 ---
 

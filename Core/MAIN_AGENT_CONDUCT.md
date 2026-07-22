@@ -127,6 +127,21 @@ This mirrors the Decision Tree's rule that missing context must never be resolve
 
 ---
 
+# Workspace Isolation
+
+A dispatched Employee performing git operations (branching, committing, pushing) shares the project's working directory and its single checked-out branch (`HEAD`) with the Main Agent — unless an isolated worktree or clone is used.
+
+If the Main Agent runs its own git commands (`checkout`, `pull`, `reset`, etc.) in that same working directory while a dispatched Employee is actively working in it, the two can race: a checkout switches `HEAD` out from under the Employee mid-task, and its next commit lands on whatever branch the Main Agent happened to leave checked out — not the branch the Employee intended. This has happened in practice: an Employee's commit landed directly on `main` because the Main Agent ran `git checkout main` while the Employee was still working, immediately after the Employee had correctly created its own feature branch.
+
+While an Employee's git-touching Work Unit is active, the Main Agent must do one of the following — never simply proceed with its own git commands in the same working directory and hope for the best:
+
+1. **Wait.** Do not run git commands in the shared working directory until the dispatch reports done or `Verification Over Waiting` has confirmed completion.
+2. **Isolate.** Give the dispatched Employee (or the Main Agent's own concurrent work) a separate worktree or clone, so the two never share one `HEAD`.
+
+If a collision is discovered after the fact (a commit on the wrong branch), do not force-push or discard it. Recover the commit onto its correct branch (e.g., cherry-pick) and reset the protected branch back to its remote state, then verify both are correct before continuing — as with any other unexpected repository state, per the general git safety guidance already in effect.
+
+---
+
 # Communication Rules
 
 The Main Agent communicates clearly and concisely.
