@@ -1,0 +1,89 @@
+#!/usr/bin/env bash
+# IA Engineering — commit-msg hook
+#
+# Enforces two rules mechanically instead of relying on the AI reading and
+# choosing to follow them:
+#   1. Standards/COMMIT_STANDARD.md — Conventional Commits subject line.
+#   2. Core/MAIN_AGENT_CONDUCT.md (Dispatch Discipline) — every commit must
+#      identify the Employee who produced it, by name, not by a generic tool
+#      label ("executor", "coder", etc.).
+#
+# Install in a project that has imported IA Engineering as a submodule:
+#   cp ia-engineering/Adapters/git-hooks/commit-msg .git/hooks/commit-msg
+#   chmod +x .git/hooks/commit-msg
+#
+# Commit message format expected:
+#
+#   type(scope): description
+#
+#   [optional body]
+#
+#   Employee: <Exact Employee Name>
+#
+# Example:
+#
+#   feat(tasks): add PATCH /tasks/{id}/complete endpoint
+#
+#   Employee: Backend Engineer
+
+set -euo pipefail
+
+COMMIT_MSG_FILE="$1"
+SUBJECT="$(head -1 "$COMMIT_MSG_FILE")"
+
+# --- Rule 1: Conventional Commits subject line ---------------------------
+# Types kept in sync with Templates/PULL_REQUEST.md's Type checklist.
+CC_REGEX='^(feat|fix|docs|refactor|test|chore)(\([a-zA-Z0-9,._-]+\))?: .+'
+
+if ! echo "$SUBJECT" | grep -qE "$CC_REGEX"; then
+  echo "commit-msg: rejected — subject line does not follow the Commit Standard." >&2
+  echo "  Expected: type(scope): description" >&2
+  echo "  type is one of: feat, fix, docs, refactor, test, chore" >&2
+  echo "  Got: $SUBJECT" >&2
+  exit 1
+fi
+
+# --- Rule 2: Dispatch Discipline — Employee trailer required --------------
+EMPLOYEES=(
+  "Data Architect" "Software Architect" "Solution Architect"
+  "Analytics Engineer" "Data Engineer" "Data Scientist" "ML Engineer" "MLOps Engineer"
+  "Android Engineer" "Backend Engineer" "Cross-Platform Engineer" "Database Engineer"
+  "Event-Driven Engineer" "Frontend Engineer" "Integration Engineer" "iOS Engineer"
+  "Cloud Engineer" "DevOps Engineer" "GitOps Engineer" "Infrastructure as Code Engineer"
+  "Observability Engineer" "Platform Engineer" "SRE Engineer"
+  "Documentation Engineer" "Technical Writer"
+  "Engineering Manager" "Product Manager" "Release Manager" "Scrum Master" "Technical Lead"
+  "Performance Engineer" "QA Engineer" "Security Engineer" "Test Automation Engineer"
+  "AI Engineer" "API Engineer" "Business Analyst" "Code Reviewer" "Compliance Engineer"
+  "Penetration Tester" "Prompt Engineer" "UX/UI Designer"
+)
+
+EMPLOYEE_LINE="$(grep -E '^Employee: ' "$COMMIT_MSG_FILE" | head -1 || true)"
+
+if [ -z "$EMPLOYEE_LINE" ]; then
+  echo "commit-msg: rejected — missing 'Employee: <Name>' trailer." >&2
+  echo "  Per Core/MAIN_AGENT_CONDUCT.md (Dispatch Discipline), every commit must" >&2
+  echo "  identify the Employee who produced it — never the Main Agent, never a" >&2
+  echo "  generic tool label." >&2
+  exit 1
+fi
+
+EMPLOYEE_NAME="${EMPLOYEE_LINE#Employee: }"
+MATCH_FOUND=0
+
+for name in "${EMPLOYEES[@]}"; do
+  if [ "$name" = "$EMPLOYEE_NAME" ]; then
+    MATCH_FOUND=1
+    break
+  fi
+done
+
+if [ "$MATCH_FOUND" -eq 0 ]; then
+  echo "commit-msg: rejected — 'Employee: $EMPLOYEE_NAME' is not a recognized Employee." >&2
+  echo "  Must exactly match one of the 42 Employees defined in ia-engineering/Employees/." >&2
+  echo "  A functional or tool label ('executor', 'coder', 'reviewer-bot', etc.) is not" >&2
+  echo "  a valid Employee name — see Core/MAIN_AGENT_CONDUCT.md, 'Naming matters.'" >&2
+  exit 1
+fi
+
+exit 0
