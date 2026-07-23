@@ -119,6 +119,6 @@ Adapters/      — Tool integrations
 
 # Current Version
 
-v0.0.10 — Project Bootstrap
+v0.0.11 — Governance
 
-Next: v0.0.11 — Governance
+Next: TBD — not yet scoped
