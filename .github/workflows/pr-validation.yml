@@ -1,21 +1,32 @@
 name: IA Engineering - PR Validation
 
-# Three checks, each mechanically enforcing something the framework already
+# Five checks, each mechanically enforcing something the framework already
 # documents instead of relying on a human or AI reviewer to remember it:
 #   - pr-compliance: every PR must trace to a Work Unit and have a real,
 #     filled-in description (Templates/WORK_UNIT.md, Templates/PULL_REQUEST.md)
+#   - employee-trailer: every non-merge commit in the PR carries a valid
+#     `Employee: <Name>` trailer from the 42-Employee roster — a server-side
+#     backstop for Adapters/git-hooks/commit-msg, which is bypassable with
+#     --no-verify or by never installing the hook (Core/MAIN_AGENT_CONDUCT.md,
+#     Dispatch Discipline)
 #   - shellcheck-adapters: the git hooks and scripts we ship must actually be
 #     valid, warning-free shell (Standards/CODE_QUALITY_STANDARD.md applies to
 #     Adapters code exactly as it does to any other code)
 #   - yaml-lint: every workflow file we ship must at minimum parse as valid YAML
+#   - review-recorded: ADVISORY (warning-only) — surfaces whether a Code
+#     Reviewer decision was actually recorded on the PR (Workflows/CODE_REVIEW.md).
+#     It does not block merge; see the job for why it is advisory and why it
+#     exists at all given required_approving_review_count is 0 by design.
 #
 # Install in a project that has imported IA Engineering as a submodule:
 #   mkdir -p .github/workflows
 #   cp ia-engineering/Adapters/github-actions/pr-validation.yml .github/workflows/
 #
-# Then add "PR Compliance", "Shellcheck Adapters", and "Validate Workflow YAML"
-# as required status checks in branch protection (see
-# Adapters/scripts/setup-branch-protection.sh, which sets all three).
+# Then add "PR Compliance", "Employee Trailer", "Shellcheck Adapters", and
+# "Validate Workflow YAML" as required status checks in branch protection (see
+# Adapters/scripts/setup-branch-protection.sh). "Review Recorded (advisory)" is
+# intentionally NOT a required status check yet — it is warning-only; promoting
+# it to required is a Director/Main Agent decision (see the job's comment).
 #
 # Scoped to PRs targeting main or develop only (see `branches:` below) — this
 # workflow enforces the Git Standard's protected-branch gate, not every branch.
@@ -61,6 +72,90 @@ jobs:
 
           echo "PR description present and filled in."
 
+  employee-trailer:
+    name: Employee Trailer
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history so the base..head commit range is available server-side.
+          fetch-depth: 0
+      - name: Re-validate the Employee trailer on every commit in the PR
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          # Server-side backstop for Adapters/git-hooks/commit-msg, Rule 2
+          # (Dispatch Discipline). The local commit-msg hook enforces the
+          # `Employee: <Name>` trailer, but it is bypassable with `git commit
+          # --no-verify` or by simply never running the install step (git does
+          # not transmit hooks). This job re-checks every NON-MERGE commit in the
+          # PR carries a valid trailer, using the same trailer key + the same
+          # 42-Employee roster as the hook — so a commit that skipped the hook is
+          # still caught here, before merge.
+          #
+          # IMPORTANT: this 42-name array is DUPLICATED from
+          # Adapters/git-hooks/commit-msg. The two lists MUST be kept in sync —
+          # if the Employee roster ever changes, update BOTH this array and the
+          # one in the hook. Extracting a single shared roster file that both the
+          # hook and this workflow read is a known, deliberately-deferred future
+          # improvement (see Adapters/README.md); duplicating the list is an
+          # accepted tradeoff to keep this change scoped.
+          EMPLOYEES=(
+            "Data Architect" "Software Architect" "Solution Architect"
+            "Analytics Engineer" "Data Engineer" "Data Scientist" "ML Engineer" "MLOps Engineer"
+            "Android Engineer" "Backend Engineer" "Cross-Platform Engineer" "Database Engineer"
+            "Event-Driven Engineer" "Frontend Engineer" "Integration Engineer" "iOS Engineer"
+            "Cloud Engineer" "DevOps Engineer" "GitOps Engineer" "Infrastructure as Code Engineer"
+            "Observability Engineer" "Platform Engineer" "SRE Engineer"
+            "Documentation Engineer" "Technical Writer"
+            "Engineering Manager" "Product Manager" "Release Manager" "Scrum Master" "Technical Lead"
+            "Performance Engineer" "QA Engineer" "Security Engineer" "Test Automation Engineer"
+            "AI Engineer" "API Engineer" "Business Analyst" "Code Reviewer" "Compliance Engineer"
+            "Penetration Tester" "Prompt Engineer" "UX/UI Designer"
+          )
+
+          # Merge commits are excluded via --no-merges, mirroring the hook's
+          # MERGE_HEAD exception: an auto-generated merge subject ("Merge branch
+          # ...", "Merge pull request #N ...") can never carry an Employee
+          # trailer and must not be rejected.
+          COMMITS="$(git rev-list --no-merges "${BASE_SHA}..${HEAD_SHA}")"
+
+          if [ -z "$COMMITS" ]; then
+            echo "No non-merge commits to validate in this PR."
+            exit 0
+          fi
+
+          fail=0
+          for sha in $COMMITS; do
+            MSG="$(git log -1 --format=%B "$sha")"
+            EMPLOYEE_LINE="$(echo "$MSG" | grep -E '^Employee: ' | head -1 || true)"
+
+            if [ -z "$EMPLOYEE_LINE" ]; then
+              echo "::error::Commit $sha is missing an 'Employee: <Name>' trailer. Per Core/MAIN_AGENT_CONDUCT.md (Dispatch Discipline), every commit must identify the Employee who produced it. This commit likely skipped the local commit-msg hook (--no-verify or uninstalled hook)."
+              fail=1
+              continue
+            fi
+
+            EMPLOYEE_NAME="${EMPLOYEE_LINE#Employee: }"
+            match=0
+            for name in "${EMPLOYEES[@]}"; do
+              if [ "$name" = "$EMPLOYEE_NAME" ]; then
+                match=1
+                break
+              fi
+            done
+
+            if [ "$match" -eq 0 ]; then
+              echo "::error::Commit $sha has 'Employee: $EMPLOYEE_NAME', which is not one of the 42 recognized Employees defined in Employees/. A functional or tool label ('executor', 'coder', 'reviewer-bot', etc.) is not a valid Employee name — see Core/MAIN_AGENT_CONDUCT.md, 'Naming matters.'"
+              fail=1
+            fi
+          done
+
+          exit "$fail"
+
   shellcheck-adapters:
     name: Shellcheck Adapters
     runs-on: ubuntu-latest
@@ -90,3 +185,66 @@ jobs:
             fi
           done
           exit "$fail"
+
+  review-recorded:
+    name: Review Recorded (advisory)
+    runs-on: ubuntu-latest
+    permissions:
+      # Reading PR conversation comments (/issues/{n}/comments) needs issues:read;
+      # reading PR reviews (/pulls/{n}/reviews) needs pull-requests:read.
+      issues: read
+      pull-requests: read
+    steps:
+      - name: Check a Code Reviewer decision was recorded on the PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          # ADVISORY / WARNING-ONLY backstop for Workflows/CODE_REVIEW.md.
+          #
+          # Why this check cannot use GitHub's native review-approval count:
+          # setup-branch-protection.sh sets required_approving_review_count: 0 by
+          # design — all Employees and the Director share ONE `gh` identity, so
+          # GitHub-native "approve" would be self-approval and is structurally
+          # impossible (a documented hard constraint, not a preference). So
+          # "was this PR reviewed?" cannot be answered by GitHub's approval gate.
+          #
+          # Why comment-pattern over a label (the two candidate approaches):
+          # A label (e.g. `reviewed`) is a single click any actor can apply with
+          # no evidence a review happened — weak, easily rubber-stamped. Instead
+          # we look for the Code Reviewer's ACTUAL output: the "Review Decision"
+          # block defined in Employees/Specialized/CODE_REVIEWER.md, whose filled
+          # form contains a line `Decision: approved`. Requiring that block to be
+          # present ties the check to real reviewer output (the evidence-over-
+          # ceremony principle in Adapters/README.md), and the pattern is written
+          # to reject the UNFILLED template line `Decision: [approved / ...]`
+          # (note the `[`), so pasting the empty template does not satisfy it.
+          #
+          # Why ADVISORY (exit 0, ::warning:: only), not a hard-blocking check:
+          # comment-text matching is inherently softer evidence than a native
+          # gate and could be gamed by pasting the block, so shipping it as a
+          # required status check now would risk false confidence. It is emitted
+          # as a warning so it is visible on every PR without blocking merge.
+          # Whether/when to promote it to a required status check (adding
+          # "Review Recorded (advisory)" to required_status_checks.contexts in
+          # setup-branch-protection.sh) is a Director / Main Agent decision,
+          # deliberately left out of this Work Unit.
+
+          ISSUE_COMMENTS="$(gh api "repos/$REPO/issues/$PR_NUMBER/comments" --paginate -q '.[].body' || true)"
+          REVIEW_BODIES="$(gh api "repos/$REPO/pulls/$PR_NUMBER/reviews" --paginate -q '.[].body' || true)"
+          ALL_BODIES="$(printf '%s\n%s\n' "$ISSUE_COMMENTS" "$REVIEW_BODIES")"
+
+          # Match a filled decision line: `Decision: approved` (case-insensitive,
+          # optional leading indentation). The `approved` must follow the colon
+          # directly (after optional spaces), so the unfilled template line
+          # `Decision: [approved / changes requested / escalated]` — where a `[`
+          # follows the colon — does NOT match.
+          if echo "$ALL_BODIES" | grep -qiE '^[[:space:]]*Decision:[[:space:]]*approved'; then
+            echo "A recorded Code Reviewer decision ('Decision: approved') was found on this PR."
+          else
+            echo "::warning::No recorded Code Reviewer decision ('Decision: approved', per Employees/Specialized/CODE_REVIEWER.md's Review Decision block) was found in this PR's comments or reviews. Per Workflows/CODE_REVIEW.md a Code Reviewer decision should be recorded before merge. This check is ADVISORY and does not block merge."
+          fi
+
+          # Advisory only — never fails the build.
+          exit 0

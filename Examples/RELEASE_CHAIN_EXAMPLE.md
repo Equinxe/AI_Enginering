@@ -89,7 +89,7 @@ Executes the release-level Test Plan (`Templates/TEST_PLAN.md`), covering:
 
 Because the release branch was an exact snapshot of `develop` (the version bump already happened in Step 1), and no defect fixes were applied to the release branch during Step 3, `main` and `develop` already hold the same release content. The back-merge PR from `main` to `develop` (`Workflows/RELEASE.md` Step 8) is a no-op here and is skipped.
 
-Had a defect fix been committed directly to `release/v1.3.0` during acceptance testing, this step would instead open a Pull Request from `main` to `develop` and merge it once CI passes, per the `pre-push` hook that blocks direct pushes to `develop`.
+Had a defect been found during Step 3 acceptance testing, branch protection would have blocked a direct push to `release/v1.3.0`. Instead, a fix branch (for example `fix/release-v1.3.0-short-description`) would branch from `release/v1.3.0`, commit the fix, open a Pull Request targeting `release/v1.3.0` (not `develop`), wait for CI to pass, get reviewed by the Code Reviewer, and merge into the release branch. That divergence from `develop` is exactly what would make this back-merge step necessary: a Pull Request from `main` to `develop`, merged once CI passes.
 
 **Output:** `develop` confirmed in sync with `main`.
 
