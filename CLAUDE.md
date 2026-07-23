@@ -119,6 +119,6 @@ Adapters/      — Tool integrations
 
 # Current Version
 
-v0.0.5 — Templates
+v0.0.9.3 — Back-Merge via Pull Request
 
-Next: v0.0.6 — Orchestration
+Next: v0.0.10 — Governance
