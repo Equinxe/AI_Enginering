@@ -12,6 +12,8 @@ The Project Charter does not contain technology decisions. The tech-stack decisi
 
 Complete this template with the Director before starting implementation. An implementation that begins without an approved Project Charter has skipped a mandatory step.
 
+The frameworks named in Section 6 (GDPR, HIPAA, PCI, SOC 2, ISO 27001, etc.) are engineering-discovery prompts meant to surface what needs architectural and control attention — they are not a statement of legal completeness, and compliance-engineering interpretation of them is not a substitute for qualified legal counsel. See the Compliance Engineer's Failure Modes for the same caveat applied to that Employee's own output.
+
 ---
 
 # Template
@@ -71,11 +73,13 @@ Complete this template with the Director before starting implementation. An impl
 
 ### 6. Compliance / Regulatory
 
-[Applicable regulatory or legal requirements:]
+[Applicable regulatory or legal requirements. This list is an engineering-discovery prompt, not a statement of legal completeness — it is not a substitute for qualified legal counsel:]
 
+- **Jurisdictions of operation / data-subject residency:** [whose laws apply — not just where data physically sits, e.g. "none"]
 - **GDPR:** [applies / does not apply — details]
 - **HIPAA:** [applies / does not apply — details]
 - **PCI:** [applies / does not apply — details]
+- **Other applicable frameworks (SOC 2, ISO 27001, …):** [applies / does not apply — details]
 - **Data residency:** [requirement or "none"]
 - **Licensing:** [constraints on dependencies/licenses, or "none"]
 
@@ -86,6 +90,7 @@ Complete this template with the Director before starting implementation. An impl
 [What data this system will hold and how sensitive it is:]
 
 - **PII:** [yes/no — what fields]
+- **Special-category data:** [yes/no — which, e.g. health, biometric, or other GDPR Art. 9 categories]
 - **Secrets:** [what secrets/credentials the system will manage]
 - **Retention:** [how long data must be kept, and how it must be deleted]
 
@@ -113,7 +118,7 @@ Complete this template with the Director before starting implementation. An impl
 ### 10. Stakeholders & Decision Authority
 
 **Director:** [name — final decision authority]
-**Other approvers:** [name and role — e.g., Security Engineer for compliance sign-off]
+**Other approvers:** [name and role — e.g., Compliance Engineer and Security Engineer for compliance sign-off on Sections 6-7]
 **Escalation path:** [who to escalate to if the Director is unavailable]
 ```
 
