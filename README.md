@@ -135,4 +135,4 @@ Contribution guidelines will be available before the first public release.
 
 ## License
 
-To be defined before v1.0.
+Licensed under the Apache License, Version 2.0. See `LICENSE.md` for the full text.

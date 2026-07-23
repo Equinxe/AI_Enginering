@@ -2,11 +2,11 @@
 
 Current Version
 
-**v0.0.10**
+**v0.0.10.1**
 
 Codename
 
-**Project Bootstrap**
+**License Finalization**
 
 Status
 
@@ -164,6 +164,11 @@ Project Bootstrap milestone:
 - [x] Compliance hardening of Project Bootstrap — escalation trigger, jurisdiction/SOC2/breach-notification questions, Compliance/Security Engineer as Actors (WU-IAENG-115)
 - [x] Business/Product hardening — Assumptions & Risks category, business-outcome Success Criteria example, MoSCoW prioritization (WU-IAENG-116)
 - [x] `Core/MAIN_AGENT_CONDUCT.md` — Autonomous Release Execution conduct rule (WU-IAENG-117)
+
+### License Finalization (v0.0.10.1)
+
+- [x] `LICENSE.md` — Apache License 2.0 copyright notice completed (`Copyright 2026 Equinxe`); the license text itself had been in place since the Foundation milestone but its copyright header was never filled in (WU-IAENG-127)
+- [x] `README.md` — License section updated from "To be defined before v1.0" to reflect the Apache License 2.0 decision (WU-IAENG-127)
 
 ---
 

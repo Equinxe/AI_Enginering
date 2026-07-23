@@ -6,6 +6,19 @@ This project follows Semantic Versioning, extended with an informal 4th segment 
 
 ---
 
+## [0.0.10.1] - License Finalization
+
+### Fixed
+
+- `LICENSE.md` — completed the Apache License 2.0 copyright notice (`Copyright 2026 Equinxe`); the full Apache 2.0 license text had been present since the Foundation milestone, but its copyright header was left as the raw template placeholder (WU-IAENG-127)
+- `README.md` — License section updated from "To be defined before v1.0" to accurately state the project is licensed under Apache License 2.0, referencing `LICENSE.md` (WU-IAENG-127)
+
+### Notes
+
+A full dogfooding audit found that `LICENSE.md` had contained the complete Apache License 2.0 text since the project's very first commit, but its copyright notice was never filled in, and `README.md` still described the license as undecided. The Director confirmed Apache License 2.0 as the deliberate, correct choice, with Equinxe as the copyright holder. This closes the gap between the license actually in the repository and what the project's own documentation claimed about it.
+
+---
+
 ## [0.0.10] - Project Bootstrap
 
 ### Added
