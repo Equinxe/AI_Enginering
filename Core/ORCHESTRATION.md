@@ -214,7 +214,7 @@ Escalation pauses the chain. Work resumes only after Director responds.
 
 Owner: IA Engineering
 
-Version: 0.0.6
+Version: 0.0.8
 
 Status: Draft
 
