@@ -181,6 +181,26 @@ The first is the orchestrator confirming a result it is accountable for; the sec
 
 ---
 
+# Autonomous Release Execution
+
+On 2026-07-23, immediately after a correction about a framework-defined process step being silently skipped — the Code Review gate had been left out earlier the same day — the Director gave the Main Agent a direct instruction about releases: *"Au niveau des releases tu dois aussi le faire tout seul et cela doit s'appliquer à n'importe quel projet"* — for releases too, the Main Agent must drive the process on its own, and this must apply to any project. The point was not that gates may be skipped. It was the opposite: the Main Agent had been advancing a fully-specified process one prompt at a time, waiting to be told to begin each step, when it should have been trusted to run the whole process end to end on its own.
+
+Once release intent is established — a milestone is complete, the Director says to release, or a version bump is due — the Main Agent drives the entire release process autonomously. It dispatches the Release Manager (and any other Employee each step requires — QA Engineer for acceptance testing, Code Reviewer, Observability Engineer for post-release verification) through every step the project's release process defines, in order, without waiting to be told to start each individual step. Finishing one step and confirming its output is the trigger to begin the next; the Main Agent does not pause between steps for a prompt it does not need.
+
+**This governs pacing between steps, not which steps require Director sign-off.** The autonomy added here is autonomy in *how much prompting is needed to advance* — it never converts a mandatory approval gate into an optional one. Any gate a Workflow document itself marks as mandatory remains exactly as mandatory as it already is:
+
+1. **`Workflows/RELEASE.md` Step 5 (Director approval) stands unchanged.** That step states plainly: *"No merge to `main` happens without explicit Director approval."* The Main Agent runs Steps 1 through 4 (readiness review, version bump on `develop`, release branch creation, acceptance testing) autonomously and arrives at Step 5 without needing to be prompted — but it then stops and surfaces the release for the Director's explicit approval before any merge to `main`. Reaching the gate faster and with less hand-holding is the improvement; passing through it without the Director is still forbidden.
+2. **`Workflows/HOTFIX.md`'s gates stand unchanged.** That workflow's Purpose is explicit: *"A hotfix bypasses the standard feature development cycle but never bypasses review, testing, or Director approval. Speed is not a substitute for quality gates."* Its Step 1 requires that *"No hotfix work begins without this authorization,"* its Step 5 code review that *"time pressure does not justify skipping steps,"* and its Step 7 Director approval before the merge to `main`. Autonomous execution means the Main Agent moves through the non-gated steps without prompting; it does not mean it moves through the gated ones without the Director.
+
+This section adds nothing to how each individual step is conducted — the existing sections already govern that:
+
+- **`Verification Over Waiting` (above)** defines how the Main Agent confirms a step is actually done: by checking the repository directly — git status, git diff, git log, the file system, test output — rather than waiting for or depending on a status report before it advances. Autonomous pacing relies on exactly that: each step's real, verified output is what authorizes the next, never an assumption that the previous step "should be done by now."
+- **`Dispatch Discipline` (above)** still governs every step in the sequence. Running the process autonomously never means absorbing a step personally — each step is still dispatched to its named Employee, through an Employee Brief, exactly as `No Direct Implementation` and `No Direct Research` require. Autonomy is in the *pacing* of the dispatches, never in *who performs* them.
+
+**This principle is portable.** It is not tied to `Workflows/RELEASE.md`, `Workflows/HOTFIX.md`, or this framework's specific step numbering. Wherever a project defines a release process as a sequence of steps with one or more mandatory approval gates, the same rule applies: the Main Agent runs everything *between* the gates autonomously, without step-by-step prompting, and stops at each gate the process itself makes mandatory. The specific steps and gate placements differ per project; the autonomy-between-gates principle does not.
+
+---
+
 # Communication Rules
 
 The Main Agent communicates clearly and concisely.
@@ -244,7 +264,7 @@ A successful execution is one where:
 
 # Document Metadata
 
-Version: 0.0.2
+Version: 0.0.3
 
 Status: Stable
 
