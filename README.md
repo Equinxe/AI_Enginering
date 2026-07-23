@@ -71,7 +71,7 @@ Current Version
 
 ```
 
-v0.0.9 - Adapters
+v0.0.9.3 - Back-Merge via Pull Request
 
 ```
 
