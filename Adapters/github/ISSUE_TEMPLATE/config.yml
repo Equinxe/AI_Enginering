@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Questions / Support
+    url: https://github.com/OWNER/REPO/discussions
+    about: "Placeholder — adopting projects should replace OWNER/REPO with their own repository, or point this at their own support channel."
+  - name: Security Vulnerability
+    url: https://github.com/OWNER/REPO/security/advisories/new
+    about: "Placeholder — adopting projects should replace OWNER/REPO. Use this for responsible disclosure instead of a public issue."
