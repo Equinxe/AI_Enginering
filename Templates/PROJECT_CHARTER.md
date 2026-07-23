@@ -158,7 +158,7 @@ Example: `PROJECT_CHARTER-shop-checkout-service.md`
 
 Owner: IA Engineering
 
-Version: 0.0.5
+Version: 0.0.10
 
 Status: Draft
 
