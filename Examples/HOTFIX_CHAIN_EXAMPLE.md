@@ -66,9 +66,9 @@ Validates:
 
 # Step 6 — Release Manager
 
-1. Merges `hotfix/trailing-slash-500` → `main`.
+1. Opens a Pull Request from `hotfix/trailing-slash-500` to `main` and merges after Director approval.
 2. Tags `v1.3.1`.
-3. **Back-merges `main` into `develop`** so the fix is not lost in the next regular release.
+3. Opens a Pull Request from `main` to `develop` — the `pre-push` hook (`Adapters/git-hooks/pre-push`) blocks direct pushes to `develop`, so the back-merge goes through review like any other change. Merges once CI passes so the fix is not lost in the next regular release.
 
 **Output:** v1.3.1 live. Fix present in both `main` and `develop`.
 
@@ -86,7 +86,7 @@ Validates:
 
 Owner: IA Engineering
 
-Version: 0.0.7
+Version: 0.0.8
 
 Status: Draft
 

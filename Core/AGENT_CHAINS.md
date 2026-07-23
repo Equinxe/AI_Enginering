@@ -102,7 +102,11 @@ Main Agent → Director
 ```
 Release Manager
       ↓
-  [Release branch — changelog — version bump]
+  [Version bump on develop — changelog]
+      ↓
+Release Manager
+      ↓
+  [Release branch — pure snapshot of develop]
       ↓
 QA Engineer
       ↓
@@ -260,7 +264,7 @@ Custom chains must follow the same dispatch rules as named chains: sequential by
 
 Owner: IA Engineering
 
-Version: 0.0.6
+Version: 0.0.7
 
 Status: Draft
 
