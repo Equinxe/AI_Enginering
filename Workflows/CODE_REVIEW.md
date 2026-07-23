@@ -25,6 +25,7 @@ It ensures every change is reviewed systematically, that feedback is actionable,
 | Security Engineer | Reviews security findings escalated by the Code Reviewer |
 | Software Architect | Reviews architectural concerns escalated by the Code Reviewer |
 | Engineering Manager | Resolves blockers when review cycles exceed two rounds |
+| QA Engineer | Validates the change after approval when it is security-sensitive or high-risk (see "Security-Sensitive or High-Risk Changes") |
 
 ---
 
@@ -163,6 +164,26 @@ Document the decision with a summary comment stating what was reviewed and what 
 **Output:** PR updated, review re-requested.
 
 **Handoff to:** Step 1 (reviewer re-enters the workflow for the new diff only).
+
+---
+
+# Security-Sensitive or High-Risk Changes
+
+After the Code Reviewer approves a PR, the change is routed to the QA Engineer for validation when it is **security-sensitive or high-risk**. This is not an informal judgment — it is checked against the concrete trigger list below. If a PR touches any of the following, it is security-sensitive or high-risk and QA Engineer validation is required before delivery:
+
+- **Authentication or authorization logic** — login, session handling, or changes to an access-control or permission/role model.
+- **Credentials, secrets, or keys** — handling of passwords, API keys, tokens, certificates, or any secret material.
+- **Regulated or personal data** — processing, storage, or transmission of PII or other data governed by GDPR, HIPAA, PCI-DSS, SOC 2, or an equivalent framework.
+- **Payment or financial transaction processing.**
+- **Cryptography usage** — encryption, hashing, signing, or key management.
+- **Public-facing API surface** — new or modified externally reachable endpoints, request/response contracts, or API authentication.
+- **Untrusted input at a trust boundary** — parsing, deserialization, file upload, or query construction from external input.
+- **Infrastructure, deployment, or configuration with production access** — IAM policies, network exposure, or secrets-management configuration.
+- **Security architecture changes** — any change that meets the "Security architecture change" ADR trigger in `Workflows/ARCHITECTURE_DECISION.md`.
+
+If the Code Reviewer flags a security concern during the review (Step 4), the Security Engineer is engaged before the QA Engineer, per the Escalation table.
+
+When in doubt: treat the change as security-sensitive and route it through QA Engineer validation. The cost of an unnecessary validation is lower than the cost of shipping an unreviewed security-sensitive change.
 
 ---
 
