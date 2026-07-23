@@ -102,7 +102,7 @@ At creation the release branch is an exact snapshot of `develop`, version bump i
 4. Document results: pass/fail for each test case.
 
 If a defect is found:
-- Minor defect: fix on the release branch, commit following the Commit Standard. Note that this causes the release branch to diverge from `develop`, which makes the back-merge in Step 8 necessary.
+- Minor defect: branch protection blocks direct pushes to `release/vX.X.X`, so the fix goes through a Pull Request like any other change, the same way the back-merge in Step 8 already does. Branch from the release branch (for example `fix/release-vX.X.X-short-description`), commit the fix following the Commit Standard, open a Pull Request targeting the release branch (`release/vX.X.X`, not `develop`), wait for CI to pass, have the Code Reviewer review it, then merge into the release branch. This causes the release branch to diverge from `develop`, which makes the back-merge in Step 8 necessary.
 - Critical or high defect: escalate to the Director. The release may be blocked or the defect deferred.
 
 **Output:** Release acceptance test report.
