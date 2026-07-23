@@ -34,6 +34,8 @@ This is a documented convention, not a runtime feature. Per `Core/AI_MANIFEST.md
 | Software Architect | Owns Phase B, drafts the Stack Decision ADR |
 | DevOps Engineer | Scaffolds the CI/CD Adapter and GHCR Adapter once the stack is known |
 | GitOps Engineer | Consulted on CI/CD and GHCR Adapter scaffolding |
+| Compliance Engineer | Consulted on Phase A questions #6 (compliance/regulatory) and #7 (data sensitivity) |
+| Security Engineer | Consulted on Phase A questions #6 (compliance/regulatory) and #7 (data sensitivity) |
 
 ---
 
@@ -58,8 +60,10 @@ The Main Agent asks the Director a set of business-before-tech questions, roughl
 3. **Scope & non-goals** — What is explicitly in scope for v1? What is explicitly out of scope?
 4. **Success criteria** — How is "working" measured? What is the definition of done for launch?
 5. **Constraints** — Is there a deadline, a budget, a team size, existing systems to integrate with?
-6. **Compliance / regulatory** — Does GDPR, HIPAA, PCI, data residency, or licensing apply?
+6. **Compliance / regulatory** — Does GDPR, HIPAA, PCI, SOC 2, ISO 27001, data residency, or licensing apply? What is the jurisdiction / geography of users and data processing — this is upstream of every other question here, since "does GDPR apply" cannot be answered without knowing where data subjects and processing are located. What are the breach notification obligations (e.g., GDPR Art. 33/34's 72-hour window) and data subject rights (access/erasure/portability, Art. 15-20) — both drive architecture decisions (logging, export/delete capability) and belong at inception, not retrofitted later.
 7. **Data sensitivity** — Will this handle PII or secrets? What are the retention needs?
+
+> The frameworks and obligations named above (GDPR, HIPAA, PCI, SOC 2, ISO 27001, etc.) are engineering-discovery prompts to surface what needs architectural attention — not a statement of legal completeness, and not a substitute for qualified legal counsel. See the Compliance Engineer's Failure Modes for the same caveat applied to that Employee's own output.
 8. **Scale expectations** — What is the expected user/request/data volume at launch, and at a future horizon?
 9. **Lifecycle** — Is this a prototype, a product, a long-lived system? What maintenance is expected?
 10. **Stakeholders & decision authority** — Who is the Director for this project? Who else must approve decisions?
@@ -160,6 +164,8 @@ Issue templates are an **independent external intake surface** — a way for any
 
 With the stack decided and the repository, CI/CD, GHCR, and issue templates all scaffolded, this workflow ends and control passes to `Workflows/ONBOARDING.md`, beginning at **Step 4 — Activate employees**. Onboarding Steps 1-3 (import the framework, define project context, architecture review) are already satisfied by this workflow's Phase A/Phase B work and do not need to be repeated. Onboarding's Step 5 (Initialize git workflow) is also already satisfied by Step 3 and Step 4 above — do not repeat it.
 
+If Phase A question #6 or #7 (Step 1) was answered positively, the compliance flag and its follow-on Work Unit or handoff note (see the Escalation table below) must be carried into this handoff explicitly — it does not get dropped silently just because control is passing to a new document.
+
 **Output:** Control handed to `Workflows/ONBOARDING.md` at Step 4.
 
 **Handoff to:** `Workflows/ONBOARDING.md` Step 4 onward (roster activation, first Work Unit, readiness confirmation).
@@ -209,6 +215,7 @@ This workflow is complete when:
 | Desired CI host is not GitHub | Director — no Adapter exists yet for other hosts (see `Adapters/README.md` Planned) |
 | Desired stack is not Node, Python, Go, or JVM | Software Architect — use the Generic fallback template, document any gaps |
 | Deployment (beyond GHCR build/publish) is requested | Director — out of scope for this milestone, requires a future Deployment milestone |
+| Phase A question #6 or #7 is answered positively (compliance/regulatory framework applies, or PII/sensitive data is held) | Compliance Engineer (and Security Engineer) — this is a structural trigger, not optional: it must produce either a follow-on Work Unit for gap analysis and control work, or at minimum an explicit compliance flag carried into the `Workflows/ONBOARDING.md` handoff. A positive answer that only gets recorded in the Project Charter with no further action is an incomplete Phase A. |
 
 ---
 
