@@ -67,6 +67,7 @@ The Main Agent asks the Director a set of business-before-tech questions, roughl
 8. **Scale expectations** — What is the expected user/request/data volume at launch, and at a future horizon?
 9. **Lifecycle** — Is this a prototype, a product, a long-lived system? What maintenance is expected?
 10. **Stakeholders & decision authority** — Who is the Director for this project? Who else must approve decisions?
+11. **Assumptions & Risks** — What must be true for this to succeed? What is the biggest risk to delivery?
 
 **Output:** Phase A answers captured. These become the durable **Project Charter** artifact (`Templates/PROJECT_CHARTER.md`), which records the business-requirements answers so they are not lost once implementation begins.
 

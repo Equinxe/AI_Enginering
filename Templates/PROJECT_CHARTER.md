@@ -6,7 +6,7 @@
 
 A Project Charter is the durable, reviewable record of the business and project answers gathered before any tech-stack discussion begins.
 
-It captures Phase A of the Project Bootstrap Workflow: the business goal, users, scope, success criteria, constraints, compliance, data sensitivity, scale, lifecycle, and stakeholders for a new project — before any technology is chosen.
+It captures Phase A of the Project Bootstrap Workflow: the business goal, users, scope, success criteria, constraints, compliance, data sensitivity, scale, lifecycle, stakeholders, and assumptions & risks for a new project — before any technology is chosen.
 
 The Project Charter does not contain technology decisions. The tech-stack decision (Phase B of the Project Bootstrap Workflow) is captured separately as an Architecture Decision Record. Do not add a stack or technical section to this document.
 
@@ -42,9 +42,10 @@ The frameworks named in Section 6 (GDPR, HIPAA, PCI, SOC 2, ISO 27001, etc.) are
 
 ### 3. Scope & Non-Goals
 
-**In scope for v1:**
-- [Capability 1]
-- [Capability 2]
+**In scope for v1** (MoSCoW-prioritized):
+- **Must have:** [Capability 1]
+- **Should have:** [Capability 2]
+- **Could have:** [Capability 3]
 
 **Explicitly out of scope:**
 - [Non-goal 1 — and why it is excluded]
@@ -56,7 +57,7 @@ The frameworks named in Section 6 (GDPR, HIPAA, PCI, SOC 2, ISO 27001, etc.) are
 
 [How "working" is measured. The launch definition of done.]
 
-- [ ] [Measurable criterion 1 — e.g., "95% of requests complete under 200ms"]
+- [ ] [Measurable criterion 1 — e.g., "increase customer retention by 10% within two quarters after launch"]
 - [ ] [Measurable criterion 2]
 - [ ] [Launch definition of done]
 
@@ -120,6 +121,16 @@ The frameworks named in Section 6 (GDPR, HIPAA, PCI, SOC 2, ISO 27001, etc.) are
 **Director:** [name — final decision authority]
 **Other approvers:** [name and role — e.g., Compliance Engineer and Security Engineer for compliance sign-off on Sections 6-7]
 **Escalation path:** [who to escalate to if the Director is unavailable]
+
+---
+
+### 11. Assumptions & Risks
+
+[What must be true for this project to succeed, and what could cause it to fail:]
+
+- **Key assumptions:** [what must be true for this to succeed, or "none identified"]
+- **Biggest risk to delivery:** [the single largest risk, and its likely impact]
+- **Other known risks:** [additional risks worth tracking, or "none"]
 ```
 
 ---
@@ -138,6 +149,7 @@ The frameworks named in Section 6 (GDPR, HIPAA, PCI, SOC 2, ISO 27001, etc.) are
 | Scale Expectations | Sizes the system correctly from the start | No horizon estimate — only launch-day numbers |
 | Lifecycle | Sets maintenance and investment expectations | Treating every project as a permanent product |
 | Stakeholders & Decision Authority | Establishes who approves what | No named Director or escalation path |
+| Assumptions & Risks | Surfaces what must be true for success and the biggest threat to delivery | Skipping this because "everything is uncertain at inception" — that is precisely why it must be captured |
 
 ---
 
