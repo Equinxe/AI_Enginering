@@ -1,0 +1,72 @@
+name: IA Engineering - GHCR Publish
+
+# Builds the project's root Dockerfile and publishes the resulting image to the
+# GitHub Container Registry (ghcr.io/<owner>/<repo>).
+#
+# SCOPE — build + push ONLY. This Adapter intentionally contains no deployment,
+# environment, orchestration, Kubernetes, or Compose configuration. Turning a
+# published image into a running deployment is a separate, future milestone.
+#
+# Triggers (both implemented):
+#   - push of a version tag `v*` -> a versioned release image
+#   - push to `main`             -> a rolling image for the default branch
+#
+# Tagging strategy (via docker/metadata-action):
+#   :latest        on the default branch push
+#   :<semver>      derived from a `v*` git tag (v1.2.3 -> 1.2.3, 1.2, ...)
+#   :<short-sha>   on every run, for traceability back to a commit
+#
+# Auth: the built-in GITHUB_TOKEN with `packages: write` — no extra secret is
+# required to push to GHCR for this repository's own namespace.
+#
+# Install in a bootstrapped project (see Adapters/scripts/setup-project-bootstrap.sh):
+#   mkdir -p .github/workflows
+#   cp ia-engineering/Adapters/github-actions/ghcr-publish.yml .github/workflows/
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+
+# Least-privilege token: read the repo to build, write packages to publish.
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build-and-push:
+    name: Build & Push Image
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          # Built-in token — no manually managed secret needed for GHCR.
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Derive image tags & labels
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          # metadata-action lowercases the image name, so a mixed-case
+          # owner/repo (github.repository) still produces a valid GHCR ref.
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=semver,pattern={{version}}
+            type=sha,format=short
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          # The stack-appropriate Dockerfile installed at the project root by
+          # setup-project-bootstrap.sh.
+          file: Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
