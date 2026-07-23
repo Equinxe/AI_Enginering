@@ -23,6 +23,7 @@ It ensures every change is reviewed systematically, that feedback is actionable,
 | Code Reviewer | Executes the review and delivers a decision |
 | Engineer (author) | Responds to review comments and makes requested changes |
 | Security Engineer | Reviews security findings escalated by the Code Reviewer |
+| Compliance Engineer | Reviews compliance findings escalated by the Code Reviewer (regulated data handling, retention/deletion logic, cross-border data transfer) |
 | Software Architect | Reviews architectural concerns escalated by the Code Reviewer |
 | Engineering Manager | Resolves blockers when review cycles exceed two rounds |
 | QA Engineer | Validates the change after approval when it is security-sensitive or high-risk (see "Security-Sensitive or High-Risk Changes") |
@@ -83,7 +84,7 @@ If tests are missing or insufficient: this is a blocking issue. Request changes.
 
 ---
 
-## Step 4 — Review security
+## Step 4 — Review security and compliance
 
 **Actor:** Code Reviewer
 
@@ -91,10 +92,13 @@ If tests are missing or insufficient: this is a blocking issue. Request changes.
 2. Verify no credentials, secrets, or sensitive data are in the diff.
 3. Check that user input is validated at system boundaries.
 4. Verify authentication and authorization are correctly applied to new endpoints or functions.
+5. Check for compliance-relevant content: regulated data handling (PII, payment data, health data), retention/deletion logic, or cross-border data transfer.
 
 If a security issue is found: escalate immediately to the Security Engineer. Do not wait for the full review to complete.
 
-**Output:** Security assessment. Escalation opened if needed.
+If compliance-relevant content is found: escalate immediately to the Compliance Engineer, the same way a security issue escalates to the Security Engineer. Do not wait for the full review to complete.
+
+**Output:** Security assessment. Escalation opened if needed (Security Engineer and/or Compliance Engineer).
 
 ---
 
@@ -202,6 +206,7 @@ This workflow is complete when:
 | Situation | Escalate to |
 |---|---|
 | Security vulnerability found | Security Engineer — immediately |
+| Compliance-relevant content found (regulated data handling, retention/deletion logic, cross-border data transfer) | Compliance Engineer — immediately |
 | Architectural issue found | Software Architect |
 | Review exceeds two cycles without resolution | Engineering Manager |
 | Author is unresponsive for more than one business day | Engineering Manager |
