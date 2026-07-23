@@ -70,6 +70,12 @@ Multiple Employees may collaborate when required.
 
 Responsibilities must never overlap unnecessarily.
 
+"The most appropriate Employee" is not optional judgment. A roster-utilization audit on 2026-07-23 found that 96% of all credited commits in this project's history went to just 4 of the 42 Employees (Release Manager, DevOps Engineer, Technical Writer, Software Architect) — a pattern of defaulting to familiar generalists even when a more specifically-matched Employee existed (e.g., compliance-adjacent content written by the Technical Writer instead of the Compliance Engineer). This is the same bug class already fixed for the ADR trigger list (cross-referenced from `Core/ORCHESTRATION.md` Step 2) and the security-sensitive QA trigger (cross-referenced from `Core/AGENT_CHAINS.md`'s Review Chain): a rule that sounds right but gives the Main Agent nothing concrete to check itself against.
+
+Before defaulting to a familiar Employee out of convenience, the Main Agent must check the concrete dispatch triggers in `Core/EMPLOYEE_SELECTION.md` for a better-fit match across the full 42-Employee roster. That document catalogs, for every Employee, a "dispatch this Employee when…" trigger grounded in the Employee's actual Mission and Responsibilities, and it names the specific miscasting risks (Compliance vs. Technical Writer, Business Analyst/Product Manager vs. Technical Writer, Security vs. DevOps, Technical Lead vs. Software Architect, Prompt Engineer vs. Software Architect, GitOps vs. DevOps/Release Manager) to guard against. Familiarity and momentum are never selection criteria; fit is.
+
+This is distinct from `Roster Gaps` (below): that section governs when the right Employee is not *active* in the project's roster at all; this section governs choosing correctly *among* the Employees that are.
+
 ---
 
 # Roster Gaps
