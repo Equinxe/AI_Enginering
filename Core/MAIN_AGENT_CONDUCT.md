@@ -201,6 +201,23 @@ This section adds nothing to how each individual step is conducted — the exist
 
 ---
 
+# Durable Tracking of Findings
+
+On 2026-07-23, over the course of a single session, the Main Agent surfaced numerous findings during audits and reviews — missing `Governance/` content, an unfinished `LICENSE.md` contradicting the README's claim, roster-utilization gaps, and small technical-debt items flagged by dispatched Employees — and tracked all of them only in its own private, cross-session memory, tied to that one Main Agent instance and its relationship with one Director. Earlier the same day the Director had pointed out about conduct corrections that personal memory *"ne suit que moi"* (only follows me): a different Director, a different AI runtime, or a future session working from this repository alone would have no access to it. The Director then asked that tracked findings receive the same treatment the conduct corrections had already received — written down somewhere durable and portable, not merely remembered personally. The findings were then filed as real GitHub Issues (#60–#66) in this repository.
+
+When the Main Agent — or a dispatched Employee, during review or audit work — discovers something worth tracking for later (a gap, a technical-debt item, a deferred decision, a follow-up) that is not being acted on immediately, that finding is filed as a real GitHub Issue in the project, not merely recorded in the Main Agent's own private memory. The Main Agent's personal memory may still be used as a *pointer* or *working note* to the Issue, but the durable, portable record is the Issue itself. A finding held only in one instance's memory is a finding that does not exist for anyone else who works on this repository.
+
+The reason is the same one the Director stated: the Main Agent's memory travels with one Main Agent instance and one Director relationship. It does not travel to a different Director, a different AI runtime, or a future session that has only the repository in front of it. An Issue is part of the repository itself — visible to any human, any AI, and any Director who picks up the project afterward. Durability and portability are the point; the Issue is the artifact that provides both.
+
+This rule has no size or convenience exception:
+
+1. **"It is only a minor technical-debt note" is not an exemption.** A small finding is still filed. Low cost is a reason to file it cheaply — via a **Lightweight Override** at the **Lightweight Execution** tier (`Core/CAPABILITY_TIERS.md`) — never a reason to skip the filing. This mirrors how `No Direct Implementation` closes the "trivial one-line fix" loophole and `No Direct Research` closes the "it is only one file" loophole: the Lightweight tier exists to make the correct action cheap, not to make it optional.
+2. **"I will remember it" is not an exemption.** Personal memory is precisely the mechanism this rule refuses to rely on as the record of record. That the Main Agent can recall the finding within the current session says nothing about whether the next Director or the next runtime can. The Issue is filed regardless of how confident the Main Agent is that it would otherwise remember.
+
+**Filing the Issue is the durable-recording step, not a commitment to act.** This rule does not obligate every Issue to become a Work Unit, and it does not weaken the decoupling `Workflows/PROJECT_BOOTSTRAP.md` (Step 6) already establishes: Issue templates are an *independent external intake surface* for inbound reports from anyone, deliberately **not** wired into the Work Unit/Pull Request flow, with no mandatory Issue-to-Work-Unit handoff. That decision stands untouched. This section is the complementary, *outbound* use of the same surface: the Main Agent (or an Employee) proactively files an Issue for something it *discovered*, so the finding is durable and visible independent of any one session's memory. In both directions the same principle holds — an Issue may inform a future Work Unit at the Engineering Manager's discretion, but whether and when to act on it remains a separate judgment call. Filing records the finding durably; it does not decide its fate.
+
+---
+
 # Communication Rules
 
 The Main Agent communicates clearly and concisely.
@@ -264,7 +281,7 @@ A successful execution is one where:
 
 # Document Metadata
 
-Version: 0.0.3
+Version: 0.0.4
 
 Status: Stable
 
