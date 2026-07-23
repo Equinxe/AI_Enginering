@@ -89,6 +89,8 @@ QA Engineer  (if feature is security-sensitive or high-risk)
 Main Agent → Director
 ```
 
+**"Security-sensitive or high-risk" is not optional judgment:** Whether the QA Engineer step is inserted must be checked against the concrete trigger list in `Workflows/CODE_REVIEW.md`, not decided by informal impression. That list includes, among others: authentication or authorization logic, handling of credentials/secrets/keys, processing of PII or other regulated data, payment processing, cryptography usage, public-facing API surface changes, untrusted input at a trust boundary, and infrastructure/deployment configuration with production access. If any trigger is met, the QA Engineer validates the change before delivery to the Director.
+
 **Security escalation:** If the Code Reviewer flags a security concern, the Security Engineer is inserted before QA.
 
 ---
