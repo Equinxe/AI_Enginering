@@ -22,6 +22,7 @@ This project follows Semantic Versioning, extended with an informal 4th segment 
 
 Consistency and process fixes merged on `develop` after v0.0.9.3, ahead of the Project Bootstrap milestone content, that never received their own version bump:
 
+- `Workflows/RELEASE.md` — the version bump now happens on `develop` before the release branch is cut, as its own step, so the release branch is a pure snapshot with no separate version-bump commit (WU-IAENG-099)
 - `Core/MAIN_AGENT_CONDUCT.md` — added a "No Direct Research" rule: the Main Agent must delegate research and reading (deciding which Employee fits, digging through git history), not just implementation (WU-IAENG-101)
 - Version references synced and Employee roster names canonicalized across docs (WU-IAENG-102)
 - `Examples/RELEASE_CHAIN_EXAMPLE.md`, `Examples/HOTFIX_CHAIN_EXAMPLE.md`, `Core/AGENT_CHAINS.md` — realigned with the current `Workflows/RELEASE.md` and `Workflows/HOTFIX.md` steps (WU-IAENG-103)
@@ -31,7 +32,7 @@ Consistency and process fixes merged on `develop` after v0.0.9.3, ahead of the P
 
 ### Notes
 
-This release delivers the "Project Bootstrap" milestone: a complete workflow, template, and Adapter set for standing up a brand-new project under the framework, hardened with Compliance/Security and Business/Product review passes. It also carries forward six consistency and process fixes (WU-IAENG-100 audit and related findings) that landed on `develop` between v0.0.9.3 and this milestone but were never released under their own version number — folded into this bump rather than lost from the historical record.
+This release delivers the "Project Bootstrap" milestone: a complete workflow, template, and Adapter set for standing up a brand-new project under the framework, hardened with Compliance/Security and Business/Product review passes. It also carries forward seven consistency and process fixes (WU-IAENG-099 and the WU-IAENG-100 audit and related findings) that landed on `develop` between v0.0.9.3 and this milestone but were never released under their own version number — folded into this bump rather than lost from the historical record.
 
 ---
 

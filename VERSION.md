@@ -147,6 +147,7 @@ Status
 
 Consistency fixes carried into this release (merged on `develop` after v0.0.9.3, never individually version-bumped):
 
+- [x] `Workflows/RELEASE.md` — version bump now performed on `develop` before the release branch is cut, making the release branch a pure snapshot (WU-IAENG-099)
 - [x] `Core/MAIN_AGENT_CONDUCT.md` — No Direct Research conduct rule (WU-IAENG-101)
 - [x] Version references synced and Employee roster names canonicalized across docs (WU-IAENG-102)
 - [x] `Examples/RELEASE_CHAIN_EXAMPLE.md`, `Examples/HOTFIX_CHAIN_EXAMPLE.md` — aligned with current Workflow steps (WU-IAENG-103)
