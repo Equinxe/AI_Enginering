@@ -24,6 +24,12 @@ Adapters are AI-agnostic in the sense that matters: they check work by any Emplo
 
 ---
 
+# Verification Log
+
+- **2026-07-23** — The `git-hooks/commit-msg` merge-commit exception (WU-IAENG-106, PR #40) was merged into `develop` via a Director admin bypass, with no CI run ever firing against it. WU-IAENG-107 added this entry specifically to force a real PR and CI run against current `develop`, so `Shellcheck Adapters` could validate the change post-hoc. See that PR's `Shellcheck Adapters` check result for the outcome.
+
+---
+
 # Installation
 
 Run from the root of a project that has imported IA Engineering as a Git submodule at `ia-engineering/` (see `Workflows/ONBOARDING.md`).
