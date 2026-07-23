@@ -55,11 +55,11 @@ Before assigning a version number to a batch of merged work, ask:
 
 ## Worked example: v0.0.10.1 (2026-07-23)
 
-Seven fixes had accumulated on `develop` after v0.0.10 (Project Bootstrap) shipped:
+Seven Work Units had accumulated on `develop` after v0.0.10 (Project Bootstrap) shipped, grouped below into six lines (the QA and Compliance Engineer trigger-criteria Work Units share one line, since they landed as one combined change):
 
 - Branch protection for `release/*` branches (closing a gap that let an unreviewed direct push land on a release branch).
 - A `Workflows/RELEASE.md` correction so minor release-branch defect fixes go through a PR instead of a direct push, matching the new branch protection.
-- Concrete QA/Compliance Engineer trigger criteria added to existing escalation rules in `Workflows/CODE_REVIEW.md`, `Workflows/FEATURE_DEVELOPMENT.md`, and `Core/AGENT_CHAINS.md`.
+- Concrete QA Engineer and Compliance Engineer trigger criteria added to existing escalation rules in `Workflows/CODE_REVIEW.md`, `Workflows/FEATURE_DEVELOPMENT.md`, and `Core/AGENT_CHAINS.md` (two Work Units).
 - Two CI checks added to the existing PR-validation Adapter.
 - `Examples/RELEASE_CHAIN_EXAMPLE.md` realigned to the corrected mechanism.
 - The Apache 2.0 license copyright notice completed (the license text itself had shipped earlier; only its header was incomplete).
@@ -86,10 +86,12 @@ This is the concrete failure mode the rule above exists to prevent: a milestone 
 
 Every governed document in this repository (Core, Standards, Employees, Workflows, Templates, Governance) carries its own `Version:` field in its `# Metadata` / `# Document Metadata` footer. This is independent of the framework-wide version in `VERSION.md` — it tracks that specific document's own revision history.
 
-- **A document's internal `Version` bumps only when it receives a substantive new capability** — a new rule, a new section that changes what the document governs, a materially new mechanism — delivered in a later milestone. Wording fixes, typo corrections, cross-reference updates, and other non-substantive edits do not bump it.
-- **A brand-new document's initial internal `Version` is the milestone it is created in.** It does not start at an arbitrary baseline unrelated to when it was authored.
+- **A document's internal `Version` bumps on every substantive new capability it receives** — a new rule, a new section that changes what the document governs, a materially new mechanism — whether that addition lands within the same milestone/session it was last touched in, or in a later one. Wording fixes, typo corrections, cross-reference updates, and other non-substantive edits do not bump it.
+- **A brand-new document's initial internal `Version` is seeded at the milestone it is created in.** It does not start at an arbitrary baseline unrelated to when it was authored.
 
-This document is itself the first application of that second rule: it is created during the **v0.0.11 — Governance** milestone, so its initial `Version:` (see Metadata below) is `0.0.11`, not `0.0.1`.
+The field is a **per-document revision counter**, seeded at the creation milestone, not a live mirror of the framework's own `MILESTONE` segment. The two will diverge quickly by design: a document created at milestone 11 that later receives two more substantive additions becomes `0.0.13` — a revision count of three substantive changes, not a claim that "milestone 13" exists anywhere in `VERSION.md`. `Core/MAIN_AGENT_CONDUCT.md` is the concrete example: its `Version` field advanced `0.0.1` → `0.0.5` across five substantive rule additions made within the same v0.0.10 / v0.0.10.1 window, not across five separate framework milestones.
+
+This document is itself the first application of the seeding rule: it is created during the **v0.0.11 — Governance** milestone, so its initial `Version:` (see Metadata below) is `0.0.11`, not `0.0.1`.
 
 ---
 
