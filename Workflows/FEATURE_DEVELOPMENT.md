@@ -28,6 +28,7 @@ It governs every engineer involved in feature development and ensures that every
 | Code Reviewer | Reviews the Pull Request |
 | QA Engineer | Validates the implementation against acceptance criteria |
 | Technical Lead | Resolves technical blockers, bridges architect and engineers |
+| Compliance Engineer | Consulted when the Work Unit's scope involves regulated or sensitive data (PII, payment data, health data) or a named regulatory framework (GDPR, HIPAA, PCI-DSS, SOC 2, ISO 27001) |
 
 ---
 
@@ -186,6 +187,7 @@ This workflow is complete when:
 | Work Unit scope is unclear or contradicts acceptance criteria | Engineering Manager → Product Manager |
 | Code review cannot reach agreement after two cycles | Engineering Manager |
 | QA finds a critical defect that requires rework | Engineering Manager + Director notified |
+| Work Unit involves PII, payment data, health data, or a named regulatory framework (GDPR, HIPAA, PCI-DSS, SOC 2, ISO 27001) | Compliance Engineer |
 
 ---
 
