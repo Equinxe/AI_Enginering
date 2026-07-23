@@ -1,0 +1,145 @@
+name: IA Engineering - CI Build & Test
+
+# Parametric CI for a project bootstrapped from IA Engineering
+# (Workflows/PROJECT_BOOTSTRAP.md). One project, one stack: rather than a
+# separate workflow per language, this file runs a single job that first
+# DETECTS the project's stack from well-known manifest files, then executes
+# only the build/test steps that match. Every language step is guarded by an
+# `if:` on the detection output, so exactly one path runs per project.
+#
+# Mechanism (chosen for clarity over a build matrix — a bootstrapped project
+# has exactly one stack, so a matrix would only ever populate one cell):
+#   1. A `Detect project stack` step inspects the repo root and writes a single
+#      `stack` output (node | python | go | jvm | generic).
+#   2. Each language block below runs only when `steps.detect.outputs.stack`
+#      equals its stack.
+#
+# Detection precedence (first match wins):
+#   package.json                              -> node
+#   pyproject.toml OR requirements.txt        -> python
+#   go.mod                                    -> go
+#   pom.xml OR build.gradle(.kts)             -> jvm
+#   (none of the above)                       -> generic  (explicit fallback)
+#
+# The Generic fallback does NOT fail the build silently — it emits a warning
+# and leaves a clearly marked placeholder for the adopting project to fill in
+# its own build/test commands.
+#
+# Install in a bootstrapped project (see Adapters/scripts/setup-project-bootstrap.sh):
+#   mkdir -p .github/workflows
+#   cp ia-engineering/Adapters/github-actions/ci-build-test.yml .github/workflows/
+#
+# Scoped to PRs targeting main or develop only, matching pr-validation.yml and
+# the Git Standard's protected-branch gate.
+
+on:
+  pull_request:
+    branches: [main, develop]
+    types: [opened, edited, synchronize, reopened]
+
+jobs:
+  build-test:
+    name: Build & Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Detect project stack
+        id: detect
+        run: |
+          # First match wins — see the precedence table in this file's header.
+          if [ -f package.json ]; then
+            stack=node
+          elif [ -f pyproject.toml ] || [ -f requirements.txt ]; then
+            stack=python
+          elif [ -f go.mod ]; then
+            stack=go
+          elif [ -f pom.xml ] || [ -f build.gradle ] || [ -f build.gradle.kts ]; then
+            stack=jvm
+          else
+            stack=generic
+          fi
+          echo "stack=$stack" >> "$GITHUB_OUTPUT"
+          echo "Detected stack: $stack"
+
+      # --- Node -------------------------------------------------------------
+      - name: Set up Node.js
+        if: steps.detect.outputs.stack == 'node'
+        uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+      - name: Node build & test
+        if: steps.detect.outputs.stack == 'node'
+        run: |
+          # Prefer a clean, reproducible install when a lockfile is present.
+          if [ -f package-lock.json ]; then
+            npm ci
+          else
+            npm install
+          fi
+          # Build only if the project defines a build script.
+          npm run build --if-present
+          npm test
+
+      # --- Python -----------------------------------------------------------
+      - name: Set up Python
+        if: steps.detect.outputs.stack == 'python'
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+      - name: Python build & test
+        if: steps.detect.outputs.stack == 'python'
+        run: |
+          python -m pip install --upgrade pip
+          # Install dependencies from whichever manifest the project ships.
+          if [ -f requirements.txt ]; then
+            pip install -r requirements.txt
+          fi
+          if [ -f pyproject.toml ]; then
+            pip install .
+          fi
+          # pytest is the assumed test runner; adjust if your project differs.
+          python -m pytest
+
+      # --- Go ---------------------------------------------------------------
+      - name: Set up Go
+        if: steps.detect.outputs.stack == 'go'
+        uses: actions/setup-go@v5
+        with:
+          go-version: stable
+      - name: Go build & test
+        if: steps.detect.outputs.stack == 'go'
+        run: |
+          go build ./...
+          go test ./...
+
+      # --- JVM (Maven or Gradle) -------------------------------------------
+      - name: Set up JDK
+        if: steps.detect.outputs.stack == 'jvm'
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: JVM build & test
+        if: steps.detect.outputs.stack == 'jvm'
+        run: |
+          # Maven takes precedence when a pom.xml exists; otherwise use Gradle,
+          # preferring the project's wrapper (./gradlew) when it is present.
+          if [ -f pom.xml ]; then
+            mvn -B verify
+          elif [ -x ./gradlew ]; then
+            ./gradlew build
+          else
+            gradle build
+          fi
+
+      # --- Generic fallback -------------------------------------------------
+      - name: Generic build & test (placeholder)
+        if: steps.detect.outputs.stack == 'generic'
+        run: |
+          echo "No first-class stack (Node, Python, Go, JVM) was detected."
+          # TODO(adopting project): replace the lines below with your project's
+          # real build and test commands, e.g.:
+          #   make build
+          #   make test
+          echo "::warning::Generic fallback in use — edit ci-build-test.yml to add your project's build and test commands."
