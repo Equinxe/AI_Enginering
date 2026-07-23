@@ -40,8 +40,8 @@ Status
 
 - [x] Management: Engineering Manager, Scrum Master, Technical Lead, Release Manager, Product Manager
 - [x] Architecture: Software Architect, Solution Architect, Data Architect
-- [x] Development: Backend Engineer, Frontend Engineer, iOS Engineer, Android Engineer, Cross Platform Engineer, Database Engineer, Event Driven Engineer, Integration Engineer
-- [x] DevOps: DevOps Engineer, GitOps Engineer, SRE Engineer, Cloud Engineer, Platform Engineer, IaC Engineer, Observability Engineer
+- [x] Development: Backend Engineer, Frontend Engineer, iOS Engineer, Android Engineer, Cross-Platform Engineer, Database Engineer, Event-Driven Engineer, Integration Engineer
+- [x] DevOps: DevOps Engineer, GitOps Engineer, SRE Engineer, Cloud Engineer, Platform Engineer, Infrastructure as Code Engineer, Observability Engineer
 - [x] Quality: QA Engineer, Performance Engineer, Security Engineer, Test Automation Engineer
 - [x] Data: Data Engineer, ML Engineer, Data Scientist, MLOps Engineer, Analytics Engineer
 - [x] Documentation: Documentation Engineer, Technical Writer
@@ -139,7 +139,7 @@ Status
 
 ### Back-Merge via Pull Request (v0.0.9.3)
 
-- [x] `Workflows/RELEASE.md` Step 7 and `Workflows/HOTFIX.md` Step 9 — both "Back-merge to develop" steps now describe opening a Pull Request (`main` → `develop`) merged once CI passes, instead of a direct `git push` that the `pre-push` hook (`Adapters/git-hooks/pre-push`, v0.0.9) unconditionally blocks — ninth finding
+- [x] `Workflows/RELEASE.md` Step 8 and `Workflows/HOTFIX.md` Step 9 — both "Back-merge to develop" steps now describe opening a Pull Request (`main` → `develop`) merged once CI passes, instead of a direct `git push` that the `pre-push` hook (`Adapters/git-hooks/pre-push`, v0.0.9) unconditionally blocks — ninth finding
 
 ---
 
@@ -148,7 +148,7 @@ Status
 Format: `MAJOR.MINOR.MILESTONE[.FIX]`
 
 - `MAJOR.MINOR` remain `0.0` until the framework reaches a stable public release.
-- `MILESTONE` increments once per completed milestone (Foundation, Standards, Employees, Workflows, Templates, Orchestration, Examples, Capability Tiers, Governance, Adapters, ...).
+- `MILESTONE` increments once per completed milestone (Foundation, Standards, Employees, Workflows, Templates, Orchestration, Examples, Capability Tiers, Adapters, Governance, ...).
 - `.FIX` is an optional 4th segment used only for post-release consistency corrections that do not introduce new capability and do not warrant consuming the next milestone number.
 
 ---
