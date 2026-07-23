@@ -6,16 +6,28 @@ This project follows Semantic Versioning, extended with an informal 4th segment 
 
 ---
 
-## [0.0.10.1] - License Finalization
+## [0.0.10.1] - Consistency & Compliance Hardening
+
+### Added
+
+- `Adapters/scripts/setup-branch-protection.sh` — `release/*` branch protection via GitHub's Rulesets API (blocks deletion, force-push, and direct pushes), closing the gap that let an unreviewed direct push land on `release/v0.0.10` (WU-IAENG-121)
+- `.github/workflows/pr-validation.yml`, `Adapters/github-actions/pr-validation.yml` — server-side `employee-trailer` CI check that backstops the client-side `commit-msg` hook, plus an advisory `review-recorded` check surfacing whether a Code Reviewer `Decision: approved` block was recorded on the PR (WU-IAENG-125)
 
 ### Fixed
 
+Corrections and hardening to already-shipped milestones (v0.0.9 Adapters, v0.0.10 Project Bootstrap), all merged on `develop` after v0.0.10 shipped — none introduce new capability at the milestone level:
+
+- `Workflows/RELEASE.md` — Step 4 minor-defect fixes found during release acceptance testing now land via a PR targeting the release branch instead of a direct push, since `release/*` branches are no longer writable directly (WU-IAENG-122)
+- `Workflows/CODE_REVIEW.md`, `Core/AGENT_CHAINS.md` — added a concrete, checkable "security-sensitive or high-risk" trigger list for QA Engineer insertion into the Review Chain, grounded in existing Employee Escalation Rules (WU-IAENG-123)
+- `Workflows/FEATURE_DEVELOPMENT.md`, `Workflows/CODE_REVIEW.md` — added Compliance Engineer entry points (regulated/sensitive data, named regulatory framework, retention/deletion logic, cross-border data transfer), mirroring how Security Engineer already escalates in both workflows (WU-IAENG-124)
+- `Adapters/README.md` — updated to describe all five Adapter CI checks, including the two added in WU-IAENG-125 (WU-IAENG-125)
+- `Examples/RELEASE_CHAIN_EXAMPLE.md` — realigned with the new PR-based release-branch-fix mechanism from WU-IAENG-122 (WU-IAENG-126)
 - `LICENSE.md` — completed the Apache License 2.0 copyright notice (`Copyright 2026 Equinxe`); the full Apache 2.0 license text had been present since the Foundation milestone, but its copyright header was left as the raw template placeholder (WU-IAENG-127)
 - `README.md` — License section updated from "To be defined before v1.0" to accurately state the project is licensed under Apache License 2.0, referencing `LICENSE.md` (WU-IAENG-127)
 
 ### Notes
 
-A full dogfooding audit found that `LICENSE.md` had contained the complete Apache License 2.0 text since the project's very first commit, but its copyright notice was never filled in, and `README.md` still described the license as undecided. The Director confirmed Apache License 2.0 as the deliberate, correct choice, with Equinxe as the copyright holder. This closes the gap between the license actually in the repository and what the project's own documentation claimed about it.
+This consolidates seven post-v0.0.10 fixes into a single `.FIX` release rather than shipping them under separate dot-releases. Six (WU-IAENG-121–126) close gaps between the release-branch protection added here and the Workflows/Adapters that assumed the old, unprotected behavior; the seventh (WU-IAENG-127) closes a long-standing gap between the license actually in the repository (complete Apache 2.0 text since the first commit) and what the project's own documentation claimed about it — the Director confirmed Apache License 2.0 as the deliberate, correct choice, with Equinxe as the copyright holder. None of these introduce new capability, so none consume the next milestone number; the real v0.0.11 — Governance milestone has not started.
 
 ---
 

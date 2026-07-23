@@ -6,7 +6,7 @@ Current Version
 
 Codename
 
-**License Finalization**
+**Consistency & Compliance Hardening**
 
 Status
 
@@ -165,8 +165,16 @@ Project Bootstrap milestone:
 - [x] Business/Product hardening — Assumptions & Risks category, business-outcome Success Criteria example, MoSCoW prioritization (WU-IAENG-116)
 - [x] `Core/MAIN_AGENT_CONDUCT.md` — Autonomous Release Execution conduct rule (WU-IAENG-117)
 
-### License Finalization (v0.0.10.1)
+### Consistency & Compliance Hardening (v0.0.10.1)
 
+Corrections and hardening to already-shipped milestones (v0.0.9 Adapters, v0.0.10 Project Bootstrap) merged on `develop` after v0.0.10 shipped — no new capability introduced:
+
+- [x] `Adapters/scripts/setup-branch-protection.sh` — `release/*` branch protection added via GitHub's Rulesets API (blocks deletion, force-push, and direct pushes), closing the gap that let an unreviewed direct push land on `release/v0.0.10` (WU-IAENG-121)
+- [x] `Workflows/RELEASE.md` — Step 4 minor-defect fixes now land via a PR targeting the release branch instead of a direct push, since `release/*` is now protected against direct pushes (WU-IAENG-122)
+- [x] `Workflows/CODE_REVIEW.md`, `Core/AGENT_CHAINS.md` — concrete "security-sensitive or high-risk" trigger criteria added for QA Engineer insertion, cross-referenced from the Review Chain (WU-IAENG-123)
+- [x] `Workflows/FEATURE_DEVELOPMENT.md`, `Workflows/CODE_REVIEW.md` — Compliance Engineer entry points added (regulated/sensitive data, named regulatory framework), mirroring existing Security Engineer escalation triggers (WU-IAENG-124)
+- [x] `.github/workflows/pr-validation.yml`, `Adapters/github-actions/pr-validation.yml`, `Adapters/README.md` — server-side `employee-trailer` CI check (backstops the client-side git hook) and advisory `review-recorded` CI check added (WU-IAENG-125)
+- [x] `Examples/RELEASE_CHAIN_EXAMPLE.md` — realigned with the new PR-based release-branch-fix mechanism (WU-IAENG-126)
 - [x] `LICENSE.md` — Apache License 2.0 copyright notice completed (`Copyright 2026 Equinxe`); the license text itself had been in place since the Foundation milestone but its copyright header was never filled in (WU-IAENG-127)
 - [x] `README.md` — License section updated from "To be defined before v1.0" to reflect the Apache License 2.0 decision (WU-IAENG-127)
 
