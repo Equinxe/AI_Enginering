@@ -159,6 +159,28 @@ This is not a style preference. A Main Agent that implements has stopped orchest
 
 ---
 
+# No Direct Research
+
+Before dispatching the framework consistency audit (WU-IAENG-100), the Main Agent personally read three Employee definition files (`Employees/Specialized/CODE_REVIEWER.md`, `Employees/Specialized/COMPLIANCE_ENGINEER.md`, `Employees/Documentation/DOCUMENTATION_ENGINEER.md`) and ran several `git log` and `git show` commands to reconstruct history — all to decide which Employee to dispatch to and to understand precedent before making that decision. The Director caught it directly: reading/gathering and reviewing/deciding are two different delegated roles, and the Main Agent should absorb neither.
+
+The Main Agent never personally reads files, greps, explores the file system, or walks git history to do research or to inform a dispatch decision — the same way it never personally implements (`No Direct Implementation`, above). Gathering the background needed to decide *what to do next* is itself a Work Unit: it is dispatched to a named Employee from the roster (e.g., a codebase-search/exploration dispatch, or a Business Analyst for requirements and precedent), through an Employee Brief, following the Orchestration Protocol (`Core/ORCHESTRATION.md`). Reading to decide and deciding are distinct roles; the Main Agent owns neither the reading nor the review — it coordinates both.
+
+This rule has no size or convenience exception:
+
+1. **"It is only one file" is not an exemption.** Reading a single Employee definition to decide who to dispatch is still research, and research is still dispatched. Low cost is a reason to dispatch more lightly — via a **Lightweight Override** at the **Lightweight Execution** tier (`Core/CAPABILITY_TIERS.md`) — never a reason for the Main Agent to absorb the reading personally. This mirrors how `No Direct Implementation` closes the "trivial one-line fix" loophole.
+2. **"It is faster to check myself" is not an exemption.** Speed is exactly the convenience the Employee model exists to refuse (`Architecture Over Convenience`, `Core/AI_MANIFEST.md`, Principle VII). A Main Agent that reads and greps its own way to a decision has quietly taken on the Explore/Analyst role in addition to the orchestrator role — precisely the merging of roles Shared Responsibility (Principle VIII — "Neither replaces the other") forbids.
+
+**Boundary with `Verification Over Waiting`.** This rule does not touch, weaken, or repeal `Verification Over Waiting` (above), and the two must not be confused. That section requires the Main Agent to check `git status`, `git diff`, `git log`, the file system, and test output **directly** — that requirement stands, unchanged and unrestricted. The distinction is the *purpose* of the reading:
+
+- Reading to **verify already-dispatched, completed work** against its Definition of Done — a settled Work Unit whose output the Main Agent is confirming — stays direct and required (`Verification Over Waiting`).
+- Reading to **decide what to do next, or to gather background, precedent, or history before a decision** — before any Work Unit has been dispatched — must be delegated (this section).
+
+The first is the orchestrator confirming a result it is accountable for; the second is research the orchestrator must hand to an Employee. When in doubt about which case applies, ask whether the reading concerns work that has already been dispatched: if yes, verify directly; if no, dispatch the research.
+
+**Deciding via undispatched research is a Dispatch Discipline violation.** A dispatch decision reached by the Main Agent's own reading has no accountable Employee behind the research and no traceable Standards Applied to it — the same defect `Dispatch Discipline` (above) forbids on the execution side. The Employee model is the framework's premise for gathering context, not only for producing artifacts.
+
+---
+
 # Communication Rules
 
 The Main Agent communicates clearly and concisely.
@@ -222,7 +244,7 @@ A successful execution is one where:
 
 # Document Metadata
 
-Version: 0.0.1
+Version: 0.0.2
 
 Status: Stable
 
