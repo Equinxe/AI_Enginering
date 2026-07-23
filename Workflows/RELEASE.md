@@ -140,10 +140,13 @@ No merge to `main` happens without explicit Director approval.
 **Actor:** Release Manager
 
 1. Pull the latest `main`.
-2. Create a tag: `git tag vX.X.X`.
+2. Create an annotated tag: `git tag -a vX.X.X -m "vX.X.X — <codename>"`.
 3. Push the tag: `git push origin vX.X.X`.
+4. A bare annotated tag with only a short `-m` message is **not sufficient on its own** — it produces no real description on the host's Releases page. Create a full GitHub Release from that tag, with a description derived from this version's actual `CHANGELOG.md` entry (its `### Added`, `### Fixed`, and `### Notes` sections), not a one-line summary:
+   - Current Adapter mechanism (GitHub): `gh release create vX.X.X --title "vX.X.X — <codename>" --notes-file <path-to-extracted-changelog-section>` (extract this version's `## [X.X.X]` section from `CHANGELOG.md` into a temp file first, or pass the same content inline via `--notes`). A non-GitHub host must use its equivalent release-creation mechanism (e.g., the GitLab Releases API), following the same content requirement.
+   - The Release description must reproduce the `CHANGELOG.md` entry for this version, verbatim or near-verbatim, so anyone browsing the Releases page sees the full changelog content without needing to open the repository.
 
-**Output:** Release tagged on `main`.
+**Output:** Release tagged on `main`, with a corresponding GitHub Release whose notes are derived from `CHANGELOG.md`.
 
 ---
 
@@ -193,7 +196,7 @@ This workflow is complete when:
 
 - The version bump is merged into `develop` (Step 2).
 - `release/vX.X.X` is merged into `main`.
-- Tag `vX.X.X` is on `main`.
+- Tag `vX.X.X` is on `main`, with a corresponding GitHub Release whose notes are derived from `CHANGELOG.md`.
 - `develop` is in sync with `main` — either automatically (release branch never diverged) or via the back-merge PR when a defect fix was applied directly to the release branch.
 - `release/vX.X.X` branch is preserved on remote.
 - Post-release health is confirmed.
