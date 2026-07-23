@@ -10,7 +10,9 @@ Every artifact, employee, workflow, and standard must use these definitions cons
 
 ## Adapter
 
-A component that integrates IA Engineering with a specific AI platform or development environment (e.g. Claude Code, Cursor, ChatGPT).
+A concrete, installable integration for a specific version-control host and CI platform (currently: GitHub) that turns a subset of IA Engineering's rules from written policy into technical enforcement — for example, git hooks that validate commit format, a CI check that validates pull requests, or branch-protection setup.
+
+An Adapter is AI-agnostic — it checks work by any Employee, running under any AI runtime — but it is not tool-agnostic: a GitHub Adapter assumes GitHub, and another version-control host or CI platform (e.g. GitLab, Azure DevOps) needs its own equivalent Adapter. See `Adapters/README.md`.
 
 ---
 

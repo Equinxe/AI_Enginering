@@ -71,7 +71,7 @@ Current Version
 
 ```
 
-v0.0.9 - Adapters
+v0.0.10 - Project Bootstrap
 
 ```
 
@@ -80,12 +80,12 @@ Completed
 - ✅ Core (AI Manifest, Glossary, Decision Tree, Main Agent Conduct, Agent Conduct, Orchestration, Agent Chains, Capability Tiers)
 - ✅ Standards (Standards First, Git, Commit, Branch, Pull Request, Documentation, Code Quality, Testing)
 - ✅ Employees (42 AI Employee definitions across 8 categories, each with a Default Complexity Tier)
-- ✅ Workflows (8 engineering workflows, from feature development to incident response)
-- ✅ Templates (Work Unit, Pull Request, ADR, Incident Report, Test Plan, Employee Brief)
+- ✅ Workflows (9 engineering workflows, from feature development to incident response and project bootstrap)
+- ✅ Templates (Work Unit, Pull Request, ADR, Incident Report, Test Plan, Employee Brief, Project Charter)
 - ✅ Orchestration (Main Agent dispatch protocol, 6 named Agent Chains)
 - ✅ Examples (6 end-to-end chain walkthroughs on a single fictional project)
 - ✅ Capability Tiers (AI-agnostic execution tiers matching capability to Work Unit complexity)
-- ✅ Adapters (GitHub git hooks, Actions CI checks, PR template, branch protection setup script)
+- ✅ Adapters (GitHub git hooks, Actions CI checks, PR template, branch protection setup script, CI/CD + GHCR publishing, GitHub Issue Templates)
 
 Planned
 

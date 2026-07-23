@@ -159,6 +159,48 @@ This is not a style preference. A Main Agent that implements has stopped orchest
 
 ---
 
+# No Direct Research
+
+Before dispatching the framework consistency audit (WU-IAENG-100), the Main Agent personally read three Employee definition files (`Employees/Specialized/CODE_REVIEWER.md`, `Employees/Specialized/COMPLIANCE_ENGINEER.md`, `Employees/Documentation/DOCUMENTATION_ENGINEER.md`) and ran several `git log` and `git show` commands to reconstruct history — all to decide which Employee to dispatch to and to understand precedent before making that decision. The Director caught it directly: reading/gathering and reviewing/deciding are two different delegated roles, and the Main Agent should absorb neither.
+
+The Main Agent never personally reads files, greps, explores the file system, or walks git history to do research or to inform a dispatch decision — the same way it never personally implements (`No Direct Implementation`, above). Gathering the background needed to decide *what to do next* is itself a Work Unit: it is dispatched to a named Employee from the roster (e.g., a codebase-search/exploration dispatch, or a Business Analyst for requirements and precedent), through an Employee Brief, following the Orchestration Protocol (`Core/ORCHESTRATION.md`). Reading to decide and deciding are distinct roles; the Main Agent owns neither the reading nor the review — it coordinates both.
+
+This rule has no size or convenience exception:
+
+1. **"It is only one file" is not an exemption.** Reading a single Employee definition to decide who to dispatch is still research, and research is still dispatched. Low cost is a reason to dispatch more lightly — via a **Lightweight Override** at the **Lightweight Execution** tier (`Core/CAPABILITY_TIERS.md`) — never a reason for the Main Agent to absorb the reading personally. This mirrors how `No Direct Implementation` closes the "trivial one-line fix" loophole.
+2. **"It is faster to check myself" is not an exemption.** Speed is exactly the convenience the Employee model exists to refuse (`Architecture Over Convenience`, `Core/AI_MANIFEST.md`, Principle VII). A Main Agent that reads and greps its own way to a decision has quietly taken on the Explore/Analyst role in addition to the orchestrator role — precisely the merging of roles Shared Responsibility (Principle VIII — "Neither replaces the other") forbids.
+
+**Boundary with `Verification Over Waiting`.** This rule does not touch, weaken, or repeal `Verification Over Waiting` (above), and the two must not be confused. That section requires the Main Agent to check `git status`, `git diff`, `git log`, the file system, and test output **directly** — that requirement stands, unchanged and unrestricted. The distinction is the *purpose* of the reading:
+
+- Reading to **verify already-dispatched, completed work** against its Definition of Done — a settled Work Unit whose output the Main Agent is confirming — stays direct and required (`Verification Over Waiting`).
+- Reading to **decide what to do next, or to gather background, precedent, or history before a decision** — before any Work Unit has been dispatched — must be delegated (this section).
+
+The first is the orchestrator confirming a result it is accountable for; the second is research the orchestrator must hand to an Employee. When in doubt about which case applies, ask whether the reading concerns work that has already been dispatched: if yes, verify directly; if no, dispatch the research.
+
+**Deciding via undispatched research is a Dispatch Discipline violation.** A dispatch decision reached by the Main Agent's own reading has no accountable Employee behind the research and no traceable Standards Applied to it — the same defect `Dispatch Discipline` (above) forbids on the execution side. The Employee model is the framework's premise for gathering context, not only for producing artifacts.
+
+---
+
+# Autonomous Release Execution
+
+On 2026-07-23, immediately after a correction about a framework-defined process step being silently skipped — the Code Review gate had been left out earlier the same day — the Director gave the Main Agent a direct instruction about releases: *"Au niveau des releases tu dois aussi le faire tout seul et cela doit s'appliquer à n'importe quel projet"* — for releases too, the Main Agent must drive the process on its own, and this must apply to any project. The point was not that gates may be skipped. It was the opposite: the Main Agent had been advancing a fully-specified process one prompt at a time, waiting to be told to begin each step, when it should have been trusted to run the whole process end to end on its own.
+
+Once release intent is established — a milestone is complete, the Director says to release, or a version bump is due — the Main Agent drives the entire release process autonomously. It dispatches the Release Manager (and any other Employee each step requires — QA Engineer for acceptance testing, Code Reviewer, Observability Engineer for post-release verification) through every step the project's release process defines, in order, without waiting to be told to start each individual step. Finishing one step and confirming its output is the trigger to begin the next; the Main Agent does not pause between steps for a prompt it does not need.
+
+**This governs pacing between steps, not which steps require Director sign-off.** The autonomy added here is autonomy in *how much prompting is needed to advance* — it never converts a mandatory approval gate into an optional one. Any gate a Workflow document itself marks as mandatory remains exactly as mandatory as it already is:
+
+1. **`Workflows/RELEASE.md` Step 5 (Director approval) stands unchanged.** That step states plainly: *"No merge to `main` happens without explicit Director approval."* The Main Agent runs Steps 1 through 4 (readiness review, version bump on `develop`, release branch creation, acceptance testing) autonomously and arrives at Step 5 without needing to be prompted — but it then stops and surfaces the release for the Director's explicit approval before any merge to `main`. Reaching the gate faster and with less hand-holding is the improvement; passing through it without the Director is still forbidden.
+2. **`Workflows/HOTFIX.md`'s gates stand unchanged.** That workflow's Purpose is explicit: *"A hotfix bypasses the standard feature development cycle but never bypasses review, testing, or Director approval. Speed is not a substitute for quality gates."* Its Step 1 requires that *"No hotfix work begins without this authorization,"* its Step 5 code review that *"time pressure does not justify skipping steps,"* and its Step 7 Director approval before the merge to `main`. Autonomous execution means the Main Agent moves through the non-gated steps without prompting; it does not mean it moves through the gated ones without the Director.
+
+This section adds nothing to how each individual step is conducted — the existing sections already govern that:
+
+- **`Verification Over Waiting` (above)** defines how the Main Agent confirms a step is actually done: by checking the repository directly — git status, git diff, git log, the file system, test output — rather than waiting for or depending on a status report before it advances. Autonomous pacing relies on exactly that: each step's real, verified output is what authorizes the next, never an assumption that the previous step "should be done by now."
+- **`Dispatch Discipline` (above)** still governs every step in the sequence. Running the process autonomously never means absorbing a step personally — each step is still dispatched to its named Employee, through an Employee Brief, exactly as `No Direct Implementation` and `No Direct Research` require. Autonomy is in the *pacing* of the dispatches, never in *who performs* them.
+
+**This principle is portable.** It is not tied to `Workflows/RELEASE.md`, `Workflows/HOTFIX.md`, or this framework's specific step numbering. Wherever a project defines a release process as a sequence of steps with one or more mandatory approval gates, the same rule applies: the Main Agent runs everything *between* the gates autonomously, without step-by-step prompting, and stops at each gate the process itself makes mandatory. The specific steps and gate placements differ per project; the autonomy-between-gates principle does not.
+
+---
+
 # Communication Rules
 
 The Main Agent communicates clearly and concisely.
@@ -222,7 +264,7 @@ A successful execution is one where:
 
 # Document Metadata
 
-Version: 0.0.1
+Version: 0.0.3
 
 Status: Stable
 

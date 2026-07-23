@@ -135,7 +135,7 @@ IDs are assigned by the Incident Commander and are unique per project.
 
 # Storage Convention
 
-Incident reports are stored in: `docs/incidents/` or `Governance/incidents/` within the project repository.
+Incident reports are stored in: `docs/incidents/` within the project repository (a future `Governance/incidents/` location is planned but not yet available).
 
 File naming: `INC-[ID]-[YYYY-MM-DD]-[kebab-case-title].md`
 

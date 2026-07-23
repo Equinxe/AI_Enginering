@@ -2,11 +2,11 @@
 
 Current Version
 
-**v0.0.9.3**
+**v0.0.10**
 
 Codename
 
-**Back-Merge via Pull Request**
+**Project Bootstrap**
 
 Status
 
@@ -40,8 +40,8 @@ Status
 
 - [x] Management: Engineering Manager, Scrum Master, Technical Lead, Release Manager, Product Manager
 - [x] Architecture: Software Architect, Solution Architect, Data Architect
-- [x] Development: Backend Engineer, Frontend Engineer, iOS Engineer, Android Engineer, Cross Platform Engineer, Database Engineer, Event Driven Engineer, Integration Engineer
-- [x] DevOps: DevOps Engineer, GitOps Engineer, SRE Engineer, Cloud Engineer, Platform Engineer, IaC Engineer, Observability Engineer
+- [x] Development: Backend Engineer, Frontend Engineer, iOS Engineer, Android Engineer, Cross-Platform Engineer, Database Engineer, Event-Driven Engineer, Integration Engineer
+- [x] DevOps: DevOps Engineer, GitOps Engineer, SRE Engineer, Cloud Engineer, Platform Engineer, Infrastructure as Code Engineer, Observability Engineer
 - [x] Quality: QA Engineer, Performance Engineer, Security Engineer, Test Automation Engineer
 - [x] Data: Data Engineer, ML Engineer, Data Scientist, MLOps Engineer, Analytics Engineer
 - [x] Documentation: Documentation Engineer, Technical Writer
@@ -49,7 +49,7 @@ Status
 
 ---
 
-### Workflows (8)
+### Workflows (9)
 
 - [x] Feature Development
 - [x] Code Review
@@ -59,10 +59,11 @@ Status
 - [x] Architecture Decision
 - [x] Onboarding
 - [x] Sprint Ceremony
+- [x] Project Bootstrap
 
 ---
 
-### Templates (6)
+### Templates (7)
 
 - [x] Work Unit
 - [x] Pull Request
@@ -70,6 +71,7 @@ Status
 - [x] Incident Report
 - [x] Test Plan
 - [x] Employee Brief
+- [x] Project Charter
 
 ---
 
@@ -139,7 +141,29 @@ Status
 
 ### Back-Merge via Pull Request (v0.0.9.3)
 
-- [x] `Workflows/RELEASE.md` Step 7 and `Workflows/HOTFIX.md` Step 9 — both "Back-merge to develop" steps now describe opening a Pull Request (`main` → `develop`) merged once CI passes, instead of a direct `git push` that the `pre-push` hook (`Adapters/git-hooks/pre-push`, v0.0.9) unconditionally blocks — ninth finding
+- [x] `Workflows/RELEASE.md` Step 8 and `Workflows/HOTFIX.md` Step 9 — both "Back-merge to develop" steps now describe opening a Pull Request (`main` → `develop`) merged once CI passes, instead of a direct `git push` that the `pre-push` hook (`Adapters/git-hooks/pre-push`, v0.0.9) unconditionally blocks — ninth finding
+
+### Project Bootstrap (v0.0.10)
+
+Consistency fixes carried into this release (merged on `develop` after v0.0.9.3, never individually version-bumped):
+
+- [x] `Workflows/RELEASE.md` — version bump now performed on `develop` before the release branch is cut, making the release branch a pure snapshot (WU-IAENG-099)
+- [x] `Core/MAIN_AGENT_CONDUCT.md` — No Direct Research conduct rule (WU-IAENG-101)
+- [x] Version references synced and Employee roster names canonicalized across docs (WU-IAENG-102)
+- [x] `Examples/RELEASE_CHAIN_EXAMPLE.md`, `Examples/HOTFIX_CHAIN_EXAMPLE.md` — aligned with current Workflow steps (WU-IAENG-103)
+- [x] Adapter definition, Capability Tiers framing, and doc versions aligned across Core (WU-IAENG-104)
+- [x] `Adapters/git-hooks/commit-msg` — merge commits allowed to bypass commit-msg validation (WU-IAENG-106)
+- [x] `Adapters/README.md` — post-merge verification of the commit-msg merge fix logged (WU-IAENG-107)
+
+Project Bootstrap milestone:
+
+- [x] `Workflows/PROJECT_BOOTSTRAP.md` — new workflow for bootstrapping a brand-new project (WU-IAENG-108)
+- [x] `Templates/PROJECT_CHARTER.md` — 7th framework template (WU-IAENG-109)
+- [x] CI/CD + GHCR Adapters — `ci-build-test.yml`, `ghcr-publish.yml`, stack Dockerfiles, `setup-project-bootstrap.sh` (WU-IAENG-110)
+- [x] GitHub Issue Templates Adapter (WU-IAENG-111)
+- [x] Compliance hardening of Project Bootstrap — escalation trigger, jurisdiction/SOC2/breach-notification questions, Compliance/Security Engineer as Actors (WU-IAENG-115)
+- [x] Business/Product hardening — Assumptions & Risks category, business-outcome Success Criteria example, MoSCoW prioritization (WU-IAENG-116)
+- [x] `Core/MAIN_AGENT_CONDUCT.md` — Autonomous Release Execution conduct rule (WU-IAENG-117)
 
 ---
 
@@ -148,7 +172,7 @@ Status
 Format: `MAJOR.MINOR.MILESTONE[.FIX]`
 
 - `MAJOR.MINOR` remain `0.0` until the framework reaches a stable public release.
-- `MILESTONE` increments once per completed milestone (Foundation, Standards, Employees, Workflows, Templates, Orchestration, Examples, Capability Tiers, Governance, Adapters, ...).
+- `MILESTONE` increments once per completed milestone (Foundation, Standards, Employees, Workflows, Templates, Orchestration, Examples, Capability Tiers, Adapters, Governance, ...).
 - `.FIX` is an optional 4th segment used only for post-release consistency corrections that do not introduce new capability and do not warrant consuming the next milestone number.
 
 ---
@@ -161,4 +185,4 @@ Format: `MAJOR.MINOR.MILESTONE[.FIX]`
 
 ## Next Milestone
 
-v0.0.10 — Governance
+v0.0.11 — Governance

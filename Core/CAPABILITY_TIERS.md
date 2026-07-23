@@ -2,7 +2,7 @@
 
 This document defines how the Main Agent selects an appropriate AI execution capability for a Work Unit, independent of any specific AI provider or model.
 
-IA Engineering is AI-agnostic (`AI_MANIFEST.md`, Principle X). This document never names a specific model. It defines three abstract tiers, based on the nature of the task, that any AI runtime can map to its own available capability levels.
+IA Engineering is AI-agnostic (`AI_MANIFEST.md`, Principle X). This document never names a specific model. It defines two abstract default execution tiers — Standard Execution and Strategic Judgment — based on the nature of the task, plus a per-Work-Unit Lightweight Override mechanism that reaches a third, override-only capability level (Lightweight Execution). Any AI runtime can map these to its own available capability levels.
 
 A project's own `CLAUDE.md` may map these tiers to concrete models for its chosen AI runtime (e.g., "Lightweight Execution → Haiku, Standard Execution → Sonnet, Strategic Judgment → Opus" for a Claude-based project). That mapping is project context, not part of this framework document — it changes per runtime and per project; the tiers themselves do not.
 
@@ -16,7 +16,9 @@ Capability Tiers give the Main Agent a consistent, principled way to match execu
 
 ---
 
-# The Three Tiers
+# The Tiers
+
+IA Engineering defines **two default execution tiers** — **Standard Execution** and **Strategic Judgment** — plus a third capability level, **Lightweight Execution**, that is never a default tier. Every Employee is normally assigned one of the two default tiers; Lightweight Execution is reached only through an explicit, per-Work-Unit **Lightweight Override** (see below). It is described first here because the override mechanism references it, but no Employee is ever assigned it by default.
 
 ## Lightweight Execution
 
