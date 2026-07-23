@@ -2,11 +2,11 @@
 
 Current Version
 
-**v0.0.10.1**
+**v0.0.11**
 
 Codename
 
-**Consistency & Compliance Hardening**
+**Governance**
 
 Status
 
@@ -178,6 +178,18 @@ Corrections and hardening to already-shipped milestones (v0.0.9 Adapters, v0.0.1
 - [x] `LICENSE.md` — Apache License 2.0 copyright notice completed (`Copyright 2026 Equinxe`); the license text itself had been in place since the Foundation milestone but its copyright header was never filled in (WU-IAENG-127)
 - [x] `README.md` — License section updated from "To be defined before v1.0" to reflect the Apache License 2.0 decision (WU-IAENG-127)
 
+### Governance (v0.0.11)
+
+`Governance/` held only a `.gitkeep` placeholder since the repository's first commit — this milestone delivers its first real content, plus the Main Agent conduct rules and reference documents that landed on `develop` in the same window:
+
+- [x] `Governance/CONTRIBUTING.md` — how a change to the framework itself is proposed and reviewed: Change Tiers mapped to `Core/CAPABILITY_TIERS.md`, how a new Employee/Workflow/Template/Standard is proposed, the highest-scrutiny bar for `Core/*.md` changes, a values-grounded Code of Conduct, and how Issue intake and Durable Tracking of Findings converge into one contribution path (WU-IAENG-134)
+- [x] `Governance/VERSIONING_POLICY.md` — formalizes the `MAJOR.MINOR.MILESTONE[.FIX]` versioning scheme: segment semantics, the `.FIX` vs. new-milestone test, milestone naming discipline, and document-internal `Version:` field rules (WU-IAENG-135)
+- [x] `Governance/DEPRECATION_POLICY.md` — defines how a Standard, Workflow, Template, or Employee gets deprecated versus removed: deprecation triggers, marker/index lifecycle, the cross-reference check, the Employee-specific Actor/escalation-target check, and required Director approval (WU-IAENG-136)
+- [x] `Core/EMPLOYEE_SELECTION.md` — dispatch-trigger reference covering all 42 Employees, naming six concrete miscasting risks, cross-referenced from `Core/MAIN_AGENT_CONDUCT.md` (WU-IAENG-133)
+- [x] `Core/MAIN_AGENT_CONDUCT.md` — "Git Execution via Named Employee" conduct rule: mutating git operations are dispatched to a named Employee (Release Manager for release-scoped mutation, GitOps Engineer for git-as-deployment), not absorbed by the Main Agent as plumbing (WU-IAENG-132)
+- [x] `Core/MAIN_AGENT_CONDUCT.md` — "Durable Tracking of Findings" conduct rule: gaps, tech debt, and deferred decisions discovered mid-work are filed as GitHub Issues so they survive beyond one session's private memory (WU-IAENG-130)
+- [x] `Workflows/RELEASE.md` Step 7 — a bare annotated tag with a one-line `-m` message is no longer sufficient on its own; a full GitHub Release derived from the version's `CHANGELOG.md` entry is now required, closing the gap that had to be fixed after the fact for both v0.0.10 and v0.0.10.1 (WU-IAENG-131)
+
 ---
 
 ## Versioning Policy
@@ -190,10 +202,10 @@ The full, authoritative versioning policy — segment semantics, the `.FIX` vs. 
 
 ## Planned
 
-- Governance
+- TBD — no milestone is currently scoped. Several open issues exist as individual maintenance/tech-debt items (e.g. #61–#66, #69, #71), but none alone constitutes the next milestone.
 
 ---
 
 ## Next Milestone
 
-v0.0.11 — Governance
+TBD — not yet scoped (see `Planned` above)
