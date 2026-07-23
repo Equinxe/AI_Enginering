@@ -119,6 +119,6 @@ Adapters/      — Tool integrations
 
 # Current Version
 
-v0.0.9.3 — Back-Merge via Pull Request
+v0.0.10 — Project Bootstrap
 
-Next: v0.0.10 — Governance
+Next: v0.0.11 — Governance
