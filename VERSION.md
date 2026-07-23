@@ -184,9 +184,7 @@ Corrections and hardening to already-shipped milestones (v0.0.9 Adapters, v0.0.1
 
 Format: `MAJOR.MINOR.MILESTONE[.FIX]`
 
-- `MAJOR.MINOR` remain `0.0` until the framework reaches a stable public release.
-- `MILESTONE` increments once per completed milestone (Foundation, Standards, Employees, Workflows, Templates, Orchestration, Examples, Capability Tiers, Adapters, Governance, ...).
-- `.FIX` is an optional 4th segment used only for post-release consistency corrections that do not introduce new capability and do not warrant consuming the next milestone number.
+The full, authoritative versioning policy — segment semantics, the `.FIX` vs. new-milestone test, milestone naming discipline, and the document-internal `Version:` field rules — lives in `Governance/VERSIONING_POLICY.md`. This section is a pointer, not a duplicate.
 
 ---
 
