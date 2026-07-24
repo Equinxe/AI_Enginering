@@ -6,6 +6,27 @@ This project follows Semantic Versioning, extended with an informal 4th segment 
 
 ---
 
+## [0.0.11] - Governance
+
+### Added
+
+- `Governance/CONTRIBUTING.md` — how a change to the framework itself is proposed and reviewed: Change Tiers mapped to `Core/CAPABILITY_TIERS.md`, how a new Employee/Workflow/Template/Standard is proposed, the highest-scrutiny bar for `Core/*.md` changes, a values-grounded Code of Conduct, and how GitHub Issue intake and Durable Tracking of Findings converge into one contribution path (WU-IAENG-134)
+- `Governance/VERSIONING_POLICY.md` — formalizes the `MAJOR.MINOR.MILESTONE[.FIX]` versioning scheme as the authoritative, standalone reference: segment semantics, the `.FIX` vs. new-milestone test, milestone naming discipline, and document-internal `Version:` field rules (WU-IAENG-135)
+- `Governance/DEPRECATION_POLICY.md` — defines how a Standard, Workflow, Template, or Employee gets deprecated versus removed, since the framework had only ever added content through v0.0.10.1: deprecation triggers, the marker/index lifecycle, a required cross-reference check, the Employee-specific Actor/escalation-target check, and mandatory Director approval (WU-IAENG-136)
+- `Core/EMPLOYEE_SELECTION.md` — a concrete dispatch-trigger reference covering all 42 Employees, organized by category, naming six miscasting risks (e.g. Compliance Engineer/Technical Writer, Security Engineer/DevOps Engineer), cross-referenced from `Core/MAIN_AGENT_CONDUCT.md`'s Employee Selection section (WU-IAENG-133)
+- `Core/MAIN_AGENT_CONDUCT.md` — "Git Execution via Named Employee" conduct rule: mutating git operations (branch creation, commit, push, tag, PR-merge) are dispatched to a named Employee rather than absorbed by the Main Agent as plumbing — release-scoped git mutation to the Release Manager, git-as-deployment to the GitOps Engineer — while read-only inspection stays direct under Verification Over Waiting (WU-IAENG-132)
+- `Core/MAIN_AGENT_CONDUCT.md` — "Durable Tracking of Findings" conduct rule: a gap, tech-debt item, or deferred decision surfaced mid-work is filed as a GitHub Issue so it survives beyond one session's private memory (WU-IAENG-130)
+
+### Fixed
+
+- `Workflows/RELEASE.md` Step 7 — a bare annotated tag with only a short `-m` message is no longer sufficient on its own, since it produces no real description on the host's Releases page; a full GitHub Release derived from that version's actual `CHANGELOG.md` entry is now required, closing the gap that had to be patched after the fact for both v0.0.10 and v0.0.10.1 (WU-IAENG-131)
+
+### Notes
+
+This release delivers the "Governance" milestone: the first real content under `Governance/`, which had held only a `.gitkeep` placeholder since the repository's first commit. It also carries forward four Main Agent conduct/reference additions (WU-IAENG-130, WU-IAENG-131, WU-IAENG-132, WU-IAENG-133) that landed on `develop` in the same window as the Governance documents but are process and dispatch-reference additions rather than `Governance/` content proper.
+
+---
+
 ## [0.0.10.1] - Consistency & Compliance Hardening
 
 ### Added
@@ -315,4 +336,4 @@ This release establishes the core principles and behavioral contracts that all f
 
 ## Next
 
-v0.0.11 — Governance
+TBD — not yet scoped. See `VERSION.md`'s `Planned` section.

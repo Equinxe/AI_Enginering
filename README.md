@@ -71,7 +71,7 @@ Current Version
 
 ```
 
-v0.0.10 - Project Bootstrap
+v0.0.11 - Governance
 
 ```
 
@@ -86,10 +86,12 @@ Completed
 - ✅ Examples (6 end-to-end chain walkthroughs on a single fictional project)
 - ✅ Capability Tiers (AI-agnostic execution tiers matching capability to Work Unit complexity)
 - ✅ Adapters (GitHub git hooks, Actions CI checks, PR template, branch protection setup script, CI/CD + GHCR publishing, GitHub Issue Templates)
+- ✅ Project Bootstrap (dedicated bootstrap workflow, Project Charter template, CI/CD + GHCR publishing adapters, GitHub Issue Templates, compliance and business/product hardening)
+- ✅ Governance (Contributing, Versioning Policy, Deprecation Policy)
 
 Planned
 
-- Governance
+- TBD — no milestone is currently scoped
 
 ---
 
