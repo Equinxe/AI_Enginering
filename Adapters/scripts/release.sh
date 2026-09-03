@@ -171,19 +171,35 @@ cmd_check() {
 
   head2 "Framework consistency"
 
-  if [ -x Adapters/scripts/validate-framework.sh ]; then
-    if ./Adapters/scripts/validate-framework.sh > /tmp/release-validate.log 2>&1; then
+  # Tested with -f and invoked through `bash`, not tested with -x and run
+  # directly. The earlier version did the latter, and its else branch called
+  # `note` rather than `bad` — so a validator that was missing, or merely
+  # committed without its executable bit, was skipped while FAILURES stayed at
+  # zero and the readiness review still printed "Ready for Step 2". A release
+  # gate that skips itself and reports success is the exact failure shape this
+  # milestone exists to remove, and it was sitting inside the milestone. Found
+  # in review, not by me.
+  #
+  # Invoking via `bash` also means the executable bit is not load-bearing here:
+  # WU-IAENG-150 fixed the committed modes, but a gate should not depend on
+  # file metadata staying correct forever.
+  if [ ! -f Adapters/scripts/validate-framework.sh ]; then
+    bad "Adapters/scripts/validate-framework.sh is missing" "Release readiness cannot confirm framework consistency without it. Absent evidence is not the same as a passing check, so this blocks rather than being skipped."
+  else
+    VALIDATE_LOG="$(mktemp)"
+    if bash Adapters/scripts/validate-framework.sh > "$VALIDATE_LOG" 2>&1; then
       ok "validate-framework.sh passes"
     else
-      bad "validate-framework.sh reports failures" "$(grep FAIL /tmp/release-validate.log | head -3 | tr '\n' ' ')"
+      bad "validate-framework.sh reports failures" "$(grep FAIL "$VALIDATE_LOG" | head -3 | tr '\n' ' ')"
     fi
-  else
-    note "Adapters/scripts/validate-framework.sh not found — skipped"
+    rm -f "$VALIDATE_LOG"
   fi
 
   head2 "Open defects"
 
-  if command -v gh > /dev/null 2>&1; then
+  if ! command -v gh > /dev/null 2>&1; then
+    note "gh is not installed — open defects not listed. The CI condition above already failed for the same reason."
+  else
     local blockers
     blockers="$(gh issue list --state open --label 'bug' --limit 100 --json number,title 2>/dev/null || true)"
     if [ -z "$blockers" ] || [ "$blockers" = "[]" ]; then

@@ -767,7 +767,7 @@ if [ -f Registry/chains.yml ]; then
   done < <(grep -oE '^# [A-Za-z]+ Chain$' Core/AGENT_CHAINS.md | sed 's/^# //')
   pass "Registry/chains.yml covers every named chain"
 else
-  pass "Registry/chains.yml not present (skipped)"
+  fail "Registry/chains.yml is missing" "It existed as of WU-IAENG-145 and Registry/README.md lists its consumers. Reporting a pass for an absent file is the same silent-skip shape as a gate that skips itself — if the Registry genuinely no longer carries chains, remove this check deliberately rather than letting a deletion look like a success."
 fi
 
 if [ -f Registry/workflows.yml ]; then
@@ -806,7 +806,7 @@ if [ -f Registry/workflows.yml ]; then
     fi
   done
 else
-  pass "Registry/workflows.yml not present (skipped)"
+  fail "Registry/workflows.yml is missing" "It existed as of WU-IAENG-145. The gate positions recorded there are what makes Core/MAIN_AGENT_CONDUCT.md's autonomy-between-gates rule mechanically answerable; an absent file cannot be reported as a pass."
 fi
 
 if [ -f Registry/work-units.yml ]; then
@@ -836,7 +836,7 @@ if [ -f Registry/work-units.yml ]; then
     pass "every Work Unit credits a real Employee"
   fi
 else
-  pass "Registry/work-units.yml not present (skipped)"
+  fail "Registry/work-units.yml is missing" "It existed as of WU-IAENG-146, and the Work Unit Exists CI job resolves every referenced ID against it. Without it that required check fails closed, so this cannot be a pass here."
 fi
 
 # ==========================================================================
