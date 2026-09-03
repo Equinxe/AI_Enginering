@@ -385,3 +385,9 @@ work_units:
     title: Add the Autonomous Delivery workflow — conductor and poles, per-pole controls, centralised escalation, bounded budget, mandatory integration pass
     milestone: Convergence
     delivers: Workflows/AUTONOMOUS_DELIVERY.md, Templates/POLE_BRIEF.md, Registry/workflows.yml
+
+  - id: WU-IAENG-186
+    employee: Technical Writer
+    title: Add the oh-my-claudecode transport mapping — what maps, what does not, and where the framework binds regardless
+    milestone: Convergence
+    delivers: Adapters/ai-runtimes/omc/README.md
