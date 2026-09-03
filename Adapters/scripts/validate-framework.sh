@@ -34,6 +34,21 @@
 
 set -uo pipefail
 
+# Byte ordering, not locale ordering, for every glob expansion, `sort`, and
+# `comm` in this script.
+#
+# This is not a style preference. --regenerate-roster writes a COMMITTED file,
+# and glob order decides the order of its entries. Under Git Bash on Windows
+# the collation is locale-aware and puts ML_ENGINEER.md before
+# MLOPS_ENGINEER.md, because it discounts the underscore; under C collation on
+# a Linux runner MLOPS_ENGINEER.md comes first, because 'O' (0x4F) sorts before
+# '_' (0x5F). The roster was therefore reproducible only on the platform that
+# generated it, and CI's "regeneration must be a no-op" step failed on the
+# runner while passing locally — which is exactly the check earning its place.
+#
+# Pinning the locale makes the generated artifact identical everywhere.
+export LC_ALL=C
+
 VERBOSE=0
 REGENERATE=0
 

@@ -64,6 +64,13 @@
 
 set -uo pipefail
 
+# Byte ordering everywhere, for the same reason validate-framework.sh pins it:
+# this script emits files whose content and order must be identical on every
+# platform, or --check reports drift that is really just a different locale's
+# collation. See that script's comment for the concrete case (ML_ENGINEER.md
+# versus MLOPS_ENGINEER.md ordering differently under Git Bash and Linux).
+export LC_ALL=C
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 cd "$ROOT" || exit 2

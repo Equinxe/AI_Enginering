@@ -151,3 +151,9 @@ work_units:
     title: Exempt the changelog from live-path resolution, which is a historical record by definition
     milestone: Automation
     delivers: Adapters/scripts/validate-framework.sh
+
+  - id: WU-IAENG-152
+    employee: Test Automation Engineer
+    title: Pin byte collation so generated artifacts are identical on every platform
+    milestone: Automation
+    delivers: Adapters/scripts/validate-framework.sh, Adapters/ai-runtimes/generate-agents.sh, Registry/employees.yml

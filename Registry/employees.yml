@@ -63,13 +63,41 @@ employees:
     file: Employees/Data/DATA_SCIENTIST.md
     category: Data
     tier: Strategic Judgment
+  - name: MLOps Engineer
+    file: Employees/Data/MLOPS_ENGINEER.md
+    category: Data
+    tier: Standard Execution
   - name: ML Engineer
     file: Employees/Data/ML_ENGINEER.md
     category: Data
     tier: Standard Execution
-  - name: MLOps Engineer
-    file: Employees/Data/MLOPS_ENGINEER.md
-    category: Data
+  - name: Cloud Engineer
+    file: Employees/DevOps/CLOUD_ENGINEER.md
+    category: DevOps
+    tier: Standard Execution
+  - name: DevOps Engineer
+    file: Employees/DevOps/DEVOPS_ENGINEER.md
+    category: DevOps
+    tier: Standard Execution
+  - name: GitOps Engineer
+    file: Employees/DevOps/GITOPS_ENGINEER.md
+    category: DevOps
+    tier: Standard Execution
+  - name: Infrastructure as Code Engineer
+    file: Employees/DevOps/IAC_ENGINEER.md
+    category: DevOps
+    tier: Standard Execution
+  - name: Observability Engineer
+    file: Employees/DevOps/OBSERVABILITY_ENGINEER.md
+    category: DevOps
+    tier: Standard Execution
+  - name: Platform Engineer
+    file: Employees/DevOps/PLATFORM_ENGINEER.md
+    category: DevOps
+    tier: Standard Execution
+  - name: SRE Engineer
+    file: Employees/DevOps/SRE_ENGINEER.md
+    category: DevOps
     tier: Standard Execution
   - name: Android Engineer
     file: Employees/Development/ANDROID_ENGINEER.md
@@ -102,34 +130,6 @@ employees:
   - name: iOS Engineer
     file: Employees/Development/IOS_ENGINEER.md
     category: Development
-    tier: Standard Execution
-  - name: Cloud Engineer
-    file: Employees/DevOps/CLOUD_ENGINEER.md
-    category: DevOps
-    tier: Standard Execution
-  - name: DevOps Engineer
-    file: Employees/DevOps/DEVOPS_ENGINEER.md
-    category: DevOps
-    tier: Standard Execution
-  - name: GitOps Engineer
-    file: Employees/DevOps/GITOPS_ENGINEER.md
-    category: DevOps
-    tier: Standard Execution
-  - name: Infrastructure as Code Engineer
-    file: Employees/DevOps/IAC_ENGINEER.md
-    category: DevOps
-    tier: Standard Execution
-  - name: Observability Engineer
-    file: Employees/DevOps/OBSERVABILITY_ENGINEER.md
-    category: DevOps
-    tier: Standard Execution
-  - name: Platform Engineer
-    file: Employees/DevOps/PLATFORM_ENGINEER.md
-    category: DevOps
-    tier: Standard Execution
-  - name: SRE Engineer
-    file: Employees/DevOps/SRE_ENGINEER.md
-    category: DevOps
     tier: Standard Execution
   - name: Documentation Engineer
     file: Employees/Documentation/DOCUMENTATION_ENGINEER.md
