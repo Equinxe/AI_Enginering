@@ -18,10 +18,12 @@ name: IA Engineering - PR Validation
 #     valid, warning-free shell (Standards/CODE_QUALITY_STANDARD.md applies to
 #     Adapters code exactly as it does to any other code)
 #   - yaml-lint: every workflow file we ship must at minimum parse as valid YAML
-#   - review-recorded: ADVISORY (warning-only) — surfaces whether a Code
-#     Reviewer decision was actually recorded on the PR (Workflows/CODE_REVIEW.md).
-#     It does not block merge; see the job for why it is advisory and why it
-#     exists at all given required_approving_review_count is 0 by design.
+#   - review-recorded: ADVISORY — surfaces whether a Code Reviewer decision was
+#     actually recorded on the PR (Workflows/CODE_REVIEW.md). It goes RED when
+#     none is found, but is not in required_status_checks.contexts, so it does
+#     not block the merge. Advisory here means "red does not block", not "green
+#     means nothing" — see the job for why exiting 0 either way made it
+#     indistinguishable from a passing gate.
 #
 # Install in a project that has imported IA Engineering as a submodule:
 #   ./ia-engineering/Adapters/scripts/install.sh
@@ -380,10 +382,58 @@ jobs:
           # gate and could be gamed by pasting the block, so shipping it as a
           # required status check now would risk false confidence. It is emitted
           # as a warning so it is visible on every PR without blocking merge.
-          # Whether/when to promote it to a required status check (adding
-          # "Review Recorded (advisory)" to required_status_checks.contexts in
-          # setup-branch-protection.sh) is a Director / Main Agent decision,
-          # deliberately left out of this Work Unit.
+          # WHY IT GOES RED WHEN NO DECISION IS FOUND, YET IS STILL NOT
+          # REQUIRED. Two objections were raised against this job and both are
+          # correct, but they attack different properties:
+          #
+          #   Against requiring it: the evidence is comment text, satisfiable
+          #   by pasting the block. Unfixable at this evidence level.
+          #
+          #   Against keeping it: an advisory job that emits a warning and
+          #   exits 0 renders GREEN whether or not a decision was found. It
+          #   occupies the place a reader looks for that assurance and answers
+          #   "yes" unconditionally, with the warning one click away in a log.
+          #
+          # The second objection is about the SIGNAL, not about blocking, so it
+          # is fixed by exiting non-zero — not by promotion. Red here is
+          # truthful and costs nothing procedurally, because "Review Recorded
+          # (advisory)" is deliberately absent from
+          # required_status_checks.contexts in setup-branch-protection.sh: the
+          # merge button stays enabled. The "(advisory)" suffix therefore
+          # changes meaning from "green here means nothing" to "red here does
+          # not block".
+          #
+          # Green-when-absent is the same defect as pass-when-unevaluated, and
+          # this milestone corrected eleven instances of it. Shipping the
+          # twelfth in the check whose subject is whether the review happened
+          # would be the worst possible place for it.
+          #
+          # TWO LIMITATIONS, recorded so nobody promotes this later believing
+          # they were weighed:
+          #
+          #   1. Comments are not durable evidence. A comment can be edited or
+          #      deleted after this check runs and after merge, so even as a
+          #      retrospective record the artifact does not survive. That is a
+          #      stronger argument against promotion than the pasting one, and
+          #      it names the successor: commit the filled Review Decision
+          #      block as a file referenced by the Work Unit. The check then
+          #      becomes "this file exists and parses" — content under version
+          #      control, diffable, immutable once merged — and it CAN be
+          #      required, because the single-identity constraint stops
+          #      mattering once the evidence is content rather than an
+          #      approval action. Advisory is a stage, not a verdict.
+          #
+          #   2. This check never examines the comment's author. It reads every
+          #      body from every actor, so a PR author satisfies it themselves.
+          #      Under the shared-`gh`-identity constraint that is unavoidable
+          #      today, but the blindness is inherent to the substitute and
+          #      would persist in a project with separate accounts. The note
+          #      above explains why NATIVE approval is unavailable; this says
+          #      the substitute inherits the same gap.
+          #
+          # Promoting it to a required check remains a Director decision, and
+          # the two limitations above are the case against doing so until the
+          # successor in (1) exists.
 
           ISSUE_COMMENTS="$(gh api "repos/$REPO/issues/$PR_NUMBER/comments" --paginate -q '.[].body' || true)"
           REVIEW_BODIES="$(gh api "repos/$REPO/pulls/$PR_NUMBER/reviews" --paginate -q '.[].body' || true)"
@@ -396,9 +446,9 @@ jobs:
           # follows the colon — does NOT match.
           if echo "$ALL_BODIES" | grep -qiE '^[[:space:]]*Decision:[[:space:]]*approved'; then
             echo "A recorded Code Reviewer decision ('Decision: approved') was found on this PR."
-          else
-            echo "::warning::No recorded Code Reviewer decision ('Decision: approved', per Employees/Specialized/CODE_REVIEWER.md's Review Decision block) was found in this PR's comments or reviews. Per Workflows/CODE_REVIEW.md a Code Reviewer decision should be recorded before merge. This check is ADVISORY and does not block merge."
+            exit 0
           fi
 
-          # Advisory only — never fails the build.
-          exit 0
+          echo "::error::No recorded Code Reviewer decision ('Decision: approved', per Employees/Specialized/CODE_REVIEWER.md's Review Decision block) was found in this PR's comments or reviews. Per Workflows/CODE_REVIEW.md a Code Reviewer decision must be recorded before merge."
+          echo "::notice::This check is ADVISORY: it is not in required_status_checks.contexts, so it does not block the merge. It goes red rather than green so its result is legible — an advisory check that exits 0 either way is indistinguishable from a passing gate."
+          exit 1

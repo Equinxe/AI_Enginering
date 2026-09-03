@@ -66,6 +66,20 @@ This extends `Workflows/ONBOARDING.md` Step 5 ("Initialize git workflow") — th
 
 ---
 
+# The Check Convention
+
+Every check in `scripts/validate-framework.sh`, every script in `scripts/`, and every job in `github-actions/` follows three rules. They are stated in the validator's header too, but they govern all Adapter code:
+
+1. **An unevaluated condition is a failure, not a pass.** If a check could not run — missing input, moved directory, a pattern that matched nothing — it says so. "Nothing objected" is not "everything passed".
+2. **Exceptions are named allow-lists, never fall-throughs.** Name the exempt thing, never express the exemption as a property of absence itself, because that quietly exempts everything else that goes missing later.
+3. **Every set-iterating check reports its denominator.** Carry a count, fail at zero, print the count on the passing line. A verdict drawn from an empty set is indistinguishable from one drawn from a complete set.
+
+A **caller** that discards a check's exit status breaks rule 1 as surely as a check that never ran.
+
+The rules are written down because the Automation milestone found eleven checks that reported success without evaluating anything. None was found by reading the diff — three by this repository's own CI, six by code review, two by an audit once the pattern was named — and **four were introduced by the fixes to earlier instances of the same defect**. A defect class that reproduces inside its own remediation is not a set of oversights; it is the default reasserting itself, because writing a pass is the path of least resistance whenever a condition turns out not to apply. Fixing the twelfth instance does not make the thirteenth less likely. Stating the rule does.
+
+---
+
 # Verifying an Installation
 
 ```bash

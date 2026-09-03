@@ -23,6 +23,45 @@
 # Registry is stale (see Registry/README.md, "Authority — the Registry Never
 # Wins"). Every failure below therefore names the document to fix.
 #
+# ======================================================================
+# THE CONVENTION EVERY CHECK IN THIS FILE FOLLOWS — read before adding one
+# ======================================================================
+#
+# 1. AN UNEVALUATED CONDITION IS A FAILURE, NOT A PASS.
+#    If a check could not run — its input was missing, its directory moved,
+#    its pattern matched nothing — it must say so. It must not report
+#    success. "Nothing objected" is not "everything passed".
+#
+# 2. EXCEPTIONS ARE NAMED ALLOW-LISTS, NEVER FALL-THROUGHS.
+#    When something is legitimately exempt, name the thing (see
+#    KNOWN_ABSENT and NOT_INSTALLED_HERE below). Never express the
+#    exemption as a property of absence itself, because that quietly
+#    exempts everything else that goes missing later.
+#
+# 3. EVERY SET-ITERATING CHECK REPORTS ITS DENOMINATOR.
+#    Carry a count, fail at zero, and print the count on the passing line.
+#    A verdict drawn from an empty set is indistinguishable from a verdict
+#    drawn from a complete one.
+#
+# WHY THIS IS WRITTEN DOWN RATHER THAN LEFT AS TASTE. The Automation
+# milestone found and fixed eleven checks that reported success without
+# evaluating anything. Zero of them were found by reading the diff — three
+# by this repository's own CI, six by code review, two by an audit after
+# the pattern was named. FOUR were introduced by the fixes to earlier
+# instances of the same defect.
+#
+# A defect class that reproduces inside its own remediation is not a set of
+# oversights. It is the default reasserting itself, because writing `pass`
+# is the path of least resistance whenever a condition turns out to be
+# inapplicable. Fixing the twelfth instance does not make the thirteenth
+# less likely; stating the rule does.
+#
+# The same three rules apply to Adapters/scripts/install.sh,
+# Adapters/scripts/release.sh, Adapters/scripts/setup-project-bootstrap.sh,
+# Adapters/ai-runtimes/generate-agents.sh, and the CI jobs in
+# Adapters/github-actions/ — a caller that discards a check's exit status
+# breaks rule 1 just as surely as a check that never ran.
+#
 # Usage:
 #   ./Adapters/scripts/validate-framework.sh              # validate; exit 1 on failure
 #   ./Adapters/scripts/validate-framework.sh --verbose    # also print passing checks
@@ -57,7 +96,7 @@ for arg in "$@"; do
     --verbose|-v) VERBOSE=1 ;;
     --regenerate-roster) REGENERATE=1 ;;
     --help|-h)
-      sed -n '2,34p' "$0"
+      sed -n '2,74p' "$0"
       exit 0
       ;;
     *)
