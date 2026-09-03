@@ -277,3 +277,9 @@ work_units:
     title: Make a second Work Unit claim an error, so attribution needs no ordinal
     milestone: Automation
     delivers: Adapters/git-hooks/commit-msg, Adapters/github-actions/pr-validation.yml, Adapters/scripts/release.sh, Standards/COMMIT_STANDARD.md
+
+  - id: WU-IAENG-168
+    employee: Technical Writer
+    title: Give the deferred trailer-token decision a deadline instead of leaving it open
+    milestone: Automation
+    delivers: Standards/COMMIT_STANDARD.md
