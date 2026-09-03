@@ -98,10 +98,11 @@ For existing projects:
 1. Define which employees are active for this project based on its scope.
    - A solo backend project may not need iOS Engineer or Android Engineer.
    - A data project may not need Frontend Engineer.
-2. Document the active employee roster in `CLAUDE.md`.
-3. Engineering Manager receives the project brief and confirms team readiness.
+2. Decide whether the project's **business domain** needs expertise no framework Employee has — actuarial rules, clinical coding, customs classification, construction estimating. If it does, define a Domain Employee from `Templates/DOMAIN_EMPLOYEE.md` under `.ia-engineering/Employees/` and register it in the project roster `.ia-engineering/Registry/employees.yml`, so its `Employee:` trailer validates in the hook and in CI. Its Definition of Done states what constitutes **proof** that a domain output is correct — the question `Workflows/PROJECT_BOOTSTRAP.md` Phase A asks and a Domain Employee answers.
+3. Document the active employee roster — framework and Domain Employees — in `CLAUDE.md`, with the concrete dispatch triggers for each Domain Employee (which outputs, paths, or Work Unit types always insert it).
+4. Engineering Manager receives the project brief and confirms team readiness.
 
-**Output:** Active employee roster defined. Engineering Manager briefed.
+**Output:** Active employee roster defined, Domain Employees registered where the domain requires them. Engineering Manager briefed.
 
 ---
 

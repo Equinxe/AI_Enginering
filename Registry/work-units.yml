@@ -325,3 +325,9 @@ work_units:
     title: Add the Session State template — dated operational state, never committed, separate from the CLAUDE.md contract
     milestone: Convergence
     delivers: Templates/SESSION_STATE.md
+
+  - id: WU-IAENG-176
+    employee: Engineering Manager
+    title: Add the Domain Employee template and the project roster extension the hook and CI read
+    milestone: Convergence
+    delivers: Templates/DOMAIN_EMPLOYEE.md, Adapters/git-hooks/commit-msg, Adapters/github-actions/pr-validation.yml, Registry/README.md, Workflows/ONBOARDING.md

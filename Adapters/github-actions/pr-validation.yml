@@ -303,6 +303,29 @@ jobs:
           VALID_NAMES="$(grep -E '^  - name: ' "$ROSTER" | sed 's/^  - name: //' | tr -d '\r')"
           echo "Roster entries: $(echo "$VALID_NAMES" | wc -l)"
 
+          # Project roster extension — Domain Employees defined by the project
+          # (Templates/DOMAIN_EMPLOYEE.md), same parsing contract, same
+          # resolution as the hook: an explicit IAENG_PROJECT_ROSTER that names
+          # a missing file is refused, the default location is optional.
+          PROJECT_ROSTER=""
+          if [ -n "${IAENG_PROJECT_ROSTER:-}" ]; then
+            if [ -f "$IAENG_PROJECT_ROSTER" ]; then
+              PROJECT_ROSTER="$IAENG_PROJECT_ROSTER"
+            else
+              echo "::error::IAENG_PROJECT_ROSTER is set to '$IAENG_PROJECT_ROSTER' but no such file exists. Validating against the framework roster alone would silently refuse every Domain Employee; fix the path or unset the variable."
+              exit 1
+            fi
+          elif [ -f ".ia-engineering/Registry/employees.yml" ]; then
+            PROJECT_ROSTER=".ia-engineering/Registry/employees.yml"
+          fi
+          if [ -n "$PROJECT_ROSTER" ]; then
+            PROJECT_NAMES="$(grep -E '^  - name: ' "$PROJECT_ROSTER" | sed 's/^  - name: //' | tr -d '\r')"
+            echo "Project roster: $PROJECT_ROSTER ($(echo "$PROJECT_NAMES" | grep -c .) Domain Employee(s))"
+            VALID_NAMES="$(printf '%s\n%s\n' "$VALID_NAMES" "$PROJECT_NAMES")"
+          else
+            echo "Project roster: none (.ia-engineering/Registry/employees.yml absent — no Domain Employees)"
+          fi
+
           # Merge commits are excluded via --no-merges, mirroring the hook's
           # MERGE_HEAD exception: an auto-generated merge subject ("Merge branch
           # ...", "Merge pull request #N ...") can never carry an Employee
@@ -337,7 +360,7 @@ jobs:
               [ -n "$emp_line" ] || continue
               EMPLOYEE_NAME="$(echo "${emp_line#Employee: }" | tr -d '\r')"
               if ! echo "$VALID_NAMES" | grep -qxF "$EMPLOYEE_NAME"; then
-                echo "::error::Commit $sha has 'Employee: $EMPLOYEE_NAME', which is not in $ROSTER. A functional or tool label ('executor', 'coder', 'reviewer-bot', etc.) is not a valid Employee name — see Core/MAIN_AGENT_CONDUCT.md, 'Naming matters.' If this line is an EXAMPLE quoted in the message body, indent it so it does not start at column 0."
+                echo "::error::Commit $sha has 'Employee: $EMPLOYEE_NAME', which is not in $ROSTER${PROJECT_ROSTER:+ nor in the project roster $PROJECT_ROSTER}. A functional or tool label ('executor', 'coder', 'reviewer-bot', etc.) is not a valid Employee name — see Core/MAIN_AGENT_CONDUCT.md, 'Naming matters.' If this line is an EXAMPLE quoted in the message body, indent it so it does not start at column 0."
                 fail=1
               fi
             done < <(printf '%s\n' "$EMPLOYEE_LINES")
