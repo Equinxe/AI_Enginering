@@ -43,7 +43,7 @@
 # the review path the workflow chose on purpose.
 #
 # Usage:
-#   ./Adapters/scripts/release.sh check [version]
+#   ./Adapters/scripts/release.sh check [version] [--milestone <name>]
 #       Step 1 readiness review. Reports every condition; exits 1 on any
 #       failure. Read-only — touches nothing.
 #
@@ -64,6 +64,7 @@ ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 cd "$ROOT" || exit 2
 
 FAILURES=0
+MILESTONE_OVERRIDE=""
 
 ok()   { printf '   ok    %s\n' "$1"; }
 bad()  { FAILURES=$((FAILURES + 1)); printf '   FAIL  %s\n' "$1"; [ -n "${2:-}" ] && printf '         %s\n' "$2"; }
@@ -170,16 +171,61 @@ cmd_check() {
   # eye — a Work Unit merged to a feature branch but never to develop looks
   # identical to one that landed.
 
-  local codename registry_ids merged_ids
-  codename="$(awk '/^Codename$/{getline; getline; print}' VERSION.md | tr -d '*' | tr -d '\r')"
+  # WHICH MILESTONE IS BEING RELEASED — resolved, not read from VERSION.md.
+  #
+  # The first version took the codename from VERSION.md and could therefore
+  # never pass where Step 1 is specified to run. Step 1 is the readiness
+  # review; Step 2 is the version bump. So at Step 1 VERSION.md necessarily
+  # still names the PREVIOUS milestone, condition 1 resolved the
+  # already-released one, found zero Work Units, and failed — on every
+  # release, with Step 1 then saying "block the release". The only way to clear
+  # it was to do Step 2 first, which Step 1 gates. Found in review.
+  #
+  # That is the same shape as a check that cannot go green when run as
+  # documented, and it carried the extra cost of training the reader to treat
+  # condition 1's FAIL as routine — so the next genuinely unmerged Work Unit
+  # would look identical at a glance.
+  #
+  # The milestone under release is derived instead: a milestone in
+  # Registry/work-units.yml with no matching CHANGELOG.md section has not
+  # shipped. That is checkable before the bump, unlike VERSION.md, because this
+  # project writes the CHANGELOG section in the bump commit itself. Exactly one
+  # unreleased milestone is the normal case; --milestone overrides, and
+  # ambiguity is reported rather than guessed.
+  local codename registry_ids merged_ids unreleased n_unreleased
 
-  if [ -z "$codename" ]; then
-    bad "could not read the codename from VERSION.md" "Expected a '**Name**' line two lines below the 'Codename' heading. Without it the milestone being released is unknown, so Work Unit completeness cannot be evaluated."
+  if [ -n "$MILESTONE_OVERRIDE" ]; then
+    codename="$MILESTONE_OVERRIDE"
+    ok "milestone '$codename' (from --milestone)"
+  elif [ ! -f Registry/work-units.yml ] || [ ! -f CHANGELOG.md ]; then
+    codename=""
+  else
+    unreleased="$(awk '/^    milestone: / { m = $0; sub(/^    milestone: /, "", m); gsub(/\015/, "", m); print m }' \
+      Registry/work-units.yml | sort -u | while IFS= read -r m; do
+        [ -n "$m" ] || continue
+        grep -qE "^## \[[0-9.]+\] - $m\$" CHANGELOG.md || printf '%s\n' "$m"
+      done)"
+    n_unreleased="$(printf '%s\n' "$unreleased" | grep -c . || true)"
+
+    if [ "$n_unreleased" -eq 1 ]; then
+      codename="$(printf '%s\n' "$unreleased" | grep .)"
+      ok "milestone '$codename' — the one registry milestone with no CHANGELOG.md section yet"
+    elif [ "$n_unreleased" -eq 0 ]; then
+      codename=""
+      ok "every registry milestone already has a CHANGELOG.md section — no unreleased Work Units to confirm"
+    else
+      codename=""
+      bad "cannot determine which milestone is being released" "$n_unreleased registry milestones have no CHANGELOG.md section: $(printf '%s' "$unreleased" | tr '\n' ' '). Pass --milestone <name> to say which one this release is. Guessing would evaluate condition 1 against the wrong set."
+    fi
+  fi
+
+  if [ -z "$codename" ] && [ "$n_unreleased" != "0" ]; then
+    : # the branches above already reported why
+  elif [ -z "$codename" ]; then
+    : # nothing pending; already reported as ok
   elif [ ! -f Registry/work-units.yml ]; then
     bad "Registry/work-units.yml is missing" "Step 1 item 1 needs it to know which Work Units this milestone planned."
   else
-    ok "releasing milestone '$codename'"
-
     registry_ids="$(awk -v m="$codename" '
       /^  - id: / { id = $0; sub(/^  - id: /, "", id); gsub(/\015/, "", id) }
       /^    milestone: / { ms = $0; sub(/^    milestone: /, "", ms); gsub(/\015/, "", ms)
@@ -187,15 +233,38 @@ cmd_check() {
     ' Registry/work-units.yml | sort -u)"
 
     if [ -z "$registry_ids" ]; then
-      # Not a pass. Zero registered Work Units for this milestone means either
-      # the version bump (Step 2) has not happened yet, or the registry does
-      # not use this codename — and in both cases the condition was not
-      # evaluated. Reporting success here would be the exact defect this
-      # milestone spent eleven fixes removing.
-      bad "no Work Units registered against milestone '$codename'" "Either Step 2's version bump has not landed yet (so VERSION.md still names the previous milestone), or Registry/work-units.yml uses a different milestone label. Item 1 cannot be confirmed either way, and an unevaluated condition is not a met one."
+      # Not a pass: the milestone was named (by --milestone or by derivation)
+      # but no Work Unit is registered against that label, so the condition was
+      # not evaluated. An unevaluated condition is a failure.
+      bad "no Work Units registered against milestone '$codename'" "The label was resolved but Registry/work-units.yml has no entry using it — check for a spelling difference between the CHANGELOG section, --milestone, and the registry's milestone field. Condition 1 cannot be confirmed either way, and an unevaluated condition is not a met one."
     else
-      merged_ids="$(git log --format=%B "$branch" 2>/dev/null \
-        | grep -E '^Work Unit: ' | sed 's/^Work Unit: //' | tr -d '\r' | sort -u)"
+      # PER COMMIT, taking each commit's own trailer — not a flat grep over
+      # every body.
+      #
+      # The flat version counted any `Work Unit:` line at column 0 anywhere in
+      # any message as evidence the Work Unit had landed. Reproduced in review:
+      # with an unmerged Work Unit registered, the check correctly failed;
+      # after one commit whose body merely QUOTED that id at column 0, it
+      # reported the milestone complete. A false pass on a release gate, and
+      # realistic here specifically, because quoting trailer lines in commit
+      # bodies is a habit in this repository — it is how the original head -1
+      # bug was found. A commit explaining why a Work Unit was deferred is the
+      # natural shape of that false pass.
+      #
+      # Note the rule here differs from the other three readers on purpose, and
+      # the difference is the question being asked. They VALIDATE — every claim
+      # in a message must resolve, so all lines are checked. This ATTRIBUTES —
+      # which Work Unit does this commit perform — and attribution needs one
+      # answer per commit. Git's own trailer definition would give it, but
+      # cannot: `Work Unit:` contains a space and so is never parsed as a
+      # trailer (see Standards/COMMIT_STANDARD.md, Trailers). The last matching
+      # line is the closest honest approximation, and it is correct for any
+      # message conforming to that Standard, which requires the trailer block
+      # last and any quoted example indented.
+      merged_ids="$(for sha in $(git rev-list --no-merges "$branch" 2>/dev/null); do
+          git log -1 --format=%B "$sha" \
+            | grep -E '^Work Unit: ' | tail -1 | sed 's/^Work Unit: //' | tr -d '\r'
+        done | grep . | sort -u)"
 
       local missing_wu="" total=0
       while IFS= read -r id; do
@@ -442,7 +511,34 @@ case "${1:-check}" in
   # next reader does not have to decide which one this is.
   check)
     shift
-    cmd_check "${1:-}"
+    CHECK_VERSION=""
+    while [ "$#" -gt 0 ]; do
+      case "$1" in
+        --milestone)
+          # Arity guarded before the shift, for the reason WU-IAENG-158
+          # documents in generate-agents.sh: `shift 2` on a trailing flag fails
+          # out of range, and a failed shift does not shift, so the loop spins
+          # forever.
+          if [ "$#" -lt 2 ]; then
+            echo "Argument error: --milestone requires a value." >&2
+            echo "  It names the milestone being released, for condition 1." >&2
+            exit 2
+          fi
+          MILESTONE_OVERRIDE="$2"
+          shift 2
+          ;;
+        -*) echo "Unknown option: $1" >&2; exit 2 ;;
+        *)
+          if [ -n "$CHECK_VERSION" ]; then
+            echo "Error: more than one version given." >&2
+            exit 2
+          fi
+          CHECK_VERSION="$1"
+          shift
+          ;;
+      esac
+    done
+    cmd_check "$CHECK_VERSION"
     ;;
   notes)   shift; cmd_notes "${1:-}" ;;
   publish) shift; cmd_publish "${1:-}" "${2:-}" ;;
@@ -451,7 +547,7 @@ case "${1:-check}" in
     ;;
   *)
     echo "Unknown command: $1" >&2
-    echo "Usage: $0 {check [version] | notes <version> | publish <version> [--confirm]}" >&2
+    echo "Usage: $0 {check [version] [--milestone <name>] | notes <version> | publish <version> [--confirm]}" >&2
     exit 2
     ;;
 esac

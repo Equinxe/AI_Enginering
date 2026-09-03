@@ -259,3 +259,9 @@ work_units:
     title: Document the commit trailers in the Commit Standard, contiguous as git defines them
     milestone: Automation
     delivers: Standards/COMMIT_STANDARD.md, Adapters/README.md
+
+  - id: WU-IAENG-165
+    employee: Release Manager
+    title: Derive the milestone under release, and attribute Work Units per commit
+    milestone: Automation
+    delivers: Adapters/scripts/release.sh, Workflows/RELEASE.md

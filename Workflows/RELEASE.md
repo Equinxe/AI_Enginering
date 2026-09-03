@@ -51,10 +51,10 @@ Run `Adapters/scripts/release.sh check` from `develop`. It is read-only.
 
 | # | Condition | Mechanically checked? |
 |---|---|---|
-| 1 | All planned Work Units are merged into `develop` | **Yes** — every Work Unit registered against this milestone in `Registry/work-units.yml` must have a commit reachable from `develop` carrying its `Work Unit:` trailer |
+| 1 | All planned Work Units are merged into `develop` | **Yes** — every Work Unit registered against this milestone in `Registry/work-units.yml` must have a commit reachable from `develop` carrying its `Work Unit:` trailer. The milestone is derived as the one registry milestone with no `CHANGELOG.md` section yet, so this works at Step 1, *before* the Step 2 bump; pass `--milestone <name>` when more than one is unreleased |
 | 2 | CI/CD is green on `develop` | **Yes** — the latest run's conclusion |
 | 3 | No open critical or high defects remain | **Reported, not failed** — see below |
-| 4 | The release version number and codename are agreed | **Partly** — `VERSION.md` is read and its codename resolved against the registry's milestones; whether that version and codename are the *agreed* ones is a Director judgment no script can make |
+| 4 | The release version number and codename are agreed | **Partly** — `VERSION.md`'s version is read and compared against the one being asked about; whether that version and codename are the *agreed* ones is a Director judgment no script can make |
 | 5 | Pending `CHANGELOG.md` entries account for every significant change | **Partly** — the section's presence and size are checked; whether its content is complete is a reading task |
 
 The script additionally checks the current branch, working-tree cleanliness, sync with the remote, and `Adapters/scripts/validate-framework.sh`.
