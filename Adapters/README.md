@@ -35,25 +35,41 @@ Adapters are AI-agnostic in the sense that matters: they check work by any Emplo
 Run from the root of a project that has imported IA Engineering as a Git submodule at `ia-engineering/` (see `Workflows/ONBOARDING.md`).
 
 ```bash
-# Git hooks (local enforcement, every clone must repeat this — hooks are not
-# transmitted by git itself)
-cp ia-engineering/Adapters/git-hooks/commit-msg .git/hooks/commit-msg
-cp ia-engineering/Adapters/git-hooks/pre-push .git/hooks/pre-push
-chmod +x .git/hooks/commit-msg .git/hooks/pre-push
-
-# GitHub Actions CI check
-mkdir -p .github/workflows
-cp ia-engineering/Adapters/github-actions/pr-validation.yml .github/workflows/
-
-# GitHub PR template
-cp ia-engineering/Adapters/github/PULL_REQUEST_TEMPLATE.md .github/PULL_REQUEST_TEMPLATE.md
+# Everything host-agnostic: git hooks, PR-validation and framework-validation
+# CI, the PR template, the issue templates, and the .gitattributes LF rules.
+# Idempotent — safe to re-run. Add --dry-run to see the plan first.
+./ia-engineering/Adapters/scripts/install.sh
 
 # Branch protection (requires GitHub CLI, authenticated — run once per repo,
 # review the script first, it mutates shared settings)
 ./ia-engineering/Adapters/scripts/setup-branch-protection.sh
+
+# Stack CI + container publishing, once Workflows/PROJECT_BOOTSTRAP.md Phase B
+# has decided the stack (node | python | go | jvm | generic)
+./ia-engineering/Adapters/scripts/setup-project-bootstrap.sh node
 ```
 
+`install.sh` replaced the six-command `cp`/`chmod` checklist this section used to spell out. A multi-step manual procedure that must be repeated in every clone is a procedure that gets skipped, and a skipped hook installation is silent — commits land with no Employee attribution and nothing complains until a server-side check catches it later, or nobody does.
+
+**Hooks are configured through `core.hooksPath`, not copied into `.git/hooks`.** Copying produces a second, forkable version of each hook, frozen at whichever framework version was current when the copy was made: a project that installed hooks at v0.0.9 keeps validating against a v0.0.9 roster while its submodule moves on, and nothing reports the mismatch. Pointing `core.hooksPath` at the framework's own `Adapters/git-hooks` means the hook in force is always the hook in the imported framework version.
+
+This does not make hooks travel with a clone — nothing can. Git deliberately never transmits hooks or local config, because a repository that could install executables on clone would be a remote-code-execution vector. Every clone still runs `install.sh` once; the difference is that it is one command that cannot be half-done instead of six that can.
+
+Because `core.hooksPath` makes git ignore `.git/hooks` entirely, `install.sh` checks that directory for pre-existing project hooks first and warns rather than shadowing them silently.
+
 This extends `Workflows/ONBOARDING.md` Step 5 ("Initialize git workflow") — the manual checklist there becomes a scripted setup once these Adapters are installed.
+
+---
+
+# Verifying an Installation
+
+```bash
+./ia-engineering/Adapters/scripts/validate-framework.sh
+```
+
+`install.sh` ends by running the installed `commit-msg` hook against two probe messages — one valid, one carrying the tool label `executor` — and reports a problem if the hook accepts what it should reject. This is `Core/MAIN_AGENT_CONDUCT.md`'s Verification Over Waiting applied to installation: an installer that prints "done" without checking anything has the same defect as a dispatch report nobody verified.
+
+`validate-framework.sh` then checks the framework itself, including whether this repository's installed copies of these Adapters still match what it ships.
 
 ---
 

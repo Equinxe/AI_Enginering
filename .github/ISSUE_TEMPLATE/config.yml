@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Questions / Support
+    url: https://github.com/Equinxe/AI_Enginering/discussions
+    about: "Ask a question or discuss the framework itself. For a concrete defect or a proposal, use the Bug Report or Feature Request template instead."
+  - name: Security Vulnerability
+    url: https://github.com/Equinxe/AI_Enginering/security/advisories/new
+    about: "Report a vulnerability privately through a security advisory rather than a public issue."

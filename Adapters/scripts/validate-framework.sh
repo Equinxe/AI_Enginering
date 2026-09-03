@@ -531,20 +531,56 @@ section "10. Adapter / installed-copy parity"
 # LF-normalized via .gitattributes, so a difference here is real content drift
 # rather than a line-ending artifact.
 
-for adapter in Adapters/github-actions/*.yml; do
-  installed=".github/workflows/$(basename "$adapter")"
+check_parity() {
+  local adapter="$1" installed="$2"
+  if [ ! -f "$adapter" ]; then
+    fail "$adapter is referenced as an Adapter but does not exist" ""
+    return
+  fi
   if [ ! -f "$installed" ]; then
-    # Only pr-validation and framework-validation are installed here by design:
-    # ci-build-test and ghcr-publish target a bootstrapped application project,
-    # and this repository ships no application to build or containerize.
+    # Not every Adapter belongs in this repository: ci-build-test.yml and
+    # ghcr-publish.yml target a bootstrapped application project, and this
+    # repository ships no application to build or containerize.
     pass "$(basename "$adapter"): not installed in this repository (expected)"
-    continue
+    return
   fi
   if diff -q "$adapter" "$installed" > /dev/null 2>&1; then
     pass "$(basename "$adapter"): installed copy is identical"
   else
     fail "$adapter and $installed have drifted" "$(diff "$adapter" "$installed" | head -4 | tr '\n' ' ')"
   fi
+}
+
+for adapter in Adapters/github-actions/*.yml; do
+  check_parity "$adapter" ".github/workflows/$(basename "$adapter")"
+done
+
+# The GitHub templates were outside this check until WU-IAENG-141, and both had
+# in fact drifted: PULL_REQUEST_TEMPLATE.md differed from its Adapter on every
+# line (a CRLF checkout, now fixed by .gitattributes), and ISSUE_TEMPLATE/ had
+# simply never been installed here at all — the framework shipped
+# Workflows/PROJECT_BOOTSTRAP.md Step 6's issue templates for other projects
+# while not using them itself.
+check_parity "Adapters/github/PULL_REQUEST_TEMPLATE.md" ".github/PULL_REQUEST_TEMPLATE.md"
+
+for tmpl in Adapters/github/ISSUE_TEMPLATE/*; do
+  [ -f "$tmpl" ] || continue
+  base="$(basename "$tmpl")"
+  # config.yml is deliberately not byte-identical: the Adapter ships OWNER/REPO
+  # placeholders and instructs the adopting project to replace them. An
+  # installed copy that still said OWNER/REPO would be the actual defect, so
+  # what is checked here is that the substitution happened.
+  if [ "$base" = "config.yml" ]; then
+    if [ ! -f ".github/ISSUE_TEMPLATE/config.yml" ]; then
+      pass "config.yml: not installed in this repository (expected)"
+    elif grep -q 'OWNER/REPO' .github/ISSUE_TEMPLATE/config.yml; then
+      fail ".github/ISSUE_TEMPLATE/config.yml still contains the OWNER/REPO placeholder" "The Adapter instructs the adopting project to replace it; an unreplaced placeholder points contributors at a repository that does not exist."
+    else
+      pass "config.yml: placeholders replaced with real values"
+    fi
+    continue
+  fi
+  check_parity "$tmpl" ".github/ISSUE_TEMPLATE/$base"
 done
 
 # ==========================================================================
