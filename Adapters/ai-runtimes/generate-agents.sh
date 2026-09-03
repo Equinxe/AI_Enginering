@@ -322,8 +322,20 @@ type(scope): description
 [body — why this change exists]
 
 Work Unit: WU-<project>-<number>
+
 Employee: <your name, exactly as it appears above>
 ```
+
+The blank line between the two trailers is deliberate. A git trailer token may
+not contain whitespace, so `Work Unit:` is never parsed as a trailer, and one
+unparseable line invalidates the whole block — putting them on consecutive
+lines costs `Employee:` its parseability too. Separated, `Employee:` sits alone
+in the final paragraph and `git log --format='%(trailers:key=Employee)'`
+resolves it. See Standards/COMMIT_STANDARD.md, Trailers.
+
+Do not quote an example trailer at column 0 anywhere in the body — every
+matching line is validated, so an unindented example is read as a claim.
+Indent it.
 
 The Employee trailer is mandatory and is validated mechanically against
 Registry/employees.yml. A commit without it is rejected by the commit-msg hook

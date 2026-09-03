@@ -265,3 +265,9 @@ work_units:
     title: Derive the milestone under release, and attribute Work Units per commit
     milestone: Automation
     delivers: Adapters/scripts/release.sh, Workflows/RELEASE.md
+
+  - id: WU-IAENG-166
+    employee: Technical Writer
+    title: Withdraw the contiguity rule, which measurably cost Employee parseability
+    milestone: Automation
+    delivers: Standards/COMMIT_STANDARD.md, Adapters/ai-runtimes/generate-agents.sh

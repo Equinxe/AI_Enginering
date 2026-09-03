@@ -82,30 +82,41 @@ type(scope): description
 [body — why this change exists]
 
 Work Unit: WU-<project>-<number>
+
 Employee: <Exact Employee Name>
 ```
+
+Of the three rules in this section, exactly one is enforced mechanically: **quoted examples must be indented** (below). The layout rule and the ordering of the two trailers are conventions — nothing rejects a commit for getting them wrong. That distinction is stated because this framework's own position is that a rule only a careful human applies is a rule the framework does not have; these two are documented as guidance, not presented as gates.
 
 `Employee:` identifies who produced the change. It is required by `Core/MAIN_AGENT_CONDUCT.md`'s Dispatch Discipline — *"Every Work Unit's output (commit, Pull Request, report) must identify which Employee produced it"* — and the name must match the roster exactly; a functional or tool label is not an Employee name. `Work Unit:` traces the commit to the Work Unit it performs, per `Templates/WORK_UNIT.md`.
 
 Both are enforced mechanically, not by convention: `Adapters/git-hooks/commit-msg` rejects the commit locally, and the `Employee Trailer` and `Work Unit Exists` CI checks re-validate server-side in case the hook was bypassed or never installed.
 
-### One contiguous block, as the final paragraph
+### Layout: keep the blank line between them
 
-Put the two trailers on consecutive lines with **no blank line between them**, and put nothing after them.
+Write the two trailers as shown above, **separated by a blank line**, with `Employee:` last.
 
-Git defines a trailer block as the message's final paragraph when it consists entirely of trailer-shaped lines. A blank line between the two splits that paragraph, so any tool reading the block sees only the last line.
+That looks like an accident of formatting and is not. Git defines a trailer block as the message's final paragraph when it consists entirely of trailer-shaped lines, and three facts follow from that definition, all measured directly rather than reasoned about:
 
-**Contiguity is necessary but not sufficient, and it is worth being exact about why.** Git will not parse `Work Unit:` as a trailer at all, because a trailer token may not contain whitespace. Worse, one unparseable line invalidates the *whole* block: with `Work Unit: X` present, `git interpret-trailers --parse` returns nothing for `Employee:` either. Verified directly — a block using `Work-Unit:` parses both lines; the same block using `Work Unit:` parses neither.
+| Layout | `%(trailers:key=Work Unit)` | `%(trailers:key=Employee)` |
+|---|---|---|
+| `Work Unit:` and `Employee:` **separated** by a blank line | empty | **resolves** |
+| `Work Unit:` and `Employee:` **contiguous** | empty | empty |
+| `Work-Unit:` and `Employee:` contiguous | resolves | resolves |
 
-So `git log --format='%(trailers:key=Employee)'` cannot be used here regardless of contiguity, and the anchored `grep` in `Adapters/git-hooks/commit-msg` is not a workaround for a fixable problem — it is the only available mechanism while the token contains a space. Contiguity is still required, because it keeps the block unambiguous for a human reader and for any future tooling, and because splitting it buys nothing.
+A git trailer token may not contain whitespace, so `Work Unit:` is never parsed as a trailer — and one unparseable line invalidates the **whole** block, which is why the contiguous form loses `Employee:` too. Separating them puts `Employee:` alone in the final paragraph, where it parses.
 
-Renaming the token to `Work-Unit:` would make git-native parsing available and let all three readers stop hand-rolling. That is a deliberate change to a mandatory trailer across the framework, affecting every existing commit's conformance, and it is a Director decision rather than an incidental one — recorded here as the open option, not adopted.
+So the blank line is load-bearing: it is what makes `Employee:` readable by git today. An earlier revision of this section mandated contiguity on the reasoning that "splitting it buys nothing". That was wrong, and the repository measured it — 28 of 30 commits on the branch exposed `Employee:` through `%(trailers)`, and the only two that did not were the two written under the contiguity rule itself.
 
-The cost of the hand-rolled parsing is not hypothetical. It produced a bypass that took three attempts to close: selecting a trailer line by position was defeatable from whichever end was not chosen, and a squash-concatenated message could carry an unvalidated `Employee:` line past the check entirely. `Adapters/git-hooks/commit-msg` and both CI checks now validate **every** matching line, which is what makes the ordinal irrelevant.
+`Work Unit:` is not readable by git in any layout. The anchored `grep` in `Adapters/git-hooks/commit-msg` is therefore not a workaround for something formatting can fix; it is the only available mechanism while the token contains a space.
 
-### Quoting a trailer inside the body
+**The open decision.** Renaming the token to `Work-Unit:` and making the block contiguous is the only combination better than the current one on every axis — both trailers would parse, and readers could stop hand-rolling. It changes a mandatory trailer across the whole framework and makes every existing commit non-conforming, so it is a Director decision, recorded here and deliberately not taken. Until it is taken, the separated layout is correct.
 
-The checks match `Employee:` and `Work Unit:` anchored at column 0, and validate **every** matching line rather than one. So an example quoted in a commit body must be indented:
+The cost of hand-rolled parsing is not hypothetical. It produced a bypass that took three attempts to close: selecting a trailer line by position was defeatable from whichever end was not chosen, and a squash-concatenated message could carry an unvalidated `Employee:` line past the check entirely. `Adapters/git-hooks/commit-msg` and both CI checks now validate **every** matching line, which is what makes the ordinal irrelevant.
+
+### Quoting a trailer inside the body — enforced
+
+This is the rule in this section with teeth. The checks match `Employee:` and `Work Unit:` anchored at column 0, and validate **every** matching line rather than one, so an example quoted in a commit body must be indented:
 
 ```
 The hook rejects this:
