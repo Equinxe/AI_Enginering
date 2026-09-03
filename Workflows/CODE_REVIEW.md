@@ -151,7 +151,7 @@ If compliance-relevant content is found: escalate immediately to the Compliance 
 - **Request changes** — one or more critical or major issues remain.
 - **Escalate** — security or architecture issue requires specialist review before a decision can be made.
 
-Document the decision with a summary comment stating what was reviewed and what the blocking conditions are (if any).
+Document the decision with a summary comment stating **what was reviewed** — which files, which lenses (Steps 2–6), which claims in the description were verified against the repository — and what the blocking conditions are (if any). A review that found nothing states what it looked at; "LGTM" with no denominator is not a decision, it is an absence of one.
 
 **Output:** PR approved, changes requested, or escalated.
 
@@ -167,7 +167,51 @@ Document the decision with a summary comment stating what was reviewed and what 
 
 **Output:** PR updated, review re-requested.
 
-**Handoff to:** Step 1 (reviewer re-enters the workflow for the new diff only).
+**Handoff to:** Step 1 (reviewer re-enters the workflow for the new diff only — after re-anchoring, below).
+
+### Line Re-Anchoring
+
+Before re-reviewing, the Code Reviewer **re-anchors every open finding** to the new diff. A finding was made against a line number that the new commit may have moved or removed; each one is either:
+
+- re-anchored to the line that now carries the same code, or
+- closed with an explicit disposition — `resolved by <commit>`, or `withdrawn: <reason>`.
+
+A finding is **never dropped because its line disappeared**. A deleted line is not a fixed defect; the defect may have moved. The reviewer's re-review comment lists the re-anchored and closed findings by their original identifiers, so the author and any later reader can see that every finding reached a disposition.
+
+---
+
+# Multi-Lens Review
+
+Steps 2 through 6 are five **lenses** — correctness, tests, security and compliance, quality, documentation. For an ordinary Pull Request one Code Reviewer applies them in sequence. For a Pull Request that is **security-sensitive or high-risk** (the trigger list below), or that carries a `High` or `Critical` `RISK:` record in its Work Unit Report (`Standards/RISK_STANDARD.md`), the lenses are applied by **separate passes**, and where the runtime allows it, by separate Employees:
+
+| Lens | Applied by | Why separate |
+|---|---|---|
+| Correctness, quality, documentation (Steps 2, 5, 6) | Code Reviewer | The baseline pass |
+| Tests (Step 3) | QA Engineer | Whether the tests *can fail* is a question the author of the review checklist tends to answer optimistically |
+| Security and compliance (Step 4) | Security Engineer; Compliance Engineer when regulated data is in scope | Already the Escalation rule when a finding exists; for high-risk changes the pass runs whether or not the baseline reviewer noticed anything |
+
+Three rules make separate passes worth more than one long one:
+
+1. **Independence first.** Each pass records its findings *before* reading the others'. A lens that reads the baseline review first inherits its blind spots.
+2. **Cross-debate, decided by evidence.** The passes then read each other's findings. Where two disagree — one calls a path unreachable, another calls it exploitable — the disagreement is resolved by a reproduction, a test, or a trace through the code, and the resolution is written down. It is never resolved by which Employee is senior, and never left as "both noted".
+3. **One decision.** The Code Reviewer consolidates the findings, re-labels severity where the debate changed it, and delivers the single Step 8 decision. Three reviews with three verdicts is not a review; it is three opinions.
+
+---
+
+# Ten Review Lessons
+
+Recorded because each was learned by getting it wrong at least once, in this framework's own reviews or in the sibling corpora it draws on. They bind the Code Reviewer alongside the Steps.
+
+1. **Read the description before any file.** The review is of the change against its stated intent; without the intent there is nothing to review against.
+2. **Verify claims against the repository, not against the description.** "Tests pass" is checked by the CI log or by running them. "No trailers on these commits" was once reported on four commits that each carried one.
+3. **A test that cannot fail is not a test.** For every new test, ask what change to the code would make it red. If nothing would, it is a fixture.
+4. **Review what is absent.** The file that should have changed and did not; the test that should exist; the migration without a rollback; the documentation the change made stale. Diffs show additions; defects hide in omissions.
+5. **Count the things prose counts.** "Six checks", "three rules", "42 Employees" — every literal count in the changed documents is checked against the set it counts. They drift every time the set grows.
+6. **Run the falsifier.** When the author claims a mechanism behaves a certain way, enumerate what else it could do, then test the alternative. A claim that "splitting the trailers buys nothing" was accepted until the measurement showed 28 of 30 commits parsed only when split.
+7. **Severity follows consequence, not effort.** A one-character fix to an authorization check is `[critical]`; a two-hundred-line renaming is `[minor]`. Never let the size of the fix set the label.
+8. **Give direction, not a replacement.** A review comment that rewrites the author's code has stopped reviewing and started implementing — and the rewrite is now unreviewed.
+9. **Re-review only the new diff, but re-anchor every old finding.** Re-reading the whole PR each round is waste; losing a finding because its line moved is a defect shipped.
+10. **State the denominator.** What was read, which lenses ran, which claims were verified. A review that reports only its findings hides how much it did not look at — the same defect as a check that reports success without evaluating (`Adapters/README.md`, the Check Convention).
 
 ---
 
@@ -225,7 +269,7 @@ This workflow is complete when:
 
 Owner: IA Engineering
 
-Version: 0.0.4
+Version: 0.0.5
 
 Status: Draft
 

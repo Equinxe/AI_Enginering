@@ -361,3 +361,9 @@ work_units:
     title: Project Bootstrap — profiles A/B/C, the "what constitutes PROOF" question, and the confidential-data question at inception
     milestone: Convergence
     delivers: Workflows/PROJECT_BOOTSTRAP.md
+
+  - id: WU-IAENG-181
+    employee: Code Reviewer
+    title: Code Review — multi-lens passes with cross-debate, line re-anchoring, the stated denominator, and the ten review lessons
+    milestone: Convergence
+    delivers: Workflows/CODE_REVIEW.md, Registry/workflows.yml

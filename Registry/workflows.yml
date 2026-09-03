@@ -117,6 +117,8 @@ workflows:
       - Missing or insufficient tests block approval (Step 3)
       - A security finding escalates to the Security Engineer immediately, without waiting for the review to finish (Step 4)
       - Compliance-relevant content escalates to the Compliance Engineer on the same terms (Step 4)
+      - A security-sensitive or High/Critical-risk PR is reviewed through separate lens passes with cross-debate (Multi-Lens Review)
+      - Every open finding is re-anchored or given a disposition before re-review; none is dropped because its line moved (Step 9)
 
   - name: Release
     file: Workflows/RELEASE.md
