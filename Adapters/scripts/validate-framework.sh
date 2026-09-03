@@ -594,17 +594,29 @@ section "11. Unresolved work markers in shipped code"
 # Workflows/PROJECT_BOOTSTRAP.md's Coverage Checklist could not be satisfied by
 # running the very script it points to.
 #
-# Two exemptions:
-#   "TODO(adopting project)"  a placeholder the adopter is meant to fill in,
-#                             which is the Generic CI fallback's whole purpose.
-#   this script itself        it necessarily spells the marker words out in
-#                             order to search for them, and would otherwise
-#                             report itself on every run.
+# What counts as a marker is its SYNTAX, not the bare word. Matching the word
+# alone produced two false positives: this script, for naming the words it
+# searches for, and setup-project-bootstrap.sh's header, for explaining in
+# prose that a marker used to be there. False positives on every run train the
+# reader to ignore this check, which is how a real marker gets missed.
+#
+# The pattern below therefore requires a marker word either to open a comment
+# (immediately after the comment character) or to be followed by a colon or an
+# opening parenthesis, which is how a scope is attached. A mid-sentence mention
+# does neither. A bare mid-comment mention with no punctuation slips through;
+# that is the accepted cost of a check whose warnings stay credible.
+#
+# Deliberately not restated here: an example of the syntax. Spelling one out is
+# what made this comment self-matching in the first place — a checker's own
+# documentation cannot contain specimens of what it searches for.
+#
+# One exemption, matched literally below: the adopter-facing placeholder in the
+# Generic CI fallback, which exists precisely to be filled in by the project
+# that installs it.
 
-markers="$(grep -rnE '\b(TODO|FIXME|XXX|HACK)\b' \
+markers="$(grep -rnE '(#[[:space:]]*(TODO|FIXME|XXX|HACK)\b|\b(TODO|FIXME|XXX|HACK)[(:])' \
   Adapters/git-hooks Adapters/scripts Adapters/github-actions Registry 2>/dev/null \
-  | grep -v 'TODO(adopting project)' \
-  | grep -v '^Adapters/scripts/validate-framework.sh:' || true)"
+  | grep -vF 'TODO(adopting project)' || true)"
 if [ -n "$markers" ]; then
   fail "unresolved work markers in shipped Adapter code" "$(echo "$markers" | head -5 | tr '\n' ' ') — a TODO in an Adapter is a step the adopting project does not get."
 else

@@ -121,11 +121,9 @@ With the stack decided, generate the baseline repository content:
 
 **Actor:** DevOps Engineer
 
-1. Apply branch protection using `Adapters/scripts/setup-branch-protection.sh`.
-2. Install git hooks (`commit-msg`, `pre-push`) from `Adapters/git-hooks/`.
-3. Add `.github/workflows/pr-validation.yml` from the existing Adapter.
-4. Add `.github/workflows/ci-build-test.yml`, generated from `Adapters/github-actions/ci-build-test.yml` and a stack-appropriate `Dockerfile`, using `Adapters/scripts/setup-project-bootstrap.sh`.
-5. Add `.github/PULL_REQUEST_TEMPLATE.md` from the existing Adapter.
+1. Run `Adapters/scripts/setup-project-bootstrap.sh <stack>` with the stack decided in Step 2. One command installs the git hooks (via `core.hooksPath`), `.github/workflows/pr-validation.yml`, `.github/workflows/framework-validation.yml`, `.github/PULL_REQUEST_TEMPLATE.md`, `.github/ISSUE_TEMPLATE/` (Step 6 below), the `.gitattributes` LF rules, `.github/workflows/ci-build-test.yml`, `.github/workflows/ghcr-publish.yml` (Step 5 below), and a stack-appropriate `Dockerfile`. It is idempotent, supports `--dry-run`, and verifies the installed `commit-msg` hook actually rejects an invalid Employee trailer rather than assuming the copy worked.
+2. Apply branch protection using `Adapters/scripts/setup-branch-protection.sh`. This is deliberately **not** part of the script above: it mutates settings every collaborator sees and needs an authenticated `gh`, so it is run once per repository as its own decision.
+3. Confirm the script's closing report. It lists the Coverage Checklist items no script can complete — the README, `.gitignore`, Project Charter, Stack Decision ADR, `CLAUDE.md` roster, branch creation, and first Work Unit — so they stay visible instead of being assumed done.
 
 **Output:** CI/CD Adapter scaffolded and enforcing.
 
@@ -137,7 +135,7 @@ With the stack decided, generate the baseline repository content:
 
 **Actor:** DevOps Engineer, GitOps Engineer consulted
 
-1. Add `.github/workflows/ghcr-publish.yml`, generated from `Adapters/github-actions/ghcr-publish.yml`.
+1. Already installed by `Adapters/scripts/setup-project-bootstrap.sh` in Step 4, which copies `Adapters/github-actions/ghcr-publish.yml` alongside the CI workflow because both depend on the same stack decision. Confirm it is present and that the `Dockerfile` it builds matches the chosen stack.
 
 **GHCR scope is build and publish only.** This step results in the container image being built and published to `ghcr.io/<owner>/<repo>`. It does not produce Kubernetes manifests, Compose files, or any environment configuration, and it does not run the image anywhere. Actually deploying that published image to an environment is out of scope for this milestone — it belongs to a future, separate Deployment milestone. Do not treat GHCR publishing as deployment.
 
@@ -151,7 +149,10 @@ With the stack decided, generate the baseline repository content:
 
 **Actor:** DevOps Engineer
 
-1. Add `.github/ISSUE_TEMPLATE/` (bug report, feature request, config) from `Adapters/github/ISSUE_TEMPLATE/`.
+1. Already installed by `Adapters/scripts/setup-project-bootstrap.sh` in Step 4, which delegates it to `Adapters/scripts/install.sh`.
+2. Replace the `OWNER/REPO` placeholders in `.github/ISSUE_TEMPLATE/config.yml` with this project's own owner and repository name. The Adapter ships them as placeholders on purpose, and `install.sh` warns while they remain — left unreplaced, the Questions and Security Vulnerability contact links point at a repository that does not exist.
+
+Until WU-IAENG-142 this step was not actually performed by the script it named. `setup-project-bootstrap.sh` carried a TODO deferring issue-template installation to a follow-up Work Unit, gated on template files that had already shipped in v0.0.10 — so the deferral outlived its reason and was never removed. A project bootstrapped by following this workflow exactly ended up with no issue templates, and nothing reported the omission. `Adapters/scripts/validate-framework.sh` now fails on an unresolved work marker in any shipped Adapter, so the same gap cannot reopen quietly.
 
 Issue templates are an **independent external intake surface** — a way for anyone (not only the Director or active Employees) to file a bug report or feature request. They are deliberately **not** wired into the Work Unit/Pull Request flow: `Templates/WORK_UNIT.md` has no mandatory Issue ID field, and there is no procedural requirement to convert an Issue into a Work Unit before work can begin. This preserves the existing Work Unit model untouched. An Issue may inform a future Work Unit, at the Engineering Manager's discretion, but that is a judgment call, not a mandated handoff.
 
@@ -177,25 +178,39 @@ If Phase A question #6 or #7 (Step 1) was answered positively, the compliance fl
 
 # Coverage Checklist (Definition of Done)
 
-This workflow is not complete until every item below is checked. This is the explicit "check every place and thing to do" gate for Project Bootstrap:
+This workflow is not complete until every item below is checked. This is the explicit "check every place and thing to do" gate for Project Bootstrap.
 
-- [ ] `README.md` (project identity from Phase A answers)
-- [ ] `.gitignore` (stack-appropriate)
+Each item names what actually performs it. A checklist item whose mechanism is unnamed is an item that gets assumed done — which is precisely what happened to the issue templates before WU-IAENG-142.
+
+**Performed by `Adapters/scripts/setup-project-bootstrap.sh <stack>` (Step 4):**
+
 - [ ] `.gitattributes` (LF enforcement, mirroring this framework's own repo)
-- [ ] `main` + `develop` branches created
-- [ ] Branch protection applied (`Adapters/scripts/setup-branch-protection.sh`)
-- [ ] Git hooks installed (`commit-msg`, `pre-push`)
+- [ ] Git hooks installed (`commit-msg`, `pre-push`, via `core.hooksPath`)
 - [ ] `.github/workflows/pr-validation.yml`
+- [ ] `.github/workflows/framework-validation.yml`
 - [ ] `.github/workflows/ci-build-test.yml`
 - [ ] `.github/workflows/ghcr-publish.yml`
 - [ ] `.github/PULL_REQUEST_TEMPLATE.md`
 - [ ] `.github/ISSUE_TEMPLATE/` (bug report, feature request, config)
 - [ ] `Dockerfile` (stack-appropriate)
+
+**Performed by a separate, deliberate command:**
+
+- [ ] Branch protection applied (`Adapters/scripts/setup-branch-protection.sh`) — separate because it mutates settings every collaborator sees
+- [ ] `main` + `develop` branches created and pushed
+- [ ] `.github/ISSUE_TEMPLATE/config.yml` `OWNER/REPO` placeholders replaced
+
+**Requires judgment, a decision, or the Director — no script can complete these:**
+
+- [ ] `README.md` (project identity from Phase A answers)
+- [ ] `.gitignore` (stack-appropriate)
 - [ ] `CLAUDE.md` created + active roster (handoff to `ONBOARDING.md` Step 4)
 - [ ] Project Charter artifact (Phase A answers)
-- [ ] Stack Decision ADR (Phase B decision)
+- [ ] Stack Decision ADR (Phase B decision, Accepted)
 - [ ] First Work Unit created + Director-approved (`ONBOARDING.md` Step 6)
 - [ ] Framework imported (submodule/reference)
+
+`setup-project-bootstrap.sh` prints the last two groups as a closing report, so the items it cannot perform stay visible rather than silently unchecked.
 
 ---
 
