@@ -301,3 +301,9 @@ work_units:
     title: Fix the second half of the count drift, in the paragraph that documents the class
     milestone: Automation
     delivers: Adapters/README.md
+
+  - id: WU-IAENG-172
+    employee: Technical Lead
+    title: Add the Risk Standard — one likelihood × impact scale and one stop threshold for every Employee
+    milestone: Convergence
+    delivers: Standards/RISK_STANDARD.md
