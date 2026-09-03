@@ -185,9 +185,11 @@ Each item names what actually performs it. A checklist item whose mechanism is u
 **Performed by `Adapters/scripts/setup-project-bootstrap.sh <stack>` (Step 4):**
 
 - [ ] `.gitattributes` (LF enforcement, mirroring this framework's own repo)
-- [ ] Git hooks installed (`commit-msg`, `pre-push`, via `core.hooksPath`)
+- [ ] Git hooks installed (`commit-msg`, `pre-commit`, `pre-push`, via `core.hooksPath`)
+- [ ] `.gitignore` data-protection rules (`local_test_data/`, `.env`, `.ia-engineering/SESSION_STATE.md`) and the local data directory
 - [ ] `.github/workflows/pr-validation.yml`
 - [ ] `.github/workflows/framework-validation.yml`
+- [ ] `.github/workflows/data-policy.yml`
 - [ ] `.github/workflows/ci-build-test.yml`
 - [ ] `.github/workflows/ghcr-publish.yml`
 - [ ] `.github/PULL_REQUEST_TEMPLATE.md`

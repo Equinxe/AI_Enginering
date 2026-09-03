@@ -12,3 +12,11 @@
 # hooks exist. A project that prefers them present on clone should commit them
 # and add `generate-agents.sh --check` to CI. See Adapters/ai-runtimes/README.md.
 .claude/agents/
+
+# Standards/DATA_PROTECTION_STANDARD.md — real data lives only in the local
+# data directory, secrets only in the environment, operational state is never
+# committed. Adapters/git-hooks/pre-commit and data-policy.yml refuse the same
+# paths; this is the layer that keeps `git add -A` from staging them at all.
+local_test_data/
+.env
+.ia-engineering/SESSION_STATE.md

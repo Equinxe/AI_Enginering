@@ -251,6 +251,8 @@ install_file "$FRAMEWORK/Adapters/github-actions/pr-validation.yml" \
              ".github/workflows/pr-validation.yml"
 install_file "$FRAMEWORK/Adapters/github-actions/framework-validation.yml" \
              ".github/workflows/framework-validation.yml"
+install_file "$FRAMEWORK/Adapters/github-actions/data-policy.yml" \
+             ".github/workflows/data-policy.yml"
 echo
 
 # --- GitHub templates ------------------------------------------------------
@@ -319,6 +321,56 @@ else
 fi
 echo
 
+# --- Data protection ---------------------------------------------------------
+# Standards/DATA_PROTECTION_STANDARD.md: the local data directory, the
+# environment file, and the operational state file are ignored from the first
+# commit, before any of them exists. .gitignore is the advisory layer — the
+# pre-commit hook and data-policy.yml refuse the same paths if it is ever
+# bypassed — but it is the layer that stops `git add -A` from staging them in
+# the first place. Appended, so a project's own rules survive. The framework
+# repository carries these rules in its own .gitignore and is reported as-is.
+
+echo "Data protection"
+LOCAL_DATA_DIR="${IAENG_LOCAL_DATA_DIR:-local_test_data}"
+IGNORE_RULES="$LOCAL_DATA_DIR/
+.env
+.ia-engineering/SESSION_STATE.md"
+
+MISSING_IGNORES=""
+while IFS= read -r rule; do
+  if [ ! -f .gitignore ] || ! grep -qxF "$rule" .gitignore; then
+    MISSING_IGNORES="$MISSING_IGNORES$rule
+"
+  fi
+done < <(printf '%s\n' "$IGNORE_RULES")
+
+if [ -z "$MISSING_IGNORES" ]; then
+  same ".gitignore (data-protection rules already present)"
+elif [ "$DRY_RUN" -eq 1 ]; then
+  printf '  [dry-run] append to .gitignore:\n'
+  printf '%s' "$MISSING_IGNORES" | sed 's/^/    /'
+else
+  {
+    echo ""
+    echo "# IA Engineering — Standards/DATA_PROTECTION_STANDARD.md (installed by"
+    echo "# Adapters/scripts/install.sh). Real data lives only in the local data"
+    echo "# directory; secrets only in the environment; operational state is never"
+    echo "# committed. The pre-commit hook and data-policy.yml refuse the same paths."
+    printf '%s' "$MISSING_IGNORES"
+  } >> .gitignore
+  did ".gitignore (appended $(printf '%s' "$MISSING_IGNORES" | grep -c .) data-protection rule(s))"
+fi
+
+# The pre-commit hook refuses the local data directory but cannot create it;
+# a developer who has nowhere sanctioned to put a real file will put it
+# somewhere unsanctioned.
+if [ -d "$LOCAL_DATA_DIR" ]; then
+  same "$LOCAL_DATA_DIR/ exists"
+else
+  run mkdir -p "$LOCAL_DATA_DIR" && did "$LOCAL_DATA_DIR/ created (gitignored; the only place for real data on this machine)"
+fi
+echo
+
 # --- Verify ----------------------------------------------------------------
 # Core/MAIN_AGENT_CONDUCT.md's Verification Over Waiting requires confirming
 # real state rather than trusting a report. An installer that prints "done"
@@ -376,6 +428,30 @@ else
       say "commit-msg hook rejects a generic tool label"
     fi
     rm -f "$PROBE"
+  fi
+
+  # The pre-commit hook reads the index, so it is probed against a THROWAWAY
+  # index (GIT_INDEX_FILE) seeded from HEAD plus one staged document — the
+  # real index and working tree are untouched. Proves the hook resolves the
+  # scanner and that the scanner refuses, rather than that a file was copied.
+  PRE_COMMIT="$PROJECT/$(git config --local core.hooksPath || echo '.git/hooks')/pre-commit"
+  if [ ! -x "$PRE_COMMIT" ]; then
+    warn "pre-commit hook is not executable at $PRE_COMMIT"
+  else
+    PROBE_INDEX="$(mktemp)"
+    rm -f "$PROBE_INDEX"
+    if git rev-parse --verify --quiet HEAD >/dev/null; then
+      GIT_INDEX_FILE="$PROBE_INDEX" git read-tree HEAD
+    fi
+    PROBE_BLOB="$(printf 'probe\n' | git hash-object -w --stdin)"
+    GIT_INDEX_FILE="$PROBE_INDEX" git update-index --add \
+      --cacheinfo "100644,$PROBE_BLOB,iaeng-install-probe.xlsx"
+    if GIT_INDEX_FILE="$PROBE_INDEX" "$PRE_COMMIT" > /dev/null 2>&1; then
+      warn "the pre-commit hook ACCEPTED a staged .xlsx document. The hook is installed but not enforcing — check that it resolves Adapters/scripts/data-policy-scan.sh."
+    else
+      say "pre-commit hook refuses a staged document (Standards/DATA_PROTECTION_STANDARD.md)"
+    fi
+    rm -f "$PROBE_INDEX"
   fi
 fi
 echo

@@ -307,3 +307,9 @@ work_units:
     title: Add the Risk Standard — one likelihood × impact scale and one stop threshold for every Employee
     milestone: Convergence
     delivers: Standards/RISK_STANDARD.md
+
+  - id: WU-IAENG-173
+    employee: Security Engineer
+    title: Add the Data Protection Standard with its three enforcement layers — pre-commit hook, data-policy CI job, one shared scanner
+    milestone: Convergence
+    delivers: Standards/DATA_PROTECTION_STANDARD.md, Adapters/scripts/data-policy-scan.sh, Adapters/git-hooks/pre-commit, Adapters/github-actions/data-policy.yml

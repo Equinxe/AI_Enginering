@@ -75,6 +75,7 @@ REQUIRED_CHECKS=(
   "Shellcheck Adapters"
   "Validate Workflow YAML"
   "Framework Validation"
+  "Data Policy"
 )
 
 # The two GitHub APIs used below want the same list in different shapes:

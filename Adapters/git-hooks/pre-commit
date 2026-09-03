@@ -1,0 +1,58 @@
+#!/usr/bin/env bash
+# IA Engineering — pre-commit hook
+#
+# Mechanically enforces Standards/DATA_PROTECTION_STANDARD.md at the earliest
+# point git offers: before the commit object exists. Refuses a commit that
+# stages real data, key material, an environment file, the operational state
+# file, or an added line shaped like a well-known secret.
+#
+# This is the CLIENT-SIDE layer. It is fast and local, and it is bypassable —
+# by --no-verify, or by never having been installed, since git never transmits
+# hooks. The SERVER-SIDE layer is Adapters/github-actions/data-policy.yml,
+# which runs the same scanner over the Pull Request's tree and history and
+# cannot be skipped from a developer machine. Both call
+# Adapters/scripts/data-policy-scan.sh, so there is exactly one pattern list.
+#
+# Install in a project that has imported IA Engineering as a submodule:
+#   ./ia-engineering/Adapters/scripts/install.sh
+#
+# or, to install this hook alone:
+#   cp ia-engineering/Adapters/git-hooks/pre-commit .git/hooks/pre-commit
+#   chmod +x .git/hooks/pre-commit
+#
+# Configuration is the scanner's (see its header): IAENG_LOCAL_DATA_DIR,
+# IAENG_DATA_ALLOW_FILE, and the committed allow file
+# .ia-engineering/data-policy.allow.
+
+set -euo pipefail
+
+# --- Locate the scanner ------------------------------------------------------
+# In order: next to this hook (the core.hooksPath install, where the hook runs
+# from inside the framework tree), an explicit IAENG_FRAMEWORK, the framework's
+# own repository, then the ia-engineering/ submodule path Workflows/ONBOARDING.md
+# assumes. Fail closed if none resolves: a data-protection hook that silently
+# does nothing is worse than no hook, because it is trusted.
+
+HOOK_DIR="$(cd "$(dirname "$0")" && pwd)"
+SCANNER=""
+for candidate in \
+  "$HOOK_DIR/../scripts" \
+  "${IAENG_FRAMEWORK:-}/Adapters/scripts" \
+  "Adapters/scripts" \
+  "ia-engineering/Adapters/scripts"; do
+  case "$candidate" in /Adapters/scripts) continue ;; esac
+  if [ -x "$candidate/data-policy-scan.sh" ]; then
+    SCANNER="$candidate/data-policy-scan.sh"
+    break
+  fi
+done
+
+if [ -z "$SCANNER" ]; then
+  echo "pre-commit: rejected — cannot locate Adapters/scripts/data-policy-scan.sh." >&2
+  echo "  Looked next to this hook, in \$IAENG_FRAMEWORK, in ./Adapters, and in" >&2
+  echo "  ./ia-engineering/Adapters. Set IAENG_FRAMEWORK to the framework root, or" >&2
+  echo "  re-run ./ia-engineering/Adapters/scripts/install.sh." >&2
+  exit 1
+fi
+
+exec "$SCANNER" --staged
