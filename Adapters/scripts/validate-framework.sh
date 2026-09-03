@@ -471,7 +471,23 @@ for f in Core/*.md Standards/*.md Workflows/*.md Templates/*.md Governance/*.md 
     fi
   done
 done
-pass "metadata fields checked across $META_COUNT governed documents"
+# Zero inspected documents is not "all documents passed".
+#
+# This and the three checks below all derived their verdict from a set that
+# could be empty — a wrong working directory, a renamed directory, or a
+# changed documentation convention yields no input, every per-item loop is
+# skipped, and the summary line reports success. Same shape as the git-less
+# index-mode pass and the blind marker scan, one consequence level down: none
+# of these is currently the sole guard over a critical property, but the
+# mechanism is identical and it is why this class kept recurring.
+#
+# Carrying the count also makes --verbose state what was actually verified
+# rather than only that nothing objected.
+if [ "$META_COUNT" -eq 0 ]; then
+  fail "metadata check inspected 0 governed documents" "The globs (Core/*.md, Standards/*.md, Workflows/*.md, Templates/*.md, Governance/*.md, Employees/*/*.md) matched nothing. Either the run is in the wrong directory or a directory was renamed — an empty input set is not a passing check."
+else
+  pass "metadata fields checked across $META_COUNT governed documents"
+fi
 
 # ==========================================================================
 section "9. Internal cross-references resolve"
@@ -513,9 +529,11 @@ broken=""
 # happen here, so SC2016 is a false positive. The directive has to sit in front
 # of the whole compound command, which is why it precedes the loop rather than
 # the line it concerns.
+refs_checked=0
 # shellcheck disable=SC2016
 while IFS= read -r ref; do
   if has_line "$KNOWN_ABSENT" "$ref"; then continue; fi
+  refs_checked=$((refs_checked + 1))
   [ -e "$ref" ] || broken="$broken$ref; "
 #
 # CHANGELOG.md is excluded, and the reason is categorical rather than
@@ -536,15 +554,19 @@ done < <(grep -rhoE '`(Core|Standards|Employees|Workflows|Templates|Examples|Gov
 
 if [ -n "$broken" ]; then
   fail "documents reference paths that do not exist: $broken" "Governance/DEPRECATION_POLICY.md's Cross-Reference Check requires every reference to be updated or removed when its target moves."
+elif [ "$refs_checked" -eq 0 ]; then
+  fail "the cross-reference scan resolved 0 paths" "The pattern matches backtick-quoted paths under a hand-maintained list of top-level directories. Zero matches means the documentation convention changed, or a new top-level directory was added to the repository but not to that list — either way nothing was checked, which is not the same as everything passing."
 else
-  pass "every framework path referenced in prose resolves"
+  pass "every framework path referenced in prose resolves ($refs_checked checked)"
 fi
 
 # Bare filenames in Depends On lists resolve against the referring document's
 # own directory.
 broken_local=""
+deps_checked=0
 while IFS= read -r f; do
   while IFS= read -r ref; do
+    deps_checked=$((deps_checked + 1))
     if [ ! -e "$(dirname "$f")/$ref" ] && [ ! -e "$ref" ]; then
       broken_local="$broken_local$f -> $ref; "
     fi
@@ -554,8 +576,10 @@ done < <(find Core Standards Workflows Templates Governance Employees -name '*.m
 
 if [ -n "$broken_local" ]; then
   fail "Depends On entries that resolve nowhere: $broken_local" "A bare filename in Depends On is read relative to the referring document's directory."
+elif [ "$deps_checked" -eq 0 ]; then
+  fail "the Depends On scan resolved 0 entries" "The extraction is a sed range between the literal headings 'Depends On:' and 'Referenced By:'. Renaming either heading collapses the range to nothing, and no entry is checked at all — reported here rather than passing silently."
 else
-  pass "every Depends On entry resolves"
+  pass "every Depends On entry resolves ($deps_checked checked)"
 fi
 
 # README.md and CLAUDE.md both print the repository's top-level layout. Both
@@ -597,21 +621,43 @@ section "10. Adapter / installed-copy parity"
 # LF-normalized via .gitattributes, so a difference here is real content drift
 # rather than a line-ending artifact.
 
+# Adapters deliberately NOT installed in this repository, named individually
+# with the reason each is exempt.
+#
+# The previous version expressed this as a property of ABSENCE rather than of
+# these two files: any missing installed copy reported
+# "not installed in this repository (expected)" as a pass. So deleting
+# .github/workflows/pr-validation.yml produced a green tick on a check called
+# "Adapter / installed-copy parity" — verified before this change. The
+# rationale in that comment was right about ci-build-test.yml and
+# ghcr-publish.yml and wrong to generalise from them.
+#
+# Adding an Adapter that this repository should not install means adding it
+# here, deliberately, with a reason. Anything else absent is a failure.
+NOT_INSTALLED_HERE="ci-build-test.yml
+ghcr-publish.yml"
+
 check_parity() {
-  local adapter="$1" installed="$2"
+  local adapter="$1" installed="$2" base
+  base="$(basename "$adapter")"
+
   if [ ! -f "$adapter" ]; then
     fail "$adapter is referenced as an Adapter but does not exist" ""
     return
   fi
+
   if [ ! -f "$installed" ]; then
-    # Not every Adapter belongs in this repository: ci-build-test.yml and
-    # ghcr-publish.yml target a bootstrapped application project, and this
-    # repository ships no application to build or containerize.
-    pass "$(basename "$adapter"): not installed in this repository (expected)"
+    if has_line "$NOT_INSTALLED_HERE" "$base"; then
+      # These two target a bootstrapped application project, and this
+      # repository ships no application to build or containerize.
+      pass "$base: not installed here, by design"
+    else
+      fail "$base is shipped as an Adapter but $installed is missing" "This repository installs its own Adapters, which is what makes it their first consumer. A missing installed copy means it has stopped testing what it distributes. If this Adapter genuinely should not be installed here, add it to NOT_INSTALLED_HERE with a reason rather than letting its absence read as a pass."
+    fi
     return
   fi
   if diff -q "$adapter" "$installed" > /dev/null 2>&1; then
-    pass "$(basename "$adapter"): installed copy is identical"
+    pass "$base: installed copy is identical"
   else
     fail "$adapter and $installed have drifted" "$(diff "$adapter" "$installed" | head -4 | tr '\n' ' ')"
   fi
@@ -804,7 +850,9 @@ section "13. Registry: chains, workflows, Work Units"
 
 if [ -f Registry/chains.yml ]; then
   bad_actors=""
+  actors_checked=0
   while IFS= read -r actor; do
+    actors_checked=$((actors_checked + 1))
     case "$actor" in
       "Main Agent"|"Director"|"Engineer") continue ;;
     esac
@@ -812,8 +860,10 @@ if [ -f Registry/chains.yml ]; then
   done < <(grep -E '^ +- employee: ' Registry/chains.yml | sed 's/^ *- employee: //' | tr -d '\015' | sort -u)
   if [ -n "$bad_actors" ]; then
     fail "Registry/chains.yml names non-Employees: $bad_actors" "A chain step dispatches to a real Employee, or to the framework roles Main Agent / Director / Engineer. Core/MAIN_AGENT_CONDUCT.md's Dispatch Discipline is the reason: a step with no named Employee has no accountable owner."
+  elif [ "$actors_checked" -eq 0 ]; then
+    fail "Registry/chains.yml yielded 0 chain actors" "The extraction is an indentation-sensitive grep for '      - employee: '. Zero matches means the file was reformatted and the consumer reads nothing — section 1 enforces a parsing contract for employees.yml only, so nothing else would have caught this."
   else
-    pass "every chain step names a real Employee or framework role"
+    pass "every chain step names a real Employee or framework role ($actors_checked checked)"
   fi
 
   missing_wf=""
@@ -831,7 +881,24 @@ if [ -f Registry/chains.yml ]; then
   while IFS= read -r chain; do
     grep -qF "name: $chain" Registry/chains.yml \
       || fail "Core/AGENT_CHAINS.md defines '$chain' but Registry/chains.yml has no entry" "A runtime reading the Registry would not know this chain exists."
-  done < <(grep -oE '^# [A-Za-z]+ Chain$' Core/AGENT_CHAINS.md | sed 's/^# //')
+  # Multi-word chain names included. The earlier pattern was
+  # `^# [A-Za-z]+ Chain$` — single word only — so a chain named e.g.
+  # "Incident Response Chain" would never have been extracted, and its failure
+  # branch was unreachable. That matters because Core/AGENT_CHAINS.md's
+  # "Machine-Readable Form" section promises in those words that "a seventh
+  # chain added here without a Registry entry fails the build". The checker
+  # could not keep that guarantee for any multi-word name, which is a document
+  # making a claim its mechanism does not support.
+  #
+  # `Chain$` is singular and anchored, so the document's own structural
+  # headings do not collide today: "Agent Chains" and "Composing Custom
+  # Chains" are plural, "Chain Selection" and "Chain Conventions" do not end
+  # in the word. They are excluded by name anyway rather than by relying on
+  # that, since a future heading like "# Custom Chain" would otherwise be read
+  # as a chain.
+  done < <(grep -oE '^# [A-Za-z][A-Za-z ]*Chain$' Core/AGENT_CHAINS.md \
+             | sed 's/^# //' \
+             | grep -vxE 'Chain Selection|Chain Conventions|Composing Custom Chain')
   pass "Registry/chains.yml covers every named chain"
 else
   fail "Registry/chains.yml is missing" "It existed as of WU-IAENG-145 and Registry/README.md lists its consumers. Reporting a pass for an absent file is the same silent-skip shape as a gate that skips itself — if the Registry genuinely no longer carries chains, remove this check deliberately rather than letting a deletion look like a success."
@@ -839,13 +906,17 @@ fi
 
 if [ -f Registry/workflows.yml ]; then
   missing_doc=""
+  wf_entries=0
   while IFS= read -r wf; do
+    wf_entries=$((wf_entries + 1))
     [ -f "$wf" ] || missing_doc="$missing_doc$wf; "
   done < <(grep -E '^    file: ' Registry/workflows.yml | sed 's/^    file: //' | tr -d '\015')
   if [ -n "$missing_doc" ]; then
     fail "Registry/workflows.yml references missing documents: $missing_doc" ""
+  elif [ "$wf_entries" -eq 0 ]; then
+    fail "Registry/workflows.yml yielded 0 workflow entries" "The extraction is an indentation-sensitive grep for '    file: '. Zero matches means the file was reformatted and every consumer reads nothing from it, including the gate lookups — reported here rather than passing."
   else
-    pass "every workflow entry points at a real document"
+    pass "every workflow entry points at a real document ($wf_entries checked)"
   fi
 
   for f in Workflows/*.md; do

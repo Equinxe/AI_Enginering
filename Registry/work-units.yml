@@ -211,3 +211,9 @@ work_units:
     title: Close three more checks that reported success without evaluating anything
     milestone: Automation
     delivers: Adapters/scripts/validate-framework.sh, Adapters/github-actions/pr-validation.yml
+
+  - id: WU-IAENG-157
+    employee: Test Automation Engineer
+    title: Fail on an empty input set, a missing installed copy, and a multi-word chain name
+    milestone: Automation
+    delivers: Adapters/scripts/validate-framework.sh
