@@ -86,7 +86,13 @@ Work Unit: WU-<project>-<number>
 Employee: <Exact Employee Name>
 ```
 
-Of the three rules in this section, exactly one is enforced mechanically: **quoted examples must be indented** (below). The layout rule and the ordering of the two trailers are conventions — nothing rejects a commit for getting them wrong. That distinction is stated because this framework's own position is that a rule only a careful human applies is a rule the framework does not have; these two are documented as guidance, not presented as gates.
+**Exactly one `Work Unit:` line, at column 0.** One Work Unit is one commit, so a second claim is malformed rather than something a reader should resolve by position. `Adapters/git-hooks/commit-msg` rejects it and the `Work Unit Exists` CI check fails it.
+
+This one is worth understanding rather than just obeying, because it is what lets `Adapters/scripts/release.sh` attribute a Work Unit to a commit at all. Ranking two claims by position produced a false pass on the release gate: a commit conforming to everything else in this section, with a deferral note quoting an id after the trailer block, made an unmerged Work Unit count as merged. Refusing the second claim removes the choice instead of choosing a better end, and moves the failure to commit time for the author rather than Step 1 for the Release Manager.
+
+It assumes merge commits rather than squashes — a squash-merged commit legitimately carries one trailer block per squashed part. This project uses merge commits. If squashing is ever adopted, attribution changes shape and this rule should be reopened deliberately.
+
+Of the rules in this section, two are enforced mechanically: **exactly one `Work Unit:` line** (above) and **quoted examples must be indented** (below). The layout rule and the ordering of the two trailers are conventions — nothing rejects a commit for getting them wrong. That distinction is stated because this framework's own position is that a rule only a careful human applies is a rule the framework does not have; those two are documented as guidance, not presented as gates.
 
 `Employee:` identifies who produced the change. It is required by `Core/MAIN_AGENT_CONDUCT.md`'s Dispatch Discipline — *"Every Work Unit's output (commit, Pull Request, report) must identify which Employee produced it"* — and the name must match the roster exactly; a functional or tool label is not an Employee name. `Work Unit:` traces the commit to the Work Unit it performs, per `Templates/WORK_UNIT.md`.
 

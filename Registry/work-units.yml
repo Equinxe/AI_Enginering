@@ -271,3 +271,9 @@ work_units:
     title: Withdraw the contiguity rule, which measurably cost Employee parseability
     milestone: Automation
     delivers: Standards/COMMIT_STANDARD.md, Adapters/ai-runtimes/generate-agents.sh
+
+  - id: WU-IAENG-167
+    employee: Security Engineer
+    title: Make a second Work Unit claim an error, so attribution needs no ordinal
+    milestone: Automation
+    delivers: Adapters/git-hooks/commit-msg, Adapters/github-actions/pr-validation.yml, Adapters/scripts/release.sh, Standards/COMMIT_STANDARD.md

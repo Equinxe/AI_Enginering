@@ -215,6 +215,19 @@ jobs:
               continue
             fi
 
+            # At most one claim, mirroring Adapters/git-hooks/commit-msg Rule 3.
+            # One Work Unit is one commit, so a second `Work Unit:` line is
+            # malformed rather than ambiguous — and refusing it is what allows
+            # release.sh to attribute a Work Unit to a commit with no ordinal.
+            # Ranking by position produced a false PASS on the release gate: a
+            # deferral note quoted after the trailer block counted as merged.
+            WU_COUNT="$(printf '%s\n' "$WU_LINES" | grep -c . || true)"
+            if [ "$WU_COUNT" -gt 1 ]; then
+              echo "::error::Commit $sha carries $WU_COUNT 'Work Unit:' lines at column 0. One Work Unit is one commit (Standards/COMMIT_STANDARD.md), and downstream readers rely on there being exactly one. If one is an EXAMPLE quoted in the body — a deferral note, a reference to earlier work — indent it so it does not start at column 0."
+              fail=1
+              continue
+            fi
+
             while IFS= read -r wu_line; do
               [ -n "$wu_line" ] || continue
               WU="$(echo "${wu_line#Work Unit: }" | tr -d '\r')"

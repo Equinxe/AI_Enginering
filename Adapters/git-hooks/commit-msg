@@ -142,6 +142,42 @@ fi
 # tracked as its own Work Unit.
 EMPLOYEE_LINES="$(grep -E '^Employee: ' "$COMMIT_MSG_FILE" || true)"
 
+# --- Rule 3: at most one Work Unit claim -------------------------------
+# `Standards/COMMIT_STANDARD.md` and CLAUDE.md both state One Work Unit = One
+# Commit. A commit carrying two `Work Unit:` lines is therefore MALFORMED, not
+# ambiguous — and refusing it here is what lets every reader downstream take
+# the single line with no ordinal at all.
+#
+# This exists because ranking by position kept producing bypasses. The release
+# readiness check attributes a Work Unit to a commit, which needs one answer,
+# so it took the last matching line — and a commit correctly formed under this
+# Standard, with a deferral note quoted after the trailer block, silently
+# flipped a blocked release to green: the quoted id was last, so it counted as
+# merged. Nothing else caught it, because the quoted id was itself registered
+# and so validated fine.
+#
+# Removing the choice is the fix, not choosing a better end. The author learns
+# at commit time, locally and immediately, instead of the Release Manager
+# meeting it at Step 1.
+#
+# CAVEAT: this assumes merge commits, not squashes. A squash-merged commit
+# legitimately carries one trailer block per squashed part. This project uses
+# merge commits; if squashing is ever adopted, attribution changes shape and
+# this rule should be reopened deliberately rather than inherited.
+WU_COUNT="$(grep -cE '^Work Unit: ' "$COMMIT_MSG_FILE" || true)"
+
+if [ "$WU_COUNT" -gt 1 ]; then
+  echo "commit-msg: rejected — $WU_COUNT 'Work Unit:' lines at column 0." >&2
+  echo "  One Work Unit is one commit (Standards/COMMIT_STANDARD.md), so a" >&2
+  echo "  second claim is malformed rather than something to resolve by" >&2
+  echo "  position. Downstream readers rely on there being exactly one." >&2
+  echo "" >&2
+  echo "  If one of these is an EXAMPLE quoted in the message body — a" >&2
+  echo "  deferral note, a reference to earlier work — indent it so it does" >&2
+  echo "  not start at column 0." >&2
+  exit 1
+fi
+
 if [ -z "$EMPLOYEE_LINES" ]; then
   echo "commit-msg: rejected — missing 'Employee: <Name>' trailer." >&2
   echo "  Per Core/MAIN_AGENT_CONDUCT.md (Dispatch Discipline), every commit must" >&2

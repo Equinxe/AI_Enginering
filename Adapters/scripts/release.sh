@@ -251,32 +251,82 @@ cmd_check() {
       # bug was found. A commit explaining why a Work Unit was deferred is the
       # natural shape of that false pass.
       #
-      # Note the rule here differs from the other three readers on purpose, and
-      # the difference is the question being asked. They VALIDATE — every claim
-      # in a message must resolve, so all lines are checked. This ATTRIBUTES —
-      # which Work Unit does this commit perform — and attribution needs one
-      # answer per commit. Git's own trailer definition would give it, but
-      # cannot: `Work Unit:` contains a space and so is never parsed as a
-      # trailer (see Standards/COMMIT_STANDARD.md, Trailers). The last matching
-      # line is the closest honest approximation, and it is correct for any
-      # message conforming to that Standard, which requires the trailer block
-      # last and any quoted example indented.
-      merged_ids="$(for sha in $(git rev-list --no-merges "$branch" 2>/dev/null); do
-          git log -1 --format=%B "$sha" \
-            | grep -E '^Work Unit: ' | tail -1 | sed 's/^Work Unit: //' | tr -d '\r'
-        done | grep . | sort -u)"
+      # NO ORDINAL. A commit with more than one `Work Unit:` line is refused by
+      # Adapters/git-hooks/commit-msg and by the work-unit-exists CI check, so
+      # a conforming commit has exactly one and there is nothing to rank.
+      #
+      # The rule here still differs from those two readers, and the difference
+      # is the question. They VALIDATE — every claim must resolve, so all lines
+      # are checked. This ATTRIBUTES — which Work Unit does this commit perform
+      # — which needs one answer. Applying all-lines here would count a quoted
+      # id as merged, which is the defect this reader had before.
+      #
+      # An earlier version took the LAST matching line, on the reasoning that
+      # the failure direction would be a false FAIL. That reasoning was wrong
+      # and review reproduced the false PASS: a commit conforming to the
+      # current Standard, with a deferral note quoting an id after the trailer
+      # block, flipped a blocked release to green — the quoted line was last,
+      # so it counted as merged, and nothing else caught it because the quoted
+      # id was itself registered and validated fine. The rule that would have
+      # protected this reader is "put nothing after the trailers", which the
+      # Standard correctly labels unenforced guidance; depending on guidance as
+      # though it were a gate is what the ordinal was doing.
+      #
+      # Uniqueness removes the choice instead of choosing a better end, and
+      # moves the failure to commit time for the author rather than Step 1 for
+      # the Release Manager. A non-conforming multi-claim commit cannot reach
+      # this branch, but if one somehow does, it is reported rather than ranked.
+      # ONE git log pass over the branch, not one subprocess per commit.
+      #
+      # The first version ran `git log -1` inside a loop over `git rev-list`.
+      # On Windows, where process creation is expensive, that alone exceeded a
+      # three-minute timeout on this repository's history — and it scales with
+      # total history, not with the milestone. A single stream delimited per
+      # commit, partitioned in awk, is one process.
+      local scan
+      scan="$(git log --no-merges --format='%x01%h%n%B' "$branch" 2>/dev/null | awk '
+        BEGIN { RS = "\001" }
+        NR == 1 { next }
+        {
+          split($0, lines, "\n")
+          sha = lines[1]
+          count = 0; id = ""
+          for (i = 2; i in lines; i++) {
+            if (lines[i] ~ /^Work Unit: /) {
+              count++
+              id = lines[i]; sub(/^Work Unit: /, "", id); gsub(/\015/, "", id)
+            }
+          }
+          if (count > 1)       print "MULTI\t" sha
+          else if (count == 1) print "ID\t" id
+        }
+      ')"
 
-      local missing_wu="" total=0
-      while IFS= read -r id; do
-        [ -n "$id" ] || continue
-        total=$((total + 1))
-        printf '%s\n' "$merged_ids" | grep -qxF "$id" || missing_wu="$missing_wu$id "
-      done < <(printf '%s\n' "$registry_ids")
+      local multi_claim
+      multi_claim="$(printf '%s\n' "$scan" | awk -F'\t' '$1 == "MULTI" { printf "%s ", $2 }')"
+      merged_ids="$(printf '%s\n' "$scan" | awk -F'\t' '$1 == "ID" { print $2 }' | sort -u)"
 
-      if [ -n "$missing_wu" ]; then
-        bad "$(echo "$missing_wu" | wc -w | tr -d ' ') of $total Work Units for '$codename' are not on $branch: $missing_wu" "Each is registered against this milestone but no commit reachable from $branch carries its 'Work Unit:' trailer. Merge them, or move them to a later milestone in Registry/work-units.yml — releasing without them ships a milestone the registry says is incomplete."
+      if [ -n "$multi_claim" ]; then
+        # No verdict at all. A commit with two claims has no determinable
+        # attribution, so the completeness answer is not merely uncertain — it
+        # is unevaluated, and an unevaluated condition is a failure rather than
+        # something to report alongside a reassuring total. Emitting "all N are
+        # on" beside this failure is what an earlier version did, and it stated
+        # something false next to something true.
+        bad "cannot evaluate Work Unit completeness: $(echo "$multi_claim" | wc -w | tr -d ' ') commit(s) carry more than one 'Work Unit:' line — $multi_claim" "One Work Unit is one commit, and both the commit-msg hook and the work-unit-exists CI check refuse a second claim, so these predate that rule or bypassed it. Attribution is undeterminable for them, so no completeness verdict is given. Fix the messages or explain them before releasing."
       else
-        ok "all $total registered Work Units for '$codename' are on $branch"
+        local missing_wu="" total=0
+        while IFS= read -r id; do
+          [ -n "$id" ] || continue
+          total=$((total + 1))
+          printf '%s\n' "$merged_ids" | grep -qxF "$id" || missing_wu="$missing_wu$id "
+        done < <(printf '%s\n' "$registry_ids")
+
+        if [ -n "$missing_wu" ]; then
+          bad "$(echo "$missing_wu" | wc -w | tr -d ' ') of $total Work Units for '$codename' are not on $branch: $missing_wu" "Each is registered against this milestone but no commit reachable from $branch carries its 'Work Unit:' trailer. Merge them, or move them to a later milestone in Registry/work-units.yml — releasing without them ships a milestone the registry says is incomplete."
+        else
+          ok "all $total registered Work Units for '$codename' are on $branch"
+        fi
       fi
     fi
   fi
