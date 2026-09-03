@@ -145,17 +145,46 @@ jobs:
             exit 0
           fi
 
-          fail=0
+          # AT LEAST ONE referenced ID must resolve — not all of them.
+          #
+          # Requiring all of them was the first version, and it would have
+          # failed this required check on any PR whose description cites a
+          # historical Work Unit. That is not a corner case here: this
+          # project's commit messages and CHANGELOG entries reference earlier
+          # Work Unit IDs constantly, and Registry/work-units.yml deliberately
+          # starts at WU-IAENG-137 because the earlier owners are not reliably
+          # recoverable (see its header). A PR explaining "this corrects
+          # WU-IAENG-125" would have been blocked for describing its own
+          # motivation accurately.
+          #
+          # What Templates/WORK_UNIT.md actually requires is that the Pull
+          # Request TRACE to a Work Unit. One resolved ID satisfies that.
+          # Unresolved ones are surfaced as a notice rather than swallowed, so
+          # a typo in the PR's own ID is still visible to a reviewer without
+          # turning a citation of history into a merge blocker.
+          resolved=0
+          unresolved=""
           for wu in $REFERENCED; do
             if echo "$KNOWN" | grep -qxF "$wu"; then
-              echo "  resolved: $wu"
+              echo "  resolved:   $wu"
+              resolved=$((resolved + 1))
             else
-              echo "::error::$wu is referenced by this PR but is not in $REGISTRY. Either it is a typo, or the Work Unit was never registered. Add it in the same commit that performs the work — see the registry's own header for the field shape."
-              fail=1
+              echo "  unresolved: $wu"
+              unresolved="$unresolved$wu "
             fi
           done
 
-          exit "$fail"
+          if [ -n "$unresolved" ]; then
+            echo "::notice::Referenced but not in $REGISTRY: ${unresolved}— expected for a Work Unit predating the registry's start, or a typo. Not blocking."
+          fi
+
+          if [ "$resolved" -eq 0 ]; then
+            echo "::error::None of the Work Unit IDs referenced by this PR ($REFERENCED) resolve against $REGISTRY. Per Templates/WORK_UNIT.md every Pull Request must trace to a Work Unit — register this PR's Work Unit in the same commit that performs the work, or correct the ID if it is a typo."
+            exit 1
+          fi
+
+          echo "Traced to $resolved registered Work Unit(s)."
+          exit 0
 
   employee-trailer:
     name: Employee Trailer

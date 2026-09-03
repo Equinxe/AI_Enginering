@@ -18,7 +18,10 @@
 # establish traceability, only its appearance.
 #
 # The `Work Unit Exists` job in Adapters/github-actions/pr-validation.yml
-# resolves the referenced ID against this file. An unregistered ID fails.
+# resolves the referenced IDs against this file. See "HOW THE GAP INTERACTS
+# WITH THE `Work Unit Exists` CHECK" below for what exactly it requires — at
+# least one ID must resolve, not all of them, and the reason that distinction
+# matters.
 #
 # NO HISTORICAL BACKFILL — and why not
 #
@@ -40,9 +43,25 @@
 # WU-IAENG-137, and it is the better one — it says what each Work Unit
 # delivered and why, which this file deliberately does not attempt to restate.
 #
-# The `Work Unit Exists` check is unaffected by the gap: it runs only on new
-# Pull Requests, and every new Work Unit registers itself in the same commit
-# that performs it. There is no need to invent a floor or an exemption window.
+# HOW THE GAP INTERACTS WITH THE `Work Unit Exists` CHECK
+#
+# The first version of that check required EVERY Work Unit ID appearing in a
+# Pull Request to resolve here, on the reasoning that each new Work Unit
+# registers itself in the commit that performs it, so no floor or exemption
+# window was needed.
+#
+# That reasoning was wrong, and code review caught it. The job scans the whole
+# PR title and body, not just the PR's own Work Unit — so a description saying
+# "this corrects WU-IAENG-125" would have failed a REQUIRED check for
+# describing its own motivation accurately. Citing earlier Work Unit IDs is
+# routine in this project's commit messages and CHANGELOG entries, and those
+# IDs are exactly the ones this registry deliberately does not carry.
+#
+# The check now requires AT LEAST ONE referenced ID to resolve, which is what
+# Templates/WORK_UNIT.md actually asks — that the Pull Request trace to a Work
+# Unit. Unresolved IDs are reported as a non-blocking notice, so a typo in the
+# PR's own ID stays visible without turning a reference to history into a
+# merge blocker.
 #
 # WHAT `employee:` MEANS HERE
 #
@@ -157,3 +176,15 @@ work_units:
     title: Pin byte collation so generated artifacts are identical on every platform
     milestone: Automation
     delivers: Adapters/scripts/validate-framework.sh, Adapters/ai-runtimes/generate-agents.sh, Registry/employees.yml
+
+  - id: WU-IAENG-153
+    employee: Test Automation Engineer
+    title: Remove the silent-skip shape from the release gate and the Registry checks
+    milestone: Automation
+    delivers: Adapters/scripts/release.sh, Adapters/scripts/validate-framework.sh
+
+  - id: WU-IAENG-154
+    employee: Engineering Manager
+    title: Require one referenced Work Unit to resolve, not all of them
+    milestone: Automation
+    delivers: Adapters/github-actions/pr-validation.yml, Registry/work-units.yml
