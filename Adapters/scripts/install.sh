@@ -113,11 +113,28 @@ fi
 CHANGED=0
 SKIPPED=0
 PROBLEMS=0
+ACTIONS=0
 
 say()  { printf '  %s\n' "$1"; }
 did()  { CHANGED=$((CHANGED + 1)); printf '  + %s\n' "$1"; }
 same() { SKIPPED=$((SKIPPED + 1)); printf '  = %s\n' "$1"; }
+
+# A real installation fault. Counted, and it makes this script exit non-zero,
+# which setup-project-bootstrap.sh now propagates (WU-IAENG-159).
 warn() { PROBLEMS=$((PROBLEMS + 1)); printf '  ! %s\n' "$1" >&2; }
+
+# Something the ADOPTING PROJECT must do next — reported, never fatal.
+#
+# This distinction exists because the first version of the exit-status fix did
+# not have it. The only warning a clean, correct install emits is the
+# OWNER/REPO placeholder in ISSUE_TEMPLATE/config.yml, which the Adapter ships
+# deliberately and instructs the adopter to replace afterwards. Counting it as
+# a problem made every correct first bootstrap exit 1 — a false failure on the
+# happy path, introduced by the fix for a false success. Caught in testing
+# before it shipped, but it is the same inversion the review warned about for
+# the MERGE_HEAD probe: tightening an exit status turns every benign warning
+# into a blocker unless benign is defined first.
+todo() { ACTIONS=$((ACTIONS + 1)); printf '  > %s\n' "$1"; }
 
 run() {
   if [ "$DRY_RUN" -eq 1 ]; then
@@ -250,7 +267,7 @@ if [ -d "$FRAMEWORK/Adapters/github/ISSUE_TEMPLATE" ]; then
       install_file "$t" ".github/ISSUE_TEMPLATE/$base" customized
       if [ -f ".github/ISSUE_TEMPLATE/$base" ] \
          && grep -q 'OWNER/REPO' ".github/ISSUE_TEMPLATE/$base"; then
-        warn ".github/ISSUE_TEMPLATE/config.yml still has the OWNER/REPO placeholder. Its contact links point at a repository that does not exist — replace OWNER/REPO with this project's own owner and name."
+        todo "Replace the OWNER/REPO placeholders in .github/ISSUE_TEMPLATE/config.yml with this project's own owner and name. The Adapter ships them deliberately; until they are replaced, the Questions and Security Vulnerability contact links point at a repository that does not exist."
       fi
     else
       install_file "$t" ".github/ISSUE_TEMPLATE/$base"
@@ -309,10 +326,36 @@ echo
 # running it, rather than asserting that copying a file made it work.
 
 echo "Verification"
+
+# The probes invoke the commit-msg hook directly, and that hook exits 0
+# unconditionally while a merge is in progress — its MERGE_HEAD exception,
+# which exists because an auto-generated merge subject can never carry an
+# Employee trailer. So during a merge the negative probe passes straight
+# through the exception, the hook "accepts" `Employee: executor`, and this
+# script would report a correctly-installed hook as "installed but not
+# enforcing".
+#
+# That false warning was harmless while setup-project-bootstrap.sh discarded
+# this script's exit status. WU-IAENG-159 stops discarding it, which would have
+# converted a false warning into a false FAILURE on a correct bootstrap run
+# during a merge. The probes are skipped instead — and the skip is announced,
+# because an unannounced skip is the defect this milestone has spent eleven
+# fixes removing.
+MERGE_IN_PROGRESS=0
+if [ -f "$(git rev-parse --git-path MERGE_HEAD 2>/dev/null || echo /nonexistent)" ]; then
+  MERGE_IN_PROGRESS=1
+fi
+
 if [ "$DRY_RUN" -eq 1 ]; then
   say "skipped (dry run)"
 elif [ "$NO_HOOKS" -eq 1 ]; then
   say "hooks not installed — nothing to verify"
+elif [ "$MERGE_IN_PROGRESS" -eq 1 ]; then
+  say "hook probes skipped: a merge is in progress."
+  say "  The commit-msg hook exits 0 unconditionally under MERGE_HEAD, by"
+  say "  design, so both probes would pass regardless of whether the hook"
+  say "  actually enforces anything. Re-run install.sh after the merge"
+  say "  completes to verify enforcement."
 else
   HOOK="$PROJECT/$(git config --local core.hooksPath || echo '.git/hooks')/commit-msg"
   if [ ! -x "$HOOK" ]; then
@@ -342,9 +385,19 @@ echo
 echo "Result"
 printf '  %s installed/updated, %s already current' "$CHANGED" "$SKIPPED"
 if [ "$PROBLEMS" -gt 0 ]; then
-  printf ', %s needing attention\n' "$PROBLEMS"
-else
-  printf '\n'
+  printf ', %s problem(s)' "$PROBLEMS"
+fi
+if [ "$ACTIONS" -gt 0 ]; then
+  printf ', %s action(s) for this project' "$ACTIONS"
+fi
+printf '\n'
+
+# Stated explicitly so the two lines are never conflated by a reader or by a
+# caller: `>` items are next steps for the adopting project and do not affect
+# the exit status; `!` items are faults and do.
+if [ "$ACTIONS" -gt 0 ] && [ "$PROBLEMS" -eq 0 ]; then
+  echo "  The '>' items above are next steps for this project, not installation"
+  echo "  faults — this run succeeded and exits 0."
 fi
 
 if [ "$FRAMEWORK" != "$PROJECT" ]; then

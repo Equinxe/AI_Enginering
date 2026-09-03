@@ -102,8 +102,30 @@ echo "IA Engineering — project bootstrap (stack: $STACK)"
 echo
 
 # 1. Everything host-agnostic, via the single installer.
+#
+# The exit status is CAPTURED, not discarded. It previously ended in
+# `|| true`, which threw away the two conditions install.sh works hardest to
+# detect: pre-existing hooks in .git/hooks that core.hooksPath will make git
+# ignore entirely and silently, and — worse — its own negative probe result,
+# "the commit-msg hook ACCEPTED 'Employee: executor' ... installed but not
+# enforcing". That probe is the strongest single piece of evidence either
+# script produces, and its verdict was being deleted one line after it was
+# computed.
+#
+# Because this script then ended on an echo, its exit status was that echo's:
+# zero. So a project could follow Workflows/PROJECT_BOOTSTRAP.md Step 4
+# exactly, receive exit 0, and have a commit-msg hook installed and not
+# enforcing. Step 4 was rewritten in this same milestone to say this script
+# "verifies the installed commit-msg hook actually rejects an invalid Employee
+# trailer" — true of install.sh, false of the script the workflow told you to
+# run. Found in review.
+#
+# `|| true` was load-bearing only because of `set -euo pipefail`: the goal is
+# to survive the failure and finish the stack-specific half, not to forget it.
+# A hook problem should not stop the Dockerfile being installed.
 echo "--- Host-agnostic Adapters (install.sh) ---"
-"$SCRIPT_DIR/install.sh" ${PASSTHROUGH[@]+"${PASSTHROUGH[@]}"} || true
+INSTALL_RC=0
+"$SCRIPT_DIR/install.sh" ${PASSTHROUGH[@]+"${PASSTHROUGH[@]}"} || INSTALL_RC=$?
 echo
 
 # 2. Stack-dependent CI and container publishing.
@@ -157,4 +179,22 @@ echo "                         Workflows/ARCHITECTURE_DECISION.md"
 echo "  CLAUDE.md + roster     Workflows/ONBOARDING.md Step 4"
 echo "  First Work Unit        Workflows/ONBOARDING.md Step 6, Director-approved"
 echo
+
+# The closing report is what PROJECT_BOOTSTRAP.md Step 4 item 3 tells the
+# reader to confirm, so a failure in either half is named here rather than left
+# for them to notice — and the exit status carries it, so a wrapper or CI job
+# sees it too.
+if [ "$INSTALL_RC" -ne 0 ]; then
+  echo "--- Problems reported ---" >&2
+  echo "  install.sh exited $INSTALL_RC: the host-agnostic half needs attention." >&2
+  echo "  Scroll up to its warnings. The two that matter most are pre-existing" >&2
+  echo "  hooks in .git/hooks that core.hooksPath now shadows, and a commit-msg" >&2
+  echo "  hook that is installed but not enforcing. The stack Adapters above" >&2
+  echo "  were installed regardless — a hook problem is not a reason to skip" >&2
+  echo "  the Dockerfile." >&2
+  echo >&2
+  echo "Review the copied workflows and ./Dockerfile, then commit them." >&2
+  exit "$INSTALL_RC"
+fi
+
 echo "Review the copied workflows and ./Dockerfile, then commit them."
