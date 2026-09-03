@@ -379,3 +379,9 @@ work_units:
     title: Independent review bot for Claude Code, and an independent mode for the Review Recorded check keyed on the reviewer's login
     milestone: Convergence
     delivers: Adapters/ai-runtimes/claude-code/review-bot.yml, Adapters/github-actions/pr-validation.yml
+
+  - id: WU-IAENG-185
+    employee: Engineering Manager
+    title: Add the Autonomous Delivery workflow — conductor and poles, per-pole controls, centralised escalation, bounded budget, mandatory integration pass
+    milestone: Convergence
+    delivers: Workflows/AUTONOMOUS_DELIVERY.md, Templates/POLE_BRIEF.md, Registry/workflows.yml

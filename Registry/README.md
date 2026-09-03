@@ -110,7 +110,7 @@ Depends On:
 - `Core/AGENT_CHAINS.md`
 - `Core/CAPABILITY_TIERS.md`
 - `Core/EMPLOYEE_SELECTION.md`
-- `Workflows/` (all 9 workflows)
+- `Workflows/` (all 10 workflows)
 
 Referenced By:
 

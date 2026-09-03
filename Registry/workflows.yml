@@ -1,6 +1,6 @@
 # IA Engineering — Workflow Registry
 #
-# The nine Workflows, expressed as ordered data: step count, actor per step,
+# The ten Workflows, expressed as ordered data: step count, actor per step,
 # and — the part that matters most — where each mandatory gate sits.
 #
 # WHY THIS FILE EXISTS
@@ -18,7 +18,7 @@
 # defines a release process as a sequence of steps with one or more mandatory
 # approval gates, the same rule applies". A machine-readable list of which
 # steps are gates is what makes "run to the next gate, then stop" answerable
-# without re-reading nine documents and inferring which bolded sentences are
+# without re-reading ten documents and inferring which bolded sentences are
 # binding.
 #
 # The Workflow documents remain authoritative. This file is derived from them
@@ -422,3 +422,55 @@ workflows:
           for gap analysis or an explicit compliance flag carried into the
           Onboarding handoff. A positive answer recorded only in the Project
           Charter is an incomplete Phase A.
+
+  - name: Autonomous Delivery
+    file: Workflows/AUTONOMOUS_DELIVERY.md
+    category: Orchestration
+    chain: none
+    step_count: 7
+    steps:
+      - n: 1
+        actor: Director
+        step: Mandate — scope, bounded budget, stop conditions, delivery form
+        gate: true
+      - n: 2
+        actor: Main Agent
+        step: Conductor decomposes into poles with disjoint write scope; one Pole Brief each
+      - n: 3
+        actor: Main Agent
+        step: Poles execute Core/ORCHESTRATION.md on their briefs; every control binds per pole
+      - n: 4
+        actor: Main Agent
+        step: Centralised escalation — High/Critical stops the pole and reaches the Director through the conductor
+      - n: 5
+        actor: Code Reviewer
+        step: Integration pass — merge in dependency order, conflicts as Work Units, full gate suite, review, QA
+      - n: 6
+        actor: Director
+        step: Consolidated delivery — Pole Reports, integration result, rolled-up Risk Records; Director accepts or rejects
+        gate: true
+      - n: 7
+        actor: Main Agent
+        step: Close the run — fold Session State, catalog incidents, delete pole branches after merge
+    gates:
+      - step: 1
+        approver: Director
+        blocks: Any pole starting
+        quote: Director approval of this mandate is required before Step 2.
+      - step: 6
+        approver: Director
+        blocks: Merge of anything the run produced
+        quote: No merge happens without that decision.
+    autonomous_range: 2-5
+    autonomous_note: >-
+      Steps 2 through 5 run without step-by-step prompting, inside the budget
+      Step 1 bounds. A High or Critical risk in any pole is a stop inside that
+      range (Step 4), exactly as it is in a single queue — federation changes
+      pacing, never tier.
+    escalation_triggers:
+      - condition: Two poles need to write the same path
+        to: Conductor — re-partition or serialise; never both
+        mandatory: true
+      - condition: Integration pass red after one remediation round
+        to: Director
+        mandatory: true
