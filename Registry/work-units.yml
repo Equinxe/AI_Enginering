@@ -295,3 +295,9 @@ work_units:
     title: Derive the structure check from tracked content, not the filesystem
     milestone: Automation
     delivers: Adapters/scripts/validate-framework.sh
+
+  - id: WU-IAENG-171
+    employee: Technical Lead
+    title: Fix the second half of the count drift, in the paragraph that documents the class
+    milestone: Automation
+    delivers: Adapters/README.md

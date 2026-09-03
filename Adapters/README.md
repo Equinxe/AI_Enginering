@@ -68,7 +68,7 @@ This extends `Workflows/ONBOARDING.md` Step 5 ("Initialize git workflow") — th
 
 # The Check Convention
 
-Every check in `scripts/validate-framework.sh`, every script in `scripts/`, and every job in `github-actions/` follows three rules. They are stated in the validator's header too, but they govern all Adapter code:
+Every check in `scripts/validate-framework.sh`, every script in `scripts/`, and every job in `github-actions/` follows four rules. They are stated in the validator's header too, but they govern all Adapter code:
 
 1. **An unevaluated condition is a failure, not a pass.** If a check could not run — missing input, moved directory, a pattern that matched nothing — it says so. "Nothing objected" is not "everything passed".
 2. **Exceptions are named allow-lists, never fall-throughs.** Name the exempt thing, never express the exemption as a property of absence itself, because that quietly exempts everything else that goes missing later.
