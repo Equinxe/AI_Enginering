@@ -386,7 +386,10 @@ jobs:
         run: |
           # shellcheck is preinstalled on GitHub-hosted ubuntu-latest runners —
           # no third-party action, no extra install step.
-          shellcheck Adapters/git-hooks/* Adapters/scripts/*.sh Adapters/ai-runtimes/*.sh
+          # -x follows `source` so the Claude Code hooks' shared lib.sh is
+          # checked in context rather than reported as "not followed".
+          shellcheck -x Adapters/git-hooks/* Adapters/scripts/*.sh Adapters/ai-runtimes/*.sh \
+            Adapters/ai-runtimes/*/*.sh Adapters/ai-runtimes/*/hooks/*.sh
 
   yaml-lint:
     name: Validate Workflow YAML

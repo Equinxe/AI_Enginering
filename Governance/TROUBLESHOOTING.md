@@ -235,6 +235,18 @@ Project-specific incidents belong in the project's own catalog (a `TROUBLESHOOTI
 
 ---
 
+## R. A guard blocks the command that documents it
+
+**Symptom.** The escape-hatch hook refuses `git commit -m "..."` whose message *mentions* `--no-verify` in order to forbid it. The single-line case passed every test; the real commit did not.
+
+**Cause.** Quoted-string stripping was a regex pass. Per line, it left the inner lines of a multi-line `-m "…"` unstripped. Over the whole text, it mis-paired the quotes of the shell idiom `'"'"'` (a literal apostrophe inside single quotes) and inverted every double-quoted region after it. Both shapes came from the same commit command — the one committing the hook.
+
+**Remedy.** Replace the regex passes with a shell lexer: a state machine that walks the text once, tracking outside / single-quoted / double-quoted / heredoc-body, with backslash escapes where the shell honours them. Quoting is a state machine; only a state machine reads it.
+
+**Prevention.** In `block-escape-hatches.sh` with the reason in its header. General rule for any text guard: do not approximate a grammar with a regex when the grammar has nesting or escapes, and make the test corpus include the multi-line and the `'"'"'` shapes of every construct the guard strips — the single-line shape is the one the author thinks of.
+
+---
+
 # Adding an Entry
 
 1. The Work Unit that fixes the incident adds the entry — same commit, or the fix is not complete (`Governance/CONTRIBUTING.md`, Section 7).
