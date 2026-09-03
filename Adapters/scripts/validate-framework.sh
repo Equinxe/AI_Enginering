@@ -622,7 +622,7 @@ section "11. Unresolved work markers in shipped code"
 # that installs it.
 
 markers="$(grep -rnE '(#[[:space:]]*(TODO|FIXME|XXX|HACK)\b|\b(TODO|FIXME|XXX|HACK)[(:])' \
-  Adapters/git-hooks Adapters/scripts Adapters/github-actions Registry 2>/dev/null \
+  Adapters/git-hooks Adapters/scripts Adapters/github-actions Adapters/ai-runtimes Registry 2>/dev/null \
   | grep -vF 'TODO(adopting project)' || true)"
 if [ -n "$markers" ]; then
   fail "unresolved work markers in shipped Adapter code" "$(echo "$markers" | head -5 | tr '\n' ' ') — a TODO in an Adapter is a step the adopting project does not get."

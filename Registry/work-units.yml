@@ -127,3 +127,9 @@ work_units:
     title: Automate the mechanical parts of the release workflow, stopping at the Director gate
     milestone: Automation
     delivers: Adapters/scripts/release.sh, Workflows/RELEASE.md
+
+  - id: WU-IAENG-148
+    employee: Prompt Engineer
+    title: Generate runtime agent definitions from the Employee definitions
+    milestone: Automation
+    delivers: Adapters/ai-runtimes/generate-agents.sh, Adapters/ai-runtimes/README.md

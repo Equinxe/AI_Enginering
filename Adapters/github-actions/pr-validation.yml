@@ -259,7 +259,7 @@ jobs:
         run: |
           # shellcheck is preinstalled on GitHub-hosted ubuntu-latest runners —
           # no third-party action, no extra install step.
-          shellcheck Adapters/git-hooks/commit-msg Adapters/git-hooks/pre-push Adapters/scripts/*.sh
+          shellcheck Adapters/git-hooks/* Adapters/scripts/*.sh Adapters/ai-runtimes/*.sh
 
   yaml-lint:
     name: Validate Workflow YAML
