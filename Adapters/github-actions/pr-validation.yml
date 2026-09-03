@@ -27,12 +27,21 @@ name: IA Engineering - PR Validation
 # intentionally NOT a required status check yet — it is warning-only; promoting
 # it to required is a Director/Main Agent decision (see the job's comment).
 #
-# Scoped to PRs targeting main or develop only (see `branches:` below) — this
-# workflow enforces the Git Standard's protected-branch gate, not every branch.
+# Scoped to PRs targeting a protected branch — main, develop, or release/*
+# (see `branches:` below). This workflow enforces the Git Standard's
+# protected-branch gate, not every branch.
+#
+# release/* was added in WU-IAENG-144. Until then this workflow did not trigger
+# for a PR targeting a release branch at all, which made required status checks
+# impossible there: GitHub blocks a merge forever on a check that can never be
+# reported. setup-branch-protection.sh had to leave release/* with no required
+# checks and flagged widening this trigger as a follow-up. Workflows/RELEASE.md
+# Step 4 sends every release-branch defect fix through a PR, so those were the
+# only PRs in the process running with no validation at all.
 
 on:
   pull_request:
-    branches: [main, develop]
+    branches: [main, develop, 'release/**']
     types: [opened, edited, synchronize, reopened]
 
 jobs:
