@@ -492,6 +492,13 @@ Governance/charters/
 Governance/incidents/"
 
 broken=""
+# The backticks in the pattern below are literal markdown backticks — the
+# framework quotes every internal path as `Core/...` — not command
+# substitution. Single quotes are exactly right; expansion is what must NOT
+# happen here, so SC2016 is a false positive. The directive has to sit in front
+# of the whole compound command, which is why it precedes the loop rather than
+# the line it concerns.
+# shellcheck disable=SC2016
 while IFS= read -r ref; do
   if has_line "$KNOWN_ABSENT" "$ref"; then continue; fi
   [ -e "$ref" ] || broken="$broken$ref; "
