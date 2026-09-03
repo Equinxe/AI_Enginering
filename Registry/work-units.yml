@@ -253,3 +253,9 @@ work_units:
     title: Validate every trailer line rather than one chosen by position
     milestone: Automation
     delivers: Adapters/git-hooks/commit-msg, Adapters/github-actions/pr-validation.yml
+
+  - id: WU-IAENG-164
+    employee: Technical Writer
+    title: Document the commit trailers in the Commit Standard, contiguous as git defines them
+    milestone: Automation
+    delivers: Standards/COMMIT_STANDARD.md, Adapters/README.md
