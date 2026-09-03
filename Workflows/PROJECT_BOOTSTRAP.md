@@ -49,6 +49,8 @@ Before this workflow begins:
 
 ---
 
+# Steps
+
 ## Step 1 — Phase A: Project questions
 
 **Actor:** Main Agent, with Business Analyst and Product Manager

@@ -396,9 +396,20 @@ section "7. Workflow and Standard completeness"
 
 for f in Workflows/*.md; do
   missing=""
-  for s in Purpose Trigger Actors Steps Escalation Metadata; do
+  for s in Purpose Trigger Actors Escalation Metadata; do
     grep -qE "^# $s" "$f" || missing="$missing$s, "
   done
+  # A Workflow needs a container heading for its numbered steps, so a step is
+  # never an orphaned subsection under Prerequisites — which is what
+  # PROJECT_BOOTSTRAP.md was until WU-IAENG-140.
+  #
+  # "Ceremonies" is accepted alongside "Steps" because SPRINT_CEREMONY.md is
+  # correct to use it: its units are Scrum ceremonies (Planning, Standup,
+  # Review, Retrospective), recurring events rather than a one-pass sequence of
+  # steps. Forcing "Steps" onto it would rename the domain's own vocabulary to
+  # satisfy a checker. The requirement is a container heading, not a specific
+  # word for it.
+  grep -qE '^# (Steps|Ceremonies)' "$f" || missing="${missing}Steps (or Ceremonies), "
   # A Workflow must state how it ends; either heading is accepted.
   grep -qE '^# (Exit Criteria|Coverage Checklist)' "$f" || missing="${missing}Exit Criteria, "
   if [ -n "$missing" ]; then
