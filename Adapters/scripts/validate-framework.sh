@@ -502,8 +502,22 @@ broken=""
 while IFS= read -r ref; do
   if has_line "$KNOWN_ABSENT" "$ref"; then continue; fi
   [ -e "$ref" ] || broken="$broken$ref; "
+#
+# CHANGELOG.md is excluded, and the reason is categorical rather than
+# convenient. A changelog describes the repository as it was at each version,
+# so it necessarily names paths that no longer exist: renames, deletions, and
+# superseded locations are the substance of the entries. Its v0.0.7.1 entry
+# reads "`Core/GLOSSARY.MD` renamed to `Core/GLOSSARY.md` — fixes broken
+# references on case-sensitive filesystems", and the pre-rename name is the
+# whole point of that sentence — rewriting history to satisfy a link checker
+# would destroy the record. Requiring a historical document's paths to resolve
+# against the present tree is a category error.
+#
+# This was found by CI, not locally: Windows resolves Core/GLOSSARY.MD against
+# Core/GLOSSARY.md on a case-insensitive filesystem, so the check passed on the
+# authoring machine and failed only on the Linux runner.
 done < <(grep -rhoE '`(Core|Standards|Employees|Workflows|Templates|Examples|Governance|Adapters|Registry|Prompts)/[A-Za-z0-9_/.-]*`' \
-           --include='*.md' . | tr -d '`' | sort -u)
+           --include='*.md' --exclude='CHANGELOG.md' . | tr -d '`' | sort -u)
 
 if [ -n "$broken" ]; then
   fail "documents reference paths that do not exist: $broken" "Governance/DEPRECATION_POLICY.md's Cross-Reference Check requires every reference to be updated or removed when its target moves."

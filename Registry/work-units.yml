@@ -145,3 +145,9 @@ work_units:
     title: Record the executable bit on every shipped script in the git index
     milestone: Automation
     delivers: Adapters/git-hooks/, Adapters/scripts/, Adapters/ai-runtimes/, Adapters/scripts/validate-framework.sh
+
+  - id: WU-IAENG-151
+    employee: Test Automation Engineer
+    title: Exempt the changelog from live-path resolution, which is a historical record by definition
+    milestone: Automation
+    delivers: Adapters/scripts/validate-framework.sh
