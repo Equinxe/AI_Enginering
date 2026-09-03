@@ -150,6 +150,20 @@ An Issue is where an idea becomes durable and visible. A Work Unit and Pull Requ
 
 ---
 
+# 7. The Learning Loop — How an Incident Becomes a Rule
+
+Section 6 covers ideas. This section covers **failures**: a red check nobody expected, a review that found a defect, a hook that rejected a correct commit, a claim that turned out false, a data-protection near miss. The framework's own history shows what happens without a loop — the same defect class was found sixteen times in one milestone, four of them inside fixes to earlier instances, before it was named and given a rule.
+
+The loop has three steps, and the first two are part of the fixing Work Unit's Definition of Done:
+
+1. **Record the instance.** The Work Unit that fixes the incident adds an entry to `Governance/TROUBLESHOOTING.md` — symptom, cause, remedy, prevention — in the same commit. An entry with no Prevention is returned in review: it describes an incident that will recur. Incidents specific to one project go in that project's catalog, or in the Errors and Traps section of its `.ia-engineering/SESSION_STATE.md` while fresh.
+2. **Name the class at the second instance.** When an entry is the second of its kind, the fixing Work Unit also names the class and writes the rule — in the document that owns the mechanism (a Check Convention rule in `Adapters/README.md`, a Forbidden Practice in a Standard, a Failure Mode in an Employee). The Check Convention was written after the eleventh instance of its class; the standard this framework holds itself to is the second.
+3. **Turn the rule into a control where one is possible.** A rule that can be checked mechanically becomes a validator check, a hook, or a CI job in a follow-up Work Unit (Section 1, Tier 2). A rule that cannot — most conduct rules — is made concrete enough to be checked by a reader: `Core/EMPLOYEE_SELECTION.md`'s dispatch triggers are the model.
+
+Two things the loop is not. It is not blame: entries name mechanisms, and where they name an Employee it is because attribution is the point of the `Employee:` trailer, not because the Employee is the cause. And it is not optional at review: a Pull Request that fixes an incident and does not touch `Governance/TROUBLESHOOTING.md` is asked why.
+
+---
+
 # Related Documents
 
 - `Standards/GIT_STANDARD.md`, `Standards/BRANCH_STANDARD.md`, `Standards/COMMIT_STANDARD.md`, `Standards/PULL_REQUEST_STANDARD.md` — the git-mechanics standards this document does not repeat.
@@ -160,6 +174,7 @@ An Issue is where an idea becomes durable and visible. A Work Unit and Pull Requ
 - `Templates/EMPLOYEE_BRIEF.md` — the Employee file structure reference for Section 2.
 - `Workflows/PROJECT_BOOTSTRAP.md` — Step 6, the Issue Templates intake mechanism referenced in Section 6.
 - `Core/AI_MANIFEST.md` — the Principles grounding Section 5.
+- `Governance/TROUBLESHOOTING.md` — the catalog Section 7 feeds; `Adapters/README.md`'s Check Convention is the worked example of a class becoming a rule.
 
 ---
 
@@ -167,7 +182,7 @@ An Issue is where an idea becomes durable and visible. A Work Unit and Pull Requ
 
 Owner: IA Engineering
 
-Version: 0.0.1
+Version: 0.0.2
 
 Status: Draft
 
@@ -188,4 +203,6 @@ Depends On:
 
 Referenced By:
 
-- None yet — this is the first Governance document
+- `Governance/TROUBLESHOOTING.md`
+- `Adapters/github-actions/framework-validation.yml`
+- `Adapters/scripts/validate-framework.sh`

@@ -343,3 +343,9 @@ work_units:
     title: Name the escape hatches — canonical ban list in the Git and Code Quality standards
     milestone: Convergence
     delivers: Standards/GIT_STANDARD.md, Standards/CODE_QUALITY_STANDARD.md
+
+  - id: WU-IAENG-183
+    employee: Technical Lead
+    title: Add the Troubleshooting Catalog seeded with this framework's own incidents, and the learning loop that feeds it
+    milestone: Convergence
+    delivers: Governance/TROUBLESHOOTING.md, Governance/CONTRIBUTING.md
