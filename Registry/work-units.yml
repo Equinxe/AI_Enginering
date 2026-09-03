@@ -289,3 +289,9 @@ work_units:
     title: Record the fourth convention rule, and fix the count the third one invalidated
     milestone: Automation
     delivers: Adapters/scripts/validate-framework.sh, Adapters/README.md, Standards/COMMIT_STANDARD.md
+
+  - id: WU-IAENG-170
+    employee: Test Automation Engineer
+    title: Derive the structure check from tracked content, not the filesystem
+    milestone: Automation
+    delivers: Adapters/scripts/validate-framework.sh

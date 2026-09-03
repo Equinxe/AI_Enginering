@@ -664,9 +664,36 @@ fi
 # directory a reader is told to expect is a directory that should exist.
 # Compared in both directions: nothing listed that is absent, nothing present
 # that goes unlisted.
-TOP_DIRS="$(find . -maxdepth 1 -type d \
-  -not -name '.' -not -name '.git' -not -name '.github' -not -name '.omc' -not -name '.claude' \
-  | sed 's|^\./||' | sort)"
+# TRACKED content, not the filesystem.
+#
+# The first version listed directories with `find`, so any untracked
+# top-level directory — a scratch folder, a build output, a local clone of
+# something — produced two failures about a documentation listing it has no
+# business appearing in. Reproduced: creating an empty `scratch_probe/`
+# failed both README.md and CLAUDE.md.
+#
+# That is the kind of false positive rule 4's neighbours exist to prevent. It
+# does not reduce coverage — a directory nobody committed is not part of the
+# framework — but it erodes the check's credibility, and a check whose
+# failures are routinely irrelevant is one people learn to skip.
+#
+# The git-less fallback keeps the old behaviour rather than skipping, because
+# a copied reference has no index and the listing is still worth checking
+# there; it is only in a working checkout that untracked noise exists.
+# Dot-directories are excluded in both branches. `.github` is tracked, so the
+# tracked listing surfaces it, but it holds this repository's installed copies
+# of the Adapters rather than framework content — README.md and CLAUDE.md
+# describe what the framework IS, and no reader expects `.github` in that list.
+# Omitting the exclusion swapped one false positive for another: the first
+# version of this fix flagged `.github` on every run, which is the same defect
+# it was written to remove.
+if git rev-parse --git-dir > /dev/null 2>&1; then
+  TOP_DIRS="$(git ls-files | awk -F/ 'NF > 1 && $1 !~ /^\./ { print $1 }' | sort -u)"
+else
+  TOP_DIRS="$(find . -maxdepth 1 -type d \
+    -not -name '.' -not -name '.git' -not -name '.github' -not -name '.omc' -not -name '.claude' \
+    | sed 's|^\./||' | sort)"
+fi
 
 for doc in README.md CLAUDE.md; do
   # Each block lists one directory per line as "Name/" or "Name/  — description".
