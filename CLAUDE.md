@@ -122,4 +122,4 @@ Adapters/      — Tool integrations
 
 v0.0.11 — Governance
 
-Next: TBD — not yet scoped
+Next: Convergence — delivered on `feat/governance-concepts` (WU-IAENG-172 → 187), awaiting the Director's release decision (`Workflows/RELEASE.md`)

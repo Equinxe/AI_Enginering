@@ -53,6 +53,30 @@ A project that has decided its own tier-to-capability mapping supplies it here r
 
 ---
 
+# Runtime Hooks — Refusing Before, Not Rejecting After
+
+`generate-agents.sh` makes the Employees exist in the runtime. `claude-code/hooks/` makes the framework's rules bind **at the point the runtime acts**, which is earlier than any git hook or CI check can reach:
+
+| Hook | Refuses | Rule |
+|---|---|---|
+| `session-start.sh` | Nothing — prints the read-first order and the current `SESSION_STATE.md` into context | `Core/AGENT_CONDUCT.md`, Read First |
+| `block-escape-hatches.sh` | A shell command using `--no-verify`, `--no-gpg-sign`, `stash`, interactive git, force/mirror push, protected-branch deletion, `reset --hard`, `clean -f`, `checkout -- .`, `branch -D`, history rewrite, `rm -rf .git` | `Standards/GIT_STANDARD.md`, Escape Hatches |
+| `block-inline-suppression.sh` | An edit writing a lint/type/test disable directive, a skipped or focused test, or a swallowed exception into code (documentation exempt, by name) | `Standards/CODE_QUALITY_STANDARD.md`, No Inline Suppression |
+| `post-edit-lint.sh` | Nothing — runs `bash -n`/`shellcheck` and the project's `.ia-engineering/lint.sh` on the file just written, returns failures to the model, says when nothing ran | `Standards/CODE_QUALITY_STANDARD.md`, Automated Quality |
+| `stop-gate.sh` | Ending the session with tracked changes uncommitted and unexplained — once, then the loop guard yields | `Core/AGENT_CONDUCT.md`, Reporting Contract |
+
+Installed by `claude-code/install-hooks.sh` into the project's committed `.claude/settings.json`, so every clone runs them without a per-clone step. Every hook fails closed on unreadable input and has no disabling switch; `claude-code/hooks/README.md` is the reference. They are the executable form of Standards that exist first as documents — a rule that lived only in a hook would be a rule the framework does not have.
+
+# Independent Review Bot
+
+`claude-code/review-bot.yml` runs `Workflows/CODE_REVIEW.md` as the Code Reviewer Employee inside GitHub Actions, under the Actions identity — a second account, which is what the `Review Recorded` check never had. Setting the repository variable `IAENG_REVIEW_BOT_LOGIN` to that identity switches `Review Recorded` into **independent mode**, where only that login's `Decision:` block counts. Not installed by `install.sh` (it needs an API key and a Director decision to spend it); not a required check by default; documented in the file's header.
+
+# Other Runtimes
+
+`omc/README.md` maps the framework onto oh-my-claudecode, an orchestration layer that runs on Claude Code: which of its agents, modes, and state files correspond to which framework concepts, which do not, and where the framework binds regardless. It is a transport mapping recorded from the runtime's own documentation and not tested here; adopters correct it as a Work Unit.
+
+---
+
 # Generated Output Is a Build Artifact
 
 Regenerate it. Do not hand-edit it.
@@ -71,6 +95,7 @@ That is a trade-off, not a rule, and it has a real cost: anyone cloning this rep
 |---|---|---|
 | `Adapters/github/`, `Adapters/github-actions/`, `Adapters/git-hooks/` | The git and review rules | On the host, after the work is produced |
 | `Adapters/ai-runtimes/` | That the work is produced by a named Employee at all | In the runtime, before the work is produced |
+| `Adapters/ai-runtimes/claude-code/hooks/` | That no escape hatch, inline suppression, or unexplained stop happens in the first place | In the runtime, at the moment of the action |
 
 The two are complementary and neither replaces the other. The `commit-msg` hook can prove a commit *claims* `Employee: Backend Engineer`; it cannot prove a Backend Engineer produced it. This directory closes that distance from the other side — by making the Backend Engineer a thing that exists, so the claim is true by construction rather than by discipline.
 

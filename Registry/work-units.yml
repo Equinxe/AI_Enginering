@@ -391,3 +391,9 @@ work_units:
     title: Add the oh-my-claudecode transport mapping — what maps, what does not, and where the framework binds regardless
     milestone: Convergence
     delivers: Adapters/ai-runtimes/omc/README.md
+
+  - id: WU-IAENG-187
+    employee: Technical Writer
+    title: Sync README, CLAUDE.md, and the Adapter READMEs with the Convergence milestone
+    milestone: Convergence
+    delivers: README.md, CLAUDE.md, Adapters/README.md, Adapters/ai-runtimes/README.md
