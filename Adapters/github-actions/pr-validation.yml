@@ -5,10 +5,10 @@ name: IA Engineering - PR Validation
 #   - pr-compliance: every PR must trace to a Work Unit and have a real,
 #     filled-in description (Templates/WORK_UNIT.md, Templates/PULL_REQUEST.md)
 #   - employee-trailer: every non-merge commit in the PR carries a valid
-#     `Employee: <Name>` trailer from the 42-Employee roster — a server-side
-#     backstop for Adapters/git-hooks/commit-msg, which is bypassable with
-#     --no-verify or by never installing the hook (Core/MAIN_AGENT_CONDUCT.md,
-#     Dispatch Discipline)
+#     `Employee: <Name>` trailer, validated against Registry/employees.yml —
+#     a server-side backstop for Adapters/git-hooks/commit-msg, which is
+#     bypassable with --no-verify or by never installing the hook
+#     (Core/MAIN_AGENT_CONDUCT.md, Dispatch Discipline)
 #   - shellcheck-adapters: the git hooks and scripts we ship must actually be
 #     valid, warning-free shell (Standards/CODE_QUALITY_STANDARD.md applies to
 #     Adapters code exactly as it does to any other code)
@@ -19,8 +19,7 @@ name: IA Engineering - PR Validation
 #     exists at all given required_approving_review_count is 0 by design.
 #
 # Install in a project that has imported IA Engineering as a submodule:
-#   mkdir -p .github/workflows
-#   cp ia-engineering/Adapters/github-actions/pr-validation.yml .github/workflows/
+#   ./ia-engineering/Adapters/scripts/install.sh
 #
 # Then add "PR Compliance", "Employee Trailer", "Shellcheck Adapters", and
 # "Validate Workflow YAML" as required status checks in branch protection (see
@@ -82,6 +81,10 @@ jobs:
         with:
           # Full history so the base..head commit range is available server-side.
           fetch-depth: 0
+          # A consumer project imports the framework as a submodule, so the
+          # roster this job reads lives at ia-engineering/Registry/employees.yml
+          # and is absent unless submodules are checked out.
+          submodules: recursive
       - name: Re-validate the Employee trailer on every commit in the PR
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
@@ -92,30 +95,42 @@ jobs:
           # `Employee: <Name>` trailer, but it is bypassable with `git commit
           # --no-verify` or by simply never running the install step (git does
           # not transmit hooks). This job re-checks every NON-MERGE commit in the
-          # PR carries a valid trailer, using the same trailer key + the same
-          # 42-Employee roster as the hook — so a commit that skipped the hook is
-          # still caught here, before merge.
+          # PR carries a valid trailer, using the same trailer key and the same
+          # roster as the hook — so a commit that skipped the hook is still
+          # caught here, before merge.
           #
-          # IMPORTANT: this 42-name array is DUPLICATED from
-          # Adapters/git-hooks/commit-msg. The two lists MUST be kept in sync —
-          # if the Employee roster ever changes, update BOTH this array and the
-          # one in the hook. Extracting a single shared roster file that both the
-          # hook and this workflow read is a known, deliberately-deferred future
-          # improvement (see Adapters/README.md); duplicating the list is an
-          # accepted tradeoff to keep this change scoped.
-          EMPLOYEES=(
-            "Data Architect" "Software Architect" "Solution Architect"
-            "Analytics Engineer" "Data Engineer" "Data Scientist" "ML Engineer" "MLOps Engineer"
-            "Android Engineer" "Backend Engineer" "Cross-Platform Engineer" "Database Engineer"
-            "Event-Driven Engineer" "Frontend Engineer" "Integration Engineer" "iOS Engineer"
-            "Cloud Engineer" "DevOps Engineer" "GitOps Engineer" "Infrastructure as Code Engineer"
-            "Observability Engineer" "Platform Engineer" "SRE Engineer"
-            "Documentation Engineer" "Technical Writer"
-            "Engineering Manager" "Product Manager" "Release Manager" "Scrum Master" "Technical Lead"
-            "Performance Engineer" "QA Engineer" "Security Engineer" "Test Automation Engineer"
-            "AI Engineer" "API Engineer" "Business Analyst" "Code Reviewer" "Compliance Engineer"
-            "Penetration Tester" "Prompt Engineer" "UX/UI Designer"
-          )
+          # Both this job and the hook now read Registry/employees.yml (see
+          # Registry/README.md). Until WU-IAENG-138 they each carried their own
+          # hardcoded 42-name bash array, kept in sync by hand; that duplication
+          # is gone, so the hook and this backstop can no longer disagree about
+          # who is on the roster.
+          set -euo pipefail
+
+          # Same resolution order as the hook: explicit override, then the
+          # framework's own repository, then the submodule path.
+          ROSTER=""
+          for candidate in \
+            "${IAENG_REGISTRY:-}" \
+            "Registry/employees.yml" \
+            "ia-engineering/Registry/employees.yml"
+          do
+            if [ -n "$candidate" ] && [ -f "$candidate" ]; then
+              ROSTER="$candidate"
+              break
+            fi
+          done
+
+          if [ -z "$ROSTER" ]; then
+            echo "::error::Could not locate Registry/employees.yml (looked at \$IAENG_REGISTRY, Registry/, ia-engineering/Registry/). The Employee roster is the single source of truth for this check; failing closed rather than passing without validating anything."
+            exit 1
+          fi
+
+          echo "Roster: $ROSTER"
+
+          # Parsing contract per Registry/README.md. `tr -d '\r'` guards against
+          # a CRLF checkout leaving a carriage return on every name.
+          VALID_NAMES="$(grep -E '^  - name: ' "$ROSTER" | sed 's/^  - name: //' | tr -d '\r')"
+          echo "Roster entries: $(echo "$VALID_NAMES" | wc -l)"
 
           # Merge commits are excluded via --no-merges, mirroring the hook's
           # MERGE_HEAD exception: an auto-generated merge subject ("Merge branch
@@ -139,17 +154,10 @@ jobs:
               continue
             fi
 
-            EMPLOYEE_NAME="${EMPLOYEE_LINE#Employee: }"
-            match=0
-            for name in "${EMPLOYEES[@]}"; do
-              if [ "$name" = "$EMPLOYEE_NAME" ]; then
-                match=1
-                break
-              fi
-            done
+            EMPLOYEE_NAME="$(echo "${EMPLOYEE_LINE#Employee: }" | tr -d '\r')"
 
-            if [ "$match" -eq 0 ]; then
-              echo "::error::Commit $sha has 'Employee: $EMPLOYEE_NAME', which is not one of the 42 recognized Employees defined in Employees/. A functional or tool label ('executor', 'coder', 'reviewer-bot', etc.) is not a valid Employee name — see Core/MAIN_AGENT_CONDUCT.md, 'Naming matters.'"
+            if ! echo "$VALID_NAMES" | grep -qxF "$EMPLOYEE_NAME"; then
+              echo "::error::Commit $sha has 'Employee: $EMPLOYEE_NAME', which is not in $ROSTER. A functional or tool label ('executor', 'coder', 'reviewer-bot', etc.) is not a valid Employee name — see Core/MAIN_AGENT_CONDUCT.md, 'Naming matters.'"
               fail=1
             fi
           done
