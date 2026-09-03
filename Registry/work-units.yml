@@ -1,0 +1,123 @@
+# IA Engineering — Work Unit Registry
+#
+# The Work Units executed in this repository, by ID, with the Employee that
+# produced each.
+#
+# WHY THIS FILE EXISTS
+#
+# Adapters/README.md has carried this under `Planned` since v0.0.9:
+#
+#   A Work Unit ID validator that checks the referenced ID actually exists
+#   (currently only checks the format).
+#
+# The `PR Compliance` job matches /WU-[A-Za-z0-9]+-[0-9]+/ against the PR title
+# and body. `WU-XXXXX-99999` satisfies it. So does a real-looking ID for a Work
+# Unit that was never defined, and so does a typo in a real one — the check
+# proved a string was present, not that it referred to anything. Templates/WORK_UNIT.md
+# requires every Pull Request to trace to a Work Unit; a format check cannot
+# establish traceability, only its appearance.
+#
+# The `Work Unit Exists` job in Adapters/github-actions/pr-validation.yml
+# resolves the referenced ID against this file. An unregistered ID fails.
+#
+# NO HISTORICAL BACKFILL — and why not
+#
+# This registry starts at WU-IAENG-137. Work Units before it are deliberately
+# absent rather than reconstructed.
+#
+# The data is not reliably recoverable. Only 18 distinct Work Unit IDs appear
+# anywhere in this repository's commit messages: the `Work Unit:` trailer was
+# not consistently used, so most historical Work Units exist only as a
+# parenthetical `(WU-IAENG-NNN)` in a CHANGELOG.md line — sometimes attributed,
+# sometimes not, and in several cases one CHANGELOG entry covers two Work Units
+# or one Work Unit spans two entries. Reconstructing owners from git history
+# means guessing, and a guessed `employee:` field is worse than an absent one:
+# it would attribute work to an Employee that may never have been dispatched,
+# which is precisely the false attribution Core/MAIN_AGENT_CONDUCT.md's Dispatch
+# Discipline treats as a violation in its own right.
+#
+# CHANGELOG.md remains the historical record for everything before
+# WU-IAENG-137, and it is the better one — it says what each Work Unit
+# delivered and why, which this file deliberately does not attempt to restate.
+#
+# The `Work Unit Exists` check is unaffected by the gap: it runs only on new
+# Pull Requests, and every new Work Unit registers itself in the same commit
+# that performs it. There is no need to invent a floor or an exemption window.
+#
+# WHAT `employee:` MEANS HERE
+#
+# The Employee the Work Unit was dispatched to, which must match the
+# `Employee:` trailer on its commit. The commit-msg hook validates that trailer
+# against Registry/employees.yml, and validate-framework.sh validates this
+# field against the same roster, so a Work Unit cannot be credited to a name
+# that is not an Employee.
+#
+# PARSING CONTRACT — read this before reformatting.
+# Consumers read these lines with grep and sed:
+#     grep -E '^  - id: '        Registry/work-units.yml
+#     grep -E '^    employee: '  Registry/work-units.yml
+# Keep `  - id: <WU-ID>` as each entry's first line, two leading spaces,
+# unquoted. The validator enforces the shape, the ID format, uniqueness, and
+# that every `employee:` is on the roster.
+
+work_units:
+
+  - id: WU-IAENG-137
+    employee: Software Architect
+    title: Machine-readable Employee roster as single source of truth
+    milestone: Automation
+    delivers: Registry/employees.yml, Registry/README.md
+
+  - id: WU-IAENG-138
+    employee: DevOps Engineer
+    title: Read the Employee roster from the Registry, not a copied array
+    milestone: Automation
+    delivers: Adapters/git-hooks/commit-msg, Adapters/github-actions/pr-validation.yml, .gitattributes
+
+  - id: WU-IAENG-139
+    employee: Test Automation Engineer
+    title: Execute the cross-reference check instead of requiring it by hand
+    milestone: Automation
+    delivers: Adapters/scripts/validate-framework.sh
+
+  - id: WU-IAENG-140
+    employee: Technical Lead
+    title: Resolve the document drift the new validator surfaced
+    milestone: Automation
+    delivers: Core/EMPLOYEE_SELECTION.md, Workflows/PROJECT_BOOTSTRAP.md
+
+  - id: WU-IAENG-141
+    employee: Platform Engineer
+    title: Install every host-agnostic Adapter with one idempotent command
+    milestone: Automation
+    delivers: Adapters/scripts/install.sh, .github/ISSUE_TEMPLATE/
+
+  - id: WU-IAENG-142
+    employee: DevOps Engineer
+    title: Make the bootstrap script perform the steps it is named for
+    milestone: Automation
+    delivers: Adapters/scripts/setup-project-bootstrap.sh, Workflows/PROJECT_BOOTSTRAP.md
+
+  - id: WU-IAENG-143
+    employee: Test Automation Engineer
+    title: Make framework validation a blocking CI check
+    milestone: Automation
+    delivers: Adapters/github-actions/framework-validation.yml
+
+  - id: WU-IAENG-144
+    employee: DevOps Engineer
+    title: Make the CI checks actually block, including on release branches
+    milestone: Automation
+    delivers: Adapters/scripts/setup-branch-protection.sh, Adapters/github-actions/pr-validation.yml
+
+  - id: WU-IAENG-145
+    employee: Software Architect
+    title: Express the six chains and nine workflows as ordered data
+    milestone: Automation
+    delivers: Registry/chains.yml, Registry/workflows.yml
+
+  - id: WU-IAENG-146
+    employee: Engineering Manager
+    title: Register Work Units so a referenced ID can be resolved, not just matched
+    milestone: Automation
+    delivers: Registry/work-units.yml, Adapters/github-actions/pr-validation.yml

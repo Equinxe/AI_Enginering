@@ -1,9 +1,12 @@
 name: IA Engineering - PR Validation
 
-# Five checks, each mechanically enforcing something the framework already
+# Six checks, each mechanically enforcing something the framework already
 # documents instead of relying on a human or AI reviewer to remember it:
 #   - pr-compliance: every PR must trace to a Work Unit and have a real,
 #     filled-in description (Templates/WORK_UNIT.md, Templates/PULL_REQUEST.md)
+#   - work-unit-exists: the referenced Work Unit ID resolves against
+#     Registry/work-units.yml, not merely matching a format regex — closing the
+#     gap Adapters/README.md listed under Planned since v0.0.9
 #   - employee-trailer: every non-merge commit in the PR carries a valid
 #     `Employee: <Name>` trailer, validated against Registry/employees.yml —
 #     a server-side backstop for Adapters/git-hooks/commit-msg, which is
@@ -21,11 +24,14 @@ name: IA Engineering - PR Validation
 # Install in a project that has imported IA Engineering as a submodule:
 #   ./ia-engineering/Adapters/scripts/install.sh
 #
-# Then add "PR Compliance", "Employee Trailer", "Shellcheck Adapters", and
-# "Validate Workflow YAML" as required status checks in branch protection (see
-# Adapters/scripts/setup-branch-protection.sh). "Review Recorded (advisory)" is
-# intentionally NOT a required status check yet — it is warning-only; promoting
-# it to required is a Director/Main Agent decision (see the job's comment).
+# Then add "PR Compliance", "Work Unit Exists", "Employee Trailer", "Shellcheck
+# Adapters", "Validate Workflow YAML", and "Framework Validation" (from
+# framework-validation.yml) as required status checks in branch protection.
+# Adapters/scripts/setup-branch-protection.sh already sets all six.
+#
+# "Review Recorded (advisory)" is deliberately NOT required: it matches comment
+# text, which can be satisfied by pasting the block, so requiring it would buy
+# false confidence. Promoting it stays a Director decision (see the job).
 #
 # Scoped to PRs targeting a protected branch — main, develop, or release/*
 # (see `branches:` below). This workflow enforces the Git Standard's
@@ -79,6 +85,77 @@ jobs:
           fi
 
           echo "PR description present and filled in."
+
+  work-unit-exists:
+    name: Work Unit Exists
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # A consumer project keeps its Work Unit registry inside the imported
+          # framework directory.
+          submodules: recursive
+      - name: Resolve every referenced Work Unit ID against the registry
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          set -uo pipefail
+          # The PR Compliance job checks that a Work Unit ID is PRESENT. This
+          # job checks that it RESOLVES. `WU-XXXXX-99999` satisfies a format
+          # regex, and so does a typo in a real ID or an ID for a Work Unit
+          # that was never defined. Templates/WORK_UNIT.md requires every Pull
+          # Request to trace to a Work Unit, and a format check establishes the
+          # appearance of traceability rather than traceability.
+          #
+          # This closes the gap Adapters/README.md has listed under Planned
+          # since v0.0.9.
+
+          REGISTRY=""
+          for candidate in \
+            "${IAENG_REGISTRY_WORK_UNITS:-}" \
+            "Registry/work-units.yml" \
+            "ia-engineering/Registry/work-units.yml"
+          do
+            if [ -n "$candidate" ] && [ -f "$candidate" ]; then
+              REGISTRY="$candidate"
+              break
+            fi
+          done
+
+          if [ -z "$REGISTRY" ]; then
+            echo "::error::Could not locate Registry/work-units.yml. A project that has not adopted the Work Unit registry should remove this job rather than have it pass without checking anything."
+            exit 1
+          fi
+
+          echo "Registry: $REGISTRY"
+
+          KNOWN="$(grep -E '^  - id: ' "$REGISTRY" | sed 's/^  - id: //' | tr -d '\r')"
+          echo "Registered Work Units: $(echo "$KNOWN" | grep -c . || true)"
+
+          REFERENCED="$(printf '%s\n%s\n' "$PR_TITLE" "$PR_BODY" \
+            | grep -ohE 'WU-[A-Za-z0-9]+-[0-9]+' | sort -u)"
+
+          if [ -z "$REFERENCED" ]; then
+            # PR Compliance owns the "no ID at all" failure; reporting it twice
+            # would give two red checks for one problem.
+            echo "No Work Unit ID referenced — PR Compliance reports that."
+            exit 0
+          fi
+
+          fail=0
+          for wu in $REFERENCED; do
+            if echo "$KNOWN" | grep -qxF "$wu"; then
+              echo "  resolved: $wu"
+            else
+              echo "::error::$wu is referenced by this PR but is not in $REGISTRY. Either it is a typo, or the Work Unit was never registered. Add it in the same commit that performs the work — see the registry's own header for the field shape."
+              fail=1
+            fi
+          done
+
+          exit "$fail"
 
   employee-trailer:
     name: Employee Trailer

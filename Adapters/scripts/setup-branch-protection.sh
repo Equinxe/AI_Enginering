@@ -70,6 +70,7 @@ echo "Configuring branch protection on $REPO for: main, develop, release/*"
 # it stays a Director decision, as its own job comment states.
 REQUIRED_CHECKS=(
   "PR Compliance"
+  "Work Unit Exists"
   "Employee Trailer"
   "Shellcheck Adapters"
   "Validate Workflow YAML"
