@@ -529,6 +529,36 @@ else
   pass "every Depends On entry resolves"
 fi
 
+# README.md and CLAUDE.md both print the repository's top-level layout. Both
+# were missing Registry/ after WU-IAENG-137 added it, and both had advertised
+# Prompts/ since the first commit while it held only a placeholder — a
+# directory a reader is told to expect is a directory that should exist.
+# Compared in both directions: nothing listed that is absent, nothing present
+# that goes unlisted.
+TOP_DIRS="$(find . -maxdepth 1 -type d \
+  -not -name '.' -not -name '.git' -not -name '.github' -not -name '.omc' -not -name '.claude' \
+  | sed 's|^\./||' | sort)"
+
+for doc in README.md CLAUDE.md; do
+  # Each block lists one directory per line as "Name/" or "Name/  — description".
+  listed="$(grep -oE '^[A-Z][A-Za-z]*/' "$doc" | tr -d '/' | sort -u)"
+  if [ -z "$listed" ]; then
+    fail "$doc has no recognisable repository-structure listing" "If its shape changed, update this check."
+    continue
+  fi
+  missing="$(comm -23 <(printf '%s\n' "$TOP_DIRS") <(printf '%s\n' "$listed") | tr '\n' ' ')"
+  phantom="$(comm -13 <(printf '%s\n' "$TOP_DIRS") <(printf '%s\n' "$listed") | tr '\n' ' ')"
+  if [ -n "$missing" ]; then
+    fail "$doc's structure listing omits directories that exist: $missing" "A reader following the listing would not know these are part of the framework."
+  fi
+  if [ -n "$phantom" ]; then
+    fail "$doc lists directories that do not exist: $phantom" "A reader is told to expect these."
+  fi
+  if [ -z "$missing" ] && [ -z "$phantom" ]; then
+    pass "$doc's structure listing matches the repository"
+  fi
+done
+
 # ==========================================================================
 section "10. Adapter / installed-copy parity"
 # ==========================================================================

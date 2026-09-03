@@ -88,6 +88,8 @@ Completed
 - ✅ Adapters (GitHub git hooks, Actions CI checks, PR template, branch protection setup script, CI/CD + GHCR publishing, GitHub Issue Templates)
 - ✅ Project Bootstrap (dedicated bootstrap workflow, Project Charter template, CI/CD + GHCR publishing adapters, GitHub Issue Templates, compliance and business/product hardening)
 - ✅ Governance (Contributing, Versioning Policy, Deprecation Policy)
+- ✅ Registry (machine-readable roster, agent chains, workflow steps and gates, Work Units — derived from the governed documents, never authoritative over them)
+- ✅ Automation (framework self-validation in CI, one-command Adapter installation, release-workflow automation up to the Director gate, runtime agent generation from the Employee definitions)
 
 Planned
 
@@ -106,6 +108,7 @@ Workflows/
 Templates/
 Examples/
 Governance/
+Registry/
 Prompts/
 Adapters/
 

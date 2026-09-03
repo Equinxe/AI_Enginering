@@ -133,3 +133,9 @@ work_units:
     title: Generate runtime agent definitions from the Employee definitions
     milestone: Automation
     delivers: Adapters/ai-runtimes/generate-agents.sh, Adapters/ai-runtimes/README.md
+
+  - id: WU-IAENG-149
+    employee: Technical Writer
+    title: Sync the repository structure listings and surface the Prompts placeholder
+    milestone: Automation
+    delivers: README.md, CLAUDE.md, Prompts/README.md, Adapters/scripts/validate-framework.sh
