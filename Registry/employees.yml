@@ -1,0 +1,209 @@
+# IA Engineering — Employee Registry
+#
+# THE authoritative, machine-readable roster of the framework's Employees.
+#
+# Before this file existed, the roster was duplicated in six places:
+#   Adapters/git-hooks/commit-msg          (42-name bash array)
+#   Adapters/github-actions/pr-validation.yml  (the same array, again)
+#   .github/workflows/pr-validation.yml    (the same array, a third time)
+#   VERSION.md                             (count + named list per category)
+#   Core/CAPABILITY_TIERS.md               (Default Tier assignment table)
+#   Core/EMPLOYEE_SELECTION.md             (one dispatch trigger per Employee)
+#
+# Adapters/README.md listed "a single shared Employee-roster source file" as a
+# deliberately-deferred improvement from v0.0.9 onward. This is that file.
+# Everything mechanical now reads it; Adapters/scripts/validate-framework.sh
+# fails the build when any of the six locations above drifts from it.
+#
+# WHAT THIS FILE OWNS — the identity facts that were duplicated:
+#   name      the exact Employee name, as it must appear in an `Employee:`
+#             commit trailer (Standards/COMMIT_STANDARD.md,
+#             Core/MAIN_AGENT_CONDUCT.md "Dispatch Discipline")
+#   file      the Employee definition, which remains the authoritative source
+#             for Mission, Responsibilities, Authority, and Escalation Rules
+#   category  the Employees/ subdirectory it lives in
+#   tier      Default Complexity Tier, per Core/CAPABILITY_TIERS.md
+#
+# WHAT THIS FILE DELIBERATELY DOES NOT OWN — anything that would create a new
+# duplication. Dispatch triggers stay in Core/EMPLOYEE_SELECTION.md; Mission,
+# Authority, and Escalation Rules stay in the Employee definition. The
+# validator checks that every Employee here has a trigger there, rather than
+# copying the trigger text into this file.
+#
+# PARSING CONTRACT — read this before reformatting.
+# Git hooks run on developer machines with no guaranteed YAML parser, so the
+# `name:` lines are consumed with plain grep/sed:
+#     grep -E '^  - name: ' Registry/employees.yml | sed 's/^  - name: //'
+# Every entry must therefore keep `  - name: <Name>` as its FIRST line, with
+# exactly two leading spaces, no quotes, and no trailing comment. The
+# validator enforces this shape so the contract cannot silently break.
+
+employees:
+  - name: Data Architect
+    file: Employees/Architecture/DATA_ARCHITECT.md
+    category: Architecture
+    tier: Strategic Judgment
+  - name: Software Architect
+    file: Employees/Architecture/SOFTWARE_ARCHITECT.md
+    category: Architecture
+    tier: Strategic Judgment
+  - name: Solution Architect
+    file: Employees/Architecture/SOLUTION_ARCHITECT.md
+    category: Architecture
+    tier: Strategic Judgment
+  - name: Analytics Engineer
+    file: Employees/Data/ANALYTICS_ENGINEER.md
+    category: Data
+    tier: Standard Execution
+  - name: Data Engineer
+    file: Employees/Data/DATA_ENGINEER.md
+    category: Data
+    tier: Standard Execution
+  - name: Data Scientist
+    file: Employees/Data/DATA_SCIENTIST.md
+    category: Data
+    tier: Strategic Judgment
+  - name: ML Engineer
+    file: Employees/Data/ML_ENGINEER.md
+    category: Data
+    tier: Standard Execution
+  - name: MLOps Engineer
+    file: Employees/Data/MLOPS_ENGINEER.md
+    category: Data
+    tier: Standard Execution
+  - name: Android Engineer
+    file: Employees/Development/ANDROID_ENGINEER.md
+    category: Development
+    tier: Standard Execution
+  - name: Backend Engineer
+    file: Employees/Development/BACKEND_ENGINEER.md
+    category: Development
+    tier: Standard Execution
+  - name: Cross-Platform Engineer
+    file: Employees/Development/CROSS_PLATFORM_ENGINEER.md
+    category: Development
+    tier: Standard Execution
+  - name: Database Engineer
+    file: Employees/Development/DATABASE_ENGINEER.md
+    category: Development
+    tier: Standard Execution
+  - name: Event-Driven Engineer
+    file: Employees/Development/EVENT_DRIVEN_ENGINEER.md
+    category: Development
+    tier: Standard Execution
+  - name: Frontend Engineer
+    file: Employees/Development/FRONTEND_ENGINEER.md
+    category: Development
+    tier: Standard Execution
+  - name: Integration Engineer
+    file: Employees/Development/INTEGRATION_ENGINEER.md
+    category: Development
+    tier: Standard Execution
+  - name: iOS Engineer
+    file: Employees/Development/IOS_ENGINEER.md
+    category: Development
+    tier: Standard Execution
+  - name: Cloud Engineer
+    file: Employees/DevOps/CLOUD_ENGINEER.md
+    category: DevOps
+    tier: Standard Execution
+  - name: DevOps Engineer
+    file: Employees/DevOps/DEVOPS_ENGINEER.md
+    category: DevOps
+    tier: Standard Execution
+  - name: GitOps Engineer
+    file: Employees/DevOps/GITOPS_ENGINEER.md
+    category: DevOps
+    tier: Standard Execution
+  - name: Infrastructure as Code Engineer
+    file: Employees/DevOps/IAC_ENGINEER.md
+    category: DevOps
+    tier: Standard Execution
+  - name: Observability Engineer
+    file: Employees/DevOps/OBSERVABILITY_ENGINEER.md
+    category: DevOps
+    tier: Standard Execution
+  - name: Platform Engineer
+    file: Employees/DevOps/PLATFORM_ENGINEER.md
+    category: DevOps
+    tier: Standard Execution
+  - name: SRE Engineer
+    file: Employees/DevOps/SRE_ENGINEER.md
+    category: DevOps
+    tier: Standard Execution
+  - name: Documentation Engineer
+    file: Employees/Documentation/DOCUMENTATION_ENGINEER.md
+    category: Documentation
+    tier: Standard Execution
+  - name: Technical Writer
+    file: Employees/Documentation/TECHNICAL_WRITER.md
+    category: Documentation
+    tier: Standard Execution
+  - name: Engineering Manager
+    file: Employees/Management/ENGINEERING_MANAGER.md
+    category: Management
+    tier: Strategic Judgment
+  - name: Product Manager
+    file: Employees/Management/PRODUCT_MANAGER.md
+    category: Management
+    tier: Standard Execution
+  - name: Release Manager
+    file: Employees/Management/RELEASE_MANAGER.md
+    category: Management
+    tier: Standard Execution
+  - name: Scrum Master
+    file: Employees/Management/SCRUM_MASTER.md
+    category: Management
+    tier: Standard Execution
+  - name: Technical Lead
+    file: Employees/Management/TECHNICAL_LEAD.md
+    category: Management
+    tier: Strategic Judgment
+  - name: Performance Engineer
+    file: Employees/Quality/PERFORMANCE_ENGINEER.md
+    category: Quality
+    tier: Standard Execution
+  - name: QA Engineer
+    file: Employees/Quality/QA_ENGINEER.md
+    category: Quality
+    tier: Standard Execution
+  - name: Security Engineer
+    file: Employees/Quality/SECURITY_ENGINEER.md
+    category: Quality
+    tier: Strategic Judgment
+  - name: Test Automation Engineer
+    file: Employees/Quality/TEST_AUTOMATION_ENGINEER.md
+    category: Quality
+    tier: Standard Execution
+  - name: AI Engineer
+    file: Employees/Specialized/AI_ENGINEER.md
+    category: Specialized
+    tier: Strategic Judgment
+  - name: API Engineer
+    file: Employees/Specialized/API_ENGINEER.md
+    category: Specialized
+    tier: Standard Execution
+  - name: Business Analyst
+    file: Employees/Specialized/BUSINESS_ANALYST.md
+    category: Specialized
+    tier: Strategic Judgment
+  - name: Code Reviewer
+    file: Employees/Specialized/CODE_REVIEWER.md
+    category: Specialized
+    tier: Standard Execution
+  - name: Compliance Engineer
+    file: Employees/Specialized/COMPLIANCE_ENGINEER.md
+    category: Specialized
+    tier: Strategic Judgment
+  - name: Penetration Tester
+    file: Employees/Specialized/PENETRATION_TESTER.md
+    category: Specialized
+    tier: Strategic Judgment
+  - name: Prompt Engineer
+    file: Employees/Specialized/PROMPT_ENGINEER.md
+    category: Specialized
+    tier: Strategic Judgment
+  - name: UX/UI Designer
+    file: Employees/Specialized/UX_UI_DESIGNER.md
+    category: Specialized
+    tier: Standard Execution
