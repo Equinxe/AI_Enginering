@@ -205,3 +205,9 @@ work_units:
     title: Read the Work Unit claim from commit trailers instead of the PR description
     milestone: Automation
     delivers: Adapters/github-actions/pr-validation.yml, Registry/work-units.yml, Registry/README.md
+
+  - id: WU-IAENG-156
+    employee: Test Automation Engineer
+    title: Close three more checks that reported success without evaluating anything
+    milestone: Automation
+    delivers: Adapters/scripts/validate-framework.sh, Adapters/github-actions/pr-validation.yml

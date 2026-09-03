@@ -686,7 +686,29 @@ if git rev-parse --git-dir > /dev/null 2>&1; then
     pass "every shipped script and hook is mode 100755 in the index"
   fi
 else
-  pass "not a git repository — index modes skipped"
+  # NOT a pass, and not counted as a check.
+  #
+  # A git-less tree is a supported import shape, not a corner case:
+  # Workflows/ONBOARDING.md Step 1 and install.sh both name "submodule, copied
+  # reference, or linked documentation directory", and a copied reference —
+  # extracted from a release tarball or a zip — carries no index of its own.
+  # That is precisely the shape in which the executable bit is most likely to
+  # have been lost in transit, so reporting `pass` here announced success in
+  # the one deployment where this check matters most. It was the only guard
+  # standing over WU-IAENG-150, and it was blind exactly where the risk lives.
+  #
+  # "Cannot evaluate" is genuinely not a defect in the tree being checked, so
+  # failing would be wrong too. It is reported as an unevaluated condition and
+  # left out of the CHECKS tally, because a total that counts a check nobody
+  # ran overstates what was verified.
+  printf '   --    index modes not evaluated: no git repository here\n'
+  printf '         A copied reference or extracted tarball has no index, and\n'
+  printf '         this is the shape where the executable bit is most often\n'
+  printf '         lost. Verify from a git checkout, or check the modes by\n'
+  printf '         hand: ls -l Adapters/git-hooks Adapters/scripts\n'
+  if [ -n "${GITHUB_ACTIONS:-}" ]; then
+    echo "::warning::Index file modes were not evaluated — no git repository. Run this from a git checkout to verify the executable bit on shipped scripts."
+  fi
 fi
 
 # ==========================================================================
@@ -720,9 +742,54 @@ section "12. Unresolved work markers in shipped code"
 # Generic CI fallback, which exists precisely to be filled in by the project
 # that installs it.
 
-markers="$(grep -rnE '(#[[:space:]]*(TODO|FIXME|XXX|HACK)\b|\b(TODO|FIXME|XXX|HACK)[(:])' \
-  Adapters/git-hooks Adapters/scripts Adapters/github-actions Adapters/ai-runtimes Registry 2>/dev/null \
-  | grep -vF 'TODO(adopting project)' || true)"
+# The scan roots are asserted to exist BEFORE scanning, and stderr is not
+# discarded.
+#
+# An earlier version passed the roots straight to `grep -r ... 2>/dev/null ||
+# true`. That swallowed "No such file or directory" for a renamed or mistyped
+# path, and an empty result is indistinguishable from a clean one — so the
+# check reported success while scanning nothing. Demonstrated: renaming
+# Adapters/ai-runtimes to Adapters/runtimes and adding a genuine unfinished
+# marker to a script inside it produced "no unresolved work markers in shipped
+# Adapter code". The run only went red because a different check noticed the
+# now-dangling documented path; a rename that also updated the references
+# would have left this check permanently blind and permanently green.
+#
+# This section's own comment argues that a marker in shipped Adapter code is a
+# step the adopting project silently does not get. A scan that silently
+# inspects nothing is the same defect one level up.
+MARKER_ROOTS=(
+  Adapters/git-hooks
+  Adapters/scripts
+  Adapters/github-actions
+  Adapters/ai-runtimes
+  Registry
+)
+
+missing_roots=""
+present_roots=()
+for root in "${MARKER_ROOTS[@]}"; do
+  if [ -d "$root" ]; then
+    present_roots+=("$root")
+  else
+    missing_roots="$missing_roots$root; "
+  fi
+done
+
+if [ -n "$missing_roots" ]; then
+  fail "work-marker scan roots do not exist: $missing_roots" "The scan cannot report a clean result for a directory it never read. If these paths moved, update this list; if they were removed, remove them from it deliberately."
+fi
+
+# Scanning only the roots that exist, so the failure above is the single report
+# of a missing path rather than that failure plus a raw grep error. Guarded
+# against an empty array, which `set -u` would otherwise reject.
+if [ "${#present_roots[@]}" -eq 0 ]; then
+  markers=""
+else
+  markers="$(grep -rnE '(#[[:space:]]*(TODO|FIXME|XXX|HACK)\b|\b(TODO|FIXME|XXX|HACK)[(:])' \
+    "${present_roots[@]}" \
+    | grep -vF 'TODO(adopting project)' || true)"
+fi
 if [ -n "$markers" ]; then
   fail "unresolved work markers in shipped Adapter code" "$(echo "$markers" | head -5 | tr '\n' ' ') — a TODO in an Adapter is a step the adopting project does not get."
 else
