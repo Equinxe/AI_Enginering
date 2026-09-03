@@ -337,3 +337,9 @@ work_units:
     title: Make Reviewability concrete — a 1,500-line review limit enforced by a PR Size check, generated files excluded, Director override by label
     milestone: Convergence
     delivers: Standards/PULL_REQUEST_STANDARD.md, Adapters/github-actions/pr-validation.yml, Templates/PULL_REQUEST.md
+
+  - id: WU-IAENG-178
+    employee: Technical Lead
+    title: Name the escape hatches — canonical ban list in the Git and Code Quality standards
+    milestone: Convergence
+    delivers: Standards/GIT_STANDARD.md, Standards/CODE_QUALITY_STANDARD.md
