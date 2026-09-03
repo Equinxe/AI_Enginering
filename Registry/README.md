@@ -28,7 +28,7 @@ Concretely, per file:
 | `employees.yml` | `Employees/*/*.md` (name, category, Default Complexity Tier) | A single parseable roster, replacing the same list duplicated in six places |
 | `chains.yml` | `Core/AGENT_CHAINS.md` | Chain sequences and Director gates as ordered data |
 | `workflows.yml` | `Workflows/*.md` | Step numbers, actors, and mandatory gates as ordered data |
-| `work-units.yml` | The Work Units actually executed in this repository | Existence — so a `WU-` reference in a PR can be checked against reality, not only against a regex |
+| `work-units.yml` | The Work Units executed in this repository **from WU-IAENG-137 onward** — earlier ones are deliberately absent and unrecoverable; see that file's header | Existence — so a commit's `Work Unit:` trailer can be checked against reality, not only against a regex |
 
 ---
 

@@ -4,9 +4,11 @@ name: IA Engineering - PR Validation
 # documents instead of relying on a human or AI reviewer to remember it:
 #   - pr-compliance: every PR must trace to a Work Unit and have a real,
 #     filled-in description (Templates/WORK_UNIT.md, Templates/PULL_REQUEST.md)
-#   - work-unit-exists: the referenced Work Unit ID resolves against
-#     Registry/work-units.yml, not merely matching a format regex — closing the
-#     gap Adapters/README.md listed under Planned since v0.0.9
+#   - work-unit-exists: each commit's `Work Unit:` trailer resolves against
+#     Registry/work-units.yml, rather than a format regex matching a string in
+#     the PR description — closing the gap Adapters/README.md listed under
+#     Planned since v0.0.9. Reads trailers, not prose: see the job for why
+#     both prose-based versions were wrong
 #   - employee-trailer: every non-merge commit in the PR carries a valid
 #     `Employee: <Name>` trailer, validated against Registry/employees.yml —
 #     a server-side backstop for Adapters/git-hooks/commit-msg, which is
@@ -94,24 +96,59 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          # Full history so the base..head commit range is available, matching
+          # the employee-trailer job — this check reads the same commits.
+          fetch-depth: 0
           # A consumer project keeps its Work Unit registry inside the imported
           # framework directory.
           submodules: recursive
-      - name: Resolve every referenced Work Unit ID against the registry
+      - name: Resolve each commit's Work Unit trailer against the registry
         env:
-          PR_TITLE: ${{ github.event.pull_request.title }}
-          PR_BODY: ${{ github.event.pull_request.body }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           set -uo pipefail
-          # The PR Compliance job checks that a Work Unit ID is PRESENT. This
-          # job checks that it RESOLVES. `WU-XXXXX-99999` satisfies a format
-          # regex, and so does a typo in a real ID or an ID for a Work Unit
-          # that was never defined. Templates/WORK_UNIT.md requires every Pull
-          # Request to trace to a Work Unit, and a format check establishes the
-          # appearance of traceability rather than traceability.
+          # PR Compliance checks that a Work Unit ID is PRESENT in the PR text.
+          # This job checks that the PR's OWN Work Unit RESOLVES.
+          # `WU-XXXXX-99999` satisfies a format regex, and so does a typo in a
+          # real ID or an ID for a Work Unit that was never defined.
+          # Templates/WORK_UNIT.md requires every Pull Request to trace to a
+          # Work Unit, and a format check establishes the appearance of
+          # traceability rather than traceability. This closes the gap
+          # Adapters/README.md listed under Planned since v0.0.9.
           #
-          # This closes the gap Adapters/README.md has listed under Planned
-          # since v0.0.9.
+          # IT READS COMMIT TRAILERS, NOT THE PR DESCRIPTION. Two earlier
+          # versions read the prose and both were wrong, in opposite
+          # directions:
+          #
+          #   Requiring every WU- id in the title and body to resolve failed on
+          #   any PR citing a Work Unit older than the registry's start — and
+          #   this project's descriptions cite earlier Work Units constantly.
+          #   A PR saying "this corrects WU-IAENG-125" was blocked for
+          #   describing its own motivation accurately.
+          #
+          #   Requiring only ONE of them to resolve fixed that and reintroduced
+          #   the original hole. In "Implements WU-IAENG-160, following on from
+          #   WU-IAENG-137", the historical id resolves and the PR's actual
+          #   Work Unit — the one that matters, and the one most likely to be
+          #   mistyped or unregistered — goes unchecked. Since nearly every
+          #   description cites some prior Work Unit, the resolving id would
+          #   almost always be the historical one. That collapses back to
+          #   "some WU-shaped string is present", which PR Compliance already
+          #   covers.
+          #
+          # Prose citations are unbounded and retroactive; a commit trailer is
+          # singular and structural. It is also the same evidence source
+          # employee-trailer uses, so the Work Unit claim and the Employee
+          # claim now have identical provenance, and neither can be altered by
+          # rewording the description after review.
+          #
+          # NOTE ON PARSING: these commits put `Work Unit:` and `Employee:` in
+          # separate paragraphs, so git's own trailer parser sees only the last
+          # block — `git log --format='%(trailers:key=Work Unit,valueonly)'`
+          # returns empty for every commit on this branch (verified). The
+          # anchored grep below is required, exactly as employee-trailer does
+          # for its own trailer.
 
           REGISTRY=""
           for candidate in \
@@ -135,56 +172,38 @@ jobs:
           KNOWN="$(grep -E '^  - id: ' "$REGISTRY" | sed 's/^  - id: //' | tr -d '\r')"
           echo "Registered Work Units: $(echo "$KNOWN" | grep -c . || true)"
 
-          REFERENCED="$(printf '%s\n%s\n' "$PR_TITLE" "$PR_BODY" \
-            | grep -ohE 'WU-[A-Za-z0-9]+-[0-9]+' | sort -u)"
+          COMMITS="$(git rev-list --no-merges "${BASE_SHA}..${HEAD_SHA}")"
 
-          if [ -z "$REFERENCED" ]; then
-            # PR Compliance owns the "no ID at all" failure; reporting it twice
-            # would give two red checks for one problem.
-            echo "No Work Unit ID referenced — PR Compliance reports that."
+          if [ -z "$COMMITS" ]; then
+            echo "No non-merge commits to check."
             exit 0
           fi
 
-          # AT LEAST ONE referenced ID must resolve — not all of them.
-          #
-          # Requiring all of them was the first version, and it would have
-          # failed this required check on any PR whose description cites a
-          # historical Work Unit. That is not a corner case here: this
-          # project's commit messages and CHANGELOG entries reference earlier
-          # Work Unit IDs constantly, and Registry/work-units.yml deliberately
-          # starts at WU-IAENG-137 because the earlier owners are not reliably
-          # recoverable (see its header). A PR explaining "this corrects
-          # WU-IAENG-125" would have been blocked for describing its own
-          # motivation accurately.
-          #
-          # What Templates/WORK_UNIT.md actually requires is that the Pull
-          # Request TRACE to a Work Unit. One resolved ID satisfies that.
-          # Unresolved ones are surfaced as a notice rather than swallowed, so
-          # a typo in the PR's own ID is still visible to a reviewer without
-          # turning a citation of history into a merge blocker.
-          resolved=0
-          unresolved=""
-          for wu in $REFERENCED; do
-            if echo "$KNOWN" | grep -qxF "$wu"; then
-              echo "  resolved:   $wu"
-              resolved=$((resolved + 1))
-            else
-              echo "  unresolved: $wu"
-              unresolved="$unresolved$wu "
-            fi
-          done
+          # First trailer per commit; the anchor is what keeps a mid-sentence
+          # mention of an id (including this job's own WU-XXXXX-99999 example,
+          # which does appear in a commit body on this branch) from being read
+          # as a claim.
+          REFERENCED="$(for sha in $COMMITS; do
+            git log -1 --format=%B "$sha" \
+              | grep -E '^Work Unit: ' | head -1 | sed 's/^Work Unit: //' | tr -d '\r'
+          done | grep -v '^$' | sort -u)"
 
-          if [ -n "$unresolved" ]; then
-            echo "::notice::Referenced but not in $REGISTRY: ${unresolved}— expected for a Work Unit predating the registry's start, or a typo. Not blocking."
-          fi
-
-          if [ "$resolved" -eq 0 ]; then
-            echo "::error::None of the Work Unit IDs referenced by this PR ($REFERENCED) resolve against $REGISTRY. Per Templates/WORK_UNIT.md every Pull Request must trace to a Work Unit — register this PR's Work Unit in the same commit that performs the work, or correct the ID if it is a typo."
+          if [ -z "$REFERENCED" ]; then
+            echo "::error::No commit in this PR carries a 'Work Unit: <WU-ID>' trailer. Per Templates/WORK_UNIT.md every Pull Request must trace to a Work Unit. Add the trailer to the commit that performs the work — a Work Unit ID mentioned only in the PR description is not checked here, because a description can be reworded after review."
             exit 1
           fi
 
-          echo "Traced to $resolved registered Work Unit(s)."
-          exit 0
+          fail=0
+          for wu in $REFERENCED; do
+            if echo "$KNOWN" | grep -qxF "$wu"; then
+              echo "  resolved: $wu"
+            else
+              echo "::error::$wu is claimed by a commit's 'Work Unit:' trailer but is not in $REGISTRY. Either it is a typo, or the Work Unit was never registered. Register it in the same commit that performs the work — see the registry's own header for the field shape."
+              fail=1
+            fi
+          done
+
+          exit "$fail"
 
   employee-trailer:
     name: Employee Trailer

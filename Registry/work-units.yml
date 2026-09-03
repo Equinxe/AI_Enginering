@@ -18,10 +18,10 @@
 # establish traceability, only its appearance.
 #
 # The `Work Unit Exists` job in Adapters/github-actions/pr-validation.yml
-# resolves the referenced IDs against this file. See "HOW THE GAP INTERACTS
-# WITH THE `Work Unit Exists` CHECK" below for what exactly it requires — at
-# least one ID must resolve, not all of them, and the reason that distinction
-# matters.
+# resolves each commit's `Work Unit:` trailer against this file. It reads
+# trailers, not the PR description — see "HOW THE GAP INTERACTS WITH THE
+# `Work Unit Exists` CHECK" below for the two prose-based versions that came
+# first and why each was wrong.
 #
 # NO HISTORICAL BACKFILL — and why not
 #
@@ -45,23 +45,34 @@
 #
 # HOW THE GAP INTERACTS WITH THE `Work Unit Exists` CHECK
 #
-# The first version of that check required EVERY Work Unit ID appearing in a
-# Pull Request to resolve here, on the reasoning that each new Work Unit
-# registers itself in the commit that performs it, so no floor or exemption
-# window was needed.
+# It does not, and getting there took two wrong turns worth recording, because
+# both looked correct when written.
 #
-# That reasoning was wrong, and code review caught it. The job scans the whole
-# PR title and body, not just the PR's own Work Unit — so a description saying
-# "this corrects WU-IAENG-125" would have failed a REQUIRED check for
-# describing its own motivation accurately. Citing earlier Work Unit IDs is
-# routine in this project's commit messages and CHANGELOG entries, and those
-# IDs are exactly the ones this registry deliberately does not carry.
+# The FIRST version required every Work Unit ID appearing in a Pull Request's
+# title or body to resolve here, on the reasoning that each new Work Unit
+# registers itself in the commit that performs it — so, as the note here then
+# read, "there is no need to invent a floor or an exemption window." That
+# missed the fact that the job scans the whole description, not just the PR's
+# own Work Unit. A description saying "this corrects WU-IAENG-125" would have
+# failed a REQUIRED check for describing its own motivation accurately, and
+# citing earlier Work Unit IDs is routine in this project.
 #
-# The check now requires AT LEAST ONE referenced ID to resolve, which is what
-# Templates/WORK_UNIT.md actually asks — that the Pull Request trace to a Work
-# Unit. Unresolved IDs are reported as a non-blocking notice, so a typo in the
-# PR's own ID stays visible without turning a reference to history into a
-# merge blocker.
+# The SECOND version required only ONE referenced ID to resolve. That fixed
+# the false failure and quietly restored the original hole: in "Implements
+# WU-IAENG-160, following on from WU-IAENG-137", the historical ID resolves
+# and the PR's actual Work Unit goes unchecked — the one most likely to be
+# mistyped or unregistered. Since nearly every description cites some prior
+# Work Unit, the resolving ID would almost always be the historical one, which
+# collapses the check back into "some WU-shaped string is present". PR
+# Compliance already covers that. Code review caught this one too.
+#
+# The check now reads each commit's `Work Unit:` TRAILER and ignores the
+# description entirely. Prose citations are unbounded and retroactive; a
+# trailer is singular and structural, it is the same evidence source the
+# Employee trailer check already uses, and it cannot be altered by rewording
+# the PR after review. Because a trailer names only the Work Unit its commit
+# performs, a historical ID never enters the comparison, so this registry's
+# starting point stops being a problem the check has to work around.
 #
 # WHAT `employee:` MEANS HERE
 #
@@ -188,3 +199,9 @@ work_units:
     title: Require one referenced Work Unit to resolve, not all of them
     milestone: Automation
     delivers: Adapters/github-actions/pr-validation.yml, Registry/work-units.yml
+
+  - id: WU-IAENG-155
+    employee: Engineering Manager
+    title: Read the Work Unit claim from commit trailers instead of the PR description
+    milestone: Automation
+    delivers: Adapters/github-actions/pr-validation.yml, Registry/work-units.yml, Registry/README.md
