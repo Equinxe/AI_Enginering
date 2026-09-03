@@ -319,3 +319,9 @@ work_units:
     title: Add the Work Unit Report template — a bare "Done" is a failed Work Unit
     milestone: Convergence
     delivers: Templates/WORK_UNIT_REPORT.md
+
+  - id: WU-IAENG-175
+    employee: Technical Lead
+    title: Add the Session State template — dated operational state, never committed, separate from the CLAUDE.md contract
+    milestone: Convergence
+    delivers: Templates/SESSION_STATE.md
