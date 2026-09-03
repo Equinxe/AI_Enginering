@@ -355,3 +355,9 @@ work_units:
     title: Add Claude Code hooks — read-first at session start, escape-hatch and inline-suppression blocks, post-edit lint, stop gate
     milestone: Convergence
     delivers: Adapters/ai-runtimes/claude-code/hooks/, Adapters/ai-runtimes/claude-code/settings.example.json, Adapters/ai-runtimes/claude-code/install-hooks.sh
+
+  - id: WU-IAENG-180
+    employee: Business Analyst
+    title: Project Bootstrap — profiles A/B/C, the "what constitutes PROOF" question, and the confidential-data question at inception
+    milestone: Convergence
+    delivers: Workflows/PROJECT_BOOTSTRAP.md

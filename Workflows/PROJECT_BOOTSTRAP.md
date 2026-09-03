@@ -63,13 +63,14 @@ The Main Agent asks the Director a set of business-before-tech questions, roughl
 4. **Success criteria** — How is "working" measured? What is the definition of done for launch?
 5. **Constraints** — Is there a deadline, a budget, a team size, existing systems to integrate with?
 6. **Compliance / regulatory** — Does GDPR, HIPAA, PCI, SOC 2, ISO 27001, data residency, or licensing apply? What is the jurisdiction / geography of users and data processing — this is upstream of every other question here, since "does GDPR apply" cannot be answered without knowing where data subjects and processing are located. What are the breach notification obligations (e.g., GDPR Art. 33/34's 72-hour window) and data subject rights (access/erasure/portability, Art. 15-20) — both drive architecture decisions (logging, export/delete capability) and belong at inception, not retrofitted later.
-7. **Data sensitivity** — Will this handle PII or secrets? What are the retention needs?
+7. **Data sensitivity** — Will this handle PII or secrets? What are the retention needs? **Will real documents, exports, or samples be needed during development** — and if so, where do they live? The answer is always `Standards/DATA_PROTECTION_STANDARD.md`'s local data directory, gitignored before the first commit; the question is asked so the Director hears the rule before the first file exists, not after it is in history.
 
 > The frameworks and obligations named above (GDPR, HIPAA, PCI, SOC 2, ISO 27001, etc.) are engineering-discovery prompts to surface what needs architectural attention — not a statement of legal completeness, and not a substitute for qualified legal counsel. See the Compliance Engineer's Failure Modes for the same caveat applied to that Employee's own output.
 8. **Scale expectations** — What is the expected user/request/data volume at launch, and at a future horizon?
 9. **Lifecycle** — Is this a prototype, a product, a long-lived system? What maintenance is expected?
 10. **Stakeholders & decision authority** — Who is the Director for this project? Who else must approve decisions?
 11. **Assumptions & Risks** — What must be true for this to succeed? What is the biggest risk to delivery?
+12. **What constitutes PROOF** — For each output the project produces that someone will act on — a report, a total, a classification, a recommendation — what, concretely, shows it is *correct*? A reconciling total against a named source of truth? Agreement with an authoritative table? A domain expert's sign-off on a named sample? "The pipeline ran without error" is never the answer. This question decides whether the project needs a Domain Employee (`Templates/DOMAIN_EMPLOYEE.md`, `Workflows/ONBOARDING.md` Step 4), and it names the reference that Employee reconciles against. A project that cannot answer it yet records that as its first open risk under question 11.
 
 **Output:** Phase A answers captured. These become the durable **Project Charter** artifact (`Templates/PROJECT_CHARTER.md`), which records the business-requirements answers so they are not lost once implementation begins.
 
@@ -94,7 +95,21 @@ Only after Phase A is answered, the Software Architect asks the Director the tec
 - **Test tooling** — the testing framework(s) for the chosen stack.
 - **Secrets management** — how credentials and secrets will be stored and accessed.
 
-**Output:** Stack decided. The Software Architect drafts a **Stack Decision ADR** using `Templates/ADR.md`, following `Workflows/ARCHITECTURE_DECISION.md` end to end (research, draft, review, Director approval).
+### Project Profiles
+
+Before the individual questions, the Software Architect places the project in one of three **profiles**. The profile does not replace the questions; it decides which of them carry weight, what the first ADR is about, and which Employees `Workflows/ONBOARDING.md` Step 4 activates by default.
+
+| Profile | Shape | What dominates Phase B | Default roster emphasis | First ADR is usually |
+|---|---|---|---|---|
+| **A — Web application** | A service with a UI and/or API, its own data store, users who log in | Framework, data store, API style, hosting, secrets management | Backend Engineer, Frontend Engineer, Database Engineer, Security Engineer, QA Engineer | Data store selection |
+| **B — Integration with a heavy external system** | The project's value is in reading from, writing to, or orchestrating a system it does not own — an ERP, a legacy database, a vendor API, a hardware controller | The external system's contract and failure modes; **what constitutes PROOF** (Phase A question 12) becomes the central design input; test tooling against a system that cannot be run locally | Integration Engineer, Data Engineer, a **Domain Employee** for the external system's business rules, QA Engineer, Security Engineer | The integration boundary — sync vs. event-driven, source of truth, reconciliation |
+| **C — Library or CLI** | No persistent state of its own; consumed by other code or by an operator | Language/runtime, public interface stability, packaging and distribution, test tooling; data store and hosting questions usually do not apply | Backend Engineer (or the platform Engineer for the language), Technical Writer, QA Engineer | Public interface and versioning policy |
+
+A project that fits two profiles is two projects sharing a repository until the Director says otherwise; that observation itself is recorded in the Stack Decision ADR.
+
+Profile B is the one this framework most often meets on real engagements and the one where engineering correctness and *output* correctness diverge furthest — which is why its default roster includes a Domain Employee and why question 12 is not optional for it.
+
+**Output:** Stack decided. The Software Architect drafts a **Stack Decision ADR** using `Templates/ADR.md`, following `Workflows/ARCHITECTURE_DECISION.md` end to end (research, draft, review, Director approval). The ADR names the profile.
 
 **Handoff to:** Step 3 — only after the Stack Decision ADR is Accepted.
 
@@ -251,7 +266,7 @@ This workflow is complete when:
 
 Owner: IA Engineering
 
-Version: 0.0.10
+Version: 0.0.11
 
 Status: Draft
 
