@@ -139,3 +139,9 @@ work_units:
     title: Sync the repository structure listings and surface the Prompts placeholder
     milestone: Automation
     delivers: README.md, CLAUDE.md, Prompts/README.md, Adapters/scripts/validate-framework.sh
+
+  - id: WU-IAENG-150
+    employee: DevOps Engineer
+    title: Record the executable bit on every shipped script in the git index
+    milestone: Automation
+    delivers: Adapters/git-hooks/, Adapters/scripts/, Adapters/ai-runtimes/, Adapters/scripts/validate-framework.sh

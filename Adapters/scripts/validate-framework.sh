@@ -621,7 +621,47 @@ for tmpl in Adapters/github/ISSUE_TEMPLATE/*; do
 done
 
 # ==========================================================================
-section "11. Unresolved work markers in shipped code"
+section "11. Shipped scripts are executable in the index"
+# ==========================================================================
+# The file mode git records, not the mode on this machine.
+#
+# A Windows checkout does not carry the executable bit, so a script created
+# there lands in the index as 100644 and is checked out non-executable on every
+# Linux clone. For a git hook that is the worst possible failure shape: git
+# skips a non-executable hook silently — no error, no output, the commit simply
+# succeeds unvalidated.
+#
+# Every one of the eight shipped scripts was 100644 until WU-IAENG-150,
+# including both git hooks, which have been in the repository since v0.0.9.
+# Adapters/README.md's old install instructions ran `chmod +x` on the hooks,
+# which masked it for them; setup-branch-protection.sh and
+# setup-project-bootstrap.sh were documented as direct `./...` invocations with
+# no chmod, so those could not have run at all on a fresh Linux clone. The bug
+# surfaced only when this milestone's own CI job tested `-x` on a Linux runner.
+#
+# Checked here rather than left to install.sh's chmod, because a chmod at
+# install time is a workaround: the mode belongs in the repository, so a clone
+# is correct before anything is run.
+
+if git rev-parse --git-dir > /dev/null 2>&1; then
+  not_exec=""
+  while IFS= read -r line; do
+    mode="${line%% *}"
+    path="${line#*$'\t'}"
+    [ "$mode" = "100755" ] || not_exec="$not_exec$path ($mode); "
+  done < <(git ls-files -s Adapters/git-hooks Adapters/scripts Adapters/ai-runtimes 2>/dev/null \
+             | grep -E '\.sh$|git-hooks/[a-z-]+$')
+  if [ -n "$not_exec" ]; then
+    fail "shipped scripts are not executable in the git index: $not_exec" "Run 'git update-index --chmod=+x <path>'. A non-executable git hook is skipped by git without any error, so the commit lands unvalidated."
+  else
+    pass "every shipped script and hook is mode 100755 in the index"
+  fi
+else
+  pass "not a git repository — index modes skipped"
+fi
+
+# ==========================================================================
+section "12. Unresolved work markers in shipped code"
 # ==========================================================================
 # Adapters/ ships as executable code installed into other projects. A TODO left
 # in it is not a note to ourselves — it is a step the adopting project silently
@@ -661,7 +701,7 @@ else
 fi
 
 # ==========================================================================
-section "12. Registry: chains, workflows, Work Units"
+section "13. Registry: chains, workflows, Work Units"
 # ==========================================================================
 # Validated when present, so the Registry can grow one file at a time without
 # this script hard-failing on the files not yet written.
