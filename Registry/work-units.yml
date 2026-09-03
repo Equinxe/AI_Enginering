@@ -313,3 +313,9 @@ work_units:
     title: Add the Data Protection Standard with its three enforcement layers — pre-commit hook, data-policy CI job, one shared scanner
     milestone: Convergence
     delivers: Standards/DATA_PROTECTION_STANDARD.md, Adapters/scripts/data-policy-scan.sh, Adapters/git-hooks/pre-commit, Adapters/github-actions/data-policy.yml
+
+  - id: WU-IAENG-174
+    employee: Technical Lead
+    title: Add the Work Unit Report template — a bare "Done" is a failed Work Unit
+    milestone: Convergence
+    delivers: Templates/WORK_UNIT_REPORT.md
