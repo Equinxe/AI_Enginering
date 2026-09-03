@@ -47,11 +47,15 @@ Before this workflow begins:
 
 **Actor:** Release Manager + Engineering Manager
 
+Run `Adapters/scripts/release.sh check` from `develop`. It is read-only and reports every condition below, exiting non-zero if any fails:
+
 1. Confirm all planned Work Units are merged into `develop`.
 2. Confirm CI/CD is green on `develop`.
 3. Confirm no open critical or high defects remain.
 4. Confirm the release version number and codename are agreed.
 5. Review the pending CHANGELOG.md entries — every significant change since the last release must be accounted for so the version bump in Step 2 is complete.
+
+The script checks branch, working-tree cleanliness, sync with the remote, the version in `VERSION.md`, the presence and size of this version's `CHANGELOG.md` section, the latest CI conclusion on `develop`, and `Adapters/scripts/validate-framework.sh`. Open defects are **reported, not failed** — whether an open issue is critical or high is a judgment call, and a script that guessed would either block real releases or wave through real blockers.
 
 If any condition is not met: block the release. Do not proceed until `develop` is ready.
 
@@ -142,6 +146,8 @@ No merge to `main` happens without explicit Director approval.
 1. Pull the latest `main`.
 2. Create an annotated tag: `git tag -a vX.X.X -m "vX.X.X — <codename>"`.
 3. Push the tag: `git push origin vX.X.X`.
+Steps 1 to 3 above are performed by `Adapters/scripts/release.sh publish vX.X.X --confirm`, which extracts this version's `CHANGELOG.md` section itself, creates the annotated tag, pushes it, and creates the GitHub Release from that section. It refuses to run unless `HEAD` is `main`, the tree is clean, local `main` matches `origin/main`, the tag does not already exist, and the `CHANGELOG.md` section is present — so it cannot tag a commit that never passed Step 5, and it cannot produce the bare tag this step forbids. Without `--confirm` it prints the plan and stops, because publishing a release is externally visible and effectively irreversible.
+
 4. A bare annotated tag with only a short `-m` message is **not sufficient on its own** — it produces no real description on the host's Releases page. Create a full GitHub Release from that tag, with a description derived from this version's actual `CHANGELOG.md` entry (its `### Added`, `### Fixed`, and `### Notes` sections), not a one-line summary:
    - Current Adapter mechanism (GitHub): `gh release create vX.X.X --title "vX.X.X — <codename>" --notes-file <path-to-extracted-changelog-section>` (extract this version's `## [X.X.X]` section from `CHANGELOG.md` into a temp file first, or pass the same content inline via `--notes`). A non-GitHub host must use its equivalent release-creation mechanism (e.g., the GitLab Releases API), following the same content requirement.
    - The Release description must reproduce the `CHANGELOG.md` entry for this version, verbatim or near-verbatim, so anyone browsing the Releases page sees the full changelog content without needing to open the repository.

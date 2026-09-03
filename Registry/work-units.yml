@@ -121,3 +121,9 @@ work_units:
     title: Register Work Units so a referenced ID can be resolved, not just matched
     milestone: Automation
     delivers: Registry/work-units.yml, Adapters/github-actions/pr-validation.yml
+
+  - id: WU-IAENG-147
+    employee: Release Manager
+    title: Automate the mechanical parts of the release workflow, stopping at the Director gate
+    milestone: Automation
+    delivers: Adapters/scripts/release.sh, Workflows/RELEASE.md
