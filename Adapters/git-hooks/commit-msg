@@ -110,27 +110,39 @@ fi
 # `  - name: <Name>` — two leading spaces, unquoted, no trailing comment. The
 # trailing `tr -d '\r'` guards against a CRLF checkout on Windows, which would
 # otherwise leave a carriage return on every name and match nothing.
-# The LAST matching line, not the first.
+# EVERY `Employee: ` line is validated, not one of them.
 #
-# A trailer lives at the end of a commit message; `head -1` reads the wrong
-# end. That was an exploitable bypass, not a style point: a message whose body
-# quoted a valid line early —
+# Two earlier versions picked a single line by ordinal and both were bypassable,
+# in mirror-image ways. All six cases below were reproduced against this hook:
 #
-#     ... reported "the hook ACCEPTED
-#     Employee: Backend Engineer
-#     ... " which is why ...
+#   with `head -1`  a body quoting a valid name EARLY masked a real trailer
+#                   naming a tool label   -> ACCEPTED
+#   with `tail -1`  a squash-concatenated message whose first block carried
+#                   `Employee: executor` and whose last block carried a valid
+#                   name                  -> ACCEPTED
 #
-#     Employee: executor
+# The second is the first with the sign flipped. Neither end is safe, because
+# the defect was never about which end: it is about examining ONE line when the
+# message contains N claims. A squashed merge is the realistic source — every
+# squashed commit's body concatenates the trailer blocks of its parts.
 #
-# — was ACCEPTED, because the quoted line won and the real trailer naming a
-# tool label was never examined. Verified before this change.
+# Validating all of them makes the ordinal irrelevant and closes both. It also
+# converts the remaining annoyance into an honest one: a message that quotes
+# this hook's own rejection text at column 0 is now refused for containing an
+# unvalidated Employee line, which is true, and the fix is to indent the quoted
+# example — a habit worth having.
 #
-# Found while writing a commit message for WU-IAENG-160 that quoted this hook's
-# own rejection text: the hook refused the commit for the quoted line rather
-# than the real one, which is the same defect seen from the other side.
-EMPLOYEE_LINE="$(grep -E '^Employee: ' "$COMMIT_MSG_FILE" | tail -1 || true)"
+# The strictly correct definition is git's own: the trailer block is the final
+# paragraph when it consists entirely of trailer-shaped lines. That is not
+# usable here yet, because this project's messages put `Work Unit:` and
+# `Employee:` in SEPARATE paragraphs, so the final paragraph holds only one of
+# them — the same separation that makes
+# `git log --format='%(trailers:key=Work Unit)'` return nothing. Fixing that is
+# a change to Standards/COMMIT_STANDARD.md and to the generated agent template,
+# tracked as its own Work Unit.
+EMPLOYEE_LINES="$(grep -E '^Employee: ' "$COMMIT_MSG_FILE" || true)"
 
-if [ -z "$EMPLOYEE_LINE" ]; then
+if [ -z "$EMPLOYEE_LINES" ]; then
   echo "commit-msg: rejected — missing 'Employee: <Name>' trailer." >&2
   echo "  Per Core/MAIN_AGENT_CONDUCT.md (Dispatch Discipline), every commit must" >&2
   echo "  identify the Employee who produced it — never the Main Agent, never a" >&2
@@ -138,14 +150,29 @@ if [ -z "$EMPLOYEE_LINE" ]; then
   exit 1
 fi
 
-EMPLOYEE_NAME="$(echo "${EMPLOYEE_LINE#Employee: }" | tr -d '\r')"
+VALID_NAMES="$(grep -E '^  - name: ' "$ROSTER" | sed 's/^  - name: //' | tr -d '\r')"
 
-if ! grep -E '^  - name: ' "$ROSTER" | sed 's/^  - name: //' | tr -d '\r' \
-   | grep -qxF "$EMPLOYEE_NAME"; then
-  echo "commit-msg: rejected — 'Employee: $EMPLOYEE_NAME' is not a recognized Employee." >&2
+REJECTED=0
+while IFS= read -r line; do
+  [ -n "$line" ] || continue
+  name="$(echo "${line#Employee: }" | tr -d '\r')"
+  if ! printf '%s\n' "$VALID_NAMES" | grep -qxF "$name"; then
+    echo "commit-msg: rejected — 'Employee: $name' is not a recognized Employee." >&2
+    REJECTED=1
+  fi
+done <<EOF
+$EMPLOYEE_LINES
+EOF
+
+if [ "$REJECTED" -eq 1 ]; then
   echo "  Must exactly match an entry in $ROSTER" >&2
   echo "  A functional or tool label ('executor', 'coder', 'reviewer-bot', etc.) is not" >&2
   echo "  a valid Employee name — see Core/MAIN_AGENT_CONDUCT.md, 'Naming matters.'" >&2
+  echo "" >&2
+  echo "  Every line beginning 'Employee: ' is checked, not just one, because" >&2
+  echo "  picking a single line by position was bypassable from whichever end" >&2
+  echo "  was not chosen. If the offending line is an EXAMPLE quoted in the" >&2
+  echo "  message body, indent it so it does not start at column 0." >&2
   exit 1
 fi
 

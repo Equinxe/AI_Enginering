@@ -247,3 +247,9 @@ work_units:
     title: Read the commit trailer from the end of the message, closing an attribution bypass
     milestone: Automation
     delivers: Adapters/git-hooks/commit-msg, Adapters/github-actions/pr-validation.yml
+
+  - id: WU-IAENG-163
+    employee: Security Engineer
+    title: Validate every trailer line rather than one chosen by position
+    milestone: Automation
+    delivers: Adapters/git-hooks/commit-msg, Adapters/github-actions/pr-validation.yml

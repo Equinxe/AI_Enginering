@@ -199,27 +199,32 @@ jobs:
           # from overriding the real one.
           fail=0
           for sha in $COMMITS; do
-            # tail -1, not head -1: a trailer sits at the END of a message, so
-            # a line quoted earlier in the body must not win over the real one.
-            # See Adapters/git-hooks/commit-msg for the worked bypass this
-            # closes. This job's own WU-XXXXX-99999 example does appear in a
-            # commit body on this branch.
-            WU_LINE="$(git log -1 --format=%B "$sha" | grep -E '^Work Unit: ' | tail -1 || true)"
+            # EVERY `Work Unit: ` line in the message, not one chosen by
+            # position. Picking one by ordinal is bypassable from whichever end
+            # is not chosen — a squash-concatenated message carries one trailer
+            # block per squashed part, so `head -1` and `tail -1` each leave the
+            # other blocks unchecked. See Adapters/git-hooks/commit-msg for the
+            # reproduced cases. This job's own WU-XXXXX-99999 example appears in
+            # a commit body on this branch, which is why the pattern stays
+            # anchored to column 0.
+            WU_LINES="$(git log -1 --format=%B "$sha" | grep -E '^Work Unit: ' || true)"
 
-            if [ -z "$WU_LINE" ]; then
+            if [ -z "$WU_LINES" ]; then
               echo "::error::Commit $sha carries no 'Work Unit: <WU-ID>' trailer. Per CLAUDE.md one Work Unit is one commit, and per Templates/WORK_UNIT.md every change must trace to a Work Unit. A Work Unit ID in the PR description does not substitute: a description can be reworded after review, a trailer cannot."
               fail=1
               continue
             fi
 
-            WU="$(echo "${WU_LINE#Work Unit: }" | tr -d '\r')"
-
-            if echo "$KNOWN" | grep -qxF "$WU"; then
-              echo "  $sha -> $WU (resolved)"
-            else
-              echo "::error::Commit $sha claims '$WU', which is not in $REGISTRY. Either it is a typo, or the Work Unit was never registered. Register it in the same commit that performs the work — see the registry's own header for the field shape."
-              fail=1
-            fi
+            while IFS= read -r wu_line; do
+              [ -n "$wu_line" ] || continue
+              WU="$(echo "${wu_line#Work Unit: }" | tr -d '\r')"
+              if echo "$KNOWN" | grep -qxF "$WU"; then
+                echo "  $sha -> $WU (resolved)"
+              else
+                echo "::error::Commit $sha claims '$WU', which is not in $REGISTRY. Either it is a typo, or the Work Unit was never registered. Register it in the same commit that performs the work — see the registry's own header for the field shape. If this line is an EXAMPLE quoted in the message body, indent it so it does not start at column 0."
+                fail=1
+              fi
+            done < <(printf '%s\n' "$WU_LINES")
           done
 
           exit "$fail"
@@ -299,25 +304,30 @@ jobs:
           fail=0
           for sha in $COMMITS; do
             MSG="$(git log -1 --format=%B "$sha")"
-            # tail -1, for the same reason as the Work Unit trailer above and
-            # matching Adapters/git-hooks/commit-msg exactly: a body quoting an
-            # Employee line early would otherwise mask the real trailer, so a
-            # commit crediting a tool label could pass by quoting a valid name
-            # first. Verified as a real bypass before this change.
-            EMPLOYEE_LINE="$(echo "$MSG" | grep -E '^Employee: ' | tail -1 || true)"
+            # EVERY `Employee: ` line, matching Adapters/git-hooks/commit-msg
+            # exactly. Choosing one line by position was bypassable from
+            # whichever end was not chosen: with `head -1`, a body quoting a
+            # valid name early masked a real trailer naming a tool label; with
+            # `tail -1`, a squash-concatenated message whose first block carried
+            # `Employee: executor` and whose last block carried a valid name was
+            # accepted. Both reproduced. Validating all of them makes the
+            # ordinal irrelevant.
+            EMPLOYEE_LINES="$(echo "$MSG" | grep -E '^Employee: ' || true)"
 
-            if [ -z "$EMPLOYEE_LINE" ]; then
+            if [ -z "$EMPLOYEE_LINES" ]; then
               echo "::error::Commit $sha is missing an 'Employee: <Name>' trailer. Per Core/MAIN_AGENT_CONDUCT.md (Dispatch Discipline), every commit must identify the Employee who produced it. This commit likely skipped the local commit-msg hook (--no-verify or uninstalled hook)."
               fail=1
               continue
             fi
 
-            EMPLOYEE_NAME="$(echo "${EMPLOYEE_LINE#Employee: }" | tr -d '\r')"
-
-            if ! echo "$VALID_NAMES" | grep -qxF "$EMPLOYEE_NAME"; then
-              echo "::error::Commit $sha has 'Employee: $EMPLOYEE_NAME', which is not in $ROSTER. A functional or tool label ('executor', 'coder', 'reviewer-bot', etc.) is not a valid Employee name — see Core/MAIN_AGENT_CONDUCT.md, 'Naming matters.'"
-              fail=1
-            fi
+            while IFS= read -r emp_line; do
+              [ -n "$emp_line" ] || continue
+              EMPLOYEE_NAME="$(echo "${emp_line#Employee: }" | tr -d '\r')"
+              if ! echo "$VALID_NAMES" | grep -qxF "$EMPLOYEE_NAME"; then
+                echo "::error::Commit $sha has 'Employee: $EMPLOYEE_NAME', which is not in $ROSTER. A functional or tool label ('executor', 'coder', 'reviewer-bot', etc.) is not a valid Employee name — see Core/MAIN_AGENT_CONDUCT.md, 'Naming matters.' If this line is an EXAMPLE quoted in the message body, indent it so it does not start at column 0."
+                fail=1
+              fi
+            done < <(printf '%s\n' "$EMPLOYEE_LINES")
           done
 
           exit "$fail"
