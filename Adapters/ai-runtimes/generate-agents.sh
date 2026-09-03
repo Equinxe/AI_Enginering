@@ -83,11 +83,39 @@ MAP_OVERRIDE=""
 DRY_RUN=0
 CHECK=0
 
+# Each value-taking flag asserts it HAS a value before shifting past it.
+#
+# Without the guard, `shift 2` on a trailing flag hung the script forever. When
+# the flag is the last argument, $# is 1, so `shift 2` is out of range and
+# fails — and a failed shift does not shift. The script sets `-uo pipefail` but
+# not `-e`, so the failure was discarded, $1 stayed `--target`, and the loop
+# spun with no output and no exit. `${2:-}` made it worse by masking the
+# `set -u` error that would otherwise have surfaced it immediately.
+#
+# It is the only defect in this milestone that hangs rather than misreports,
+# which makes it the only one invisible in a log. A trailing flag is the normal
+# shape of a typo or a truncated shell-history recall, and
+# Adapters/ai-runtimes/README.md documents `--check` for CI use — a job passing
+# `--target "$SOMETHING_EMPTY"` would have burned its whole timeout budget with
+# no diagnostic. Reproduced and confirmed before this change: all three flags
+# hung until killed.
+#
+# `$2` is used unquoted-of-default deliberately: after the guard it is known to
+# exist, so dropping `${2:-}` lets `set -u` catch any future variant that
+# forgets the guard.
+need_value() {
+  if [ "$2" -lt 2 ]; then
+    echo "Argument error: $1 requires a value." >&2
+    echo "  Try --help. ($1 was the last argument, so there was nothing to read.)" >&2
+    exit 2
+  fi
+}
+
 while [ "$#" -gt 0 ]; do
   case "$1" in
-    --target) TARGET="${2:-}"; shift 2 ;;
-    --out)    OUT="${2:-}"; shift 2 ;;
-    --map)    MAP_OVERRIDE="${2:-}"; shift 2 ;;
+    --target) need_value --target "$#"; TARGET="$2"; shift 2 ;;
+    --out)    need_value --out "$#";    OUT="$2"; shift 2 ;;
+    --map)    need_value --map "$#";    MAP_OVERRIDE="$2"; shift 2 ;;
     --dry-run) DRY_RUN=1; shift ;;
     --check)   CHECK=1; shift ;;
     --help|-h) sed -n '2,60p' "$0"; exit 0 ;;
@@ -373,7 +401,15 @@ if [ "$CHECK" -eq 1 ]; then
   exit 0
 fi
 
-echo "Result: $WRITTEN written, $UNCHANGED already current"
+# Under --dry-run nothing was written, so the summary must not say it was.
+# The counter is shared between the two modes, and reporting "42 written" for a
+# run that touched no file is a report of something that did not happen —
+# small, but the same category as every other finding in this milestone.
+if [ "$DRY_RUN" -eq 1 ]; then
+  echo "Result: $WRITTEN would be written, $UNCHANGED already current (nothing was written)"
+else
+  echo "Result: $WRITTEN written, $UNCHANGED already current"
+fi
 [ "$DIFFERENT" -gt 0 ] && echo "        $DIFFERENT skipped — see the warnings above" >&2
 
 if [ "$DRY_RUN" -eq 0 ] && [ "$WRITTEN" -gt 0 ]; then

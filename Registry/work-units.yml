@@ -217,3 +217,9 @@ work_units:
     title: Fail on an empty input set, a missing installed copy, and a multi-word chain name
     milestone: Automation
     delivers: Adapters/scripts/validate-framework.sh
+
+  - id: WU-IAENG-158
+    employee: Platform Engineer
+    title: Stop the agent generator hanging forever on a trailing value-taking flag
+    milestone: Automation
+    delivers: Adapters/ai-runtimes/generate-agents.sh, Adapters/scripts/release.sh

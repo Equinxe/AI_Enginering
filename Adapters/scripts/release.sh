@@ -374,7 +374,14 @@ REMAINING
 # ----------------------------------------------------------------- main ----
 
 case "${1:-check}" in
-  check)   shift 2>/dev/null || true; cmd_check "${1:-}" ;;
+  # `shift` with fd 2 silenced, NOT `shift 2` — the two read almost
+  # identically and the difference matters, as WU-IAENG-158 showed in
+  # generate-agents.sh. Written out rather than left as a one-liner so the
+  # next reader does not have to decide which one this is.
+  check)
+    shift
+    cmd_check "${1:-}"
+    ;;
   notes)   shift; cmd_notes "${1:-}" ;;
   publish) shift; cmd_publish "${1:-}" "${2:-}" ;;
   --help|-h|help)
