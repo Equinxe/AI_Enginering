@@ -241,3 +241,9 @@ work_units:
     title: Make the advisory review check red when no decision was recorded, and write the check convention down
     milestone: Automation
     delivers: Adapters/github-actions/pr-validation.yml, Adapters/scripts/validate-framework.sh, Adapters/README.md
+
+  - id: WU-IAENG-162
+    employee: Security Engineer
+    title: Read the commit trailer from the end of the message, closing an attribution bypass
+    milestone: Automation
+    delivers: Adapters/git-hooks/commit-msg, Adapters/github-actions/pr-validation.yml
