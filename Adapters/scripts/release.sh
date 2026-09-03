@@ -150,6 +150,68 @@ cmd_check() {
     fi
   fi
 
+  head2 "Work Unit completeness"
+
+  # Workflows/RELEASE.md Step 1 item 1: "Confirm all planned Work Units are
+  # merged into develop."
+  #
+  # This had no mechanical form until now, and Step 1's lead-in nonetheless
+  # claimed the script reported every condition in its list — a document
+  # claiming enforcement it did not have, which is the prose mirror of the
+  # silent-skip this script had in its framework-consistency step
+  # (WU-IAENG-153). Found in review.
+  #
+  # It became tractable through two mechanisms this milestone built:
+  # WU-IAENG-155 made every commit's Work Unit readable from its `Work Unit:`
+  # trailer, and Registry/work-units.yml records each Work Unit against a
+  # `milestone:`. So the condition becomes checkable: for the milestone being
+  # released, every registered Work Unit must have a trailer reachable from
+  # this branch. It is the Step 1 condition whose failure is least visible by
+  # eye — a Work Unit merged to a feature branch but never to develop looks
+  # identical to one that landed.
+
+  local codename registry_ids merged_ids
+  codename="$(awk '/^Codename$/{getline; getline; print}' VERSION.md | tr -d '*' | tr -d '\r')"
+
+  if [ -z "$codename" ]; then
+    bad "could not read the codename from VERSION.md" "Expected a '**Name**' line two lines below the 'Codename' heading. Without it the milestone being released is unknown, so Work Unit completeness cannot be evaluated."
+  elif [ ! -f Registry/work-units.yml ]; then
+    bad "Registry/work-units.yml is missing" "Step 1 item 1 needs it to know which Work Units this milestone planned."
+  else
+    ok "releasing milestone '$codename'"
+
+    registry_ids="$(awk -v m="$codename" '
+      /^  - id: / { id = $0; sub(/^  - id: /, "", id); gsub(/\015/, "", id) }
+      /^    milestone: / { ms = $0; sub(/^    milestone: /, "", ms); gsub(/\015/, "", ms)
+                           if (ms == m && id != "") print id }
+    ' Registry/work-units.yml | sort -u)"
+
+    if [ -z "$registry_ids" ]; then
+      # Not a pass. Zero registered Work Units for this milestone means either
+      # the version bump (Step 2) has not happened yet, or the registry does
+      # not use this codename — and in both cases the condition was not
+      # evaluated. Reporting success here would be the exact defect this
+      # milestone spent eleven fixes removing.
+      bad "no Work Units registered against milestone '$codename'" "Either Step 2's version bump has not landed yet (so VERSION.md still names the previous milestone), or Registry/work-units.yml uses a different milestone label. Item 1 cannot be confirmed either way, and an unevaluated condition is not a met one."
+    else
+      merged_ids="$(git log --format=%B "$branch" 2>/dev/null \
+        | grep -E '^Work Unit: ' | sed 's/^Work Unit: //' | tr -d '\r' | sort -u)"
+
+      local missing_wu="" total=0
+      while IFS= read -r id; do
+        [ -n "$id" ] || continue
+        total=$((total + 1))
+        printf '%s\n' "$merged_ids" | grep -qxF "$id" || missing_wu="$missing_wu$id "
+      done < <(printf '%s\n' "$registry_ids")
+
+      if [ -n "$missing_wu" ]; then
+        bad "$(echo "$missing_wu" | wc -w | tr -d ' ') of $total Work Units for '$codename' are not on $branch: $missing_wu" "Each is registered against this milestone but no commit reachable from $branch carries its 'Work Unit:' trailer. Merge them, or move them to a later milestone in Registry/work-units.yml — releasing without them ships a milestone the registry says is incomplete."
+      else
+        ok "all $total registered Work Units for '$codename' are on $branch"
+      fi
+    fi
+  fi
+
   head2 "Continuous integration on $branch"
 
   if ! command -v gh > /dev/null 2>&1; then

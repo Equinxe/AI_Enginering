@@ -47,15 +47,21 @@ Before this workflow begins:
 
 **Actor:** Release Manager + Engineering Manager
 
-Run `Adapters/scripts/release.sh check` from `develop`. It is read-only and reports every condition below, exiting non-zero if any fails:
+Run `Adapters/scripts/release.sh check` from `develop`. It is read-only.
 
-1. Confirm all planned Work Units are merged into `develop`.
-2. Confirm CI/CD is green on `develop`.
-3. Confirm no open critical or high defects remain.
-4. Confirm the release version number and codename are agreed.
-5. Review the pending CHANGELOG.md entries — every significant change since the last release must be accounted for so the version bump in Step 2 is complete.
+| # | Condition | Mechanically checked? |
+|---|---|---|
+| 1 | All planned Work Units are merged into `develop` | **Yes** — every Work Unit registered against this milestone in `Registry/work-units.yml` must have a commit reachable from `develop` carrying its `Work Unit:` trailer |
+| 2 | CI/CD is green on `develop` | **Yes** — the latest run's conclusion |
+| 3 | No open critical or high defects remain | **Reported, not failed** — see below |
+| 4 | The release version number and codename are agreed | **Partly** — `VERSION.md` is read and its codename resolved against the registry's milestones; whether that version and codename are the *agreed* ones is a Director judgment no script can make |
+| 5 | Pending `CHANGELOG.md` entries account for every significant change | **Partly** — the section's presence and size are checked; whether its content is complete is a reading task |
 
-The script checks branch, working-tree cleanliness, sync with the remote, the version in `VERSION.md`, the presence and size of this version's `CHANGELOG.md` section, the latest CI conclusion on `develop`, and `Adapters/scripts/validate-framework.sh`. Open defects are **reported, not failed** — whether an open issue is critical or high is a judgment call, and a script that guessed would either block real releases or wave through real blockers.
+The script additionally checks the current branch, working-tree cleanliness, sync with the remote, and `Adapters/scripts/validate-framework.sh`.
+
+Condition 3 is **reported, not failed** on purpose: whether an open issue is critical or high is a judgment call, and a script that guessed would either block real releases or wave through real blockers. It lists them and leaves the assessment to the reviewer.
+
+This table replaced a single sentence claiming the script "reports every condition below". It did not — condition 1 had no mechanical form at all, and the paragraph beneath the list correctly enumerated a narrower set, so one Step made two incompatible claims about the strength of the same gate. A reader stopping at the lead-in, which is where the instruction to run the command lives, would have concluded condition 1 was covered. Condition 1 is now implemented; conditions 4 and 5 are marked partial rather than described as fully enforced.
 
 If any condition is not met: block the release. Do not proceed until `develop` is ready.
 
