@@ -76,9 +76,29 @@ Before opening a Pull Request, verify that:
 
 ## Reviewability
 
-A Pull Request should remain easy to review.
+A Pull Request is reviewed by being **read**. Past a certain size it is skimmed instead, and a skim that approves what it did not read is worth less than no approval, because it is trusted.
 
-Large Pull Requests should be divided whenever possible.
+The limit is **1,500 changed lines** — additions plus deletions — counted on the files a reviewer must read:
+
+- files marked `linguist-generated` in `.gitattributes` are excluded. That is the hosting platform's own convention for content no human reads — lockfiles, snapshots, built assets, generated clients — and declaring it in a committed file means the exclusion list is itself reviewed;
+- binary files are excluded; they have no line count.
+
+Above the limit the Pull Request is **split** into Work Units that can each be read. When the size is genuinely irreducible — a mechanical rename across a codebase, a vendored dependency, a migration that must land atomically — the **Director** accepts it by applying the `size/approved` label. The override is a label rather than a sentence in the description because applying a label requires write permission on the repository, and pasting a sentence requires nothing.
+
+The `PR Size` check in `Adapters/github-actions/pr-validation.yml` enforces this; `Adapters/scripts/setup-branch-protection.sh` makes it required.
+
+---
+
+## Self-Contained Description
+
+The description is read by someone who has **none of the author's context**: not the conversation that produced the change, not the author's working directory, not the chat log of the AI session. It must therefore stand alone:
+
+- "How to test" is executable by the reviewer from a fresh clone, with the commands written out;
+- evidence is pasted — the final lines of the test run, the validator's result — not described;
+- no reference points outside the Pull Request or the repository ("as discussed", "see my notes", a path on the author's machine);
+- when the Work Unit produced a Work Unit Report (`Templates/WORK_UNIT_REPORT.md`), the description **is** that report's substance, not a summary of it.
+
+A description that needs the author present to be understood has not been written yet.
 
 ---
 
@@ -101,7 +121,9 @@ Do not:
 - combine unrelated engineering objectives;
 - ignore review feedback;
 - merge failing builds or tests;
-- open Pull Requests for unfinished work.
+- open Pull Requests for unfinished work;
+- exceed the review limit without a Director `size/approved` label, or mark a hand-written file `linguist-generated` to slip under it;
+- write a description that depends on context outside the Pull Request.
 
 ---
 
@@ -130,7 +152,7 @@ Following this standard provides:
 
 Owner: IA Engineering
 
-Version: 0.0.2
+Version: 0.0.3
 
 Status: Draft
 

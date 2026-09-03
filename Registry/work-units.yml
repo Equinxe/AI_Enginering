@@ -331,3 +331,9 @@ work_units:
     title: Add the Domain Employee template and the project roster extension the hook and CI read
     milestone: Convergence
     delivers: Templates/DOMAIN_EMPLOYEE.md, Adapters/git-hooks/commit-msg, Adapters/github-actions/pr-validation.yml, Registry/README.md, Workflows/ONBOARDING.md
+
+  - id: WU-IAENG-177
+    employee: DevOps Engineer
+    title: Make Reviewability concrete — a 1,500-line review limit enforced by a PR Size check, generated files excluded, Director override by label
+    milestone: Convergence
+    delivers: Standards/PULL_REQUEST_STANDARD.md, Adapters/github-actions/pr-validation.yml, Templates/PULL_REQUEST.md

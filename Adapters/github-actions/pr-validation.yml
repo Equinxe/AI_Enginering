@@ -1,6 +1,6 @@
 name: IA Engineering - PR Validation
 
-# Six checks, each mechanically enforcing something the framework already
+# Seven checks, each mechanically enforcing something the framework already
 # documents instead of relying on a human or AI reviewer to remember it:
 #   - pr-compliance: every PR must trace to a Work Unit and have a real,
 #     filled-in description (Templates/WORK_UNIT.md, Templates/PULL_REQUEST.md)
@@ -18,6 +18,12 @@ name: IA Engineering - PR Validation
 #     valid, warning-free shell (Standards/CODE_QUALITY_STANDARD.md applies to
 #     Adapters code exactly as it does to any other code)
 #   - yaml-lint: every workflow file we ship must at minimum parse as valid YAML
+#   - pr-size: the PR changes at most 1,500 lines outside files marked
+#     `linguist-generated` in .gitattributes (Standards/PULL_REQUEST_STANDARD.md,
+#     Reviewability). Beyond that a PR is not reviewed, it is skimmed. The
+#     Director overrides by applying the `size/approved` label — a label, not
+#     body text, because applying one requires write permission on the
+#     repository and pasting a sentence does not
 #   - review-recorded: ADVISORY — surfaces whether a Code Reviewer decision was
 #     actually recorded on the PR (Workflows/CODE_REVIEW.md). It goes RED when
 #     none is found, but is not in required_status_checks.contexts, so it does
@@ -29,9 +35,10 @@ name: IA Engineering - PR Validation
 #   ./ia-engineering/Adapters/scripts/install.sh
 #
 # Then add "PR Compliance", "Work Unit Exists", "Employee Trailer", "Shellcheck
-# Adapters", "Validate Workflow YAML", and "Framework Validation" (from
-# framework-validation.yml) as required status checks in branch protection.
-# Adapters/scripts/setup-branch-protection.sh already sets all six.
+# Adapters", "Validate Workflow YAML", "PR Size", "Framework Validation" (from
+# framework-validation.yml) and "Data Policy" (from data-policy.yml) as
+# required status checks in branch protection.
+# Adapters/scripts/setup-branch-protection.sh already sets all eight.
 #
 # "Review Recorded (advisory)" is deliberately NOT required: it matches comment
 # text, which can be satisfied by pasting the block, so requiring it would buy
@@ -52,7 +59,9 @@ name: IA Engineering - PR Validation
 on:
   pull_request:
     branches: [main, develop, 'release/**']
-    types: [opened, edited, synchronize, reopened]
+    # labeled/unlabeled: the PR Size check's Director override is a label, so
+    # applying or removing it must re-run the check.
+    types: [opened, edited, synchronize, reopened, labeled, unlabeled]
 
 jobs:
   pr-compliance:
@@ -507,4 +516,70 @@ jobs:
 
           echo "::error::No recorded Code Reviewer decision ('Decision: approved', per Employees/Specialized/CODE_REVIEWER.md's Review Decision block) was found in this PR's comments or reviews. Per Workflows/CODE_REVIEW.md a Code Reviewer decision must be recorded before merge."
           echo "::notice::This check is ADVISORY: it is not in required_status_checks.contexts, so it does not block the merge. It goes red rather than green so its result is legible — an advisory check that exits 0 either way is indistinguishable from a passing gate."
+          exit 1
+
+  pr-size:
+    name: PR Size
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history so base..head is diffable server-side, and the head
+          # checkout's .gitattributes is what `git check-attr` reads.
+          fetch-depth: 0
+      - name: Count changed lines outside generated files
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
+          LIMIT: "1500"
+        run: |
+          # Standards/PULL_REQUEST_STANDARD.md, Reviewability. A review is a
+          # reading; past a certain size it becomes a skim that approves what it
+          # did not read, and the approval is then worth less than no approval,
+          # because it is trusted. The limit is on lines a reviewer must READ:
+          # additions plus deletions, excluding
+          #   - files marked `linguist-generated` in .gitattributes, which is
+          #     the hosting platform's own convention for "collapsed in the diff
+          #     view because no human reads it" — lockfiles, snapshots, built
+          #     assets, generated clients. Declared in a committed file, so the
+          #     exclusion list is itself reviewed;
+          #   - binary files, which have no line count.
+          #
+          # The override is a LABEL, `size/approved`, not a sentence in the PR
+          # body. Applying a label requires write permission; pasting a sentence
+          # requires nothing. Review Recorded is advisory for exactly the second
+          # reason, and this check would be too if its override were text.
+          set -euo pipefail
+
+          TOTAL=0; FILES=0; GENERATED=0; BINARY=0
+          while IFS=$'\t' read -r added deleted path; do
+            [ -n "$path" ] || continue
+            FILES=$((FILES + 1))
+            if [ "$added" = "-" ]; then
+              BINARY=$((BINARY + 1)); continue
+            fi
+            attr="$(git check-attr linguist-generated -- "$path" | sed 's/.*: //')"
+            if [ "$attr" = "set" ] || [ "$attr" = "true" ]; then
+              GENERATED=$((GENERATED + 1)); continue
+            fi
+            TOTAL=$((TOTAL + added + deleted))
+          done < <(git diff --numstat "$BASE_SHA" "$HEAD_SHA")
+
+          echo "Files changed: $FILES ($GENERATED generated, $BINARY binary — excluded)"
+          echo "Lines to review: $TOTAL (limit $LIMIT)"
+
+          if [ "$TOTAL" -le "$LIMIT" ]; then
+            echo "Within the review limit."
+            exit 0
+          fi
+
+          if printf '%s\n' "$LABELS" | tr ',' '\n' | grep -qxF 'size/approved'; then
+            echo "::notice::$TOTAL lines exceed the $LIMIT-line review limit, and the Director has applied 'size/approved'. Passing on that decision — it is recorded on the PR by the label's audit trail."
+            exit 0
+          fi
+
+          echo "::error::This PR changes $TOTAL lines outside generated files; the review limit is $LIMIT (Standards/PULL_REQUEST_STANDARD.md, Reviewability). Split it into Work Units that can each be read, or — if the size is genuinely irreducible — the Director applies the 'size/approved' label. Files that no human reads (lockfiles, snapshots, built output) are excluded when marked 'linguist-generated' in .gitattributes."
           exit 1

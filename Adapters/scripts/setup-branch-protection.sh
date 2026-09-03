@@ -74,6 +74,7 @@ REQUIRED_CHECKS=(
   "Employee Trailer"
   "Shellcheck Adapters"
   "Validate Workflow YAML"
+  "PR Size"
   "Framework Validation"
   "Data Policy"
 )
