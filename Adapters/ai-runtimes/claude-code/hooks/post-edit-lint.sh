@@ -40,7 +40,7 @@ if [ "$is_shell" -eq 1 ]; then
   RAN=1
   if ! r="$(bash -n "$FILE" 2>&1)"; then FAILED=1; OUT="$OUT$r"$'\n'; fi
   if command -v shellcheck >/dev/null 2>&1; then
-    if ! r="$(shellcheck -x "$FILE" 2>&1)"; then FAILED=1; OUT="$OUT$r"$'\n'; fi
+    if ! r="$(shellcheck -x -P SCRIPTDIR "$FILE" 2>&1)"; then FAILED=1; OUT="$OUT$r"$'\n'; fi
   else
     OUT="$OUT(shellcheck not installed — syntax only; the Shellcheck Adapters CI job is the control)"$'\n'
   fi

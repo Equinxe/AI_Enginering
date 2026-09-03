@@ -386,9 +386,11 @@ jobs:
         run: |
           # shellcheck is preinstalled on GitHub-hosted ubuntu-latest runners —
           # no third-party action, no extra install step.
-          # -x follows `source` so the Claude Code hooks' shared lib.sh is
-          # checked in context rather than reported as "not followed".
-          shellcheck -x Adapters/git-hooks/* Adapters/scripts/*.sh Adapters/ai-runtimes/*.sh \
+          # -x follows `source`, and -P SCRIPTDIR resolves each hook's
+          # `# shellcheck source=lib.sh` directive relative to the hook's own
+          # directory, so the Claude Code hooks' shared lib.sh is checked in
+          # context rather than reported as "not following" (SC1091).
+          shellcheck -x -P SCRIPTDIR Adapters/git-hooks/* Adapters/scripts/*.sh Adapters/ai-runtimes/*.sh \
             Adapters/ai-runtimes/*/*.sh Adapters/ai-runtimes/*/hooks/*.sh
 
   yaml-lint:

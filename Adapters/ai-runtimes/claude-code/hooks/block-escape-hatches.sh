@@ -32,62 +32,19 @@ if [ -z "$CMD" ]; then
 fi
 
 # --- Strip quoted strings and heredoc bodies ----------------------------------
-# A small shell lexer, not a regex pass. Two earlier versions were regex
-# passes and both were defeated by real commands from this repository's own
-# history: a per-line strip left the inner lines of a multi-line -m "..."
-# message unstripped, and a whole-text strip mis-paired the quotes of the
-# shell idiom '"'"' (a literal apostrophe inside single quotes), inverting
-# every double-quoted region after it. Quoting is a state machine; only a
-# state machine reads it correctly. This one walks the text once: outside
-# quotes, a backslash escapes the next character and <<TAG opens a heredoc
-# whose body is skipped up to the line equal to TAG; inside single quotes
-# everything is skipped until the closing quote; inside double quotes a
-# backslash escapes the next character and the region ends at the closing
-# quote. Only text OUTSIDE quotes and heredoc bodies reaches the rules.
-AWK_STRIP='
-BEGIN { RS = "\001" }
-{
-  s = $0; n = length(s); i = 1; mode = 0; out = ""
-  while (i <= n) {
-    c = substr(s, i, 1)
-    if (mode == 0) {
-      if (c == "\\") { out = out c substr(s, i + 1, 1); i += 2; continue }
-      if (c == "\047") { mode = 1; i++; continue }
-      if (c == "\"")   { mode = 2; i++; continue }
-      if (c == "<" && substr(s, i + 1, 1) == "<") {
-        j = i + 2
-        if (substr(s, j, 1) == "-") j++
-        while (substr(s, j, 1) == " " || substr(s, j, 1) == "\t") j++
-        q = substr(s, j, 1)
-        if (q == "\047" || q == "\"") j++
-        tag = ""
-        while (j <= n && substr(s, j, 1) ~ /[A-Za-z0-9_]/) { tag = tag substr(s, j, 1); j++ }
-        if (tag != "") {
-          k = index(substr(s, j), "\n")
-          if (k == 0) { out = out substr(s, i, j - i); i = j; continue }
-          lineend = j + k - 1
-          out = out substr(s, i, lineend - i + 1)
-          pos = lineend + 1
-          while (pos <= n) {
-            k = index(substr(s, pos), "\n")
-            if (k == 0) { line = substr(s, pos); pos = n + 1 } else { line = substr(s, pos, k - 1); pos += k }
-            if (line == tag) break
-          }
-          i = pos; continue
-        }
-      }
-      out = out c; i++; continue
-    }
-    if (mode == 1) { if (c == "\047") mode = 0; i++; continue }
-    if (mode == 2) {
-      if (c == "\\") { i += 2; continue }
-      if (c == "\"") mode = 0
-      i++; continue
-    }
-  }
-  printf "%s", out
-}'
-STRIPPED="$(printf '%s\n' "$CMD" | awk "$AWK_STRIP")"
+# strip-quotes.awk is a small shell lexer, not a regex pass: it walks the text
+# once, tracking outside / single-quoted / double-quoted / heredoc-body, and
+# prints only what the shell would parse as words. Two earlier regex versions
+# were defeated by real commands from this repository's own history (see the
+# awk file's header and Governance/TROUBLESHOOTING.md, entry R). It is a
+# separate file so that no shell quoting applies to the program itself. Only
+# text OUTSIDE quotes and heredoc bodies reaches the rules below.
+LEXER="$(dirname "$0")/strip-quotes.awk"
+if [ ! -f "$LEXER" ]; then
+  iaeng_block "strip-quotes.awk is missing next to this hook — cannot separate quoted text from commands" \
+    "Adapters/ai-runtimes/claude-code/hooks/README.md — the hook fails closed rather than matching raw text, which blocks every command that merely mentions a forbidden flag."
+fi
+STRIPPED="$(printf '%s\n' "$CMD" | awk -f "$LEXER")"
 
 # --- Rules: pattern → reason ----------------------------------------------------
 # Each is matched against the stripped command. [^|;&]* keeps a match inside one

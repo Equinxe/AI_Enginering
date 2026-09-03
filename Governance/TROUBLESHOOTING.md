@@ -247,6 +247,18 @@ Project-specific incidents belong in the project's own catalog (a `TROUBLESHOOTI
 
 ---
 
+## S. A CI-only tool was never run locally
+
+**Symptom.** Every local check is green; the `Shellcheck Adapters` job fails on the first CI run — or, on a stacked Pull Request whose base is not a protected branch, does not run at all, so the failure waits for the retarget.
+
+**Cause.** The tool was not installed on the developer machine, and "no output" from a tool that is absent reads like a pass. On a stacked branch there is additionally no CI signal until the base changes.
+
+**Remedy.** Fetch the tool's portable binary into a scratch directory and run **the exact command the CI job runs** — same flags, same globs — before pushing. Fix findings without directives: the two here were an awk program held in a quoted shell string (moved to its own `.awk` file, so no shell quoting applies) and a `source=` directive the tool could not resolve (`-P SCRIPTDIR` in the CI command, which is configuration, not suppression).
+
+**Prevention.** `Adapters/ai-runtimes/claude-code/hooks/README.md`, Verifying, states the command. A check that a shipped script passes shellcheck locally is only evidence if shellcheck actually ran; `post-edit-lint.sh` says "shellcheck not installed" for the same reason.
+
+---
+
 # Adding an Entry
 
 1. The Work Unit that fixes the incident adds the entry — same commit, or the fix is not complete (`Governance/CONTRIBUTING.md`, Section 7).

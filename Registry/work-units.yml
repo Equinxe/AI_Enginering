@@ -397,3 +397,9 @@ work_units:
     title: Sync README, CLAUDE.md, and the Adapter READMEs with the Convergence milestone
     milestone: Convergence
     delivers: README.md, CLAUDE.md, Adapters/README.md, Adapters/ai-runtimes/README.md
+
+  - id: WU-IAENG-188
+    employee: DevOps Engineer
+    title: Make the Claude Code hooks pass the Shellcheck Adapters job — lexer as an awk file, source-path resolution in the CI command
+    milestone: Convergence
+    delivers: Adapters/ai-runtimes/claude-code/hooks/strip-quotes.awk, Adapters/ai-runtimes/claude-code/hooks/block-escape-hatches.sh, Adapters/github-actions/pr-validation.yml

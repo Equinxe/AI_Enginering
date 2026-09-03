@@ -73,7 +73,7 @@ printf '{"stop_hook_active":true}' \
   | bash Adapters/ai-runtimes/claude-code/hooks/stop-gate.sh; echo "rc=$?"                # rc=0 — loop guard
 ```
 
-The Shellcheck Adapters CI job covers `Adapters/ai-runtimes/*.sh`; extend its glob to `Adapters/ai-runtimes/*/hooks/*.sh` and `Adapters/ai-runtimes/*/*.sh` when this directory lands (done in the same Work Unit).
+The Shellcheck Adapters CI job covers this directory with `shellcheck -x -P SCRIPTDIR …` — `-x` follows `source`, `-P SCRIPTDIR` resolves each hook's `# shellcheck source=lib.sh` directive relative to the hook's own directory. Run the same command locally before pushing; a portable ShellCheck binary is enough. The quote-stripping lexer lives in `strip-quotes.awk` rather than in a quoted string inside the hook, so no shell quoting applies to it and nothing in it needs a directive.
 
 ---
 
