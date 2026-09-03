@@ -687,6 +687,25 @@ if [ -f Registry/workflows.yml ]; then
       || fail "$f has no entry in Registry/workflows.yml" "A runtime reading the Registry would not know this Workflow exists."
   done
   pass "Registry/workflows.yml covers every Workflow document"
+
+  # The declared step_count against the document's actual numbered headings.
+  # This is the check that catches the most likely drift by far: a step added to
+  # or removed from a Workflow document while the Registry keeps the old shape.
+  # An entry claiming 10 steps for a document that now has 11 would leave
+  # anything reading the Registry — including a gate lookup — one step short,
+  # and every other check here would still pass.
+  for f in Workflows/*.md; do
+    declared="$(grep -A3 "file: $f" Registry/workflows.yml | grep -m1 'step_count:' \
+                  | sed 's/.*step_count: //' | tr -d '\015')"
+    actual="$(grep -cE '^## (Step|Ceremony) [0-9]+' "$f")"
+    if [ -z "$declared" ]; then
+      fail "Registry/workflows.yml declares no step_count for $f" ""
+    elif [ "$declared" != "$actual" ]; then
+      fail "Registry/workflows.yml says $f has $declared steps; the document has $actual" "The document is authoritative — update the registry entry, including its steps list and any gate step numbers, which shift when a step is inserted."
+    else
+      pass "$(basename "$f"): step_count $declared matches the document"
+    fi
+  done
 else
   pass "Registry/workflows.yml not present (skipped)"
 fi

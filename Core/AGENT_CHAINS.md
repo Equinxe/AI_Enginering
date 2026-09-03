@@ -253,6 +253,18 @@ Custom chains must follow the same dispatch rules as named chains: sequential by
 
 ---
 
+# Machine-Readable Form
+
+Each chain above is also recorded as ordered data in `Registry/chains.yml`, and each Workflow's steps and gates in `Registry/workflows.yml`.
+
+The diagrams in this document are the authoritative form and the right one for a reader: they show shape, branching, and where the Director stands, at a glance. They are the wrong form for anything mechanical. Nothing could previously check that a chain's steps name Employees that exist, that its workflow document is real, or that a newly added chain was recorded anywhere a program could see — because a chain was a picture.
+
+`Adapters/scripts/validate-framework.sh` now checks all three, and reports a disagreement as a Registry defect rather than a reason to change this document (`Registry/README.md`, "Authority — the Registry Never Wins"). A seventh chain added here without a Registry entry fails the build.
+
+The Registry records the six chains this document names. Chains composed ad hoc under `Composing Custom Chains` below are not added to it.
+
+---
+
 # Chain Conventions
 
 - Every chain ends with a Director delivery step.
