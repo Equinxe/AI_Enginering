@@ -283,3 +283,9 @@ work_units:
     title: Give the deferred trailer-token decision a deadline instead of leaving it open
     milestone: Automation
     delivers: Standards/COMMIT_STANDARD.md
+
+  - id: WU-IAENG-169
+    employee: Technical Lead
+    title: Record the fourth convention rule, and fix the count the third one invalidated
+    milestone: Automation
+    delivers: Adapters/scripts/validate-framework.sh, Adapters/README.md, Standards/COMMIT_STANDARD.md

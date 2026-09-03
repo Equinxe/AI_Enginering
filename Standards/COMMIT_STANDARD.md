@@ -124,7 +124,7 @@ The cost of hand-rolled parsing is not hypothetical. It produced a bypass that t
 
 ### Quoting a trailer inside the body — enforced
 
-This is the rule in this section with teeth. The checks match `Employee:` and `Work Unit:` anchored at column 0, and validate **every** matching line rather than one, so an example quoted in a commit body must be indented:
+The second of this section's two enforced rules. The checks match `Employee:` and `Work Unit:` anchored at column 0, and validate **every** matching line rather than one, so an example quoted in a commit body must be indented:
 
 ```
 The hook rejects this:

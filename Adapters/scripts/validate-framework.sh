@@ -43,6 +43,43 @@
 #    A verdict drawn from an empty set is indistinguishable from a verdict
 #    drawn from a complete one.
 #
+# 4. A CLAIM ABOUT HOW A MECHANISM BEHAVES IS A TESTABLE CLAIM.
+#    What it selects, what it accepts, what it costs, which direction it
+#    fails in — write the claim with the test that establishes it, or do
+#    not write it.
+#
+#    When the mechanism chooses among alternatives, enumerate the
+#    alternatives before testing. Two of three agreeing is not a result.
+#    The case worth running is the one that would show the claim false,
+#    not the one that would show it true.
+#
+#    Rules 1 to 3 constrain code. This one constrains the PROSE that
+#    describes code — comments, Standards text, commit bodies — which is
+#    why it cannot be mechanised the way the others were, and why it is
+#    written here rather than implemented below.
+#
+#    Evidence, three reversals in one review, each a confirmed test that
+#    stopped short of the falsifying case:
+#      "tail -1 reads the trailer"   — a message with claims at BOTH ends
+#                                      was never tried; it was a live bypass.
+#      "splitting it buys nothing"   — contiguous and renamed were measured,
+#                                      separated was not. Separated was the
+#                                      incumbent, and it was the only one
+#                                      that worked: 28 of 30 commits.
+#      "a false FAIL, not a false PASS" — reasoned about, never run. It was
+#                                      a false PASS on a release gate.
+
+# ATTRIBUTION AND SCOPE. Rule 4 was proposed by the code review that found
+# all three reversals above; the wording is theirs, kept because the version
+# written from the incidents alone was scoped to failure direction and would
+# have caught only the third. It is recorded here and in Adapters/README.md
+# on the Main Agent's authority, neither being a Standard. Moving it into
+# Core/ or Standards/ makes it a rule about how this framework's authors
+# reason rather than how its checks behave, which is a Director decision
+# under Governance/CONTRIBUTING.md Section 1 — and one the reviewer cannot
+# settle, since endorsing a rule distilled from their own findings is the
+# same actor on both sides.
+#
 # WHY THIS IS WRITTEN DOWN RATHER THAN LEFT AS TASTE. The Automation
 # milestone found and fixed eleven checks that reported success without
 # evaluating anything. Zero of them were found by reading the diff — three
@@ -56,7 +93,7 @@
 # inapplicable. Fixing the twelfth instance does not make the thirteenth
 # less likely; stating the rule does.
 #
-# The same three rules apply to Adapters/scripts/install.sh,
+# All four rules apply to Adapters/scripts/install.sh,
 # Adapters/scripts/release.sh, Adapters/scripts/setup-project-bootstrap.sh,
 # Adapters/ai-runtimes/generate-agents.sh, and the CI jobs in
 # Adapters/github-actions/ — a caller that discards a check's exit status
@@ -96,7 +133,7 @@ for arg in "$@"; do
     --verbose|-v) VERBOSE=1 ;;
     --regenerate-roster) REGENERATE=1 ;;
     --help|-h)
-      sed -n '2,74p' "$0"
+      sed -n '2,109p' "$0"
       exit 0
       ;;
     *)
