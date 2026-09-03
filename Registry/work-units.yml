@@ -373,3 +373,9 @@ work_units:
     title: Orchestration — the dependent-task queue with layered termination; Agent Conduct — Read First and the Reporting Contract
     milestone: Convergence
     delivers: Core/ORCHESTRATION.md, Core/AGENT_CONDUCT.md, Adapters/ai-runtimes/generate-agents.sh, Workflows/ONBOARDING.md
+
+  - id: WU-IAENG-184
+    employee: DevOps Engineer
+    title: Independent review bot for Claude Code, and an independent mode for the Review Recorded check keyed on the reviewer's login
+    milestone: Convergence
+    delivers: Adapters/ai-runtimes/claude-code/review-bot.yml, Adapters/github-actions/pr-validation.yml

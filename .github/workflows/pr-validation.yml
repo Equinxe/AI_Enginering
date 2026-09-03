@@ -424,6 +424,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           REPO: ${{ github.repository }}
+          REVIEW_BOT_LOGIN: ${{ vars.IAENG_REVIEW_BOT_LOGIN }}
         run: |
           # ADVISORY / WARNING-ONLY backstop for Workflows/CODE_REVIEW.md.
           #
@@ -503,8 +504,24 @@ jobs:
           # the two limitations above are the case against doing so until the
           # successor in (1) exists.
 
-          ISSUE_COMMENTS="$(gh api "repos/$REPO/issues/$PR_NUMBER/comments" --paginate -q '.[].body' || true)"
-          REVIEW_BODIES="$(gh api "repos/$REPO/pulls/$PR_NUMBER/reviews" --paginate -q '.[].body' || true)"
+          # INDEPENDENCE, WHEN THE PROJECT CAN PROVIDE IT. The repository
+          # variable IAENG_REVIEW_BOT_LOGIN names the account that posts the
+          # independent review — the review bot in
+          # Adapters/ai-runtimes/claude-code/review-bot.yml, or any reviewer
+          # identity distinct from the one the Employees commit under. When it
+          # is set, only bodies posted by THAT login count, which closes
+          # limitation (2) above: the author can no longer satisfy the check
+          # by pasting the block. When unset, every author counts, as before,
+          # and the mode is printed so a reader knows which check ran.
+          if [ -n "${REVIEW_BOT_LOGIN:-}" ]; then
+            echo "Mode: independent — only decisions posted by '$REVIEW_BOT_LOGIN' count (IAENG_REVIEW_BOT_LOGIN)."
+            FILTER=".[] | select(.user.login == \"$REVIEW_BOT_LOGIN\") | .body"
+          else
+            echo "Mode: any author — IAENG_REVIEW_BOT_LOGIN is not set, so a decision block from any account counts, including the PR author's."
+            FILTER='.[].body'
+          fi
+          ISSUE_COMMENTS="$(gh api "repos/$REPO/issues/$PR_NUMBER/comments" --paginate -q "$FILTER" || true)"
+          REVIEW_BODIES="$(gh api "repos/$REPO/pulls/$PR_NUMBER/reviews" --paginate -q "$FILTER" || true)"
           ALL_BODIES="$(printf '%s\n%s\n' "$ISSUE_COMMENTS" "$REVIEW_BODIES")"
 
           # Match a filled decision line: `Decision: approved` (case-insensitive,
