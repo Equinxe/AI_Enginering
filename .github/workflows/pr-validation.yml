@@ -199,7 +199,12 @@ jobs:
           # from overriding the real one.
           fail=0
           for sha in $COMMITS; do
-            WU_LINE="$(git log -1 --format=%B "$sha" | grep -E '^Work Unit: ' | head -1 || true)"
+            # tail -1, not head -1: a trailer sits at the END of a message, so
+            # a line quoted earlier in the body must not win over the real one.
+            # See Adapters/git-hooks/commit-msg for the worked bypass this
+            # closes. This job's own WU-XXXXX-99999 example does appear in a
+            # commit body on this branch.
+            WU_LINE="$(git log -1 --format=%B "$sha" | grep -E '^Work Unit: ' | tail -1 || true)"
 
             if [ -z "$WU_LINE" ]; then
               echo "::error::Commit $sha carries no 'Work Unit: <WU-ID>' trailer. Per CLAUDE.md one Work Unit is one commit, and per Templates/WORK_UNIT.md every change must trace to a Work Unit. A Work Unit ID in the PR description does not substitute: a description can be reworded after review, a trailer cannot."
@@ -294,7 +299,12 @@ jobs:
           fail=0
           for sha in $COMMITS; do
             MSG="$(git log -1 --format=%B "$sha")"
-            EMPLOYEE_LINE="$(echo "$MSG" | grep -E '^Employee: ' | head -1 || true)"
+            # tail -1, for the same reason as the Work Unit trailer above and
+            # matching Adapters/git-hooks/commit-msg exactly: a body quoting an
+            # Employee line early would otherwise mask the real trailer, so a
+            # commit crediting a tool label could pass by quoting a valid name
+            # first. Verified as a real bypass before this change.
+            EMPLOYEE_LINE="$(echo "$MSG" | grep -E '^Employee: ' | tail -1 || true)"
 
             if [ -z "$EMPLOYEE_LINE" ]; then
               echo "::error::Commit $sha is missing an 'Employee: <Name>' trailer. Per Core/MAIN_AGENT_CONDUCT.md (Dispatch Discipline), every commit must identify the Employee who produced it. This commit likely skipped the local commit-msg hook (--no-verify or uninstalled hook)."

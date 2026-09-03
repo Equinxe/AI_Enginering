@@ -110,7 +110,25 @@ fi
 # `  - name: <Name>` — two leading spaces, unquoted, no trailing comment. The
 # trailing `tr -d '\r'` guards against a CRLF checkout on Windows, which would
 # otherwise leave a carriage return on every name and match nothing.
-EMPLOYEE_LINE="$(grep -E '^Employee: ' "$COMMIT_MSG_FILE" | head -1 || true)"
+# The LAST matching line, not the first.
+#
+# A trailer lives at the end of a commit message; `head -1` reads the wrong
+# end. That was an exploitable bypass, not a style point: a message whose body
+# quoted a valid line early —
+#
+#     ... reported "the hook ACCEPTED
+#     Employee: Backend Engineer
+#     ... " which is why ...
+#
+#     Employee: executor
+#
+# — was ACCEPTED, because the quoted line won and the real trailer naming a
+# tool label was never examined. Verified before this change.
+#
+# Found while writing a commit message for WU-IAENG-160 that quoted this hook's
+# own rejection text: the hook refused the commit for the quoted line rather
+# than the real one, which is the same defect seen from the other side.
+EMPLOYEE_LINE="$(grep -E '^Employee: ' "$COMMIT_MSG_FILE" | tail -1 || true)"
 
 if [ -z "$EMPLOYEE_LINE" ]; then
   echo "commit-msg: rejected — missing 'Employee: <Name>' trailer." >&2

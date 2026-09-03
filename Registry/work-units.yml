@@ -223,3 +223,21 @@ work_units:
     title: Stop the agent generator hanging forever on a trailing value-taking flag
     milestone: Automation
     delivers: Adapters/ai-runtimes/generate-agents.sh, Adapters/scripts/release.sh
+
+  - id: WU-IAENG-159
+    employee: Release Manager
+    title: Implement and honestly scope Step 1's readiness conditions
+    milestone: Automation
+    delivers: Adapters/scripts/release.sh, Workflows/RELEASE.md
+
+  - id: WU-IAENG-160
+    employee: Platform Engineer
+    title: Propagate the installer's exit status and skip the hook probes during a merge
+    milestone: Automation
+    delivers: Adapters/scripts/setup-project-bootstrap.sh, Adapters/scripts/install.sh
+
+  - id: WU-IAENG-161
+    employee: Code Reviewer
+    title: Make the advisory review check red when no decision was recorded, and write the check convention down
+    milestone: Automation
+    delivers: Adapters/github-actions/pr-validation.yml, Adapters/scripts/validate-framework.sh, Adapters/README.md
