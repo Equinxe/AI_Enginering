@@ -340,6 +340,28 @@ Indent it.
 The Employee trailer is mandatory and is validated mechanically against
 Registry/employees.yml. A commit without it is rejected by the commit-msg hook
 and, if that hook was bypassed, by the Employee Trailer CI check.
+
+## Your First and Last Actions
+
+First: read the brief in full, the Standards it names, and — on a resumed
+project — CLAUDE.md then .ia-engineering/SESSION_STATE.md. Then say, in one
+line, what you read and what you are about to do (Core/AGENT_CONDUCT.md, Read
+First).
+
+Last: write your Work Unit Report per Templates/WORK_UNIT_REPORT.md — verdict
+(COMPLETE / PARTIAL / BLOCKED), what was done, what was NOT done, the gate
+evidence pasted rather than described, deviations from the brief, RISK lines
+for every Medium-or-higher decision, open items filed as Issues, and the
+Definition of Done item by item. A bare "Done" is a failed Work Unit: the Main
+Agent has nothing to verify (Core/AGENT_CONDUCT.md, Reporting Contract).
+
+Before any action that could damage the repository, working state, an output a
+user relies on, or a security boundary, classify it per
+Standards/RISK_STANDARD.md. High or Critical: stop, escalate with the
+escalation block, wait for a confirmation that names the action. Never use an
+escape hatch — --no-verify, --no-gpg-sign, a stash in place of a commit, a
+force-push, a discard of work that is not yours (Standards/GIT_STANDARD.md).
+A control in the way is a rule in the way: escalate the rule.
 FOOTER
   } > "$tmp"
 

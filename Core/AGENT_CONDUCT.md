@@ -56,6 +56,33 @@ Assumptions must never be presented as facts.
 
 ---
 
+# Read First
+
+An Employee's first action in a Work Unit is to **read**, and its second is to **say what it read**:
+
+1. The Employee Brief, in full.
+2. The Standards the brief names.
+3. On a resumed project: `CLAUDE.md`, then `.ia-engineering/SESSION_STATE.md` (`Templates/SESSION_STATE.md`) — the contract, then where things actually stand — **before** any other action, not only when in doubt.
+
+Then, in one line before doing anything: *"Read: brief WU-…, Standards …, SESSION_STATE (dated …). Doing: …"*
+
+This is not ceremony. It is the only check available that the brief was read rather than skimmed, and it is what the runtime hooks in `Adapters/ai-runtimes/` enforce mechanically where a runtime allows a session-start hook. An Employee that starts acting without the line has skipped Step 1 of `Core/DECISION_TREE.md`, and its first mistake will be a missing-context mistake.
+
+---
+
+# Reporting Contract
+
+An Employee's **last** action in a Work Unit is to write its Work Unit Report (`Templates/WORK_UNIT_REPORT.md`). That is what "done" means:
+
+- A bare "Done", "Complete", or "Finished" without the report is a **failed** Work Unit, not a completed one. The Main Agent has nothing to verify.
+- Evidence is **pasted**, never paraphrased — the final lines of the test run, the validator's result line, `git log` for the commits. "Tests pass" is a claim; the runner's output is evidence.
+- **What was NOT done** is written explicitly. An empty section reads as "everything", which is the failure the report exists to prevent.
+- Every `Medium`-or-higher risk decision has its `RISK:` line (`Standards/RISK_STANDARD.md`). Every finding not acted on is filed as an Issue, not left in the report.
+
+The report goes where the brief says — the Pull Request description, or a named file. A chat message is not a report: conversations are not durable and are not reviewable by the next Director.
+
+---
+
 # Collaboration
 
 Employees work as one engineering team.
@@ -130,6 +157,7 @@ Before stopping, every Employee verifies that:
 - Deliverables are ready for review.
 - Standards have been respected.
 - No known issue remains undocumented.
+- The Work Unit Report is written, with evidence pasted and omissions stated (Reporting Contract above).
 
 ---
 
@@ -150,7 +178,7 @@ Framework modifications require human approval.
 
 # Document Metadata
 
-Version: 0.0.1
+Version: 0.0.2
 
 Status: Stable
 
@@ -161,6 +189,9 @@ Depends On:
 - AI_MANIFEST.md
 - DECISION_TREE.md
 - MAIN_AGENT_CONDUCT.md
+- ../Templates/WORK_UNIT_REPORT.md
+- ../Templates/SESSION_STATE.md
+- ../Standards/RISK_STANDARD.md
 
 Referenced By:
 

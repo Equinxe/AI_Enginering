@@ -50,9 +50,11 @@ It applies both to new projects starting from scratch and to existing projects a
    - Active employees for this project
    - Git workflow confirmation
    - Director identity
-3. Confirm the framework loads correctly in the AI assistant context.
+3. Create `.ia-engineering/SESSION_STATE.md` from `Templates/SESSION_STATE.md` — the project's dated operational state, read immediately after `CLAUDE.md` on every resume. It is **never committed**: `Adapters/scripts/install.sh` gitignores it and the `pre-commit` hook refuses it, because a file that records what is currently weak does not belong in the repository it describes. `CLAUDE.md` holds the stable contract; this file holds where things stand. One fact lives in exactly one of them.
+4. Run `Adapters/scripts/install.sh` from the project root so the hooks, CI workflows, `.gitignore` data-protection rules, and local data directory exist before the first commit — `Standards/DATA_PROTECTION_STANDARD.md` is enforceable only if its controls predate the data.
+5. Confirm the framework loads correctly in the AI assistant context.
 
-**Output:** Framework imported. `CLAUDE.md` created and active.
+**Output:** Framework imported. `CLAUDE.md` created and active. `SESSION_STATE.md` created and ignored. Adapters installed.
 
 ---
 
@@ -140,7 +142,8 @@ This step confirms the framework is operational: the full loop from Director →
 The Main Agent confirms:
 - Framework is imported and active.
 - `CLAUDE.md` is complete and accurate.
-- Active employee roster is defined.
+- `.ia-engineering/SESSION_STATE.md` exists, is gitignored, and records the state as of this step with an absolute date.
+- Active employee roster is defined, including any Domain Employees and their project roster.
 - Git workflow is initialized.
 - First Work Unit is ready.
 
@@ -183,7 +186,7 @@ This workflow is complete when:
 
 Owner: IA Engineering
 
-Version: 0.0.4
+Version: 0.0.5
 
 Status: Draft
 

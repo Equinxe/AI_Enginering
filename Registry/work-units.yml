@@ -367,3 +367,9 @@ work_units:
     title: Code Review — multi-lens passes with cross-debate, line re-anchoring, the stated denominator, and the ten review lessons
     milestone: Convergence
     delivers: Workflows/CODE_REVIEW.md, Registry/workflows.yml
+
+  - id: WU-IAENG-182
+    employee: Technical Lead
+    title: Orchestration — the dependent-task queue with layered termination; Agent Conduct — Read First and the Reporting Contract
+    milestone: Convergence
+    delivers: Core/ORCHESTRATION.md, Core/AGENT_CONDUCT.md, Adapters/ai-runtimes/generate-agents.sh, Workflows/ONBOARDING.md
