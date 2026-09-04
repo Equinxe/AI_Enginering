@@ -49,8 +49,23 @@
 
 BEGIN { RS = "\001"; SQ = "\047" }
 
-function is_option_word(s) {
-  return s ~ /^-{1,2}[A-Za-z][A-Za-z0-9=_-]*$/
+# A quoted region that holds ONE word with no whitespace is quoting for no
+# effect: the shell hands `"reset"` to git exactly as it hands `reset`, and
+# `"--no-verify"` exactly as `--no-verify`. Dropping those was how a quoted
+# subcommand — `git "reset" --hard HEAD` — walked past every rule. A region
+# holding a phrase is a message and is still dropped.
+function is_bare_word(s) {
+  return s != "" && s !~ /[ \t\n]/
+}
+
+# The word before a quoted region decides whether that region is DATA or
+# CODE. After `eval`, or after a `-c` (as in `bash -c`, `sh -c`), the shell
+# runs the contents as commands, so they are scanned as commands. Before this,
+# `bash -c 'git commit --no-verify -m x'` and `eval "git push --force"` were
+# both allowed: a four-character prefix disabled every rule in the hook.
+# Scanning too much here can only over-block, never under-block.
+function is_command_context(w) {
+  return w == "eval" || w == "-c" || w == "--command"
 }
 
 {
@@ -60,6 +75,8 @@ function is_option_word(s) {
   depth = 0         # open $( substitutions
   buf = ""          # current quoted region's content
   tainted = 0       # the current region contained a substitution
+  cmdctx = 0        # the current region is command text, not data
+  nw = 0
 
   while (i <= n) {
     c = substr(s, i, 1)
@@ -87,6 +104,14 @@ function is_option_word(s) {
       if (c == SQ || c == "\"") {
         mode = (c == SQ) ? "sq" : "dq"
         buf = ""; tainted = 0
+        # The last whitespace-delimited word already emitted decides whether
+        # what follows is data or code. The trailing separator is trimmed
+        # first: splitting "eval " yields an empty final field, which read as
+        # "not a command context" and left eval's argument dropped.
+        prev = out
+        sub(/[ \t\n]+$/, "", prev)
+        nw = split(prev, words, /[ \t\n]+/)
+        cmdctx = (nw > 0) ? is_command_context(words[nw]) : 0
         i++; continue
       }
       if (c == "<" && d == "<") {
@@ -117,8 +142,9 @@ function is_option_word(s) {
 
     if (mode == "sq") {
       if (c == SQ) {
-        if (!tainted && is_option_word(buf)) out = out buf
-        mode = "out"; buf = ""; tainted = 0
+        if (cmdctx) out = out " " buf " "
+        else if (!tainted && is_bare_word(buf)) out = out buf
+        mode = "out"; buf = ""; tainted = 0; cmdctx = 0
         i++; continue
       }
       buf = buf c; i++; continue
@@ -132,8 +158,9 @@ function is_option_word(s) {
       out = out " "; i += 2; continue
     }
     if (c == "\"") {
-      if (!tainted && is_option_word(buf)) out = out buf
-      mode = "out"; buf = ""; tainted = 0
+      if (cmdctx) out = out " " buf " "
+      else if (!tainted && is_bare_word(buf)) out = out buf
+      mode = "out"; buf = ""; tainted = 0; cmdctx = 0
       i++; continue
     }
     buf = buf c; i++

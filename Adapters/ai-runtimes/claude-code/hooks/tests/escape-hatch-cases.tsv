@@ -61,3 +61,25 @@ block	git push origin --delete develop
 block	git push origin -d release/v0.0.12
 allow	git push origin --delete feature-main
 allow	git push origin --delete feat/mainline
+block	git "reset" --hard HEAD
+block	git commit -m msg "--no-verify"
+block	git reset "--hard" HEAD
+block	bash -c 'git commit --no-verify -m x'
+block	sh -c "git push --force"
+block	eval "git push --force"
+block	eval 'git reset --hard'
+block	git clean --force -d
+block	git clean --force
+block	git push origin +main
+block	git push origin +HEAD:main
+block	git push origin +refs/heads/x:refs/heads/main
+block	rm --recursive --force /
+block	rm -rf /*
+block	rm -rf .git/*
+allow	git commit -m "a short message"
+allow	git commit -m wip
+allow	git push origin main
+allow	echo "git push --force"
+allow	git log --format="%h %s"
+allow	rm -rf node_modules/
+allow	rm -rf build

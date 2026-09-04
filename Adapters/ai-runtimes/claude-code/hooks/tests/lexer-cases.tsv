@@ -16,3 +16,7 @@ quoted heredoc body is dropped	cat <<'EOF'\ngit push --force\nEOF	--force	no
 escaped flag survives	git commit \\--no-verify	--no-verify	yes
 unterminated quote is not matched raw	git commit -m "unclosed --no-verify	--no-verify	no
 plain command is untouched	git status --short	git status --short	yes
+quoted bare word is kept	git "reset" --hard	reset	yes
+quoted phrase is still dropped	git commit -m "reset the thing"	reset	no
+eval argument is scanned as code	eval "git push --force"	git push --force	yes
+shell -c argument is scanned as code	bash -c 'git commit --no-verify'	--no-verify	yes

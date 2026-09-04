@@ -451,3 +451,9 @@ work_units:
     title: Make generate-agents --dry-run agree with --check, and keep the generated header machine-independent
     milestone: Convergence
     delivers: Adapters/ai-runtimes/generate-agents.sh
+
+  - id: WU-IAENG-197
+    employee: Security Engineer
+    title: Close the remaining escape-hatch bypasses found by review — quoted subcommand, eval and shell -c, clean --force, forcing refspec, rm long options
+    milestone: Convergence
+    delivers: Adapters/ai-runtimes/claude-code/hooks/strip-quotes.awk, Adapters/ai-runtimes/claude-code/hooks/block-escape-hatches.sh, Adapters/ai-runtimes/claude-code/hooks/tests/

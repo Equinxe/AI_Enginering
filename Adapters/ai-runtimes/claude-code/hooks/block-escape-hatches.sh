@@ -92,6 +92,12 @@ if check "${G}push[^|;&]*${S}(-f|--force|--force-with-lease(=[^[:space:]]*)?|--m
   iaeng_block "force-push or mirror-push — rewrites history every collaborator has" \
     "Standards/GIT_STANDARD.md, Escape Hatches; Standards/RISK_STANDARD.md (Critical). The one sanctioned rewrite is the data-purge protocol, run by a human on a Director decision."
 fi
+# A refspec prefixed with + forces the update with no -f anywhere on the line:
+# `git push origin +main`, `git push origin +HEAD:main`. Same effect, same rule.
+if check "${G}push[^|;&]*${S}\+[^[:space:]]+"; then
+  iaeng_block "a + prefix on a push refspec forces the update — a force-push written without --force" \
+    "Standards/GIT_STANDARD.md, Escape Hatches; Standards/RISK_STANDARD.md (Critical). Push without the +, and if the remote refuses, that refusal is information."
+fi
 # The remote may come before or after the flag — `push origin --delete X` and
 # `push --delete origin X` are both valid — so the branch is matched anywhere
 # after the flag rather than at a fixed position. It was matched at a fixed
@@ -105,7 +111,7 @@ if check "${G}reset[^|;&]*${S}--hard$E"; then
   iaeng_block "git reset --hard discards uncommitted work and moves the branch without a record" \
     "Standards/GIT_STANDARD.md, Escape Hatches; Standards/RISK_STANDARD.md (High). Inspect first; prefer a new branch or a single-path checkout."
 fi
-if check "${G}clean[^|;&]*${S}-[a-zA-Z]*f"; then
+if check "${G}clean[^|;&]*${S}(-[a-zA-Z]*f|--force)"; then
   iaeng_block "git clean -f deletes untracked files that may not be yours" \
     "Standards/GIT_STANDARD.md, Escape Hatches; Standards/RISK_STANDARD.md (High). Surface unexpected files instead of deleting them."
 fi
@@ -121,7 +127,11 @@ if check "${G}filter-(branch|repo)$E"; then
   iaeng_block "history rewrite" \
     "Standards/DATA_PROTECTION_STANDARD.md, purge protocol — a Director decision executed by a human, with a bundle backup first."
 fi
-if check "(^|${S}|;|&&|\|)rm${S}+-[a-zA-Z]*r[a-zA-Z]*${S}+(-[a-zA-Z]+${S}+)*(/|\.git|\.git/)$E"; then
+# Long spellings and a trailing glob are the same command: `rm --recursive
+# --force /` and `rm -rf /*` were both allowed while this matched only the
+# bundled short form followed by an exact path.
+RMFLAG="(-[a-zA-Z]*r[a-zA-Z]*|--recursive|--force|-[a-zA-Z]*f[a-zA-Z]*)"
+if check "(^|${S}|;|&&|\|)rm(${S}+${RMFLAG})*${S}+(/|\.git)(/|\*|${S}|$)"; then
   iaeng_block "recursive removal of the repository metadata or the filesystem root" \
     "Standards/RISK_STANDARD.md, operational catalog (Critical)."
 fi
