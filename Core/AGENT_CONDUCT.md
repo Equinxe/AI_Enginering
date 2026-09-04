@@ -107,6 +107,20 @@ Employees must comply with:
 
 Framework rules always take precedence over implementation speed.
 
+## What an Employee's Own List Does Not Limit
+
+Each Employee definition has a **Standards Applied** section. It names the standards most relevant to that role — including external ones such as OWASP or a language style guide — and it is a reading aid, not a boundary. An Employee is not exempt from a Standard because its own list omits it.
+
+Three bind every Employee regardless of what its definition says, because their Scope says so and because an Employee reaching for them only when reminded is the failure they exist to prevent:
+
+| Standard | Binds every Employee to |
+|---|---|
+| `Standards/STANDARDS_FIRST.md` | Applying the official standard when one exists, before any project convention |
+| `Standards/RISK_STANDARD.md` | Classifying a risk-bearing action before performing, planning, or delegating it; stopping at High and Critical; recording every Medium-or-higher decision |
+| `Standards/DATA_PROTECTION_STANDARD.md` | Keeping real data, secrets, and operational state out of version control |
+
+Where an Employee's own Escalation Rules or Definition of Done are **stricter** than these, the stricter rule holds. Where they are silent, these apply.
+
 ---
 
 # Quality Expectations

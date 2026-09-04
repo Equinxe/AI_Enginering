@@ -259,6 +259,18 @@ Project-specific incidents belong in the project's own catalog (a `TROUBLESHOOTI
 
 ---
 
+## T. A check reports that everything fails
+
+**Symptom.** A newly written check reports every item in a set as failing, on a set the author has just confirmed by hand is fine. `grep: unknown option` appears in the output, easy to miss among the failures.
+
+**Cause.** The search pattern began with a hyphen — `grep -qxF '- Standards First'` — so grep parsed the pattern as an option bundle, exited 2 without searching, and the caller read the non-zero status as "not found". The check never looked at a single file.
+
+**Remedy.** Anchor the pattern so it does not start with `-` (`grep -qE '^- Standards First'`), or pass `--` before it.
+
+**Prevention.** Universal failure is a signal about the check, not about the set: when every item fails, verify the check runs at all before believing its verdict. This is class A wearing the opposite mask — instead of passing without evaluating, it failed without evaluating, and both come from reading an exit status whose meaning was assumed rather than checked.
+
+---
+
 # Adding an Entry
 
 1. The Work Unit that fixes the incident adds the entry — same commit, or the fix is not complete (`Governance/CONTRIBUTING.md`, Section 7).

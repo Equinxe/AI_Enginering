@@ -421,3 +421,9 @@ work_units:
     title: Add the Convergence vocabulary to the Glossary, order it, and check that ordering mechanically
     milestone: Convergence
     delivers: Core/GLOSSARY.md, Adapters/scripts/validate-framework.sh
+
+  - id: WU-IAENG-192
+    employee: Technical Lead
+    title: State which Standards bind every Employee regardless of its own list, and check that all 42 carry Standards First
+    milestone: Convergence
+    delivers: Core/AGENT_CONDUCT.md, Employees/Management/RELEASE_MANAGER.md, Employees/Management/SCRUM_MASTER.md, Adapters/scripts/validate-framework.sh, Governance/TROUBLESHOOTING.md

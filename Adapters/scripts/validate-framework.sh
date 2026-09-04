@@ -480,6 +480,36 @@ for f in Employees/*/*.md; do
   fi
 done
 
+# Standards First is the root of the hierarchy CLAUDE.md draws and the one
+# Standard that decides how every other is applied — official standard first,
+# project convention second. Every Employee's Standards Applied section is
+# expected to open with it; two did not, and nothing said so for eleven
+# versions. The other Standards are deliberately NOT checked this way: the
+# section is a per-role reading aid, not an exhaustive list (Git Standard
+# appears in none of the 42), and Core/AGENT_CONDUCT.md is where the
+# universally-binding ones are stated instead.
+missing_sf=""
+sf_checked=0
+for f in Employees/*/*.md; do
+  sf_checked=$((sf_checked + 1))
+  # ANCHORED REGEX, NOT `grep -qxF '- Standards First'`. The list item begins
+  # with a hyphen, so as a bare pattern grep reads it as an option bundle and
+  # exits 2 with "unknown option" on every file — which this check reported as
+  # all 42 Employees failing, the first time it ran, while the same grep in a
+  # shell had just found all 42. A pattern that starts with `-` needs either
+  # `--` before it or an anchor in front of the hyphen; the anchor is used
+  # here because it also pins the item to the start of its line.
+  # `\r?$` guards a CRLF checkout, as the roster readers do (Registry/README.md).
+  grep -qE '^- Standards First\r?$' "$f" || missing_sf="$missing_sf$(basename "$f"); "
+done
+if [ "$sf_checked" -eq 0 ]; then
+  fail "no Employee definitions found under Employees/*/*.md" "The glob matched nothing, so this check verified nothing. An empty input set is not a pass."
+elif [ -n "$missing_sf" ]; then
+  fail "Employees whose Standards Applied omits Standards First: $missing_sf" "Standards/STANDARDS_FIRST.md is the root of the hierarchy in CLAUDE.md; every Employee applies it. Add '- Standards First' to the Standards Applied section."
+else
+  pass "all $sf_checked Employees list Standards First"
+fi
+
 # ==========================================================================
 section "7. Workflow and Standard completeness"
 # ==========================================================================
