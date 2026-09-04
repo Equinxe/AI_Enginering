@@ -81,7 +81,7 @@ Completed
 - ✅ Standards (Standards First, Git, Commit, Branch, Pull Request, Documentation, Code Quality, Testing, Risk, Data Protection)
 - ✅ Employees (42 AI Employee definitions across 8 categories, each with a Default Complexity Tier; projects add Domain Employees for their own business domain)
 - ✅ Workflows (10 engineering workflows, from feature development to incident response, project bootstrap, and multi-session autonomous delivery)
-- ✅ Templates (Work Unit, Work Unit Report, Pull Request, ADR, Incident Report, Test Plan, Employee Brief, Pole Brief, Domain Employee, Project Charter, Session State)
+- ✅ Templates (Work Unit, Work Unit Report, Pull Request, ADR, Incident Report, Test Plan, Employee Brief, Pole Brief, Domain Employee, Project Charter, Project CLAUDE.md, Session State)
 - ✅ Orchestration (Main Agent dispatch protocol, 6 named Agent Chains)
 - ✅ Examples (6 end-to-end chain walkthroughs on a single fictional project)
 - ✅ Capability Tiers (AI-agnostic execution tiers matching capability to Work Unit complexity)

@@ -43,13 +43,15 @@ It applies both to new projects starting from scratch and to existing projects a
 
 1. Add the IA Engineering framework to the project:
    - As a git submodule, copied reference, or linked documentation directory.
-2. Create `CLAUDE.md` at the project root, adapted from the IA Engineering `CLAUDE.md` template:
-   - Project identity and objective
+2. Create `CLAUDE.md` at the project root from `Templates/PROJECT_CLAUDE.md`, filling every bracketed field from the Project Charter and the Stack Decision ADR:
+   - Project identity, objective, and profile
+   - **What constitutes PROOF** for each output someone will act on
    - Technology stack
-   - Active standards (reference IA Engineering Standards)
-   - Active employees for this project
-   - Git workflow confirmation
+   - Active standards, and any project rule that is stricter
+   - Active Employees — framework and Domain — with concrete dispatch triggers
+   - Working method, and which enforcement is installed
    - Director identity
+   - Open questions
 3. Create `.ia-engineering/SESSION_STATE.md` from `Templates/SESSION_STATE.md` — the project's dated operational state, read immediately after `CLAUDE.md` on every resume. It is **never committed**: `Adapters/scripts/install.sh` gitignores it and the `pre-commit` hook refuses it, because a file that records what is currently weak does not belong in the repository it describes. `CLAUDE.md` holds the stable contract; this file holds where things stand. One fact lives in exactly one of them.
 4. Run `Adapters/scripts/install.sh` from the project root so the hooks, CI workflows, `.gitignore` data-protection rules, and local data directory exist before the first commit — `Standards/DATA_PROTECTION_STANDARD.md` is enforceable only if its controls predate the data.
 5. Confirm the framework loads correctly in the AI assistant context.

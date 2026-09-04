@@ -427,3 +427,9 @@ work_units:
     title: State which Standards bind every Employee regardless of its own list, and check that all 42 carry Standards First
     milestone: Convergence
     delivers: Core/AGENT_CONDUCT.md, Employees/Management/RELEASE_MANAGER.md, Employees/Management/SCRUM_MASTER.md, Adapters/scripts/validate-framework.sh, Governance/TROUBLESHOOTING.md
+
+  - id: WU-IAENG-193
+    employee: Technical Writer
+    title: Add the project CLAUDE.md template that Onboarding Step 1 tells every adopter to use
+    milestone: Convergence
+    delivers: Templates/PROJECT_CLAUDE.md, Workflows/ONBOARDING.md, VERSION.md, README.md

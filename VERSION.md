@@ -66,7 +66,7 @@ Status
 
 ---
 
-### Templates (11)
+### Templates (12)
 
 - [x] Work Unit
 - [x] Work Unit Report
@@ -77,6 +77,7 @@ Status
 - [x] Employee Brief
 - [x] Pole Brief
 - [x] Project Charter
+- [x] Project CLAUDE.md
 - [x] Session State
 - [x] Domain Employee
 
