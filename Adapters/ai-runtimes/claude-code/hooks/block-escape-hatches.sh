@@ -46,6 +46,17 @@ if [ ! -f "$LEXER" ]; then
 fi
 STRIPPED="$(printf '%s\n' "$CMD" | awk -f "$LEXER")"
 
+# The lexer emits this marker instead of a partial result when it reaches one
+# of its expansion bounds. A bound that silently truncates is a bound an
+# attacker clears by typing one more comma — measured: eight alternatives
+# blocked and nine were allowed, while the shell produced the flag in both.
+# Reaching a bound means the command was not fully read, and unread input is
+# refused, which is the contract every other path in these hooks follows.
+if printf '%s\n' "$STRIPPED" | grep -qF '__IAENG_LEXER_LIMIT__'; then
+  iaeng_block "this command expands to more alternatives than the hook will enumerate, so it could not be read in full" \
+    "Adapters/ai-runtimes/claude-code/hooks/README.md — unread input is refused rather than allowed. Write the command without the brace expansion."
+fi
+
 # --- Rules: pattern → reason ----------------------------------------------------
 # Each is matched against the stripped command. [^|;&]* keeps a match inside one
 # pipeline segment so `git push origin x && echo -f` is not misread.

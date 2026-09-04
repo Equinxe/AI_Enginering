@@ -511,3 +511,9 @@ work_units:
     title: Pin the false-positive guards for the brace expander and the ANSI-C decoder, which had none
     milestone: Convergence
     delivers: Adapters/ai-runtimes/claude-code/hooks/tests/
+
+  - id: WU-IAENG-207
+    employee: Security Engineer
+    title: Give ANSI-C quoting its own lexer state, make the expansion bounds fail closed, expand ranges, and stop expanding literal braces
+    milestone: Convergence
+    delivers: Adapters/ai-runtimes/claude-code/hooks/strip-quotes.awk, Adapters/ai-runtimes/claude-code/hooks/block-escape-hatches.sh, Adapters/ai-runtimes/claude-code/hooks/tests/

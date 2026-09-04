@@ -2,79 +2,105 @@
 #
 # A small shell lexer used by block-escape-hatches.sh. Reads the whole command
 # text as one record and prints only the text the shell would parse as words
-# and options — everything outside quoted strings and heredoc bodies.
+# and options.
 #
-# Three earlier versions were regex passes, and each was defeated by a real
-# command from this repository's own history: a per-line strip left the inner
-# lines of a multi-line -m "..." message unstripped; a whole-text strip
-# mis-paired the shell idiom '"'"' and inverted every region after it; and a
-# quote-only state machine mis-paired the quotes inside "$(cmd "arg")", which
-# is ordinary shell, and refused a command that contained no escape hatch at
-# all. Quoting is a grammar with nesting; it needs a stack.
+# Four earlier versions were defeated by real commands, each one a layer deeper
+# than the last: a per-line regex strip missed a multi-line -m message; a
+# whole-text regex strip mis-paired the idiom '"'"' and inverted every region
+# after it; a quote-only state machine mis-paired "$(cmd "arg")"; and an
+# ANSI-C branch bolted onto the single-quote state let `$'\''` close the region
+# early, after which the rest of the line was swallowed and EVERY rule saw a
+# command ending at `git commit`. That last one failed open and said nothing,
+# which is the opposite of what these hooks promise.
+#
+# So: $'...' is its own state, not single-quoting with a decoder attached.
 #
 # THE GRAMMAR THIS MODELS
 #
-#   outside      \<newline>  line continuation -> one space, so
-#                            `git \<newline>push --force` reads as one command
-#                \x          keeps both, so an escaped \--no-verify still
-#                            reaches the rules — the shell passes it through
+#   outside      \<newline>  line continuation, removed as the shell removes it
+#                \x          the backslash is dropped and the character kept,
+#                            because that is what the shell passes on —
+#                            `--no-veri\fy` reaches git as `--no-verify`.
+#                            \{ and \} are kept as LITERAL braces, marked so
+#                            that brace expansion skips them, since the shell
+#                            does not expand an escaped brace
 #                '  "        opens a quoted region
-#                $(          opens a command substitution: its contents are
-#                            COMMANDS, so they are scanned, not stripped.
-#                            `git push $(echo --force)` is not a way past the
-#                            rules
+#                $'  $"      ANSI-C and locale quoting: the $ is consumed by
+#                            the shell, so it is dropped here too. Leaving it
+#                            glued to the flag destroyed the whitespace
+#                            boundary seven of the eight rules anchor on
+#                $(  `       command substitution: the contents are COMMANDS,
+#                            so they are scanned, not stripped
 #                <<TAG       keeps the rest of the line, skips the body up to
 #                            the line equal to TAG
-#   single       everything literal until the closing ' — including $( , which
-#                the shell does not expand there
-#   double       \x escapes; $( opens a substitution (scanned); " closes
+#   single       everything literal until the closing '
+#   ansic        $'...' — a backslash escapes the NEXT CHARACTER, so \' does
+#                not close the region. Escapes are decoded on close: \xHH,
+#                \NNN, \uHHHH, each capped at the shell's own digit count
+#   double       \x escapes; $( and ` open substitutions; " closes
 #
-# A quoted region is dropped, with ONE exception: when its entire content is a
-# single option word — "--no-verify", '-f'. Quoting a lone flag is not how
-# anyone writes a message; it is how a flag gets past a text filter, and the
-# shell passes it to the command identically either way. A region that
-# contained a substitution is never treated as a lone option word.
+# A quoted region is dropped, with one exception: when its entire content is a
+# single word with no whitespace — "--no-verify", "reset", '-f'. Quoting a lone
+# word is not how anyone writes a message; it is how a token gets past a text
+# filter, and the shell passes it on identically either way. Braces inside such
+# a word are marked literal, because the shell does not expand a quoted brace.
 #
-# WHAT THIS DELIBERATELY DOES NOT CATCH: a flag assembled at runtime and not
+# BRACE EXPANSION needs no quoting at all, so it is done here: comma groups and
+# simple ranges are expanded and every alternative APPENDED to the text. The
+# rules only need the token to appear somewhere, so appending suffices and can
+# only over-match. When a bound is reached the lexer emits __IAENG_LEXER_LIMIT__
+# instead of a partial expansion, and the hook blocks on that marker — a bound
+# an attacker clears by typing one more comma is not a bound.
+#
+# WHAT THIS DELIBERATELY DOES NOT CATCH: a token assembled at runtime and never
 # visible in the text — `F=--force; git push $F`, `eval "$CMD"`, a flag read
 # from a file. Recovering those means evaluating the command, which is the
 # thing this hook exists to happen *before*. The hook stops an escape hatch
-# reached for by habit; it is not an adversary boundary. What stops a
+# reached for by habit; it is not an adversary boundary, and
+# Adapters/ai-runtimes/claude-code/hooks/README.md says so. What stops a
 # determined bypass is the server side — the pre-push hook, branch protection,
 # and the required CI checks — none of which a developer machine can skip.
-# Adapters/ai-runtimes/claude-code/hooks/README.md states the same boundary.
-#
-# Kept as its own file rather than a quoted string inside the shell script, so
-# that no shell quoting applies to the program itself.
 
-BEGIN { RS = "\001"; SQ = "\047" }
+BEGIN {
+  RS = "\001"
+  SQ = "\047"
+  BL = "\002"          # a literal { the shell will not expand
+  BR = "\003"          # a literal }
+  LIMIT = " __IAENG_LEXER_LIMIT__ "
+  MAX_ALTS = 32        # alternatives in one group
+  MAX_GROUPS = 16      # groups expanded in one command
+  MAX_SPAN = 64        # values in one {a..z} range
+}
 
-# A quoted region that holds ONE word with no whitespace is quoting for no
-# effect: the shell hands `"reset"` to git exactly as it hands `reset`, and
-# `"--no-verify"` exactly as `--no-verify`. Dropping those was how a quoted
-# subcommand — `git "reset" --hard HEAD` — walked past every rule. A region
-# holding a phrase is a message and is still dropped.
 function is_bare_word(s) {
   return s != "" && s !~ /[ \t\n]/
 }
 
-# ANSI-C quoting decodes escapes before the shell ever sees the word:
-# `git push $'\x2d\x2dforce'` passes --force. Without this, dropping the `$`
-# alone still left `\x2d\x2dforce`, which matches nothing. Hex, octal and
-# \u are decoded; the common single-character escapes are folded to their
-# character so that a `\t` inside the word does not read as a word break.
-function decode_ansic(s,   out, i, n, c, d, hex, oct, v, j) {
-  out = ""; n = length(s); i = 1
+function is_command_context(w) {
+  # -c and any short bundle ending in c (`bash -lc`), eval, and an alias VALUE:
+  # `git config alias.yolo "push --force"` writes a control-disabling command
+  # into the clone's configuration, and unlike variable indirection the value
+  # is literal text, so it is reachable.
+  return w == "eval" || w == "--command" || w ~ /^-[A-Za-z]*c$/ || w ~ /^alias\./
+}
+
+# Braces that came from a quoted or escaped source are literal to the shell.
+function mark_literal_braces(s) {
+  gsub(/\{/, BL, s)
+  gsub(/\}/, BR, s)
+  return s
+}
+
+function decode_ansic(s,   res, i, n, c, d, hex, oct, v, j, k, maxlen) {
+  res = ""; n = length(s); i = 1
   while (i <= n) {
     c = substr(s, i, 1)
-    if (c != "\\") { out = out c; i++; continue }
+    if (c != "\\") { res = res c; i++; continue }
     d = substr(s, i + 1, 1)
     if (d == "x" || d == "u" || d == "U") {
-      # Each form has a MAXIMUM digit count in the shell — \x takes two, \u
-      # four, \U eight — and reading greedily past it is wrong in a way that
-      # hides the attack rather than revealing it: `\x2d\x2dforce` decoded as
-      # `2df` (735, out of range, dropped) and produced `-orce`, so the flag
-      # vanished and the rules matched nothing.
+      # Each form has a maximum digit count in the shell. Reading greedily is
+      # wrong in the direction that HIDES an attack: \x2d\x2dforce decoded as
+      # 2df (735, out of range, dropped) and produced -orce.
       maxlen = (d == "x") ? 2 : ((d == "u") ? 4 : 8)
       hex = ""; j = i + 2
       while (j <= n && substr(s, j, 1) ~ /[0-9A-Fa-f]/ && length(hex) < maxlen) {
@@ -85,10 +111,10 @@ function decode_ansic(s,   out, i, n, c, d, hex, oct, v, j) {
         for (k = 1; k <= length(hex); k++) {
           v = v * 16 + index("0123456789abcdef", tolower(substr(hex, k, 1))) - 1
         }
-        if (v > 0 && v < 256) out = out sprintf("%c", v)
+        if (v > 0 && v < 256) res = res sprintf("%c", v)
         i = j; continue
       }
-      out = out d; i += 2; continue
+      res = res d; i += 2; continue
     }
     if (d ~ /[0-7]/) {
       oct = ""; j = i + 1
@@ -97,66 +123,82 @@ function decode_ansic(s,   out, i, n, c, d, hex, oct, v, j) {
       }
       v = 0
       for (k = 1; k <= length(oct); k++) v = v * 8 + (substr(oct, k, 1) + 0)
-      if (v > 0 && v < 256) out = out sprintf("%c", v)
+      if (v > 0 && v < 256) res = res sprintf("%c", v)
       i = j; continue
     }
-    if (d == "n" || d == "t" || d == "r") { out = out " "; i += 2; continue }
-    out = out d; i += 2
+    # \n \t \r become a space so the word breaks the way the shell breaks it;
+    # anything else, including \' and \\, yields the character itself.
+    if (d == "n" || d == "t" || d == "r") { res = res " "; i += 2; continue }
+    res = res d; i += 2
   }
-  return out
+  return res
 }
 
-# Brace expansion needs no quoting at all, so it reached the rules verbatim:
-# `git push --{f,f}orce` is `git push --force` to the shell. Rather than
-# implementing the shell's expander, each simple comma group is expanded in
-# place and every alternative APPENDED to the text. The rules only need the
-# flag to appear somewhere, so appending is enough, and it can only ever
-# over-match. Bounded, because an unbounded expander on hostile input is its
-# own problem.
-function expand_braces(s,   extra, guard, grp, inner, alts, n, k, pre, post) {
+# Returns the alternatives of one range group, or the limit marker.
+function expand_range(a, b,   res, i, lo, hi) {
+  if (a ~ /^-?[0-9]+$/ && b ~ /^-?[0-9]+$/) {
+    lo = a + 0; hi = b + 0
+    if (hi < lo) { i = lo; lo = hi; hi = i }
+    if (hi - lo > MAX_SPAN) return LIMIT
+    res = ""
+    for (i = lo; i <= hi; i++) res = res " " i
+    return res
+  }
+  if (length(a) == 1 && length(b) == 1) {
+    lo = index(CHARS, a); hi = index(CHARS, b)
+    if (lo == 0 || hi == 0) return ""
+    if (hi < lo) { i = lo; lo = hi; hi = i }
+    if (hi - lo > MAX_SPAN) return LIMIT
+    res = ""
+    for (i = lo; i <= hi; i++) res = res " " substr(CHARS, i, 1)
+    return res
+  }
+  return ""
+}
+
+function expand_braces(s,   extra, groups, grp, inner, alts, n, k, pre, post, a, b, r) {
   extra = ""
-  guard = 0
-  while (match(s, /\{[^{}]*,[^{}]*\}/) && guard < 8) {
-    guard++
+  groups = 0
+
+  while (match(s, /\{[^{}]*(,|\.\.)[^{}]*\}/)) {
+    groups++
+    if (groups > MAX_GROUPS) return extra LIMIT
     grp = substr(s, RSTART, RLENGTH)
     pre = substr(s, 1, RSTART - 1)
     post = substr(s, RSTART + RLENGTH)
     inner = substr(grp, 2, length(grp) - 2)
-    n = split(inner, alts, ",")
-    for (k = 1; k <= n && k <= 8; k++) extra = extra " " pre alts[k] post
+
+    if (index(inner, "..") > 0) {
+      a = substr(inner, 1, index(inner, "..") - 1)
+      b = substr(inner, index(inner, "..") + 2)
+      r = expand_range(a, b)
+      if (r == LIMIT) return extra LIMIT
+      n = split(r, alts, " ")
+      # split() on a leading-space string yields an empty first field on some
+      # awks; re-split without it.
+      sub(/^ /, "", r)
+      n = split(r, alts, " ")
+    } else {
+      n = split(inner, alts, ",")
+    }
+
+    if (n > MAX_ALTS) return extra LIMIT
+    if (n == 0) { s = pre post; continue }
+    for (k = 1; k <= n; k++) extra = extra " " pre alts[k] post
     s = pre alts[1] post
   }
   return extra
 }
 
-# The word before a quoted region decides whether that region is DATA or
-# CODE. After `eval`, or after a `-c` (as in `bash -c`, `sh -c`), the shell
-# runs the contents as commands, so they are scanned as commands. Before this,
-# `bash -c 'git commit --no-verify -m x'` and `eval "git push --force"` were
-# both allowed: a four-character prefix disabled every rule in the hook.
-# Scanning too much here can only over-block, never under-block.
-function is_command_context(w) {
-  # -c, and any short-option bundle ending in c: `bash -lc "..."` runs its
-  # argument exactly as `bash -c` does, and was allowed while `bash -c`,
-  # `sh -c` and `eval` were all blocked.
-  #
-  # An alias VALUE is command text too: `git config alias.yolo "push --force"`
-  # writes a control-disabling command into the clone's configuration, which is
-  # the category core.hooksPath sits in. Surfacing the value is what lets the
-  # alias rule in block-escape-hatches.sh see it.
-  return w == "eval" || w == "--command" || w ~ /^-[A-Za-z]*c$/ || w ~ /^alias\./
-}
-
 {
   s = $0; n = length(s); i = 1
-  out = ""          # text that reaches the rules
-  mode = "out"      # out | sq | dq
-  depth = 0         # open $( substitutions
-  buf = ""          # current quoted region's content
-  tainted = 0       # the current region contained a substitution
-  cmdctx = 0        # the current region is command text, not data
-  ansic = 0         # the current region is $'...' and decodes escapes
-  nw = 0
+  out = ""
+  mode = "out"
+  depth = 0
+  buf = ""
+  tainted = 0
+  cmdctx = 0
+  CHARS = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
 
   while (i <= n) {
     c = substr(s, i, 1)
@@ -164,53 +206,37 @@ function is_command_context(w) {
 
     if (mode == "out") {
       if (c == "\\") {
-        # A line continuation is REMOVED by the shell, not replaced by a
-        # space: `git \<newline>push` is `gitpush`, and `git \<newline>push`
-        # with the space before the backslash is `git push`. Emitting a space
-        # here produced a double space, which the rules tolerated but which
-        # made the lexer's output stop being what the shell would read.
         if (d == "\n") { i += 2; continue }
-        # OUTSIDE QUOTES THE BACKSLASH IS DROPPED AND THE CHARACTER KEPT —
-        # which is what the shell does. Keeping both let a backslash INSIDE a
-        # flag defeat every rule: `git commit --no-veri\fy -m x` reaches git as
-        # `--no-verify` (confirmed: printf "[%s]" --no-veri\fy prints
-        # [--no-verify]) while the rules saw `--no-veri\fy` and matched
-        # nothing. The same shape as the quoted-flag bypass, one layer down.
-        # `\--no-verify` still matches, because dropping the backslash leaves
-        # exactly `--no-verify`.
+        if (d == "{") { out = out BL; i += 2; continue }
+        if (d == "}") { out = out BR; i += 2; continue }
         out = out d; i += 2; continue
       }
       if (c == "$" && d == "(") {
         stack[depth] = "out"; depth++
         out = out " "; i += 2; continue
       }
+      if (c == "`") {
+        # Backticks are command substitution too; their contents are commands.
+        out = out " "; i++; continue
+      }
       if (c == ")" && depth > 0) {
         depth--; mode = stack[depth]
-        if (mode != "out") { tainted = 1 }
+        if (mode != "out") tainted = 1
         out = out " "; i++; continue
+      }
+      if (c == "$" && (d == SQ || d == "\"")) {
+        # The shell consumes the $ in $'...' and $"...".
+        mode = (d == SQ) ? "ansic" : "dq"
+        buf = ""; tainted = 0
+        prev = out; sub(/[ \t\n]+$/, "", prev)
+        nw = split(prev, words, /[ \t\n]+/)
+        cmdctx = (nw > 0) ? is_command_context(words[nw]) : 0
+        i += 2; continue
       }
       if (c == SQ || c == "\"") {
         mode = (c == SQ) ? "sq" : "dq"
         buf = ""; tainted = 0
-
-        # A `$` immediately before the quote is ANSI-C ($'...') or locale
-        # ($"...") quoting, and the shell CONSUMES it: `git push $'--force'`
-        # passes `--force`. Emitting the `$` left `$--force` in the text, which
-        # kept the flag but destroyed the whitespace boundary every rule
-        # anchors on — seven of the eight rules stopped matching from this one
-        # character. The `$` is dropped here and, for the $'...' form, the
-        # region's ANSI-C escapes are decoded below.
-        ansic = 0
-        if (out != "" && substr(out, length(out), 1) == "$") {
-          out = substr(out, 1, length(out) - 1)
-          if (mode == "sq") ansic = 1
-        }
-        # The last whitespace-delimited word already emitted decides whether
-        # what follows is data or code. The trailing separator is trimmed
-        # first: splitting "eval " yields an empty final field, which read as
-        # "not a command context" and left eval's argument dropped.
-        prev = out
-        sub(/[ \t\n]+$/, "", prev)
+        prev = out; sub(/[ \t\n]+$/, "", prev)
         nw = split(prev, words, /[ \t\n]+/)
         cmdctx = (nw > 0) ? is_command_context(words[nw]) : 0
         i++; continue
@@ -243,10 +269,24 @@ function is_command_context(w) {
 
     if (mode == "sq") {
       if (c == SQ) {
-        if (ansic) buf = decode_ansic(buf)
         if (cmdctx) out = out " " buf " "
-        else if (!tainted && is_bare_word(buf)) out = out buf
-        mode = "out"; buf = ""; tainted = 0; cmdctx = 0; ansic = 0
+        else if (!tainted && is_bare_word(buf)) out = out mark_literal_braces(buf)
+        mode = "out"; buf = ""; tainted = 0; cmdctx = 0
+        i++; continue
+      }
+      buf = buf c; i++; continue
+    }
+
+    if (mode == "ansic") {
+      # A backslash escapes the NEXT CHARACTER here, so \' does not close the
+      # region. Getting this wrong let a four-character token desynchronise the
+      # lexer and swallow the rest of the command.
+      if (c == "\\" && i < n) { buf = buf c d; i += 2; continue }
+      if (c == SQ) {
+        buf = decode_ansic(buf)
+        if (cmdctx) out = out " " buf " "
+        else if (is_bare_word(buf)) out = out mark_literal_braces(buf)
+        mode = "out"; buf = ""; tainted = 0; cmdctx = 0
         i++; continue
       }
       buf = buf c; i++; continue
@@ -259,17 +299,20 @@ function is_command_context(w) {
       mode = "out"; tainted = 1; buf = ""
       out = out " "; i += 2; continue
     }
+    if (c == "`") { tainted = 1; buf = buf " "; i++; continue }
     if (c == "\"") {
       if (cmdctx) out = out " " buf " "
-      else if (!tainted && is_bare_word(buf)) out = out buf
+      else if (!tainted && is_bare_word(buf)) out = out mark_literal_braces(buf)
       mode = "out"; buf = ""; tainted = 0; cmdctx = 0
       i++; continue
     }
     buf = buf c; i++
   }
 
-  # An unterminated quote ran to the end of the text. Its content was never
-  # closed, so it is not a lone option word and is dropped, as any other
-  # quoted text would be.
-  printf "%s%s", out, expand_braces(out)
+  # An unterminated quote ran to the end of the text and is dropped, as any
+  # other quoted text would be.
+  result = out expand_braces(out)
+  gsub(BL, "{", result)
+  gsub(BR, "}", result)
+  printf "%s", result
 }

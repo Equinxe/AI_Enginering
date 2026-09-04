@@ -166,3 +166,20 @@ allow	cd /tmp && rm -rf {x,y}
 allow	git log --pretty=$'%h %s'
 block	git push --{f,f}{o,o}rce origin
 block	git reset --h{a,a}rd HEAD
+block	git commit $'\'' --no-verify -m x
+block	git push $'\'' -f origin main
+block	git reset $'\'' --hard HEAD
+block	git push --{a,b,c,d,e,f,g,h,force} origin
+block	git push -{f,f}{,}{,}{,}{,}{,}{,}{,}{,} origin
+block	git push -{e..g} origin main
+block	git clean -{d..f} .
+block	git branch -{B..D} feature/x
+block	git commit $'\x2d\x2dno\x2dverify' -m x
+allow	git push "--{f,f}orce" origin main
+allow	git push '--{f,f}orce' origin main
+allow	git push --\{f,f\}orce origin main
+allow	git commit -m $'a quoted '\'' apostrophe'
+allow	mkdir -p dir{1..3}
+allow	echo $'hello\tworld'
+allow	git log --format=$'%h %s'
+allow	cp file.txt{,.bak}
