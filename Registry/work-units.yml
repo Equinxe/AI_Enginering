@@ -475,3 +475,9 @@ work_units:
     title: Fix four validator defects found by review, and catalogue the two mechanisms the review named
     milestone: Convergence
     delivers: Adapters/scripts/validate-framework.sh, Governance/TROUBLESHOOTING.md
+
+  - id: WU-IAENG-201
+    employee: Security Engineer
+    title: Block core.hooksPath as an escape hatch, and stop the suppression hook from refusing every edit on macOS
+    milestone: Convergence
+    delivers: Standards/GIT_STANDARD.md, Adapters/ai-runtimes/claude-code/hooks/block-escape-hatches.sh, Adapters/ai-runtimes/claude-code/hooks/block-inline-suppression.sh, Adapters/ai-runtimes/claude-code/hooks/tests/escape-hatch-cases.tsv

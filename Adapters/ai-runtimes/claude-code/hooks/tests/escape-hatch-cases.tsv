@@ -83,3 +83,9 @@ allow	echo "git push --force"
 allow	git log --format="%h %s"
 allow	rm -rf node_modules/
 allow	rm -rf build
+block	git -c core.hooksPath=/dev/null commit -m x
+block	git -c core.hooksPath= commit -m x
+block	git config core.hooksPath /dev/null
+block	git config --local core.hooksPath ""
+allow	./ia-engineering/Adapters/scripts/install.sh
+allow	git config --get core.editor

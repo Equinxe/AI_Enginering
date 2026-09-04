@@ -74,6 +74,17 @@ fi
 if check '--no-gpg-sign|commit\.gpgsign=false'; then
   iaeng_block "disabling commit signing" "Standards/GIT_STANDARD.md, Escape Hatches. Fix the signing setup."
 fi
+# core.hooksPath is --no-verify spelled as configuration: `git -c
+# core.hooksPath=/dev/null commit` runs no hook at all, and `git config
+# core.hooksPath …` does it for every later command in the clone. The rule
+# fires on any write of the setting, including the empty value. install.sh is
+# unaffected — this hook sees the script's invocation, not the git commands
+# inside it — and pointing the setting at the framework's own hooks is what
+# that script is for.
+if check 'core\.hooksPath'; then
+  iaeng_block "setting core.hooksPath disables every git hook — the same effect as --no-verify, written as configuration" \
+    "Standards/GIT_STANDARD.md, Escape Hatches. The sanctioned write of this setting is ./ia-engineering/Adapters/scripts/install.sh, which points it at the framework's hooks."
+fi
 if check "${G}stash$E" && ! check "${G}stash${S}+(list|show)$E"; then
   iaeng_block "git stash sets work aside with no record; it is local, unlabelled, and lost with the clone" \
     "Standards/GIT_STANDARD.md, Escape Hatches. Commit as work in progress on the feature branch, or open a second branch."

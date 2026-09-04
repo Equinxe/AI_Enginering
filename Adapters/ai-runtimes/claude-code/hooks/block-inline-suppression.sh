@@ -41,10 +41,20 @@ FILE="$(iaeng_field '.tool_input.file_path')"
 # file is not exempt from itself: its own comments name the directives
 # obliquely for that reason, and the rule they implement is stated in full in
 # the Standard.
-case "${FILE,,}" in
+# `shopt -s nocasematch` rather than ${FILE,,}: the lowercasing expansion is
+# bash 4.0+, and macOS still ships bash 3.2 as /bin/bash. There it is not a
+# runtime error but a PARSE error, so bash exits 2 before running a line — and
+# Claude Code reads exit 2 from a PreToolUse hook as *block*. Every Edit and
+# Write would have been refused, with no reason text, on every macOS machine.
+# It was the only bash-4 construct in any hook. (`mapfile` in
+# Adapters/github-actions/pr-validation.yml is also bash 4, and stays: that
+# one runs on ubuntu-latest, where the version is known.)
+shopt -s nocasematch
+case "$FILE" in
   *.md|*.rst|*.txt|*.adoc) exit 0 ;;
   */hooks/tests/*|*\\hooks\\tests\\*) exit 0 ;;
 esac
+shopt -u nocasematch
 
 # Every string the edit would write. With jq: new_string, content, and each
 # MultiEdit edit's new_string. Without jq: the raw payload — the patterns are
