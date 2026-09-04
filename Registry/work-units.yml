@@ -463,3 +463,9 @@ work_units:
     title: Stop PR Size passing when it measured nothing, range it from the merge base, and tell an API failure from an absent review
     milestone: Convergence
     delivers: Adapters/github-actions/pr-validation.yml
+
+  - id: WU-IAENG-199
+    employee: Security Engineer
+    title: Make the history scan see deduplicated blobs, and refuse a zero-path scan over a non-empty range
+    milestone: Convergence
+    delivers: Adapters/scripts/data-policy-scan.sh

@@ -271,8 +271,28 @@ case "$MODE" in
     # mode cannot represent, and it is refused by the tree scan of the same
     # range's head in the CI job.
     git rev-list --objects "$ARG" >/dev/null 2>&1 || die "cannot resolve range '$ARG'"
-    scan_paths_lines < <(git -c core.quotePath=false rev-list --objects "$ARG" \
-                           | awk 'NF > 1 { sub(/^[0-9a-f]+ /, ""); print }' | sort -u)
+
+    # TWO SOURCES, UNIONED, because neither alone is complete.
+    #
+    # `rev-list --objects` enumerates each OBJECT once. A blob already
+    # reachable from the excluded side is never listed, so its path is never
+    # classified — and an empty file hits this every time, because the empty
+    # blob almost always already exists. Demonstrated: `.env` added empty and
+    # deleted again inside a two-commit range scanned 0 paths and reported
+    # clean. That is the exact scenario this mode exists for.
+    #
+    # `log --name-only --diff-filter=ACMR` enumerates each PATH touched by
+    # each commit, regardless of whether its blob is new, which covers that
+    # gap. It is unioned with the object walk rather than replacing it, so a
+    # path reachable as an object but not named by any diff in the range is
+    # still classified.
+    scan_paths_lines < <(
+      {
+        git -c core.quotePath=false log --format= --name-only --diff-filter=ACMR "$ARG"
+        git -c core.quotePath=false rev-list --objects "$ARG" \
+          | awk 'NF > 1 { sub(/^[0-9a-f]+ /, ""); print }'
+      } | sort -u
+    )
     DIFF="$(git -c core.quotePath=false log -p -U0 --no-color --no-ext-diff --no-textconv --format= "$ARG")"
     ADDED="$(printf '%s\n' "$DIFF" | count_added_lines)"
     scan_content < <(printf '%s\n' "$DIFF" | scan_diff_content)
@@ -281,6 +301,20 @@ case "$MODE" in
 esac
 
 # --- Verdict -----------------------------------------------------------------
+
+# A ZERO-PATH SCAN OVER A NON-EMPTY RANGE IS A FAILURE, not a clean result.
+# The Check Convention's third rule — a check that iterates a set reports its
+# denominator — is only worth anything if a denominator of zero is treated as
+# the absence of evidence it is. This scan printed "scanned 0 path(s)" and
+# "clean" over a two-commit range while the defect above hid a staged `.env`.
+if [ "$MODE" = history ] && [ "$PATHS_SCANNED" -eq 0 ]; then
+  COMMITS="$(git rev-list --count "$ARG" 2>/dev/null || echo 0)"
+  if [ "${COMMITS:-0}" -gt 0 ]; then
+    printf 'data-policy: mode=history scanned 0 path(s) over %s commit(s) — the path enumeration produced nothing for a range that is not empty.\n' "$COMMITS" >&2
+    printf '  This is reported rather than passed: a scan that examined nothing has established nothing.\n' >&2
+    exit 1
+  fi
+fi
 
 printf 'data-policy: mode=%s scanned %s path(s), %s added line(s), allow-file=%s (%s path rule(s), %s content rule(s))\n' \
   "$MODE" "$PATHS_SCANNED" "$LINES_SCANNED" \
