@@ -1185,6 +1185,74 @@ check_inventory Workflows Workflows Workflow
 check_inventory Templates Templates Template
 
 # ==========================================================================
+section "15. Glossary ordering"
+# ==========================================================================
+# Core/GLOSSARY.md states that its letter sections and the terms within them
+# are in alphabetical order. A document that claims a property the tooling does
+# not check is a claim nobody verifies — the shape this milestone spent its
+# time removing — so the claim is checked here.
+#
+# Three questions, each answerable and each reported: are the letter headings
+# ascending, is every term under the letter it starts with, and are the terms
+# within each letter ascending. Byte order (LC_ALL=C, pinned at the top of this
+# script) so the answer does not depend on the machine's locale.
+
+GLOSSARY="Core/GLOSSARY.md"
+if [ ! -f "$GLOSSARY" ]; then
+  fail "$GLOSSARY is missing" "CLAUDE.md lists it as a Core document and every artifact is required to use its vocabulary. Its absence cannot be a pass."
+else
+  glossary_letters="$(grep -E '^# [A-Z]$' "$GLOSSARY" | sed 's/^# //')"
+  letter_count="$(printf '%s\n' "$glossary_letters" | grep -c .)"
+  term_count="$(grep -cE '^## ' "$GLOSSARY")"
+
+  if [ "$letter_count" -eq 0 ] || [ "$term_count" -eq 0 ]; then
+    fail "$GLOSSARY yielded $letter_count letter section(s) and $term_count term(s)" "The extraction reads '# X' letter headings and '## Term' entries. Zero of either means the document was restructured and this check now reads nothing — reported rather than passed."
+  else
+    if [ "$glossary_letters" != "$(printf '%s\n' "$glossary_letters" | sort)" ]; then
+      fail "$GLOSSARY letter sections are not in alphabetical order: $(printf '%s' "$glossary_letters" | tr '\n' ' ')" "The document says they are. Reorder the sections, or change the claim."
+    else
+      pass "$GLOSSARY: $letter_count letter sections in alphabetical order"
+    fi
+
+    # Walk the document once, carrying the current letter, so a term can be
+    # checked against the section it is actually in.
+    misfiled="$(awk '
+      /^# [A-Z]$/ { letter = substr($0, 3, 1); next }
+      /^## / {
+        term = substr($0, 4)
+        sub(/\015$/, "", term)
+        initial = toupper(substr(term, 1, 1))
+        if (letter == "") { print term " (before any letter section)"; next }
+        if (initial != letter) { print term " (under " letter ")" }
+      }
+    ' "$GLOSSARY" | tr '\n' '; ')"
+    if [ -n "$misfiled" ]; then
+      fail "$GLOSSARY has terms filed under the wrong letter: $misfiled" "A term belongs under its own initial, or the glossary cannot be scanned."
+    else
+      pass "$GLOSSARY: all $term_count terms are under their own initial"
+    fi
+
+    unsorted=""
+    while IFS= read -r letter; do
+      [ -n "$letter" ] || continue
+      terms="$(awk -v want="# $letter" '
+        $0 == want { inside = 1; next }
+        inside && /^# / { exit }
+        inside && /^## / { t = substr($0, 4); sub(/\015$/, "", t); print t }
+      ' "$GLOSSARY")"
+      if [ "$terms" != "$(printf '%s\n' "$terms" | sort)" ]; then
+        unsorted="$unsorted$letter "
+      fi
+    done < <(printf '%s\n' "$glossary_letters")
+    if [ -n "$unsorted" ]; then
+      fail "$GLOSSARY terms are not alphabetical within section(s): $unsorted" "The document says they are."
+    else
+      pass "$GLOSSARY: terms are alphabetical within each of the $letter_count sections"
+    fi
+  fi
+fi
+
+# ==========================================================================
 printf '\n== Result\n'
 if [ "$FAILURES" -eq 0 ]; then
   printf '   %s checks passed.\n' "$CHECKS"
