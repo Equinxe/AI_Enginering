@@ -505,3 +505,9 @@ work_units:
     title: Close the three bypass families the attack pass found — ANSI-C quoting, brace expansion, alias writes — and three more git spellings
     milestone: Convergence
     delivers: Adapters/ai-runtimes/claude-code/hooks/strip-quotes.awk, Adapters/ai-runtimes/claude-code/hooks/block-escape-hatches.sh, Adapters/ai-runtimes/claude-code/hooks/tests/
+
+  - id: WU-IAENG-206
+    employee: Test Automation Engineer
+    title: Pin the false-positive guards for the brace expander and the ANSI-C decoder, which had none
+    milestone: Convergence
+    delivers: Adapters/ai-runtimes/claude-code/hooks/tests/

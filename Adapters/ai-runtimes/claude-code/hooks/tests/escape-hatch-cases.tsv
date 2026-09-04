@@ -153,3 +153,16 @@ allow	git config alias.lg "log --oneline --graph"
 allow	git push origin --delete refs/heads/feat-x
 allow	git restore src/main.c
 allow	git checkout -- src/main.c
+allow	mkdir -p src/{a,b}
+allow	cp file.{txt,bak}
+allow	git checkout {main,develop}
+allow	rm -rf {build,dist}
+allow	find . -name "*.{js,ts}" -exec rm -rf {} \;
+allow	git log --format={short,full}
+allow	git push origin {feat-a,feat-b}
+allow	mv old/{x,y} new/
+allow	rm -rf {a,b}/
+allow	cd /tmp && rm -rf {x,y}
+allow	git log --pretty=$'%h %s'
+block	git push --{f,f}{o,o}rce origin
+block	git reset --h{a,a}rd HEAD

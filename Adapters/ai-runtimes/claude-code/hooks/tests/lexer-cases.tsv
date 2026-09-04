@@ -29,3 +29,5 @@ hex escapes decode	git push $'\x2d\x2dforce'	--force	yes
 octal escapes decode	git reset $'\055\055hard'	--hard	yes
 brace expansion is expanded	git push --{f,f}orce origin	--force	yes
 alias value is scanned as code	git config alias.x "push --force"	--force	yes
+ANSI-C newline makes a phrase, which is dropped	git commit -m $'line one\nline two'	line one	no
+brace group with no comma is left alone	find . -exec rm -rf {} \;	{}	yes
