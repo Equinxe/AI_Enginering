@@ -38,6 +38,16 @@
 #     and the Dockerfile depend on a stack this script has no way to know.
 #     Adapters/scripts/setup-project-bootstrap.sh owns those and calls this
 #     script for the host-agnostic part.
+#   - AI-runtime hooks and agents. Adapters/ai-runtimes/<runtime>/ depends on
+#     which runtime the project uses, which this script has no way to know,
+#     and the Claude Code hooks are installed into a COMMITTED
+#     .claude/settings.json — a file that decides what the model may do and
+#     that a project reviews like code, not something a per-clone installer
+#     should write unasked. Run
+#     ./ia-engineering/Adapters/ai-runtimes/claude-code/install-hooks.sh and
+#     ./ia-engineering/Adapters/ai-runtimes/generate-agents.sh once, per
+#     project. Listing only the two exclusions above let a reader conclude the
+#     hooks were covered here.
 #
 # Usage:
 #   ./ia-engineering/Adapters/scripts/install.sh [options]
@@ -61,7 +71,7 @@ for arg in "$@"; do
     --no-hooks) NO_HOOKS=1 ;;
     --force) FORCE=1 ;;
     --help|-h)
-      sed -n '2,50p' "$0"
+      sed -n '2,$p' "$0" | awk '/^#/{print; next} /^$/{print; next} {exit}'
       exit 0
       ;;
     *)
@@ -483,6 +493,11 @@ if [ "$FRAMEWORK" != "$PROJECT" ]; then
   echo "                      (mutates shared repository settings; run once per repo)"
   echo "  Stack CI/container  ./$HOOKS_REL/Adapters/scripts/setup-project-bootstrap.sh <stack>"
   echo "                      (needs the stack decided in Workflows/PROJECT_BOOTSTRAP.md Phase B)"
+  echo "  Runtime hooks       ./$HOOKS_REL/Adapters/ai-runtimes/claude-code/install-hooks.sh"
+  echo "                      (writes the COMMITTED .claude/settings.json, which decides what"
+  echo "                       the model may do — a project reviews that like code)"
+  echo "  Runtime agents      ./$HOOKS_REL/Adapters/ai-runtimes/generate-agents.sh"
+  echo "                      (depends on which AI runtime the project uses)"
 fi
 
 [ "$PROBLEMS" -gt 0 ] && exit 1

@@ -83,7 +83,11 @@ SECRET_PATTERNS=(
 )
 
 usage() {
-  sed -n '2,66p' "$0" | sed 's/^# \{0,1\}//'
+  # Stop at the first line that is not a comment, rather than at a hard-coded
+  # line number. The number was 66 and the header had grown past it, so --help
+  # ended by printing `set -uo pipefail` and `export LC_ALL=C` — a range that
+  # silently stops describing the file it documents the moment either changes.
+  sed -n '2,$p' "$0" | sed -n '/^#/!q; s/^# \{0,1\}//p'
 }
 
 die() { printf 'data-policy: %s\n' "$1" >&2; exit 2; }

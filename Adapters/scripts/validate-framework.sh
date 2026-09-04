@@ -133,7 +133,7 @@ for arg in "$@"; do
     --verbose|-v) VERBOSE=1 ;;
     --regenerate-roster) REGENERATE=1 ;;
     --help|-h)
-      sed -n '2,109p' "$0"
+      sed -n '2,$p' "$0" | awk '/^#/{print; next} /^$/{print; next} {exit}'
       exit 0
       ;;
     *)

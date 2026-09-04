@@ -24,7 +24,7 @@ for arg in "$@"; do
   case "$arg" in
     --print) PRINT=1 ;;
     --force) FORCE=1 ;;
-    --help|-h) sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    --help|-h) sed -n '2,$p' "$0" | awk '/^#/{print; next} /^$/{print; next} {exit}' | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "install-hooks.sh: unknown option '$arg'" >&2; exit 2 ;;
   esac
 done

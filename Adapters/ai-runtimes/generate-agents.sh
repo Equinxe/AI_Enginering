@@ -149,7 +149,7 @@ while [ "$#" -gt 0 ]; do
     --map)     need_value --map "$#";     MAP_OVERRIDE="$2"; shift 2 ;;
     --dry-run) DRY_RUN=1; shift ;;
     --check)   CHECK=1; shift ;;
-    --help|-h) sed -n '2,85p' "$0"; exit 0 ;;
+    --help|-h) sed -n '2,$p' "$0" | awk '/^#/{print; next} /^$/{print; next} {exit}'; exit 0 ;;
     *) echo "Unknown argument: $1 (try --help)" >&2; exit 2 ;;
   esac
 done
@@ -233,7 +233,14 @@ if [ -n "$PROJECT_ROSTER" ]; then
     exit 2
   fi
   PROJECT_ROSTER="$(cd "$(dirname "$PROJECT_ROSTER")" && pwd)/$(basename "$PROJECT_ROSTER")"
-elif [ "$PROJECT" != "$ROOT" ] && [ -f "$DEFAULT_PROJECT_ROSTER" ]; then
+elif [ -f "$DEFAULT_PROJECT_ROSTER" ]; then
+  # No "only when the project is not the framework" guard. Registry/README.md
+  # states that all three consumers — the commit-msg hook, the Employee
+  # Trailer job, and this script — resolve the project roster the same way,
+  # and the other two do it unconditionally. The guard made that statement
+  # false for one of them, in the one repository where the difference is
+  # invisible because the file does not exist. A rule with a silent exception
+  # is a rule nobody can rely on.
   PROJECT_ROSTER="$DEFAULT_PROJECT_ROSTER"
 fi
 

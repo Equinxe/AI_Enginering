@@ -45,6 +45,15 @@ on:
     branches: [main, develop, 'release/**']
     types: [opened, synchronize, reopened, ready_for_review]
 
+# Every push to an open PR would otherwise start another run, and each run
+# spends real money on the API key. The in-progress run for the same PR is
+# cancelled: a review of a superseded diff is worth nothing and its findings
+# would re-anchor to lines that have already moved
+# (Workflows/CODE_REVIEW.md, Line Re-Anchoring).
+concurrency:
+  group: independent-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
   pull-requests: write
@@ -56,7 +65,21 @@ jobs:
     name: Independent Review
     runs-on: ubuntu-latest
     # Draft PRs are not reviewed: the author has said the work is not ready.
-    if: github.event.pull_request.draft == false
+    #
+    # FORK PULL REQUESTS GET NO SECRET, by GitHub's design — a `pull_request`
+    # run from a fork cannot read repository secrets, so ANTHROPIC_API_KEY is
+    # empty and the action fails with an authentication error that looks like
+    # a broken workflow rather than an expected one. The job is skipped for
+    # forks instead, and says so, because a red check whose real meaning is
+    # "not applicable here" is the kind of noise that gets checks ignored.
+    #
+    # A project that wants fork PRs reviewed uses `pull_request_target` and
+    # accepts what that means: the workflow runs with the BASE repository's
+    # secrets against a contributor's code. That is a deliberate security
+    # trade-off and is therefore a Director decision, not a default.
+    if: >-
+      github.event.pull_request.draft == false &&
+      github.event.pull_request.head.repo.full_name == github.repository
     steps:
       - uses: actions/checkout@v4
         with:

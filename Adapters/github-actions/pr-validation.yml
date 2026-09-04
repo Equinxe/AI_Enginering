@@ -17,7 +17,11 @@ name: IA Engineering - PR Validation
 #   - shellcheck-adapters: the git hooks and scripts we ship must actually be
 #     valid, warning-free shell (Standards/CODE_QUALITY_STANDARD.md applies to
 #     Adapters code exactly as it does to any other code)
-#   - yaml-lint: every workflow file we ship must at minimum parse as valid YAML
+#   - yaml-lint: every YAML file we ship — workflows and the issue-template
+#     config alike — must at minimum parse. The file list is derived from
+#     git ls-files, not from two hard-coded directories, which is what used to
+#     leave ai-runtimes/claude-code/review-bot.yml unchecked while the claim
+#     said otherwise
 #   - hook-tests: the runtime hooks in Adapters/ai-runtimes/claude-code/hooks/
 #     still refuse what Standards/GIT_STANDARD.md forbids and still permit what
 #     it does not. Their correctness is behaviour, not structure, so neither
@@ -425,9 +429,21 @@ jobs:
       - uses: actions/checkout@v4
       - name: Validate YAML syntax
         run: |
+          # DERIVED, like the shellcheck list. The two hard-coded directories
+          # missed Adapters/ai-runtimes/claude-code/review-bot.yml, so the
+          # header's claim that every workflow file we ship at least parses was
+          # false for one of them. `git ls-files` asks the repository instead.
+          set -euo pipefail
+          mapfile -t YAML_FILES < <(
+            git ls-files 'Adapters/**/*.yml' 'Adapters/**/*.yaml' \
+                         '.github/workflows/*.yml' '.github/workflows/*.yaml' | sort -u
+          )
+          if [ "${#YAML_FILES[@]}" -eq 0 ]; then
+            echo "::error::No YAML files found under Adapters/ or .github/workflows/. Zero matches means the layout changed and this check would otherwise pass without parsing anything."
+            exit 1
+          fi
           fail=0
-          for f in Adapters/github-actions/*.yml .github/workflows/*.yml; do
-            [ -f "$f" ] || continue
+          for f in "${YAML_FILES[@]}"; do
             if npx --yes -q js-yaml "$f" > /dev/null 2>&1; then
               echo "OK: $f"
             else
@@ -435,6 +451,7 @@ jobs:
               fail=1
             fi
           done
+          echo "Parsed ${#YAML_FILES[@]} YAML files."
           exit "$fail"
 
   review-recorded:
@@ -541,11 +558,25 @@ jobs:
           # by pasting the block. When unset, every author counts, as before,
           # and the mode is printed so a reader knows which check ran.
           if [ -n "${REVIEW_BOT_LOGIN:-}" ]; then
+            # WHAT THIS MODE DOES AND DOES NOT BUY. It raises the cost of
+            # self-satisfying the check; it does not make it impossible. With
+            # the default `github-actions[bot]` identity, an author with write
+            # access can add a `gh pr comment` step to their own branch and
+            # post the decision block under that same login. A GitHub App with
+            # its own login, or a separate account, closes that; the repository
+            # variable is deliberately a login rather than a hard-coded value
+            # so a project can point it at one.
             echo "Mode: independent — only decisions posted by '$REVIEW_BOT_LOGIN' count (IAENG_REVIEW_BOT_LOGIN)."
-            FILTER=".[] | select(.user.login == \"$REVIEW_BOT_LOGIN\") | .body"
+            echo "Note: this raises the cost of an author satisfying the check themselves; with a github-actions[bot] identity it does not prevent it. Point IAENG_REVIEW_BOT_LOGIN at a GitHub App or a separate account for that."
+            # --arg, not string interpolation: a quote or a backslash in the
+            # variable's value would otherwise break the jq program, and the
+            # failure would be reported as an absent decision.
+            FILTER='.[] | select(.user.login == $login) | .body'
+            JQ_ARGS=(--arg login "$REVIEW_BOT_LOGIN")
           else
             echo "Mode: any author — IAENG_REVIEW_BOT_LOGIN is not set, so a decision block from any account counts, including the PR author's."
             FILTER='.[].body'
+            JQ_ARGS=()
           fi
           # AN API FAILURE IS NOT AN ABSENT DECISION. `|| true` on both calls
           # made a rate limit or a permissions error produce exactly the red a
@@ -560,7 +591,7 @@ jobs:
           API_FAILED=0
           fetch() {
             local url="$1" out
-            if out="$(gh api "$url" --paginate -q "$FILTER" 2>&1)"; then
+            if out="$(gh api "$url" --paginate "${JQ_ARGS[@]}" -q "$FILTER" 2>&1)"; then
               printf '%s\n' "$out"
             else
               echo "::warning::Could not read $url — $out" >&2
