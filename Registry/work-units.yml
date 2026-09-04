@@ -433,3 +433,9 @@ work_units:
     title: Add the project CLAUDE.md template that Onboarding Step 1 tells every adopter to use
     milestone: Convergence
     delivers: Templates/PROJECT_CLAUDE.md, Workflows/ONBOARDING.md, VERSION.md, README.md
+
+  - id: WU-IAENG-194
+    employee: Security Engineer
+    title: Close seven bypasses and one false positive in the escape-hatch hook, and model command substitution in its lexer
+    milestone: Convergence
+    delivers: Adapters/ai-runtimes/claude-code/hooks/block-escape-hatches.sh, Adapters/ai-runtimes/claude-code/hooks/strip-quotes.awk, Adapters/ai-runtimes/claude-code/hooks/block-inline-suppression.sh

@@ -23,8 +23,27 @@ TOOL="$(iaeng_field '.tool_name')"
 case "$TOOL" in ""|Edit|Write|MultiEdit) ;; *) exit 0 ;; esac
 
 FILE="$(iaeng_field '.tool_input.file_path')"
+
+# NAMED EXEMPTIONS — two, both by path, neither a fall-through.
+#
+# 1. Documentation. Standards/CODE_QUALITY_STANDARD.md quotes every directive
+#    below in order to forbid it; a hook that stopped the Standard from being
+#    written would be the joke version of itself.
+# 2. This hook's own test corpus, under a hooks/tests/ directory. A test that
+#    proves a directive is refused has to contain that directive. Found by this
+#    hook refusing the very file that tests it — the same shape as (1), one
+#    level down. Scoped to hooks/tests/ rather than to any path containing the
+#    word test, because a directory whose whole contents become exempt is how
+#    the synthetic-fixture marker was defeated before it was anchored
+#    (Standards/DATA_PROTECTION_STANDARD.md, Synthetic Fixtures).
+#
+# Code is never exempt, and there is no environment override. Note that this
+# file is not exempt from itself: its own comments name the directives
+# obliquely for that reason, and the rule they implement is stated in full in
+# the Standard.
 case "${FILE,,}" in
   *.md|*.rst|*.txt|*.adoc) exit 0 ;;
+  */hooks/tests/*|*\\hooks\\tests\\*) exit 0 ;;
 esac
 
 # Every string the edit would write. With jq: new_string, content, and each
