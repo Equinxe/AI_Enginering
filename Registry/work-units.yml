@@ -487,3 +487,9 @@ work_units:
     title: Clear the review's minor findings — derived YAML list, honest independence claim, jq --arg, help ranges, install.sh scope, roster guard, review-bot concurrency and forks
     milestone: Convergence
     delivers: Adapters/github-actions/pr-validation.yml, Adapters/scripts/install.sh, Adapters/scripts/data-policy-scan.sh, Adapters/scripts/release.sh, Adapters/scripts/setup-project-bootstrap.sh, Adapters/scripts/validate-framework.sh, Adapters/ai-runtimes/generate-agents.sh, Adapters/ai-runtimes/claude-code/install-hooks.sh, Adapters/ai-runtimes/claude-code/review-bot.yml, Adapters/ai-runtimes/claude-code/hooks/tests/run.sh
+
+  - id: WU-IAENG-203
+    employee: Security Engineer
+    title: Scope the core.hooksPath rule to a git command — it refused a sed that merely named the setting
+    milestone: Convergence
+    delivers: Adapters/ai-runtimes/claude-code/hooks/block-escape-hatches.sh, Adapters/ai-runtimes/claude-code/hooks/tests/escape-hatch-cases.tsv, Governance/TROUBLESHOOTING.md

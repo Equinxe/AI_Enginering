@@ -89,3 +89,7 @@ block	git config core.hooksPath /dev/null
 block	git config --local core.hooksPath ""
 allow	./ia-engineering/Adapters/scripts/install.sh
 allow	git config --get core.editor
+allow	grep -rn core.hooksPath Standards/
+allow	sed -i 's|old core.hooksPath text|new text|' notes.md
+allow	echo "core.hooksPath is an escape hatch" >> notes.md
+allow	git log --oneline | grep core.hooksPath

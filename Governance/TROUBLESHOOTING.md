@@ -295,6 +295,18 @@ Project-specific incidents belong in the project's own catalog (a `TROUBLESHOOTI
 
 ---
 
+## W. A guard's first version matches everywhere
+
+**Symptom.** A newly added rule in a text guard refuses a legitimate command — one that *mentions* the forbidden thing rather than doing it. Searching the documentation for a banned flag, or editing a file that names it, is blocked.
+
+**Cause.** The rule was written as a bare substring match. The thing being forbidden is an *action in a context*; the pattern tested only for the *word*.
+
+**Remedy.** Scope the pattern to the context that makes it an action — for a git escape hatch, `git[^|;&]*<thing>` rather than `<thing>`, which keeps the match inside a pipeline segment that actually starts with `git`.
+
+**Prevention.** Two facts make this worth its own entry rather than a footnote to the rules it keeps appearing in. First, a noisy guard is a *defeated* guard: the response to a control that fires on reading about a rule is to stop running the control. Second, it recurred immediately — the same session that fixed this for `--no-verify`, after review flagged it, reintroduced it one rule later for `core.hooksPath`, and the new rule blocked the very commit that was recording the fix. **Every new rule in a text guard needs a paired allow-case in the corpus**, written at the same time: one command that does the forbidden thing and one that only names it. The corpus is where the pairing is enforced.
+
+---
+
 # Adding an Entry
 
 1. The Work Unit that fixes the incident adds the entry — same commit, or the fix is not complete (`Governance/CONTRIBUTING.md`, Section 7).

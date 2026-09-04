@@ -81,7 +81,15 @@ fi
 # unaffected — this hook sees the script's invocation, not the git commands
 # inside it — and pointing the setting at the framework's own hooks is what
 # that script is for.
-if check 'core\.hooksPath'; then
+#
+# SCOPED TO A GIT COMMAND, for the same reason --no-verify is. The first
+# version of this rule matched the string anywhere and immediately refused a
+# `sed` that merely mentioned the setting while editing a state file — the
+# exact false positive review had just flagged for --no-verify, reintroduced
+# one rule later by the same hand. `git[^|;&]*` keeps the match inside a
+# pipeline segment that actually starts with git, so `grep core.hooksPath
+# Standards/` and `git config --get core.editor` both pass.
+if check "git[^|;&]*core\.hooksPath"; then
   iaeng_block "setting core.hooksPath disables every git hook — the same effect as --no-verify, written as configuration" \
     "Standards/GIT_STANDARD.md, Escape Hatches. The sanctioned write of this setting is ./ia-engineering/Adapters/scripts/install.sh, which points it at the framework's hooks."
 fi
