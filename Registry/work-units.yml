@@ -457,3 +457,9 @@ work_units:
     title: Close the remaining escape-hatch bypasses found by review — quoted subcommand, eval and shell -c, clean --force, forcing refspec, rm long options
     milestone: Convergence
     delivers: Adapters/ai-runtimes/claude-code/hooks/strip-quotes.awk, Adapters/ai-runtimes/claude-code/hooks/block-escape-hatches.sh, Adapters/ai-runtimes/claude-code/hooks/tests/
+
+  - id: WU-IAENG-198
+    employee: DevOps Engineer
+    title: Stop PR Size passing when it measured nothing, range it from the merge base, and tell an API failure from an absent review
+    milestone: Convergence
+    delivers: Adapters/github-actions/pr-validation.yml

@@ -547,9 +547,30 @@ jobs:
             echo "Mode: any author — IAENG_REVIEW_BOT_LOGIN is not set, so a decision block from any account counts, including the PR author's."
             FILTER='.[].body'
           fi
-          ISSUE_COMMENTS="$(gh api "repos/$REPO/issues/$PR_NUMBER/comments" --paginate -q "$FILTER" || true)"
-          REVIEW_BODIES="$(gh api "repos/$REPO/pulls/$PR_NUMBER/reviews" --paginate -q "$FILTER" || true)"
-          ALL_BODIES="$(printf '%s\n%s\n' "$ISSUE_COMMENTS" "$REVIEW_BODIES")"
+          # AN API FAILURE IS NOT AN ABSENT DECISION. `|| true` on both calls
+          # made a rate limit or a permissions error produce exactly the red a
+          # genuinely unreviewed PR produces, so the one message could not be
+          # told from the other. Each call's status is now kept, and a failure
+          # says so in its own words.
+          #
+          # Three endpoints, not two: a reviewer who leaves the decision block
+          # as an inline comment on a line posts to /pulls/{n}/comments, which
+          # neither of the original two reads. That is a normal way to review
+          # and was silently not counted.
+          API_FAILED=0
+          fetch() {
+            local url="$1" out
+            if out="$(gh api "$url" --paginate -q "$FILTER" 2>&1)"; then
+              printf '%s\n' "$out"
+            else
+              echo "::warning::Could not read $url — $out" >&2
+              API_FAILED=1
+            fi
+          }
+          ISSUE_COMMENTS="$(fetch "repos/$REPO/issues/$PR_NUMBER/comments")"
+          REVIEW_BODIES="$(fetch "repos/$REPO/pulls/$PR_NUMBER/reviews")"
+          INLINE_COMMENTS="$(fetch "repos/$REPO/pulls/$PR_NUMBER/comments")"
+          ALL_BODIES="$(printf '%s\n%s\n%s\n' "$ISSUE_COMMENTS" "$REVIEW_BODIES" "$INLINE_COMMENTS")"
 
           # Match a filled decision line: `Decision: approved` (case-insensitive,
           # optional leading indentation). The `approved` must follow the colon
@@ -561,7 +582,12 @@ jobs:
             exit 0
           fi
 
-          echo "::error::No recorded Code Reviewer decision ('Decision: approved', per Employees/Specialized/CODE_REVIEWER.md's Review Decision block) was found in this PR's comments or reviews. Per Workflows/CODE_REVIEW.md a Code Reviewer decision must be recorded before merge."
+          if [ "$API_FAILED" -eq 1 ]; then
+            echo "::error::At least one GitHub API call failed, so this check could not read the PR's comments. This is NOT the same as an unreviewed PR: nothing was established either way. See the warnings above."
+            exit 1
+          fi
+
+          echo "::error::No recorded Code Reviewer decision ('Decision: approved', per Employees/Specialized/CODE_REVIEWER.md's Review Decision block) was found in this PR's issue comments, reviews, or inline review comments. Per Workflows/CODE_REVIEW.md a Code Reviewer decision must be recorded before merge."
           echo "::notice::This check is ADVISORY: it is not in required_status_checks.contexts, so it does not block the merge. It goes red rather than green so its result is legible — an advisory check that exits 0 either way is indistinguishable from a passing gate."
           exit 1
 
@@ -633,6 +659,34 @@ jobs:
           # reason, and this check would be too if its override were text.
           set -euo pipefail
 
+          # THE DIFF IS CAPTURED BEFORE IT IS COUNTED, and its failure is
+          # fatal. Feeding the loop from process substitution hid the failure
+          # from `set -euo pipefail`: with an unfetchable base SHA the loop saw
+          # no input, counted zero lines, and this required check printed
+          # "Within the review limit" and exited 0 — the codebase's own named
+          # defect class inside a gate. It happens on force-pushed and
+          # cross-fork Pull Requests, not only in theory.
+          #
+          # THE RANGE IS THE MERGE BASE, not base.sha. `base.sha` is the base
+          # branch's tip at event time, so a two-dot diff against it also
+          # contains the inverse of commits this PR never touched once the base
+          # branch advances: the count is then wrong in both directions and a
+          # PR can be blocked by someone else's churn.
+          #
+          # --no-renames because `git diff --numstat` writes a rename as
+          # `d/{old => new}`, which `git check-attr` reads literally and reports
+          # as unspecified — a renamed generated file was counted as reviewable.
+          # The add/delete counts it produces instead are also the ones a
+          # reviewer actually reads.
+          if ! MERGE_BASE="$(git merge-base "$BASE_SHA" "$HEAD_SHA")"; then
+            echo "::error::Could not compute the merge base of $BASE_SHA and $HEAD_SHA. The PR size was therefore never measured; failing rather than reporting a size of zero."
+            exit 1
+          fi
+          if ! NUMSTAT="$(git diff --numstat --no-renames "$MERGE_BASE" "$HEAD_SHA")"; then
+            echo "::error::git diff failed between $MERGE_BASE and $HEAD_SHA. The PR size was never measured; failing rather than reporting a size of zero."
+            exit 1
+          fi
+
           TOTAL=0; FILES=0; GENERATED=0; BINARY=0
           while IFS=$'\t' read -r added deleted path; do
             [ -n "$path" ] || continue
@@ -645,8 +699,14 @@ jobs:
               GENERATED=$((GENERATED + 1)); continue
             fi
             TOTAL=$((TOTAL + added + deleted))
-          done < <(git diff --numstat "$BASE_SHA" "$HEAD_SHA")
+          done <<< "$NUMSTAT"
 
+          if [ "$FILES" -eq 0 ]; then
+            echo "::error::The diff between $MERGE_BASE and $HEAD_SHA lists no changed files. A Pull Request that changes nothing is not something to pass silently — check the base and head refs."
+            exit 1
+          fi
+
+          echo "Merge base: $MERGE_BASE"
           echo "Files changed: $FILES ($GENERATED generated, $BINARY binary — excluded)"
           echo "Lines to review: $TOTAL (limit $LIMIT)"
 
