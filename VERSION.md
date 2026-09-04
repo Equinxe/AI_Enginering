@@ -35,6 +35,8 @@ Status
 - [x] Documentation Standard
 - [x] Code Quality Standard
 - [x] Testing Standard
+- [x] Risk Standard
+- [x] Data Protection Standard
 
 ### Employees (42)
 
@@ -49,7 +51,7 @@ Status
 
 ---
 
-### Workflows (9)
+### Workflows (10)
 
 - [x] Feature Development
 - [x] Code Review
@@ -60,18 +62,23 @@ Status
 - [x] Onboarding
 - [x] Sprint Ceremony
 - [x] Project Bootstrap
+- [x] Autonomous Delivery
 
 ---
 
-### Templates (7)
+### Templates (11)
 
 - [x] Work Unit
+- [x] Work Unit Report
 - [x] Pull Request
 - [x] Architecture Decision Record
 - [x] Incident Report
 - [x] Test Plan
 - [x] Employee Brief
+- [x] Pole Brief
 - [x] Project Charter
+- [x] Session State
+- [x] Domain Employee
 
 ---
 

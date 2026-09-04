@@ -1081,6 +1081,110 @@ else
 fi
 
 # ==========================================================================
+section "14. VERSION.md inventory vs. the repository"
+# ==========================================================================
+# VERSION.md lists, by name, every Standard, Workflow, and Template the
+# framework contains. Section 3 already checks the ONE number that was
+# historically wrong (the roster size); these lists are the same fact in a
+# longer form, and they drifted the same way — at the point this check was
+# written VERSION.md claimed 8 Standards of 10, 9 Workflows of 10, and 7
+# Templates of 11.
+#
+# Governance/TROUBLESHOOTING.md names the class (entry N): a literal count or
+# list in prose is a second copy of a fact, and two copies drift. The remedy it
+# prescribes is to derive rather than restate, so the comparison is made
+# against the documents themselves.
+#
+# The name of a document is its H1, minus the category suffix the file itself
+# carries ("Feature Development Workflow" -> "Feature Development"). That is a
+# rule, not a lookup table: an exception list here would be the fall-through
+# the Check Convention forbids, and would need an entry every time a document
+# is added — which is the maintenance burden this check exists to remove.
+
+check_inventory() {
+  local dir="$1" heading="$2" suffix="$3"
+  local real listed declared real_count listed_count missing extra title f
+  local suffix_note=""
+
+  # Built plainly rather than inline in the message. An inline
+  # ${suffix:+... '$suffix'} expands correctly but reads to shellcheck as a
+  # single-quoted expression (SC2016), and the fix for a finding is never a
+  # directive — Standards/CODE_QUALITY_STANDARD.md, No Inline Suppression.
+  if [ -n "$suffix" ]; then
+    suffix_note=", minus the trailing category word $suffix"
+  fi
+
+  if ! grep -qE "^### $heading( \([0-9]+\))?\$" VERSION.md; then
+    fail "VERSION.md has no '### $heading' section" "It lists every $dir document by name; a missing section cannot be checked and is not a pass. Restore the section or update this check deliberately."
+    return
+  fi
+
+  real=""
+  while IFS= read -r f; do
+    [ -n "$f" ] || continue
+    title="$(head -1 "$f" | sed 's/^# //' | tr -d '\015')"
+    if [ -n "$suffix" ]; then title="${title% "$suffix"}"; fi
+    real="$real$title
+"
+  done < <(git ls-files "$dir/*.md" | sort)
+
+  listed="$(awk -v want="$heading" '
+    $0 ~ "^### " want "( \\([0-9]+\\))?$" { inside = 1; next }
+    inside && /^#+ / { inside = 0 }
+    inside && /^- \[x\] / { sub(/^- \[x\] /, ""); sub(/\015$/, ""); print }
+  ' VERSION.md)"
+
+  real_count="$(printf '%s' "$real" | grep -c .)"
+  listed_count="$(printf '%s\n' "$listed" | grep -c .)"
+
+  if [ "$real_count" -eq 0 ]; then
+    fail "no documents found under $dir/" "The inventory check has nothing to compare against. Either the directory was renamed or the glob is wrong — an empty input set is not a passing check."
+    return
+  fi
+  if [ "$listed_count" -eq 0 ]; then
+    fail "VERSION.md's '### $heading' section lists no '- [x]' items" "$real_count documents exist under $dir/. A section that enumerates nothing cannot be compared, so it fails rather than passing silently."
+    return
+  fi
+
+  missing=""; extra=""
+  while IFS= read -r title; do
+    [ -n "$title" ] || continue
+    has_line "$listed" "$title" || missing="$missing$title; "
+  done < <(printf '%s' "$real")
+  while IFS= read -r title; do
+    [ -n "$title" ] || continue
+    has_line "$real" "$title" || extra="$extra$title; "
+  done < <(printf '%s\n' "$listed")
+
+  if [ -n "$missing" ]; then
+    fail "VERSION.md's $heading list is missing: $missing" "Every document under $dir/ is listed there by its H1 title$suffix_note. Governance/CONTRIBUTING.md requires the inventory updated in the same Work Unit that adds the document."
+  fi
+  if [ -n "$extra" ]; then
+    fail "VERSION.md's $heading list names documents that do not exist: $extra" "The list is compared against the H1 title of every tracked file under $dir/. Either the document was removed without updating VERSION.md, or its title changed."
+  fi
+
+  # The parenthesised count is a third copy of the same fact. Checked only when
+  # present: '### Standards' carries no count and is not required to grow one.
+  declared="$(grep -oE "^### $heading \([0-9]+\)\$" VERSION.md | grep -oE '[0-9]+' | head -1)"
+  if [ -n "$declared" ] && [ "$declared" -ne "$real_count" ]; then
+    fail "VERSION.md says '$heading ($declared)' but $real_count exist under $dir/" "Update the heading in the same Work Unit as the document."
+  fi
+
+  if [ -z "$missing" ] && [ -z "$extra" ] && { [ -z "$declared" ] || [ "$declared" -eq "$real_count" ]; }; then
+    pass "VERSION.md lists all $real_count $heading, by name${declared:+, and the heading count agrees}"
+  fi
+}
+
+# Standards are listed under their full title ("Git Standard"); Workflows and
+# Templates under their title minus the category word the file's own H1 carries
+# ("Feature Development Workflow" -> "Feature Development"). The suffix is a
+# parameter rather than a guess, so a directory whose documents do not carry
+# one passes "" and nothing is stripped.
+check_inventory Standards Standards ""
+check_inventory Workflows Workflows Workflow
+check_inventory Templates Templates Template
+
+# ==========================================================================
 printf '\n== Result\n'
 if [ "$FAILURES" -eq 0 ]; then
   printf '   %s checks passed.\n' "$CHECKS"

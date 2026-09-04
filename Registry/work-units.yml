@@ -409,3 +409,9 @@ work_units:
     title: Generate agents into the project, not the submodule, and read the project roster of Domain Employees
     milestone: Convergence
     delivers: Adapters/ai-runtimes/generate-agents.sh, Adapters/ai-runtimes/README.md, Adapters/README.md, Templates/DOMAIN_EMPLOYEE.md, Registry/README.md
+
+  - id: WU-IAENG-190
+    employee: Test Automation Engineer
+    title: Check VERSION.md's Standards, Workflows, and Templates inventories against the repository, and correct the three that had drifted
+    milestone: Convergence
+    delivers: Adapters/scripts/validate-framework.sh, VERSION.md
