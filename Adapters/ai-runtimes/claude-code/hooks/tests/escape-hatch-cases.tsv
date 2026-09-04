@@ -1,0 +1,63 @@
+block	git commit --no-verify -m x
+block	git commit -m x --no-verify
+block	git commit "--no-verify" -m x
+block	git commit '--no-verify' -m x
+block	git commit -n -m x
+block	git -c user.name=x commit --no-verify -m y
+block	git -C . push --force
+block	git push --force
+block	git push -f
+block	git push --force;
+block	git push --force && echo done
+block	git push --force-with-lease=main origin main
+block	git push --mirror origin
+block	git push origin main --force
+block	git push '--force'
+block	git push $(echo --force)
+block	GIT_DIR=.git git push --force
+block	git push -f origin main
+block	git push origin --delete release/v1
+block	git stash
+block	git stash push -m wip
+block	git rebase -i HEAD~3
+block	git add -p
+block	git reset --hard HEAD~1
+block	git clean -fd
+block	git checkout -- .
+block	git restore .
+block	git branch -D feat/x
+block	git filter-repo --path secret.pdf --invert-paths
+block	git filter-branch --tree-filter x
+block	rm -rf .git
+block	rm -rf /
+block	git commit --no-gpg-sign -m x
+block	git -c commit.gpgsign=false commit -m x
+allow	git commit -m "docs: never use --no-verify"
+allow	git commit -q -m "feat(x): a" -m "mentions --no-verify and git push --force in prose"
+allow	grep -rn -- --no-verify Standards/
+allow	grep -rn "no-verify" Standards/
+allow	echo "git push --force is forbidden" >> notes.md
+allow	git push -u origin feat/x
+allow	git push origin feat/x
+allow	git push -n origin feat/x
+allow	git push origin --delete feat/old
+allow	git stash list
+allow	git stash show
+allow	git add -A
+allow	git reset HEAD~1
+allow	git checkout -- Standards/X.md
+allow	git restore --staged file
+allow	git branch -d feat/x
+allow	rm -rf build/
+allow	ls -- -weird
+allow	git log --oneline -- Adapters/
+allow	git -c commit.gpgsign=true commit -m x
+allow	echo "$(git log --oneline -1)"
+allow	printf '%s\n' "$(git status --short)" | head -5
+allow	F="$(git rev-parse HEAD)"; echo "$F"
+allow	awk '/x/{print "a'"'"'b"; next} {print}' f && git commit -m ok
+block	git push --delete origin main
+block	git push origin --delete develop
+block	git push origin -d release/v0.0.12
+allow	git push origin --delete feature-main
+allow	git push origin --delete feat/mainline

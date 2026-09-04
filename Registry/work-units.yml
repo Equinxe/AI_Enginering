@@ -439,3 +439,9 @@ work_units:
     title: Close seven bypasses and one false positive in the escape-hatch hook, and model command substitution in its lexer
     milestone: Convergence
     delivers: Adapters/ai-runtimes/claude-code/hooks/block-escape-hatches.sh, Adapters/ai-runtimes/claude-code/hooks/strip-quotes.awk, Adapters/ai-runtimes/claude-code/hooks/block-inline-suppression.sh
+
+  - id: WU-IAENG-195
+    employee: Test Automation Engineer
+    title: Ship the runtime-hook behaviour tests and run them in CI, with the shellcheck file list derived instead of enumerated
+    milestone: Convergence
+    delivers: Adapters/ai-runtimes/claude-code/hooks/tests/, Adapters/github-actions/pr-validation.yml, Adapters/scripts/setup-branch-protection.sh, Adapters/README.md, Adapters/ai-runtimes/claude-code/hooks/README.md

@@ -1,6 +1,6 @@
 name: IA Engineering - PR Validation
 
-# Seven checks, each mechanically enforcing something the framework already
+# Eight checks, each mechanically enforcing something the framework already
 # documents instead of relying on a human or AI reviewer to remember it:
 #   - pr-compliance: every PR must trace to a Work Unit and have a real,
 #     filled-in description (Templates/WORK_UNIT.md, Templates/PULL_REQUEST.md)
@@ -18,6 +18,10 @@ name: IA Engineering - PR Validation
 #     valid, warning-free shell (Standards/CODE_QUALITY_STANDARD.md applies to
 #     Adapters code exactly as it does to any other code)
 #   - yaml-lint: every workflow file we ship must at minimum parse as valid YAML
+#   - hook-tests: the runtime hooks in Adapters/ai-runtimes/claude-code/hooks/
+#     still refuse what Standards/GIT_STANDARD.md forbids and still permit what
+#     it does not. Their correctness is behaviour, not structure, so neither
+#     shellcheck nor the validator can see it
 #   - pr-size: the PR changes at most 1,500 lines outside files marked
 #     `linguist-generated` in .gitattributes (Standards/PULL_REQUEST_STANDARD.md,
 #     Reviewability). Beyond that a PR is not reviewed, it is skimmed. The
@@ -35,10 +39,10 @@ name: IA Engineering - PR Validation
 #   ./ia-engineering/Adapters/scripts/install.sh
 #
 # Then add "PR Compliance", "Work Unit Exists", "Employee Trailer", "Shellcheck
-# Adapters", "Validate Workflow YAML", "PR Size", "Framework Validation" (from
-# framework-validation.yml) and "Data Policy" (from data-policy.yml) as
-# required status checks in branch protection.
-# Adapters/scripts/setup-branch-protection.sh already sets all eight.
+# Adapters", "Validate Workflow YAML", "Hook Tests", "PR Size", "Framework
+# Validation" (from framework-validation.yml) and "Data Policy" (from
+# data-policy.yml) as required status checks in branch protection.
+# Adapters/scripts/setup-branch-protection.sh already sets all nine.
 #
 # "Review Recorded (advisory)" is deliberately NOT required: it matches comment
 # text, which can be satisfied by pasting the block, so requiring it would buy
@@ -386,12 +390,33 @@ jobs:
         run: |
           # shellcheck is preinstalled on GitHub-hosted ubuntu-latest runners —
           # no third-party action, no extra install step.
+          # THE FILE LIST IS DERIVED, NOT ENUMERATED. It used to be a list of
+          # globs, and every new directory needed another one: the Claude Code
+          # hooks escaped it until WU-IAENG-179 widened it, and their tests
+          # escaped the widened version until this. A glob list that must be
+          # extended by whoever adds a directory is a check that silently
+          # shrinks. `git ls-files` asks the repository instead.
+          #
           # -x follows `source`, and -P SCRIPTDIR resolves each hook's
           # `# shellcheck source=lib.sh` directive relative to the hook's own
-          # directory, so the Claude Code hooks' shared lib.sh is checked in
-          # context rather than reported as "not following" (SC1091).
-          shellcheck -x -P SCRIPTDIR Adapters/git-hooks/* Adapters/scripts/*.sh Adapters/ai-runtimes/*.sh \
-            Adapters/ai-runtimes/*/*.sh Adapters/ai-runtimes/*/hooks/*.sh
+          # directory, so the shared lib.sh is checked in context rather than
+          # reported as "not following" (SC1091).
+          set -euo pipefail
+          mapfile -t SHELL_FILES < <(
+            {
+              git ls-files 'Adapters/**/*.sh' 'Adapters/*.sh'
+              # The git hooks are shell without a .sh extension: git requires
+              # the exact names commit-msg, pre-commit, pre-push.
+              git ls-files 'Adapters/git-hooks/*'
+            } | sort -u
+          )
+          if [ "${#SHELL_FILES[@]}" -eq 0 ]; then
+            echo "::error::No shell files found under Adapters/. The listing is derived from git ls-files; zero matches means the layout changed and this check would otherwise pass without examining anything."
+            exit 1
+          fi
+          echo "Checking ${#SHELL_FILES[@]} shell files:"
+          printf '  %s\n' "${SHELL_FILES[@]}"
+          shellcheck -x -P SCRIPTDIR "${SHELL_FILES[@]}"
 
   yaml-lint:
     name: Validate Workflow YAML
@@ -539,6 +564,38 @@ jobs:
           echo "::error::No recorded Code Reviewer decision ('Decision: approved', per Employees/Specialized/CODE_REVIEWER.md's Review Decision block) was found in this PR's comments or reviews. Per Workflows/CODE_REVIEW.md a Code Reviewer decision must be recorded before merge."
           echo "::notice::This check is ADVISORY: it is not in required_status_checks.contexts, so it does not block the merge. It goes red rather than green so its result is legible — an advisory check that exits 0 either way is indistinguishable from a passing gate."
           exit 1
+
+  hook-tests:
+    name: Hook Tests
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Locate the framework
+        id: locate
+        run: |
+          set -euo pipefail
+          for candidate in . ia-engineering; do
+            if [ -x "$candidate/Adapters/ai-runtimes/claude-code/hooks/tests/run.sh" ]; then
+              echo "root=$candidate" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          done
+          echo "::error::Could not locate Adapters/ai-runtimes/claude-code/hooks/tests/run.sh (looked in . and ia-engineering/)."
+          exit 1
+      - name: Run the runtime-hook behaviour tests
+        working-directory: ${{ steps.locate.outputs.root }}
+        run: |
+          # Shellcheck proves the hooks are valid shell; the validator proves
+          # the documents around them agree. Neither can say whether `git push
+          # --force` is actually refused — that is behaviour, and seven real
+          # defects and one false positive were found in it by hand. --verbose
+          # so a green check shows every case by name rather than only an exit
+          # status (Adapters/README.md, the Check Convention).
+          ./Adapters/ai-runtimes/claude-code/hooks/tests/run.sh --verbose
 
   pr-size:
     name: PR Size

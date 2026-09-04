@@ -1,0 +1,18 @@
+# strip-quotes.awk cases. TAB-separated: label, input, needle, present(yes|no)
+# \n in the input column is expanded to a newline. Test DATA lives here rather
+# than in run.sh so that a case containing a command substitution is data a
+# shell never parses, and so that adding a case needs no shell knowledge.
+double-quoted message is dropped	git commit -m "uses --no-verify"	--no-verify	no
+single-quoted message is dropped	git commit -m 'uses --no-verify'	--no-verify	no
+quoted lone flag is kept	git commit "--no-verify"	--no-verify	yes
+single-quoted lone flag is kept	git push '--force'	--force	yes
+command substitution is scanned	git push $(echo --force)	--force	yes
+substitution inside quotes is scanned	echo "$(git push --force)"	--force	yes
+nested quotes inside a substitution pair correctly	F="$(git log -1 --format="%h")"; git commit -m ok	git commit	yes
+the apostrophe idiom does not invert the rest	awk '/x/{print "a'"'"'b"}' f && git commit -m ok	git commit	yes
+line continuation reads as the shell reads it	git \\\npush --force	git push --force	yes
+heredoc body is dropped	cat <<EOF\ngit push --force\nEOF	--force	no
+quoted heredoc body is dropped	cat <<'EOF'\ngit push --force\nEOF	--force	no
+escaped flag survives	git commit \\--no-verify	--no-verify	yes
+unterminated quote is not matched raw	git commit -m "unclosed --no-verify	--no-verify	no
+plain command is untouched	git status --short	git status --short	yes
