@@ -180,8 +180,9 @@ Category: Employee — Project Domain
 
 Severity: Mandatory
 
-Default Complexity Tier: [Standard Execution | Complex Reasoning — per
-Core/CAPABILITY_TIERS.md; domain judgment is usually Complex Reasoning]
+Default Complexity Tier: [Standard Execution | Strategic Judgment — the only
+two Employee defaults Core/CAPABILITY_TIERS.md defines; domain judgment is
+usually Strategic Judgment]
 ```
 
 ---
@@ -194,7 +195,8 @@ Core/CAPABILITY_TIERS.md; domain judgment is usually Complex Reasoning]
    employees:
      - name: Tariff Classification Specialist
        file: .ia-engineering/Employees/TARIFF_CLASSIFICATION_SPECIALIST.md
-       tier: Complex Reasoning
+       category: Project Domain
+       tier: Strategic Judgment
    ```
 
    The `commit-msg` hook and the `Employee Trailer` CI job read this file in addition to the framework roster, so `Employee: Tariff Classification Specialist` validates. A project whose roster lives elsewhere sets `IAENG_PROJECT_ROSTER`; a set variable that points at a missing file is refused, not skipped.
@@ -203,7 +205,15 @@ Core/CAPABILITY_TIERS.md; domain judgment is usually Complex Reasoning]
 
 3. **Dispatch triggers.** State in `CLAUDE.md` which outputs, paths, or Work Unit types always insert the Domain Employee — the same concreteness `Core/EMPLOYEE_SELECTION.md` demands of framework triggers, because "when domain matters" is a rule nobody can check.
 
-4. **Runtime agents.** `Adapters/ai-runtimes/generate-agents.sh` currently reads the framework roster only; a project that wants its Domain Employees as dispatchable runtime agents generates them from the project roster with the same script's `--roster` option once that lands (tracked in `Adapters/README.md`, Planned). Until then the Domain Employee is dispatched by its definition file, like every Employee was before the generator existed.
+4. **Runtime agents.** Run the generator from the **project root**:
+
+   ```bash
+   ./ia-engineering/Adapters/ai-runtimes/generate-agents.sh --target claude-code
+   ```
+
+   It reads the framework roster *and* the project roster, and writes every agent — framework Employees and Domain Employees together — into the project's own agent directory. The project roster is found automatically at `.ia-engineering/Registry/employees.yml`; `--roster <file>` names a different one, and a `--roster` that does not exist is refused rather than skipped. Each generated file records which roster declared it.
+
+   The Domain Employee's definition file is read from the path in the roster entry, resolved against the **project** root — so `.ia-engineering/Employees/…` is correct there, just as `Employees/…` is correct in the framework's own roster.
 
 ---
 

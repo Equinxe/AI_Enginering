@@ -74,7 +74,7 @@ Reformatting a Registry file — re-indenting, quoting values, adding a trailing
 
 A project may define **Domain Employees** — roles whose expertise is the project's business domain rather than an engineering discipline (`Templates/DOMAIN_EMPLOYEE.md`). They are project artifacts: their definitions live in the project under `.ia-engineering/Employees/`, and they are registered in a **project roster** at `.ia-engineering/Registry/employees.yml`, which follows the parsing contract above exactly.
 
-The `commit-msg` hook and the `Employee Trailer` CI job read the project roster **in addition to** `Registry/employees.yml`, so a Domain Employee's trailer validates without touching the framework. Resolution is the same in both: `IAENG_PROJECT_ROSTER` if set — and a set value naming a missing file is refused, not skipped, because validating against the framework roster alone would silently refuse every Domain Employee — otherwise the default path, whose absence is the ordinary case and is stated in the rejection message.
+The `commit-msg` hook, the `Employee Trailer` CI job, and `generate-agents.sh` read the project roster **in addition to** `Registry/employees.yml`, so a Domain Employee's trailer validates and its runtime agent is generated without touching the framework. Each roster's `file:` paths are relative to **its own** root — the framework's to the framework, a project's to the project. Resolution is the same in both: `IAENG_PROJECT_ROSTER` if set — and a set value naming a missing file is refused, not skipped, because validating against the framework roster alone would silently refuse every Domain Employee — otherwise the default path, whose absence is the ordinary case and is stated in the rejection message.
 
 The project roster never wins over the framework roster either: a project cannot redefine or remove a framework Employee by listing it. It can only add.
 
@@ -87,7 +87,7 @@ The project roster never wins over the framework roster either: a project cannot
 | `Adapters/git-hooks/commit-msg` | `employees.yml`, project roster | Validating the `Employee:` trailer against the real roster, extended by the project's Domain Employees |
 | `Adapters/github-actions/pr-validation.yml` | `employees.yml`, project roster, `work-units.yml` | Server-side trailer re-validation; Work Unit existence |
 | `Adapters/scripts/validate-framework.sh` | all four | Drift detection across every derived location |
-| `Adapters/ai-runtimes/generate-agents.sh` | `employees.yml` | Generating runtime agent definitions from Employee definitions |
+| `Adapters/ai-runtimes/generate-agents.sh` | `employees.yml`, project roster | Generating runtime agent definitions from Employee definitions, framework and Domain alike |
 | `Adapters/scripts/release.sh` | `work-units.yml` | Listing the Work Units a release contains |
 
 ---

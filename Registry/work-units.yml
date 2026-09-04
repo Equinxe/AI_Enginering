@@ -403,3 +403,9 @@ work_units:
     title: Make the Claude Code hooks pass the Shellcheck Adapters job — lexer as an awk file, source-path resolution in the CI command
     milestone: Convergence
     delivers: Adapters/ai-runtimes/claude-code/hooks/strip-quotes.awk, Adapters/ai-runtimes/claude-code/hooks/block-escape-hatches.sh, Adapters/github-actions/pr-validation.yml
+
+  - id: WU-IAENG-189
+    employee: DevOps Engineer
+    title: Generate agents into the project, not the submodule, and read the project roster of Domain Employees
+    milestone: Convergence
+    delivers: Adapters/ai-runtimes/generate-agents.sh, Adapters/ai-runtimes/README.md, Adapters/README.md, Templates/DOMAIN_EMPLOYEE.md, Registry/README.md

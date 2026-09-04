@@ -15,15 +15,25 @@ The reason it kept being broken is structural, not a lapse of discipline. Under 
 # What It Generates
 
 ```bash
+# From the framework repository:
 ./Adapters/ai-runtimes/generate-agents.sh --target claude-code
+
+# From a project that imports the framework as a submodule:
+./ia-engineering/Adapters/ai-runtimes/generate-agents.sh --target claude-code
 ```
 
-One agent definition per Employee, read from that Employee's own definition file and the roster in `Registry/employees.yml`. Each generated agent carries:
+One agent definition per Employee, read from that Employee's own definition file and the roster in `Registry/employees.yml` — **plus** the project's Domain Employees (`Templates/DOMAIN_EMPLOYEE.md`) from `.ia-engineering/Registry/employees.yml` when that file exists, or from `--roster <file>`. A `--roster` naming a missing file is refused, never skipped: generating the framework's Employees alone would leave the project's own undispatchable while reporting success.
+
+Output goes to the **project's** agent directory — the directory the script was run from, or `--project <dir>` — because that is the only one a runtime reads. Until WU-IAENG-189 the default was resolved against the framework instead, so an adopter who ran the documented command got 42 files inside `ia-engineering/.claude/agents`, a path nothing reads, and a report saying 42 were written.
+
+Each generated agent carries:
 
 - The Employee's Mission, Responsibilities, Authority, Standards Applied, Inputs, Process, Outputs, Output Format, Definition of Done, Escalation Rules, and Failure Modes — extracted from `Employees/`, not paraphrased.
 - The universal rules from `Core/AGENT_CONDUCT.md` and a pointer to `Core/DECISION_TREE.md`, which every Employee inherits.
 - The exact commit trailer it must use, and the statement that a commit without it is rejected mechanically.
+- Its first and last actions: Read First, and the Work Unit Report (`Core/AGENT_CONDUCT.md`), plus the risk-classification and escape-hatch rules.
 - An execution capability derived from the Employee's Default Complexity Tier.
+- A header naming the definition it came from and the roster that declared it, so a Domain Employee's provenance is visible in the generated file.
 
 ---
 
