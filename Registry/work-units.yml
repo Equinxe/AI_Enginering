@@ -445,3 +445,9 @@ work_units:
     title: Ship the runtime-hook behaviour tests and run them in CI, with the shellcheck file list derived instead of enumerated
     milestone: Convergence
     delivers: Adapters/ai-runtimes/claude-code/hooks/tests/, Adapters/github-actions/pr-validation.yml, Adapters/scripts/setup-branch-protection.sh, Adapters/README.md, Adapters/ai-runtimes/claude-code/hooks/README.md
+
+  - id: WU-IAENG-196
+    employee: DevOps Engineer
+    title: Make generate-agents --dry-run agree with --check, and keep the generated header machine-independent
+    milestone: Convergence
+    delivers: Adapters/ai-runtimes/generate-agents.sh

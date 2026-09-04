@@ -273,7 +273,7 @@ UNCHANGED=0
 DIFFERENT=0
 
 generate_claude_code() {
-  local name="$1" file="$2" category="$3" tier="$4" from_roster="$5"
+  local name="$1" file="$2" category="$3" tier="$4" from_roster="$5" source_label="$6"
   local slug model dest tmp
 
   slug="$(slugify "$name")"
@@ -323,7 +323,7 @@ generate_claude_code() {
 <!--
   GENERATED FILE — do not edit.
 
-  Source:    $file
+  Source:    $source_label
   Generator: Adapters/ai-runtimes/generate-agents.sh --target claude-code
   Roster:    $from_roster
   Tier:      $tier -> $model
@@ -441,16 +441,22 @@ FOOTER
     return
   fi
 
+  # The identical-file test comes BEFORE the dry-run branch, not after. With
+  # the order reversed, --dry-run never compared anything and reported every
+  # file as "would be written" — 42 of them on a tree where --check found only
+  # 2 stale. The two modes ask the same question and must not answer it
+  # differently; the comment further down about not reporting what did not
+  # happen was in the file while the branch above it did exactly that.
+  if [ -f "$dest" ] && diff -q "$tmp" "$dest" > /dev/null 2>&1; then
+    UNCHANGED=$((UNCHANGED + 1))
+    rm -f "$tmp"
+    return
+  fi
+
   if [ "$DRY_RUN" -eq 1 ]; then
     echo "  [dry-run] $dest ($tier -> $model, $(wc -l < "$tmp" | tr -d ' ') lines)"
     rm -f "$tmp"
     WRITTEN=$((WRITTEN + 1))
-    return
-  fi
-
-  if [ -f "$dest" ] && diff -q "$tmp" "$dest" > /dev/null 2>&1; then
-    UNCHANGED=$((UNCHANGED + 1))
-    rm -f "$tmp"
     return
   fi
 
@@ -506,17 +512,26 @@ while IFS=$'\t' read -r name file category tier base roster_label; do
     DIFFERENT=$((DIFFERENT + 1))
     continue
   fi
+  # Two forms of the same path: the absolute one to read, the declared one to
+  # record. See the call site below.
   case "$file" in
-    /*|[A-Za-z]:[\\/]*) ;;
-    *) file="$base/$file" ;;
+    /*|[A-Za-z]:[\\/]*) source_file="$file" ;;
+    *) source_file="$base/$file" ;;
   esac
-  if [ ! -f "$file" ]; then
-    echo "  ! $name: $file is missing — skipped" >&2
+  if [ ! -f "$source_file" ]; then
+    echo "  ! $name: $source_file is missing — skipped" >&2
     DIFFERENT=$((DIFFERENT + 1))
     continue
   fi
   case "$TARGET" in
-    claude-code) generate_claude_code "$name" "$file" "$category" "$tier" "$roster_label" ;;
+    # $source_file is absolute so the -f test and the read work from any
+    # directory; $source_label is the roster-relative form the roster itself
+    # declares, and it is what the generated header records. Passing the
+    # absolute path into the header made every generated file differ between
+    # machines, which breaks the --check mode Adapters/ai-runtimes/README.md
+    # recommends adopters wire into CI. Introduced by WU-IAENG-189 and caught
+    # by review before it left the branch.
+    claude-code) generate_claude_code "$name" "$source_file" "$category" "$tier" "$roster_label" "$file" ;;
   esac
 done < <(
   read_roster "$ROSTER" "$ROOT" "$ROSTER"
