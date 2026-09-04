@@ -68,7 +68,15 @@ else
 fi
 [ -n "$TEXT" ] || exit 0
 
-check() { printf '%s\n' "$TEXT" | grep -qE -- "$1"; }
+# CASE-INSENSITIVE. The filename exemption above folds case and the directives
+# it guards did not, so the upper-case spelling of the Python lint pragma was
+# allowed while the lower-case one was refused — and the tool honours both,
+# making it a live suppression and the second spelling anyone reaching for a
+# bypass would try. Blanket -i rather than deciding per tool which spellings
+# are honoured: it errs toward blocking, which is the direction these hooks
+# fail in by design, and the cost of over-blocking is a rename, not a lost
+# control.
+check() { printf '%s\n' "$TEXT" | grep -qiE -- "$1"; }
 
 if check '#[[:space:]]*noqa|#[[:space:]]*type:[[:space:]]*ignore|#[[:space:]]*pylint:[[:space:]]*disable|#[[:space:]]*pyright:[[:space:]]*ignore|#[[:space:]]*mypy:[[:space:]]*ignore'; then
   iaeng_block "inline Python lint/type suppression (${FILE:-unknown file})" \

@@ -20,3 +20,6 @@ quoted bare word is kept	git "reset" --hard	reset	yes
 quoted phrase is still dropped	git commit -m "reset the thing"	reset	no
 eval argument is scanned as code	eval "git push --force"	git push --force	yes
 shell -c argument is scanned as code	bash -c 'git commit --no-verify'	--no-verify	yes
+backslash inside a flag resolves as the shell resolves it	git commit --no-veri\\fy	--no-verify	yes
+leading backslash still yields the flag	git commit \--no-verify	--no-verify	yes
+short option bundle ending in c is command text	bash -lc "git push --force"	--force	yes

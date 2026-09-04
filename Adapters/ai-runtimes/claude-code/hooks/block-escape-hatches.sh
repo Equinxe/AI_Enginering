@@ -63,6 +63,13 @@ E='([[:space:]]|;|&|\||\)|$)'
 
 check() { printf '%s\n' "$STRIPPED" | grep -qE -- "$1"; }
 
+# Case-insensitive variant, for git CONFIG KEYS only. Git treats the section
+# and key parts of a config name case-insensitively — `git -c
+# commit.gpgSign=false` disables signing exactly as the lowercase spelling
+# does, and was allowed while the lowercase one was blocked. Command names and
+# flags stay case-sensitive, because git's are.
+check_key() { printf '%s\n' "$STRIPPED" | grep -qiE -- "$1"; }
+
 # --no-verify is scoped to a git command rather than matched anywhere, so that
 # searching the documentation for the string — `grep -rn -- --no-verify
 # Standards/` — is not refused. A hook that fires on reading about a rule is a
@@ -71,7 +78,8 @@ if check "${G}[a-z][a-z-]*[^|;&]*--no-verify"; then
   iaeng_block "--no-verify disables the commit-msg and pre-commit hooks — attribution and data protection in one motion" \
     "Standards/GIT_STANDARD.md, Escape Hatches. Fix what the hook refuses; if the hook is wrong, that is a Work Unit against the hook."
 fi
-if check '--no-gpg-sign|commit\.gpgsign=false'; then
+if check '--no-gpg-sign' \
+   || check_key "commit\.gpgsign[[:space:]]*[= ][[:space:]]*(false|0|off|no)"; then
   iaeng_block "disabling commit signing" "Standards/GIT_STANDARD.md, Escape Hatches. Fix the signing setup."
 fi
 # core.hooksPath is --no-verify spelled as configuration: `git -c
@@ -138,9 +146,28 @@ if check "${G}(checkout|restore)[^|;&]*${S}(--${S}+)?\.$E"; then
   iaeng_block "discarding every working-tree change at once (checkout -- . / restore .)" \
     "Standards/GIT_STANDARD.md, Escape Hatches. Restore the one path you mean, by name."
 fi
-if check "${G}branch[^|;&]*${S}-D$E"; then
-  iaeng_block "force-deleting a branch (-D) discards unmerged commits" \
+if check "${G}branch[^|;&]*${S}(-D|--delete[^|;&]*${S}--force|--force[^|;&]*${S}--delete)$E"; then
+  iaeng_block "force-deleting a branch discards unmerged commits" \
     "Standards/GIT_STANDARD.md, Escape Hatches. Use -d, which refuses when the branch is unmerged — that refusal is information."
+fi
+# `git push origin :main` is the old spelling of a remote branch deletion, and
+# Standards/GIT_STANDARD.md names remote deletion of a protected branch. It
+# carries no -d and no --delete, so the rule above cannot see it.
+if check "${G}push[^|;&]*${S}:(main|develop|release/)"; then
+  iaeng_block "an empty source in a refspec deletes the remote branch — the old spelling of --delete, on a protected branch" \
+    "Standards/BRANCH_STANDARD.md; Standards/GIT_STANDARD.md, Escape Hatches. Release branches are never deleted."
+fi
+# `git checkout --force <branch>` throws away uncommitted work to switch, and
+# `git update-ref -d` deletes a ref with no reflog entry for the deletion.
+# Both are the operational catalog's "discarding work that is not yours" and
+# "history rewrite" rows in a spelling the other rules do not reach.
+if check "${G}(checkout|switch)[^|;&]*${S}(-f|--force)$E"; then
+  iaeng_block "checkout --force discards every uncommitted change to switch" \
+    "Standards/GIT_STANDARD.md, Escape Hatches; Standards/RISK_STANDARD.md (High). Commit or report the changes first — losing someone else's work is not recoverable."
+fi
+if check "${G}update-ref[^|;&]*${S}(-d|--delete)$E"; then
+  iaeng_block "update-ref -d deletes a ref outright" \
+    "Standards/GIT_STANDARD.md, Escape Hatches; Standards/RISK_STANDARD.md (High). Branch deletion goes through the branch commands, which refuse when the branch is unmerged."
 fi
 if check "${G}filter-(branch|repo)$E"; then
   iaeng_block "history rewrite" \

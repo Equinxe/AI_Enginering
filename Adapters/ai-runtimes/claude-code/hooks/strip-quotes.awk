@@ -65,7 +65,10 @@ function is_bare_word(s) {
 # both allowed: a four-character prefix disabled every rule in the hook.
 # Scanning too much here can only over-block, never under-block.
 function is_command_context(w) {
-  return w == "eval" || w == "-c" || w == "--command"
+  # -c, and any short-option bundle ending in c: `bash -lc "..."` runs its
+  # argument exactly as `bash -c` does, and was allowed while `bash -c`,
+  # `sh -c` and `eval` were all blocked.
+  return w == "eval" || w == "--command" || w ~ /^-[A-Za-z]*c$/
 }
 
 {
@@ -90,7 +93,15 @@ function is_command_context(w) {
         # here produced a double space, which the rules tolerated but which
         # made the lexer's output stop being what the shell would read.
         if (d == "\n") { i += 2; continue }
-        out = out c d; i += 2; continue
+        # OUTSIDE QUOTES THE BACKSLASH IS DROPPED AND THE CHARACTER KEPT —
+        # which is what the shell does. Keeping both let a backslash INSIDE a
+        # flag defeat every rule: `git commit --no-veri\fy -m x` reaches git as
+        # `--no-verify` (confirmed: printf "[%s]" --no-veri\fy prints
+        # [--no-verify]) while the rules saw `--no-veri\fy` and matched
+        # nothing. The same shape as the quoted-flag bypass, one layer down.
+        # `\--no-verify` still matches, because dropping the backslash leaves
+        # exactly `--no-verify`.
+        out = out d; i += 2; continue
       }
       if (c == "$" && d == "(") {
         stack[depth] = "out"; depth++

@@ -493,3 +493,9 @@ work_units:
     title: Scope the core.hooksPath rule to a git command — it refused a sed that merely named the setting
     milestone: Convergence
     delivers: Adapters/ai-runtimes/claude-code/hooks/block-escape-hatches.sh, Adapters/ai-runtimes/claude-code/hooks/tests/escape-hatch-cases.tsv, Governance/TROUBLESHOOTING.md
+
+  - id: WU-IAENG-204
+    employee: Security Engineer
+    title: Close the five bypasses the second verification found — backslash inside a flag, config key case, four destructive spellings, shell -lc, upper-case suppression directives
+    milestone: Convergence
+    delivers: Adapters/ai-runtimes/claude-code/hooks/strip-quotes.awk, Adapters/ai-runtimes/claude-code/hooks/block-escape-hatches.sh, Adapters/ai-runtimes/claude-code/hooks/block-inline-suppression.sh, Adapters/ai-runtimes/claude-code/hooks/tests/

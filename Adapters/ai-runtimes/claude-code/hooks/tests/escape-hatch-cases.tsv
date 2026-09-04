@@ -93,3 +93,29 @@ allow	grep -rn core.hooksPath Standards/
 allow	sed -i 's|old core.hooksPath text|new text|' notes.md
 allow	echo "core.hooksPath is an escape hatch" >> notes.md
 allow	git log --oneline | grep core.hooksPath
+block	git commit --no-veri\fy -m x
+block	git push --for\ce origin main
+block	git reset --ha\rd HEAD
+block	git \reset --hard HEAD
+block	git -c commit.gpgSign=false commit -m x
+block	git -c commit.GPGSIGN=0 commit -m x
+block	git config commit.gpgsign false
+block	git config --global commit.gpgSign off
+block	git branch --delete --force feature/x
+block	git branch --force --delete feature/x
+block	git push origin :main
+block	git push origin :develop
+block	git checkout --force other-branch
+block	git checkout -f other-branch
+block	git switch --force other
+block	git update-ref -d refs/heads/main
+block	bash -lc "git push -f origin main"
+block	sh -ec 'git reset --hard'
+allow	git -c commit.gpgsign=true commit -m x
+allow	git config --get commit.gpgsign
+allow	git branch -d feature/x
+allow	git push origin feat/x:feat/x
+allow	git checkout other-branch
+allow	git switch other
+allow	git update-ref refs/heads/x HEAD
+allow	git commit -m "the flag --no-verify is banned"
