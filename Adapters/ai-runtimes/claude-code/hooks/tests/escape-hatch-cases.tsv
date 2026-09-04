@@ -119,3 +119,37 @@ allow	git checkout other-branch
 allow	git switch other
 allow	git update-ref refs/heads/x HEAD
 allow	git commit -m "the flag --no-verify is banned"
+block	git push $'--force' origin main
+block	git push $'-f' origin main
+block	git push $'--mirror' origin
+block	git reset $'--hard' HEAD
+block	git clean $'-fd'
+block	git branch $'-D' feature/x
+block	git rebase $'-i' HEAD~3
+block	git commit $'-n' -m x
+block	git $'stash'
+block	git commit $'--no-verify' -m x
+block	git push $"--force" origin main
+block	git push $'\x2d\x2dforce' origin main
+block	git reset $'\055\055hard' HEAD
+block	git push $'--force' origin main
+block	git push --{f,f}orce origin main
+block	git commit --no-{verify,verify} -m x
+block	git reset --{hard,hard} HEAD
+block	git clean -{f,f}d
+block	git branch -{D,D} feature/x
+block	git push origin --delete refs/heads/main
+block	git push origin --delete refs/heads/develop
+block	git push origin :refs/heads/main
+block	git branch -d --force feature/x
+block	git branch --force -d feature/x
+block	git restore :/
+block	git checkout -- :/
+block	git config alias.yolo "push --force"
+block	git config --global alias.nv "commit --no-verify"
+block	git config alias.nuke "reset --hard"
+allow	git config alias.st status
+allow	git config alias.lg "log --oneline --graph"
+allow	git push origin --delete refs/heads/feat-x
+allow	git restore src/main.c
+allow	git checkout -- src/main.c

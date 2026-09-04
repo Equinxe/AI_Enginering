@@ -23,3 +23,9 @@ shell -c argument is scanned as code	bash -c 'git commit --no-verify'	--no-verif
 backslash inside a flag resolves as the shell resolves it	git commit --no-veri\\fy	--no-verify	yes
 leading backslash still yields the flag	git commit \--no-verify	--no-verify	yes
 short option bundle ending in c is command text	bash -lc "git push --force"	--force	yes
+ANSI-C quoting drops its dollar	git push $'--force' origin	git push --force	yes
+locale quoting drops its dollar	git push $"--force" origin	git push --force	yes
+hex escapes decode	git push $'\x2d\x2dforce'	--force	yes
+octal escapes decode	git reset $'\055\055hard'	--hard	yes
+brace expansion is expanded	git push --{f,f}orce origin	--force	yes
+alias value is scanned as code	git config alias.x "push --force"	--force	yes

@@ -499,3 +499,9 @@ work_units:
     title: Close the five bypasses the second verification found — backslash inside a flag, config key case, four destructive spellings, shell -lc, upper-case suppression directives
     milestone: Convergence
     delivers: Adapters/ai-runtimes/claude-code/hooks/strip-quotes.awk, Adapters/ai-runtimes/claude-code/hooks/block-escape-hatches.sh, Adapters/ai-runtimes/claude-code/hooks/block-inline-suppression.sh, Adapters/ai-runtimes/claude-code/hooks/tests/
+
+  - id: WU-IAENG-205
+    employee: Security Engineer
+    title: Close the three bypass families the attack pass found — ANSI-C quoting, brace expansion, alias writes — and three more git spellings
+    milestone: Convergence
+    delivers: Adapters/ai-runtimes/claude-code/hooks/strip-quotes.awk, Adapters/ai-runtimes/claude-code/hooks/block-escape-hatches.sh, Adapters/ai-runtimes/claude-code/hooks/tests/

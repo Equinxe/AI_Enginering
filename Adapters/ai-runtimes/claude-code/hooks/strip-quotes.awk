@@ -58,6 +58,77 @@ function is_bare_word(s) {
   return s != "" && s !~ /[ \t\n]/
 }
 
+# ANSI-C quoting decodes escapes before the shell ever sees the word:
+# `git push $'\x2d\x2dforce'` passes --force. Without this, dropping the `$`
+# alone still left `\x2d\x2dforce`, which matches nothing. Hex, octal and
+# \u are decoded; the common single-character escapes are folded to their
+# character so that a `\t` inside the word does not read as a word break.
+function decode_ansic(s,   out, i, n, c, d, hex, oct, v, j) {
+  out = ""; n = length(s); i = 1
+  while (i <= n) {
+    c = substr(s, i, 1)
+    if (c != "\\") { out = out c; i++; continue }
+    d = substr(s, i + 1, 1)
+    if (d == "x" || d == "u" || d == "U") {
+      # Each form has a MAXIMUM digit count in the shell — \x takes two, \u
+      # four, \U eight — and reading greedily past it is wrong in a way that
+      # hides the attack rather than revealing it: `\x2d\x2dforce` decoded as
+      # `2df` (735, out of range, dropped) and produced `-orce`, so the flag
+      # vanished and the rules matched nothing.
+      maxlen = (d == "x") ? 2 : ((d == "u") ? 4 : 8)
+      hex = ""; j = i + 2
+      while (j <= n && substr(s, j, 1) ~ /[0-9A-Fa-f]/ && length(hex) < maxlen) {
+        hex = hex substr(s, j, 1); j++
+      }
+      if (hex != "") {
+        v = 0
+        for (k = 1; k <= length(hex); k++) {
+          v = v * 16 + index("0123456789abcdef", tolower(substr(hex, k, 1))) - 1
+        }
+        if (v > 0 && v < 256) out = out sprintf("%c", v)
+        i = j; continue
+      }
+      out = out d; i += 2; continue
+    }
+    if (d ~ /[0-7]/) {
+      oct = ""; j = i + 1
+      while (j <= n && substr(s, j, 1) ~ /[0-7]/ && length(oct) < 3) {
+        oct = oct substr(s, j, 1); j++
+      }
+      v = 0
+      for (k = 1; k <= length(oct); k++) v = v * 8 + (substr(oct, k, 1) + 0)
+      if (v > 0 && v < 256) out = out sprintf("%c", v)
+      i = j; continue
+    }
+    if (d == "n" || d == "t" || d == "r") { out = out " "; i += 2; continue }
+    out = out d; i += 2
+  }
+  return out
+}
+
+# Brace expansion needs no quoting at all, so it reached the rules verbatim:
+# `git push --{f,f}orce` is `git push --force` to the shell. Rather than
+# implementing the shell's expander, each simple comma group is expanded in
+# place and every alternative APPENDED to the text. The rules only need the
+# flag to appear somewhere, so appending is enough, and it can only ever
+# over-match. Bounded, because an unbounded expander on hostile input is its
+# own problem.
+function expand_braces(s,   extra, guard, grp, inner, alts, n, k, pre, post) {
+  extra = ""
+  guard = 0
+  while (match(s, /\{[^{}]*,[^{}]*\}/) && guard < 8) {
+    guard++
+    grp = substr(s, RSTART, RLENGTH)
+    pre = substr(s, 1, RSTART - 1)
+    post = substr(s, RSTART + RLENGTH)
+    inner = substr(grp, 2, length(grp) - 2)
+    n = split(inner, alts, ",")
+    for (k = 1; k <= n && k <= 8; k++) extra = extra " " pre alts[k] post
+    s = pre alts[1] post
+  }
+  return extra
+}
+
 # The word before a quoted region decides whether that region is DATA or
 # CODE. After `eval`, or after a `-c` (as in `bash -c`, `sh -c`), the shell
 # runs the contents as commands, so they are scanned as commands. Before this,
@@ -68,7 +139,12 @@ function is_command_context(w) {
   # -c, and any short-option bundle ending in c: `bash -lc "..."` runs its
   # argument exactly as `bash -c` does, and was allowed while `bash -c`,
   # `sh -c` and `eval` were all blocked.
-  return w == "eval" || w == "--command" || w ~ /^-[A-Za-z]*c$/
+  #
+  # An alias VALUE is command text too: `git config alias.yolo "push --force"`
+  # writes a control-disabling command into the clone's configuration, which is
+  # the category core.hooksPath sits in. Surfacing the value is what lets the
+  # alias rule in block-escape-hatches.sh see it.
+  return w == "eval" || w == "--command" || w ~ /^-[A-Za-z]*c$/ || w ~ /^alias\./
 }
 
 {
@@ -79,6 +155,7 @@ function is_command_context(w) {
   buf = ""          # current quoted region's content
   tainted = 0       # the current region contained a substitution
   cmdctx = 0        # the current region is command text, not data
+  ansic = 0         # the current region is $'...' and decodes escapes
   nw = 0
 
   while (i <= n) {
@@ -115,6 +192,19 @@ function is_command_context(w) {
       if (c == SQ || c == "\"") {
         mode = (c == SQ) ? "sq" : "dq"
         buf = ""; tainted = 0
+
+        # A `$` immediately before the quote is ANSI-C ($'...') or locale
+        # ($"...") quoting, and the shell CONSUMES it: `git push $'--force'`
+        # passes `--force`. Emitting the `$` left `$--force` in the text, which
+        # kept the flag but destroyed the whitespace boundary every rule
+        # anchors on — seven of the eight rules stopped matching from this one
+        # character. The `$` is dropped here and, for the $'...' form, the
+        # region's ANSI-C escapes are decoded below.
+        ansic = 0
+        if (out != "" && substr(out, length(out), 1) == "$") {
+          out = substr(out, 1, length(out) - 1)
+          if (mode == "sq") ansic = 1
+        }
         # The last whitespace-delimited word already emitted decides whether
         # what follows is data or code. The trailing separator is trimmed
         # first: splitting "eval " yields an empty final field, which read as
@@ -153,9 +243,10 @@ function is_command_context(w) {
 
     if (mode == "sq") {
       if (c == SQ) {
+        if (ansic) buf = decode_ansic(buf)
         if (cmdctx) out = out " " buf " "
         else if (!tainted && is_bare_word(buf)) out = out buf
-        mode = "out"; buf = ""; tainted = 0; cmdctx = 0
+        mode = "out"; buf = ""; tainted = 0; cmdctx = 0; ansic = 0
         i++; continue
       }
       buf = buf c; i++; continue
@@ -180,5 +271,5 @@ function is_command_context(w) {
   # An unterminated quote ran to the end of the text. Its content was never
   # closed, so it is not a lone option word and is dropped, as any other
   # quoted text would be.
-  printf "%s", out
+  printf "%s%s", out, expand_braces(out)
 }

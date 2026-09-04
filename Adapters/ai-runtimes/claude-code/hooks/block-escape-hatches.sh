@@ -130,7 +130,8 @@ fi
 # after the flag rather than at a fixed position. It was matched at a fixed
 # position, and `git push origin --delete release/v1` walked past. The branch
 # name is anchored on whitespace so `feature-main` is not read as `main`.
-if check "${G}push[^|;&]*${S}(-d|--delete)[^|;&]*${S}(main$E|develop$E|release/)"; then
+PROT="(refs/heads/)?(main$E|develop$E|release/)"
+if check "${G}push[^|;&]*${S}(-d|--delete)[^|;&]*${S}$PROT"; then
   iaeng_block "deleting a protected branch on the remote" \
     "Standards/BRANCH_STANDARD.md; Standards/GIT_STANDARD.md, Escape Hatches. Release branches are never deleted."
 fi
@@ -142,18 +143,23 @@ if check "${G}clean[^|;&]*${S}(-[a-zA-Z]*f|--force)"; then
   iaeng_block "git clean -f deletes untracked files that may not be yours" \
     "Standards/GIT_STANDARD.md, Escape Hatches; Standards/RISK_STANDARD.md (High). Surface unexpected files instead of deleting them."
 fi
-if check "${G}(checkout|restore)[^|;&]*${S}(--${S}+)?\.$E"; then
-  iaeng_block "discarding every working-tree change at once (checkout -- . / restore .)" \
+# `:/` is the magic pathspec for the repository root, so `git restore :/` from
+# any subdirectory discards every working-tree change — the same act as
+# `restore .` at the top, spelled so the `.` pattern cannot see it.
+if check "${G}(checkout|restore)[^|;&]*${S}(--${S}+)?(\.|:/)$E"; then
+  iaeng_block "discarding every working-tree change at once (checkout -- . / restore . / restore :/)" \
     "Standards/GIT_STANDARD.md, Escape Hatches. Restore the one path you mean, by name."
 fi
-if check "${G}branch[^|;&]*${S}(-D|--delete[^|;&]*${S}--force|--force[^|;&]*${S}--delete)$E"; then
+# -d and --force in either order is -D. `git branch -d --force x` deletes an
+# unmerged branch that plain -d refuses, which is the whole point of the rule.
+if check "${G}branch[^|;&]*${S}(-D$E|(-d|--delete)[^|;&]*${S}(-f|--force)$E|(-f|--force)[^|;&]*${S}(-d|--delete)$E)"; then
   iaeng_block "force-deleting a branch discards unmerged commits" \
     "Standards/GIT_STANDARD.md, Escape Hatches. Use -d, which refuses when the branch is unmerged — that refusal is information."
 fi
 # `git push origin :main` is the old spelling of a remote branch deletion, and
 # Standards/GIT_STANDARD.md names remote deletion of a protected branch. It
 # carries no -d and no --delete, so the rule above cannot see it.
-if check "${G}push[^|;&]*${S}:(main|develop|release/)"; then
+if check "${G}push[^|;&]*${S}:(refs/heads/)?(main|develop|release/)"; then
   iaeng_block "an empty source in a refspec deletes the remote branch — the old spelling of --delete, on a protected branch" \
     "Standards/BRANCH_STANDARD.md; Standards/GIT_STANDARD.md, Escape Hatches. Release branches are never deleted."
 fi
@@ -164,6 +170,17 @@ fi
 if check "${G}(checkout|switch)[^|;&]*${S}(-f|--force)$E"; then
   iaeng_block "checkout --force discards every uncommitted change to switch" \
     "Standards/GIT_STANDARD.md, Escape Hatches; Standards/RISK_STANDARD.md (High). Commit or report the changes first — losing someone else's work is not recoverable."
+fi
+# An ALIAS is persistent configuration that disables a control — the category
+# core.hooksPath sits in — and unlike variable indirection it is reachable,
+# because the alias value is literal text in the command. The lexer surfaces
+# that value as command text (is_command_context matches `alias.`), so the
+# forbidden flag appears here and the two conditions together identify it
+# without blocking ordinary aliases.
+if check "${G}config[^|;&]*${S}alias\." \
+   && check '(--force|--no-verify|--no-gpg-sign|--hard|--mirror|-D|filter-repo|filter-branch|core\.hooksPath)'; then
+  iaeng_block "writing a git alias whose value is an escape hatch — the alias outlives the command and disables the control for every later use" \
+    "Standards/GIT_STANDARD.md, Escape Hatches. An alias for a forbidden command is the forbidden command with a shorter name."
 fi
 if check "${G}update-ref[^|;&]*${S}(-d|--delete)$E"; then
   iaeng_block "update-ref -d deletes a ref outright" \
