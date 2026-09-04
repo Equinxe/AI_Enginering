@@ -469,3 +469,9 @@ work_units:
     title: Make the history scan see deduplicated blobs, and refuse a zero-path scan over a non-empty range
     milestone: Convergence
     delivers: Adapters/scripts/data-policy-scan.sh
+
+  - id: WU-IAENG-200
+    employee: Test Automation Engineer
+    title: Fix four validator defects found by review, and catalogue the two mechanisms the review named
+    milestone: Convergence
+    delivers: Adapters/scripts/validate-framework.sh, Governance/TROUBLESHOOTING.md

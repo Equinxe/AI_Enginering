@@ -1149,6 +1149,11 @@ check_inventory() {
     return
   fi
 
+  # TRACKED **AND** PRESENT-BUT-UNTRACKED. Enumerating only tracked files
+  # meant a contributor who added Standards/NEW.md and ran the validator
+  # before staging got a pass, and discovered the inventory gap in CI instead
+  # — or, on this branch, discovered it because the author happened to stage
+  # first. Untracked-and-ignored files stay out, via --exclude-standard.
   real=""
   while IFS= read -r f; do
     [ -n "$f" ] || continue
@@ -1156,7 +1161,7 @@ check_inventory() {
     if [ -n "$suffix" ]; then title="${title% "$suffix"}"; fi
     real="$real$title
 "
-  done < <(git ls-files "$dir/*.md" | sort)
+  done < <( { git ls-files "$dir/*.md"; git ls-files --others --exclude-standard "$dir/*.md"; } | sort -u)
 
   listed="$(awk -v want="$heading" '
     $0 ~ "^### " want "( \\([0-9]+\\))?$" { inside = 1; next }
@@ -1193,6 +1198,17 @@ check_inventory() {
     fail "VERSION.md's $heading list names documents that do not exist: $extra" "The list is compared against the H1 title of every tracked file under $dir/. Either the document was removed without updating VERSION.md, or its title changed."
   fi
 
+  # A title listed TWICE produces neither a missing nor an extra — set
+  # membership holds in both directions while the list is still wrong. The
+  # counts are what catch it, which is why listed_count is compared rather
+  # than merely printed.
+  dupes="$(printf '%s\n' "$listed" | grep -v '^$' | sort | uniq -d | tr '\n' '|' | sed 's/|$//')"
+  if [ -n "$dupes" ]; then
+    fail "VERSION.md's $heading list names the same document more than once: $dupes" "Each document appears once. Duplicates keep the set comparison happy while the list stays wrong."
+  elif [ "$listed_count" -ne "$real_count" ]; then
+    fail "VERSION.md's $heading list has $listed_count entries but $real_count documents exist under $dir/" "The names all match, so this is a counting difference the membership comparison cannot see."
+  fi
+
   # The parenthesised count is a third copy of the same fact. Checked only when
   # present: '### Standards' carries no count and is not required to grow one.
   declared="$(grep -oE "^### $heading \([0-9]+\)\$" VERSION.md | grep -oE '[0-9]+' | head -1)"
@@ -1200,7 +1216,8 @@ check_inventory() {
     fail "VERSION.md says '$heading ($declared)' but $real_count exist under $dir/" "Update the heading in the same Work Unit as the document."
   fi
 
-  if [ -z "$missing" ] && [ -z "$extra" ] && { [ -z "$declared" ] || [ "$declared" -eq "$real_count" ]; }; then
+  if [ -z "$missing" ] && [ -z "$extra" ] && [ -z "$dupes" ] && [ "$listed_count" -eq "$real_count" ] \
+     && { [ -z "$declared" ] || [ "$declared" -eq "$real_count" ]; }; then
     pass "VERSION.md lists all $real_count $heading, by name${declared:+, and the heading count agrees}"
   fi
 }
@@ -1231,7 +1248,11 @@ GLOSSARY="Core/GLOSSARY.md"
 if [ ! -f "$GLOSSARY" ]; then
   fail "$GLOSSARY is missing" "CLAUDE.md lists it as a Core document and every artifact is required to use its vocabulary. Its absence cannot be a pass."
 else
-  glossary_letters="$(grep -E '^# [A-Z]$' "$GLOSSARY" | sed 's/^# //')"
+  # \r? and tr -d '\015' throughout: the rest of this script guards a CRLF
+  # checkout and section 15 did not. Git Bash's awk happens to strip the
+  # carriage return, so the omission was latent here and would have reported
+  # every term misfiled under a POSIX awk on a CRLF working tree.
+  glossary_letters="$(grep -E '^# [A-Z]\r?$' "$GLOSSARY" | sed 's/^# //' | tr -d '\015')"
   letter_count="$(printf '%s\n' "$glossary_letters" | grep -c .)"
   term_count="$(grep -cE '^## ' "$GLOSSARY")"
 
@@ -1247,7 +1268,7 @@ else
     # Walk the document once, carrying the current letter, so a term can be
     # checked against the section it is actually in.
     misfiled="$(awk '
-      /^# [A-Z]$/ { letter = substr($0, 3, 1); next }
+      /^# [A-Z]\r?$/ { letter = substr($0, 3, 1); next }
       /^## / {
         term = substr($0, 4)
         sub(/\015$/, "", term)
@@ -1255,7 +1276,11 @@ else
         if (letter == "") { print term " (before any letter section)"; next }
         if (initial != letter) { print term " (under " letter ")" }
       }
-    ' "$GLOSSARY" | tr '\n' '; ')"
+    ' "$GLOSSARY" | sed 's/$/;/' | tr '\n' ' ')"
+    # sed then tr, not `tr '\n' '; '`: tr truncates the replacement set to the
+    # length of the source set, so the intended separator silently lost its
+    # space. Cosmetic, in a failure message — and exactly the kind of thing
+    # that is only ever noticed when the message finally fires.
     if [ -n "$misfiled" ]; then
       fail "$GLOSSARY has terms filed under the wrong letter: $misfiled" "A term belongs under its own initial, or the glossary cannot be scanned."
     else
@@ -1266,9 +1291,10 @@ else
     while IFS= read -r letter; do
       [ -n "$letter" ] || continue
       terms="$(awk -v want="# $letter" '
-        $0 == want { inside = 1; next }
+        { line = $0; sub(/\015$/, "", line) }
+        line == want { inside = 1; next }
         inside && /^# / { exit }
-        inside && /^## / { t = substr($0, 4); sub(/\015$/, "", t); print t }
+        inside && /^## / { t = substr(line, 4); print t }
       ' "$GLOSSARY")"
       if [ "$terms" != "$(printf '%s\n' "$terms" | sort)" ]; then
         unsorted="$unsorted$letter "

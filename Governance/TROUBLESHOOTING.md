@@ -271,6 +271,30 @@ Project-specific incidents belong in the project's own catalog (a `TROUBLESHOOTI
 
 ---
 
+## U. Process substitution hides the producer's failure
+
+**Symptom.** A gate is green and reports a plausible-looking zero: "0 files changed", "0 lines to review", "scanned 0 paths — clean". Nothing in the log looks like an error, and `set -euo pipefail` is at the top of the script.
+
+**Cause.** `while read …; do … done < <(producer)` puts the producer in a background process whose exit status the shell never inspects. When the producer fails — an unfetchable SHA, a missing ref, a permissions error — the loop simply receives no input and the counters stay at their initial values. `set -e` sees nothing; `pipefail` covers pipelines, not process substitution.
+
+**Remedy.** Capture the producer's output first, in a variable or a file, and make its failure fatal; then feed the loop from that. Where the producer legitimately may be empty, decide explicitly what an empty set means and say it.
+
+**Prevention.** This is class A with a specific mechanism, and the mechanism is worth naming because the code *looks* defended. Two rules: a set-iterating check treats a zero denominator as the absence of evidence, not as success (Check Convention, rule 3); and any `< <(...)` whose producer can fail is rewritten to capture-then-iterate. Found by review in the `PR Size` gate, where an unfetchable base SHA made a required check pass on every Pull Request it could not measure.
+
+---
+
+## V. An object walk is not a path walk
+
+**Symptom.** A history scan reports clean on exactly the case it was written for — a protected file added and deleted again inside the range. The same file with different content is caught.
+
+**Cause.** `git rev-list --objects` enumerates each **object** once, with one associated path. A blob already reachable from the excluded side of the range is never listed, so its path is never classified. An *empty* file hits this every time: the empty blob exists in almost every repository.
+
+**Remedy.** Enumerate paths, not objects: `git log --name-only --diff-filter=ACMR <range>` lists what each commit touched regardless of whether the blob is new. Union the two rather than swapping one for the other, so a path reachable as an object but named by no diff is still seen.
+
+**Prevention.** When a check's subject is *paths*, its enumeration must be over paths. The general form: verify that the thing being counted is the thing the claim is about — the same question that separates `git ls-files` from `git rev-list --all --objects` in entry M.
+
+---
+
 # Adding an Entry
 
 1. The Work Unit that fixes the incident adds the entry — same commit, or the fix is not complete (`Governance/CONTRIBUTING.md`, Section 7).
