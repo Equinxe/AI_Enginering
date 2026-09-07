@@ -97,9 +97,11 @@ Project-specific incidents belong in the project's own catalog (a `TROUBLESHOOTI
 
 **Cause.** A case-insensitive filesystem resolved the wrong-case path. The reference had been correct once and drifted.
 
-**Remedy.** Resolve references against `git ls-files` (case-exact) rather than the filesystem; exclude `CHANGELOG.md` from the reference scan because it quotes historical paths on purpose.
+**Remedy.** Exclude `CHANGELOG.md` from the reference scan, because it quotes historical paths on purpose — and resolve references against `git ls-files` rather than with `[ -e ]`, which asks a filesystem that answers case-insensitively on Windows.
 
-**Prevention.** Validator section 9 resolves against tracked content; `KNOWN_ABSENT` names the deliberate exceptions with reasons.
+**Prevention.** Validator section 9 resolves against tracked content, case-exactly, so a local run and CI answer the same question; `KNOWN_ABSENT` names the deliberate exceptions with reasons; and this catalog is excluded from the scan for the same categorical reason as the changelog, since the symptom line above quotes the broken path on purpose.
+
+**Second instance (7 September 2026).** This entry's own remedy line used to claim the check already resolved against tracked content. It did not — WU-IAENG-151 did the changelog exclusion and never touched the `[ -e ]` test, so the case-sensitivity half went undone while the catalog said it was done. The gap surfaced the moment CI first ran on the Convergence branch, and it surfaced *on this entry*, whose symptom line was read as a live reference. A catalog entry that misdescribes its own remedy is worse than no entry: it tells the next reader to stop looking.
 
 ---
 

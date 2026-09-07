@@ -635,12 +635,42 @@ broken=""
 # happen here, so SC2016 is a false positive. The directive has to sit in front
 # of the whole compound command, which is why it precedes the loop rather than
 # the line it concerns.
+# RESOLVED AGAINST TRACKED CONTENT, CASE-EXACTLY — not with `[ -e ]`.
+#
+# `-e` asks the filesystem, and Windows answers case-insensitively, so a
+# reference to Core/GLOSSARY.MD resolved against Core/GLOSSARY.md on the
+# authoring machine and failed only on the Linux runner. That is the incident
+# in Governance/TROUBLESHOOTING.md entry F, whose remedy line used to claim
+# this check already resolved against tracked content. It did not; the WU-151
+# fix was the CHANGELOG exclusion below, and the case-sensitivity half was
+# never done. It is done here, so a local run and CI answer the same question.
+#
+# A reference may name a directory, which `git ls-files` does not list, so a
+# path also resolves when some tracked file lies beneath it.
+TRACKED_PATHS="$(git ls-files)"
+resolves() {
+  local p="${1%/}"
+  printf '%s\n' "$TRACKED_PATHS" | grep -qxF -- "$p" && return 0
+  printf '%s\n' "$TRACKED_PATHS" | awk -v pre="$p/" 'index($0, pre) == 1 { found = 1; exit } END { exit !found }'
+}
+
+# The backtick that delimits a quoted path is held in a variable so the grep
+# pattern can be double-quoted. Written literally it needed single quotes,
+# which made shellcheck read it as an unexpanded expression (SC2016) and
+# required a suppression directive — and that directive then had to sit
+# immediately before the compound command, which made it fragile: inserting
+# the resolver above pushed it away from the loop and the finding came back.
+# Restructuring so the rule is satisfied is what
+# Standards/CODE_QUALITY_STANDARD.md asks for before a directive is
+# considered, and here it costs one variable.
+BT='`'
+REF_PATTERN="${BT}(Core|Standards|Employees|Workflows|Templates|Examples|Governance|Adapters|Registry|Prompts)/[A-Za-z0-9_/.-]*${BT}"
+
 refs_checked=0
-# shellcheck disable=SC2016
 while IFS= read -r ref; do
   if has_line "$KNOWN_ABSENT" "$ref"; then continue; fi
   refs_checked=$((refs_checked + 1))
-  [ -e "$ref" ] || broken="$broken$ref; "
+  resolves "$ref" || broken="$broken$ref; "
 #
 # CHANGELOG.md is excluded, and the reason is categorical rather than
 # convenient. A changelog describes the repository as it was at each version,
@@ -655,8 +685,17 @@ while IFS= read -r ref; do
 # This was found by CI, not locally: Windows resolves Core/GLOSSARY.MD against
 # Core/GLOSSARY.md on a case-insensitive filesystem, so the check passed on the
 # authoring machine and failed only on the Linux runner.
-done < <(grep -rhoE '`(Core|Standards|Employees|Workflows|Templates|Examples|Governance|Adapters|Registry|Prompts)/[A-Za-z0-9_/.-]*`' \
-           --include='*.md' --exclude='CHANGELOG.md' . | tr -d '`' | sort -u)
+#
+# TROUBLESHOOTING.md is excluded for the same categorical reason as
+# CHANGELOG.md, and the reason is visible in the failure that added it: entry
+# F's symptom line quotes `Core/GLOSSARY.MD` because that broken path IS the
+# incident. An incident catalog names paths that were wrong — that is what it
+# is for — exactly as a changelog names paths that were renamed. Requiring
+# either document's paths to resolve against the present tree is a category
+# error, and rewriting them to satisfy a link checker would destroy the record.
+done < <(grep -rhoE "$REF_PATTERN" \
+           --include='*.md' --exclude='CHANGELOG.md' --exclude='TROUBLESHOOTING.md' . \
+           | tr -d "$BT" | sort -u)
 
 if [ -n "$broken" ]; then
   fail "documents reference paths that do not exist: $broken" "Governance/DEPRECATION_POLICY.md's Cross-Reference Check requires every reference to be updated or removed when its target moves."

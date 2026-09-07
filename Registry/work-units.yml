@@ -553,3 +553,9 @@ work_units:
     title: Let a read of core.hooksPath through — the rule matched the word, not the action
     milestone: Convergence
     delivers: Adapters/ai-runtimes/claude-code/hooks/block-escape-hatches.sh, Adapters/ai-runtimes/claude-code/hooks/tests/escape-hatch-cases.tsv
+
+  - id: WU-IAENG-214
+    employee: Test Automation Engineer
+    title: Resolve cross-references case-exactly so a local run answers what CI asks, and exempt the incident catalog
+    milestone: Convergence
+    delivers: Adapters/scripts/validate-framework.sh, Governance/TROUBLESHOOTING.md, Standards/CODE_QUALITY_STANDARD.md

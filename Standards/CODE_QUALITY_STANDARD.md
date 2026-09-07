@@ -93,7 +93,9 @@ The rule:
 - **The same holds for the other silent disables:** a bare `except:` / `catch (e) {}` that swallows a failure; `test.skip`, `.only`, `xit`, `@pytest.mark.skip` left in a commit; a coverage threshold lowered to make a build pass; a type widened to `any` / `Object` to satisfy a checker; a failing test deleted rather than fixed. Each converts a red signal into a green one without changing what the signal measured.
 - **Generated code is the one exception**, and it is declared in `.gitattributes` as `linguist-generated`, so the exception is itself reviewable — never asserted inline.
 
-A control that is in the way is escalated (`Standards/RISK_STANDARD.md`), with the linter's output quoted. The `Shellcheck Adapters` check on this framework's own scripts is held to exactly this rule: each of the two `# shellcheck disable` directives in the codebase is preceded by the constraint that forces it — git's four-field hook interface in `pre-push`, a literal `$` inside a single-quoted awk program in `validate-framework.sh` — and a third would need the same.
+A control that is in the way is escalated (`Standards/RISK_STANDARD.md`), with the linter's output quoted. The `Shellcheck Adapters` check on this framework's own scripts is held to exactly this rule, and the count has gone **down**: there is now one `# shellcheck disable` directive in the codebase, in `Adapters/git-hooks/pre-push`, where git's four-field hook interface forces an unused variable and the constraint is named on the preceding line.
+
+The second one is worth recording because of how it went. `validate-framework.sh` suppressed SC2016 for a grep pattern whose backticks were deliberately unexpanded — a genuine false positive, correctly documented. But a suppression has to sit immediately before the command it covers, and inserting code above it silently detached it, so the finding returned. Holding the backtick in a variable let the pattern be double-quoted, and the directive became unnecessary. That is the order this section asks for: restructure so the rule is satisfied, and reach for a directive only when configuration genuinely cannot scope the exception.
 
 ---
 
