@@ -693,8 +693,21 @@ while IFS= read -r ref; do
 # is for — exactly as a changelog names paths that were renamed. Requiring
 # either document's paths to resolve against the present tree is a category
 # error, and rewriting them to satisfy a link checker would destroy the record.
-done < <(grep -rhoE "$REF_PATTERN" \
-           --include='*.md' --exclude='CHANGELOG.md' --exclude='TROUBLESHOOTING.md' . \
+#
+# THE SCAN READS TRACKED FILES, not the working tree. `grep -r .` walked
+# everything present, including gitignored local notes — the moment
+# .ia-engineering/SESSION_STATE.md mentioned this very incident by name, the
+# validator failed on the author's machine and could not have failed in CI,
+# where that file does not exist. A check whose result depends on untracked
+# scratch is a check that cannot be trusted either way.
+#
+# Section 14 deliberately does the opposite and includes untracked files,
+# because there an unstaged NEW document is exactly the omission to report.
+# The difference is the subject: that check asks "is the inventory complete",
+# this one asks "does the committed corpus hang together".
+done < <(git ls-files '*.md' \
+           | grep -v -e '^CHANGELOG\.md$' -e '/TROUBLESHOOTING\.md$' \
+           | xargs -r grep -hoE "$REF_PATTERN" \
            | tr -d "$BT" | sort -u)
 
 if [ -n "$broken" ]; then

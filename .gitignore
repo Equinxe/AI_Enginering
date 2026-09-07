@@ -19,4 +19,10 @@
 # paths; this is the layer that keeps `git add -A` from staging them at all.
 local_test_data/
 .env
-.ia-engineering/SESSION_STATE.md
+# The whole directory, not only the state file. `.ia-engineering/` is where a
+# project keeps what is true of it right now — its dated state, its release
+# drafts, its per-pole working notes — and all of it is the same category:
+# operational, local, and not part of the framework it sits beside. The
+# Adapter installs the SESSION_STATE.md line into an adopting project; this
+# repository ignores the directory because it is also its own first adopter.
+.ia-engineering/

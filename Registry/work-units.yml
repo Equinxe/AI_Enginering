@@ -559,3 +559,9 @@ work_units:
     title: Resolve cross-references case-exactly so a local run answers what CI asks, and exempt the incident catalog
     milestone: Convergence
     delivers: Adapters/scripts/validate-framework.sh, Governance/TROUBLESHOOTING.md, Standards/CODE_QUALITY_STANDARD.md
+
+  - id: WU-IAENG-215
+    employee: Test Automation Engineer
+    title: Scan tracked files for cross-references, so a local scratch note cannot fail the validator
+    milestone: Convergence
+    delivers: Adapters/scripts/validate-framework.sh, .gitignore
