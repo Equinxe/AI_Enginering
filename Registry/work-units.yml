@@ -541,3 +541,9 @@ work_units:
     title: Scan an unquoted heredoc body for substitutions, and read a here-string as a here-string
     milestone: Convergence
     delivers: Adapters/ai-runtimes/claude-code/hooks/strip-quotes.awk, Adapters/ai-runtimes/claude-code/hooks/tests/
+
+  - id: WU-IAENG-212
+    employee: Technical Lead
+    title: Record the commit-message backtick trap after its second instance, with the procedural rule
+    milestone: Convergence
+    delivers: Governance/TROUBLESHOOTING.md

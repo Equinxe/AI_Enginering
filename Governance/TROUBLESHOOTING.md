@@ -233,6 +233,12 @@ Project-specific incidents belong in the project's own catalog (a `TROUBLESHOOTI
 
 **Prevention.** Recorded here and in the operator's runtime memory; a symptom class rather than a framework defect, but one every AI-driven session on Windows meets.
 
+**The specific case that has now cost two commit messages:** a backtick inside a double-quoted `git commit -m "…"` is command substitution. The backticked text is *executed* and replaced by its output — usually empty — so the message is committed with a hole exactly where the code sample was, and the hole is only visible after the commit is pushed. Two commits in this repository carry one (`WU-IAENG-200`, `WU-IAENG-211`), and neither is worth a force-push to correct, so the rule is procedural:
+
+> Write any commit message longer than a subject line to a **file** and use `git commit -F <file>`. Never pass prose containing backticks, `$(`, or `!` through `-m` in double quotes.
+
+The same applies to `--body` on `gh pr create` and `gh pr comment`; `--body-file` is the equivalent. This is the one trap in this catalog with no mechanical guard: the `commit-msg` hook cannot tell a hole from an author who wrote nothing there.
+
 ---
 
 ## R. A guard blocks the command that documents it
