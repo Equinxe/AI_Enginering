@@ -1,5 +1,10 @@
 # strip-quotes.awk cases. TAB-separated: label, input, needle, present(yes|no)
-# \n in the input column is expanded to a newline. Test DATA lives here rather
+# \n in the input column is expanded to a newline — the runner uses printf %b.
+# DOUBLE every other backslash you mean literally: %b also consumes \t, \0,
+# \xHH and, worst of all, \c, which means "stop output here" and silently
+# truncates the case. That has produced three test cases that passed or failed
+# for reasons in the corpus rather than in the lexer
+# (Governance/TROUBLESHOOTING.md, entry Q). Test DATA lives here rather
 # than in run.sh so that a case containing a command substitution is data a
 # shell never parses, and so that adding a case needs no shell knowledge.
 double-quoted message is dropped	git commit -m "uses --no-verify"	--no-verify	no
@@ -36,3 +41,9 @@ quoted brace group is left literal	git push "--{f,f}orce" o	--force	no
 escaped brace is left literal	git push --\{f,f\}orce o	--force	no
 a range group is expanded	git push -{e..g} o	-f	yes
 exceeding the alternative bound emits the limit marker	git push --{a,b,c,d,e,f,g,h,i,j,k,l,m,n,o,p,q,r,s,t,u,v,w,x,y,z,aa,bb,cc,dd,ee,ff,gg} o	__IAENG_LEXER_LIMIT__	yes
+increment range is expanded not deleted	git push --f{o..o..1}rce o	--force	yes
+comma wins over the range separator	git push origin {+..,}main	+..main	yes
+control escape truncates at NUL as the shell does	git push $'--force\\c@DECOY' o	DECOY	no
+control escape leaves the flag intact	git push $'--force\\c@DECOY' o	--force	yes
+heredoc tag has its quotes removed	cat <<E"O"F\nx\nEOF\ngit push --force	--force	yes
+an unfound heredoc terminator is refused, not dropped	cat <<NOPE\ngit push --force	__IAENG_LEXER_LIMIT__	yes

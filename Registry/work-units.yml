@@ -529,3 +529,9 @@ work_units:
     title: Close the brief-to-report contract — the report template named a destination the brief had no field for
     milestone: Convergence
     delivers: Templates/EMPLOYEE_BRIEF.md, Templates/WORK_UNIT.md
+
+  - id: WU-IAENG-210
+    employee: Security Engineer
+    title: Make every unread-input path in the lexer say so — increment ranges, control escapes, heredoc tags
+    milestone: Convergence
+    delivers: Adapters/ai-runtimes/claude-code/hooks/strip-quotes.awk, Adapters/ai-runtimes/claude-code/hooks/tests/

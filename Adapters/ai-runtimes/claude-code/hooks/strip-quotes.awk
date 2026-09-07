@@ -70,7 +70,21 @@ BEGIN {
   MAX_ALTS = 32        # alternatives in one group
   MAX_GROUPS = 16      # groups expanded in one command
   MAX_SPAN = 64        # values in one {a..z} range
+  CHARS = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+  # awk has no ord(); this is it. Needed for \cX, where bash produces the
+  # control character X & 0x1f.
+  for (_i = 1; _i < 256; _i++) ORD[sprintf("%c", _i)] = _i
 }
+
+# THE ONE INVARIANT OF THIS FILE
+#
+# Whatever it cannot read, it says so — it never drops it. Every fail-open
+# defect found in this lexer has been the same shape: a path that discarded
+# input it could not model and returned as if it had read it, so the rules
+# matched a command that was not the one being run and the hook exited 0.
+# `LIMIT` is the answer to "I could not read this"; the hook refuses on it.
+# A new branch here that returns without either emitting the text or emitting
+# LIMIT is a bug of that kind, whatever else it does.
 
 function is_bare_word(s) {
   return s != "" && s !~ /[ \t\n]/
@@ -123,9 +137,33 @@ function decode_ansic(s,   res, i, n, c, d, hex, oct, v, j, k, maxlen) {
       }
       v = 0
       for (k = 1; k <= length(oct); k++) v = v * 8 + (substr(oct, k, 1) + 0)
-      if (v > 0 && v < 256) res = res sprintf("%c", v)
+      # NUL TRUNCATES, as it does in the shell: bash discards the remainder of
+      # the $'...' string. Continuing to decode past it produced a word that
+      # the shell never forms — `$'--force\c@DECOY'` reached git as `--force`
+      # while the rules saw `--forcec@DECOY` and matched nothing.
+      if (v == 0) return res
+      if (v < 256) res = res sprintf("%c", v)
       i = j; continue
     }
+    # \cX is control-X: it CONSUMES the next character, and X & 0x1f is the
+    # code. \c@ is NUL, so it truncates. Falling through to the catch-all gave
+    # `\c` -> `c` and left the decoy text in place, which is the bypass above.
+    if (d == "c") {
+      e = substr(s, i + 2, 1)
+      if (e == "") return res
+      v = ORD[e] % 32
+      if (v == 0) return res
+      res = res sprintf("%c", v)
+      i += 3; continue
+    }
+    # The single-character escapes, as their actual control characters rather
+    # than as their letter. Decoding \f to "f" made `--forc\fe` read as
+    # `--forcfe`, which is neither what the shell forms nor a match.
+    if (d == "a") { res = res sprintf("%c", 7);  i += 2; continue }
+    if (d == "b") { res = res sprintf("%c", 8);  i += 2; continue }
+    if (d == "e" || d == "E") { res = res sprintf("%c", 27); i += 2; continue }
+    if (d == "f") { res = res sprintf("%c", 12); i += 2; continue }
+    if (d == "v") { res = res sprintf("%c", 11); i += 2; continue }
     # \n \t \r become a space so the word breaks the way the shell breaks it;
     # anything else, including \' and \\, yields the character itself.
     if (d == "n" || d == "t" || d == "r") { res = res " "; i += 2; continue }
@@ -156,7 +194,7 @@ function expand_range(a, b,   res, i, lo, hi) {
   return ""
 }
 
-function expand_braces(s,   extra, groups, grp, inner, alts, n, k, pre, post, a, b, r) {
+function expand_braces(s,   extra, groups, grp, inner, alts, n, k, pre, post, r, ends, m) {
   extra = ""
   groups = 0
 
@@ -168,22 +206,31 @@ function expand_braces(s,   extra, groups, grp, inner, alts, n, k, pre, post, a,
     post = substr(s, RSTART + RLENGTH)
     inner = substr(grp, 2, length(grp) - 2)
 
-    if (index(inner, "..") > 0) {
-      a = substr(inner, 1, index(inner, "..") - 1)
-      b = substr(inner, index(inner, "..") + 2)
-      r = expand_range(a, b)
-      if (r == LIMIT) return extra LIMIT
-      n = split(r, alts, " ")
-      # split() on a leading-space string yields an empty first field on some
-      # awks; re-split without it.
+    # COMMA FIRST, because bash splits top-level commas before it looks for a
+    # range. Testing for ".." first read `{+..,}` as a range, failed to expand
+    # it, and deleted the group — while bash produced `+..main` and `main`.
+    if (index(inner, ",") > 0) {
+      n = split(inner, alts, ",")
+    } else {
+      # {a..b} and the increment form {a..b..incr}. The increment is ignored
+      # and the whole endpoint range emitted, which is a SUPERSET of what the
+      # shell produces — the safe direction, since a superset can only
+      # over-match. Reading `{o..o..1}` as endpoints `o` and `o..1` made
+      # expand_range fail, and the group was then deleted: `--f{o..o..1}rce`
+      # reached git as `--force` and the rules saw the braces intact.
+      m = split(inner, ends, /\.\./)
+      if (m < 2 || m > 3) return extra LIMIT
+      r = expand_range(ends[1], ends[2])
+      if (r == LIMIT || r == "") return extra LIMIT
       sub(/^ /, "", r)
       n = split(r, alts, " ")
-    } else {
-      n = split(inner, alts, ",")
     }
 
+    # Both of these mean the group was not read. That is what LIMIT is for;
+    # deleting the group instead is how every rule in the table fell to three
+    # characters.
+    if (n == 0) return extra LIMIT
     if (n > MAX_ALTS) return extra LIMIT
-    if (n == 0) { s = pre post; continue }
     for (k = 1; k <= n; k++) extra = extra " " pre alts[k] post
     s = pre alts[1] post
   }
@@ -198,7 +245,6 @@ function expand_braces(s,   extra, groups, grp, inner, alts, n, k, pre, post, a,
   buf = ""
   tainted = 0
   cmdctx = 0
-  CHARS = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
 
   while (i <= n) {
     c = substr(s, i, 1)
@@ -243,24 +289,47 @@ function expand_braces(s,   extra, groups, grp, inner, alts, n, k, pre, post, a,
       }
       if (c == "<" && d == "<") {
         j = i + 2
-        if (substr(s, j, 1) == "-") j++
+        # `<<-` strips leading TABS from the body *and from the terminator
+        # line*, so the terminator must be compared with its tabs removed.
+        # Comparing the raw line meant `<<-EOF` with an indented `EOF` never
+        # matched, the search ran to the end, and a perfectly ordinary
+        # command was refused as unreadable.
+        dash = 0
+        if (substr(s, j, 1) == "-") { dash = 1; j++ }
         while (substr(s, j, 1) == " " || substr(s, j, 1) == "\t") j++
-        q = substr(s, j, 1)
-        if (q == SQ || q == "\"") j++
+        # THE TAG IS A WORD WHOSE QUOTES ARE REMOVED, which is how bash reads
+        # it: `<<E"O"F`, `<<E'O'F` and `<<\EOF` all delimit on EOF. Reading one
+        # leading quote and then only [A-Za-z0-9_] gave the tag `E`, which
+        # never appeared on a line of its own — the terminator search then ran
+        # off the end and the whole rest of the command was dropped at exit 0.
         tag = ""
-        while (j <= n && substr(s, j, 1) ~ /[A-Za-z0-9_]/) { tag = tag substr(s, j, 1); j++ }
+        while (j <= n) {
+          ch = substr(s, j, 1)
+          if (ch == "\n" || ch == " " || ch == "\t" || ch == ";" || ch == "&" \
+              || ch == "|" || ch == ")" || ch == "<" || ch == ">") break
+          if (ch == SQ || ch == "\"" || ch == "\\") { j++; continue }
+          tag = tag ch; j++
+        }
         if (tag != "") {
           k = index(substr(s, j), "\n")
-          if (k == 0) { out = out substr(s, i, j - i); i = j; continue }
+          # No newline after the redirection: the body never starts, so
+          # nothing was read.
+          if (k == 0) { out = out substr(s, i, j - i) LIMIT; i = n + 1; continue }
           lineend = j + k - 1
           out = out substr(s, i, lineend - i + 1)
           pos = lineend + 1
+          found = 0
           while (pos <= n) {
             k = index(substr(s, pos), "\n")
             if (k == 0) { line = substr(s, pos); pos = n + 1 }
             else { line = substr(s, pos, k - 1); pos += k }
-            if (line == tag) break
+            if (dash) sub(/^\t+/, "", line)
+            if (line == tag) { found = 1; break }
           }
+          # A terminator that never appears means the body ran to the end of
+          # the text and this lexer cannot say where the command resumed.
+          # Refused rather than guessed.
+          if (!found) out = out LIMIT
           i = pos; continue
         }
       }

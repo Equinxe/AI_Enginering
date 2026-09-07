@@ -183,3 +183,23 @@ allow	mkdir -p dir{1..3}
 allow	echo $'hello\tworld'
 allow	git log --format=$'%h %s'
 allow	cp file.txt{,.bak}
+block	git push --f{o..o..1}rce origin main
+block	git commit -m x --no-veri{f..f..1}y
+block	git reset --h{a..a..1}rd
+block	git st{a..a..1}sh
+block	rm -r{f..f..1} /
+block	git -c core.hooksPat{h..h..1}=/dev/null commit -m x
+block	git push origin {+..,}main
+block	git branch {-..-..1}D x
+block	git push $'--force\c@DECOY' origin main
+block	git push $'--force\c ' origin main
+block	git reset $'--hard\c@D'
+block	git $'stash\c@D'
+block	git branch $'-D\c@D' x
+block	git $'filter-repo\c@DECOY' --path x
+block	git update-ref $'-d\c@D' refs/heads/main
+allow	mkdir -p dir{1..3}
+allow	mkdir -p dir{1..9..2}
+allow	touch file{a..e}.txt
+allow	printf $'\x41\x42'
+allow	echo $'hello\tworld'
