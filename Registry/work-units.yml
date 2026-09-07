@@ -547,3 +547,9 @@ work_units:
     title: Record the commit-message backtick trap after its second instance, with the procedural rule
     milestone: Convergence
     delivers: Governance/TROUBLESHOOTING.md
+
+  - id: WU-IAENG-213
+    employee: Security Engineer
+    title: Let a read of core.hooksPath through — the rule matched the word, not the action
+    milestone: Convergence
+    delivers: Adapters/ai-runtimes/claude-code/hooks/block-escape-hatches.sh, Adapters/ai-runtimes/claude-code/hooks/tests/escape-hatch-cases.tsv

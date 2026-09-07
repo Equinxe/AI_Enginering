@@ -206,3 +206,8 @@ allow	echo $'hello\tworld'
 allow	cat <<<hello
 allow	cat <<< "hello world"
 allow	grep -q foo <<<"$VAR"
+allow	git config --get core.hooksPath
+allow	git config --get-all core.hooksPath
+allow	git config --list | grep core.hooksPath
+block	git config --unset core.hooksPath
+block	git config --local core.hooksPath .githooks

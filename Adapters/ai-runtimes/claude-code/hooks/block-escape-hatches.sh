@@ -108,7 +108,17 @@ fi
 # one rule later by the same hand. `git[^|;&]*` keeps the match inside a
 # pipeline segment that actually starts with git, so `grep core.hooksPath
 # Standards/` and `git config --get core.editor` both pass.
-if check "git[^|;&]*core\.hooksPath"; then
+#
+# READS ARE NOT WRITES. The first version of this rule matched the setting
+# anywhere in a git command, so `git config --local core.hooksPath` — which
+# prints the value and changes nothing — was refused, and refused the very
+# diagnostic someone runs to check whether the hooks are installed. The read
+# forms are a named allow-list, not a fall-through: --get, --get-all and
+# --list. Everything else touching the key is treated as a write, including
+# --unset, which removes the setting and so disables the framework's hooks
+# just as surely as pointing it elsewhere.
+if check "git[^|;&]*core\.hooksPath" \
+   && ! check "git[^|;&]*(--get|--get-all|--list)[^|;&]*core\.hooksPath"; then
   iaeng_block "setting core.hooksPath disables every git hook — the same effect as --no-verify, written as configuration" \
     "Standards/GIT_STANDARD.md, Escape Hatches. The sanctioned write of this setting is ./ia-engineering/Adapters/scripts/install.sh, which points it at the framework's hooks."
 fi
