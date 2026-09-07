@@ -79,6 +79,17 @@ You are done when ALL of the following are true:
 - [ ] Tests are written and passing.
 - [ ] Pull Request is open and assigned to the Code Reviewer.
 - [ ] Your commit follows the Commit Standard: `[type](scope): description`
+- [ ] Your Work Unit Report is written — see below. Without it this Work Unit is not done.
+
+---
+
+### Your Report
+
+Write it as your final action, in the form of `Templates/WORK_UNIT_REPORT.md`:
+
+**Destination:** [the Pull Request description, or a file path — say which. `Core/AGENT_CONDUCT.md`'s Reporting Contract requires a durable location; a message in a conversation is not one.]
+
+It carries a one-word verdict, what was done, **what was not done**, the gate evidence pasted rather than described, any deviation from this brief, your risk records, and this brief's Definition of Done item by item. A bare "Done" is a failed Work Unit: the Main Agent has nothing to verify against, and Step 5 of `Core/ORCHESTRATION.md` will return it.
 
 ---
 
@@ -89,6 +100,12 @@ Read and apply these before writing any code:
 - [Standard 1 — e.g., Code Quality Standard — `Standards/CODE_QUALITY_STANDARD.md`]
 - [Standard 2 — e.g., Testing Standard — `Standards/TESTING_STANDARD.md`]
 - [Standard 3 — e.g., OWASP API Security Top 10]
+
+These three bind you whether or not this brief lists them, because their Scope says so (`Core/AGENT_CONDUCT.md`, What an Employee's Own List Does Not Limit):
+
+- `Standards/STANDARDS_FIRST.md` — the official standard first, project convention second.
+- `Standards/RISK_STANDARD.md` — classify a risk-bearing action **before** performing, planning, or delegating it. `High` and `Critical` stop and wait for a confirmation that names the action; every `Medium`-or-higher decision is recorded in your report.
+- `Standards/DATA_PROTECTION_STANDARD.md` — real data, secrets, and operational state stay out of version control.
 
 ---
 
@@ -111,6 +128,7 @@ If you encounter a blocker, escalate immediately — do not guess:
 | Architectural decision needed | Software Architect |
 | Security concern | Security Engineer |
 | Input dependency not ready | Engineering Manager |
+| An action you classify `High` or `Critical` | Director, through the Main Agent — with the escalation block from `Standards/RISK_STANDARD.md`, then **wait**. Silence, "looks fine", or a go-ahead given earlier for something else is not confirmation. |
 
 ---
 

@@ -523,3 +523,9 @@ work_units:
     title: Bring the chain Examples up to the Convergence rules they demonstrate — reports, risk records, review denominator, line re-anchoring
     milestone: Convergence
     delivers: Examples/FEATURE_CHAIN_EXAMPLE.md, Examples/REVIEW_CHAIN_EXAMPLE.md, Examples/HOTFIX_CHAIN_EXAMPLE.md, Examples/INCIDENT_CHAIN_EXAMPLE.md, Examples/README.md
+
+  - id: WU-IAENG-209
+    employee: Technical Lead
+    title: Close the brief-to-report contract — the report template named a destination the brief had no field for
+    milestone: Convergence
+    delivers: Templates/EMPLOYEE_BRIEF.md, Templates/WORK_UNIT.md
