@@ -98,6 +98,37 @@ function is_command_context(w) {
   return w == "eval" || w == "--command" || w ~ /^-[A-Za-z]*c$/ || w ~ /^alias\./
 }
 
+# Pulls the COMMANDS out of an unquoted heredoc body: the contents of every
+# $( ) and every backtick pair, and nothing else. The surrounding text is data
+# — it becomes the command's stdin — so it is dropped, which keeps the reason
+# the body-skip exists in the first place.
+function extract_subs(b,   res, i, n, c, d, depth, start) {
+  res = ""; n = length(b); i = 1
+  while (i <= n) {
+    c = substr(b, i, 1); d = substr(b, i + 1, 1)
+    if (c == "\\") { i += 2; continue }
+    if (c == "$" && d == "(") {
+      depth = 1; i += 2; start = i
+      while (i <= n && depth > 0) {
+        c = substr(b, i, 1)
+        if (c == "$" && substr(b, i + 1, 1) == "(") { depth++; i += 2; continue }
+        if (c == ")") { depth--; if (depth == 0) break }
+        i++
+      }
+      res = res " " substr(b, start, i - start) " "
+      i++; continue
+    }
+    if (c == "`") {
+      i++; start = i
+      while (i <= n && substr(b, i, 1) != "`") i++
+      res = res " " substr(b, start, i - start) " "
+      i++; continue
+    }
+    i++
+  }
+  return res
+}
+
 # Braces that came from a quoted or escaped source are literal to the shell.
 function mark_literal_braces(s) {
   gsub(/\{/, BL, s)
@@ -287,6 +318,16 @@ function expand_braces(s,   extra, groups, grp, inner, alts, n, k, pre, post, r,
         cmdctx = (nw > 0) ? is_command_context(words[nw]) : 0
         i++; continue
       }
+      # `<<<` IS A HERE-STRING, NOT A HEREDOC. It consumes one word on the
+      # same line and no following lines at all. Testing `<<` first read the
+      # first two characters as a heredoc whose tag came from after the third
+      # `<`, which found no terminator — so the previous Work Unit's
+      # fail-closed change turned that into a refusal of an ordinary
+      # `cat <<<hello`. Emitted as an operator; its word then lexes normally,
+      # which is right, because an unquoted here-string word is expanded.
+      if (c == "<" && d == "<" && substr(s, i + 2, 1) == "<") {
+        out = out "<<<"; i += 3; continue
+      }
       if (c == "<" && d == "<") {
         j = i + 2
         # `<<-` strips leading TABS from the body *and from the terminator
@@ -303,11 +344,15 @@ function expand_braces(s,   extra, groups, grp, inner, alts, n, k, pre, post, r,
         # never appeared on a line of its own — the terminator search then ran
         # off the end and the whole rest of the command was dropped at exit 0.
         tag = ""
+        tagquoted = 0
         while (j <= n) {
           ch = substr(s, j, 1)
           if (ch == "\n" || ch == " " || ch == "\t" || ch == ";" || ch == "&" \
               || ch == "|" || ch == ")" || ch == "<" || ch == ">") break
-          if (ch == SQ || ch == "\"" || ch == "\\") { j++; continue }
+          # A quote or a backslash anywhere in the delimiter removes itself AND
+          # tells bash not to expand the body. Which of the two it is decides
+          # whether the body is inert text or partly commands.
+          if (ch == SQ || ch == "\"" || ch == "\\") { tagquoted = 1; j++; continue }
           tag = tag ch; j++
         }
         if (tag != "") {
@@ -318,13 +363,23 @@ function expand_braces(s,   extra, groups, grp, inner, alts, n, k, pre, post, r,
           lineend = j + k - 1
           out = out substr(s, i, lineend - i + 1)
           pos = lineend + 1
+          bodystart = pos
           found = 0
           while (pos <= n) {
             k = index(substr(s, pos), "\n")
-            if (k == 0) { line = substr(s, pos); pos = n + 1 }
-            else { line = substr(s, pos, k - 1); pos += k }
+            if (k == 0) { line = substr(s, pos); bodyend = n; pos = n + 1 }
+            else { line = substr(s, pos, k - 1); bodyend = pos - 1; pos += k }
             if (dash) sub(/^\t+/, "", line)
             if (line == tag) { found = 1; break }
+          }
+          # THE BODY IS ONLY INERT IF THE DELIMITER WAS QUOTED. With an
+          # unquoted delimiter bash performs parameter and command
+          # substitution inside the body, so part of it is commands — and
+          # skipping it unconditionally let `cat <<EOF` / `$(git push
+          # --force)` / `EOF` through while bash really ran the push. Verified
+          # both directions: quoted delimiter prints the text literally.
+          if (found && !tagquoted && bodyend >= bodystart) {
+            out = out extract_subs(substr(s, bodystart, bodyend - bodystart + 1))
           }
           # A terminator that never appears means the body ran to the end of
           # the text and this lexer cannot say where the command resumed.

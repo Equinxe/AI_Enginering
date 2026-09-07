@@ -47,3 +47,8 @@ control escape truncates at NUL as the shell does	git push $'--force\\c@DECOY' o
 control escape leaves the flag intact	git push $'--force\\c@DECOY' o	--force	yes
 heredoc tag has its quotes removed	cat <<E"O"F\nx\nEOF\ngit push --force	--force	yes
 an unfound heredoc terminator is refused, not dropped	cat <<NOPE\ngit push --force	__IAENG_LEXER_LIMIT__	yes
+here-string is not a heredoc	cat <<<hello\ngit push --force	git push --force	yes
+unquoted heredoc body is scanned for substitutions	cat <<EOF\n$(git push --force)\nEOF	git push --force	yes
+quoted heredoc body stays inert	cat <<'EOF'\n$(git push --force)\nEOF	--force	no
+backtick in an unquoted heredoc body is scanned	cat <<EOF\n`git reset --hard`\nEOF	--hard	yes
+heredoc tag with an internal dash is read whole	cat <<EOF-X\nx\nEOF-X\ngit push --force	git push --force	yes

@@ -203,3 +203,6 @@ allow	mkdir -p dir{1..9..2}
 allow	touch file{a..e}.txt
 allow	printf $'\x41\x42'
 allow	echo $'hello\tworld'
+allow	cat <<<hello
+allow	cat <<< "hello world"
+allow	grep -q foo <<<"$VAR"

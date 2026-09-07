@@ -535,3 +535,9 @@ work_units:
     title: Make every unread-input path in the lexer say so — increment ranges, control escapes, heredoc tags
     milestone: Convergence
     delivers: Adapters/ai-runtimes/claude-code/hooks/strip-quotes.awk, Adapters/ai-runtimes/claude-code/hooks/tests/
+
+  - id: WU-IAENG-211
+    employee: Security Engineer
+    title: Scan an unquoted heredoc body for substitutions, and read a here-string as a here-string
+    milestone: Convergence
+    delivers: Adapters/ai-runtimes/claude-code/hooks/strip-quotes.awk, Adapters/ai-runtimes/claude-code/hooks/tests/
