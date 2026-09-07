@@ -1,39 +1,57 @@
 name: IA Engineering - PR Validation
 
-# Five checks, each mechanically enforcing something the framework already
+# Six checks, each mechanically enforcing something the framework already
 # documents instead of relying on a human or AI reviewer to remember it:
 #   - pr-compliance: every PR must trace to a Work Unit and have a real,
 #     filled-in description (Templates/WORK_UNIT.md, Templates/PULL_REQUEST.md)
+#   - work-unit-exists: each commit's `Work Unit:` trailer resolves against
+#     Registry/work-units.yml, rather than a format regex matching a string in
+#     the PR description — closing the gap Adapters/README.md listed under
+#     Planned since v0.0.9. Reads trailers, not prose: see the job for why
+#     both prose-based versions were wrong
 #   - employee-trailer: every non-merge commit in the PR carries a valid
-#     `Employee: <Name>` trailer from the 42-Employee roster — a server-side
-#     backstop for Adapters/git-hooks/commit-msg, which is bypassable with
-#     --no-verify or by never installing the hook (Core/MAIN_AGENT_CONDUCT.md,
-#     Dispatch Discipline)
+#     `Employee: <Name>` trailer, validated against Registry/employees.yml —
+#     a server-side backstop for Adapters/git-hooks/commit-msg, which is
+#     bypassable with --no-verify or by never installing the hook
+#     (Core/MAIN_AGENT_CONDUCT.md, Dispatch Discipline)
 #   - shellcheck-adapters: the git hooks and scripts we ship must actually be
 #     valid, warning-free shell (Standards/CODE_QUALITY_STANDARD.md applies to
 #     Adapters code exactly as it does to any other code)
 #   - yaml-lint: every workflow file we ship must at minimum parse as valid YAML
-#   - review-recorded: ADVISORY (warning-only) — surfaces whether a Code
-#     Reviewer decision was actually recorded on the PR (Workflows/CODE_REVIEW.md).
-#     It does not block merge; see the job for why it is advisory and why it
-#     exists at all given required_approving_review_count is 0 by design.
+#   - review-recorded: ADVISORY — surfaces whether a Code Reviewer decision was
+#     actually recorded on the PR (Workflows/CODE_REVIEW.md). It goes RED when
+#     none is found, but is not in required_status_checks.contexts, so it does
+#     not block the merge. Advisory here means "red does not block", not "green
+#     means nothing" — see the job for why exiting 0 either way made it
+#     indistinguishable from a passing gate.
 #
 # Install in a project that has imported IA Engineering as a submodule:
-#   mkdir -p .github/workflows
-#   cp ia-engineering/Adapters/github-actions/pr-validation.yml .github/workflows/
+#   ./ia-engineering/Adapters/scripts/install.sh
 #
-# Then add "PR Compliance", "Employee Trailer", "Shellcheck Adapters", and
-# "Validate Workflow YAML" as required status checks in branch protection (see
-# Adapters/scripts/setup-branch-protection.sh). "Review Recorded (advisory)" is
-# intentionally NOT a required status check yet — it is warning-only; promoting
-# it to required is a Director/Main Agent decision (see the job's comment).
+# Then add "PR Compliance", "Work Unit Exists", "Employee Trailer", "Shellcheck
+# Adapters", "Validate Workflow YAML", and "Framework Validation" (from
+# framework-validation.yml) as required status checks in branch protection.
+# Adapters/scripts/setup-branch-protection.sh already sets all six.
 #
-# Scoped to PRs targeting main or develop only (see `branches:` below) — this
-# workflow enforces the Git Standard's protected-branch gate, not every branch.
+# "Review Recorded (advisory)" is deliberately NOT required: it matches comment
+# text, which can be satisfied by pasting the block, so requiring it would buy
+# false confidence. Promoting it stays a Director decision (see the job).
+#
+# Scoped to PRs targeting a protected branch — main, develop, or release/*
+# (see `branches:` below). This workflow enforces the Git Standard's
+# protected-branch gate, not every branch.
+#
+# release/* was added in WU-IAENG-144. Until then this workflow did not trigger
+# for a PR targeting a release branch at all, which made required status checks
+# impossible there: GitHub blocks a merge forever on a check that can never be
+# reported. setup-branch-protection.sh had to leave release/* with no required
+# checks and flagged widening this trigger as a follow-up. Workflows/RELEASE.md
+# Step 4 sends every release-branch defect fix through a PR, so those were the
+# only PRs in the process running with no validation at all.
 
 on:
   pull_request:
-    branches: [main, develop]
+    branches: [main, develop, 'release/**']
     types: [opened, edited, synchronize, reopened]
 
 jobs:
@@ -72,6 +90,158 @@ jobs:
 
           echo "PR description present and filled in."
 
+  work-unit-exists:
+    name: Work Unit Exists
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history so the base..head commit range is available, matching
+          # the employee-trailer job — this check reads the same commits.
+          fetch-depth: 0
+          # A consumer project keeps its Work Unit registry inside the imported
+          # framework directory.
+          submodules: recursive
+      - name: Resolve each commit's Work Unit trailer against the registry
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -uo pipefail
+          # PR Compliance checks that a Work Unit ID is PRESENT in the PR text.
+          # This job checks that the PR's OWN Work Unit RESOLVES.
+          # `WU-XXXXX-99999` satisfies a format regex, and so does a typo in a
+          # real ID or an ID for a Work Unit that was never defined.
+          # Templates/WORK_UNIT.md requires every Pull Request to trace to a
+          # Work Unit, and a format check establishes the appearance of
+          # traceability rather than traceability. This closes the gap
+          # Adapters/README.md listed under Planned since v0.0.9.
+          #
+          # IT READS COMMIT TRAILERS, NOT THE PR DESCRIPTION. Two earlier
+          # versions read the prose and both were wrong, in opposite
+          # directions:
+          #
+          #   Requiring every WU- id in the title and body to resolve failed on
+          #   any PR citing a Work Unit older than the registry's start — and
+          #   this project's descriptions cite earlier Work Units constantly.
+          #   A PR saying "this corrects WU-IAENG-125" was blocked for
+          #   describing its own motivation accurately.
+          #
+          #   Requiring only ONE of them to resolve fixed that and reintroduced
+          #   the original hole. In "Implements WU-IAENG-160, following on from
+          #   WU-IAENG-137", the historical id resolves and the PR's actual
+          #   Work Unit — the one that matters, and the one most likely to be
+          #   mistyped or unregistered — goes unchecked. Since nearly every
+          #   description cites some prior Work Unit, the resolving id would
+          #   almost always be the historical one. That collapses back to
+          #   "some WU-shaped string is present", which PR Compliance already
+          #   covers.
+          #
+          # Prose citations are unbounded and retroactive; a commit trailer is
+          # singular and structural. It is also the same evidence source
+          # employee-trailer uses, so the Work Unit claim and the Employee
+          # claim now have identical provenance, and neither can be altered by
+          # rewording the description after review.
+          #
+          # NOTE ON PARSING: these commits put `Work Unit:` and `Employee:` in
+          # separate paragraphs, so git's own trailer parser sees only the last
+          # block — `git log --format='%(trailers:key=Work Unit,valueonly)'`
+          # returns empty for every commit on this branch (verified). The
+          # anchored grep below is required, exactly as employee-trailer does
+          # for its own trailer.
+
+          REGISTRY=""
+          for candidate in \
+            "${IAENG_REGISTRY_WORK_UNITS:-}" \
+            "Registry/work-units.yml" \
+            "ia-engineering/Registry/work-units.yml"
+          do
+            if [ -n "$candidate" ] && [ -f "$candidate" ]; then
+              REGISTRY="$candidate"
+              break
+            fi
+          done
+
+          if [ -z "$REGISTRY" ]; then
+            echo "::error::Could not locate Registry/work-units.yml. A project that has not adopted the Work Unit registry should remove this job rather than have it pass without checking anything."
+            exit 1
+          fi
+
+          echo "Registry: $REGISTRY"
+
+          KNOWN="$(grep -E '^  - id: ' "$REGISTRY" | sed 's/^  - id: //' | tr -d '\r')"
+          echo "Registered Work Units: $(echo "$KNOWN" | grep -c . || true)"
+
+          COMMITS="$(git rev-list --no-merges "${BASE_SHA}..${HEAD_SHA}")"
+
+          if [ -z "$COMMITS" ]; then
+            echo "No non-merge commits to check."
+            exit 0
+          fi
+
+          # PER COMMIT, mirroring the employee-trailer loop below.
+          #
+          # An earlier version collected every trailer with `sort -u` and then
+          # asked only whether the collection was non-empty. A commit carrying
+          # no `Work Unit:` trailer was therefore invisible as long as any
+          # sibling commit had one — the per-PR test could not see a per-commit
+          # omission. CLAUDE.md's rule is "One Work Unit -> One Commit -> One
+          # engineering objective", so enforcing it per-PR was the asymmetry
+          # the wrong way round, especially beside employee-trailer which
+          # already reports each commit individually.
+          #
+          # The anchor on the grep is load-bearing twice over: it keeps a
+          # mid-sentence mention of an ID from being read as a claim — this
+          # job's own WU-XXXXX-99999 example does appear in a commit body on
+          # this branch — and `head -1` keeps a body that quotes a trailer
+          # from overriding the real one.
+          fail=0
+          for sha in $COMMITS; do
+            # EVERY `Work Unit: ` line in the message, not one chosen by
+            # position. Picking one by ordinal is bypassable from whichever end
+            # is not chosen — a squash-concatenated message carries one trailer
+            # block per squashed part, so `head -1` and `tail -1` each leave the
+            # other blocks unchecked. See Adapters/git-hooks/commit-msg for the
+            # reproduced cases. This job's own WU-XXXXX-99999 example appears in
+            # a commit body on this branch, which is why the pattern stays
+            # anchored to column 0.
+            WU_LINES="$(git log -1 --format=%B "$sha" | grep -E '^Work Unit: ' || true)"
+
+            if [ -z "$WU_LINES" ]; then
+              echo "::error::Commit $sha carries no 'Work Unit: <WU-ID>' trailer. Per CLAUDE.md one Work Unit is one commit, and per Templates/WORK_UNIT.md every change must trace to a Work Unit. A Work Unit ID in the PR description does not substitute: a description can be reworded after review, a trailer cannot."
+              fail=1
+              continue
+            fi
+
+            # At most one claim, mirroring Adapters/git-hooks/commit-msg Rule 3.
+            # One Work Unit is one commit, so a second `Work Unit:` line is
+            # malformed rather than ambiguous — and refusing it is what allows
+            # release.sh to attribute a Work Unit to a commit with no ordinal.
+            # Ranking by position produced a false PASS on the release gate: a
+            # deferral note quoted after the trailer block counted as merged.
+            WU_COUNT="$(printf '%s\n' "$WU_LINES" | grep -c . || true)"
+            if [ "$WU_COUNT" -gt 1 ]; then
+              echo "::error::Commit $sha carries $WU_COUNT 'Work Unit:' lines at column 0. One Work Unit is one commit (Standards/COMMIT_STANDARD.md), and downstream readers rely on there being exactly one. If one is an EXAMPLE quoted in the body — a deferral note, a reference to earlier work — indent it so it does not start at column 0."
+              fail=1
+              continue
+            fi
+
+            while IFS= read -r wu_line; do
+              [ -n "$wu_line" ] || continue
+              WU="$(echo "${wu_line#Work Unit: }" | tr -d '\r')"
+              if echo "$KNOWN" | grep -qxF "$WU"; then
+                echo "  $sha -> $WU (resolved)"
+              else
+                echo "::error::Commit $sha claims '$WU', which is not in $REGISTRY. Either it is a typo, or the Work Unit was never registered. Register it in the same commit that performs the work — see the registry's own header for the field shape. If this line is an EXAMPLE quoted in the message body, indent it so it does not start at column 0."
+                fail=1
+              fi
+            done < <(printf '%s\n' "$WU_LINES")
+          done
+
+          exit "$fail"
+
   employee-trailer:
     name: Employee Trailer
     runs-on: ubuntu-latest
@@ -82,6 +252,10 @@ jobs:
         with:
           # Full history so the base..head commit range is available server-side.
           fetch-depth: 0
+          # A consumer project imports the framework as a submodule, so the
+          # roster this job reads lives at ia-engineering/Registry/employees.yml
+          # and is absent unless submodules are checked out.
+          submodules: recursive
       - name: Re-validate the Employee trailer on every commit in the PR
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
@@ -92,30 +266,42 @@ jobs:
           # `Employee: <Name>` trailer, but it is bypassable with `git commit
           # --no-verify` or by simply never running the install step (git does
           # not transmit hooks). This job re-checks every NON-MERGE commit in the
-          # PR carries a valid trailer, using the same trailer key + the same
-          # 42-Employee roster as the hook — so a commit that skipped the hook is
-          # still caught here, before merge.
+          # PR carries a valid trailer, using the same trailer key and the same
+          # roster as the hook — so a commit that skipped the hook is still
+          # caught here, before merge.
           #
-          # IMPORTANT: this 42-name array is DUPLICATED from
-          # Adapters/git-hooks/commit-msg. The two lists MUST be kept in sync —
-          # if the Employee roster ever changes, update BOTH this array and the
-          # one in the hook. Extracting a single shared roster file that both the
-          # hook and this workflow read is a known, deliberately-deferred future
-          # improvement (see Adapters/README.md); duplicating the list is an
-          # accepted tradeoff to keep this change scoped.
-          EMPLOYEES=(
-            "Data Architect" "Software Architect" "Solution Architect"
-            "Analytics Engineer" "Data Engineer" "Data Scientist" "ML Engineer" "MLOps Engineer"
-            "Android Engineer" "Backend Engineer" "Cross-Platform Engineer" "Database Engineer"
-            "Event-Driven Engineer" "Frontend Engineer" "Integration Engineer" "iOS Engineer"
-            "Cloud Engineer" "DevOps Engineer" "GitOps Engineer" "Infrastructure as Code Engineer"
-            "Observability Engineer" "Platform Engineer" "SRE Engineer"
-            "Documentation Engineer" "Technical Writer"
-            "Engineering Manager" "Product Manager" "Release Manager" "Scrum Master" "Technical Lead"
-            "Performance Engineer" "QA Engineer" "Security Engineer" "Test Automation Engineer"
-            "AI Engineer" "API Engineer" "Business Analyst" "Code Reviewer" "Compliance Engineer"
-            "Penetration Tester" "Prompt Engineer" "UX/UI Designer"
-          )
+          # Both this job and the hook now read Registry/employees.yml (see
+          # Registry/README.md). Until WU-IAENG-138 they each carried their own
+          # hardcoded 42-name bash array, kept in sync by hand; that duplication
+          # is gone, so the hook and this backstop can no longer disagree about
+          # who is on the roster.
+          set -euo pipefail
+
+          # Same resolution order as the hook: explicit override, then the
+          # framework's own repository, then the submodule path.
+          ROSTER=""
+          for candidate in \
+            "${IAENG_REGISTRY:-}" \
+            "Registry/employees.yml" \
+            "ia-engineering/Registry/employees.yml"
+          do
+            if [ -n "$candidate" ] && [ -f "$candidate" ]; then
+              ROSTER="$candidate"
+              break
+            fi
+          done
+
+          if [ -z "$ROSTER" ]; then
+            echo "::error::Could not locate Registry/employees.yml (looked at \$IAENG_REGISTRY, Registry/, ia-engineering/Registry/). The Employee roster is the single source of truth for this check; failing closed rather than passing without validating anything."
+            exit 1
+          fi
+
+          echo "Roster: $ROSTER"
+
+          # Parsing contract per Registry/README.md. `tr -d '\r'` guards against
+          # a CRLF checkout leaving a carriage return on every name.
+          VALID_NAMES="$(grep -E '^  - name: ' "$ROSTER" | sed 's/^  - name: //' | tr -d '\r')"
+          echo "Roster entries: $(echo "$VALID_NAMES" | wc -l)"
 
           # Merge commits are excluded via --no-merges, mirroring the hook's
           # MERGE_HEAD exception: an auto-generated merge subject ("Merge branch
@@ -131,27 +317,30 @@ jobs:
           fail=0
           for sha in $COMMITS; do
             MSG="$(git log -1 --format=%B "$sha")"
-            EMPLOYEE_LINE="$(echo "$MSG" | grep -E '^Employee: ' | head -1 || true)"
+            # EVERY `Employee: ` line, matching Adapters/git-hooks/commit-msg
+            # exactly. Choosing one line by position was bypassable from
+            # whichever end was not chosen: with `head -1`, a body quoting a
+            # valid name early masked a real trailer naming a tool label; with
+            # `tail -1`, a squash-concatenated message whose first block carried
+            # `Employee: executor` and whose last block carried a valid name was
+            # accepted. Both reproduced. Validating all of them makes the
+            # ordinal irrelevant.
+            EMPLOYEE_LINES="$(echo "$MSG" | grep -E '^Employee: ' || true)"
 
-            if [ -z "$EMPLOYEE_LINE" ]; then
+            if [ -z "$EMPLOYEE_LINES" ]; then
               echo "::error::Commit $sha is missing an 'Employee: <Name>' trailer. Per Core/MAIN_AGENT_CONDUCT.md (Dispatch Discipline), every commit must identify the Employee who produced it. This commit likely skipped the local commit-msg hook (--no-verify or uninstalled hook)."
               fail=1
               continue
             fi
 
-            EMPLOYEE_NAME="${EMPLOYEE_LINE#Employee: }"
-            match=0
-            for name in "${EMPLOYEES[@]}"; do
-              if [ "$name" = "$EMPLOYEE_NAME" ]; then
-                match=1
-                break
+            while IFS= read -r emp_line; do
+              [ -n "$emp_line" ] || continue
+              EMPLOYEE_NAME="$(echo "${emp_line#Employee: }" | tr -d '\r')"
+              if ! echo "$VALID_NAMES" | grep -qxF "$EMPLOYEE_NAME"; then
+                echo "::error::Commit $sha has 'Employee: $EMPLOYEE_NAME', which is not in $ROSTER. A functional or tool label ('executor', 'coder', 'reviewer-bot', etc.) is not a valid Employee name — see Core/MAIN_AGENT_CONDUCT.md, 'Naming matters.' If this line is an EXAMPLE quoted in the message body, indent it so it does not start at column 0."
+                fail=1
               fi
-            done
-
-            if [ "$match" -eq 0 ]; then
-              echo "::error::Commit $sha has 'Employee: $EMPLOYEE_NAME', which is not one of the 42 recognized Employees defined in Employees/. A functional or tool label ('executor', 'coder', 'reviewer-bot', etc.) is not a valid Employee name — see Core/MAIN_AGENT_CONDUCT.md, 'Naming matters.'"
-              fail=1
-            fi
+            done < <(printf '%s\n' "$EMPLOYEE_LINES")
           done
 
           exit "$fail"
@@ -165,7 +354,7 @@ jobs:
         run: |
           # shellcheck is preinstalled on GitHub-hosted ubuntu-latest runners —
           # no third-party action, no extra install step.
-          shellcheck Adapters/git-hooks/commit-msg Adapters/git-hooks/pre-push Adapters/scripts/*.sh
+          shellcheck Adapters/git-hooks/* Adapters/scripts/*.sh Adapters/ai-runtimes/*.sh
 
   yaml-lint:
     name: Validate Workflow YAML
@@ -226,10 +415,58 @@ jobs:
           # gate and could be gamed by pasting the block, so shipping it as a
           # required status check now would risk false confidence. It is emitted
           # as a warning so it is visible on every PR without blocking merge.
-          # Whether/when to promote it to a required status check (adding
-          # "Review Recorded (advisory)" to required_status_checks.contexts in
-          # setup-branch-protection.sh) is a Director / Main Agent decision,
-          # deliberately left out of this Work Unit.
+          # WHY IT GOES RED WHEN NO DECISION IS FOUND, YET IS STILL NOT
+          # REQUIRED. Two objections were raised against this job and both are
+          # correct, but they attack different properties:
+          #
+          #   Against requiring it: the evidence is comment text, satisfiable
+          #   by pasting the block. Unfixable at this evidence level.
+          #
+          #   Against keeping it: an advisory job that emits a warning and
+          #   exits 0 renders GREEN whether or not a decision was found. It
+          #   occupies the place a reader looks for that assurance and answers
+          #   "yes" unconditionally, with the warning one click away in a log.
+          #
+          # The second objection is about the SIGNAL, not about blocking, so it
+          # is fixed by exiting non-zero — not by promotion. Red here is
+          # truthful and costs nothing procedurally, because "Review Recorded
+          # (advisory)" is deliberately absent from
+          # required_status_checks.contexts in setup-branch-protection.sh: the
+          # merge button stays enabled. The "(advisory)" suffix therefore
+          # changes meaning from "green here means nothing" to "red here does
+          # not block".
+          #
+          # Green-when-absent is the same defect as pass-when-unevaluated, and
+          # this milestone corrected eleven instances of it. Shipping the
+          # twelfth in the check whose subject is whether the review happened
+          # would be the worst possible place for it.
+          #
+          # TWO LIMITATIONS, recorded so nobody promotes this later believing
+          # they were weighed:
+          #
+          #   1. Comments are not durable evidence. A comment can be edited or
+          #      deleted after this check runs and after merge, so even as a
+          #      retrospective record the artifact does not survive. That is a
+          #      stronger argument against promotion than the pasting one, and
+          #      it names the successor: commit the filled Review Decision
+          #      block as a file referenced by the Work Unit. The check then
+          #      becomes "this file exists and parses" — content under version
+          #      control, diffable, immutable once merged — and it CAN be
+          #      required, because the single-identity constraint stops
+          #      mattering once the evidence is content rather than an
+          #      approval action. Advisory is a stage, not a verdict.
+          #
+          #   2. This check never examines the comment's author. It reads every
+          #      body from every actor, so a PR author satisfies it themselves.
+          #      Under the shared-`gh`-identity constraint that is unavoidable
+          #      today, but the blindness is inherent to the substitute and
+          #      would persist in a project with separate accounts. The note
+          #      above explains why NATIVE approval is unavailable; this says
+          #      the substitute inherits the same gap.
+          #
+          # Promoting it to a required check remains a Director decision, and
+          # the two limitations above are the case against doing so until the
+          # successor in (1) exists.
 
           ISSUE_COMMENTS="$(gh api "repos/$REPO/issues/$PR_NUMBER/comments" --paginate -q '.[].body' || true)"
           REVIEW_BODIES="$(gh api "repos/$REPO/pulls/$PR_NUMBER/reviews" --paginate -q '.[].body' || true)"
@@ -242,9 +479,9 @@ jobs:
           # follows the colon — does NOT match.
           if echo "$ALL_BODIES" | grep -qiE '^[[:space:]]*Decision:[[:space:]]*approved'; then
             echo "A recorded Code Reviewer decision ('Decision: approved') was found on this PR."
-          else
-            echo "::warning::No recorded Code Reviewer decision ('Decision: approved', per Employees/Specialized/CODE_REVIEWER.md's Review Decision block) was found in this PR's comments or reviews. Per Workflows/CODE_REVIEW.md a Code Reviewer decision should be recorded before merge. This check is ADVISORY and does not block merge."
+            exit 0
           fi
 
-          # Advisory only — never fails the build.
-          exit 0
+          echo "::error::No recorded Code Reviewer decision ('Decision: approved', per Employees/Specialized/CODE_REVIEWER.md's Review Decision block) was found in this PR's comments or reviews. Per Workflows/CODE_REVIEW.md a Code Reviewer decision must be recorded before merge."
+          echo "::notice::This check is ADVISORY: it is not in required_status_checks.contexts, so it does not block the merge. It goes red rather than green so its result is legible — an advisory check that exits 0 either way is indistinguishable from a passing gate."
+          exit 1

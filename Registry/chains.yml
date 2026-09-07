@@ -1,0 +1,253 @@
+# IA Engineering — Agent Chain Registry
+#
+# The six named chains from Core/AGENT_CHAINS.md, expressed as ordered data.
+#
+# WHY THIS FILE EXISTS
+#
+# Core/AGENT_CHAINS.md draws each chain as an ASCII diagram. A diagram is the
+# right form for a reader: it shows shape, branching, and where the Director
+# stands, at a glance. It is the wrong form for anything mechanical. Nothing
+# could previously check that a chain's steps name Employees that exist, that
+# its workflow document is real, that its Director gates were actually reached,
+# or that a new chain was added to the Registry at all — because the chain was
+# a picture.
+#
+# Core/AGENT_CHAINS.md remains authoritative. This file is derived from it (see
+# Registry/README.md, "Authority — the Registry Never Wins"). Where the two
+# disagree, the document is right and this file is stale, and
+# Adapters/scripts/validate-framework.sh reports it that way.
+#
+# WHAT BECOMES POSSIBLE
+#
+#   - Every step's employee is checked against Registry/employees.yml, so a
+#     chain cannot route work to a name that is not on the roster. That is
+#     Core/MAIN_AGENT_CONDUCT.md's Dispatch Discipline made checkable: a step
+#     with no accountable named Employee is the defect that section forbids.
+#   - Every chain's workflow document is checked to exist.
+#   - Every chain named in Core/AGENT_CHAINS.md is checked to appear here, so a
+#     seventh chain cannot be added to the prose and silently stay invisible to
+#     anything reading the Registry.
+#   - Gates are explicit records rather than a bolded sentence under a diagram,
+#     so "did this chain stop where it was required to stop" has an answer that
+#     does not depend on rereading prose.
+#
+# WHAT THIS FILE DOES NOT DO
+#
+# It does not execute anything, and it is not a state machine. It carries no
+# run status, no timestamps, no "current step". A chain's progress lives in the
+# repository — the branch, the commits, the Pull Request, the Employee trailers
+# — which is where Core/MAIN_AGENT_CONDUCT.md's Verification Over Waiting
+# already requires the Main Agent to look. Duplicating progress here would
+# create a second source of truth about what has happened, and the less
+# reliable of the two.
+#
+# THE `Engineer` PLACEHOLDER
+#
+# Core/AGENT_CHAINS.md writes "Engineer" and "Engineer(s)" where the specific
+# Employee depends on the work: Backend, Frontend, iOS, Android,
+# Cross-Platform, Database, Event-Driven, or Integration Engineer. That is
+# deliberate, and this file preserves it as the literal role `Engineer` rather
+# than guessing. It is resolved at dispatch time against
+# Core/EMPLOYEE_SELECTION.md's triggers, and the validator accepts it, along
+# with `Main Agent` and `Director`, as a framework role rather than a roster
+# entry.
+#
+# PARSING CONTRACT — read this before reformatting.
+# Consumers read these lines with grep and sed:
+#     grep -E '^      - employee: ' Registry/chains.yml
+#     grep -E '^    workflow: '     Registry/chains.yml
+#     grep -F 'name: <Chain Name>'  Registry/chains.yml
+# Keep the indentation and key order below. The validator enforces the shape.
+
+chains:
+
+  - name: Feature Chain
+    document: Core/AGENT_CHAINS.md
+    workflow: Workflows/FEATURE_DEVELOPMENT.md
+    trigger: Director or Product Manager requests a new feature.
+    steps:
+      - employee: Business Analyst
+        produces: Functional specification with acceptance criteria
+      - employee: Software Architect
+        produces: Architecture review; ADR when a trigger in Workflows/ARCHITECTURE_DECISION.md is met
+        note: >-
+          ADR detection is not optional judgment. Core/ORCHESTRATION.md Step 2
+          requires checking the concrete trigger list, because a request phrased
+          as a simple feature can still cross the threshold — "add a persistent
+          leaderboard" implies a storage-technology selection.
+      - gate: Director
+        when: An ADR is required
+        blocks: Implementation
+      - employee: Engineering Manager
+        produces: Work Unit decomposition and assignments
+      - employee: Engineer
+        produces: Implementation with tests
+        parallel: true
+        parallel_condition: >-
+          Only when the dependency analysis explicitly confirms the Work Units
+          are independent. Core/ORCHESTRATION.md Step 4 makes sequential the
+          default.
+        resolve_via: Core/EMPLOYEE_SELECTION.md
+      - employee: Code Reviewer
+        produces: Pull Request approved, or changes requested
+      - employee: QA Engineer
+        produces: QA sign-off
+        when: >-
+          Always in this chain. Distinct from the Review Chain, where QA is
+          inserted only against the security-sensitive trigger list.
+      - gate: Director
+        when: Always
+        blocks: Promotion to the Release Chain
+
+  - name: Review Chain
+    document: Core/AGENT_CHAINS.md
+    workflow: Workflows/CODE_REVIEW.md
+    trigger: A Pull Request is open and assigned to the Code Reviewer.
+    steps:
+      - employee: Code Reviewer
+        produces: Review of logic, tests, standards, security, and documentation
+        loops_to: Engineer
+        loop_condition: Changes requested; the reviewer re-enters on the new diff only
+      - employee: Security Engineer
+        when: The Code Reviewer flags a security concern
+        produces: Security assessment
+        note: >-
+          Inserted before the QA Engineer, and immediately — Core/AGENT_CHAINS.md's
+          Chain Conventions state a security concern does not wait for the next
+          step.
+      - employee: Compliance Engineer
+        when: >-
+          Compliance-relevant content is found: regulated data handling,
+          retention or deletion logic, or cross-border data transfer
+        produces: Compliance assessment
+      - employee: QA Engineer
+        when: >-
+          The change is security-sensitive or high-risk, checked against the
+          concrete trigger list in Workflows/CODE_REVIEW.md — not decided by
+          informal impression
+        produces: QA validation
+      - gate: Director
+        when: Always
+        blocks: Delivery
+
+  - name: Release Chain
+    document: Core/AGENT_CHAINS.md
+    workflow: Workflows/RELEASE.md
+    trigger: Sprint complete, or the Director requests a release.
+    steps:
+      - employee: Release Manager
+        produces: Version bump and changelog merged into develop
+      - employee: Release Manager
+        produces: Release branch cut as a pure snapshot of develop
+      - employee: QA Engineer
+        produces: Release acceptance test report
+      - gate: Director
+        when: Always
+        blocks: Merge to main
+        note: >-
+          Workflows/RELEASE.md Step 5 — "No merge to main happens without
+          explicit Director approval." Core/MAIN_AGENT_CONDUCT.md's Autonomous
+          Release Execution governs pacing between steps and explicitly does not
+          weaken this gate.
+      - employee: Release Manager
+        produces: >-
+          Merge to main, annotated tag, a full GitHub Release whose notes derive
+          from the CHANGELOG.md entry, and the release branch preserved
+
+  - name: Hotfix Chain
+    document: Core/AGENT_CHAINS.md
+    workflow: Workflows/HOTFIX.md
+    trigger: A production defect requires a fix outside the normal release cycle.
+    steps:
+      - gate: Director
+        when: Always
+        blocks: Any hotfix work at all
+        note: >-
+          Workflows/HOTFIX.md Step 1 — "No hotfix work begins without this
+          authorization." This gate is first in the chain, not a checkpoint
+          partway through.
+      - employee: Engineer
+        produces: Minimal fix plus a regression test, branched from main
+        resolve_via: Core/EMPLOYEE_SELECTION.md
+      - employee: Code Reviewer
+        produces: Expedited review
+        note: >-
+          Expedited, not reduced. Workflows/HOTFIX.md Step 5 — "time pressure
+          does not justify skipping steps."
+      - employee: QA Engineer
+        produces: Hotfix validation
+      - gate: Director
+        when: Always
+        blocks: Merge to main
+      - employee: Release Manager
+        produces: Merge to main, patch tag, and back-merge to develop via Pull Request
+
+  - name: Incident Chain
+    document: Core/AGENT_CHAINS.md
+    workflow: Workflows/INCIDENT_RESPONSE.md
+    trigger: A production incident at P1 or P2 severity.
+    steps:
+      - employee: SRE Engineer
+        produces: Detection, severity assessment, incident declared
+      - gate: Director
+        when: Severity is P1 or P2
+        blocks: Nothing — this is a mandatory notification, not an approval
+        note: >-
+          The one gate in the framework that does not pause the chain.
+          Containment continues while the Director is informed; withholding
+          mitigation pending an approval would worsen the incident.
+      - employee: SRE Engineer
+        produces: Containment and mitigation
+      - employee: Engineering Manager
+        produces: Incident Commander assigned, team resources coordinated
+      - employee: Security Engineer
+        when: The incident has a security dimension
+        produces: Security containment assessment
+      - employee: Engineer
+        produces: Root-cause fix, via the Hotfix Chain when a code change is needed
+        resolve_via: Core/EMPLOYEE_SELECTION.md
+      - employee: SRE Engineer
+        produces: Recovery confirmed, monitoring in place
+      - employee: Engineering Manager
+        produces: Blameless post-mortem with 5 Whys and tracked action items
+      - gate: Director
+        when: Always
+        blocks: Nothing — the incident report is delivered
+
+  - name: Architecture Chain
+    document: Core/AGENT_CHAINS.md
+    workflow: Workflows/ARCHITECTURE_DECISION.md
+    trigger: >-
+      A new system design, a major architectural change, or an unresolved
+      architectural question. Also entered from the Feature Chain when a
+      Workflows/ARCHITECTURE_DECISION.md trigger is met.
+    steps:
+      - employee: Business Analyst
+        when: Requirements are unclear
+        produces: Functional requirements
+      - employee: Software Architect
+        produces: Options analysis with at least two options, ADR draft, recommended decision
+      - employee: Solution Architect
+        when: The decision has cross-system impact
+        produces: Cross-system impact review
+      - employee: Security Engineer
+        when: The decision is a security architecture change
+        produces: Security implications assessment
+      - employee: Technical Lead
+        produces: Implementation feasibility review
+      - gate: Director
+        when: Always
+        blocks: Implementation
+        note: >-
+          Workflows/ARCHITECTURE_DECISION.md Step 5 — no ADR reaches Accepted
+          without Director approval, and implementation begins only from an
+          Accepted ADR.
+      - employee: Engineering Manager
+        when: The ADR is Accepted
+        produces: Work Unit decomposition, handing off to the Feature Chain
+
+# Chains not named above are composed per Core/AGENT_CHAINS.md's "Composing
+# Custom Chains": the Main Agent identifies the Employees and sequence, presents
+# the chain to the Director for approval, then dispatches per
+# Core/ORCHESTRATION.md. A composed chain is not added to this file — this file
+# records the six chains the framework names, not every sequence ever run.

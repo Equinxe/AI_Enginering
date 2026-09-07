@@ -1,2 +1,14 @@
 # IA Engineering local state — not part of the framework
 .omc/
+
+# Generated runtime agent definitions (Adapters/ai-runtimes/generate-agents.sh).
+# Derived from Employees/ and Registry/employees.yml, so they are build
+# artifacts rather than sources: 42 files of ~210 lines each is roughly 9,000
+# lines of derived content in a repository whose entire source is ~15,000, and
+# every Employee edit would produce a large mechanical diff beside the real one.
+#
+# The cost is real — a fresh clone must run the generator before the Employees
+# exist as dispatchable agents, the same way it must run install.sh before the
+# hooks exist. A project that prefers them present on clone should commit them
+# and add `generate-agents.sh --check` to CI. See Adapters/ai-runtimes/README.md.
+.claude/agents/

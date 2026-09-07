@@ -207,6 +207,8 @@ Escalation pauses the chain. Work resumes only after Director responds.
 | `Templates/EMPLOYEE_BRIEF.md` | Used in Step 4 for every dispatch |
 | `Templates/WORK_UNIT.md` | Used in Step 3 to define each Work Unit |
 | `Core/CAPABILITY_TIERS.md` | Used in Step 4 to select execution capability before dispatch |
+| `Registry/chains.yml`, `Registry/workflows.yml` | The machine-readable form of the execution maps this protocol produces — chain sequences, workflow steps, and every mandatory gate, as data. Derived from `Core/AGENT_CHAINS.md` and `Workflows/`, which remain authoritative |
+| `Registry/employees.yml` | The roster the `Employee:` commit trailer required by Step 7 is validated against |
 
 ---
 

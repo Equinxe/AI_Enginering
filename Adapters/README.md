@@ -16,11 +16,16 @@ Adapters are AI-agnostic in the sense that matters: they check work by any Emplo
 
 | Adapter | Rule enforced | Source document |
 |---|---|---|
-| `git-hooks/commit-msg` | Conventional Commits subject line; mandatory `Employee: <Name>` trailer validated against the 42-Employee roster | `Standards/COMMIT_STANDARD.md`, `Core/MAIN_AGENT_CONDUCT.md` (Dispatch Discipline) |
+| `git-hooks/commit-msg` | Conventional Commits subject line; mandatory `Employee: <Name>` trailer validated against `Registry/employees.yml`. Fails closed when the roster cannot be resolved, rather than passing while validating against nothing | `Standards/COMMIT_STANDARD.md` (Trailers), `Core/MAIN_AGENT_CONDUCT.md` (Dispatch Discipline), `Registry/README.md` |
 | `git-hooks/pre-push` | No direct push to `main` or `develop` | `Standards/BRANCH_STANDARD.md` |
-| `github-actions/pr-validation.yml` | Five checks on every PR targeting `main` or `develop`: (1) **PR Compliance** — references a Work Unit ID and has a real, filled-in description; (2) **Employee Trailer** — server-side re-validation that every non-merge commit in the PR carries a valid `Employee: <Name>` trailer from the 42-Employee roster, a backstop for the client-side `commit-msg` hook (which `--no-verify` or an uninstalled hook can skip); (3) **Shellcheck Adapters** — the git hooks/scripts we ship are valid, warning-free shell; (4) **Validate Workflow YAML** — every workflow file at minimum parses; (5) **Review Recorded (advisory)** — warning-only surfacing of whether a Code Reviewer `Decision: approved` block was recorded on the PR (does not block merge) | `Templates/WORK_UNIT.md`, `Templates/PULL_REQUEST.md`, `Standards/CODE_QUALITY_STANDARD.md`, `Core/MAIN_AGENT_CONDUCT.md`, `Workflows/CODE_REVIEW.md` |
+| `github-actions/pr-validation.yml` | Six checks on every PR targeting `main`, `develop`, or `release/*`: (1) **PR Compliance** — references a Work Unit ID and has a real, filled-in description; (2) **Work Unit Exists** — each commit's `Work Unit:` trailer resolves against `Registry/work-units.yml`, read from the trailer rather than from the PR description, so a reworded description cannot change the claim; (3) **Employee Trailer** — server-side re-validation that every non-merge commit carries a valid `Employee: <Name>` trailer from `Registry/employees.yml`, a backstop for the client-side `commit-msg` hook (which `--no-verify` or an uninstalled hook can skip); (4) **Shellcheck Adapters** — the git hooks/scripts we ship are valid, warning-free shell; (5) **Validate Workflow YAML** — every workflow file at minimum parses; (6) **Review Recorded (advisory)** — warning-only surfacing of whether a Code Reviewer `Decision: approved` block was recorded on the PR (does not block merge) | `Templates/WORK_UNIT.md`, `Templates/PULL_REQUEST.md`, `Standards/CODE_QUALITY_STANDARD.md`, `Core/MAIN_AGENT_CONDUCT.md`, `Workflows/CODE_REVIEW.md`, `Registry/README.md` |
 | `github/PULL_REQUEST_TEMPLATE.md` | Every new PR starts from the mandatory template — mirrors `Templates/PULL_REQUEST.md` exactly | `Templates/PULL_REQUEST.md` |
-| `scripts/setup-branch-protection.sh` | `main`/`develop` require the original three status checks above (PR Compliance, Shellcheck Adapters, Validate Workflow YAML) before merge; no force-push, no branch deletion. The newer **Employee Trailer** check is a candidate for the required set and **Review Recorded** is advisory-only — whether either is added to `required_status_checks.contexts` is a pending Director/Main Agent decision, tracked separately from this file. Formal approving review count is 0 by design (see the script's own comments — a single shared `gh` identity across all Employees and the Director makes GitHub-native self-approval impossible) | `Standards/BRANCH_STANDARD.md`, `Workflows/CODE_REVIEW.md` |
+| `github-actions/framework-validation.yml` | Runs `scripts/validate-framework.sh` as a blocking check on every PR and on every push to `main`/`develop`, plus a second step asserting that regenerating `Registry/employees.yml` is a no-op | `Governance/CONTRIBUTING.md` (§3 cross-reference check), `Governance/DEPRECATION_POLICY.md`, `Registry/README.md` |
+| `scripts/validate-framework.sh` | The cross-reference check both Governance documents require as a Definition of Done item, executed rather than remembered: Registry-to-definition agreement in both directions, roster counts quoted in prose, tier-table consistency, dispatch-trigger coverage, mandatory document sections, metadata fields, referenced-path resolution, Adapter/installed-copy parity, executable file modes on every shipped script, and unresolved work markers in shipped code | `Governance/CONTRIBUTING.md`, `Governance/DEPRECATION_POLICY.md`, `Governance/VERSIONING_POLICY.md`, `Core/CAPABILITY_TIERS.md`, `Core/EMPLOYEE_SELECTION.md` |
+| `scripts/install.sh` | Installs every host-agnostic Adapter in one idempotent command, wires hooks through `core.hooksPath` so they cannot fork from the framework version, and verifies the installed hook actually rejects an invalid Employee trailer | `Workflows/ONBOARDING.md` (Step 5), `Core/MAIN_AGENT_CONDUCT.md` (Verification Over Waiting) |
+| `ai-runtimes/generate-agents.sh` | Turns the 42 Employee definitions into agents an AI runtime can dispatch to, so reaching for the right Employee is the path of least resistance rather than the disciplined exception. Execution capability derived from each Employee's Default Complexity Tier; the tier-to-model mapping lives in the Adapter, never in `Core/` | `Employees/`, `Core/CAPABILITY_TIERS.md`, `Core/AGENT_CONDUCT.md`, `Core/MAIN_AGENT_CONDUCT.md` (Dispatch Discipline) |
+| `scripts/release.sh` | The mechanical parts of `Workflows/RELEASE.md`: Step 1 readiness as a report that exits non-zero, and Step 7 tag plus GitHub Release built from the version's `CHANGELOG.md` section. Refuses to tag unless the release is already merged to `main`, and never approves or merges — Step 5 is the Director's | `Workflows/RELEASE.md`, `Core/MAIN_AGENT_CONDUCT.md` (Autonomous Release Execution), `Governance/VERSIONING_POLICY.md` |
+| `scripts/setup-branch-protection.sh` | `main`, `develop`, **and** `release/*` require all six blocking status checks (PR Compliance, Work Unit Exists, Employee Trailer, Shellcheck Adapters, Validate Workflow YAML, Framework Validation) before merge; no force-push, no branch deletion. **Review Recorded** stays advisory and is deliberately not required — it matches comment text, which can be satisfied by pasting the block, so requiring it would buy false confidence; promoting it remains a Director decision. Formal approving review count is 0 by design (see the script's own comments — a single shared `gh` identity across all Employees and the Director makes GitHub-native self-approval impossible) | `Standards/BRANCH_STANDARD.md`, `Workflows/CODE_REVIEW.md`, `Workflows/RELEASE.md` |
 
 ---
 
@@ -35,25 +40,58 @@ Adapters are AI-agnostic in the sense that matters: they check work by any Emplo
 Run from the root of a project that has imported IA Engineering as a Git submodule at `ia-engineering/` (see `Workflows/ONBOARDING.md`).
 
 ```bash
-# Git hooks (local enforcement, every clone must repeat this — hooks are not
-# transmitted by git itself)
-cp ia-engineering/Adapters/git-hooks/commit-msg .git/hooks/commit-msg
-cp ia-engineering/Adapters/git-hooks/pre-push .git/hooks/pre-push
-chmod +x .git/hooks/commit-msg .git/hooks/pre-push
-
-# GitHub Actions CI check
-mkdir -p .github/workflows
-cp ia-engineering/Adapters/github-actions/pr-validation.yml .github/workflows/
-
-# GitHub PR template
-cp ia-engineering/Adapters/github/PULL_REQUEST_TEMPLATE.md .github/PULL_REQUEST_TEMPLATE.md
+# Everything host-agnostic: git hooks, PR-validation and framework-validation
+# CI, the PR template, the issue templates, and the .gitattributes LF rules.
+# Idempotent — safe to re-run. Add --dry-run to see the plan first.
+./ia-engineering/Adapters/scripts/install.sh
 
 # Branch protection (requires GitHub CLI, authenticated — run once per repo,
 # review the script first, it mutates shared settings)
 ./ia-engineering/Adapters/scripts/setup-branch-protection.sh
+
+# Stack CI + container publishing, once Workflows/PROJECT_BOOTSTRAP.md Phase B
+# has decided the stack (node | python | go | jvm | generic)
+./ia-engineering/Adapters/scripts/setup-project-bootstrap.sh node
 ```
 
+`install.sh` replaced the six-command `cp`/`chmod` checklist this section used to spell out. A multi-step manual procedure that must be repeated in every clone is a procedure that gets skipped, and a skipped hook installation is silent — commits land with no Employee attribution and nothing complains until a server-side check catches it later, or nobody does.
+
+**Hooks are configured through `core.hooksPath`, not copied into `.git/hooks`.** Copying produces a second, forkable version of each hook, frozen at whichever framework version was current when the copy was made: a project that installed hooks at v0.0.9 keeps validating against a v0.0.9 roster while its submodule moves on, and nothing reports the mismatch. Pointing `core.hooksPath` at the framework's own `Adapters/git-hooks` means the hook in force is always the hook in the imported framework version.
+
+This does not make hooks travel with a clone — nothing can. Git deliberately never transmits hooks or local config, because a repository that could install executables on clone would be a remote-code-execution vector. Every clone still runs `install.sh` once; the difference is that it is one command that cannot be half-done instead of six that can.
+
+Because `core.hooksPath` makes git ignore `.git/hooks` entirely, `install.sh` checks that directory for pre-existing project hooks first and warns rather than shadowing them silently.
+
 This extends `Workflows/ONBOARDING.md` Step 5 ("Initialize git workflow") — the manual checklist there becomes a scripted setup once these Adapters are installed.
+
+---
+
+# The Check Convention
+
+Every check in `scripts/validate-framework.sh`, every script in `scripts/`, and every job in `github-actions/` follows four rules. They are stated in the validator's header too, but they govern all Adapter code:
+
+1. **An unevaluated condition is a failure, not a pass.** If a check could not run — missing input, moved directory, a pattern that matched nothing — it says so. "Nothing objected" is not "everything passed".
+2. **Exceptions are named allow-lists, never fall-throughs.** Name the exempt thing, never express the exemption as a property of absence itself, because that quietly exempts everything else that goes missing later.
+3. **Every set-iterating check reports its denominator.** Carry a count, fail at zero, print the count on the passing line. A verdict drawn from an empty set is indistinguishable from one drawn from a complete set.
+4. **A claim about how a mechanism behaves is a testable claim** — what it selects, what it accepts, what it costs, which direction it fails in. Write the claim with the test that establishes it, or do not write it. When the mechanism chooses among alternatives, enumerate the alternatives *before* testing: two of three agreeing is not a result, and the case worth running is the one that would show the claim false.
+
+A **caller** that discards a check's exit status breaks rule 1 as surely as a check that never ran.
+
+Rules 1 to 3 constrain code; rule 4 constrains the prose that describes code — comments, Standards text, commit bodies — which is why it cannot be mechanised the way the others were. Its evidence is three conclusions reversed in a single review, each one a confirmed test that stopped short of the falsifying case: `tail -1` was tested at both ends but never on a message carrying claims at both ends, and was a live bypass; the trailer layouts were measured contiguous and renamed but not separated, and separated — the incumbent — was the only one that worked, on 28 of 30 commits; and "this fails safe in the harmless direction" was reasoned about rather than run, and was a false pass on a release gate.
+
+The rules are written down because the Automation milestone found eleven checks that reported success without evaluating anything. None was found by reading the diff — three by this repository's own CI, six by code review, two by an audit once the pattern was named — and **four were introduced by the fixes to earlier instances of the same defect**. A defect class that reproduces inside its own remediation is not a set of oversights; it is the default reasserting itself, because writing a pass is the path of least resistance whenever a condition turns out not to apply. Fixing the twelfth instance does not make the thirteenth less likely. Stating the rule does.
+
+---
+
+# Verifying an Installation
+
+```bash
+./ia-engineering/Adapters/scripts/validate-framework.sh
+```
+
+`install.sh` ends by running the installed `commit-msg` hook against two probe messages — one valid, one carrying the tool label `executor` — and reports a problem if the hook accepts what it should reject. This is `Core/MAIN_AGENT_CONDUCT.md`'s Verification Over Waiting applied to installation: an installer that prints "done" without checking anything has the same defect as a dispatch report nobody verified.
+
+`validate-framework.sh` then checks the framework itself, including whether this repository's installed copies of these Adapters still match what it ships.
 
 ---
 
@@ -73,8 +111,8 @@ A passing Adapter check means the work is correctly *shaped*. It says nothing ab
 
 - GitLab CI equivalent
 - Azure DevOps equivalent
-- A Work Unit ID validator that checks the referenced ID actually exists (currently only checks the format)
-- A single shared Employee-roster source file that both `git-hooks/commit-msg` and the `Employee Trailer` job in `github-actions/pr-validation.yml` read, instead of the 42-name array being duplicated in both. Duplication is an accepted tradeoff today (the two lists must be kept in sync by hand); extracting a shared list is a larger change deferred to keep individual Work Units scoped.
+- ~~A Work Unit ID validator that checks the referenced ID actually exists (currently only checks the format).~~ **Delivered** in WU-IAENG-146 as `Registry/work-units.yml` plus the `Work Unit Exists` CI job, which resolves every referenced ID instead of matching a regex.
+- ~~A single shared Employee-roster source file that both `git-hooks/commit-msg` and the `Employee Trailer` job in `github-actions/pr-validation.yml` read.~~ **Delivered** in WU-IAENG-137/138 as `Registry/employees.yml`. The real scope turned out to be six duplicated locations, not two — the two bash arrays plus this repository's installed copy of the Adapter, `VERSION.md`'s count and named list, `Core/CAPABILITY_TIERS.md`'s tier table, and `Core/EMPLOYEE_SELECTION.md`'s per-Employee triggers. `scripts/validate-framework.sh` now fails the build when any of them drifts from the Registry.
 
 ---
 

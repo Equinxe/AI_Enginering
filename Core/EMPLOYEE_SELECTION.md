@@ -80,7 +80,7 @@ They compose: use this document to identify the best-fit Employee; if that Emplo
 
 - **DevOps Engineer** — Dispatch for CI/CD pipelines, build/test/deploy automation, and deployment strategies. **Not** the default owner of anything security-, secrets-, or git-mechanics-related merely because those things touch pipelines — see **Miscasting Risks**.
 - **Cloud Engineer** — Dispatch for designing and provisioning cloud infrastructure (compute, storage, networking, managed services) and cloud cost/security posture, aligned with the architecture.
-- **IaC Engineer** — Dispatch when infrastructure must be *defined as versioned, reviewable code* (Terraform, Pulumi, Ansible): modules, plans/dry-runs, state management.
+- **Infrastructure as Code Engineer** (IaC Engineer) — Dispatch when infrastructure must be *defined as versioned, reviewable code* (Terraform, Pulumi, Ansible): modules, plans/dry-runs, state management.
 - **GitOps Engineer** — Dispatch when git is the *declared source of truth for deployed infrastructure/application state*: GitOps operators (ArgoCD, Flux), drift detection/reconciliation, environment-promotion workflows. See **Miscasting Risks** for the boundary with DevOps/Release Manager.
 - **Platform Engineer** — Dispatch to build the internal developer platform whose customer is the engineering team: container orchestration, standardized environments, service templates, developer self-service tooling.
 - **Observability Engineer** — Dispatch for logging, metrics, and distributed tracing instrumentation; dashboards; and actionable alerting with runbooks.

@@ -8,7 +8,15 @@
 #      identify the Employee who produced it, by name, not by a generic tool
 #      label ("executor", "coder", etc.).
 #
+# The Employee roster is read from Registry/employees.yml — the single source
+# of truth (see Registry/README.md). Before WU-IAENG-138 this hook carried its
+# own hardcoded copy of all 42 names, which had to be kept in sync by hand with
+# five other locations.
+#
 # Install in a project that has imported IA Engineering as a submodule:
+#   ./ia-engineering/Adapters/scripts/install.sh
+#
+# or, to install this hook alone:
 #   cp ia-engineering/Adapters/git-hooks/commit-msg .git/hooks/commit-msg
 #   chmod +x .git/hooks/commit-msg
 #
@@ -59,24 +67,118 @@ if ! echo "$SUBJECT" | grep -qE "$CC_REGEX"; then
   exit 1
 fi
 
+# --- Locate the Employee roster -------------------------------------------
+# Resolution order, first hit wins:
+#   1. $IAENG_REGISTRY            — explicit override, for non-standard layouts
+#   2. <repo>/Registry/           — the framework's own repository (dogfooding)
+#   3. <repo>/ia-engineering/     — the submodule path Workflows/ONBOARDING.md
+#                                   and Adapters/README.md both assume
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+ROSTER=""
+
+for candidate in \
+  "${IAENG_REGISTRY:-}" \
+  "$REPO_ROOT/Registry/employees.yml" \
+  "$REPO_ROOT/ia-engineering/Registry/employees.yml"
+do
+  if [ -n "$candidate" ] && [ -f "$candidate" ]; then
+    ROSTER="$candidate"
+    break
+  fi
+done
+
+# Fail closed, never open. An earlier draft of this hook fell back to a
+# hardcoded 42-name array when the roster could not be found, which is exactly
+# the silent-degradation failure mode this framework keeps having to fix after
+# the fact: the hook would keep passing while validating against a list nobody
+# maintains. A missing roster is a broken installation and it says so.
+if [ -z "$ROSTER" ]; then
+  echo "commit-msg: rejected — could not locate Registry/employees.yml." >&2
+  echo "  Looked for, in order:" >&2
+  echo "    \$IAENG_REGISTRY (currently: '${IAENG_REGISTRY:-unset}')" >&2
+  echo "    $REPO_ROOT/Registry/employees.yml" >&2
+  echo "    $REPO_ROOT/ia-engineering/Registry/employees.yml" >&2
+  echo "  The Employee roster is the single source of truth for the" >&2
+  echo "  'Employee:' trailer (see Registry/README.md). Without it this hook" >&2
+  echo "  cannot validate anything, and passing silently would be worse than" >&2
+  echo "  failing. Import the framework, or set IAENG_REGISTRY to its path." >&2
+  exit 1
+fi
+
 # --- Rule 2: Dispatch Discipline — Employee trailer required --------------
-EMPLOYEES=(
-  "Data Architect" "Software Architect" "Solution Architect"
-  "Analytics Engineer" "Data Engineer" "Data Scientist" "ML Engineer" "MLOps Engineer"
-  "Android Engineer" "Backend Engineer" "Cross-Platform Engineer" "Database Engineer"
-  "Event-Driven Engineer" "Frontend Engineer" "Integration Engineer" "iOS Engineer"
-  "Cloud Engineer" "DevOps Engineer" "GitOps Engineer" "Infrastructure as Code Engineer"
-  "Observability Engineer" "Platform Engineer" "SRE Engineer"
-  "Documentation Engineer" "Technical Writer"
-  "Engineering Manager" "Product Manager" "Release Manager" "Scrum Master" "Technical Lead"
-  "Performance Engineer" "QA Engineer" "Security Engineer" "Test Automation Engineer"
-  "AI Engineer" "API Engineer" "Business Analyst" "Code Reviewer" "Compliance Engineer"
-  "Penetration Tester" "Prompt Engineer" "UX/UI Designer"
-)
+# Parsing contract, per Registry/README.md: every entry's first line is
+# `  - name: <Name>` — two leading spaces, unquoted, no trailing comment. The
+# trailing `tr -d '\r'` guards against a CRLF checkout on Windows, which would
+# otherwise leave a carriage return on every name and match nothing.
+# EVERY `Employee: ` line is validated, not one of them.
+#
+# Two earlier versions picked a single line by ordinal and both were bypassable,
+# in mirror-image ways. All six cases below were reproduced against this hook:
+#
+#   with `head -1`  a body quoting a valid name EARLY masked a real trailer
+#                   naming a tool label   -> ACCEPTED
+#   with `tail -1`  a squash-concatenated message whose first block carried
+#                   `Employee: executor` and whose last block carried a valid
+#                   name                  -> ACCEPTED
+#
+# The second is the first with the sign flipped. Neither end is safe, because
+# the defect was never about which end: it is about examining ONE line when the
+# message contains N claims. A squashed merge is the realistic source — every
+# squashed commit's body concatenates the trailer blocks of its parts.
+#
+# Validating all of them makes the ordinal irrelevant and closes both. It also
+# converts the remaining annoyance into an honest one: a message that quotes
+# this hook's own rejection text at column 0 is now refused for containing an
+# unvalidated Employee line, which is true, and the fix is to indent the quoted
+# example — a habit worth having.
+#
+# The strictly correct definition is git's own: the trailer block is the final
+# paragraph when it consists entirely of trailer-shaped lines. That is not
+# usable here yet, because this project's messages put `Work Unit:` and
+# `Employee:` in SEPARATE paragraphs, so the final paragraph holds only one of
+# them — the same separation that makes
+# `git log --format='%(trailers:key=Work Unit)'` return nothing. Fixing that is
+# a change to Standards/COMMIT_STANDARD.md and to the generated agent template,
+# tracked as its own Work Unit.
+EMPLOYEE_LINES="$(grep -E '^Employee: ' "$COMMIT_MSG_FILE" || true)"
 
-EMPLOYEE_LINE="$(grep -E '^Employee: ' "$COMMIT_MSG_FILE" | head -1 || true)"
+# --- Rule 3: at most one Work Unit claim -------------------------------
+# `Standards/COMMIT_STANDARD.md` and CLAUDE.md both state One Work Unit = One
+# Commit. A commit carrying two `Work Unit:` lines is therefore MALFORMED, not
+# ambiguous — and refusing it here is what lets every reader downstream take
+# the single line with no ordinal at all.
+#
+# This exists because ranking by position kept producing bypasses. The release
+# readiness check attributes a Work Unit to a commit, which needs one answer,
+# so it took the last matching line — and a commit correctly formed under this
+# Standard, with a deferral note quoted after the trailer block, silently
+# flipped a blocked release to green: the quoted id was last, so it counted as
+# merged. Nothing else caught it, because the quoted id was itself registered
+# and so validated fine.
+#
+# Removing the choice is the fix, not choosing a better end. The author learns
+# at commit time, locally and immediately, instead of the Release Manager
+# meeting it at Step 1.
+#
+# CAVEAT: this assumes merge commits, not squashes. A squash-merged commit
+# legitimately carries one trailer block per squashed part. This project uses
+# merge commits; if squashing is ever adopted, attribution changes shape and
+# this rule should be reopened deliberately rather than inherited.
+WU_COUNT="$(grep -cE '^Work Unit: ' "$COMMIT_MSG_FILE" || true)"
 
-if [ -z "$EMPLOYEE_LINE" ]; then
+if [ "$WU_COUNT" -gt 1 ]; then
+  echo "commit-msg: rejected — $WU_COUNT 'Work Unit:' lines at column 0." >&2
+  echo "  One Work Unit is one commit (Standards/COMMIT_STANDARD.md), so a" >&2
+  echo "  second claim is malformed rather than something to resolve by" >&2
+  echo "  position. Downstream readers rely on there being exactly one." >&2
+  echo "" >&2
+  echo "  If one of these is an EXAMPLE quoted in the message body — a" >&2
+  echo "  deferral note, a reference to earlier work — indent it so it does" >&2
+  echo "  not start at column 0." >&2
+  exit 1
+fi
+
+if [ -z "$EMPLOYEE_LINES" ]; then
   echo "commit-msg: rejected — missing 'Employee: <Name>' trailer." >&2
   echo "  Per Core/MAIN_AGENT_CONDUCT.md (Dispatch Discipline), every commit must" >&2
   echo "  identify the Employee who produced it — never the Main Agent, never a" >&2
@@ -84,21 +186,29 @@ if [ -z "$EMPLOYEE_LINE" ]; then
   exit 1
 fi
 
-EMPLOYEE_NAME="${EMPLOYEE_LINE#Employee: }"
-MATCH_FOUND=0
+VALID_NAMES="$(grep -E '^  - name: ' "$ROSTER" | sed 's/^  - name: //' | tr -d '\r')"
 
-for name in "${EMPLOYEES[@]}"; do
-  if [ "$name" = "$EMPLOYEE_NAME" ]; then
-    MATCH_FOUND=1
-    break
+REJECTED=0
+while IFS= read -r line; do
+  [ -n "$line" ] || continue
+  name="$(echo "${line#Employee: }" | tr -d '\r')"
+  if ! printf '%s\n' "$VALID_NAMES" | grep -qxF "$name"; then
+    echo "commit-msg: rejected — 'Employee: $name' is not a recognized Employee." >&2
+    REJECTED=1
   fi
-done
+done <<EOF
+$EMPLOYEE_LINES
+EOF
 
-if [ "$MATCH_FOUND" -eq 0 ]; then
-  echo "commit-msg: rejected — 'Employee: $EMPLOYEE_NAME' is not a recognized Employee." >&2
-  echo "  Must exactly match one of the 42 Employees defined in ia-engineering/Employees/." >&2
+if [ "$REJECTED" -eq 1 ]; then
+  echo "  Must exactly match an entry in $ROSTER" >&2
   echo "  A functional or tool label ('executor', 'coder', 'reviewer-bot', etc.) is not" >&2
   echo "  a valid Employee name — see Core/MAIN_AGENT_CONDUCT.md, 'Naming matters.'" >&2
+  echo "" >&2
+  echo "  Every line beginning 'Employee: ' is checked, not just one, because" >&2
+  echo "  picking a single line by position was bypassable from whichever end" >&2
+  echo "  was not chosen. If the offending line is an EXAMPLE quoted in the" >&2
+  echo "  message body, indent it so it does not start at column 0." >&2
   exit 1
 fi
 

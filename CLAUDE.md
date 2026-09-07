@@ -111,7 +111,8 @@ Workflows/     — Engineering workflows
 Templates/     — Reusable templates
 Examples/      — Concrete examples
 Governance/    — Governance documents
-Prompts/       — Reusable prompts
+Registry/      — Machine-readable form of the roster, chains, workflows, Work Units
+Prompts/       — Reserved; see Prompts/README.md
 Adapters/      — Tool integrations
 ```
 
