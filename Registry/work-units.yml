@@ -517,3 +517,9 @@ work_units:
     title: Give ANSI-C quoting its own lexer state, make the expansion bounds fail closed, expand ranges, and stop expanding literal braces
     milestone: Convergence
     delivers: Adapters/ai-runtimes/claude-code/hooks/strip-quotes.awk, Adapters/ai-runtimes/claude-code/hooks/block-escape-hatches.sh, Adapters/ai-runtimes/claude-code/hooks/tests/
+
+  - id: WU-IAENG-208
+    employee: Technical Writer
+    title: Bring the chain Examples up to the Convergence rules they demonstrate — reports, risk records, review denominator, line re-anchoring
+    milestone: Convergence
+    delivers: Examples/FEATURE_CHAIN_EXAMPLE.md, Examples/REVIEW_CHAIN_EXAMPLE.md, Examples/HOTFIX_CHAIN_EXAMPLE.md, Examples/INCIDENT_CHAIN_EXAMPLE.md, Examples/README.md

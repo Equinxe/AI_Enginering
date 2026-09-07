@@ -113,13 +113,25 @@ Business Analyst → Software Architect → Backend Engineer → Code Reviewer �
 
 # Step 5 — Collect (Main Agent)
 
-- Business Analyst output: confirmed acceptance criteria (200/404/409 cases) — meets DoD.
-- Software Architect output: confirmed no architectural impact — meets DoD.
-- Backend Engineer output: endpoint implemented, tests written — meets DoD.
-- Code Reviewer output: approved, no blocking comments — meets DoD.
-- QA Engineer output: validated all three cases against acceptance criteria — signed off.
+Each Employee returns a **Work Unit Report** (`Templates/WORK_UNIT_REPORT.md`), and the Main Agent verifies its claims against the repository rather than accepting them — `Core/ORCHESTRATION.md` Step 5:
 
-All outputs validated. No remediation Work Unit needed.
+| Employee | Report verdict | What the Main Agent re-verified, and how |
+|---|---|---|
+| Business Analyst | COMPLETE | Acceptance criteria (200/404/409) present in the Work Unit; read them. |
+| Software Architect | COMPLETE | "No architectural impact" checked against the ADR trigger list in `Workflows/ARCHITECTURE_DECISION.md`, not taken on trust. |
+| Backend Engineer | COMPLETE | Test output pasted in the report re-run: `12 passed`. `git log` shows one commit with both trailers. |
+| Code Reviewer | COMPLETE | The `Decision: approved` block is on the PR, and it states its denominator (which files, which lenses). |
+| QA Engineer | COMPLETE | All three cases exercised against the acceptance criteria; the run is quoted. |
+
+Risk records collected from the reports (`Standards/RISK_STANDARD.md`):
+
+```
+RISK: new endpoint reachable without an ownership check | tier=Medium | mitigation=authorization asserted in the 404 test | decided_by=self
+```
+
+`Medium` with a stated mitigation, so it proceeded and was recorded. Nothing reached `High`, so nothing stopped for a Director decision inside this chain.
+
+All reports received and verified. No remediation Work Unit needed. A bare "Done" from any of these Employees would have been a **failed** Work Unit, not a completed one.
 
 ---
 
@@ -148,6 +160,8 @@ Chain-level check:
 - How the Employee Brief gives the Backend Engineer everything needed without reading the whole repository (Context Engine in practice).
 - How sequential dispatch works when each employee's output feeds the next.
 - How the Main Agent validates against Definition of Done before moving to the next step — never passing through a failed output.
+- How Step 5 reads a **Work Unit Report** and then re-verifies its claims against the repository, rather than accepting them. A bare "Done" is a failed Work Unit; a report is evidence to check, not proof to trust.
+- How a `Medium` risk is recorded with its mitigation and proceeds, so that the decision survives the session.
 
 ---
 

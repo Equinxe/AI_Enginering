@@ -30,7 +30,17 @@ A user reports that `PATCH /tasks/{id}/complete` returns a 500 error when the ta
 4. Adds a regression test for the trailing-slash case.
 5. Commits: `fix(tasks): handle trailing slash on complete endpoint`
 
-**Output:** Fix implemented, branched from `main`, tested.
+The Engineer classifies the work before doing it (`Standards/RISK_STANDARD.md`). A hotfix reaches `main` outside the release process, so the risk is real and is recorded rather than assumed away:
+
+```
+RISK: a fix reaching main outside the release process, on a router shared by every endpoint |
+      tier=High | mitigation=minimal diff plus a regression test; expedited review and QA both
+      still run | decided_by=Director (Step 1 authorization, quoted in the Work Unit Report)
+```
+
+`High` means stop and wait for a confirmation that names the action — which is exactly what Step 1's authorization gate is, and why the tier is satisfied rather than bypassed. `decided_by=self` would have been a violation at this tier whatever the fix looked like.
+
+**Output:** Fix implemented, branched from `main`, tested. Work Unit Report written, with the test run pasted and the risk record above.
 
 ---
 
@@ -79,6 +89,7 @@ Validates:
 - Why hotfixes branch from `main`, not `develop` — production state and in-progress development state can diverge.
 - Why there are two Director gates in this chain (authorization to start, approval to merge) rather than one — an unauthorized hotfix in progress is as risky as an unapproved merge.
 - Why the back-merge to `develop` step exists — without it, the next regular release could silently reintroduce the bug.
+- How a `High` risk record and a Director gate are the same requirement seen from two sides: the tier says stop and wait for a confirmation that names the action, and the gate is where that confirmation happens. `decided_by=self` at this tier would be a violation however good the fix was.
 
 ---
 

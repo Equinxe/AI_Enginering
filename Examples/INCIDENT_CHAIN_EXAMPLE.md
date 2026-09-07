@@ -31,6 +31,17 @@ Engineering Manager assigns the SRE Engineer as Incident Commander for this inci
 
 **P1/P2 notification to Director is mandatory and immediate** — not after resolution.
 
+This is the one gate in the framework that does **not** pause the chain (`Registry/workflows.yml` records it as `notification_only`). Containment proceeds while the Director is informed, because withholding mitigation to wait for an approval would worsen the incident. `Standards/RISK_STANDARD.md` does not conflict with that: the tier here is `Critical` — a source of truth is unavailable and every user is affected — and the containment action is recorded as it happens rather than escalated before it:
+
+```
+RISK: raising the connection-pool ceiling on a live production database |
+      tier=Critical | mitigation=change is reversible by reverting the config; the pool metric is
+      watched during and after | decided_by=Director (notified Step 3, confirmation quoted in the
+      post-mortem)
+```
+
+An irreversible containment action — dropping connections, truncating a table — would have stopped for the confirmation instead, `Critical` requiring a named Director decision *and* an independent verification pass.
+
 ---
 
 # Step 4 — Containment
