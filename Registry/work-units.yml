@@ -613,3 +613,27 @@ work_units:
     title: The back-merge cannot be opened with main as its head under strict mode
     milestone: Convergence
     delivers: Workflows/RELEASE.md
+
+  - id: WU-IAENG-224
+    employee: DevOps Engineer
+    title: Extract the Work Unit check from the workflow, and give it a test suite
+    milestone: Portability
+    delivers: Adapters/scripts/check-work-units.sh, Adapters/scripts/tests/run.sh
+
+  - id: WU-IAENG-225
+    employee: DevOps Engineer
+    title: Extract the Employee trailer check, with the Domain Employee union
+    milestone: Portability
+    delivers: Adapters/scripts/check-employee-trailers.sh, Adapters/scripts/tests/run.sh
+
+  - id: WU-IAENG-226
+    employee: DevOps Engineer
+    title: Extract the PR size check, and pin both defects that reached production in it
+    milestone: Portability
+    delivers: Adapters/scripts/check-pr-size.sh, Adapters/scripts/tests/run.sh
+
+  - id: WU-IAENG-227
+    employee: DevOps Engineer
+    title: Extract the review-recorded decision, with the host supplying data and the script deciding
+    milestone: Portability
+    delivers: Adapters/scripts/check-review-recorded.sh, Adapters/scripts/tests/run.sh
