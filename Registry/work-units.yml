@@ -685,3 +685,9 @@ work_units:
     title: Do not offer to cut a release that already shipped
     milestone: Portability
     delivers: Adapters/scripts/release.sh
+
+  - id: WU-IAENG-236
+    employee: Technical Writer
+    title: Bring the Release Chain example up to the rules it demonstrates
+    milestone: Portability
+    delivers: Examples/RELEASE_CHAIN_EXAMPLE.md
