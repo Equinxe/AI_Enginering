@@ -593,7 +593,7 @@ case "${1:-check}" in
   notes)   shift; cmd_notes "${1:-}" ;;
   publish) shift; cmd_publish "${1:-}" "${2:-}" ;;
   --help|-h|help)
-    sed -n '2,72p' "$0"
+    sed -n '2,$p' "$0" | awk '/^#/{print; next} /^$/{print; next} {exit}'
     ;;
   *)
     echo "Unknown command: $1" >&2

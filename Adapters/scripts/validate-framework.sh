@@ -133,7 +133,7 @@ for arg in "$@"; do
     --verbose|-v) VERBOSE=1 ;;
     --regenerate-roster) REGENERATE=1 ;;
     --help|-h)
-      sed -n '2,109p' "$0"
+      sed -n '2,$p' "$0" | awk '/^#/{print; next} /^$/{print; next} {exit}'
       exit 0
       ;;
     *)
@@ -480,6 +480,36 @@ for f in Employees/*/*.md; do
   fi
 done
 
+# Standards First is the root of the hierarchy CLAUDE.md draws and the one
+# Standard that decides how every other is applied — official standard first,
+# project convention second. Every Employee's Standards Applied section is
+# expected to open with it; two did not, and nothing said so for eleven
+# versions. The other Standards are deliberately NOT checked this way: the
+# section is a per-role reading aid, not an exhaustive list (Git Standard
+# appears in none of the 42), and Core/AGENT_CONDUCT.md is where the
+# universally-binding ones are stated instead.
+missing_sf=""
+sf_checked=0
+for f in Employees/*/*.md; do
+  sf_checked=$((sf_checked + 1))
+  # ANCHORED REGEX, NOT `grep -qxF '- Standards First'`. The list item begins
+  # with a hyphen, so as a bare pattern grep reads it as an option bundle and
+  # exits 2 with "unknown option" on every file — which this check reported as
+  # all 42 Employees failing, the first time it ran, while the same grep in a
+  # shell had just found all 42. A pattern that starts with `-` needs either
+  # `--` before it or an anchor in front of the hyphen; the anchor is used
+  # here because it also pins the item to the start of its line.
+  # `\r?$` guards a CRLF checkout, as the roster readers do (Registry/README.md).
+  grep -qE '^- Standards First\r?$' "$f" || missing_sf="$missing_sf$(basename "$f"); "
+done
+if [ "$sf_checked" -eq 0 ]; then
+  fail "no Employee definitions found under Employees/*/*.md" "The glob matched nothing, so this check verified nothing. An empty input set is not a pass."
+elif [ -n "$missing_sf" ]; then
+  fail "Employees whose Standards Applied omits Standards First: $missing_sf" "Standards/STANDARDS_FIRST.md is the root of the hierarchy in CLAUDE.md; every Employee applies it. Add '- Standards First' to the Standards Applied section."
+else
+  pass "all $sf_checked Employees list Standards First"
+fi
+
 # ==========================================================================
 section "7. Workflow and Standard completeness"
 # ==========================================================================
@@ -605,12 +635,42 @@ broken=""
 # happen here, so SC2016 is a false positive. The directive has to sit in front
 # of the whole compound command, which is why it precedes the loop rather than
 # the line it concerns.
+# RESOLVED AGAINST TRACKED CONTENT, CASE-EXACTLY — not with `[ -e ]`.
+#
+# `-e` asks the filesystem, and Windows answers case-insensitively, so a
+# reference to Core/GLOSSARY.MD resolved against Core/GLOSSARY.md on the
+# authoring machine and failed only on the Linux runner. That is the incident
+# in Governance/TROUBLESHOOTING.md entry F, whose remedy line used to claim
+# this check already resolved against tracked content. It did not; the WU-151
+# fix was the CHANGELOG exclusion below, and the case-sensitivity half was
+# never done. It is done here, so a local run and CI answer the same question.
+#
+# A reference may name a directory, which `git ls-files` does not list, so a
+# path also resolves when some tracked file lies beneath it.
+TRACKED_PATHS="$(git ls-files)"
+resolves() {
+  local p="${1%/}"
+  printf '%s\n' "$TRACKED_PATHS" | grep -qxF -- "$p" && return 0
+  printf '%s\n' "$TRACKED_PATHS" | awk -v pre="$p/" 'index($0, pre) == 1 { found = 1; exit } END { exit !found }'
+}
+
+# The backtick that delimits a quoted path is held in a variable so the grep
+# pattern can be double-quoted. Written literally it needed single quotes,
+# which made shellcheck read it as an unexpanded expression (SC2016) and
+# required a suppression directive — and that directive then had to sit
+# immediately before the compound command, which made it fragile: inserting
+# the resolver above pushed it away from the loop and the finding came back.
+# Restructuring so the rule is satisfied is what
+# Standards/CODE_QUALITY_STANDARD.md asks for before a directive is
+# considered, and here it costs one variable.
+BT='`'
+REF_PATTERN="${BT}(Core|Standards|Employees|Workflows|Templates|Examples|Governance|Adapters|Registry|Prompts)/[A-Za-z0-9_/.-]*${BT}"
+
 refs_checked=0
-# shellcheck disable=SC2016
 while IFS= read -r ref; do
   if has_line "$KNOWN_ABSENT" "$ref"; then continue; fi
   refs_checked=$((refs_checked + 1))
-  [ -e "$ref" ] || broken="$broken$ref; "
+  resolves "$ref" || broken="$broken$ref; "
 #
 # CHANGELOG.md is excluded, and the reason is categorical rather than
 # convenient. A changelog describes the repository as it was at each version,
@@ -625,8 +685,30 @@ while IFS= read -r ref; do
 # This was found by CI, not locally: Windows resolves Core/GLOSSARY.MD against
 # Core/GLOSSARY.md on a case-insensitive filesystem, so the check passed on the
 # authoring machine and failed only on the Linux runner.
-done < <(grep -rhoE '`(Core|Standards|Employees|Workflows|Templates|Examples|Governance|Adapters|Registry|Prompts)/[A-Za-z0-9_/.-]*`' \
-           --include='*.md' --exclude='CHANGELOG.md' . | tr -d '`' | sort -u)
+#
+# TROUBLESHOOTING.md is excluded for the same categorical reason as
+# CHANGELOG.md, and the reason is visible in the failure that added it: entry
+# F's symptom line quotes `Core/GLOSSARY.MD` because that broken path IS the
+# incident. An incident catalog names paths that were wrong — that is what it
+# is for — exactly as a changelog names paths that were renamed. Requiring
+# either document's paths to resolve against the present tree is a category
+# error, and rewriting them to satisfy a link checker would destroy the record.
+#
+# THE SCAN READS TRACKED FILES, not the working tree. `grep -r .` walked
+# everything present, including gitignored local notes — the moment
+# .ia-engineering/SESSION_STATE.md mentioned this very incident by name, the
+# validator failed on the author's machine and could not have failed in CI,
+# where that file does not exist. A check whose result depends on untracked
+# scratch is a check that cannot be trusted either way.
+#
+# Section 14 deliberately does the opposite and includes untracked files,
+# because there an unstaged NEW document is exactly the omission to report.
+# The difference is the subject: that check asks "is the inventory complete",
+# this one asks "does the committed corpus hang together".
+done < <(git ls-files '*.md' \
+           | grep -v -e '^CHANGELOG\.md$' -e '/TROUBLESHOOTING\.md$' \
+           | xargs -r grep -hoE "$REF_PATTERN" \
+           | tr -d "$BT" | sort -u)
 
 if [ -n "$broken" ]; then
   fail "documents reference paths that do not exist: $broken" "Governance/DEPRECATION_POLICY.md's Cross-Reference Check requires every reference to be updated or removed when its target moves."
@@ -1078,6 +1160,204 @@ if [ -f Registry/work-units.yml ]; then
   fi
 else
   fail "Registry/work-units.yml is missing" "It existed as of WU-IAENG-146, and the Work Unit Exists CI job resolves every referenced ID against it. Without it that required check fails closed, so this cannot be a pass here."
+fi
+
+# ==========================================================================
+section "14. VERSION.md inventory vs. the repository"
+# ==========================================================================
+# VERSION.md lists, by name, every Standard, Workflow, and Template the
+# framework contains. Section 3 already checks the ONE number that was
+# historically wrong (the roster size); these lists are the same fact in a
+# longer form, and they drifted the same way — at the point this check was
+# written VERSION.md claimed 8 Standards of 10, 9 Workflows of 10, and 7
+# Templates of 11.
+#
+# Governance/TROUBLESHOOTING.md names the class (entry N): a literal count or
+# list in prose is a second copy of a fact, and two copies drift. The remedy it
+# prescribes is to derive rather than restate, so the comparison is made
+# against the documents themselves.
+#
+# The name of a document is its H1, minus the category suffix the file itself
+# carries ("Feature Development Workflow" -> "Feature Development"). That is a
+# rule, not a lookup table: an exception list here would be the fall-through
+# the Check Convention forbids, and would need an entry every time a document
+# is added — which is the maintenance burden this check exists to remove.
+
+check_inventory() {
+  local dir="$1" heading="$2" suffix="$3"
+  local real listed declared real_count listed_count missing extra title f
+  local suffix_note=""
+
+  # Built plainly rather than inline in the message. An inline
+  # ${suffix:+... '$suffix'} expands correctly but reads to shellcheck as a
+  # single-quoted expression (SC2016), and the fix for a finding is never a
+  # directive — Standards/CODE_QUALITY_STANDARD.md, No Inline Suppression.
+  if [ -n "$suffix" ]; then
+    suffix_note=", minus the trailing category word $suffix"
+  fi
+
+  if ! grep -qE "^### $heading( \([0-9]+\))?\$" VERSION.md; then
+    fail "VERSION.md has no '### $heading' section" "It lists every $dir document by name; a missing section cannot be checked and is not a pass. Restore the section or update this check deliberately."
+    return
+  fi
+
+  # TRACKED **AND** PRESENT-BUT-UNTRACKED. Enumerating only tracked files
+  # meant a contributor who added Standards/NEW.md and ran the validator
+  # before staging got a pass, and discovered the inventory gap in CI instead
+  # — or, on this branch, discovered it because the author happened to stage
+  # first. Untracked-and-ignored files stay out, via --exclude-standard.
+  real=""
+  while IFS= read -r f; do
+    [ -n "$f" ] || continue
+    title="$(head -1 "$f" | sed 's/^# //' | tr -d '\015')"
+    if [ -n "$suffix" ]; then title="${title% "$suffix"}"; fi
+    real="$real$title
+"
+  done < <( { git ls-files "$dir/*.md"; git ls-files --others --exclude-standard "$dir/*.md"; } | sort -u)
+
+  listed="$(awk -v want="$heading" '
+    $0 ~ "^### " want "( \\([0-9]+\\))?$" { inside = 1; next }
+    inside && /^#+ / { inside = 0 }
+    inside && /^- \[x\] / { sub(/^- \[x\] /, ""); sub(/\015$/, ""); print }
+  ' VERSION.md)"
+
+  real_count="$(printf '%s' "$real" | grep -c .)"
+  listed_count="$(printf '%s\n' "$listed" | grep -c .)"
+
+  if [ "$real_count" -eq 0 ]; then
+    fail "no documents found under $dir/" "The inventory check has nothing to compare against. Either the directory was renamed or the glob is wrong — an empty input set is not a passing check."
+    return
+  fi
+  if [ "$listed_count" -eq 0 ]; then
+    fail "VERSION.md's '### $heading' section lists no '- [x]' items" "$real_count documents exist under $dir/. A section that enumerates nothing cannot be compared, so it fails rather than passing silently."
+    return
+  fi
+
+  missing=""; extra=""
+  while IFS= read -r title; do
+    [ -n "$title" ] || continue
+    has_line "$listed" "$title" || missing="$missing$title; "
+  done < <(printf '%s' "$real")
+  while IFS= read -r title; do
+    [ -n "$title" ] || continue
+    has_line "$real" "$title" || extra="$extra$title; "
+  done < <(printf '%s\n' "$listed")
+
+  if [ -n "$missing" ]; then
+    fail "VERSION.md's $heading list is missing: $missing" "Every document under $dir/ is listed there by its H1 title$suffix_note. Governance/CONTRIBUTING.md requires the inventory updated in the same Work Unit that adds the document."
+  fi
+  if [ -n "$extra" ]; then
+    fail "VERSION.md's $heading list names documents that do not exist: $extra" "The list is compared against the H1 title of every tracked file under $dir/. Either the document was removed without updating VERSION.md, or its title changed."
+  fi
+
+  # A title listed TWICE produces neither a missing nor an extra — set
+  # membership holds in both directions while the list is still wrong. The
+  # counts are what catch it, which is why listed_count is compared rather
+  # than merely printed.
+  dupes="$(printf '%s\n' "$listed" | grep -v '^$' | sort | uniq -d | tr '\n' '|' | sed 's/|$//')"
+  if [ -n "$dupes" ]; then
+    fail "VERSION.md's $heading list names the same document more than once: $dupes" "Each document appears once. Duplicates keep the set comparison happy while the list stays wrong."
+  elif [ "$listed_count" -ne "$real_count" ]; then
+    fail "VERSION.md's $heading list has $listed_count entries but $real_count documents exist under $dir/" "The names all match, so this is a counting difference the membership comparison cannot see."
+  fi
+
+  # The parenthesised count is a third copy of the same fact. Checked only when
+  # present: '### Standards' carries no count and is not required to grow one.
+  declared="$(grep -oE "^### $heading \([0-9]+\)\$" VERSION.md | grep -oE '[0-9]+' | head -1)"
+  if [ -n "$declared" ] && [ "$declared" -ne "$real_count" ]; then
+    fail "VERSION.md says '$heading ($declared)' but $real_count exist under $dir/" "Update the heading in the same Work Unit as the document."
+  fi
+
+  if [ -z "$missing" ] && [ -z "$extra" ] && [ -z "$dupes" ] && [ "$listed_count" -eq "$real_count" ] \
+     && { [ -z "$declared" ] || [ "$declared" -eq "$real_count" ]; }; then
+    pass "VERSION.md lists all $real_count $heading, by name${declared:+, and the heading count agrees}"
+  fi
+}
+
+# Standards are listed under their full title ("Git Standard"); Workflows and
+# Templates under their title minus the category word the file's own H1 carries
+# ("Feature Development Workflow" -> "Feature Development"). The suffix is a
+# parameter rather than a guess, so a directory whose documents do not carry
+# one passes "" and nothing is stripped.
+check_inventory Standards Standards ""
+check_inventory Workflows Workflows Workflow
+check_inventory Templates Templates Template
+
+# ==========================================================================
+section "15. Glossary ordering"
+# ==========================================================================
+# Core/GLOSSARY.md states that its letter sections and the terms within them
+# are in alphabetical order. A document that claims a property the tooling does
+# not check is a claim nobody verifies — the shape this milestone spent its
+# time removing — so the claim is checked here.
+#
+# Three questions, each answerable and each reported: are the letter headings
+# ascending, is every term under the letter it starts with, and are the terms
+# within each letter ascending. Byte order (LC_ALL=C, pinned at the top of this
+# script) so the answer does not depend on the machine's locale.
+
+GLOSSARY="Core/GLOSSARY.md"
+if [ ! -f "$GLOSSARY" ]; then
+  fail "$GLOSSARY is missing" "CLAUDE.md lists it as a Core document and every artifact is required to use its vocabulary. Its absence cannot be a pass."
+else
+  # \r? and tr -d '\015' throughout: the rest of this script guards a CRLF
+  # checkout and section 15 did not. Git Bash's awk happens to strip the
+  # carriage return, so the omission was latent here and would have reported
+  # every term misfiled under a POSIX awk on a CRLF working tree.
+  glossary_letters="$(grep -E '^# [A-Z]\r?$' "$GLOSSARY" | sed 's/^# //' | tr -d '\015')"
+  letter_count="$(printf '%s\n' "$glossary_letters" | grep -c .)"
+  term_count="$(grep -cE '^## ' "$GLOSSARY")"
+
+  if [ "$letter_count" -eq 0 ] || [ "$term_count" -eq 0 ]; then
+    fail "$GLOSSARY yielded $letter_count letter section(s) and $term_count term(s)" "The extraction reads '# X' letter headings and '## Term' entries. Zero of either means the document was restructured and this check now reads nothing — reported rather than passed."
+  else
+    if [ "$glossary_letters" != "$(printf '%s\n' "$glossary_letters" | sort)" ]; then
+      fail "$GLOSSARY letter sections are not in alphabetical order: $(printf '%s' "$glossary_letters" | tr '\n' ' ')" "The document says they are. Reorder the sections, or change the claim."
+    else
+      pass "$GLOSSARY: $letter_count letter sections in alphabetical order"
+    fi
+
+    # Walk the document once, carrying the current letter, so a term can be
+    # checked against the section it is actually in.
+    misfiled="$(awk '
+      /^# [A-Z]\r?$/ { letter = substr($0, 3, 1); next }
+      /^## / {
+        term = substr($0, 4)
+        sub(/\015$/, "", term)
+        initial = toupper(substr(term, 1, 1))
+        if (letter == "") { print term " (before any letter section)"; next }
+        if (initial != letter) { print term " (under " letter ")" }
+      }
+    ' "$GLOSSARY" | sed 's/$/;/' | tr '\n' ' ')"
+    # sed then tr, not `tr '\n' '; '`: tr truncates the replacement set to the
+    # length of the source set, so the intended separator silently lost its
+    # space. Cosmetic, in a failure message — and exactly the kind of thing
+    # that is only ever noticed when the message finally fires.
+    if [ -n "$misfiled" ]; then
+      fail "$GLOSSARY has terms filed under the wrong letter: $misfiled" "A term belongs under its own initial, or the glossary cannot be scanned."
+    else
+      pass "$GLOSSARY: all $term_count terms are under their own initial"
+    fi
+
+    unsorted=""
+    while IFS= read -r letter; do
+      [ -n "$letter" ] || continue
+      terms="$(awk -v want="# $letter" '
+        { line = $0; sub(/\015$/, "", line) }
+        line == want { inside = 1; next }
+        inside && /^# / { exit }
+        inside && /^## / { t = substr(line, 4); print t }
+      ' "$GLOSSARY")"
+      if [ "$terms" != "$(printf '%s\n' "$terms" | sort)" ]; then
+        unsorted="$unsorted$letter "
+      fi
+    done < <(printf '%s\n' "$glossary_letters")
+    if [ -n "$unsorted" ]; then
+      fail "$GLOSSARY terms are not alphabetical within section(s): $unsorted" "The document says they are."
+    else
+      pass "$GLOSSARY: terms are alphabetical within each of the $letter_count sections"
+    fi
+  fi
 fi
 
 # ==========================================================================

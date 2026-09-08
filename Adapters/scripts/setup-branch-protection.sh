@@ -74,7 +74,10 @@ REQUIRED_CHECKS=(
   "Employee Trailer"
   "Shellcheck Adapters"
   "Validate Workflow YAML"
+  "Hook Tests"
+  "PR Size"
   "Framework Validation"
+  "Data Policy"
 )
 
 # The two GitHub APIs used below want the same list in different shapes:

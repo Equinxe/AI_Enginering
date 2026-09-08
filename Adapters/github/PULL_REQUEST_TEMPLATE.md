@@ -51,6 +51,8 @@ Work Unit: [WU-ID]
 - [ ] No credentials, secrets, or sensitive data are in this diff.
 - [ ] The commit message follows the Commit Standard.
 - [ ] Documentation is updated if this PR changes a public interface.
+- [ ] Under 1,500 changed lines outside `linguist-generated` files, or the Director has applied `size/approved`.
+- [ ] This description stands alone: a reviewer with none of my context can test it from a fresh clone.
 
 **Reviewer:**
 - [ ] I have read the PR description before reviewing any code.

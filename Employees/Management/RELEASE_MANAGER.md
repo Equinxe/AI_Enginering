@@ -46,6 +46,7 @@ The Release Manager must never:
 
 # Standards Applied
 
+- Standards First
 - Branch Standard
 - Commit Standard
 - Pull Request Standard

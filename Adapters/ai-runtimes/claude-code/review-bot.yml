@@ -1,0 +1,132 @@
+name: IA Engineering - Independent Review
+
+# An INDEPENDENT Code Reviewer, run in CI under an identity that is not the
+# one the Employees commit under.
+#
+# WHY THIS EXISTS: Adapters/github-actions/pr-validation.yml's "Review Recorded"
+# check matches a `Decision: approved` block in the PR's comments. It has two
+# documented limitations, and this is the successor it named: (1) a pasted
+# block satisfies it; (2) it never examines the author, so the PR author can
+# satisfy it. Both follow from one fact — in a repository where every
+# Employee and the Director share one `gh` identity, there is no second
+# account whose word could count for more.
+#
+# A GitHub Actions run IS a second identity. This workflow runs the framework's
+# Code Review Workflow through the Claude Code GitHub Action and posts the
+# Review Decision block as that identity. Setting the repository variable
+# IAENG_REVIEW_BOT_LOGIN to that identity's login switches "Review Recorded"
+# into independent mode: only that login's decisions count.
+#
+# WHAT IT IS NOT: not a replacement for the Code Reviewer Employee's judgment
+# on a human team, and not a required check by default. It is one more lens
+# (Workflows/CODE_REVIEW.md, Multi-Lens Review) whose independence is
+# structural rather than asserted. Promoting it to required stays a Director
+# decision, as with every check (Adapters/scripts/setup-branch-protection.sh).
+#
+# RUNTIME-SPECIFIC BY DESIGN. This file lives under Adapters/ai-runtimes/
+# because it names a runtime (Claude Code) and a vendor action. Core/ and
+# Standards/ do not. A project using another runtime writes the equivalent
+# for it; Workflows/CODE_REVIEW.md is what either one executes.
+#
+# INSTALL (deliberately NOT done by install.sh — it needs a paid API key and a
+# Director decision to spend it on every PR):
+#   1. Add the repository secret ANTHROPIC_API_KEY.
+#   2. Copy this file to .github/workflows/review-bot.yml.
+#   3. Set the repository variable IAENG_REVIEW_BOT_LOGIN to the login the
+#      action posts under (github-actions[bot] unless a GitHub App is used).
+#   4. Verify on one PR that Review Recorded reports "Mode: independent".
+#
+# The action's inputs below follow anthropics/claude-code-action@v1 as
+# documented at the time of writing. Pin the version you verified; re-read the
+# action's README when bumping it — input names have changed between majors.
+
+on:
+  pull_request:
+    branches: [main, develop, 'release/**']
+    types: [opened, synchronize, reopened, ready_for_review]
+
+# Every push to an open PR would otherwise start another run, and each run
+# spends real money on the API key. The in-progress run for the same PR is
+# cancelled: a review of a superseded diff is worth nothing and its findings
+# would re-anchor to lines that have already moved
+# (Workflows/CODE_REVIEW.md, Line Re-Anchoring).
+concurrency:
+  group: independent-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+  id-token: write
+
+jobs:
+  independent-review:
+    name: Independent Review
+    runs-on: ubuntu-latest
+    # Draft PRs are not reviewed: the author has said the work is not ready.
+    #
+    # FORK PULL REQUESTS GET NO SECRET, by GitHub's design — a `pull_request`
+    # run from a fork cannot read repository secrets, so ANTHROPIC_API_KEY is
+    # empty and the action fails with an authentication error that looks like
+    # a broken workflow rather than an expected one. The job is skipped for
+    # forks instead, and says so, because a red check whose real meaning is
+    # "not applicable here" is the kind of noise that gets checks ignored.
+    #
+    # A project that wants fork PRs reviewed uses `pull_request_target` and
+    # accepts what that means: the workflow runs with the BASE repository's
+    # secrets against a contributor's code. That is a deliberate security
+    # trade-off and is therefore a Director decision, not a default.
+    if: >-
+      github.event.pull_request.draft == false &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Locate the framework
+        id: locate
+        run: |
+          set -euo pipefail
+          for candidate in . ia-engineering; do
+            if [ -f "$candidate/Workflows/CODE_REVIEW.md" ]; then
+              echo "root=$candidate" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          done
+          echo "::error::Could not locate Workflows/CODE_REVIEW.md (looked in . and ia-engineering/)."
+          exit 1
+
+      - name: Run the Code Review Workflow as the Code Reviewer
+        uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          prompt: |
+            You are the Code Reviewer Employee defined in
+            ${{ steps.locate.outputs.root }}/Employees/Specialized/CODE_REVIEWER.md.
+            Execute ${{ steps.locate.outputs.root }}/Workflows/CODE_REVIEW.md on
+            pull request #${{ github.event.pull_request.number }}, Steps 1 through 8,
+            with the Ten Review Lessons binding.
+
+            Rules that bind you here:
+            - Read the PR description before any file. Verify its claims against
+              the repository, not against the description.
+            - Every finding carries a severity label: [critical], [major],
+              [minor], [suggestion]. State the issue, why it matters, and a
+              direction — never a rewrite.
+            - Check every literal count in changed documents against the set it
+              counts. Check that every referenced path exists.
+            - Apply ${{ steps.locate.outputs.root }}/Standards/RISK_STANDARD.md's
+              product and security catalogs to what the change does.
+            - Finish with the Review Decision block from the Code Reviewer's
+              Output Format, as a single PR comment, and state the denominator:
+              which files you read, which lenses you applied, which claims you
+              verified. A review that found nothing says what it looked at.
+            - Decision: approved only when no [critical] or [major] remains.
+              Otherwise: Decision: changes requested, or Decision: escalated
+              naming the Employee (Security Engineer, Software Architect,
+              Compliance Engineer) it needs.
+            - You do not approve, merge, label, or push. You comment.
+          claude_args: "--max-turns 40"

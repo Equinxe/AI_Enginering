@@ -54,7 +54,7 @@ for arg in "$@"; do
   case "$arg" in
     --dry-run|--force) PASSTHROUGH+=("$arg") ;;
     --help|-h)
-      sed -n '2,46p' "$0"
+      sed -n '2,$p' "$0" | awk '/^#/{print; next} /^$/{print; next} {exit}'
       exit 0
       ;;
     -*)

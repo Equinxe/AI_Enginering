@@ -43,16 +43,20 @@ It applies both to new projects starting from scratch and to existing projects a
 
 1. Add the IA Engineering framework to the project:
    - As a git submodule, copied reference, or linked documentation directory.
-2. Create `CLAUDE.md` at the project root, adapted from the IA Engineering `CLAUDE.md` template:
-   - Project identity and objective
+2. Create `CLAUDE.md` at the project root from `Templates/PROJECT_CLAUDE.md`, filling every bracketed field from the Project Charter and the Stack Decision ADR:
+   - Project identity, objective, and profile
+   - **What constitutes PROOF** for each output someone will act on
    - Technology stack
-   - Active standards (reference IA Engineering Standards)
-   - Active employees for this project
-   - Git workflow confirmation
+   - Active standards, and any project rule that is stricter
+   - Active Employees — framework and Domain — with concrete dispatch triggers
+   - Working method, and which enforcement is installed
    - Director identity
-3. Confirm the framework loads correctly in the AI assistant context.
+   - Open questions
+3. Create `.ia-engineering/SESSION_STATE.md` from `Templates/SESSION_STATE.md` — the project's dated operational state, read immediately after `CLAUDE.md` on every resume. It is **never committed**: `Adapters/scripts/install.sh` gitignores it and the `pre-commit` hook refuses it, because a file that records what is currently weak does not belong in the repository it describes. `CLAUDE.md` holds the stable contract; this file holds where things stand. One fact lives in exactly one of them.
+4. Run `Adapters/scripts/install.sh` from the project root so the hooks, CI workflows, `.gitignore` data-protection rules, and local data directory exist before the first commit — `Standards/DATA_PROTECTION_STANDARD.md` is enforceable only if its controls predate the data.
+5. Confirm the framework loads correctly in the AI assistant context.
 
-**Output:** Framework imported. `CLAUDE.md` created and active.
+**Output:** Framework imported. `CLAUDE.md` created and active. `SESSION_STATE.md` created and ignored. Adapters installed.
 
 ---
 
@@ -98,10 +102,11 @@ For existing projects:
 1. Define which employees are active for this project based on its scope.
    - A solo backend project may not need iOS Engineer or Android Engineer.
    - A data project may not need Frontend Engineer.
-2. Document the active employee roster in `CLAUDE.md`.
-3. Engineering Manager receives the project brief and confirms team readiness.
+2. Decide whether the project's **business domain** needs expertise no framework Employee has — actuarial rules, clinical coding, customs classification, construction estimating. If it does, define a Domain Employee from `Templates/DOMAIN_EMPLOYEE.md` under `.ia-engineering/Employees/` and register it in the project roster `.ia-engineering/Registry/employees.yml`, so its `Employee:` trailer validates in the hook and in CI. Its Definition of Done states what constitutes **proof** that a domain output is correct — the question `Workflows/PROJECT_BOOTSTRAP.md` Phase A asks and a Domain Employee answers.
+3. Document the active employee roster — framework and Domain Employees — in `CLAUDE.md`, with the concrete dispatch triggers for each Domain Employee (which outputs, paths, or Work Unit types always insert it).
+4. Engineering Manager receives the project brief and confirms team readiness.
 
-**Output:** Active employee roster defined. Engineering Manager briefed.
+**Output:** Active employee roster defined, Domain Employees registered where the domain requires them. Engineering Manager briefed.
 
 ---
 
@@ -139,7 +144,8 @@ This step confirms the framework is operational: the full loop from Director →
 The Main Agent confirms:
 - Framework is imported and active.
 - `CLAUDE.md` is complete and accurate.
-- Active employee roster is defined.
+- `.ia-engineering/SESSION_STATE.md` exists, is gitignored, and records the state as of this step with an absolute date.
+- Active employee roster is defined, including any Domain Employees and their project roster.
 - Git workflow is initialized.
 - First Work Unit is ready.
 
@@ -182,7 +188,7 @@ This workflow is complete when:
 
 Owner: IA Engineering
 
-Version: 0.0.4
+Version: 0.0.5
 
 Status: Draft
 

@@ -1,0 +1,54 @@
+# strip-quotes.awk cases. TAB-separated: label, input, needle, present(yes|no)
+# \n in the input column is expanded to a newline — the runner uses printf %b.
+# DOUBLE every other backslash you mean literally: %b also consumes \t, \0,
+# \xHH and, worst of all, \c, which means "stop output here" and silently
+# truncates the case. That has produced three test cases that passed or failed
+# for reasons in the corpus rather than in the lexer
+# (Governance/TROUBLESHOOTING.md, entry Q). Test DATA lives here rather
+# than in run.sh so that a case containing a command substitution is data a
+# shell never parses, and so that adding a case needs no shell knowledge.
+double-quoted message is dropped	git commit -m "uses --no-verify"	--no-verify	no
+single-quoted message is dropped	git commit -m 'uses --no-verify'	--no-verify	no
+quoted lone flag is kept	git commit "--no-verify"	--no-verify	yes
+single-quoted lone flag is kept	git push '--force'	--force	yes
+command substitution is scanned	git push $(echo --force)	--force	yes
+substitution inside quotes is scanned	echo "$(git push --force)"	--force	yes
+nested quotes inside a substitution pair correctly	F="$(git log -1 --format="%h")"; git commit -m ok	git commit	yes
+the apostrophe idiom does not invert the rest	awk '/x/{print "a'"'"'b"}' f && git commit -m ok	git commit	yes
+line continuation reads as the shell reads it	git \\\npush --force	git push --force	yes
+heredoc body is dropped	cat <<EOF\ngit push --force\nEOF	--force	no
+quoted heredoc body is dropped	cat <<'EOF'\ngit push --force\nEOF	--force	no
+escaped flag survives	git commit \\--no-verify	--no-verify	yes
+unterminated quote is not matched raw	git commit -m "unclosed --no-verify	--no-verify	no
+plain command is untouched	git status --short	git status --short	yes
+quoted bare word is kept	git "reset" --hard	reset	yes
+quoted phrase is still dropped	git commit -m "reset the thing"	reset	no
+eval argument is scanned as code	eval "git push --force"	git push --force	yes
+shell -c argument is scanned as code	bash -c 'git commit --no-verify'	--no-verify	yes
+backslash inside a flag resolves as the shell resolves it	git commit --no-veri\\fy	--no-verify	yes
+leading backslash still yields the flag	git commit \--no-verify	--no-verify	yes
+short option bundle ending in c is command text	bash -lc "git push --force"	--force	yes
+ANSI-C quoting drops its dollar	git push $'--force' origin	git push --force	yes
+locale quoting drops its dollar	git push $"--force" origin	git push --force	yes
+hex escapes decode	git push $'\x2d\x2dforce'	--force	yes
+octal escapes decode	git reset $'\055\055hard'	--hard	yes
+brace expansion is expanded	git push --{f,f}orce origin	--force	yes
+alias value is scanned as code	git config alias.x "push --force"	--force	yes
+ANSI-C newline makes a phrase, which is dropped	git commit -m $'line one\nline two'	line one	no
+brace group with no comma is left alone	find . -exec rm -rf {} \;	{}	yes
+escaped apostrophe does not close an ANSI-C region	git commit $'\'' --no-verify -m x	--no-verify	yes
+quoted brace group is left literal	git push "--{f,f}orce" o	--force	no
+escaped brace is left literal	git push --\{f,f\}orce o	--force	no
+a range group is expanded	git push -{e..g} o	-f	yes
+exceeding the alternative bound emits the limit marker	git push --{a,b,c,d,e,f,g,h,i,j,k,l,m,n,o,p,q,r,s,t,u,v,w,x,y,z,aa,bb,cc,dd,ee,ff,gg} o	__IAENG_LEXER_LIMIT__	yes
+increment range is expanded not deleted	git push --f{o..o..1}rce o	--force	yes
+comma wins over the range separator	git push origin {+..,}main	+..main	yes
+control escape truncates at NUL as the shell does	git push $'--force\\c@DECOY' o	DECOY	no
+control escape leaves the flag intact	git push $'--force\\c@DECOY' o	--force	yes
+heredoc tag has its quotes removed	cat <<E"O"F\nx\nEOF\ngit push --force	--force	yes
+an unfound heredoc terminator is refused, not dropped	cat <<NOPE\ngit push --force	__IAENG_LEXER_LIMIT__	yes
+here-string is not a heredoc	cat <<<hello\ngit push --force	git push --force	yes
+unquoted heredoc body is scanned for substitutions	cat <<EOF\n$(git push --force)\nEOF	git push --force	yes
+quoted heredoc body stays inert	cat <<'EOF'\n$(git push --force)\nEOF	--force	no
+backtick in an unquoted heredoc body is scanned	cat <<EOF\n`git reset --hard`\nEOF	--hard	yes
+heredoc tag with an internal dash is read whole	cat <<EOF-X\nx\nEOF-X\ngit push --force	git push --force	yes

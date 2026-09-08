@@ -46,6 +46,7 @@ The Scrum Master must never:
 
 # Standards Applied
 
+- Standards First
 - Scrum Guide
 - Documentation Standard
 - Branch Standard

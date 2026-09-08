@@ -105,6 +105,35 @@ if [ -z "$ROSTER" ]; then
   exit 1
 fi
 
+# --- Project roster extension: Domain Employees ---------------------------
+# Templates/DOMAIN_EMPLOYEE.md lets a project define Employees for its own
+# business domain. They live in the PROJECT, never in the framework's
+# Employees/, and are registered in a project roster with the same parsing
+# contract as Registry/employees.yml. Resolution:
+#   1. $IAENG_PROJECT_ROSTER                          — explicit; a set value
+#                                                       that names a missing
+#                                                       file is a broken
+#                                                       configuration and is
+#                                                       refused, not skipped
+#   2. <repo>/.ia-engineering/Registry/employees.yml  — the default location
+# Absence of the default file is the ordinary case (no Domain Employees) and
+# is reported in the rejection message, so a reader sees which rosters were
+# consulted rather than wondering.
+PROJECT_ROSTER=""
+if [ -n "${IAENG_PROJECT_ROSTER:-}" ]; then
+  if [ -f "$IAENG_PROJECT_ROSTER" ]; then
+    PROJECT_ROSTER="$IAENG_PROJECT_ROSTER"
+  else
+    echo "commit-msg: rejected — IAENG_PROJECT_ROSTER is set to '$IAENG_PROJECT_ROSTER' but no such file exists." >&2
+    echo "  An explicitly configured roster that cannot be read is a broken" >&2
+    echo "  installation; validating against the framework roster alone would" >&2
+    echo "  silently refuse every Domain Employee. Fix the path or unset it." >&2
+    exit 1
+  fi
+elif [ -f "$REPO_ROOT/.ia-engineering/Registry/employees.yml" ]; then
+  PROJECT_ROSTER="$REPO_ROOT/.ia-engineering/Registry/employees.yml"
+fi
+
 # --- Rule 2: Dispatch Discipline — Employee trailer required --------------
 # Parsing contract, per Registry/README.md: every entry's first line is
 # `  - name: <Name>` — two leading spaces, unquoted, no trailing comment. The
@@ -187,6 +216,10 @@ if [ -z "$EMPLOYEE_LINES" ]; then
 fi
 
 VALID_NAMES="$(grep -E '^  - name: ' "$ROSTER" | sed 's/^  - name: //' | tr -d '\r')"
+if [ -n "$PROJECT_ROSTER" ]; then
+  VALID_NAMES="$VALID_NAMES
+$(grep -E '^  - name: ' "$PROJECT_ROSTER" | sed 's/^  - name: //' | tr -d '\r')"
+fi
 
 REJECTED=0
 while IFS= read -r line; do
@@ -202,6 +235,12 @@ EOF
 
 if [ "$REJECTED" -eq 1 ]; then
   echo "  Must exactly match an entry in $ROSTER" >&2
+  if [ -n "$PROJECT_ROSTER" ]; then
+    echo "  or in the project roster $PROJECT_ROSTER (Templates/DOMAIN_EMPLOYEE.md)" >&2
+  else
+    echo "  (no project roster found at .ia-engineering/Registry/employees.yml —" >&2
+    echo "  Domain Employees, if any, are registered there: Templates/DOMAIN_EMPLOYEE.md)" >&2
+  fi
   echo "  A functional or tool label ('executor', 'coder', 'reviewer-bot', etc.) is not" >&2
   echo "  a valid Employee name — see Core/MAIN_AGENT_CONDUCT.md, 'Naming matters.'" >&2
   echo "" >&2

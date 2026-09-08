@@ -53,7 +53,15 @@
 #
 #   --target <name>   runtime target (default: claude-code). Only claude-code
 #                     exists today; --target list prints what is available.
-#   --out <dir>       output directory (default: the target's convention)
+#   --out <dir>       output directory (default: the target's convention,
+#                     resolved against the PROJECT, not the framework)
+#   --project <dir>   project root (default: the directory this was run from).
+#                     Decides where agents are written and where the project
+#                     roster is looked for.
+#   --roster <file>   an ADDITIONAL roster of Domain Employees, on top of the
+#                     framework's. Default: <project>/.ia-engineering/Registry/
+#                     employees.yml when it exists. A value naming a missing
+#                     file is refused, never skipped.
 #   --map <spec>      tier-to-capability mapping, as
 #                     "strategic=X,standard=Y,lightweight=Z". Overrides the
 #                     target's default.
@@ -61,6 +69,20 @@
 #   --check           exit non-zero if any generated file would differ from
 #                     what is on disk. For CI.
 #   --help
+#
+# WHERE THE AGENTS ARE WRITTEN, and why it is not the framework directory:
+#
+# An AI runtime reads its agents from the PROJECT it is opened on. Until
+# WU-IAENG-189 this script cd'd into the framework and resolved the default
+# output there, so a project that imported the framework as a submodule and ran
+# the documented command got 42 agent files inside ia-engineering/.claude/agents
+# — a path its runtime never reads, in a directory the framework's own
+# .gitignore excludes. The generator reported "42 written" and the adopter had
+# no dispatchable Employees. Reproduced end to end before this change.
+#
+# Output is therefore resolved against --project, which defaults to the
+# directory the script was RUN from. Running it inside the framework repository
+# is unchanged: the project and the framework are the same directory.
 
 set -uo pipefail
 
@@ -73,9 +95,16 @@ export LC_ALL=C
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+
+# Captured BEFORE the cd into the framework: this is the project the caller
+# meant, and the only directory whose .claude/agents a runtime will read.
+INVOCATION_DIR="$(pwd)"
+
 cd "$ROOT" || exit 2
 
 ROSTER="Registry/employees.yml"
+PROJECT=""
+PROJECT_ROSTER=""
 
 TARGET="claude-code"
 OUT=""
@@ -113,12 +142,14 @@ need_value() {
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
-    --target) need_value --target "$#"; TARGET="$2"; shift 2 ;;
-    --out)    need_value --out "$#";    OUT="$2"; shift 2 ;;
-    --map)    need_value --map "$#";    MAP_OVERRIDE="$2"; shift 2 ;;
+    --target)  need_value --target "$#";  TARGET="$2"; shift 2 ;;
+    --out)     need_value --out "$#";     OUT="$2"; shift 2 ;;
+    --project) need_value --project "$#"; PROJECT="$2"; shift 2 ;;
+    --roster)  need_value --roster "$#";  PROJECT_ROSTER="$2"; shift 2 ;;
+    --map)     need_value --map "$#";     MAP_OVERRIDE="$2"; shift 2 ;;
     --dry-run) DRY_RUN=1; shift ;;
     --check)   CHECK=1; shift ;;
-    --help|-h) sed -n '2,60p' "$0"; exit 0 ;;
+    --help|-h) sed -n '2,$p' "$0" | awk '/^#/{print; next} /^$/{print; next} {exit}'; exit 0 ;;
     *) echo "Unknown argument: $1 (try --help)" >&2; exit 2 ;;
   esac
 done
@@ -164,12 +195,53 @@ if [ -n "$MAP_OVERRIDE" ]; then
   done
 fi
 
+# --- Project, output, and rosters ------------------------------------------
+
+PROJECT="${PROJECT:-$INVOCATION_DIR}"
+if [ ! -d "$PROJECT" ]; then
+  echo "generate-agents.sh: --project '$PROJECT' is not a directory." >&2
+  exit 2
+fi
+PROJECT="$(cd "$PROJECT" && pwd)"
+
+# Relative --out is the adopter's project path, not a path inside the
+# framework. Absolute --out is taken as given.
 OUT="${OUT:-$DEFAULT_OUT}"
+case "$OUT" in
+  /*|[A-Za-z]:[\\/]*) ;;
+  *) OUT="$PROJECT/$OUT" ;;
+esac
 
 if [ ! -f "$ROSTER" ]; then
   echo "generate-agents.sh: $ROSTER not found." >&2
   echo "  The roster is the list of Employees to generate. See Registry/README.md." >&2
   exit 1
+fi
+
+# Project roster — Domain Employees (Templates/DOMAIN_EMPLOYEE.md). Same
+# resolution rule as the commit-msg hook and the Employee Trailer CI job: an
+# explicitly named roster that does not exist is a broken configuration and is
+# refused, because generating only the framework's Employees would silently
+# leave the project's own undispatchable. Absence of the DEFAULT path is the
+# ordinary case and is reported, not treated as an error.
+DEFAULT_PROJECT_ROSTER="$PROJECT/.ia-engineering/Registry/employees.yml"
+if [ -n "$PROJECT_ROSTER" ]; then
+  if [ ! -f "$PROJECT_ROSTER" ]; then
+    echo "generate-agents.sh: --roster '$PROJECT_ROSTER' does not exist." >&2
+    echo "  Generating the framework roster alone would leave this project's Domain" >&2
+    echo "  Employees undispatchable while reporting success. Fix the path or drop the flag." >&2
+    exit 2
+  fi
+  PROJECT_ROSTER="$(cd "$(dirname "$PROJECT_ROSTER")" && pwd)/$(basename "$PROJECT_ROSTER")"
+elif [ -f "$DEFAULT_PROJECT_ROSTER" ]; then
+  # No "only when the project is not the framework" guard. Registry/README.md
+  # states that all three consumers — the commit-msg hook, the Employee
+  # Trailer job, and this script — resolve the project roster the same way,
+  # and the other two do it unconditionally. The guard made that statement
+  # false for one of them, in the one repository where the difference is
+  # invisible because the file does not exist. A rule with a silent exception
+  # is a rule nobody can rely on.
+  PROJECT_ROSTER="$DEFAULT_PROJECT_ROSTER"
 fi
 
 # --- Extraction ------------------------------------------------------------
@@ -208,7 +280,7 @@ UNCHANGED=0
 DIFFERENT=0
 
 generate_claude_code() {
-  local name="$1" file="$2" category="$3" tier="$4"
+  local name="$1" file="$2" category="$3" tier="$4" from_roster="$5" source_label="$6"
   local slug model dest tmp
 
   slug="$(slugify "$name")"
@@ -258,9 +330,9 @@ generate_claude_code() {
 <!--
   GENERATED FILE — do not edit.
 
-  Source:    $file
+  Source:    $source_label
   Generator: Adapters/ai-runtimes/generate-agents.sh --target claude-code
-  Roster:    Registry/employees.yml
+  Roster:    $from_roster
   Tier:      $tier -> $model
 
   Edit the Employee definition and regenerate. An edited copy is a second
@@ -340,6 +412,28 @@ Indent it.
 The Employee trailer is mandatory and is validated mechanically against
 Registry/employees.yml. A commit without it is rejected by the commit-msg hook
 and, if that hook was bypassed, by the Employee Trailer CI check.
+
+## Your First and Last Actions
+
+First: read the brief in full, the Standards it names, and — on a resumed
+project — CLAUDE.md then .ia-engineering/SESSION_STATE.md. Then say, in one
+line, what you read and what you are about to do (Core/AGENT_CONDUCT.md, Read
+First).
+
+Last: write your Work Unit Report per Templates/WORK_UNIT_REPORT.md — verdict
+(COMPLETE / PARTIAL / BLOCKED), what was done, what was NOT done, the gate
+evidence pasted rather than described, deviations from the brief, RISK lines
+for every Medium-or-higher decision, open items filed as Issues, and the
+Definition of Done item by item. A bare "Done" is a failed Work Unit: the Main
+Agent has nothing to verify (Core/AGENT_CONDUCT.md, Reporting Contract).
+
+Before any action that could damage the repository, working state, an output a
+user relies on, or a security boundary, classify it per
+Standards/RISK_STANDARD.md. High or Critical: stop, escalate with the
+escalation block, wait for a confirmation that names the action. Never use an
+escape hatch — --no-verify, --no-gpg-sign, a stash in place of a commit, a
+force-push, a discard of work that is not yours (Standards/GIT_STANDARD.md).
+A control in the way is a rule in the way: escalate the rule.
 FOOTER
   } > "$tmp"
 
@@ -354,16 +448,22 @@ FOOTER
     return
   fi
 
+  # The identical-file test comes BEFORE the dry-run branch, not after. With
+  # the order reversed, --dry-run never compared anything and reported every
+  # file as "would be written" — 42 of them on a tree where --check found only
+  # 2 stale. The two modes ask the same question and must not answer it
+  # differently; the comment further down about not reporting what did not
+  # happen was in the file while the branch above it did exactly that.
+  if [ -f "$dest" ] && diff -q "$tmp" "$dest" > /dev/null 2>&1; then
+    UNCHANGED=$((UNCHANGED + 1))
+    rm -f "$tmp"
+    return
+  fi
+
   if [ "$DRY_RUN" -eq 1 ]; then
     echo "  [dry-run] $dest ($tier -> $model, $(wc -l < "$tmp" | tr -d ' ') lines)"
     rm -f "$tmp"
     WRITTEN=$((WRITTEN + 1))
-    return
-  fi
-
-  if [ -f "$dest" ] && diff -q "$tmp" "$dest" > /dev/null 2>&1; then
-    UNCHANGED=$((UNCHANGED + 1))
-    rm -f "$tmp"
     return
   fi
 
@@ -373,34 +473,81 @@ FOOTER
 }
 
 echo "IA Engineering — generating agent definitions"
-echo "  target: $TARGET"
-echo "  output: $OUT"
-echo "  tiers:  Strategic Judgment -> $MAP_STRATEGIC, Standard Execution -> $MAP_STANDARD (Lightweight override -> $MAP_LIGHTWEIGHT)"
+echo "  target:  $TARGET"
+echo "  project: $PROJECT"
+echo "  output:  $OUT"
+echo "  roster:  $ROOT/$ROSTER ($(grep -cE '^  - name: ' "$ROSTER") Employees)"
+if [ -n "$PROJECT_ROSTER" ]; then
+  echo "  project roster: $PROJECT_ROSTER ($(grep -cE '^  - name: ' "$PROJECT_ROSTER") Domain Employee(s))"
+else
+  echo "  project roster: none (no .ia-engineering/Registry/employees.yml under the project — no Domain Employees)"
+fi
+echo "  tiers:   Strategic Judgment -> $MAP_STRATEGIC, Standard Execution -> $MAP_STANDARD (Lightweight override -> $MAP_LIGHTWEIGHT)"
 echo
 
-# One awk pass over the roster, same shape validate-framework.sh uses.
-while IFS=$'\t' read -r name file category tier; do
+# One awk pass per roster, same shape validate-framework.sh uses. The base
+# directory travels with each row because a roster's `file:` paths are relative
+# to ITS OWN root: the framework's to the framework, a project's to the project.
+read_roster() {
+  awk -v base="$2" -v label="$3" '
+    function emit() { if (name != "") print name "\t" file "\t" category "\t" tier "\t" base "\t" label }
+    /^  - name: / {
+      emit()
+      name = $0; sub(/^  - name: /, "", name); gsub(/\015/, "", name)
+      file = ""; category = ""; tier = ""
+      next
+    }
+    /^    file: /     { file = $0;     sub(/^    file: /, "", file);         gsub(/\015/, "", file) }
+    /^    category: / { category = $0; sub(/^    category: /, "", category); gsub(/\015/, "", category) }
+    /^    tier: /     { tier = $0;     sub(/^    tier: /, "", tier);         gsub(/\015/, "", tier) }
+    END { emit() }
+  ' "$1"
+}
+
+# Process substitution, NOT a pipe: a pipe puts the loop in a subshell, where
+# every WRITTEN/UNCHANGED/DIFFERENT increment is discarded and the summary
+# reports 0 for a run that wrote 42 files. That is the same defect class the
+# Check Convention names (Adapters/README.md) — a report of something that did
+# not happen — and it was introduced and caught in this Work Unit.
+while IFS=$'\t' read -r name file category tier base roster_label; do
   [ -n "$name" ] || continue
-  if [ ! -f "$file" ]; then
-    echo "  ! $name: $file is missing — skipped" >&2
+
+  # A roster entry with no `file:` names an Employee whose definition the
+  # generator cannot read. Reported, never silently skipped to a default.
+  if [ -z "$file" ]; then
+    echo "  ! $name: the roster entry has no 'file:' — skipped" >&2
+    DIFFERENT=$((DIFFERENT + 1))
+    continue
+  fi
+  # Two forms of the same path: the absolute one to read, the declared one to
+  # record. See the call site below.
+  case "$file" in
+    /*|[A-Za-z]:[\\/]*) source_file="$file" ;;
+    *) source_file="$base/$file" ;;
+  esac
+  if [ ! -f "$source_file" ]; then
+    echo "  ! $name: $source_file is missing — skipped" >&2
     DIFFERENT=$((DIFFERENT + 1))
     continue
   fi
   case "$TARGET" in
-    claude-code) generate_claude_code "$name" "$file" "$category" "$tier" ;;
+    # $source_file is absolute so the -f test and the read work from any
+    # directory; $source_label is the roster-relative form the roster itself
+    # declares, and it is what the generated header records. Passing the
+    # absolute path into the header made every generated file differ between
+    # machines, which breaks the --check mode Adapters/ai-runtimes/README.md
+    # recommends adopters wire into CI. Introduced by WU-IAENG-189 and caught
+    # by review before it left the branch.
+    claude-code) generate_claude_code "$name" "$source_file" "$category" "$tier" "$roster_label" "$file" ;;
   esac
-done < <(awk '
-  /^  - name: / {
-    if (name != "") print name "\t" file "\t" category "\t" tier
-    name = $0; sub(/^  - name: /, "", name); gsub(/\015/, "", name)
-    file = ""; category = ""; tier = ""
-    next
-  }
-  /^    file: /     { file = $0;     sub(/^    file: /, "", file);         gsub(/\015/, "", file) }
-  /^    category: / { category = $0; sub(/^    category: /, "", category); gsub(/\015/, "", category) }
-  /^    tier: /     { tier = $0;     sub(/^    tier: /, "", tier);         gsub(/\015/, "", tier) }
-  END { if (name != "") print name "\t" file "\t" category "\t" tier }
-' "$ROSTER")
+done < <(
+  read_roster "$ROSTER" "$ROOT" "$ROSTER"
+  if [ -n "$PROJECT_ROSTER" ]; then
+    # Labelled by the path an adopter would type, so a generated Domain
+    # Employee's header points at the roster that actually declared it.
+    read_roster "$PROJECT_ROSTER" "$PROJECT" "${PROJECT_ROSTER#"$PROJECT"/}"
+  fi
+)
 
 echo
 if [ "$CHECK" -eq 1 ]; then

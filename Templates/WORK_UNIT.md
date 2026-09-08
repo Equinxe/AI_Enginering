@@ -61,6 +61,7 @@ The Work Unit is complete when ALL of the following are true:
 - [ ] [Criterion 3]
 - [ ] Tests are written and passing.
 - [ ] Code has passed review by the Code Reviewer.
+- [ ] The Work Unit Report is written (`Templates/WORK_UNIT_REPORT.md`), with the gate evidence pasted and any omission stated. A bare "Done" is a failed Work Unit.
 - [ ] Pull Request is merged into `develop`.
 
 ---
@@ -114,7 +115,7 @@ Example: `feat(auth): add POST /auth/login endpoint with JWT response`
 | Context | States the "why" — links to requirements | Missing links, assumes knowledge the engineer does not have |
 | Inputs | Prerequisites — what must be true before starting | Listing tools instead of dependencies, incomplete checklist |
 | Outputs | Deliverables — what the engineer must produce | Missing tests or documentation outputs |
-| Definition of Done | Verifiable completion criteria | Subjective criteria ("code is clean"), missing review step |
+| Definition of Done | Verifiable completion criteria | Subjective criteria ("code is clean"), missing review step, missing the Work Unit Report — every item here becomes a row in that report, so an item nobody can verify produces a row nobody can fill |
 | Standards | Applicable standards for this task | Empty or generic — list only the standards that actually apply |
 | Expected Commit | The commit message format for this Work Unit | Missing scope, not following Conventional Commits format |
 

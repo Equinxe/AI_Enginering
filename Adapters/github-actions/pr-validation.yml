@@ -1,6 +1,6 @@
 name: IA Engineering - PR Validation
 
-# Six checks, each mechanically enforcing something the framework already
+# Eight checks, each mechanically enforcing something the framework already
 # documents instead of relying on a human or AI reviewer to remember it:
 #   - pr-compliance: every PR must trace to a Work Unit and have a real,
 #     filled-in description (Templates/WORK_UNIT.md, Templates/PULL_REQUEST.md)
@@ -17,7 +17,21 @@ name: IA Engineering - PR Validation
 #   - shellcheck-adapters: the git hooks and scripts we ship must actually be
 #     valid, warning-free shell (Standards/CODE_QUALITY_STANDARD.md applies to
 #     Adapters code exactly as it does to any other code)
-#   - yaml-lint: every workflow file we ship must at minimum parse as valid YAML
+#   - yaml-lint: every YAML file we ship — workflows and the issue-template
+#     config alike — must at minimum parse. The file list is derived from
+#     git ls-files, not from two hard-coded directories, which is what used to
+#     leave ai-runtimes/claude-code/review-bot.yml unchecked while the claim
+#     said otherwise
+#   - hook-tests: the runtime hooks in Adapters/ai-runtimes/claude-code/hooks/
+#     still refuse what Standards/GIT_STANDARD.md forbids and still permit what
+#     it does not. Their correctness is behaviour, not structure, so neither
+#     shellcheck nor the validator can see it
+#   - pr-size: the PR changes at most 1,500 lines outside files marked
+#     `linguist-generated` in .gitattributes (Standards/PULL_REQUEST_STANDARD.md,
+#     Reviewability). Beyond that a PR is not reviewed, it is skimmed. The
+#     Director overrides by applying the `size/approved` label — a label, not
+#     body text, because applying one requires write permission on the
+#     repository and pasting a sentence does not
 #   - review-recorded: ADVISORY — surfaces whether a Code Reviewer decision was
 #     actually recorded on the PR (Workflows/CODE_REVIEW.md). It goes RED when
 #     none is found, but is not in required_status_checks.contexts, so it does
@@ -29,9 +43,10 @@ name: IA Engineering - PR Validation
 #   ./ia-engineering/Adapters/scripts/install.sh
 #
 # Then add "PR Compliance", "Work Unit Exists", "Employee Trailer", "Shellcheck
-# Adapters", "Validate Workflow YAML", and "Framework Validation" (from
-# framework-validation.yml) as required status checks in branch protection.
-# Adapters/scripts/setup-branch-protection.sh already sets all six.
+# Adapters", "Validate Workflow YAML", "Hook Tests", "PR Size", "Framework
+# Validation" (from framework-validation.yml) and "Data Policy" (from
+# data-policy.yml) as required status checks in branch protection.
+# Adapters/scripts/setup-branch-protection.sh already sets all nine.
 #
 # "Review Recorded (advisory)" is deliberately NOT required: it matches comment
 # text, which can be satisfied by pasting the block, so requiring it would buy
@@ -52,7 +67,9 @@ name: IA Engineering - PR Validation
 on:
   pull_request:
     branches: [main, develop, 'release/**']
-    types: [opened, edited, synchronize, reopened]
+    # labeled/unlabeled: the PR Size check's Director override is a label, so
+    # applying or removing it must re-run the check.
+    types: [opened, edited, synchronize, reopened, labeled, unlabeled]
 
 jobs:
   pr-compliance:
@@ -303,6 +320,29 @@ jobs:
           VALID_NAMES="$(grep -E '^  - name: ' "$ROSTER" | sed 's/^  - name: //' | tr -d '\r')"
           echo "Roster entries: $(echo "$VALID_NAMES" | wc -l)"
 
+          # Project roster extension — Domain Employees defined by the project
+          # (Templates/DOMAIN_EMPLOYEE.md), same parsing contract, same
+          # resolution as the hook: an explicit IAENG_PROJECT_ROSTER that names
+          # a missing file is refused, the default location is optional.
+          PROJECT_ROSTER=""
+          if [ -n "${IAENG_PROJECT_ROSTER:-}" ]; then
+            if [ -f "$IAENG_PROJECT_ROSTER" ]; then
+              PROJECT_ROSTER="$IAENG_PROJECT_ROSTER"
+            else
+              echo "::error::IAENG_PROJECT_ROSTER is set to '$IAENG_PROJECT_ROSTER' but no such file exists. Validating against the framework roster alone would silently refuse every Domain Employee; fix the path or unset the variable."
+              exit 1
+            fi
+          elif [ -f ".ia-engineering/Registry/employees.yml" ]; then
+            PROJECT_ROSTER=".ia-engineering/Registry/employees.yml"
+          fi
+          if [ -n "$PROJECT_ROSTER" ]; then
+            PROJECT_NAMES="$(grep -E '^  - name: ' "$PROJECT_ROSTER" | sed 's/^  - name: //' | tr -d '\r')"
+            echo "Project roster: $PROJECT_ROSTER ($(echo "$PROJECT_NAMES" | grep -c .) Domain Employee(s))"
+            VALID_NAMES="$(printf '%s\n%s\n' "$VALID_NAMES" "$PROJECT_NAMES")"
+          else
+            echo "Project roster: none (.ia-engineering/Registry/employees.yml absent — no Domain Employees)"
+          fi
+
           # Merge commits are excluded via --no-merges, mirroring the hook's
           # MERGE_HEAD exception: an auto-generated merge subject ("Merge branch
           # ...", "Merge pull request #N ...") can never carry an Employee
@@ -337,7 +377,7 @@ jobs:
               [ -n "$emp_line" ] || continue
               EMPLOYEE_NAME="$(echo "${emp_line#Employee: }" | tr -d '\r')"
               if ! echo "$VALID_NAMES" | grep -qxF "$EMPLOYEE_NAME"; then
-                echo "::error::Commit $sha has 'Employee: $EMPLOYEE_NAME', which is not in $ROSTER. A functional or tool label ('executor', 'coder', 'reviewer-bot', etc.) is not a valid Employee name — see Core/MAIN_AGENT_CONDUCT.md, 'Naming matters.' If this line is an EXAMPLE quoted in the message body, indent it so it does not start at column 0."
+                echo "::error::Commit $sha has 'Employee: $EMPLOYEE_NAME', which is not in $ROSTER${PROJECT_ROSTER:+ nor in the project roster $PROJECT_ROSTER}. A functional or tool label ('executor', 'coder', 'reviewer-bot', etc.) is not a valid Employee name — see Core/MAIN_AGENT_CONDUCT.md, 'Naming matters.' If this line is an EXAMPLE quoted in the message body, indent it so it does not start at column 0."
                 fail=1
               fi
             done < <(printf '%s\n' "$EMPLOYEE_LINES")
@@ -354,7 +394,33 @@ jobs:
         run: |
           # shellcheck is preinstalled on GitHub-hosted ubuntu-latest runners —
           # no third-party action, no extra install step.
-          shellcheck Adapters/git-hooks/* Adapters/scripts/*.sh Adapters/ai-runtimes/*.sh
+          # THE FILE LIST IS DERIVED, NOT ENUMERATED. It used to be a list of
+          # globs, and every new directory needed another one: the Claude Code
+          # hooks escaped it until WU-IAENG-179 widened it, and their tests
+          # escaped the widened version until this. A glob list that must be
+          # extended by whoever adds a directory is a check that silently
+          # shrinks. `git ls-files` asks the repository instead.
+          #
+          # -x follows `source`, and -P SCRIPTDIR resolves each hook's
+          # `# shellcheck source=lib.sh` directive relative to the hook's own
+          # directory, so the shared lib.sh is checked in context rather than
+          # reported as "not following" (SC1091).
+          set -euo pipefail
+          mapfile -t SHELL_FILES < <(
+            {
+              git ls-files 'Adapters/**/*.sh' 'Adapters/*.sh'
+              # The git hooks are shell without a .sh extension: git requires
+              # the exact names commit-msg, pre-commit, pre-push.
+              git ls-files 'Adapters/git-hooks/*'
+            } | sort -u
+          )
+          if [ "${#SHELL_FILES[@]}" -eq 0 ]; then
+            echo "::error::No shell files found under Adapters/. The listing is derived from git ls-files; zero matches means the layout changed and this check would otherwise pass without examining anything."
+            exit 1
+          fi
+          echo "Checking ${#SHELL_FILES[@]} shell files:"
+          printf '  %s\n' "${SHELL_FILES[@]}"
+          shellcheck -x -P SCRIPTDIR "${SHELL_FILES[@]}"
 
   yaml-lint:
     name: Validate Workflow YAML
@@ -363,9 +429,21 @@ jobs:
       - uses: actions/checkout@v4
       - name: Validate YAML syntax
         run: |
+          # DERIVED, like the shellcheck list. The two hard-coded directories
+          # missed Adapters/ai-runtimes/claude-code/review-bot.yml, so the
+          # header's claim that every workflow file we ship at least parses was
+          # false for one of them. `git ls-files` asks the repository instead.
+          set -euo pipefail
+          mapfile -t YAML_FILES < <(
+            git ls-files 'Adapters/**/*.yml' 'Adapters/**/*.yaml' \
+                         '.github/workflows/*.yml' '.github/workflows/*.yaml' | sort -u
+          )
+          if [ "${#YAML_FILES[@]}" -eq 0 ]; then
+            echo "::error::No YAML files found under Adapters/ or .github/workflows/. Zero matches means the layout changed and this check would otherwise pass without parsing anything."
+            exit 1
+          fi
           fail=0
-          for f in Adapters/github-actions/*.yml .github/workflows/*.yml; do
-            [ -f "$f" ] || continue
+          for f in "${YAML_FILES[@]}"; do
             if npx --yes -q js-yaml "$f" > /dev/null 2>&1; then
               echo "OK: $f"
             else
@@ -373,6 +451,7 @@ jobs:
               fail=1
             fi
           done
+          echo "Parsed ${#YAML_FILES[@]} YAML files."
           exit "$fail"
 
   review-recorded:
@@ -389,6 +468,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           REPO: ${{ github.repository }}
+          REVIEW_BOT_LOGIN: ${{ vars.IAENG_REVIEW_BOT_LOGIN }}
         run: |
           # ADVISORY / WARNING-ONLY backstop for Workflows/CODE_REVIEW.md.
           #
@@ -468,9 +548,60 @@ jobs:
           # the two limitations above are the case against doing so until the
           # successor in (1) exists.
 
-          ISSUE_COMMENTS="$(gh api "repos/$REPO/issues/$PR_NUMBER/comments" --paginate -q '.[].body' || true)"
-          REVIEW_BODIES="$(gh api "repos/$REPO/pulls/$PR_NUMBER/reviews" --paginate -q '.[].body' || true)"
-          ALL_BODIES="$(printf '%s\n%s\n' "$ISSUE_COMMENTS" "$REVIEW_BODIES")"
+          # INDEPENDENCE, WHEN THE PROJECT CAN PROVIDE IT. The repository
+          # variable IAENG_REVIEW_BOT_LOGIN names the account that posts the
+          # independent review — the review bot in
+          # Adapters/ai-runtimes/claude-code/review-bot.yml, or any reviewer
+          # identity distinct from the one the Employees commit under. When it
+          # is set, only bodies posted by THAT login count, which closes
+          # limitation (2) above: the author can no longer satisfy the check
+          # by pasting the block. When unset, every author counts, as before,
+          # and the mode is printed so a reader knows which check ran.
+          if [ -n "${REVIEW_BOT_LOGIN:-}" ]; then
+            # WHAT THIS MODE DOES AND DOES NOT BUY. It raises the cost of
+            # self-satisfying the check; it does not make it impossible. With
+            # the default `github-actions[bot]` identity, an author with write
+            # access can add a `gh pr comment` step to their own branch and
+            # post the decision block under that same login. A GitHub App with
+            # its own login, or a separate account, closes that; the repository
+            # variable is deliberately a login rather than a hard-coded value
+            # so a project can point it at one.
+            echo "Mode: independent — only decisions posted by '$REVIEW_BOT_LOGIN' count (IAENG_REVIEW_BOT_LOGIN)."
+            echo "Note: this raises the cost of an author satisfying the check themselves; with a github-actions[bot] identity it does not prevent it. Point IAENG_REVIEW_BOT_LOGIN at a GitHub App or a separate account for that."
+            # --arg, not string interpolation: a quote or a backslash in the
+            # variable's value would otherwise break the jq program, and the
+            # failure would be reported as an absent decision.
+            FILTER='.[] | select(.user.login == $login) | .body'
+            JQ_ARGS=(--arg login "$REVIEW_BOT_LOGIN")
+          else
+            echo "Mode: any author — IAENG_REVIEW_BOT_LOGIN is not set, so a decision block from any account counts, including the PR author's."
+            FILTER='.[].body'
+            JQ_ARGS=()
+          fi
+          # AN API FAILURE IS NOT AN ABSENT DECISION. `|| true` on both calls
+          # made a rate limit or a permissions error produce exactly the red a
+          # genuinely unreviewed PR produces, so the one message could not be
+          # told from the other. Each call's status is now kept, and a failure
+          # says so in its own words.
+          #
+          # Three endpoints, not two: a reviewer who leaves the decision block
+          # as an inline comment on a line posts to /pulls/{n}/comments, which
+          # neither of the original two reads. That is a normal way to review
+          # and was silently not counted.
+          API_FAILED=0
+          fetch() {
+            local url="$1" out
+            if out="$(gh api "$url" --paginate "${JQ_ARGS[@]}" -q "$FILTER" 2>&1)"; then
+              printf '%s\n' "$out"
+            else
+              echo "::warning::Could not read $url — $out" >&2
+              API_FAILED=1
+            fi
+          }
+          ISSUE_COMMENTS="$(fetch "repos/$REPO/issues/$PR_NUMBER/comments")"
+          REVIEW_BODIES="$(fetch "repos/$REPO/pulls/$PR_NUMBER/reviews")"
+          INLINE_COMMENTS="$(fetch "repos/$REPO/pulls/$PR_NUMBER/comments")"
+          ALL_BODIES="$(printf '%s\n%s\n%s\n' "$ISSUE_COMMENTS" "$REVIEW_BODIES" "$INLINE_COMMENTS")"
 
           # Match a filled decision line: `Decision: approved` (case-insensitive,
           # optional leading indentation). The `approved` must follow the colon
@@ -482,6 +613,143 @@ jobs:
             exit 0
           fi
 
-          echo "::error::No recorded Code Reviewer decision ('Decision: approved', per Employees/Specialized/CODE_REVIEWER.md's Review Decision block) was found in this PR's comments or reviews. Per Workflows/CODE_REVIEW.md a Code Reviewer decision must be recorded before merge."
+          if [ "$API_FAILED" -eq 1 ]; then
+            echo "::error::At least one GitHub API call failed, so this check could not read the PR's comments. This is NOT the same as an unreviewed PR: nothing was established either way. See the warnings above."
+            exit 1
+          fi
+
+          echo "::error::No recorded Code Reviewer decision ('Decision: approved', per Employees/Specialized/CODE_REVIEWER.md's Review Decision block) was found in this PR's issue comments, reviews, or inline review comments. Per Workflows/CODE_REVIEW.md a Code Reviewer decision must be recorded before merge."
           echo "::notice::This check is ADVISORY: it is not in required_status_checks.contexts, so it does not block the merge. It goes red rather than green so its result is legible — an advisory check that exits 0 either way is indistinguishable from a passing gate."
+          exit 1
+
+  hook-tests:
+    name: Hook Tests
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Locate the framework
+        id: locate
+        run: |
+          set -euo pipefail
+          for candidate in . ia-engineering; do
+            if [ -x "$candidate/Adapters/ai-runtimes/claude-code/hooks/tests/run.sh" ]; then
+              echo "root=$candidate" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          done
+          echo "::error::Could not locate Adapters/ai-runtimes/claude-code/hooks/tests/run.sh (looked in . and ia-engineering/)."
+          exit 1
+      - name: Run the runtime-hook behaviour tests
+        working-directory: ${{ steps.locate.outputs.root }}
+        run: |
+          # Shellcheck proves the hooks are valid shell; the validator proves
+          # the documents around them agree. Neither can say whether `git push
+          # --force` is actually refused — that is behaviour, and seven real
+          # defects and one false positive were found in it by hand. --verbose
+          # so a green check shows every case by name rather than only an exit
+          # status (Adapters/README.md, the Check Convention).
+          ./Adapters/ai-runtimes/claude-code/hooks/tests/run.sh --verbose
+
+  pr-size:
+    name: PR Size
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history so base..head is diffable server-side, and the head
+          # checkout's .gitattributes is what `git check-attr` reads.
+          fetch-depth: 0
+      - name: Count changed lines outside generated files
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
+          LIMIT: "1500"
+        run: |
+          # Standards/PULL_REQUEST_STANDARD.md, Reviewability. A review is a
+          # reading; past a certain size it becomes a skim that approves what it
+          # did not read, and the approval is then worth less than no approval,
+          # because it is trusted. The limit is on lines a reviewer must READ:
+          # additions plus deletions, excluding
+          #   - files marked `linguist-generated` in .gitattributes, which is
+          #     the hosting platform's own convention for "collapsed in the diff
+          #     view because no human reads it" — lockfiles, snapshots, built
+          #     assets, generated clients. Declared in a committed file, so the
+          #     exclusion list is itself reviewed;
+          #   - binary files, which have no line count.
+          #
+          # The override is a LABEL, `size/approved`, not a sentence in the PR
+          # body. Applying a label requires write permission; pasting a sentence
+          # requires nothing. Review Recorded is advisory for exactly the second
+          # reason, and this check would be too if its override were text.
+          set -euo pipefail
+
+          # THE DIFF IS CAPTURED BEFORE IT IS COUNTED, and its failure is
+          # fatal. Feeding the loop from process substitution hid the failure
+          # from `set -euo pipefail`: with an unfetchable base SHA the loop saw
+          # no input, counted zero lines, and this required check printed
+          # "Within the review limit" and exited 0 — the codebase's own named
+          # defect class inside a gate. It happens on force-pushed and
+          # cross-fork Pull Requests, not only in theory.
+          #
+          # THE RANGE IS THE MERGE BASE, not base.sha. `base.sha` is the base
+          # branch's tip at event time, so a two-dot diff against it also
+          # contains the inverse of commits this PR never touched once the base
+          # branch advances: the count is then wrong in both directions and a
+          # PR can be blocked by someone else's churn.
+          #
+          # --no-renames because `git diff --numstat` writes a rename as
+          # `d/{old => new}`, which `git check-attr` reads literally and reports
+          # as unspecified — a renamed generated file was counted as reviewable.
+          # The add/delete counts it produces instead are also the ones a
+          # reviewer actually reads.
+          if ! MERGE_BASE="$(git merge-base "$BASE_SHA" "$HEAD_SHA")"; then
+            echo "::error::Could not compute the merge base of $BASE_SHA and $HEAD_SHA. The PR size was therefore never measured; failing rather than reporting a size of zero."
+            exit 1
+          fi
+          if ! NUMSTAT="$(git diff --numstat --no-renames "$MERGE_BASE" "$HEAD_SHA")"; then
+            echo "::error::git diff failed between $MERGE_BASE and $HEAD_SHA. The PR size was never measured; failing rather than reporting a size of zero."
+            exit 1
+          fi
+
+          TOTAL=0; FILES=0; GENERATED=0; BINARY=0
+          while IFS=$'\t' read -r added deleted path; do
+            [ -n "$path" ] || continue
+            FILES=$((FILES + 1))
+            if [ "$added" = "-" ]; then
+              BINARY=$((BINARY + 1)); continue
+            fi
+            attr="$(git check-attr linguist-generated -- "$path" | sed 's/.*: //')"
+            if [ "$attr" = "set" ] || [ "$attr" = "true" ]; then
+              GENERATED=$((GENERATED + 1)); continue
+            fi
+            TOTAL=$((TOTAL + added + deleted))
+          done <<< "$NUMSTAT"
+
+          if [ "$FILES" -eq 0 ]; then
+            echo "::error::The diff between $MERGE_BASE and $HEAD_SHA lists no changed files. A Pull Request that changes nothing is not something to pass silently — check the base and head refs."
+            exit 1
+          fi
+
+          echo "Merge base: $MERGE_BASE"
+          echo "Files changed: $FILES ($GENERATED generated, $BINARY binary — excluded)"
+          echo "Lines to review: $TOTAL (limit $LIMIT)"
+
+          if [ "$TOTAL" -le "$LIMIT" ]; then
+            echo "Within the review limit."
+            exit 0
+          fi
+
+          if printf '%s\n' "$LABELS" | tr ',' '\n' | grep -qxF 'size/approved'; then
+            echo "::notice::$TOTAL lines exceed the $LIMIT-line review limit, and the Director has applied 'size/approved'. Passing on that decision — it is recorded on the PR by the label's audit trail."
+            exit 0
+          fi
+
+          echo "::error::This PR changes $TOTAL lines outside generated files; the review limit is $LIMIT (Standards/PULL_REQUEST_STANDARD.md, Reviewability). Split it into Work Units that can each be read, or — if the size is genuinely irreducible — the Director applies the 'size/approved' label. Files that no human reads (lockfiles, snapshots, built output) are excluded when marked 'linguist-generated' in .gitattributes."
           exit 1
