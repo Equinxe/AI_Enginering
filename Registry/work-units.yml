@@ -637,3 +637,9 @@ work_units:
     title: Extract the review-recorded decision, with the host supplying data and the script deciding
     milestone: Portability
     delivers: Adapters/scripts/check-review-recorded.sh, Adapters/scripts/tests/run.sh
+
+  - id: WU-IAENG-228
+    employee: DevOps Engineer
+    title: Rewire the workflow to call the scripts, and add the GitHub review fetcher
+    milestone: Portability
+    delivers: .github/workflows/pr-validation.yml, Adapters/github-actions/pr-validation.yml, Adapters/scripts/hosts/github/fetch-review-comments.sh
