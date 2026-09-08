@@ -679,3 +679,9 @@ work_units:
     title: Say which step is actually next, instead of always naming Step 2
     milestone: Portability
     delivers: Adapters/scripts/release.sh
+
+  - id: WU-IAENG-235
+    employee: Release Manager
+    title: Do not offer to cut a release that already shipped
+    milestone: Portability
+    delivers: Adapters/scripts/release.sh
