@@ -36,6 +36,24 @@ Increments once per completed milestone: Foundation, Standards, Employees, Workf
 
 A milestone represents a coherent, named body of new capability delivered together — not a single Work Unit, and not an arbitrary batch of unrelated fixes.
 
+### One version may carry more than one milestone
+
+"Once per completed milestone" governs the **counter**, not the **release**. A version number is consumed by each milestone that completes; it is not required that each milestone reach `main` in a release of its own.
+
+When two milestones both complete before either has shipped, they are released together under a single version number, and that version's `CHANGELOG.md` heading names both:
+
+```
+## [0.0.12] - Automation & Convergence
+```
+
+This is a release-packaging decision, not a naming shortcut, and the distinction is what keeps it clear of the Milestone Naming Discipline rule below. Both names appear in full. Neither is borrowed to describe the other's work, and neither is dropped. A reader of the heading sees exactly the two bodies of work the version contains, and the `CHANGELOG.md` section beneath it accounts for both.
+
+**Rule:** a version carries several milestones only when every milestone named in its heading is genuinely complete. A milestone that is still in progress is not folded into a shipping version to avoid a second release — it waits and takes its own number.
+
+The alternative was considered and rejected. Releasing them separately would mean cutting a release branch from the point in `develop` where the first milestone ended, and that point predates the required status checks the second milestone introduced — so the first release could never satisfy the branch protection now in force, and would have to ship by suspending it. A number for a release that cannot pass its own gates is worse than a heading with two names in it.
+
+The mechanical consequence is recorded in `Adapters/scripts/release.sh`: Step 1 reads the codename field of a `CHANGELOG.md` heading as a list, so a milestone counts as released when it is named anywhere in that list. That function also compares the whole field before splitting it, because a single milestone's own name may contain the separator — v0.0.10.1 shipped as "Consistency & Compliance Hardening".
+
 ## FIX
 
 An optional 4th segment used only for a **post-release consistency correction that introduces no new capability** and does not, on its own, justify consuming the next milestone number.
@@ -73,6 +91,8 @@ None of these added a capability the framework did not already have — every on
 A milestone name (e.g. "Governance") is reserved for the real, scoped body of work that milestone is defined to deliver. It must never be borrowed as a label of convenience for unrelated work merely because that milestone's number is next in line.
 
 **Rule:** before labeling a batch of changes with an upcoming milestone's name, confirm those changes actually populate that milestone's declared scope. If they do not, they are a `.FIX` (or belong to whichever milestone they actually harden) — not the next milestone, even if the next milestone hasn't started yet and the number is otherwise unused.
+
+This rule is about a name attached to work it does not describe. It is not violated by a version whose heading names two milestones that both really completed (see *One version may carry more than one milestone* above): there, no name stands in for anything it did not deliver.
 
 ## Cautionary example (2026-07-23)
 
@@ -120,7 +140,7 @@ The conditions and process for reaching that point (including the pending `LICEN
 
 Owner: IA Engineering
 
-Version: 0.0.11
+Version: 0.0.12
 
 Status: Draft
 

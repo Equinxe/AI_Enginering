@@ -571,3 +571,9 @@ work_units:
     title: Let one version carry several milestones, since v0.0.12 carries two
     milestone: Automation
     delivers: Adapters/scripts/release.sh
+
+  - id: WU-IAENG-217
+    employee: Release Manager
+    title: State that one version may carry several milestones, and why v0.0.12 does
+    milestone: Automation
+    delivers: Governance/VERSIONING_POLICY.md
