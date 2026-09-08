@@ -589,3 +589,9 @@ work_units:
     title: Bump to v0.0.12 and write the CHANGELOG section for both milestones
     milestone: Automation
     delivers: VERSION.md, CHANGELOG.md, CLAUDE.md, README.md
+
+  - id: WU-IAENG-220
+    employee: DevOps Engineer
+    title: Tell a back-merge from wrong refs in the PR Size check
+    milestone: Convergence
+    delivers: .github/workflows/pr-validation.yml, Adapters/github-actions/pr-validation.yml, CHANGELOG.md
