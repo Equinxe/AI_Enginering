@@ -54,10 +54,10 @@ name: IA Engineering - PR Validation
 #   ./ia-engineering/Adapters/scripts/install.sh
 #
 # Then add "PR Compliance", "Work Unit Exists", "Employee Trailer", "Shellcheck
-# Adapters", "Validate Workflow YAML", "Hook Tests", "PR Size", "Framework
-# Validation" (from framework-validation.yml) and "Data Policy" (from
-# data-policy.yml) as required status checks in branch protection.
-# Adapters/scripts/setup-branch-protection.sh already sets all nine.
+# Adapters", "Validate Workflow YAML", "Hook Tests", "Script Tests", "PR Size",
+# "Framework Validation" (from framework-validation.yml) and "Data Policy"
+# (from data-policy.yml) as required status checks in branch protection.
+# Adapters/scripts/setup-branch-protection.sh already sets all ten.
 #
 # "Review Recorded (advisory)" is deliberately NOT required: it matches comment
 # text, which can be satisfied by pasting the block, so requiring it would buy
