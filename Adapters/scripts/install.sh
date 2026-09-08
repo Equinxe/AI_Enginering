@@ -494,6 +494,7 @@ if [ "$FRAMEWORK" != "$PROJECT" ]; then
   echo "  Stack CI/container  ./$HOOKS_REL/Adapters/scripts/setup-project-bootstrap.sh <stack>"
   echo "                      (needs the stack decided in Workflows/PROJECT_BOOTSTRAP.md Phase B)"
   echo "  Runtime hooks       ./$HOOKS_REL/Adapters/ai-runtimes/claude-code/install-hooks.sh"
+  echo "  Runtime skills      ./$HOOKS_REL/Adapters/ai-runtimes/claude-code/install-skills.sh"
   echo "                      (writes the COMMITTED .claude/settings.json, which decides what"
   echo "                       the model may do — a project reviews that like code)"
   echo "  Runtime agents      ./$HOOKS_REL/Adapters/ai-runtimes/generate-agents.sh"
