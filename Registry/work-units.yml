@@ -703,3 +703,9 @@ work_units:
     title: Refuse branch protection on a forge it cannot configure, with the checklist
     milestone: Portability
     delivers: Adapters/scripts/setup-branch-protection.sh
+
+  - id: WU-IAENG-240
+    employee: DevOps Engineer
+    title: Stop counting an installed copy twice against the review limit
+    milestone: Portability
+    delivers: .gitattributes, Adapters/scripts/validate-framework.sh

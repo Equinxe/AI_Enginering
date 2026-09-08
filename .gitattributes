@@ -18,3 +18,38 @@
 # both sides LF means a diff between them reflects real content drift rather
 # than a line-ending difference on a Windows checkout.
 /.github/** text eol=lf
+
+# THE INSTALLED COPIES ARE DERIVED, AND ARE MARKED AS SUCH.
+#
+# install.sh writes every file below from its Adapters/ original, and section
+# 10 of validate-framework.sh refuses a merge where the two differ by a single
+# byte. Adapters/ is the source; this repository is simply its own first
+# adopter, and these are the artefacts of that installation.
+#
+# Marking them `linguist-generated` does two things. The hosting platform
+# collapses them in the diff view, which is right: reading the same bytes twice
+# is not review. And PR Size stops counting them, which fixes a measurement
+# error rather than papering over one — Standards/PULL_REQUEST_STANDARD.md puts
+# the limit on "the lines a reviewer must READ", and a file byte-identical to
+# another file in the same diff is not read twice. Measured on the change set
+# that exposed this: 1,274 of 2,618 lines were the same 637 counted once per
+# copy, and the check refused a change that was near the limit rather than 75%
+# over it.
+#
+# THE RISK THIS WOULD NORMALLY CARRY IS ALREADY CLOSED BY ANOTHER CONTROL.
+# Collapsing a file usually means a reviewer can miss a change inside it; here
+# a divergence between the two copies cannot merge at all, because the parity
+# check is a required status check. The exclusion is safe precisely because
+# something else already guarantees what the reviewer would have been looking
+# for.
+#
+# Enumerated one path at a time rather than as `/.github/**`. A glob would also
+# swallow a file that is NOT installed from Adapters/ — a repository-specific
+# workflow added later — and quietly stop counting a change nobody derived.
+/.github/workflows/pr-validation.yml         linguist-generated=true
+/.github/workflows/framework-validation.yml  linguist-generated=true
+/.github/workflows/data-policy.yml           linguist-generated=true
+/.github/PULL_REQUEST_TEMPLATE.md            linguist-generated=true
+/.github/ISSUE_TEMPLATE/bug_report.md        linguist-generated=true
+/.github/ISSUE_TEMPLATE/feature_request.md   linguist-generated=true
+/.github/ISSUE_TEMPLATE/config.yml           linguist-generated=true
