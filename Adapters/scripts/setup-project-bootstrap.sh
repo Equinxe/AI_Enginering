@@ -149,6 +149,39 @@ copy_into() {
 copy_into "$ADAPTERS_DIR/github-actions/ci-build-test.yml" ".github/workflows/ci-build-test.yml"
 copy_into "$ADAPTERS_DIR/github-actions/ghcr-publish.yml" ".github/workflows/ghcr-publish.yml"
 
+# THE STACK IS RECORDED, NOT LEFT TO BE GUESSED LATER.
+#
+# ci-build-test.yml used to infer the stack from whichever manifest file it
+# found first. That works only while one manifest means one stack, and it
+# stops working the moment two stacks share one: a React site and a Node
+# server both have package.json, and no rule over file names can tell them
+# apart without guessing. Guessing in a build gate is the defect class this
+# framework catalogues everywhere else.
+#
+# This script already knows the answer — it was given it as an argument — so
+# it writes it down. CI reads the declaration and only falls back to sniffing
+# manifests when there is none, which keeps an existing project that never ran
+# this script working exactly as before.
+#
+# .ia-engineering/ is where a project keeps what is true of it, and part of
+# that directory is already committed and read by CI: the project roster at
+# .ia-engineering/Registry/employees.yml, which the Employee Trailer check
+# unions in. Only SESSION_STATE.md is gitignored. So this file belongs there
+# and must be COMMITTED — a declaration CI cannot read declares nothing.
+STACK_FILE=".ia-engineering/stack"
+if [ -f "$STACK_FILE" ] && ! printf '%s
+' "${PASSTHROUGH[@]+"${PASSTHROUGH[@]}"}" | grep -qx -- '--force'; then
+  echo "  ! $STACK_FILE already exists (declares '$(tr -d '[:space:]' < "$STACK_FILE")') — left untouched." >&2
+  echo "    Re-run with --force to change the declared stack." >&2
+elif [ "$DRY_RUN" -eq 1 ]; then
+  echo "  [dry-run] write $STACK_FILE containing '$STACK'"
+else
+  mkdir -p "$(dirname "$STACK_FILE")"
+  printf '%s
+' "$STACK" > "$STACK_FILE"
+  echo "  + $STACK_FILE ($STACK)  — commit this; CI reads it"
+fi
+
 DOCKERFILE_SRC="$ADAPTERS_DIR/dockerfiles/$STACK.Dockerfile"
 if [ ! -f "$DOCKERFILE_SRC" ]; then
   echo "Error: no starter Dockerfile for stack '$STACK' at $DOCKERFILE_SRC" >&2

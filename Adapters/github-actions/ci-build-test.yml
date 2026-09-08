@@ -3,23 +3,41 @@ name: IA Engineering - CI Build & Test
 # Parametric CI for a project bootstrapped from IA Engineering
 # (Workflows/PROJECT_BOOTSTRAP.md). One project, one stack: rather than a
 # separate workflow per language, this file runs a single job that first
-# DETECTS the project's stack from well-known manifest files, then executes
-# only the build/test steps that match. Every language step is guarded by an
-# `if:` on the detection output, so exactly one path runs per project.
+# RESOLVES the project's stack, then executes only the build/test steps that
+# match. Every language step is guarded by an `if:` on that output, so exactly
+# one path runs per project.
 #
 # Mechanism (chosen for clarity over a build matrix — a bootstrapped project
 # has exactly one stack, so a matrix would only ever populate one cell):
-#   1. A `Detect project stack` step inspects the repo root and writes a single
-#      `stack` output (node | python | go | jvm | generic).
+#   1. A `Resolve project stack` step calls
+#      Adapters/scripts/resolve-stack.sh and writes a single `stack` output.
 #   2. Each language block below runs only when `steps.detect.outputs.stack`
 #      equals its stack.
 #
-# Detection precedence (first match wins):
+# THE RESOLUTION LIVES IN A SCRIPT, not in this file, for the same reason the
+# PR checks do: logic inside a workflow can only be tested by deploying it.
+# Its cases are in Adapters/scripts/tests/run.sh.
+#
+# A DECLARATION BEATS A GUESS. setup-project-bootstrap.sh writes the stack it
+# was told to install into `.ia-engineering/stack`, and that file wins. It is
+# committed, like the project roster beside it — a declaration CI cannot read
+# declares nothing. A declaration naming an unknown stack FAILS rather than
+# falling back to sniffing, because a typo that silently switched builds would
+# report success for a stack nobody chose.
+#
+# Manifest detection remains, and applies only when there is no declaration,
+# so a project predating it builds exactly as before. Precedence, first match
+# wins:
 #   package.json                              -> node
 #   pyproject.toml OR requirements.txt        -> python
 #   go.mod                                    -> go
 #   pom.xml OR build.gradle(.kts)             -> jvm
 #   (none of the above)                       -> generic  (explicit fallback)
+#
+# Inference is the weaker mechanism and is bounded by design: one manifest can
+# belong to more than one stack — a React site and a Node server both have
+# package.json — so no rule over file names can separate them. That is why the
+# declaration exists, and why new stacks became possible once it did.
 #
 # The Generic fallback does NOT fail the build silently — it emits a warning
 # and leaves a clearly marked placeholder for the adopting project to fill in
@@ -44,23 +62,21 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Detect project stack
+      - name: Resolve project stack
         id: detect
         run: |
-          # First match wins — see the precedence table in this file's header.
-          if [ -f package.json ]; then
-            stack=node
-          elif [ -f pyproject.toml ] || [ -f requirements.txt ]; then
-            stack=python
-          elif [ -f go.mod ]; then
-            stack=go
-          elif [ -f pom.xml ] || [ -f build.gradle ] || [ -f build.gradle.kts ]; then
-            stack=jvm
-          else
-            stack=generic
-          fi
-          echo "stack=$stack" >> "$GITHUB_OUTPUT"
-          echo "Detected stack: $stack"
+          set -euo pipefail
+          # The resolution lives in Adapters/scripts/resolve-stack.sh so it can
+          # be tested without deploying it. This step only wires it up.
+          for candidate in . ia-engineering; do
+            if [ -x "$candidate/Adapters/scripts/resolve-stack.sh" ]; then
+              stack="$("$candidate/Adapters/scripts/resolve-stack.sh" .)"
+              echo "stack=$stack" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          done
+          echo "::error::Could not locate Adapters/scripts/resolve-stack.sh (looked in . and ia-engineering/). If the framework is imported at another path, adjust this step."
+          exit 1
 
       # --- Node -------------------------------------------------------------
       - name: Set up Node.js

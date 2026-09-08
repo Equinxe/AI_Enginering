@@ -538,6 +538,121 @@ expect 0 "the decision line is matched case-insensitively and indented" -- bash 
 expect 2 "no directory argument is a usage error" -- bash "$CHECK_REVIEW"
 expect 2 "an unknown option is a usage error" -- bash "$CHECK_REVIEW" "$CDIR" --nope
 
+# ------------------------------------------------- resolve-stack.sh ---------
+
+RESOLVE="$SCRIPTS/resolve-stack.sh"
+
+# project <name> <files...> — a bare directory with the given empty files.
+project() {
+  local d="$WORK/$1"; shift
+  rm -rf "$d"; mkdir -p "$d"
+  local f
+  for f in "$@"; do
+    mkdir -p "$d/$(dirname "$f")"
+    : > "$d/$f"
+  done
+  printf '%s' "$d"
+}
+
+# expect_stack <expected> <description> <project-dir> [env...]
+expect_stack() {
+  local want="$1" desc="$2" dir="$3"; shift 3
+  TOTAL=$((TOTAL + 1))
+  local got
+  got="$(bash "$RESOLVE" "$dir" 2>/dev/null)"
+  if [ "$got" = "$want" ]; then
+    [ -n "$VERBOSE" ] && printf '   ok   %s -> %s
+' "$desc" "$got"
+  else
+    printf '   FAIL %s: expected %s, got %s
+' "$desc" "$want" "$got"
+    FAILED=$((FAILED + 1))
+  fi
+}
+
+section "resolve-stack.sh"
+
+expect_stack node    "package.json infers node"        "$(project rs-node package.json)"
+expect_stack python  "pyproject.toml infers python"    "$(project rs-py pyproject.toml)"
+expect_stack python  "requirements.txt infers python"  "$(project rs-req requirements.txt)"
+expect_stack go      "go.mod infers go"                "$(project rs-go go.mod)"
+expect_stack jvm     "pom.xml infers jvm"              "$(project rs-mvn pom.xml)"
+expect_stack jvm     "build.gradle.kts infers jvm"     "$(project rs-gradle build.gradle.kts)"
+expect_stack generic "no manifest infers generic"      "$(project rs-bare)"
+
+# The whole reason the declaration exists: a manifest can belong to more than
+# one stack, and only a declaration can say which.
+D="$(project rs-declared package.json)"
+mkdir -p "$D/.ia-engineering"; printf 'generic
+' > "$D/.ia-engineering/stack"
+expect_stack generic "a declaration beats the manifest it contradicts" "$D"
+
+# Trailing whitespace and a CR from a Windows checkout must not change the
+# answer. The file is written by a script and read on another platform.
+D="$(project rs-crlf)"
+mkdir -p "$D/.ia-engineering"; printf 'go  
+' > "$D/.ia-engineering/stack"
+expect_stack go "surrounding whitespace and CR are ignored" "$D"
+
+# A typo must not degrade into sniffing: that would build a different stack
+# and report success for one nobody chose.
+D="$(project rs-typo package.json)"
+mkdir -p "$D/.ia-engineering"; printf 'nod
+' > "$D/.ia-engineering/stack"
+expect 1 "an unknown declared stack fails rather than falling back" -- bash "$RESOLVE" "$D"
+expect_output "is not one of"
+
+D="$(project rs-empty package.json)"
+mkdir -p "$D/.ia-engineering"; : > "$D/.ia-engineering/stack"
+expect 1 "an empty declaration is not a declaration" -- bash "$RESOLVE" "$D"
+expect_output "empty"
+
+expect 1 "a missing project directory fails" -- bash "$RESOLVE" "$WORK/rs-nowhere"
+
+# stdout carries the stack and nothing else, so the caller can use it directly.
+D="$(project rs-clean go.mod)"
+TOTAL=$((TOTAL + 1))
+OUT="$(bash "$RESOLVE" "$D" 2>/dev/null)"
+if [ "$OUT" = "go" ]; then
+  [ -n "$VERBOSE" ] && printf '   ok   stdout is the stack alone, explanations on stderr
+'
+else
+  printf '   FAIL stdout must carry only the stack, got: %s
+' "$OUT"
+  FAILED=$((FAILED + 1))
+fi
+
+# ------------------------------------------- setup-project-bootstrap.sh -----
+
+section "setup-project-bootstrap.sh — the stack it records"
+
+# --dry-run so nothing is installed: this asserts the declaration, not the
+# whole bootstrap, and a dry run is the only shape that can be asserted here
+# without a git remote and a full project.
+D="$(project bs-dry)"
+TOTAL=$((TOTAL + 1))
+OUT="$(cd "$D" && bash "$SCRIPTS/setup-project-bootstrap.sh" go --dry-run 2>&1)"
+if printf '%s' "$OUT" | grep -qF -- "[dry-run] write .ia-engineering/stack containing 'go'"; then
+  [ -n "$VERBOSE" ] && printf '   ok   the bootstrap says it will record the stack
+'
+else
+  printf '   FAIL the bootstrap did not announce writing the stack declaration
+'
+  printf '%s
+' "$OUT" | sed 's/^/        | /'
+  FAILED=$((FAILED + 1))
+fi
+
+TOTAL=$((TOTAL + 1))
+if [ -f "$D/.ia-engineering/stack" ]; then
+  printf '   FAIL --dry-run wrote the declaration; a dry run must change nothing
+'
+  FAILED=$((FAILED + 1))
+else
+  [ -n "$VERBOSE" ] && printf '   ok   --dry-run wrote nothing
+'
+fi
+
 # --------------------------------------------------------------- verdict ----
 
 cd "$HERE" || exit 1
