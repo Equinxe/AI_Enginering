@@ -673,3 +673,9 @@ work_units:
     title: Check that every shipped CHANGELOG version has a tag
     milestone: Portability
     delivers: Adapters/scripts/validate-framework.sh, .github/workflows/framework-validation.yml, Adapters/github-actions/framework-validation.yml
+
+  - id: WU-IAENG-234
+    employee: Release Manager
+    title: Say which step is actually next, instead of always naming Step 2
+    milestone: Portability
+    delivers: Adapters/scripts/release.sh

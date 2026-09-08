@@ -133,6 +133,9 @@ milestone_released() {
 
 cmd_check() {
   local target="${1:-}"
+  # Whether Step 2's output is already present. Set from the VERSION.md and
+  # CHANGELOG.md checks below, read by the closing line.
+  STEP2_DONE=0
 
   echo "IA Engineering — release readiness (Workflows/RELEASE.md Step 1)"
   echo "Repository: $ROOT"
@@ -182,11 +185,19 @@ cmd_check() {
     local section
     section="$(changelog_section "$check_version")"
     if [ -z "$section" ]; then
+      STEP2_DONE=0
       bad "CHANGELOG.md has no section for ${check_version}" "Step 7 builds the GitHub Release notes from it. Without the section there is nothing to publish, which is how v0.0.10 and v0.0.10.1 both shipped with a bare tag."
     else
       local lines
       lines="$(printf '%s\n' "$section" | grep -c . || true)"
       ok "CHANGELOG.md section for ${check_version} present ($lines non-empty lines)"
+      # STEP 2'S OUTPUT, OBSERVED. Workflows/RELEASE.md Step 2 states its
+      # output as "develop carries the final VERSION.md and CHANGELOG.md for
+      # this release", and those are exactly the two conditions just checked.
+      # Recording it here is what lets the closing line say which step is
+      # actually next instead of always naming Step 2 — a gate that reads the
+      # output of a step and then tells the reader to perform it.
+      STEP2_DONE=1
       if [ "$lines" -lt 4 ]; then
         bad "the CHANGELOG.md section for ${check_version} looks too thin ($lines lines)" "Step 1 requires reviewing that every significant change since the last release is accounted for."
       fi
@@ -439,7 +450,12 @@ cmd_check() {
   head2 "Result"
 
   if [ "$FAILURES" -eq 0 ]; then
-    echo "   Ready for Step 2 (version bump on develop), then Step 3 (release branch)."
+    if [ "${STEP2_DONE:-0}" -eq 1 ]; then
+      echo "   Step 2 is already on this branch: VERSION.md and CHANGELOG.md both"
+      echo "   carry this version. Ready for Step 3 (cut the release branch)."
+    else
+      echo "   Ready for Step 2 (version bump on develop), then Step 3 (release branch)."
+    fi
   else
     echo "   $FAILURES condition(s) not met."
     echo "   Workflows/RELEASE.md Step 1: \"If any condition is not met: block the"
