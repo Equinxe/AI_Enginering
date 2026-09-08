@@ -595,3 +595,9 @@ work_units:
     title: Tell a back-merge from wrong refs in the PR Size check
     milestone: Convergence
     delivers: .github/workflows/pr-validation.yml, Adapters/github-actions/pr-validation.yml, CHANGELOG.md
+
+  - id: WU-IAENG-221
+    employee: Security Engineer
+    title: A merge-only range enumerates no paths by construction
+    milestone: Convergence
+    delivers: Adapters/scripts/data-policy-scan.sh

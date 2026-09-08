@@ -311,10 +311,28 @@ esac
 # denominator — is only worth anything if a denominator of zero is treated as
 # the absence of evidence it is. This scan printed "scanned 0 path(s)" and
 # "clean" over a two-commit range while the defect above hid a staged `.env`.
+#
+# WITH ONE EXCEPTION, ESTABLISHED THE SAME WAY THE RULE WAS. A range whose
+# commits are ALL merges introduces no objects and touches no paths, by
+# construction: every blob in it is already reachable from the excluded side,
+# which is what makes it a merge rather than a change. Workflows/RELEASE.md
+# Step 8 carries `main` back into `develop` through exactly such a range, and
+# in the normal case that is the only kind of Pull Request that produces one.
+# Refusing it made this required check unsatisfiable for the back-merge, which
+# in turn made the NEXT release unmergeable once `main` required branches to
+# be up to date — found on v0.0.12, alongside the same defect in PR Size.
+#
+# The exception is a named allow-list of one shape, not a fall-through: a
+# range holding even one non-merge commit and still enumerating no paths is
+# the original defect and still fails. Nothing is waved through on the
+# strength of its own emptiness.
 if [ "$MODE" = history ] && [ "$PATHS_SCANNED" -eq 0 ]; then
   COMMITS="$(git rev-list --count "$ARG" 2>/dev/null || echo 0)"
-  if [ "${COMMITS:-0}" -gt 0 ]; then
-    printf 'data-policy: mode=history scanned 0 path(s) over %s commit(s) — the path enumeration produced nothing for a range that is not empty.\n' "$COMMITS" >&2
+  NONMERGE="$(git rev-list --count --no-merges "$ARG" 2>/dev/null || echo 0)"
+  if [ "${COMMITS:-0}" -gt 0 ] && [ "${NONMERGE:-0}" -eq 0 ]; then
+    printf 'data-policy: mode=history scanned 0 path(s) over %s commit(s), every one a merge — a back-merge introduces no objects, so there is nothing to scan.\n' "$COMMITS"
+  elif [ "${COMMITS:-0}" -gt 0 ]; then
+    printf 'data-policy: mode=history scanned 0 path(s) over %s commit(s), %s of them not merges — the path enumeration produced nothing for a range that is not empty.\n' "$COMMITS" "$NONMERGE" >&2
     printf '  This is reported rather than passed: a scan that examined nothing has established nothing.\n' >&2
     exit 1
   fi
