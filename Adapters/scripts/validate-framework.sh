@@ -846,6 +846,29 @@ check_parity() {
   else
     fail "$adapter and $installed have drifted" "$(diff "$adapter" "$installed" | head -4 | tr '\n' ' ')"
   fi
+
+  # AN INSTALLED COPY MUST BE MARKED DERIVED, or every change to the pair costs
+  # double against the review limit.
+  #
+  # Standards/PULL_REQUEST_STANDARD.md puts that limit on "the lines a reviewer
+  # must READ", and the two files above are byte-identical by the check that
+  # just ran — nobody reads them twice. Measured on the change set that exposed
+  # this: 1,274 of 2,618 lines were the same 637 counted once per copy, and
+  # PR Size refused a change that was near the limit rather than well over it.
+  # The effect is perverse: keeping the installed copy in sync, which is the
+  # correct habit, was the thing being penalised.
+  #
+  # Checked rather than left to whoever adds the next Adapter, because the
+  # failure is silent: a new pair simply starts costing double and nothing says
+  # so. `git check-attr` is asked, so what is verified is the attribute git
+  # actually resolves rather than the presence of a line in a file.
+  local attr
+  attr="$(git check-attr linguist-generated -- "$installed" 2>/dev/null | sed 's/.*: //')"
+  if [ "$attr" = "set" ] || [ "$attr" = "true" ]; then
+    pass "$base: installed copy is marked linguist-generated"
+  else
+    fail "$installed is not marked linguist-generated (git says: ${attr:-unreadable})" "It is byte-identical to $adapter, so a reviewer reads those lines once and PR Size counts them twice. Add '/$installed linguist-generated=true' to .gitattributes. Mark the INSTALLED copy, never the Adapter — the Adapter is the source and must stay reviewable."
+  fi
 }
 
 for adapter in Adapters/github-actions/*.yml; do
