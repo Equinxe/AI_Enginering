@@ -7,8 +7,9 @@
 #   - Workflows/CODE_REVIEW.md — a Pull Request must be reviewed before merge
 #   - Adapters/github-actions/pr-validation.yml and
 #     Adapters/github-actions/framework-validation.yml — their blocking jobs
-#     (PR Compliance, Employee Trailer, Shellcheck Adapters, Validate Workflow
-#     YAML, Framework Validation) become required status checks once this
+#     (PR Compliance, Work Unit Exists, Employee Trailer, Shellcheck Adapters,
+#     Validate Workflow YAML, Hook Tests, Script Tests, PR Size, Framework
+#     Validation, Data Policy) become required status checks once this
 #     script has run, on main, develop, AND release/*
 #   - Workflows/RELEASE.md — "The release branch `release/vX.X.X` is never
 #     deleted. It serves as a permanent snapshot of the exact state released
@@ -64,6 +65,18 @@ echo "Configuring branch protection on $REPO for: main, develop, release/*"
 # Discipline reported its result and blocked nothing — a commit with no
 # Employee attribution could still merge past a red check.
 #
+# "Script Tests" was added in WU-IAENG-229, after the four PR checks moved out
+# of pr-validation.yml and into Adapters/scripts/check-*.sh. Without it the
+# move would have been a downgrade: the logic portable and covered by 80 cases,
+# and none of them run by anything that blocks a merge. Requiring the suite is
+# what makes the extraction an improvement rather than a relocation.
+#
+# It was added ONLY AFTER the job had reported on a real Pull Request. A
+# required check that has never reported blocks every merge on a status that
+# cannot appear, and GitHub offers no way to distinguish "not yet run" from
+# "will never run" — this repository has already had to sequence a merge before
+# a protection change once for exactly that reason.
+#
 # "Review Recorded (advisory)" is deliberately NOT here. It matches comment
 # text, which is softer evidence than a native gate and can be satisfied by
 # pasting the block; making it required would buy false confidence. Promoting
@@ -75,6 +88,7 @@ REQUIRED_CHECKS=(
   "Shellcheck Adapters"
   "Validate Workflow YAML"
   "Hook Tests"
+  "Script Tests"
   "PR Size"
   "Framework Validation"
   "Data Policy"

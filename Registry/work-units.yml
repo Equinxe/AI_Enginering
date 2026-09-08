@@ -643,3 +643,9 @@ work_units:
     title: Rewire the workflow to call the scripts, and add the GitHub review fetcher
     milestone: Portability
     delivers: .github/workflows/pr-validation.yml, Adapters/github-actions/pr-validation.yml, Adapters/scripts/hosts/github/fetch-review-comments.sh
+
+  - id: WU-IAENG-229
+    employee: DevOps Engineer
+    title: Require Script Tests, now that the job has reported
+    milestone: Portability
+    delivers: Adapters/scripts/setup-branch-protection.sh, Adapters/README.md, .github/workflows/pr-validation.yml, Adapters/github-actions/pr-validation.yml
