@@ -619,3 +619,9 @@ work_units:
     title: Extract the Work Unit check from the workflow, and give it a test suite
     milestone: Portability
     delivers: Adapters/scripts/check-work-units.sh, Adapters/scripts/tests/run.sh
+
+  - id: WU-IAENG-225
+    employee: DevOps Engineer
+    title: Extract the Employee trailer check, with the Domain Employee union
+    milestone: Portability
+    delivers: Adapters/scripts/check-employee-trailers.sh, Adapters/scripts/tests/run.sh

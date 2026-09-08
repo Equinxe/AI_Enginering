@@ -76,6 +76,21 @@ write_wu_registry() {
   } > Registry/work-units.yml
 }
 
+# Writes an Employee roster with the given names, in the parsing contract's
+# exact field shape.
+write_employee_roster() {
+  local target="${ROSTER_TARGET:-Registry/employees.yml}"
+  mkdir -p "$(dirname "$target")"
+  {
+    echo "employees:"
+    local n
+    for n in "$@"; do
+      echo "  - name: $n"
+      echo "    category: Management"
+    done
+  } > "$target"
+}
+
 # commit_with <subject> <trailer-block...>  — each extra argument is a line
 # appended verbatim after a blank line, so a caller can place a trailer at
 # column 0 or indent it to make it an example.
@@ -117,7 +132,11 @@ expect() {
 # code alone cannot distinguish "passed for the right reason" from "passed".
 expect_output() {
   TOTAL=$((TOTAL + 1))
-  if printf '%s' "$LAST_OUTPUT" | grep -qF "$1"; then
+  # `--` is load bearing: an expected string beginning with a dash is read as
+  # an option otherwise, and the assertion fails with a grep usage error
+  # instead of comparing anything. That is TROUBLESHOOTING entry T, met here
+  # by a test asserting on the output "  <sha> -> DevOps Engineer".
+  if printf '%s' "$LAST_OUTPUT" | grep -qF -- "$1"; then
     [ -n "$VERBOSE" ] && printf '   ok   output contains: %s\n' "$1"
     return 0
   fi
@@ -236,6 +255,114 @@ git add -A && git commit -q -m "registry"
 expect 1 "an unresolvable range fails rather than reporting zero problems" -- bash "$CHECK_WU" "does-not-exist" HEAD
 
 expect 2 "wrong argument count is a usage error, not a pass" -- bash "$CHECK_WU"
+
+# ------------------------------------------ check-employee-trailers.sh ------
+
+CHECK_EMP="$SCRIPTS/check-employee-trailers.sh"
+
+section "check-employee-trailers.sh"
+
+new_repo emp-basic
+write_employee_roster "Release Manager" "DevOps Engineer"
+git add -A && git commit -q -m "roster"
+BASE="$(git rev-parse HEAD)"
+commit_with "feat: attributed to a real Employee" "Employee: DevOps Engineer"
+expect 0 "a roster name resolves" -- bash "$CHECK_EMP" "$BASE" HEAD
+expect_output "-> DevOps Engineer"
+
+new_repo emp-missing
+write_employee_roster "Release Manager"
+git add -A && git commit -q -m "roster"
+BASE="$(git rev-parse HEAD)"
+commit_with "feat: nobody claims it"
+expect 1 "a commit with no Employee trailer fails" -- bash "$CHECK_EMP" "$BASE" HEAD
+expect_output "missing an 'Employee: <Name>' trailer"
+
+# The whole reason the roster is a closed list: a tool label is not an
+# Employee, and accepting one would make Dispatch Discipline unenforceable.
+new_repo emp-tool-label
+write_employee_roster "Release Manager" "DevOps Engineer"
+git add -A && git commit -q -m "roster"
+BASE="$(git rev-parse HEAD)"
+commit_with "feat: attributed to a tool" "Employee: executor"
+expect 1 "a generic tool label is refused" -- bash "$CHECK_EMP" "$BASE" HEAD
+expect_output "is not a valid Employee name"
+
+new_repo emp-indented-example
+write_employee_roster "Release Manager"
+git add -A && git commit -q -m "roster"
+BASE="$(git rev-parse HEAD)"
+commit_with "feat: quotes a bad trailer as an example"   "The rejected commit had said:"   "    Employee: executor"   ""   "Employee: Release Manager"
+expect 0 "an indented Employee line is prose, not a claim" -- bash "$CHECK_EMP" "$BASE" HEAD
+
+new_repo emp-merge-only
+write_employee_roster "Release Manager"
+git add -A && git commit -q -m "roster"
+git checkout -qb develop
+echo work > w.txt && git add -A && git commit -q -m "authored work
+
+Employee: Release Manager"
+git checkout -q main
+git merge -q --no-ff develop -m "Merge develop into main"
+BASE="$(git rev-parse develop)"
+expect 0 "a merge-only range passes and says so" -- bash "$CHECK_EMP" "$BASE" HEAD
+expect_output "No non-merge commits to validate."
+
+new_repo emp-no-roster
+BASE="$(git rev-parse HEAD)"
+commit_with "feat: anything" "Employee: Release Manager"
+expect 1 "an absent roster fails closed" -- bash "$CHECK_EMP" "$BASE" HEAD
+expect_output "Could not locate Registry/employees.yml"
+
+new_repo emp-unparseable-roster
+mkdir -p Registry
+printf 'employees:
+- name: Release Manager
+' > Registry/employees.yml
+git add -A && git commit -q -m "roster with the wrong indentation"
+BASE="$(git rev-parse HEAD)"
+commit_with "feat: anything" "Employee: Release Manager"
+expect 1 "a roster that parses to zero names fails as a parsing fault" -- bash "$CHECK_EMP" "$BASE" HEAD
+expect_output "parsing contract"
+
+# A Domain Employee is a real Employee for its project and unknown to the
+# framework. Refusing it would make Templates/DOMAIN_EMPLOYEE.md unusable.
+new_repo emp-domain
+write_employee_roster "Release Manager"
+ROSTER_TARGET=".ia-engineering/Registry/employees.yml" write_employee_roster "Claims Adjudicator"
+git add -A && git commit -q -m "framework roster plus a project roster"
+BASE="$(git rev-parse HEAD)"
+commit_with "feat: work by a Domain Employee" "Employee: Claims Adjudicator"
+expect 0 "a Domain Employee from the project roster resolves" -- bash "$CHECK_EMP" "$BASE" HEAD
+expect_output "1 Domain Employee(s)"
+
+new_repo emp-domain-absent
+write_employee_roster "Release Manager"
+git add -A && git commit -q -m "framework roster only"
+BASE="$(git rev-parse HEAD)"
+commit_with "feat: claims a Domain Employee nobody registered" "Employee: Claims Adjudicator"
+expect 1 "an unregistered Domain Employee is still refused" -- bash "$CHECK_EMP" "$BASE" HEAD
+
+# A typo in the path must not degrade into "framework roster only", which
+# would refuse every Domain Employee while reporting a clean configuration.
+new_repo emp-bad-project-roster-path
+write_employee_roster "Release Manager"
+git add -A && git commit -q -m "roster"
+BASE="$(git rev-parse HEAD)"
+commit_with "feat: anything" "Employee: Release Manager"
+TOTAL=$((TOTAL + 1))
+LAST_OUTPUT="$(IAENG_PROJECT_ROSTER=nope/employees.yml bash "$CHECK_EMP" "$BASE" HEAD 2>&1)"
+if [ $? -eq 1 ]; then
+  [ -n "$VERBOSE" ] && printf '   ok   a missing IAENG_PROJECT_ROSTER path fails rather than silently narrowing
+'
+else
+  printf '   FAIL a missing IAENG_PROJECT_ROSTER path must fail, not narrow silently
+'
+  FAILED=$((FAILED + 1))
+fi
+expect_output "no such file exists"
+
+expect 2 "wrong argument count is a usage error" -- bash "$CHECK_EMP"
 
 # --------------------------------------------------------------- verdict ----
 
