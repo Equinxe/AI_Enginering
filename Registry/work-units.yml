@@ -583,3 +583,9 @@ work_units:
     title: A version number identifies a release, not a milestone
     milestone: Automation
     delivers: Governance/VERSIONING_POLICY.md
+
+  - id: WU-IAENG-219
+    employee: Release Manager
+    title: Bump to v0.0.12 and write the CHANGELOG section for both milestones
+    milestone: Automation
+    delivers: VERSION.md, CHANGELOG.md, CLAUDE.md, README.md

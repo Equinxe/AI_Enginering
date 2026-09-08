@@ -120,6 +120,8 @@ Adapters/      — Tool integrations
 
 # Current Version
 
-v0.0.11 — Governance
+v0.0.12 — Automation & Convergence
 
-Next: Convergence — delivered on `feat/governance-concepts` (WU-IAENG-172 → 187), awaiting the Director's release decision (`Workflows/RELEASE.md`)
+Two milestones under one number: both completed on `develop` before either shipped. See `Governance/VERSIONING_POLICY.md`.
+
+Next: TBD — not yet scoped. The next milestone takes 0.0.13.
