@@ -625,3 +625,9 @@ work_units:
     title: Extract the Employee trailer check, with the Domain Employee union
     milestone: Portability
     delivers: Adapters/scripts/check-employee-trailers.sh, Adapters/scripts/tests/run.sh
+
+  - id: WU-IAENG-226
+    employee: DevOps Engineer
+    title: Extract the PR size check, and pin both defects that reached production in it
+    milestone: Portability
+    delivers: Adapters/scripts/check-pr-size.sh, Adapters/scripts/tests/run.sh

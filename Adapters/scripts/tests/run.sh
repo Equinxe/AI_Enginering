@@ -350,19 +350,92 @@ write_employee_roster "Release Manager"
 git add -A && git commit -q -m "roster"
 BASE="$(git rev-parse HEAD)"
 commit_with "feat: anything" "Employee: Release Manager"
-TOTAL=$((TOTAL + 1))
-LAST_OUTPUT="$(IAENG_PROJECT_ROSTER=nope/employees.yml bash "$CHECK_EMP" "$BASE" HEAD 2>&1)"
-if [ $? -eq 1 ]; then
-  [ -n "$VERBOSE" ] && printf '   ok   a missing IAENG_PROJECT_ROSTER path fails rather than silently narrowing
-'
-else
-  printf '   FAIL a missing IAENG_PROJECT_ROSTER path must fail, not narrow silently
-'
-  FAILED=$((FAILED + 1))
-fi
+expect 1 "a missing IAENG_PROJECT_ROSTER path fails rather than narrowing silently" --   env IAENG_PROJECT_ROSTER=nope/employees.yml bash "$CHECK_EMP" "$BASE" HEAD
 expect_output "no such file exists"
 
 expect 2 "wrong argument count is a usage error" -- bash "$CHECK_EMP"
+
+# ------------------------------------------------- check-pr-size.sh ---------
+
+CHECK_SIZE="$SCRIPTS/check-pr-size.sh"
+
+section "check-pr-size.sh"
+
+new_repo size-small
+BASE="$(git rev-parse HEAD)"
+echo more >> seed.txt && git commit -qam "a small change"
+expect 0 "an ordinary change under the limit passes" -- bash "$CHECK_SIZE" "$BASE" HEAD
+expect_output "Within the review limit."
+
+new_repo size-over
+BASE="$(git rev-parse HEAD)"
+i=0; while [ $i -lt 2000 ]; do echo "line $i" >> seed.txt; i=$((i + 1)); done
+git commit -qam "a large change"
+expect 1 "an oversized change fails without the override" -- bash "$CHECK_SIZE" "$BASE" HEAD
+expect_output "review limit is 1500"
+
+expect 0 "size/approved among several labels is the override" --   env IAENG_PR_LABELS="needs-docs,size/approved" bash "$CHECK_SIZE" "$BASE" HEAD
+expect_output "the Director has applied 'size/approved'"
+
+# A label that merely CONTAINS the override string is not the override. An
+# exact match is what makes the label an authorisation rather than a hint.
+expect 1 "a label merely containing the override string is not the override" --   env IAENG_PR_LABELS="size/approved-later" bash "$CHECK_SIZE" "$BASE" HEAD
+
+# The limit is configurable, so a project can tighten or relax it deliberately
+# rather than by editing the script.
+expect 0 "IAENG_PR_LIMIT is honoured, so a project can set its own" --   env IAENG_PR_LIMIT=5000 bash "$CHECK_SIZE" "$BASE" HEAD
+
+# WU-IAENG-220. The shape is the real one: the base already contains the
+# authored commit and the head is ahead only by the merge that brought it.
+new_repo size-backmerge
+git checkout -qb develop
+echo b > b.txt && git add -A && git commit -qm "authored work B"
+git checkout -q main
+git merge -q --no-ff develop -m "Merge develop into main"
+git checkout -q develop
+echo c > c.txt && git add -A && git commit -qm "further work C"
+BASE="$(git rev-parse develop)"
+expect 0 "a back-merge passes: nothing to read is not nothing measured" -- bash "$CHECK_SIZE" "$BASE" main
+expect_output "every one a merge"
+
+new_repo size-empty-range
+BASE="$(git rev-parse HEAD)"
+expect 1 "identical refs fail: no commits and no files means nothing measured" -- bash "$CHECK_SIZE" "$BASE" HEAD
+expect_output "no commits either"
+
+new_repo size-empty-commit
+BASE="$(git rev-parse HEAD)"
+git commit -q --allow-empty -m "an empty non-merge commit"
+expect 1 "an empty non-merge commit fails: it is not a back-merge" -- bash "$CHECK_SIZE" "$BASE" HEAD
+expect_output "not merges"
+
+new_repo size-merge-plus-empty
+git checkout -qb side
+echo s > s.txt && git add -A && git commit -qm "side"
+git checkout -q main
+git merge -q --no-ff side -m "merge side"
+BASE="$(git rev-parse HEAD)"
+git commit -q --allow-empty -m "an empty commit after the merge"
+expect 1 "a merge plus an empty commit still fails" -- bash "$CHECK_SIZE" "$BASE" HEAD
+
+# WU-IAENG-198. An unresolvable ref must not be counted as zero lines: the
+# inline version printed "Within the review limit" and exited 0.
+new_repo size-bad-ref
+expect 1 "an unresolvable base fails rather than measuring zero" -- bash "$CHECK_SIZE" "does-not-exist" HEAD
+
+# linguist-generated files are excluded from the count, and the exclusion is
+# declared in a committed file so it is itself reviewable.
+new_repo size-generated
+printf 'built.txt linguist-generated=true
+' > .gitattributes
+git add -A && git commit -qm "declare the generated file"
+BASE="$(git rev-parse HEAD)"
+i=0; while [ $i -lt 2000 ]; do echo "generated $i" >> built.txt; i=$((i + 1)); done
+git add -A && git commit -qm "regenerate"
+expect 0 "2000 lines in a linguist-generated file do not count" -- bash "$CHECK_SIZE" "$BASE" HEAD
+expect_output "1 generated"
+
+expect 2 "wrong argument count is a usage error" -- bash "$CHECK_SIZE"
 
 # --------------------------------------------------------------- verdict ----
 
