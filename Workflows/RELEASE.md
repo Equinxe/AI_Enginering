@@ -182,8 +182,11 @@ Two consequences to check for, not one:
 How:
 
 1. The `pre-push` hook (`Adapters/git-hooks/pre-push`) blocks direct pushes to `develop`, so the back-merge goes through a Pull Request like any other change.
-2. Open a Pull Request from `main` to `develop`.
-3. Merge the PR once CI passes. The content already went through review on its way into `main`, so no new conflicts are expected.
+2. **Branch from `develop`** (for example `chore/back-merge-main`) and merge `main` into it: `git merge --no-ff origin/main`. Push that branch.
+3. Open the Pull Request from **that branch** to `develop`, not from `main` itself.
+4. Merge it once CI passes. The content already went through review on its way into `main`, so no new conflicts are expected.
+
+**Do not open the Pull Request with `main` as its head.** That is the obvious shape and it cannot work once `develop` requires branches to be up to date. "Up to date" compares the *head* against the *base*: a Pull Request whose head is `main` would have to contain `develop`'s tip to be mergeable, which is the opposite of what a back-merge does and would put unreleased work on `main` outside this workflow. GitHub reports it as `the head branch is not up to date with the base branch`, and no amount of waiting clears it. A branch cut from `develop` that merges `main` contains both tips, so it satisfies the rule while carrying exactly the same history.
 
 In the normal case that Pull Request **changes no files** — it carries only the merge commit from Step 6. That is expected and is not a reason to skip it. The `PR Size` check recognises a range whose commits are all merges and passes it with a notice; a range with no commits at all, or one holding a non-merge commit that changed nothing, still fails. Do not close a zero-file back-merge Pull Request as pointless: the commit it carries is the whole point, and skipping it is what blocks the next release.
 
