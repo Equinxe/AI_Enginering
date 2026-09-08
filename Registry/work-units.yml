@@ -691,3 +691,9 @@ work_units:
     title: Bring the Release Chain example up to the rules it demonstrates
     milestone: Portability
     delivers: Examples/RELEASE_CHAIN_EXAMPLE.md
+
+  - id: WU-IAENG-237
+    employee: Platform Engineer
+    title: Resolve the forge, and make none a real host rather than a failure
+    milestone: Portability
+    delivers: Adapters/scripts/resolve-host.sh, Adapters/scripts/hosts/README.md, Adapters/scripts/hosts/github/ci-conclusion.sh, Adapters/scripts/hosts/github/open-bugs.sh, Adapters/scripts/hosts/github/create-release.sh, Adapters/scripts/hosts/none/ci-conclusion.sh, Adapters/scripts/hosts/none/open-bugs.sh, Adapters/scripts/hosts/none/create-release.sh, Adapters/scripts/hosts/none/fetch-review-comments.sh, Adapters/scripts/release.sh, Adapters/scripts/tests/run.sh
