@@ -721,3 +721,9 @@ work_units:
     title: A /create-project command that points at the Workflow without restating it
     milestone: Portability
     delivers: Adapters/ai-runtimes/claude-code/skills/create-project/SKILL.md, Adapters/ai-runtimes/claude-code/install-skills.sh, Adapters/scripts/install.sh, Adapters/README.md
+
+  - id: WU-IAENG-243
+    employee: Technical Writer
+    title: Give a newcomer a way in, and stop claiming the contribution guide does not exist
+    milestone: Portability
+    delivers: README.md, SECURITY.md, CONTRIBUTING.md, CODE_OF_CONDUCT.md
