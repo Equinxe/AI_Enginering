@@ -709,3 +709,9 @@ work_units:
     title: Stop counting an installed copy twice against the review limit
     milestone: Portability
     delivers: .gitattributes, Adapters/scripts/validate-framework.sh
+
+  - id: WU-IAENG-241
+    employee: Security Engineer
+    title: Consult the Security Engineer during implementation, not only at review
+    milestone: Portability
+    delivers: Workflows/FEATURE_DEVELOPMENT.md

@@ -29,6 +29,7 @@ It governs every engineer involved in feature development and ensures that every
 | QA Engineer | Validates the implementation against acceptance criteria |
 | Technical Lead | Resolves technical blockers, bridges architect and engineers |
 | Compliance Engineer | Consulted when the Work Unit's scope involves regulated or sensitive data (PII, payment data, health data) or a named regulatory framework (GDPR, HIPAA, PCI-DSS, SOC 2, ISO 27001) |
+| Security Engineer | Consulted when the Work Unit's scope involves authentication or authorisation, secrets or credentials, a trust boundary between systems, cryptography, or user-supplied input reaching a query, a filesystem path or a command |
 
 ---
 
@@ -188,7 +189,12 @@ This workflow is complete when:
 | Code review cannot reach agreement after two cycles | Engineering Manager |
 | QA finds a critical defect that requires rework | Engineering Manager + Director notified |
 | Work Unit involves PII, payment data, health data, or a named regulatory framework (GDPR, HIPAA, PCI-DSS, SOC 2, ISO 27001) | Compliance Engineer |
+| Work Unit involves authentication or authorisation, secrets or credentials, a trust boundary, cryptography, or user input reaching a query, path or command | Security Engineer |
 
+
+Both of those trigger a **consultation during implementation**, not a second review. `Workflows/CODE_REVIEW.md` already escalates a security finding to the Security Engineer and a compliance-relevant one to the Compliance Engineer, and that stays true — but a review can only find what the design already committed to. An authentication scheme, where a secret lives, or which side of a trust boundary a component sits on are decided while the Work Unit is being built; by review time the cost of changing them is the cost of rebuilding it. The same reasoning put Compliance Engineer here rather than leaving it to review, and it applies to security without modification.
+
+The two entries are deliberately parallel. `Workflows/CODE_REVIEW.md` treats the two Employees identically, and an asymmetry here would read as a claim that security matters later than compliance does, which nothing in the Standards supports — `Standards/RISK_STANDARD.md` and `Standards/DATA_PROTECTION_STANDARD.md` bind every Employee from the first commit.
 ---
 
 # Related Workflows
@@ -204,7 +210,7 @@ This workflow is complete when:
 
 Owner: IA Engineering
 
-Version: 0.0.4
+Version: 0.0.5
 
 Status: Draft
 
