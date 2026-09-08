@@ -426,8 +426,7 @@ expect 1 "an unresolvable base fails rather than measuring zero" -- bash "$CHECK
 # linguist-generated files are excluded from the count, and the exclusion is
 # declared in a committed file so it is itself reviewable.
 new_repo size-generated
-printf 'built.txt linguist-generated=true
-' > .gitattributes
+printf 'built.txt linguist-generated=true\n' > .gitattributes
 git add -A && git commit -qm "declare the generated file"
 BASE="$(git rev-parse HEAD)"
 i=0; while [ $i -lt 2000 ]; do echo "generated $i" >> built.txt; i=$((i + 1)); done
@@ -523,8 +522,7 @@ expect_output "skipped for author: 1"
 # would let it satisfy an author-filtered check.
 CDIR="$WORK/comments-no-header"
 rm -rf "$CDIR"; mkdir -p "$CDIR"
-printf 'Decision: approved
-' > "$CDIR/1.txt"
+printf 'Decision: approved\n' > "$CDIR/1.txt"
 expect 1 "a file with no author header fails closed" -- bash "$CHECK_REVIEW" "$CDIR"
 expect_output "cannot be attributed"
 
@@ -561,11 +559,9 @@ expect_stack() {
   local got
   got="$(bash "$RESOLVE" "$dir" 2>/dev/null)"
   if [ "$got" = "$want" ]; then
-    [ -n "$VERBOSE" ] && printf '   ok   %s -> %s
-' "$desc" "$got"
+    [ -n "$VERBOSE" ] && printf '   ok   %s -> %s\n' "$desc" "$got"
   else
-    printf '   FAIL %s: expected %s, got %s
-' "$desc" "$want" "$got"
+    printf '   FAIL %s: expected %s, got %s\n' "$desc" "$want" "$got"
     FAILED=$((FAILED + 1))
   fi
 }
@@ -583,22 +579,19 @@ expect_stack generic "no manifest infers generic"      "$(project rs-bare)"
 # The whole reason the declaration exists: a manifest can belong to more than
 # one stack, and only a declaration can say which.
 D="$(project rs-declared package.json)"
-mkdir -p "$D/.ia-engineering"; printf 'generic
-' > "$D/.ia-engineering/stack"
+mkdir -p "$D/.ia-engineering"; printf 'generic\n' > "$D/.ia-engineering/stack"
 expect_stack generic "a declaration beats the manifest it contradicts" "$D"
 
 # Trailing whitespace and a CR from a Windows checkout must not change the
 # answer. The file is written by a script and read on another platform.
 D="$(project rs-crlf)"
-mkdir -p "$D/.ia-engineering"; printf 'go  
-' > "$D/.ia-engineering/stack"
+mkdir -p "$D/.ia-engineering"; printf 'go  \n' > "$D/.ia-engineering/stack"
 expect_stack go "surrounding whitespace and CR are ignored" "$D"
 
 # A typo must not degrade into sniffing: that would build a different stack
 # and report success for one nobody chose.
 D="$(project rs-typo package.json)"
-mkdir -p "$D/.ia-engineering"; printf 'nod
-' > "$D/.ia-engineering/stack"
+mkdir -p "$D/.ia-engineering"; printf 'nod\n' > "$D/.ia-engineering/stack"
 expect 1 "an unknown declared stack fails rather than falling back" -- bash "$RESOLVE" "$D"
 expect_output "is not one of"
 
@@ -614,11 +607,9 @@ D="$(project rs-clean go.mod)"
 TOTAL=$((TOTAL + 1))
 OUT="$(bash "$RESOLVE" "$D" 2>/dev/null)"
 if [ "$OUT" = "go" ]; then
-  [ -n "$VERBOSE" ] && printf '   ok   stdout is the stack alone, explanations on stderr
-'
+  [ -n "$VERBOSE" ] && printf '   ok   stdout is the stack alone, explanations on stderr\n'
 else
-  printf '   FAIL stdout must carry only the stack, got: %s
-' "$OUT"
+  printf '   FAIL stdout must carry only the stack, got: %s\n' "$OUT"
   FAILED=$((FAILED + 1))
 fi
 
@@ -631,8 +622,7 @@ expect_stack dotnet "a .sln infers dotnet"        "$(project rs-sln App.sln)"
 # The declaration is the ONLY way to reach `web`, because nothing in a file
 # name separates a static site from a Node server.
 D="$(project rs-web package.json)"
-mkdir -p "$D/.ia-engineering"; printf 'web
-' > "$D/.ia-engineering/stack"
+mkdir -p "$D/.ia-engineering"; printf 'web\n' > "$D/.ia-engineering/stack"
 expect_stack web "web is reachable by declaration over a package.json" "$D"
 
 # Ambiguity is asked about, not ranked. A Laravel app is the real case.
@@ -648,9 +638,136 @@ expect_output "matches 3 stacks"
 # ...and the declaration is what resolves it, which is the remedy the message
 # offers. If that did not work the advice would be false.
 D="$(project rs-laravel-declared composer.json package.json)"
-mkdir -p "$D/.ia-engineering"; printf 'php
-' > "$D/.ia-engineering/stack"
+mkdir -p "$D/.ia-engineering"; printf 'php\n' > "$D/.ia-engineering/stack"
 expect_stack php "a declaration settles an otherwise ambiguous project" "$D"
+
+# ------------------------------------------------- resolve-host.sh ----------
+
+RESOLVE_HOST="$SCRIPTS/resolve-host.sh"
+
+# host_project <name> [remote-url] — a git repo, optionally with an origin.
+host_project() {
+  local d="$WORK/$1"; shift
+  rm -rf "$d"; mkdir -p "$d"
+  ( cd "$d" && git init -q -b main . && git config user.email t@t && git config user.name T
+    if [ -n "${1:-}" ]; then git remote add origin "$1"; fi ) >/dev/null 2>&1
+  printf '%s' "$d"
+}
+
+expect_host() {
+  local want="$1" desc="$2" dir="$3"
+  TOTAL=$((TOTAL + 1))
+  local got
+  got="$(bash "$RESOLVE_HOST" "$dir" 2>/dev/null)"
+  if [ "$got" = "$want" ]; then
+    [ -n "$VERBOSE" ] && printf '   ok   %s -> %s\n' "$desc" "$got"
+  else
+    printf '   FAIL %s: expected %s, got %s\n' "$desc" "$want" "$got"
+    FAILED=$((FAILED + 1))
+  fi
+}
+
+section "resolve-host.sh"
+
+expect_host github "an https github.com remote detects github"   "$(host_project rh-https https://github.com/acme/thing.git)"
+expect_host github "an ssh github.com remote detects github"   "$(host_project rh-ssh git@github.com:acme/thing.git)"
+
+# `none` is a real answer, not a failure: no remote at all is a bare or local
+# project, and the host-dependent steps must say what to do by hand.
+expect_host none "no origin remote resolves to none" "$(host_project rh-noremote)"
+
+# A SELF-HOSTED DOMAIN IS NOT GUESSED. github.example.com may be a GitHub
+# Enterprise server or a GitLab named unhelpfully, and calling the wrong API
+# against a real server is worse than saying nothing.
+expect_host none "a self-hosted domain is not guessed from its name"   "$(host_project rh-selfhosted https://github.example.com/acme/thing.git)"
+expect_host none "an unrecognised forge resolves to none"   "$(host_project rh-other https://git.acme.internal/acme/thing.git)"
+
+# ...and a declaration is how such a project says which forge it really is.
+D="$(host_project rh-declared https://git.acme.internal/acme/thing.git)"
+mkdir -p "$D/.ia-engineering"; printf 'github\n' > "$D/.ia-engineering/host"
+expect_host github "a declaration names a self-hosted forge detection cannot" "$D"
+
+# A declaration also overrides a detection that would have been right, which
+# is what lets a GitHub-hosted project opt out of the API entirely.
+D="$(host_project rh-optout https://github.com/acme/thing.git)"
+mkdir -p "$D/.ia-engineering"; printf 'none\n' > "$D/.ia-engineering/host"
+expect_host none "a declaration of none overrides successful detection" "$D"
+
+D="$(host_project rh-crlf https://git.acme.internal/x.git)"
+mkdir -p "$D/.ia-engineering"; printf 'github  \n' > "$D/.ia-engineering/host"
+expect_host github "surrounding whitespace and CR are ignored" "$D"
+
+D="$(host_project rh-typo https://github.com/acme/thing.git)"
+mkdir -p "$D/.ia-engineering"; printf 'gitlab\n' > "$D/.ia-engineering/host"
+expect 1 "an unknown declared host fails rather than falling back to detection" -- bash "$RESOLVE_HOST" "$D"
+expect_output "is not one of"
+
+D="$(host_project rh-emptydecl https://github.com/acme/thing.git)"
+mkdir -p "$D/.ia-engineering"; : > "$D/.ia-engineering/host"
+expect 1 "an empty declaration is not a declaration" -- bash "$RESOLVE_HOST" "$D"
+expect_output "empty"
+
+expect 1 "a missing project directory fails" -- bash "$RESOLVE_HOST" "$WORK/rh-nowhere"
+
+# ------------------------------------------------- hosts/none/ -------------
+
+# The `none` host is the whole reason the seam is more than indirection: it is
+# what an unsupported forge gets, and it is fully testable here. Every case
+# below asserts that it refuses to pretend.
+
+NONE="$SCRIPTS/hosts/none"
+
+section "hosts/none/"
+
+expect 1 "ci-conclusion refuses rather than reporting a green it cannot see" -- bash "$NONE/ci-conclusion.sh" develop
+expect_output "cannot read a CI conclusion"
+expect_output "Confirm by hand"
+
+# Exit 3, not 0. Exiting 0 with nothing on stdout made release.sh report "no
+# open issues labelled bug" — an absence nobody established. Not 1 either:
+# Step 1 condition 3 is reported and not failed, and failing would add a gate
+# the workflow never had.
+expect 3 "open-bugs reports it could not look, without blocking and without lying" -- bash "$NONE/open-bugs.sh"
+expect_output "cannot list open defects"
+
+expect 1 "create-release refuses: a tag with no notes is an incomplete release" -- bash "$NONE/create-release.sh" v9.9.9 "v9.9.9 — Demo" /tmp/notes.md
+expect_output "Step 7 is NOT complete"
+expect_output "/tmp/notes.md"
+
+# Exit 3 again, and it must leave the directory behind: check-review-recorded
+# treats an ABSENT directory as a broken pipeline and an EMPTY one as "read,
+# nothing there". Only the second is true here.
+D="$WORK/none-comments"
+rm -rf "$D"
+expect 3 "fetch-review-comments reports partial rather than empty" -- bash "$NONE/fetch-review-comments.sh" acme/thing 1 "$D"
+TOTAL=$((TOTAL + 1))
+if [ -d "$D" ]; then
+  [ -n "$VERBOSE" ] && printf '   ok   it leaves the directory behind, empty\n'
+else
+  printf '   FAIL the comments directory must exist and be empty, not absent\n'
+  FAILED=$((FAILED + 1))
+fi
+
+# ...and the caller reads that correctly: an empty directory plus
+# --fetch-incomplete is "nothing established", never "no decision recorded".
+expect 1 "an empty corpus with --fetch-incomplete establishes nothing" -- bash "$SCRIPTS/check-review-recorded.sh" "$D" --fetch-incomplete
+expect_output "NOT the same as an unreviewed change set"
+
+# Every host implements every operation. A missing file is a silently skipped
+# control, so the set is compared rather than assumed.
+section "hosts/ — every host implements every operation"
+
+for op in ci-conclusion open-bugs create-release fetch-review-comments; do
+  for h in github none; do
+    TOTAL=$((TOTAL + 1))
+    if [ -x "$SCRIPTS/hosts/$h/$op.sh" ]; then
+      [ -n "$VERBOSE" ] && printf '   ok   hosts/%s/%s.sh present and executable\n' "$h" "$op"
+    else
+      printf '   FAIL hosts/%s/%s.sh is missing or not executable\n' "$h" "$op"
+      FAILED=$((FAILED + 1))
+    fi
+  done
+done
 
 # ------------------------------------------- setup-project-bootstrap.sh -----
 
@@ -663,24 +780,19 @@ D="$(project bs-dry)"
 TOTAL=$((TOTAL + 1))
 OUT="$(cd "$D" && bash "$SCRIPTS/setup-project-bootstrap.sh" go --dry-run 2>&1)"
 if printf '%s' "$OUT" | grep -qF -- "[dry-run] write .ia-engineering/stack containing 'go'"; then
-  [ -n "$VERBOSE" ] && printf '   ok   the bootstrap says it will record the stack
-'
+  [ -n "$VERBOSE" ] && printf '   ok   the bootstrap says it will record the stack\n'
 else
-  printf '   FAIL the bootstrap did not announce writing the stack declaration
-'
-  printf '%s
-' "$OUT" | sed 's/^/        | /'
+  printf '   FAIL the bootstrap did not announce writing the stack declaration\n'
+  printf '%s\n' "$OUT" | sed 's/^/        | /'
   FAILED=$((FAILED + 1))
 fi
 
 TOTAL=$((TOTAL + 1))
 if [ -f "$D/.ia-engineering/stack" ]; then
-  printf '   FAIL --dry-run wrote the declaration; a dry run must change nothing
-'
+  printf '   FAIL --dry-run wrote the declaration; a dry run must change nothing\n'
   FAILED=$((FAILED + 1))
 else
-  [ -n "$VERBOSE" ] && printf '   ok   --dry-run wrote nothing
-'
+  [ -n "$VERBOSE" ] && printf '   ok   --dry-run wrote nothing\n'
 fi
 
 # --------------------------------------------------------------- verdict ----
