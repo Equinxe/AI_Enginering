@@ -1360,8 +1360,88 @@ else
   fi
 fi
 
+section "16. Every shipped CHANGELOG version has a tag"
+
+# ==========================================================================
+# THIS SECTION EXISTS BECAUSE ITS ABSENCE COST TWO RELEASES.
+#
+# v0.0.11 — Governance merged to main on 24 July 2026 and was never tagged. It
+# had a CHANGELOG section, VERSION.md announced it for six weeks, and no tag or
+# GitHub Release existed. v0.0.9.1 has the same gap. The version that shipped
+# untagged is the one whose own milestone delivered the rule requiring a full
+# GitHub Release (WU-IAENG-131).
+#
+# Nothing checked it. This script passed 156 checks across 15 sections and
+# never compared a CHANGELOG heading against a tag; release.sh only looks at
+# the version being released. Governance/CONTRIBUTING.md Section 7: the second
+# instance of a class names the class and writes the rule, and a rule that can
+# be checked mechanically becomes a control. This is that control.
+#
+# THE VERSION BEING PREPARED IS EXEMPT, and it is a named allow-list of exactly
+# one version rather than "skip the newest heading". Workflows/RELEASE.md Step 2
+# writes the CHANGELOG section in the bump commit and Step 7 creates the tag
+# afterwards, so between those two steps the current version legitimately has a
+# section and no tag. Skipping "the newest" instead would also skip a genuinely
+# forgotten tag the moment anything landed after it.
+
+CHANGELOG_FILE="CHANGELOG.md"
+if [ ! -f "$CHANGELOG_FILE" ]; then
+  fail "$CHANGELOG_FILE is missing" "Every released version's notes are built from it (Workflows/RELEASE.md Step 7). Its absence cannot be a pass."
+elif ! git rev-parse --git-dir >/dev/null 2>&1; then
+  fail "not a git repository, so no tag could be read" "This section compares CHANGELOG versions against tags. Outside a repository it can establish nothing, which is a failure and not a pass."
+else
+  changelog_versions="$(grep -oE '^## \[[0-9][0-9.]*\]' "$CHANGELOG_FILE" | tr -d '#[] ' | tr -d '\015')"
+  changelog_count="$(printf '%s\n' "$changelog_versions" | grep -c . || true)"
+  tag_count="$(git tag | grep -c . || true)"
+
+  if [ "$changelog_count" -eq 0 ]; then
+    fail "$CHANGELOG_FILE yielded no version headings" "The extraction reads '## [x.y.z]'. Zero means the file was restructured and this check now reads nothing — reported rather than passed."
+  elif [ "$tag_count" -eq 0 ]; then
+    # Universal failure would be a fact about the checkout, not the repository
+    # — TROUBLESHOOTING entry T. Named as such instead of reported per version.
+    fail "no tags are present in this checkout, so $changelog_count CHANGELOG version(s) could not be compared" "A shallow clone carries no tags. Fetch them (actions/checkout with fetch-depth: 0, or 'git fetch --tags') and run again. Reporting every version untagged here would describe the clone and not the repository."
+  else
+    # VERSION.md's current version is the one exemption, resolved once.
+    preparing=""
+    if [ -f VERSION.md ]; then
+      preparing="$(grep -oE '^\*\*v[0-9][0-9.]*\*\*' VERSION.md | head -1 | tr -d '*v' | tr -d '\015')"
+    fi
+
+    # THE TAG IS LOOKED FOR FIRST, and the exemption applies only when it is
+    # genuinely absent. Exempting the current version outright would also
+    # excuse a tag that once existed and was deleted, and would make the pass
+    # message claim an exemption was needed when it was not.
+    untagged=""
+    exempted=""
+    checked=0
+    for v in $changelog_versions; do
+      [ -n "$v" ] || continue
+      checked=$((checked + 1))
+      if git rev-parse -q --verify "refs/tags/v$v" >/dev/null 2>&1; then
+        continue
+      fi
+      if [ -n "$preparing" ] && [ "$v" = "$preparing" ]; then
+        exempted="$v"
+        continue
+      fi
+      untagged="$untagged v$v"
+    done
+
+    if [ -n "$untagged" ]; then
+      fail "CHANGELOG versions with no tag:$untagged" "Workflows/RELEASE.md Step 7 tags the release and builds its GitHub Release from this section. A version with notes and no tag shipped without completing Step 7 — which is how v0.0.11 and v0.0.9.1 went untagged. Tag it at the commit that merged it to main, or remove the section if it never shipped."
+    else
+      if [ -n "$exempted" ]; then
+        pass "$checked CHANGELOG version(s): all tagged except v$exempted, which VERSION.md says is being prepared — Step 2 writes the section, Step 7 creates the tag"
+      else
+        pass "all $checked CHANGELOG version(s) have a tag"
+      fi
+    fi
+  fi
+fi
+
 # ==========================================================================
 printf '\n== Result\n'
+
 if [ "$FAILURES" -eq 0 ]; then
   printf '   %s checks passed.\n' "$CHECKS"
   exit 0

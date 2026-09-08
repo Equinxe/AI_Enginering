@@ -667,3 +667,9 @@ work_units:
     title: Turn off automatic head-branch deletion, which the ruleset rule never stopped
     milestone: Portability
     delivers: Adapters/scripts/setup-branch-protection.sh, Adapters/README.md
+
+  - id: WU-IAENG-233
+    employee: Release Manager
+    title: Check that every shipped CHANGELOG version has a tag
+    milestone: Portability
+    delivers: Adapters/scripts/validate-framework.sh, .github/workflows/framework-validation.yml, Adapters/github-actions/framework-validation.yml
