@@ -49,12 +49,26 @@
 
 set -euo pipefail
 
-REPO="${1:-}"
-if [ -z "$REPO" ]; then
-  REPO="$(gh repo view --json nameWithOwner -q .nameWithOwner)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# THIS SCRIPT IS THE GITHUB IMPLEMENTATION, and now establishes that before it
+# acts. The host is resolved here; what to do about a different one is decided
+# after REQUIRED_CHECKS is defined, because the checklist enumerates it.
+if [ -x "$SCRIPT_DIR/resolve-host.sh" ]; then
+  HOST="$(bash "$SCRIPT_DIR/resolve-host.sh" . 2>/dev/null || echo unknown)"
+else
+  HOST=github
+  echo "resolve-host.sh not found beside this script; assuming github." >&2
 fi
 
-echo "Configuring branch protection on $REPO for: main, develop, release/*"
+REPO=""
+if [ "$HOST" = "github" ]; then
+  REPO="${1:-}"
+  if [ -z "$REPO" ]; then
+    REPO="$(gh repo view --json nameWithOwner -q .nameWithOwner)"
+  fi
+fi
+
 
 # The blocking checks every protected branch requires, kept in one place so
 # main, develop, and the release/* ruleset cannot drift apart.
@@ -93,6 +107,45 @@ REQUIRED_CHECKS=(
   "Framework Validation"
   "Data Policy"
 )
+
+# Branch protection is the FIFTH forge-dependent operation, alongside the four
+# in Adapters/scripts/hosts/. It is not under hosts/ yet, and that is a
+# deliberate stop rather than an oversight: moving two hundred lines of GitHub
+# API calls into a directory shaped for a second forge, with no second forge to
+# verify the shape against, is motion that cannot be checked. It gets its fifth
+# operation when there is an instance to prove it on.
+#
+# What changes now is the FAILURE. Run on another forge, this used to call the
+# GitHub API against it and fail with whatever that API said. It recognises the
+# host first now and prints what a human must configure by hand — the same
+# bargain the `none` implementations make, because an adopter off GitHub
+# deserves a checklist rather than an authentication error.
+if [ "$HOST" != "github" ]; then
+  echo "host '$HOST': this script configures GitHub branch protection and cannot" >&2
+  echo "configure yours. Nothing was changed." >&2
+  echo >&2
+  echo "Configure the equivalent by hand on main, develop and release/*:" >&2
+  echo >&2
+  echo "  - require these status checks to pass before merging:" >&2
+  for c in "${REQUIRED_CHECKS[@]}"; do
+    echo "      $c" >&2
+  done
+  echo "  - require the branch to be up to date with its base before merging" >&2
+  echo "  - refuse force-pushes" >&2
+  echo "  - refuse branch deletion" >&2
+  echo "  - require a pull request for every change" >&2
+  echo "  - turn OFF automatic head-branch deletion on merge, if your forge has" >&2
+  echo "    it. On GitHub that setting bypasses the deletion rule entirely, and" >&2
+  echo "    Workflows/RELEASE.md Step 10 is unconditional: release branches are" >&2
+  echo "    never deleted." >&2
+  echo >&2
+  echo "'Review Recorded (advisory)' is deliberately NOT in that list: it matches" >&2
+  echo "comment text, which can be satisfied by pasting the block, so requiring it" >&2
+  echo "would buy false confidence." >&2
+  exit 1
+fi
+
+echo "Configuring branch protection on $REPO for: main, develop, release/*"
 
 # The two GitHub APIs used below want the same list in different shapes:
 # classic branch protection takes a bare array of context strings, while the

@@ -697,3 +697,9 @@ work_units:
     title: Resolve the forge, and make none a real host rather than a failure
     milestone: Portability
     delivers: Adapters/scripts/resolve-host.sh, Adapters/scripts/hosts/README.md, Adapters/scripts/hosts/github/ci-conclusion.sh, Adapters/scripts/hosts/github/open-bugs.sh, Adapters/scripts/hosts/github/create-release.sh, Adapters/scripts/hosts/none/ci-conclusion.sh, Adapters/scripts/hosts/none/open-bugs.sh, Adapters/scripts/hosts/none/create-release.sh, Adapters/scripts/hosts/none/fetch-review-comments.sh, Adapters/scripts/release.sh, Adapters/scripts/tests/run.sh
+
+  - id: WU-IAENG-239
+    employee: Platform Engineer
+    title: Refuse branch protection on a forge it cannot configure, with the checklist
+    milestone: Portability
+    delivers: Adapters/scripts/setup-branch-protection.sh
