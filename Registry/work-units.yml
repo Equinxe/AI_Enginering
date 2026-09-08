@@ -565,3 +565,9 @@ work_units:
     title: Scan tracked files for cross-references, so a local scratch note cannot fail the validator
     milestone: Convergence
     delivers: Adapters/scripts/validate-framework.sh, .gitignore
+
+  - id: WU-IAENG-216
+    employee: Release Manager
+    title: Let one version carry several milestones, since v0.0.12 carries two
+    milestone: Automation
+    delivers: Adapters/scripts/release.sh
