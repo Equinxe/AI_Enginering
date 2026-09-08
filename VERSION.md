@@ -2,11 +2,11 @@
 
 Current Version
 
-**v0.0.11**
+**v0.0.12**
 
 Codename
 
-**Governance**
+**Automation & Convergence**
 
 Status
 
@@ -198,6 +198,36 @@ Corrections and hardening to already-shipped milestones (v0.0.9 Adapters, v0.0.1
 - [x] `Core/MAIN_AGENT_CONDUCT.md` — "Durable Tracking of Findings" conduct rule: gaps, tech debt, and deferred decisions discovered mid-work are filed as GitHub Issues so they survive beyond one session's private memory (WU-IAENG-130)
 - [x] `Workflows/RELEASE.md` Step 7 — a bare annotated tag with a one-line `-m` message is no longer sufficient on its own; a full GitHub Release derived from the version's `CHANGELOG.md` entry is now required, closing the gap that had to be fixed after the fact for both v0.0.10 and v0.0.10.1 (WU-IAENG-131)
 
+### Automation (v0.0.12)
+
+The point at which the framework began checking itself. Before it, every rule held because a human or an AI remembered it:
+
+- [x] `Registry/` — the machine-readable form of the roster, chains, workflows, and Work Units, derived and never authoritative (WU-IAENG-137, WU-IAENG-145, WU-IAENG-146)
+- [x] `Adapters/scripts/validate-framework.sh` — the cross-reference check `Governance/CONTRIBUTING.md` and `Governance/DEPRECATION_POLICY.md` both require as a Definition of Done item, executed rather than remembered (WU-IAENG-139)
+- [x] `Adapters/scripts/install.sh` — every host-agnostic Adapter installed by one idempotent command, hooks wired through `core.hooksPath`, with a verification step that proves the installed hook rejects an invalid trailer (WU-IAENG-141)
+- [x] `Adapters/scripts/release.sh` — Step 1 readiness and Step 7 tag-plus-GitHub-Release, mechanised; it never approves and never merges (WU-IAENG-147, WU-IAENG-216)
+- [x] `Adapters/ai-runtimes/generate-agents.sh` — the 42 Employee definitions turned into dispatchable agents, execution capability derived from each Employee's Default Complexity Tier (WU-IAENG-148)
+- [x] `Adapters/github-actions/framework-validation.yml` — framework validation as a blocking check, on pull requests and on pushes to `main` and `develop` (WU-IAENG-143)
+- [x] `Adapters/README.md` — The Check Convention, written down because this milestone found sixteen checks that reported success without evaluating anything, four of them introduced by fixing earlier instances (WU-IAENG-153, WU-IAENG-169)
+- [x] `Standards/COMMIT_STANDARD.md` — the trailer layout documented as measured rather than as assumed (WU-IAENG-165, WU-IAENG-166, WU-IAENG-168)
+- [x] `Governance/VERSIONING_POLICY.md` — one version may carry more than one milestone; the counter is what increments once per milestone, not the release (WU-IAENG-217)
+
+### Convergence (v0.0.12)
+
+The governance concepts of two sibling frameworks, absorbed as concepts rather than merged as code, with nothing organisation-specific or stack-specific carried over:
+
+- [x] `Standards/RISK_STANDARD.md` — one shared 3×3 scale, a required behaviour per tier, and the one-line `RISK:` record (WU-IAENG-172)
+- [x] `Standards/DATA_PROTECTION_STANDARD.md` — real data, secrets, and operational state kept out of version control structurally rather than by convention (WU-IAENG-173)
+- [x] `Workflows/AUTONOMOUS_DELIVERY.md` — the tenth Workflow: several Main Agent sessions in parallel under one conductor, with four rules that keep federation from weakening any control (WU-IAENG-185)
+- [x] `Templates/WORK_UNIT_REPORT.md`, `Templates/SESSION_STATE.md`, `Templates/DOMAIN_EMPLOYEE.md`, `Templates/POLE_BRIEF.md`, `Templates/PROJECT_CLAUDE.md` — the report contract, the three-memory model, project-owned Employees, the unit of dispatch to a pole, and the project contract Onboarding had always assumed existed (WU-IAENG-174, WU-IAENG-175, WU-IAENG-176, WU-IAENG-185, WU-IAENG-189, WU-IAENG-193)
+- [x] `Governance/TROUBLESHOOTING.md` — an incident catalog of 23 classes as symptom → cause → remedy → prevention; an entry without a Prevention is returned in review (WU-IAENG-183, WU-IAENG-200, WU-IAENG-203)
+- [x] `Governance/CONTRIBUTING.md` Section 7 — the learning loop that feeds that catalog (WU-IAENG-183)
+- [x] `Adapters/ai-runtimes/claude-code/hooks/` — five runtime hooks that refuse before rather than rejecting after, all failing closed, none with a disabling switch (WU-IAENG-179)
+- [x] `Adapters/ai-runtimes/claude-code/hooks/tests/` — the repository's first behaviour suite, run by a required **Hook Tests** CI job (WU-IAENG-195, WU-IAENG-206)
+- [x] `Core/GLOSSARY.md` — 17 → 28 terms, including three long missing: Main Agent, Gate, Registry (WU-IAENG-191)
+- [x] `Standards/PULL_REQUEST_STANDARD.md`, `Standards/GIT_STANDARD.md`, `Standards/CODE_QUALITY_STANDARD.md` — the review limit with a label-based Director override, the canonical escape-hatch table, and No Inline Suppression (WU-IAENG-177, WU-IAENG-178, WU-IAENG-201)
+- [x] `Adapters/scripts/setup-branch-protection.sh` — nine required status checks on `main`, `develop`, and `release/*` (WU-IAENG-173, WU-IAENG-177, WU-IAENG-195)
+
 ---
 
 ## Versioning Policy
@@ -211,9 +241,12 @@ The full, authoritative versioning policy — segment semantics, the `.FIX` vs. 
 ## Planned
 
 - TBD — no milestone is currently scoped. Several open issues exist as individual maintenance/tech-debt items (e.g. #61–#66, #69, #71), but none alone constitutes the next milestone.
+- The first adoption on a real project outside this repository is the next thing that will decide scope. Everything shipped through v0.0.12 has been proven on the framework itself; `Governance/TROUBLESHOOTING.md` exists for what that first project finds.
 
 ---
 
 ## Next Milestone
 
-TBD — not yet scoped (see `Planned` above)
+TBD — not yet scoped (see `Planned` above).
+
+v0.0.12 carries two milestones under one number: Automation and Convergence both completed on `develop` before either shipped, so both are named in the `CHANGELOG.md` heading and both are listed under Completed above. A number is not reserved for a milestone that never had a release of its own, so nothing was skipped and the next milestone takes **0.0.13**. `Governance/VERSIONING_POLICY.md` records why they shipped together, and why that is not the naming shortcut the same document forbids.

@@ -71,7 +71,7 @@ Current Version
 
 ```
 
-v0.0.11 - Governance
+v0.0.12 - Automation & Convergence
 
 ```
 

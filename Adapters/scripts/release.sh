@@ -87,6 +87,48 @@ changelog_section() {
   ' CHANGELOG.md
 }
 
+# True when CHANGELOG.md already has a section naming this milestone.
+#
+# The codename field of a heading is a LIST, not a single name:
+#
+#   ## [0.0.11] - Governance
+#   ## [0.0.12] - Automation & Convergence
+#
+# The second form exists because two milestones can both finish before either
+# ships. Governance/VERSIONING_POLICY.md allows one version to carry several
+# rather than inventing a number for a release that never happened, so a
+# milestone is released when it is named ANYWHERE in the list — not only when
+# it is the whole field. The earlier version compared the whole field, which
+# would have reported both halves of v0.0.12 as unreleased forever, on every
+# subsequent release: a permanently-red condition 1, which is the failure mode
+# the comment above this function's caller exists to describe.
+#
+# Splitting in awk rather than building a grep pattern from the name is
+# deliberate. A milestone name is free text from the registry, and a name
+# containing a regex metacharacter would otherwise decide its own match.
+#
+# The whole field is compared BEFORE it is split, and that order is load
+# bearing: v0.0.10.1 shipped as "Consistency & Compliance Hardening", a single
+# milestone whose own name contains " & ". Splitting alone turns it into two
+# names that match nothing, so a released milestone reads as unreleased. The
+# first draft of this function did exactly that, and the falsifier caught it —
+# the separator is ambiguous, so the unsplit reading has to be tried first.
+milestone_released() {
+  awk -v want="$1" '
+    /^## \[[0-9.]+\] - / {
+      names = $0
+      sub(/^## \[[0-9.]+\] - /, "", names)
+      gsub(/\015/, "", names)
+      if (names == want) { found = 1; exit }
+      n = split(names, parts, / & /)
+      for (i = 1; i <= n; i++) {
+        if (parts[i] == want) { found = 1; exit }
+      }
+    }
+    END { exit found ? 0 : 1 }
+  ' CHANGELOG.md
+}
+
 # ---------------------------------------------------------------- check ----
 
 cmd_check() {
@@ -203,7 +245,7 @@ cmd_check() {
     unreleased="$(awk '/^    milestone: / { m = $0; sub(/^    milestone: /, "", m); gsub(/\015/, "", m); print m }' \
       Registry/work-units.yml | sort -u | while IFS= read -r m; do
         [ -n "$m" ] || continue
-        grep -qE "^## \[[0-9.]+\] - $m\$" CHANGELOG.md || printf '%s\n' "$m"
+        milestone_released "$m" || printf '%s\n' "$m"
       done)"
     n_unreleased="$(printf '%s\n' "$unreleased" | grep -c . || true)"
 
