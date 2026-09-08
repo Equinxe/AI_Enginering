@@ -577,3 +577,9 @@ work_units:
     title: State that one version may carry several milestones, and why v0.0.12 does
     milestone: Automation
     delivers: Governance/VERSIONING_POLICY.md
+
+  - id: WU-IAENG-218
+    employee: Release Manager
+    title: A version number identifies a release, not a milestone
+    milestone: Automation
+    delivers: Governance/VERSIONING_POLICY.md

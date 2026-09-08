@@ -38,7 +38,9 @@ A milestone represents a coherent, named body of new capability delivered togeth
 
 ### One version may carry more than one milestone
 
-"Once per completed milestone" governs the **counter**, not the **release**. A version number is consumed by each milestone that completes; it is not required that each milestone reach `main` in a release of its own.
+A version number identifies a **release**, not a milestone. "Once per completed milestone" sets the cadence at which new capability earns a new number — it does not reserve a number in advance for each milestone, and it does not require that every milestone reach `main` in a release of its own.
+
+When several milestones ship in the same release they share that release's number. No number is skipped, because no number was ever reserved: after v0.0.12 — Automation & Convergence, the next milestone takes 0.0.13.
 
 When two milestones both complete before either has shipped, they are released together under a single version number, and that version's `CHANGELOG.md` heading names both:
 
