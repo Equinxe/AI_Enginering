@@ -60,6 +60,12 @@ jobs:
           # A consumer project imports the framework as a submodule; the
           # validator and the Registry it reads live inside it.
           submodules: recursive
+          # Full history AND tags. Section 16 compares every CHANGELOG version
+          # against the tag that should exist for it, and the default shallow
+          # checkout carries no tags at all — the comparison would then have
+          # nothing to compare and the check would report a fact about the
+          # clone rather than about the repository.
+          fetch-depth: 0
 
       - name: Locate the framework
         id: locate
