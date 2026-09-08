@@ -622,6 +622,36 @@ else
   FAILED=$((FAILED + 1))
 fi
 
+# --- the three stacks added in WU-IAENG-231 ---
+
+expect_stack php    "composer.json infers php"    "$(project rs-php composer.json)"
+expect_stack dotnet "a .csproj infers dotnet"     "$(project rs-cs App.csproj)"
+expect_stack dotnet "a .sln infers dotnet"        "$(project rs-sln App.sln)"
+
+# The declaration is the ONLY way to reach `web`, because nothing in a file
+# name separates a static site from a Node server.
+D="$(project rs-web package.json)"
+mkdir -p "$D/.ia-engineering"; printf 'web
+' > "$D/.ia-engineering/stack"
+expect_stack web "web is reachable by declaration over a package.json" "$D"
+
+# Ambiguity is asked about, not ranked. A Laravel app is the real case.
+D="$(project rs-laravel composer.json package.json)"
+expect 1 "two matching manifests fail rather than picking one" -- bash "$RESOLVE" "$D"
+expect_output "matches 2 stacks"
+expect_output "composer.json and package.json"
+
+D="$(project rs-three composer.json package.json go.mod)"
+expect 1 "three matching manifests fail and name all three" -- bash "$RESOLVE" "$D"
+expect_output "matches 3 stacks"
+
+# ...and the declaration is what resolves it, which is the remedy the message
+# offers. If that did not work the advice would be false.
+D="$(project rs-laravel-declared composer.json package.json)"
+mkdir -p "$D/.ia-engineering"; printf 'php
+' > "$D/.ia-engineering/stack"
+expect_stack php "a declaration settles an otherwise ambiguous project" "$D"
+
 # ------------------------------------------- setup-project-bootstrap.sh -----
 
 section "setup-project-bootstrap.sh — the stack it records"

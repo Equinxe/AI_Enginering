@@ -655,3 +655,9 @@ work_units:
     title: Record the chosen stack instead of guessing it later
     milestone: Portability
     delivers: Adapters/scripts/resolve-stack.sh, Adapters/scripts/setup-project-bootstrap.sh, Adapters/github-actions/ci-build-test.yml, Adapters/scripts/tests/run.sh
+
+  - id: WU-IAENG-231
+    employee: Platform Engineer
+    title: Add the web, .NET and PHP stacks, and report an ambiguous project instead of ranking it
+    milestone: Portability
+    delivers: Adapters/dockerfiles/web.Dockerfile, Adapters/dockerfiles/dotnet.Dockerfile, Adapters/dockerfiles/php.Dockerfile, Adapters/scripts/resolve-stack.sh, Adapters/scripts/setup-project-bootstrap.sh, Adapters/github-actions/ci-build-test.yml, Adapters/scripts/tests/run.sh, Adapters/README.md, Workflows/PROJECT_BOOTSTRAP.md

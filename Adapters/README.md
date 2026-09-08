@@ -63,7 +63,7 @@ Run from the root of a project that has imported IA Engineering as a Git submodu
 ./ia-engineering/Adapters/scripts/setup-branch-protection.sh
 
 # Stack CI + container publishing, once Workflows/PROJECT_BOOTSTRAP.md Phase B
-# has decided the stack (node | python | go | jvm | generic)
+# has decided the stack (node | web | python | go | jvm | dotnet | php | generic)
 ./ia-engineering/Adapters/scripts/setup-project-bootstrap.sh node
 ```
 

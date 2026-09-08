@@ -41,11 +41,17 @@
 #
 # Usage:
 #   ./setup-project-bootstrap.sh <stack> [--dry-run] [--force]
-#     where <stack> is one of: node | python | go | jvm | generic
+#     where <stack> is one of: node | web | python | go | jvm | dotnet | php | generic
+#
+#     `web` is a static front end (React, Vue, Svelte, Astro, a site
+#     generator): it builds with Node and ships files behind a web
+#     server, with no Node in the runtime image. It is the one stack that
+#     cannot be inferred, because a site and a server both have
+#     package.json — which is why the chosen stack is recorded.
 
 set -euo pipefail
 
-VALID_STACKS="node python go jvm generic"
+VALID_STACKS="node web python go jvm dotnet php generic"
 
 STACK=""
 PASSTHROUGH=()
@@ -82,7 +88,7 @@ case " $VALID_STACKS " in
   *)
     echo "Error: unknown stack '$STACK'. Expected one of: $VALID_STACKS" >&2
     echo "  Workflows/PROJECT_BOOTSTRAP.md's Escalation table covers this case:" >&2
-    echo "  a stack outside Node, Python, Go, and JVM uses the Generic fallback" >&2
+    echo "  a stack outside the list above uses the Generic fallback" >&2
     echo "  template as a starting point, with any gaps documented." >&2
     exit 1
     ;;

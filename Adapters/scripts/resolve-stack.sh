@@ -39,7 +39,7 @@
 
 set -uo pipefail
 
-KNOWN_STACKS="node python go jvm generic"
+KNOWN_STACKS="node web python go jvm dotnet php generic"
 
 ROOT="${1:-.}"
 if [ ! -d "$ROOT" ]; then
@@ -73,15 +73,75 @@ if [ -f "$DECLARATION" ]; then
   esac
 fi
 
-# No declaration: infer. First match wins, and the order is the precedence.
-# This keeps a project that predates the declaration building exactly as before.
-if   [ -f "$ROOT/package.json" ];                                            then stack=node
-elif [ -f "$ROOT/pyproject.toml" ] || [ -f "$ROOT/requirements.txt" ];       then stack=python
-elif [ -f "$ROOT/go.mod" ];                                                  then stack=go
-elif [ -f "$ROOT/pom.xml" ] || [ -f "$ROOT/build.gradle" ] || [ -f "$ROOT/build.gradle.kts" ]; then stack=jvm
-else stack=generic
-fi
+# No declaration: infer from manifests.
+#
+# AMBIGUITY IS REPORTED, NOT RANKED. The first version took the first match in
+# a fixed order, which quietly answered a question it could not settle: a
+# Laravel application has composer.json AND package.json, and a Python service
+# with a JavaScript front end has both of those too. First-match-wins picks one
+# and builds it, and the project is never told the other was equally true.
+#
+# So every match is collected. Exactly one is an answer. More than one is a
+# question only the project can answer, and it is asked rather than guessed —
+# the same rule release.sh applies when two milestones have no CHANGELOG
+# section. The remedy is one line in one file, and the message gives it.
+#
+# `web` is deliberately absent here and cannot be inferred at all. A React site
+# and a Node server both have package.json, and nothing in the file names
+# separates a bundle of static files from a running server. It exists only as
+# a declaration, which is what made the stack possible to add.
+# A count and a first-match, rather than a list that has to be split back into
+# words later. Splitting would need `set -- $MATCHES` unquoted, which is
+# correct here but reads as a bug and would need a shellcheck directive to say
+# otherwise — Standards/CODE_QUALITY_STANDARD.md asks for the restructure
+# instead, and the restructure is also simpler.
+MATCH_COUNT=0
+MATCH_LIST=""
+FIRST_MATCH=""
+add_match() {
+  MATCH_COUNT=$((MATCH_COUNT + 1))
+  [ -n "$FIRST_MATCH" ] || FIRST_MATCH="$1"
+  MATCH_LIST="${MATCH_LIST:+$MATCH_LIST, }$1"
+}
 
-echo "No $DECLARATION; inferred from manifests: $stack" >&2
+[ -f "$ROOT/package.json" ]  && add_match node
+[ -f "$ROOT/composer.json" ] && add_match php
+[ -f "$ROOT/go.mod" ]        && add_match go
+{ [ -f "$ROOT/pyproject.toml" ] || [ -f "$ROOT/requirements.txt" ]; } && add_match python
+{ [ -f "$ROOT/pom.xml" ] || [ -f "$ROOT/build.gradle" ] || [ -f "$ROOT/build.gradle.kts" ]; } && add_match jvm
+# A .NET project is named after itself, so these are globs and not fixed names.
+#
+# Tested one expansion at a time rather than with `ls glob glob glob`, which
+# exits non-zero as soon as ANY operand is missing — so a project with a
+# .csproj and no .sln reported no match at all, and .NET was undetectable. The
+# suite caught it; the failure was silent and would not have shown up until a
+# real .NET project built as `generic`.
+#
+# An unmatched glob stays literal in POSIX shells, so `[ -e ]` on it is false,
+# which is exactly the test wanted here.
+any_exists() {
+  local candidate
+  for candidate in "$@"; do
+    [ -e "$candidate" ] && return 0
+  done
+  return 1
+}
+if any_exists "$ROOT"/*.csproj "$ROOT"/*.fsproj "$ROOT"/*.sln; then add_match dotnet; fi
+
+case "$MATCH_COUNT" in
+  0)
+    stack=generic
+    echo "No $DECLARATION and no recognised manifest; using: generic" >&2
+    ;;
+  1)
+    stack="$FIRST_MATCH"
+    echo "No $DECLARATION; inferred from manifests: $stack" >&2
+    ;;
+  *)
+    echo "::error::No $DECLARATION, and this project matches $MATCH_COUNT stacks: $MATCH_LIST. Inference cannot settle that — a Laravel application has composer.json and package.json and both are true. Declare it instead: write one of ($KNOWN_STACKS) into .ia-engineering/stack. Picking one here would build it and report success without ever saying the other was equally likely." >&2
+    exit 1
+    ;;
+esac
+
 echo "::notice::This project's stack was inferred, not declared. Run setup-project-bootstrap.sh, or write the stack into .ia-engineering/stack, so the build does not depend on which manifest happens to exist." >&2
 printf '%s\n' "$stack"

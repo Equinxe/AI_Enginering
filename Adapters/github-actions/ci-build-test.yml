@@ -149,6 +149,78 @@ jobs:
             gradle build
           fi
 
+      # --- Web (static front end) -------------------------------------------
+      #
+      # Builds with Node like the `node` stack, and that is where the
+      # similarity ends: what ships is a directory of files, not a process.
+      # This stack cannot be inferred — see Adapters/scripts/resolve-stack.sh —
+      # so reaching here means the project declared it.
+      - name: Set up Node.js (web)
+        if: steps.detect.outputs.stack == 'web'
+        uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+      - name: Web build & test
+        if: steps.detect.outputs.stack == 'web'
+        run: |
+          set -euo pipefail
+          if [ -f package-lock.json ]; then
+            npm ci
+          else
+            npm install
+          fi
+          # The build is NOT optional for this stack, unlike `node`. A static
+          # front end whose build produced nothing has nothing to deploy, and
+          # `--if-present` would let a missing build script pass as success.
+          npm run build
+          # Tests are optional and stay optional: a young front end often has
+          # none, and failing the build for that would push projects to delete
+          # the check rather than add tests.
+          npm test --if-present
+
+      # --- .NET ---------------------------------------------------------------
+      - name: Set up .NET
+        if: steps.detect.outputs.stack == 'dotnet'
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: .NET build & test
+        if: steps.detect.outputs.stack == 'dotnet'
+        run: |
+          set -euo pipefail
+          dotnet restore
+          dotnet build --configuration Release --no-restore
+          # --no-build so the test run uses the binaries just built rather
+          # than rebuilding with different settings, which would mean testing
+          # something other than what was built.
+          dotnet test --configuration Release --no-build --verbosity normal
+
+      # --- PHP ----------------------------------------------------------------
+      - name: Set up PHP
+        if: steps.detect.outputs.stack == 'php'
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          coverage: none
+      - name: PHP build & test
+        if: steps.detect.outputs.stack == 'php'
+        run: |
+          set -euo pipefail
+          # --no-progress keeps the log readable; --prefer-dist is faster and
+          # is what a CI install wants. Dev dependencies ARE installed here,
+          # unlike in the Dockerfile: the test tooling lives among them.
+          composer install --no-interaction --no-progress --prefer-dist
+          # Composer projects declare their test command; there is no single
+          # convention. A project with neither a `test` script nor PHPUnit is
+          # told so rather than passing quietly.
+          if composer run-script --list 2>/dev/null | grep -qE '^[[:space:]]+test'; then
+            composer run-script test
+          elif [ -x vendor/bin/phpunit ]; then
+            vendor/bin/phpunit
+          else
+            echo "::warning::No 'test' script in composer.json and no vendor/bin/phpunit. Nothing was tested. Add a test script so this check means something."
+          fi
+
       # --- Generic fallback -------------------------------------------------
       - name: Generic build & test (placeholder)
         if: steps.detect.outputs.stack == 'generic'
