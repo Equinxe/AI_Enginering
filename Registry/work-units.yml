@@ -715,3 +715,9 @@ work_units:
     title: Consult the Security Engineer during implementation, not only at review
     milestone: Portability
     delivers: Workflows/FEATURE_DEVELOPMENT.md
+
+  - id: WU-IAENG-242
+    employee: AI Engineer
+    title: A /create-project command that points at the Workflow without restating it
+    milestone: Portability
+    delivers: Adapters/ai-runtimes/claude-code/skills/create-project/SKILL.md, Adapters/ai-runtimes/claude-code/install-skills.sh, Adapters/scripts/install.sh, Adapters/README.md
