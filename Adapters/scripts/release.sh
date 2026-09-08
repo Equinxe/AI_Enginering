@@ -136,6 +136,9 @@ cmd_check() {
   # Whether Step 2's output is already present. Set from the VERSION.md and
   # CHANGELOG.md checks below, read by the closing line.
   STEP2_DONE=0
+  # Whether Step 7 already happened for this version — a tag exists for it.
+  ALREADY_RELEASED=0
+  RELEASED_VERSION=""
 
   echo "IA Engineering — release readiness (Workflows/RELEASE.md Step 1)"
   echo "Repository: $ROOT"
@@ -191,6 +194,14 @@ cmd_check() {
       local lines
       lines="$(printf '%s\n' "$section" | grep -c . || true)"
       ok "CHANGELOG.md section for ${check_version} present ($lines non-empty lines)"
+      # Reported rather than failed: a tagged version on develop is the normal
+      # state between one release and the next bump, not an error. It changes
+      # what the closing line should say, and nothing else.
+      if git rev-parse -q --verify "refs/tags/v${check_version#v}" >/dev/null 2>&1; then
+        note "v${check_version#v} is already tagged — this version has shipped"
+        ALREADY_RELEASED=1
+        RELEASED_VERSION="$check_version"
+      fi
       # STEP 2'S OUTPUT, OBSERVED. Workflows/RELEASE.md Step 2 states its
       # output as "develop carries the final VERSION.md and CHANGELOG.md for
       # this release", and those are exactly the two conditions just checked.
@@ -450,7 +461,17 @@ cmd_check() {
   head2 "Result"
 
   if [ "$FAILURES" -eq 0 ]; then
-    if [ "${STEP2_DONE:-0}" -eq 1 ]; then
+    if [ "${ALREADY_RELEASED:-0}" -eq 1 ]; then
+      # A TAG MEANS STEP 7 HAPPENED. Everything above is then a description of
+      # a release that already shipped, and "ready for Step 3" would invite
+      # cutting a second release branch for a version already on main. Found
+      # immediately after fixing the sibling defect (#81), by reading the very
+      # output that fix produced.
+      echo "   v${RELEASED_VERSION#v} is ALREADY RELEASED: the tag exists, so Step 7 is done"
+      echo "   and every condition above describes a release that has shipped."
+      echo "   Nothing here is ready to cut. Start the next release by bumping"
+      echo "   VERSION.md and adding its CHANGELOG.md section (Step 2)."
+    elif [ "${STEP2_DONE:-0}" -eq 1 ]; then
       echo "   Step 2 is already on this branch: VERSION.md and CHANGELOG.md both"
       echo "   carry this version. Ready for Step 3 (cut the release branch)."
     else
