@@ -41,11 +41,17 @@
 #
 # Usage:
 #   ./setup-project-bootstrap.sh <stack> [--dry-run] [--force]
-#     where <stack> is one of: node | python | go | jvm | generic
+#     where <stack> is one of: node | web | python | go | jvm | dotnet | php | generic
+#
+#     `web` is a static front end (React, Vue, Svelte, Astro, a site
+#     generator): it builds with Node and ships files behind a web
+#     server, with no Node in the runtime image. It is the one stack that
+#     cannot be inferred, because a site and a server both have
+#     package.json — which is why the chosen stack is recorded.
 
 set -euo pipefail
 
-VALID_STACKS="node python go jvm generic"
+VALID_STACKS="node web python go jvm dotnet php generic"
 
 STACK=""
 PASSTHROUGH=()
@@ -82,7 +88,7 @@ case " $VALID_STACKS " in
   *)
     echo "Error: unknown stack '$STACK'. Expected one of: $VALID_STACKS" >&2
     echo "  Workflows/PROJECT_BOOTSTRAP.md's Escalation table covers this case:" >&2
-    echo "  a stack outside Node, Python, Go, and JVM uses the Generic fallback" >&2
+    echo "  a stack outside the list above uses the Generic fallback" >&2
     echo "  template as a starting point, with any gaps documented." >&2
     exit 1
     ;;
@@ -148,6 +154,39 @@ copy_into() {
 
 copy_into "$ADAPTERS_DIR/github-actions/ci-build-test.yml" ".github/workflows/ci-build-test.yml"
 copy_into "$ADAPTERS_DIR/github-actions/ghcr-publish.yml" ".github/workflows/ghcr-publish.yml"
+
+# THE STACK IS RECORDED, NOT LEFT TO BE GUESSED LATER.
+#
+# ci-build-test.yml used to infer the stack from whichever manifest file it
+# found first. That works only while one manifest means one stack, and it
+# stops working the moment two stacks share one: a React site and a Node
+# server both have package.json, and no rule over file names can tell them
+# apart without guessing. Guessing in a build gate is the defect class this
+# framework catalogues everywhere else.
+#
+# This script already knows the answer — it was given it as an argument — so
+# it writes it down. CI reads the declaration and only falls back to sniffing
+# manifests when there is none, which keeps an existing project that never ran
+# this script working exactly as before.
+#
+# .ia-engineering/ is where a project keeps what is true of it, and part of
+# that directory is already committed and read by CI: the project roster at
+# .ia-engineering/Registry/employees.yml, which the Employee Trailer check
+# unions in. Only SESSION_STATE.md is gitignored. So this file belongs there
+# and must be COMMITTED — a declaration CI cannot read declares nothing.
+STACK_FILE=".ia-engineering/stack"
+if [ -f "$STACK_FILE" ] && ! printf '%s
+' "${PASSTHROUGH[@]+"${PASSTHROUGH[@]}"}" | grep -qx -- '--force'; then
+  echo "  ! $STACK_FILE already exists (declares '$(tr -d '[:space:]' < "$STACK_FILE")') — left untouched." >&2
+  echo "    Re-run with --force to change the declared stack." >&2
+elif [ "$DRY_RUN" -eq 1 ]; then
+  echo "  [dry-run] write $STACK_FILE containing '$STACK'"
+else
+  mkdir -p "$(dirname "$STACK_FILE")"
+  printf '%s
+' "$STACK" > "$STACK_FILE"
+  echo "  + $STACK_FILE ($STACK)  — commit this; CI reads it"
+fi
 
 DOCKERFILE_SRC="$ADAPTERS_DIR/dockerfiles/$STACK.Dockerfile"
 if [ ! -f "$DOCKERFILE_SRC" ]; then
