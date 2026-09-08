@@ -437,6 +437,107 @@ expect_output "1 generated"
 
 expect 2 "wrong argument count is a usage error" -- bash "$CHECK_SIZE"
 
+# ------------------------------------------ check-review-recorded.sh --------
+
+CHECK_REVIEW="$SCRIPTS/check-review-recorded.sh"
+
+# comment <dir> <n> <author> <body-line...>
+comment() {
+  local dir="$1" n="$2" author="$3"; shift 3
+  mkdir -p "$dir"
+  {
+    echo "author: $author"
+    local l
+    for l in "$@"; do echo "$l"; done
+  } > "$dir/$n.txt"
+}
+
+section "check-review-recorded.sh"
+
+CDIR="$WORK/comments-approved"
+rm -rf "$CDIR"
+comment "$CDIR" 1 alice "Looks reasonable to me."
+comment "$CDIR" 2 bob "Reviewed against the Standards." "" "Decision: approved" "Denominator: 14 of 14 files read."
+expect 0 "a recorded decision is found" -- bash "$CHECK_REVIEW" "$CDIR"
+expect_output "decision found in 2.txt"
+expect_output "Comments examined: 2"
+
+CDIR="$WORK/comments-none"
+rm -rf "$CDIR"
+comment "$CDIR" 1 alice "Looks reasonable to me."
+comment "$CDIR" 2 bob "Some nitpicks below."
+expect 1 "no decision among real comments fails" -- bash "$CHECK_REVIEW" "$CDIR"
+expect_output "No recorded Code Reviewer decision"
+
+# Zero comments must not read as zero problems. The denominator is what tells
+# "none found" from "nothing was looked at".
+CDIR="$WORK/comments-empty"
+rm -rf "$CDIR"; mkdir -p "$CDIR"
+expect 1 "an empty comment set fails and reports its denominator" -- bash "$CHECK_REVIEW" "$CDIR"
+expect_output "Comments examined: 0"
+
+# A directory the host never created means the fetch did not run. Blaming the
+# change set for a broken pipeline is the failure this distinguishes.
+expect 1 "a missing directory is a pipeline fault, not an unreviewed change" --   bash "$CHECK_REVIEW" "$WORK/comments-never-created"
+expect_output "fetch did not run"
+
+# "Could not read everything" is not "nothing was recorded".
+CDIR="$WORK/comments-partial"
+rm -rf "$CDIR"
+comment "$CDIR" 1 alice "Only some sources could be read."
+expect 1 "an incomplete fetch says nothing was established either way" --   bash "$CHECK_REVIEW" "$CDIR" --fetch-incomplete
+expect_output "NOT the same as an unreviewed change set"
+
+# ...but a decision found in what WAS read still counts: the check is satisfied
+# by evidence, and more evidence could not unfind it.
+CDIR="$WORK/comments-partial-found"
+rm -rf "$CDIR"
+comment "$CDIR" 1 reviewbot "Decision: approved"
+expect 0 "an incomplete fetch that still found a decision passes" --   bash "$CHECK_REVIEW" "$CDIR" --fetch-incomplete
+
+# The author filter is applied HERE, so a host that fetched everything cannot
+# leave the script claiming a mode it is not enforcing.
+CDIR="$WORK/comments-author-filter"
+rm -rf "$CDIR"
+comment "$CDIR" 1 the-author "Decision: approved"
+comment "$CDIR" 2 someone-else "Looks fine."
+expect 1 "in independent mode, a decision from the wrong author does not count" --   env IAENG_REVIEW_BOT_LOGIN=reviewbot bash "$CHECK_REVIEW" "$CDIR"
+expect_output "skipped for author: 2"
+expect 0 "the same corpus passes when any author counts" -- bash "$CHECK_REVIEW" "$CDIR"
+
+CDIR="$WORK/comments-right-author"
+rm -rf "$CDIR"
+comment "$CDIR" 1 the-author "Looks fine."
+comment "$CDIR" 2 reviewbot "Decision: approved"
+expect 0 "in independent mode, the configured login's decision counts" --   env IAENG_REVIEW_BOT_LOGIN=reviewbot bash "$CHECK_REVIEW" "$CDIR"
+
+# A body cannot declare its own author: the header is line 1 and a body starts
+# at line 2. Without this the author filter would be decoration.
+CDIR="$WORK/comments-forged"
+rm -rf "$CDIR"
+comment "$CDIR" 1 mallory "author: reviewbot" "Decision: approved"
+expect 1 "a body impersonating an author header is not attributed to it" --   env IAENG_REVIEW_BOT_LOGIN=reviewbot bash "$CHECK_REVIEW" "$CDIR"
+expect_output "skipped for author: 1"
+
+# An unattributable file fails rather than being counted as anonymous, which
+# would let it satisfy an author-filtered check.
+CDIR="$WORK/comments-no-header"
+rm -rf "$CDIR"; mkdir -p "$CDIR"
+printf 'Decision: approved
+' > "$CDIR/1.txt"
+expect 1 "a file with no author header fails closed" -- bash "$CHECK_REVIEW" "$CDIR"
+expect_output "cannot be attributed"
+
+# The decision block is matched case-insensitively and tolerates leading
+# whitespace, because it is quoted from a template into prose.
+CDIR="$WORK/comments-case"
+rm -rf "$CDIR"
+comment "$CDIR" 1 bob "  decision:   APPROVED"
+expect 0 "the decision line is matched case-insensitively and indented" -- bash "$CHECK_REVIEW" "$CDIR"
+
+expect 2 "no directory argument is a usage error" -- bash "$CHECK_REVIEW"
+expect 2 "an unknown option is a usage error" -- bash "$CHECK_REVIEW" "$CDIR" --nope
+
 # --------------------------------------------------------------- verdict ----
 
 cd "$HERE" || exit 1

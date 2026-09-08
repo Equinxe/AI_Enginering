@@ -631,3 +631,9 @@ work_units:
     title: Extract the PR size check, and pin both defects that reached production in it
     milestone: Portability
     delivers: Adapters/scripts/check-pr-size.sh, Adapters/scripts/tests/run.sh
+
+  - id: WU-IAENG-227
+    employee: DevOps Engineer
+    title: Extract the review-recorded decision, with the host supplying data and the script deciding
+    milestone: Portability
+    delivers: Adapters/scripts/check-review-recorded.sh, Adapters/scripts/tests/run.sh
