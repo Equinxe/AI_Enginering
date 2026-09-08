@@ -166,17 +166,31 @@ Steps 1 to 3 above are performed by `Adapters/scripts/release.sh publish vX.X.X 
 
 **Actor:** Release Manager
 
-Because the release branch was created as an exact snapshot of `develop` (the version bump already happened on `develop` in Step 2), this step is **normally unnecessary**: `main` and `develop` hold the same release content, so there is nothing to carry back.
+This step is **always required**, on every release, including one where the release branch never diverged from `develop`.
 
-This step is **still required** whenever a defect fix was applied directly to the release branch during Step 4 acceptance testing. In that case the release branch diverged from `develop` by those fix commits, and they must be brought back.
+Earlier versions of this step called it "normally unnecessary", reasoning that the release branch is an exact snapshot of `develop` so `main` and `develop` hold the same release *content*. The content claim is true. The conclusion drawn from it is wrong, and the difference is history rather than content.
 
-When required:
+Merging the release branch into `main` in Step 6 creates a **merge commit on `main`**. That commit exists on `main` and on no other branch. `develop` never receives it, because nothing else merges `main` anywhere. So every release leaves `main` exactly one commit ahead of `develop`, carrying no content, and the gap accumulates one commit per release.
+
+That gap is invisible until `main` requires branches to be up to date before merging. From then on it is a hard block: the next release's Pull Request to `main` cannot merge, because its head does not contain `main`'s tip, and it cannot be made to contain it without performing the back-merge that was skipped. The block appears on the release *after* the one that skipped the step, which is what made the omission survive two releases here — v0.0.10.1 and v0.0.11 both skipped it, and v0.0.12 was the first release cut after "require branches to be up to date" was turned on. Its Pull Request to `main` was blocked by two content-free merge commits from releases three months earlier.
+
+Two consequences to check for, not one:
+
+- **Always** — the merge commit Step 6 created on `main`.
+- **Additionally**, whenever a defect fix was applied directly to the release branch during Step 4 acceptance testing: the release branch diverged from `develop` by those fix commits, and they carry real content that must be brought back.
+
+How:
 
 1. The `pre-push` hook (`Adapters/git-hooks/pre-push`) blocks direct pushes to `develop`, so the back-merge goes through a Pull Request like any other change.
-2. Open a Pull Request from `main` to `develop` to capture the release-branch fixes.
-3. Merge the PR once CI passes. The content already went through review on its way into `main`, so no new conflicts are expected.
+2. **Branch from `develop`** (for example `chore/back-merge-main`) and merge `main` into it: `git merge --no-ff origin/main`. Push that branch.
+3. Open the Pull Request from **that branch** to `develop`, not from `main` itself.
+4. Merge it once CI passes. The content already went through review on its way into `main`, so no new conflicts are expected.
 
-**Output:** `develop` is in sync with `main`.
+**Do not open the Pull Request with `main` as its head.** That is the obvious shape and it cannot work once `develop` requires branches to be up to date. "Up to date" compares the *head* against the *base*: a Pull Request whose head is `main` would have to contain `develop`'s tip to be mergeable, which is the opposite of what a back-merge does and would put unreleased work on `main` outside this workflow. GitHub reports it as `the head branch is not up to date with the base branch`, and no amount of waiting clears it. A branch cut from `develop` that merges `main` contains both tips, so it satisfies the rule while carrying exactly the same history.
+
+In the normal case that Pull Request **changes no files** — it carries only the merge commit from Step 6. That is expected and is not a reason to skip it. The `PR Size` check recognises a range whose commits are all merges and passes it with a notice; a range with no commits at all, or one holding a non-merge commit that changed nothing, still fails. Do not close a zero-file back-merge Pull Request as pointless: the commit it carries is the whole point, and skipping it is what blocks the next release.
+
+**Output:** `develop` contains `main`'s tip, so the next release's Pull Request to `main` can satisfy "require branches to be up to date".
 
 ---
 
@@ -209,7 +223,7 @@ This workflow is complete when:
 - The version bump is merged into `develop` (Step 2).
 - `release/vX.X.X` is merged into `main`.
 - Tag `vX.X.X` is on `main`, with a corresponding GitHub Release whose notes are derived from `CHANGELOG.md`.
-- `develop` is in sync with `main` — either automatically (release branch never diverged) or via the back-merge PR when a defect fix was applied directly to the release branch.
+- `develop` contains `main`'s tip, carried back by the Step 8 Pull Request. This is required on every release, not only when a defect fix was applied directly to the release branch — Step 6 always leaves a merge commit on `main` that `develop` would otherwise never see.
 - `release/vX.X.X` branch is preserved on remote.
 - Post-release health is confirmed.
 
@@ -237,7 +251,7 @@ This workflow is complete when:
 
 Owner: IA Engineering
 
-Version: 0.0.9.3
+Version: 0.0.12
 
 Status: Draft
 

@@ -732,9 +732,53 @@ jobs:
             TOTAL=$((TOTAL + added + deleted))
           done <<< "$NUMSTAT"
 
+          # A DIFF OF ZERO FILES HAS TWO CAUSES AND THEY ARE NOT THE SAME
+          # THING. The first version of this guard failed on both, which was
+          # right for one of them and wrong for the other.
+          #
+          # Wrong refs, a force-push, a cross-fork head the runner could not
+          # fetch: nothing was measured, and reporting a size of zero would be
+          # this codebase's own named defect class — a check that passes
+          # without evaluating anything. That still fails.
+          #
+          # A back-merge measures zero because there is genuinely nothing to
+          # review. Workflows/RELEASE.md Step 8 carries `main` back into
+          # `develop` through a Pull Request, and in the normal case every
+          # commit in it is a merge whose content already reached `develop` by
+          # another route. That Pull Request changes no files by construction.
+          # With this check required on `develop` and "require branches to be
+          # up to date" set on `main`, refusing it deadlocked the process
+          # against itself: the release could not merge until `develop` held
+          # `main`'s merge commits, and they could not be carried back because
+          # the Pull Request that carries them changes nothing. Found on
+          # v0.0.12, the first release cut after strict mode was turned on.
+          #
+          # The two are told apart by the commits, not by the files. A range
+          # with no commits at all is the broken-refs case. A range whose
+          # commits are ALL merges is the back-merge. A range holding an
+          # ordinary commit that changed nothing is neither, and still fails —
+          # an empty non-merge commit in a Pull Request is not a thing to wave
+          # through on the strength of its own emptiness.
           if [ "$FILES" -eq 0 ]; then
-            echo "::error::The diff between $MERGE_BASE and $HEAD_SHA lists no changed files. A Pull Request that changes nothing is not something to pass silently — check the base and head refs."
-            exit 1
+            if ! RANGE_COMMITS="$(git rev-list --count "$MERGE_BASE..$HEAD_SHA")"; then
+              echo "::error::git rev-list failed over $MERGE_BASE..$HEAD_SHA, so the reason for the empty diff was never established. Failing rather than guessing which of the two it was."
+              exit 1
+            fi
+            if ! NONMERGE_COMMITS="$(git rev-list --count --no-merges "$MERGE_BASE..$HEAD_SHA")"; then
+              echo "::error::git rev-list --no-merges failed over $MERGE_BASE..$HEAD_SHA, so the reason for the empty diff was never established. Failing rather than guessing which of the two it was."
+              exit 1
+            fi
+
+            if [ "$RANGE_COMMITS" -eq 0 ]; then
+              echo "::error::The diff between $MERGE_BASE and $HEAD_SHA lists no changed files, and the range holds no commits either. Nothing was measured — check the base and head refs."
+              exit 1
+            fi
+            if [ "$NONMERGE_COMMITS" -gt 0 ]; then
+              echo "::error::The diff between $MERGE_BASE and $HEAD_SHA lists no changed files, yet $NONMERGE_COMMITS of its $RANGE_COMMITS commits are not merges. A non-merge commit that changes nothing is not a back-merge; check the base and head refs, or drop the empty commits."
+              exit 1
+            fi
+            echo "::notice::No file changes, and the range holds $RANGE_COMMITS commit(s), every one a merge — a back-merge (Workflows/RELEASE.md Step 8). There is nothing for a reviewer to read, so the review limit does not apply."
+            exit 0
           fi
 
           echo "Merge base: $MERGE_BASE"

@@ -589,3 +589,27 @@ work_units:
     title: Bump to v0.0.12 and write the CHANGELOG section for both milestones
     milestone: Automation
     delivers: VERSION.md, CHANGELOG.md, CLAUDE.md, README.md
+
+  - id: WU-IAENG-220
+    employee: DevOps Engineer
+    title: Tell a back-merge from wrong refs in the PR Size check
+    milestone: Convergence
+    delivers: .github/workflows/pr-validation.yml, Adapters/github-actions/pr-validation.yml, CHANGELOG.md
+
+  - id: WU-IAENG-221
+    employee: Security Engineer
+    title: A merge-only range enumerates no paths by construction
+    milestone: Convergence
+    delivers: Adapters/scripts/data-policy-scan.sh
+
+  - id: WU-IAENG-222
+    employee: Release Manager
+    title: The back-merge is always required, because Step 6 leaves a commit on main
+    milestone: Convergence
+    delivers: Workflows/RELEASE.md
+
+  - id: WU-IAENG-223
+    employee: Release Manager
+    title: The back-merge cannot be opened with main as its head under strict mode
+    milestone: Convergence
+    delivers: Workflows/RELEASE.md
