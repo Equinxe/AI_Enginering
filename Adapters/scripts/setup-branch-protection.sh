@@ -272,4 +272,47 @@ protect_release_branches() {
 
 protect_release_branches
 
+# --- Automatic head-branch deletion -----------------------------------------
+#
+# THE RULESET'S `deletion` RULE DOES NOT STOP THE ONE DELETION THAT HAPPENS.
+#
+# `release/*` carries a deletion rule, and on 8 September 2026 merging a
+# release Pull Request deleted `release/v0.0.12` anyway. GitHub's automatic
+# head-branch deletion is performed by the platform itself and is not evaluated
+# against rulesets. So the rule stops a human or a token running
+# `git push --delete`, and does nothing about the only realistic way a release
+# branch disappears.
+#
+# CLAUDE.md and Workflows/RELEASE.md Step 10 both say release branches are
+# never deleted. A protection that reads as enforcement and is not one is worse
+# than no protection, because it is trusted.
+#
+# THE SETTING IS REPOSITORY-WIDE, and that cost is real: feature branches stop
+# being tidied up on merge too. It is applied rather than offered because the
+# framework's rule is unconditional — a project that prefers the tidy-up can
+# turn it back on, having read this, and accept that release branches then
+# depend on nobody clicking the button.
+echo "-> repository: automatic head-branch deletion"
+
+current="$(gh api "repos/$REPO" --jq '.delete_branch_on_merge' 2>/dev/null || echo "unknown")"
+if [ "$current" = "false" ]; then
+  echo "   already off."
+else
+  gh api --method PATCH "repos/$REPO" -F delete_branch_on_merge=false > /dev/null
+
+  # VERIFIED, NOT ASSUMED. install.sh proves the hook it installed rejects an
+  # invalid trailer rather than asserting that copying a file worked; the same
+  # standard applies to an API call whose failure mode is silence.
+  after="$(gh api "repos/$REPO" --jq '.delete_branch_on_merge' 2>/dev/null || echo "unknown")"
+  if [ "$after" = "false" ]; then
+    echo "   turned off (was: $current)."
+  else
+    echo "   FAILED: delete_branch_on_merge is still '$after' after the update." >&2
+    echo "   Release branches will be deleted on merge despite the release/* deletion rule," >&2
+    echo "   which does not apply to GitHub's own automatic deletion. Fix this in" >&2
+    echo "   Settings > General > Pull Requests before running a release." >&2
+    exit 1
+  fi
+fi
+
 echo "Done. Verify at: https://github.com/$REPO/settings/branches"

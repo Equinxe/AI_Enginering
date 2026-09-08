@@ -661,3 +661,9 @@ work_units:
     title: Add the web, .NET and PHP stacks, and report an ambiguous project instead of ranking it
     milestone: Portability
     delivers: Adapters/dockerfiles/web.Dockerfile, Adapters/dockerfiles/dotnet.Dockerfile, Adapters/dockerfiles/php.Dockerfile, Adapters/scripts/resolve-stack.sh, Adapters/scripts/setup-project-bootstrap.sh, Adapters/github-actions/ci-build-test.yml, Adapters/scripts/tests/run.sh, Adapters/README.md, Workflows/PROJECT_BOOTSTRAP.md
+
+  - id: WU-IAENG-232
+    employee: DevOps Engineer
+    title: Turn off automatic head-branch deletion, which the ruleset rule never stopped
+    milestone: Portability
+    delivers: Adapters/scripts/setup-branch-protection.sh, Adapters/README.md
