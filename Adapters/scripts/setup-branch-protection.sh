@@ -5,10 +5,11 @@
 # GitHub API instead of relying on written policy alone, matching:
 #   - Standards/BRANCH_STANDARD.md — no direct push to protected branches
 #   - Workflows/CODE_REVIEW.md — a Pull Request must be reviewed before merge
-#   - Adapters/github-actions/pr-validation.yml — its three jobs (PR
-#     Compliance, Shellcheck Adapters, Validate Workflow YAML) become
-#     required status checks once this script has run (main/develop only —
-#     see the release/* section below for why they are NOT required there)
+#   - Adapters/github-actions/pr-validation.yml and
+#     Adapters/github-actions/framework-validation.yml — their blocking jobs
+#     (PR Compliance, Employee Trailer, Shellcheck Adapters, Validate Workflow
+#     YAML, Framework Validation) become required status checks once this
+#     script has run, on main, develop, AND release/*
 #   - Workflows/RELEASE.md — "The release branch `release/vX.X.X` is never
 #     deleted. It serves as a permanent snapshot of the exact state released
 #     to production." This script is what makes `allow_deletions: false`
@@ -54,6 +55,52 @@ fi
 
 echo "Configuring branch protection on $REPO for: main, develop, release/*"
 
+# The blocking checks every protected branch requires, kept in one place so
+# main, develop, and the release/* ruleset cannot drift apart.
+#
+# "Employee Trailer" and "Framework Validation" were added in WU-IAENG-144.
+# Employee Trailer shipped in v0.0.10.1 but was left out of the required set
+# pending a decision, which meant the server-side backstop for Dispatch
+# Discipline reported its result and blocked nothing — a commit with no
+# Employee attribution could still merge past a red check.
+#
+# "Review Recorded (advisory)" is deliberately NOT here. It matches comment
+# text, which is softer evidence than a native gate and can be satisfied by
+# pasting the block; making it required would buy false confidence. Promoting
+# it stays a Director decision, as its own job comment states.
+REQUIRED_CHECKS=(
+  "PR Compliance"
+  "Work Unit Exists"
+  "Employee Trailer"
+  "Shellcheck Adapters"
+  "Validate Workflow YAML"
+  "Hook Tests"
+  "PR Size"
+  "Framework Validation"
+  "Data Policy"
+)
+
+# The two GitHub APIs used below want the same list in different shapes:
+# classic branch protection takes a bare array of context strings, while the
+# Rulesets API takes objects. Both are derived from the one array above so the
+# release/* ruleset cannot end up requiring a different set than main/develop.
+
+contexts_json() {
+  local out="" c
+  for c in "${REQUIRED_CHECKS[@]}"; do
+    out="$out, \"$c\""
+  done
+  printf '%s' "${out#, }"
+}
+
+ruleset_checks_json() {
+  local out="" c
+  for c in "${REQUIRED_CHECKS[@]}"; do
+    out="$out, { \"context\": \"$c\" }"
+  done
+  printf '%s' "${out#, }"
+}
+
 protect_branch() {
   local branch="$1"
   echo "-> $branch"
@@ -65,7 +112,7 @@ protect_branch() {
 {
   "required_status_checks": {
     "strict": true,
-    "contexts": ["PR Compliance", "Shellcheck Adapters", "Validate Workflow YAML"]
+    "contexts": [$(contexts_json)]
   },
   "enforce_admins": false,
   "required_pull_request_reviews": {
@@ -123,17 +170,22 @@ done
 #                            the unreviewed direct push that happened during
 #                            the v0.0.10 release).
 #
-# Deliberately NOT included: a "required_status_checks" rule for the PR
-# Compliance / Shellcheck Adapters / Validate Workflow YAML contexts used on
-# main/develop. Adapters/github-actions/pr-validation.yml is scoped with
-# `on.pull_request.branches: [main, develop]` — it does not trigger for PRs
-# targeting a release/* branch at all. Requiring status checks that can never
-# be reported would permanently deadlock every release/* PR (GitHub blocks
-# merge on "Expected — waiting for status to be reported" forever). Making
-# these checks meaningful for release/* would require widening that
-# workflow's `branches:` trigger, which is out of scope for this Work Unit
-# (only this script is touched here) — flagged in this Work Unit's report as
-# a candidate follow-up.
+#   - "required_status_checks" -> the same REQUIRED_CHECKS as main and develop.
+#
+# That last rule was previously absent, and the reason was sound at the time:
+# pr-validation.yml was scoped to `[main, develop]`, so it never triggered for
+# a PR targeting a release branch, and requiring a check that can never be
+# reported deadlocks the PR forever on "Expected — waiting for status to be
+# reported". The note here flagged widening that trigger as a candidate
+# follow-up.
+#
+# WU-IAENG-144 did the widening. pr-validation.yml and
+# framework-validation.yml now include `release/**`, so the checks do report on
+# release-branch PRs and can safely be required. This closes a real hole rather
+# than a theoretical one: Workflows/RELEASE.md Step 4 routes every
+# release-branch defect fix through a PR, so those were the only PRs in the
+# entire process running with no validation at all — on the branch that
+# becomes the production release.
 RELEASE_RULESET_NAME="release-branch-protection"
 
 release_ruleset_payload() {
@@ -166,6 +218,13 @@ release_ruleset_payload() {
         "require_code_owner_review": false,
         "require_last_push_approval": false,
         "required_review_thread_resolution": false
+      }
+    },
+    {
+      "type": "required_status_checks",
+      "parameters": {
+        "strict_required_status_checks_policy": true,
+        "required_status_checks": [$(ruleset_checks_json)]
       }
     }
   ]

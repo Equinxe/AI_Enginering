@@ -1,0 +1,476 @@
+# IA Engineering — Workflow Registry
+#
+# The ten Workflows, expressed as ordered data: step count, actor per step,
+# and — the part that matters most — where each mandatory gate sits.
+#
+# WHY THIS FILE EXISTS
+#
+# Registry/chains.yml records which Employees a chain activates and in what
+# order. This file records the same thing one level down: the numbered steps
+# inside each Workflow document, so a step can be checked against the document
+# that defines it rather than remembered.
+#
+# The gates are the reason this is worth having as data. Core/MAIN_AGENT_CONDUCT.md's
+# Autonomous Release Execution rule draws a distinction it has to state at
+# length in prose: the Main Agent runs everything BETWEEN the gates without
+# waiting to be prompted, and stops at every gate the process itself makes
+# mandatory. That rule is portable by design — it says "wherever a project
+# defines a release process as a sequence of steps with one or more mandatory
+# approval gates, the same rule applies". A machine-readable list of which
+# steps are gates is what makes "run to the next gate, then stop" answerable
+# without re-reading ten documents and inferring which bolded sentences are
+# binding.
+#
+# The Workflow documents remain authoritative. This file is derived from them
+# (Registry/README.md, "Authority — the Registry Never Wins"). Where they
+# disagree, the document is right and this file is stale, and
+# Adapters/scripts/validate-framework.sh reports it as such.
+#
+# WHAT THIS FILE DOES NOT DO
+#
+# It does not restate what each step requires. A step's actual instructions —
+# what to check, what to produce, when to escalate — stay in the Workflow
+# document, because compressing them into a data field would either lose the
+# reasoning or duplicate the document. What is recorded here is structure:
+# ordinal, actor, and whether the step is a gate.
+#
+# PARSING CONTRACT — read this before reformatting.
+# Consumers read these lines with grep and sed:
+#     grep -E '^    file: ' Registry/workflows.yml
+# Every Workflow document under Workflows/ must appear as a `file:` value; the
+# validator fails when one does not, so a new Workflow cannot be added to the
+# repository and stay invisible here.
+
+workflows:
+
+  - name: Feature Development
+    file: Workflows/FEATURE_DEVELOPMENT.md
+    category: Development
+    chain: Feature Chain
+    step_count: 8
+    steps:
+      - n: 1
+        actor: Engineering Manager
+        step: Work Unit definition
+      - n: 2
+        actor: Engineer
+        step: Branch creation
+      - n: 3
+        actor: Engineer
+        step: Implementation
+      - n: 4
+        actor: Engineer
+        step: Commit
+      - n: 5
+        actor: Engineer
+        step: Pull Request
+      - n: 6
+        actor: Code Reviewer
+        step: Code review, via Workflows/CODE_REVIEW.md
+      - n: 7
+        actor: QA Engineer
+        step: QA validation against acceptance criteria
+      - n: 8
+        actor: Engineering Manager
+        step: Merge into develop
+    gates: []
+    gate_note: >-
+      No Director gate inside this workflow. The Feature Chain places the
+      Director gate after QA sign-off, at the handoff to the Release Chain, and
+      earlier if an ADR is required — see Registry/chains.yml.
+
+  - name: Code Review
+    file: Workflows/CODE_REVIEW.md
+    category: Quality
+    chain: Review Chain
+    step_count: 9
+    steps:
+      - n: 1
+        actor: Code Reviewer
+        step: Understand the intent
+      - n: 2
+        actor: Code Reviewer
+        step: Review logic and correctness
+      - n: 3
+        actor: Code Reviewer
+        step: Review tests
+      - n: 4
+        actor: Code Reviewer
+        step: Review security and compliance
+      - n: 5
+        actor: Code Reviewer
+        step: Review code quality
+      - n: 6
+        actor: Code Reviewer
+        step: Review documentation
+      - n: 7
+        actor: Code Reviewer
+        step: Deliver severity-labelled feedback
+      - n: 8
+        actor: Code Reviewer
+        step: Decision — approve, request changes, or escalate
+      - n: 9
+        actor: Engineer
+        step: Author response, then re-request review
+    gates: []
+    blocking_conditions:
+      - Missing or insufficient tests block approval (Step 3)
+      - A security finding escalates to the Security Engineer immediately, without waiting for the review to finish (Step 4)
+      - Compliance-relevant content escalates to the Compliance Engineer on the same terms (Step 4)
+      - A security-sensitive or High/Critical-risk PR is reviewed through separate lens passes with cross-debate (Multi-Lens Review)
+      - Every open finding is re-anchored or given a disposition before re-review; none is dropped because its line moved (Step 9)
+
+  - name: Release
+    file: Workflows/RELEASE.md
+    category: Release
+    chain: Release Chain
+    step_count: 10
+    steps:
+      - n: 1
+        actor: Release Manager
+        step: Release readiness review
+      - n: 2
+        actor: Release Manager
+        step: Bump version on develop, through the standard PR cycle
+      - n: 3
+        actor: Release Manager
+        step: Create the release branch as a pure snapshot of develop
+      - n: 4
+        actor: QA Engineer
+        step: Release acceptance testing
+      - n: 5
+        actor: Director
+        step: Director approval
+        gate: true
+      - n: 6
+        actor: Release Manager
+        step: Merge to main via Pull Request
+      - n: 7
+        actor: Release Manager
+        step: Tag, and create a full GitHub Release from the CHANGELOG.md entry
+      - n: 8
+        actor: Release Manager
+        step: Back-merge to develop via Pull Request, when the release branch diverged
+      - n: 9
+        actor: QA Engineer
+        step: Post-release verification
+      - n: 10
+        actor: Release Manager
+        step: Preserve the release branch — never deleted
+    gates:
+      - step: 5
+        approver: Director
+        blocks: Merge to main
+        quote: No merge to `main` happens without explicit Director approval.
+    autonomous_range: 1-4
+    autonomous_note: >-
+      Steps 1 through 4 run without step-by-step prompting, per
+      Core/MAIN_AGENT_CONDUCT.md's Autonomous Release Execution. Each step's
+      real, verified output authorizes the next; the chain then stops at Step 5.
+
+  - name: Hotfix
+    file: Workflows/HOTFIX.md
+    category: Release
+    chain: Hotfix Chain
+    step_count: 11
+    steps:
+      - n: 1
+        actor: Director
+        step: Director authorization
+        gate: true
+      - n: 2
+        actor: Engineer
+        step: Create the hotfix branch from main, not develop
+      - n: 3
+        actor: Engineer
+        step: Implement the minimal fix plus a regression test
+      - n: 4
+        actor: Engineer
+        step: Commit
+      - n: 5
+        actor: Code Reviewer
+        step: Code review — expedited, not reduced
+      - n: 6
+        actor: QA Engineer
+        step: QA validation
+      - n: 7
+        actor: Director
+        step: Director approval
+        gate: true
+      - n: 8
+        actor: Release Manager
+        step: Merge to main and tag
+      - n: 9
+        actor: Release Manager
+        step: Back-merge to develop via Pull Request
+      - n: 10
+        actor: QA Engineer
+        step: Post-fix verification
+      - n: 11
+        actor: Release Manager
+        step: Delete the hotfix branch
+    gates:
+      - step: 1
+        approver: Director
+        blocks: Any hotfix work at all
+        quote: No hotfix work begins without this authorization.
+      - step: 7
+        approver: Director
+        blocks: Merge to main
+    autonomous_range: 2-6, 8-11
+    autonomous_note: >-
+      A hotfix bypasses the feature cycle but never bypasses review, testing, or
+      Director approval — the workflow's Purpose says so directly. Autonomy
+      applies only between the two gates.
+
+  - name: Incident Response
+    file: Workflows/INCIDENT_RESPONSE.md
+    category: Operations
+    chain: Incident Chain
+    step_count: 8
+    steps:
+      - n: 1
+        actor: SRE Engineer
+        step: Detect and declare, with an initial severity
+      - n: 2
+        actor: Engineering Manager
+        step: Assign an Incident Commander; notify the Director if P1 or P2
+        gate: true
+      - n: 3
+        actor: SRE Engineer
+        step: Assess and communicate
+      - n: 4
+        actor: SRE Engineer
+        step: Diagnose
+      - n: 5
+        actor: SRE Engineer
+        step: Contain
+      - n: 6
+        actor: Engineer
+        step: Resolve — via Workflows/HOTFIX.md when a code change is needed
+      - n: 7
+        actor: SRE Engineer
+        step: Declare resolution
+      - n: 8
+        actor: Engineering Manager
+        step: Blameless post-mortem, mandatory for P1 and P2
+    gates:
+      - step: 2
+        approver: Director
+        blocks: nothing
+        notification_only: true
+        quote: P1 and P2 require Director notification.
+        note: >-
+          The only gate in the framework that does not pause the chain.
+          Containment proceeds while the Director is informed — withholding
+          mitigation to wait for an approval would worsen the incident.
+
+  - name: Architecture Decision
+    file: Workflows/ARCHITECTURE_DECISION.md
+    category: Architecture
+    chain: Architecture Chain
+    step_count: 8
+    steps:
+      - n: 1
+        actor: Software Architect
+        step: Identify the decision, confirm it meets the ADR threshold
+      - n: 2
+        actor: Software Architect
+        step: Research options — at least two must be evaluated
+      - n: 3
+        actor: Software Architect
+        step: Draft the ADR
+      - n: 4
+        actor: Technical Lead
+        step: Review — minimum 48 hours, 72 for P1-level decisions
+      - n: 5
+        actor: Director
+        step: Director approval; status becomes Accepted
+        gate: true
+      - n: 6
+        actor: Engineering Manager
+        step: Communicate and index the accepted ADR
+      - n: 7
+        actor: Engineer
+        step: Implement, via Workflows/FEATURE_DEVELOPMENT.md
+      - n: 8
+        actor: Software Architect
+        step: Supersede or deprecate, when a later decision replaces this one
+    gates:
+      - step: 5
+        approver: Director
+        blocks: Implementation
+        quote: No ADR is marked as Accepted without Director approval.
+    trigger_list: >-
+      Technology selection; cross-service or cross-team interface design;
+      departure from an existing architectural pattern; security architecture
+      change; data model change affecting multiple services; scalability
+      strategy decision. Core/ORCHESTRATION.md Step 2 requires checking this
+      list rather than deciding by impression.
+
+  - name: Onboarding
+    file: Workflows/ONBOARDING.md
+    category: Onboarding
+    chain: none
+    step_count: 7
+    steps:
+      - n: 1
+        actor: Main Agent
+        step: Import the framework; create CLAUDE.md
+      - n: 2
+        actor: Main Agent
+        step: Define project context from the Director's brief
+      - n: 3
+        actor: Software Architect
+        step: Architecture review — existing projects only
+      - n: 4
+        actor: Engineering Manager
+        step: Activate the Employee roster in CLAUDE.md
+      - n: 5
+        actor: Main Agent
+        step: Initialize the git workflow
+      - n: 6
+        actor: Engineering Manager
+        step: Create the first Work Unit
+        gate: true
+      - n: 7
+        actor: Main Agent
+        step: Confirm readiness to the Director
+        gate: true
+    gates:
+      - step: 6
+        approver: Director
+        blocks: Work beginning
+      - step: 7
+        approver: Director
+        blocks: The project being considered onboarded
+    entered_from: Workflows/PROJECT_BOOTSTRAP.md Step 7, at Step 4
+
+  - name: Sprint Ceremony
+    file: Workflows/SPRINT_CEREMONY.md
+    category: Process
+    chain: none
+    step_count: 4
+    step_unit: ceremony
+    step_unit_note: >-
+      This workflow's units are Scrum ceremonies — recurring events — not a
+      one-pass sequence of steps, which is why its document uses "Ceremonies"
+      and "Ceremony 1-4" where the others use "Steps". The framework's own
+      vocabulary wins over uniformity here; Adapters/scripts/validate-framework.sh
+      accepts either container heading for exactly this reason.
+    steps:
+      - n: 1
+        actor: Scrum Master
+        step: Sprint Planning
+      - n: 2
+        actor: Scrum Master
+        step: Daily Standup
+      - n: 3
+        actor: Product Manager
+        step: Sprint Review — the Director gives final acceptance
+        gate: true
+      - n: 4
+        actor: Scrum Master
+        step: Sprint Retrospective
+    gates:
+      - step: 3
+        approver: Director
+        blocks: Acceptance of the delivered work
+
+  - name: Project Bootstrap
+    file: Workflows/PROJECT_BOOTSTRAP.md
+    category: Bootstrap
+    chain: none
+    step_count: 7
+    steps:
+      - n: 1
+        actor: Business Analyst
+        step: Phase A — business-before-tech questions; produces the Project Charter
+      - n: 2
+        actor: Software Architect
+        step: Phase B — tech-stack questions; produces the Stack Decision ADR
+        gate: true
+      - n: 3
+        actor: DevOps Engineer
+        step: Scaffold the repository
+      - n: 4
+        actor: DevOps Engineer
+        step: Scaffold CI/CD and enforcement, via Adapters/scripts/setup-project-bootstrap.sh
+      - n: 5
+        actor: DevOps Engineer
+        step: Scaffold GHCR publishing — build and publish only, never deployment
+      - n: 6
+        actor: DevOps Engineer
+        step: Scaffold issue templates
+      - n: 7
+        actor: Main Agent
+        step: Hand off to Workflows/ONBOARDING.md at its Step 4
+    gates:
+      - step: 2
+        approver: Director
+        blocks: Step 3 and everything after it
+        note: >-
+          The gate is the Stack Decision ADR reaching Accepted, which routes
+          through Workflows/ARCHITECTURE_DECISION.md end to end rather than
+          being approved inline here.
+    escalation_triggers:
+      - condition: Phase A question 6 or 7 answered positively — a regulatory framework applies, or PII or sensitive data is held
+        to: Compliance Engineer
+        mandatory: true
+        note: >-
+          Structural, not optional. It must produce either a follow-on Work Unit
+          for gap analysis or an explicit compliance flag carried into the
+          Onboarding handoff. A positive answer recorded only in the Project
+          Charter is an incomplete Phase A.
+
+  - name: Autonomous Delivery
+    file: Workflows/AUTONOMOUS_DELIVERY.md
+    category: Orchestration
+    chain: none
+    step_count: 7
+    steps:
+      - n: 1
+        actor: Director
+        step: Mandate — scope, bounded budget, stop conditions, delivery form
+        gate: true
+      - n: 2
+        actor: Main Agent
+        step: Conductor decomposes into poles with disjoint write scope; one Pole Brief each
+      - n: 3
+        actor: Main Agent
+        step: Poles execute Core/ORCHESTRATION.md on their briefs; every control binds per pole
+      - n: 4
+        actor: Main Agent
+        step: Centralised escalation — High/Critical stops the pole and reaches the Director through the conductor
+      - n: 5
+        actor: Code Reviewer
+        step: Integration pass — merge in dependency order, conflicts as Work Units, full gate suite, review, QA
+      - n: 6
+        actor: Director
+        step: Consolidated delivery — Pole Reports, integration result, rolled-up Risk Records; Director accepts or rejects
+        gate: true
+      - n: 7
+        actor: Main Agent
+        step: Close the run — fold Session State, catalog incidents, delete pole branches after merge
+    gates:
+      - step: 1
+        approver: Director
+        blocks: Any pole starting
+        quote: Director approval of this mandate is required before Step 2.
+      - step: 6
+        approver: Director
+        blocks: Merge of anything the run produced
+        quote: No merge happens without that decision.
+    autonomous_range: 2-5
+    autonomous_note: >-
+      Steps 2 through 5 run without step-by-step prompting, inside the budget
+      Step 1 bounds. A High or Critical risk in any pole is a stop inside that
+      range (Step 4), exactly as it is in a single queue — federation changes
+      pacing, never tier.
+    escalation_triggers:
+      - condition: Two poles need to write the same path
+        to: Conductor — re-partition or serialise; never both
+        mandatory: true
+      - condition: Integration pass red after one remediation round
+        to: Director
+        mandatory: true

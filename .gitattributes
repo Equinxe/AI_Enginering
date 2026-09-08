@@ -4,3 +4,17 @@
 # Windows editors. Force LF for everything under Adapters/, regardless of the
 # checkout platform or user's core.autocrlf setting.
 /Adapters/** text eol=lf
+
+# Registry/ is parsed by those same shell consumers with grep and sed (see
+# Registry/README.md's parsing contract). A CRLF checkout would leave a
+# trailing carriage return on every extracted Employee name, so `grep -qxF`
+# would match nothing and the commit-msg hook would reject every valid
+# Employee. The consumers strip \r defensively as well, but the file itself
+# must not be the thing that introduces it.
+/Registry/** text eol=lf
+
+# .github/ holds this repository's own installed copies of the Adapters above,
+# and the yaml-lint job compares them against the Adapters/ originals. Keeping
+# both sides LF means a diff between them reflects real content drift rather
+# than a line-ending difference on a Windows checkout.
+/.github/** text eol=lf

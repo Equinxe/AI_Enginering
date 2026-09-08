@@ -1,0 +1,107 @@
+name: IA Engineering - Framework Validation
+
+# Runs Adapters/scripts/validate-framework.sh as a blocking check.
+#
+# WHY THIS IS A SEPARATE WORKFLOW FROM pr-validation.yml:
+#
+# The two answer different questions and fail for different reasons, and
+# collapsing them would make a failure ambiguous at exactly the moment it needs
+# to be clear.
+#
+#   pr-validation.yml       asks whether THIS PULL REQUEST is well-formed:
+#                           does it trace to a Work Unit, is its description
+#                           filled in, does every commit name a real Employee.
+#                           Its subject is the contribution.
+#   framework-validation.yml
+#                           asks whether THE FRAMEWORK is internally
+#                           consistent: does the Registry still agree with the
+#                           Employee definitions, do the roster counts quoted in
+#                           VERSION.md and README.md still match, does every
+#                           referenced path still resolve, do the Adapters still
+#                           match this repository's installed copies. Its
+#                           subject is the repository.
+#
+# A PR can be perfectly well-formed and still leave the framework inconsistent
+# — that is precisely the failure mode Governance/CONTRIBUTING.md Section 3 and
+# Governance/DEPRECATION_POLICY.md's Cross-Reference Check exist to catch, and
+# the one this repository has hit at least three times (the ADR trigger
+# cross-reference, the security-sensitive QA trigger, and stale roster counts).
+# Separate workflows mean the check name on the PR says which kind of problem
+# it is before anyone opens the log.
+#
+# ALSO RUNS ON PUSH, not only on pull_request. A merge can produce a state
+# neither parent had — two PRs that each pass in isolation can leave the roster
+# and a document disagreeing once both land. Validating the merge result is the
+# only way to see that.
+#
+# Install in a project that has imported IA Engineering as a submodule:
+#   ./ia-engineering/Adapters/scripts/install.sh
+#
+# Then add "Framework Validation" as a required status check in branch
+# protection (see Adapters/scripts/setup-branch-protection.sh, which already
+# includes it).
+
+on:
+  pull_request:
+    branches: [main, develop, 'release/**']
+    types: [opened, edited, synchronize, reopened]
+  push:
+    branches: [main, develop]
+
+jobs:
+  framework-validation:
+    name: Framework Validation
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # A consumer project imports the framework as a submodule; the
+          # validator and the Registry it reads live inside it.
+          submodules: recursive
+
+      - name: Locate the framework
+        id: locate
+        run: |
+          set -euo pipefail
+          # Same resolution order the commit-msg hook and the employee-trailer
+          # job use: the framework's own repository first, then the
+          # ia-engineering/ submodule path that Workflows/ONBOARDING.md and
+          # Adapters/README.md both assume.
+          for candidate in . ia-engineering; do
+            if [ -x "$candidate/Adapters/scripts/validate-framework.sh" ]; then
+              echo "root=$candidate" >> "$GITHUB_OUTPUT"
+              echo "Framework found at: $candidate"
+              exit 0
+            fi
+          done
+          echo "::error::Could not locate Adapters/scripts/validate-framework.sh (looked in . and ia-engineering/). If the framework is imported at another path, adjust this workflow's Locate step."
+          exit 1
+
+      - name: Validate framework consistency
+        working-directory: ${{ steps.locate.outputs.root }}
+        run: |
+          # --verbose so a passing run still shows every check by name. A green
+          # check that prints nothing tells a reviewer only that a script
+          # exited 0; it does not show what was actually verified, which is the
+          # difference between evidence and ceremony (Adapters/README.md).
+          ./Adapters/scripts/validate-framework.sh --verbose
+
+      - name: Confirm the roster is regenerable without drift
+        working-directory: ${{ steps.locate.outputs.root }}
+        run: |
+          set -euo pipefail
+          # Registry/employees.yml is derived from the Employee definitions, so
+          # regenerating it must be a no-op. A diff here means the committed
+          # roster was hand-edited into a state the generator does not produce
+          # — which would pass every check above (the file is self-consistent
+          # and agrees with the definitions) while quietly breaking the
+          # --regenerate-roster path the next contributor is told to use.
+          cp Registry/employees.yml /tmp/roster-before.yml
+          ./Adapters/scripts/validate-framework.sh --regenerate-roster
+          if ! diff -u /tmp/roster-before.yml Registry/employees.yml; then
+            echo "::error::Registry/employees.yml is not what --regenerate-roster produces. Run './Adapters/scripts/validate-framework.sh --regenerate-roster' and commit the result."
+            exit 1
+          fi
+          echo "Roster regeneration is a no-op — committed file matches the generator."

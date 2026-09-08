@@ -111,7 +111,8 @@ Workflows/     — Engineering workflows
 Templates/     — Reusable templates
 Examples/      — Concrete examples
 Governance/    — Governance documents
-Prompts/       — Reusable prompts
+Registry/      — Machine-readable form of the roster, chains, workflows, Work Units
+Prompts/       — Reserved; see Prompts/README.md
 Adapters/      — Tool integrations
 ```
 
@@ -119,6 +120,8 @@ Adapters/      — Tool integrations
 
 # Current Version
 
-v0.0.11 — Governance
+v0.0.12 — Automation & Convergence
 
-Next: TBD — not yet scoped
+Two milestones under one number: both completed on `develop` before either shipped. See `Governance/VERSIONING_POLICY.md`.
+
+Next: TBD — not yet scoped. The next milestone takes 0.0.13.

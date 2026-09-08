@@ -1,0 +1,88 @@
+name: IA Engineering - Data Policy
+
+# Server-side enforcement of Standards/DATA_PROTECTION_STANDARD.md.
+#
+# The pre-commit hook (Adapters/git-hooks/pre-commit) is the fast local signal;
+# it is bypassable with --no-verify and absent on any clone that never ran
+# install.sh. This job is the control: it runs the same scanner
+# (Adapters/scripts/data-policy-scan.sh — one pattern list for both layers)
+# where a developer machine cannot skip it.
+#
+# TWO SCANS, because they answer different questions:
+#
+#   tree     — is anything protected present at the head of this branch?
+#   history  — was anything protected INTRODUCED by this branch, including a
+#              file added in one commit and deleted in the next? Such a file is
+#              absent from the tree and present in every clone that fetched the
+#              branch. `git ls-files` says clean; `git rev-list --objects` says
+#              otherwise. This is the check that counts.
+#
+# The history scan needs the full history (fetch-depth: 0) and the base branch
+# to compute the range. On push to a protected branch the range is the pushed
+# commits; on a brand-new branch (event.before is all zeros) it falls back to
+# the whole history, which is slower and exactly right.
+#
+# Install in a project that has imported IA Engineering as a submodule:
+#   ./ia-engineering/Adapters/scripts/install.sh
+#
+# Then keep "Data Policy" in the required status checks
+# (Adapters/scripts/setup-branch-protection.sh already includes it).
+
+on:
+  pull_request:
+    branches: [main, develop, 'release/**']
+    types: [opened, synchronize, reopened]
+  push:
+    branches: [main, develop]
+
+jobs:
+  data-policy:
+    name: Data Policy
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Locate the framework
+        id: locate
+        run: |
+          set -euo pipefail
+          # Same resolution order as framework-validation.yml and the hooks.
+          for candidate in . ia-engineering; do
+            if [ -x "$candidate/Adapters/scripts/data-policy-scan.sh" ]; then
+              echo "root=$candidate" >> "$GITHUB_OUTPUT"
+              echo "Framework found at: $candidate"
+              exit 0
+            fi
+          done
+          echo "::error::Could not locate Adapters/scripts/data-policy-scan.sh (looked in . and ia-engineering/). If the framework is imported at another path, adjust this workflow's Locate step."
+          exit 1
+
+      - name: Scan the tree at HEAD
+        run: |
+          set -euo pipefail
+          "${{ steps.locate.outputs.root }}/Adapters/scripts/data-policy-scan.sh" --tree HEAD
+
+      - name: Scan the history this change introduces
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_REF: ${{ github.base_ref }}
+          BEFORE_SHA: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+          SCAN="${{ steps.locate.outputs.root }}/Adapters/scripts/data-policy-scan.sh"
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            RANGE="origin/$BASE_REF..HEAD"
+          elif [ -n "$BEFORE_SHA" ] && ! printf '%s' "$BEFORE_SHA" | grep -qE '^0+$' \
+               && git cat-file -e "$BEFORE_SHA^{commit}" 2>/dev/null; then
+            RANGE="$BEFORE_SHA..HEAD"
+          else
+            echo "No usable base (new branch or force-push) — scanning the whole history."
+            RANGE="--all"
+          fi
+          echo "History range: $RANGE"
+          "$SCAN" --history "$RANGE"

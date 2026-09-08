@@ -1,0 +1,615 @@
+# IA Engineering — Work Unit Registry
+#
+# The Work Units executed in this repository, by ID, with the Employee that
+# produced each.
+#
+# WHY THIS FILE EXISTS
+#
+# Adapters/README.md has carried this under `Planned` since v0.0.9:
+#
+#   A Work Unit ID validator that checks the referenced ID actually exists
+#   (currently only checks the format).
+#
+# The `PR Compliance` job matches /WU-[A-Za-z0-9]+-[0-9]+/ against the PR title
+# and body. `WU-XXXXX-99999` satisfies it. So does a real-looking ID for a Work
+# Unit that was never defined, and so does a typo in a real one — the check
+# proved a string was present, not that it referred to anything. Templates/WORK_UNIT.md
+# requires every Pull Request to trace to a Work Unit; a format check cannot
+# establish traceability, only its appearance.
+#
+# The `Work Unit Exists` job in Adapters/github-actions/pr-validation.yml
+# resolves each commit's `Work Unit:` trailer against this file. It reads
+# trailers, not the PR description — see "HOW THE GAP INTERACTS WITH THE
+# `Work Unit Exists` CHECK" below for the two prose-based versions that came
+# first and why each was wrong.
+#
+# NO HISTORICAL BACKFILL — and why not
+#
+# This registry starts at WU-IAENG-137. Work Units before it are deliberately
+# absent rather than reconstructed.
+#
+# The data is not reliably recoverable. Only 18 distinct Work Unit IDs appear
+# anywhere in this repository's commit messages: the `Work Unit:` trailer was
+# not consistently used, so most historical Work Units exist only as a
+# parenthetical `(WU-IAENG-NNN)` in a CHANGELOG.md line — sometimes attributed,
+# sometimes not, and in several cases one CHANGELOG entry covers two Work Units
+# or one Work Unit spans two entries. Reconstructing owners from git history
+# means guessing, and a guessed `employee:` field is worse than an absent one:
+# it would attribute work to an Employee that may never have been dispatched,
+# which is precisely the false attribution Core/MAIN_AGENT_CONDUCT.md's Dispatch
+# Discipline treats as a violation in its own right.
+#
+# CHANGELOG.md remains the historical record for everything before
+# WU-IAENG-137, and it is the better one — it says what each Work Unit
+# delivered and why, which this file deliberately does not attempt to restate.
+#
+# HOW THE GAP INTERACTS WITH THE `Work Unit Exists` CHECK
+#
+# It does not, and getting there took two wrong turns worth recording, because
+# both looked correct when written.
+#
+# The FIRST version required every Work Unit ID appearing in a Pull Request's
+# title or body to resolve here, on the reasoning that each new Work Unit
+# registers itself in the commit that performs it — so, as the note here then
+# read, "there is no need to invent a floor or an exemption window." That
+# missed the fact that the job scans the whole description, not just the PR's
+# own Work Unit. A description saying "this corrects WU-IAENG-125" would have
+# failed a REQUIRED check for describing its own motivation accurately, and
+# citing earlier Work Unit IDs is routine in this project.
+#
+# The SECOND version required only ONE referenced ID to resolve. That fixed
+# the false failure and quietly restored the original hole: in "Implements
+# WU-IAENG-160, following on from WU-IAENG-137", the historical ID resolves
+# and the PR's actual Work Unit goes unchecked — the one most likely to be
+# mistyped or unregistered. Since nearly every description cites some prior
+# Work Unit, the resolving ID would almost always be the historical one, which
+# collapses the check back into "some WU-shaped string is present". PR
+# Compliance already covers that. Code review caught this one too.
+#
+# The check now reads each commit's `Work Unit:` TRAILER and ignores the
+# description entirely. Prose citations are unbounded and retroactive; a
+# trailer is singular and structural, it is the same evidence source the
+# Employee trailer check already uses, and it cannot be altered by rewording
+# the PR after review. Because a trailer names only the Work Unit its commit
+# performs, a historical ID never enters the comparison, so this registry's
+# starting point stops being a problem the check has to work around.
+#
+# WHAT `employee:` MEANS HERE
+#
+# The Employee the Work Unit was dispatched to, which must match the
+# `Employee:` trailer on its commit. The commit-msg hook validates that trailer
+# against Registry/employees.yml, and validate-framework.sh validates this
+# field against the same roster, so a Work Unit cannot be credited to a name
+# that is not an Employee.
+#
+# PARSING CONTRACT — read this before reformatting.
+# Consumers read these lines with grep and sed:
+#     grep -E '^  - id: '        Registry/work-units.yml
+#     grep -E '^    employee: '  Registry/work-units.yml
+# Keep `  - id: <WU-ID>` as each entry's first line, two leading spaces,
+# unquoted. The validator enforces the shape, the ID format, uniqueness, and
+# that every `employee:` is on the roster.
+
+work_units:
+
+  - id: WU-IAENG-137
+    employee: Software Architect
+    title: Machine-readable Employee roster as single source of truth
+    milestone: Automation
+    delivers: Registry/employees.yml, Registry/README.md
+
+  - id: WU-IAENG-138
+    employee: DevOps Engineer
+    title: Read the Employee roster from the Registry, not a copied array
+    milestone: Automation
+    delivers: Adapters/git-hooks/commit-msg, Adapters/github-actions/pr-validation.yml, .gitattributes
+
+  - id: WU-IAENG-139
+    employee: Test Automation Engineer
+    title: Execute the cross-reference check instead of requiring it by hand
+    milestone: Automation
+    delivers: Adapters/scripts/validate-framework.sh
+
+  - id: WU-IAENG-140
+    employee: Technical Lead
+    title: Resolve the document drift the new validator surfaced
+    milestone: Automation
+    delivers: Core/EMPLOYEE_SELECTION.md, Workflows/PROJECT_BOOTSTRAP.md
+
+  - id: WU-IAENG-141
+    employee: Platform Engineer
+    title: Install every host-agnostic Adapter with one idempotent command
+    milestone: Automation
+    delivers: Adapters/scripts/install.sh, .github/ISSUE_TEMPLATE/
+
+  - id: WU-IAENG-142
+    employee: DevOps Engineer
+    title: Make the bootstrap script perform the steps it is named for
+    milestone: Automation
+    delivers: Adapters/scripts/setup-project-bootstrap.sh, Workflows/PROJECT_BOOTSTRAP.md
+
+  - id: WU-IAENG-143
+    employee: Test Automation Engineer
+    title: Make framework validation a blocking CI check
+    milestone: Automation
+    delivers: Adapters/github-actions/framework-validation.yml
+
+  - id: WU-IAENG-144
+    employee: DevOps Engineer
+    title: Make the CI checks actually block, including on release branches
+    milestone: Automation
+    delivers: Adapters/scripts/setup-branch-protection.sh, Adapters/github-actions/pr-validation.yml
+
+  - id: WU-IAENG-145
+    employee: Software Architect
+    title: Express the six chains and nine workflows as ordered data
+    milestone: Automation
+    delivers: Registry/chains.yml, Registry/workflows.yml
+
+  - id: WU-IAENG-146
+    employee: Engineering Manager
+    title: Register Work Units so a referenced ID can be resolved, not just matched
+    milestone: Automation
+    delivers: Registry/work-units.yml, Adapters/github-actions/pr-validation.yml
+
+  - id: WU-IAENG-147
+    employee: Release Manager
+    title: Automate the mechanical parts of the release workflow, stopping at the Director gate
+    milestone: Automation
+    delivers: Adapters/scripts/release.sh, Workflows/RELEASE.md
+
+  - id: WU-IAENG-148
+    employee: Prompt Engineer
+    title: Generate runtime agent definitions from the Employee definitions
+    milestone: Automation
+    delivers: Adapters/ai-runtimes/generate-agents.sh, Adapters/ai-runtimes/README.md
+
+  - id: WU-IAENG-149
+    employee: Technical Writer
+    title: Sync the repository structure listings and surface the Prompts placeholder
+    milestone: Automation
+    delivers: README.md, CLAUDE.md, Prompts/README.md, Adapters/scripts/validate-framework.sh
+
+  - id: WU-IAENG-150
+    employee: DevOps Engineer
+    title: Record the executable bit on every shipped script in the git index
+    milestone: Automation
+    delivers: Adapters/git-hooks/, Adapters/scripts/, Adapters/ai-runtimes/, Adapters/scripts/validate-framework.sh
+
+  - id: WU-IAENG-151
+    employee: Test Automation Engineer
+    title: Exempt the changelog from live-path resolution, which is a historical record by definition
+    milestone: Automation
+    delivers: Adapters/scripts/validate-framework.sh
+
+  - id: WU-IAENG-152
+    employee: Test Automation Engineer
+    title: Pin byte collation so generated artifacts are identical on every platform
+    milestone: Automation
+    delivers: Adapters/scripts/validate-framework.sh, Adapters/ai-runtimes/generate-agents.sh, Registry/employees.yml
+
+  - id: WU-IAENG-153
+    employee: Test Automation Engineer
+    title: Remove the silent-skip shape from the release gate and the Registry checks
+    milestone: Automation
+    delivers: Adapters/scripts/release.sh, Adapters/scripts/validate-framework.sh
+
+  - id: WU-IAENG-154
+    employee: Engineering Manager
+    title: Require one referenced Work Unit to resolve, not all of them
+    milestone: Automation
+    delivers: Adapters/github-actions/pr-validation.yml, Registry/work-units.yml
+
+  - id: WU-IAENG-155
+    employee: Engineering Manager
+    title: Read the Work Unit claim from commit trailers instead of the PR description
+    milestone: Automation
+    delivers: Adapters/github-actions/pr-validation.yml, Registry/work-units.yml, Registry/README.md
+
+  - id: WU-IAENG-156
+    employee: Test Automation Engineer
+    title: Close three more checks that reported success without evaluating anything
+    milestone: Automation
+    delivers: Adapters/scripts/validate-framework.sh, Adapters/github-actions/pr-validation.yml
+
+  - id: WU-IAENG-157
+    employee: Test Automation Engineer
+    title: Fail on an empty input set, a missing installed copy, and a multi-word chain name
+    milestone: Automation
+    delivers: Adapters/scripts/validate-framework.sh
+
+  - id: WU-IAENG-158
+    employee: Platform Engineer
+    title: Stop the agent generator hanging forever on a trailing value-taking flag
+    milestone: Automation
+    delivers: Adapters/ai-runtimes/generate-agents.sh, Adapters/scripts/release.sh
+
+  - id: WU-IAENG-159
+    employee: Release Manager
+    title: Implement and honestly scope Step 1's readiness conditions
+    milestone: Automation
+    delivers: Adapters/scripts/release.sh, Workflows/RELEASE.md
+
+  - id: WU-IAENG-160
+    employee: Platform Engineer
+    title: Propagate the installer's exit status and skip the hook probes during a merge
+    milestone: Automation
+    delivers: Adapters/scripts/setup-project-bootstrap.sh, Adapters/scripts/install.sh
+
+  - id: WU-IAENG-161
+    employee: Code Reviewer
+    title: Make the advisory review check red when no decision was recorded, and write the check convention down
+    milestone: Automation
+    delivers: Adapters/github-actions/pr-validation.yml, Adapters/scripts/validate-framework.sh, Adapters/README.md
+
+  - id: WU-IAENG-162
+    employee: Security Engineer
+    title: Read the commit trailer from the end of the message, closing an attribution bypass
+    milestone: Automation
+    delivers: Adapters/git-hooks/commit-msg, Adapters/github-actions/pr-validation.yml
+
+  - id: WU-IAENG-163
+    employee: Security Engineer
+    title: Validate every trailer line rather than one chosen by position
+    milestone: Automation
+    delivers: Adapters/git-hooks/commit-msg, Adapters/github-actions/pr-validation.yml
+
+  - id: WU-IAENG-164
+    employee: Technical Writer
+    title: Document the commit trailers in the Commit Standard, contiguous as git defines them
+    milestone: Automation
+    delivers: Standards/COMMIT_STANDARD.md, Adapters/README.md
+
+  - id: WU-IAENG-165
+    employee: Release Manager
+    title: Derive the milestone under release, and attribute Work Units per commit
+    milestone: Automation
+    delivers: Adapters/scripts/release.sh, Workflows/RELEASE.md
+
+  - id: WU-IAENG-166
+    employee: Technical Writer
+    title: Withdraw the contiguity rule, which measurably cost Employee parseability
+    milestone: Automation
+    delivers: Standards/COMMIT_STANDARD.md, Adapters/ai-runtimes/generate-agents.sh
+
+  - id: WU-IAENG-167
+    employee: Security Engineer
+    title: Make a second Work Unit claim an error, so attribution needs no ordinal
+    milestone: Automation
+    delivers: Adapters/git-hooks/commit-msg, Adapters/github-actions/pr-validation.yml, Adapters/scripts/release.sh, Standards/COMMIT_STANDARD.md
+
+  - id: WU-IAENG-168
+    employee: Technical Writer
+    title: Give the deferred trailer-token decision a deadline instead of leaving it open
+    milestone: Automation
+    delivers: Standards/COMMIT_STANDARD.md
+
+  - id: WU-IAENG-169
+    employee: Technical Lead
+    title: Record the fourth convention rule, and fix the count the third one invalidated
+    milestone: Automation
+    delivers: Adapters/scripts/validate-framework.sh, Adapters/README.md, Standards/COMMIT_STANDARD.md
+
+  - id: WU-IAENG-170
+    employee: Test Automation Engineer
+    title: Derive the structure check from tracked content, not the filesystem
+    milestone: Automation
+    delivers: Adapters/scripts/validate-framework.sh
+
+  - id: WU-IAENG-171
+    employee: Technical Lead
+    title: Fix the second half of the count drift, in the paragraph that documents the class
+    milestone: Automation
+    delivers: Adapters/README.md
+
+  - id: WU-IAENG-172
+    employee: Technical Lead
+    title: Add the Risk Standard — one likelihood × impact scale and one stop threshold for every Employee
+    milestone: Convergence
+    delivers: Standards/RISK_STANDARD.md
+
+  - id: WU-IAENG-173
+    employee: Security Engineer
+    title: Add the Data Protection Standard with its three enforcement layers — pre-commit hook, data-policy CI job, one shared scanner
+    milestone: Convergence
+    delivers: Standards/DATA_PROTECTION_STANDARD.md, Adapters/scripts/data-policy-scan.sh, Adapters/git-hooks/pre-commit, Adapters/github-actions/data-policy.yml
+
+  - id: WU-IAENG-174
+    employee: Technical Lead
+    title: Add the Work Unit Report template — a bare "Done" is a failed Work Unit
+    milestone: Convergence
+    delivers: Templates/WORK_UNIT_REPORT.md
+
+  - id: WU-IAENG-175
+    employee: Technical Lead
+    title: Add the Session State template — dated operational state, never committed, separate from the CLAUDE.md contract
+    milestone: Convergence
+    delivers: Templates/SESSION_STATE.md
+
+  - id: WU-IAENG-176
+    employee: Engineering Manager
+    title: Add the Domain Employee template and the project roster extension the hook and CI read
+    milestone: Convergence
+    delivers: Templates/DOMAIN_EMPLOYEE.md, Adapters/git-hooks/commit-msg, Adapters/github-actions/pr-validation.yml, Registry/README.md, Workflows/ONBOARDING.md
+
+  - id: WU-IAENG-177
+    employee: DevOps Engineer
+    title: Make Reviewability concrete — a 1,500-line review limit enforced by a PR Size check, generated files excluded, Director override by label
+    milestone: Convergence
+    delivers: Standards/PULL_REQUEST_STANDARD.md, Adapters/github-actions/pr-validation.yml, Templates/PULL_REQUEST.md
+
+  - id: WU-IAENG-178
+    employee: Technical Lead
+    title: Name the escape hatches — canonical ban list in the Git and Code Quality standards
+    milestone: Convergence
+    delivers: Standards/GIT_STANDARD.md, Standards/CODE_QUALITY_STANDARD.md
+
+  - id: WU-IAENG-183
+    employee: Technical Lead
+    title: Add the Troubleshooting Catalog seeded with this framework's own incidents, and the learning loop that feeds it
+    milestone: Convergence
+    delivers: Governance/TROUBLESHOOTING.md, Governance/CONTRIBUTING.md
+
+  - id: WU-IAENG-179
+    employee: DevOps Engineer
+    title: Add Claude Code hooks — read-first at session start, escape-hatch and inline-suppression blocks, post-edit lint, stop gate
+    milestone: Convergence
+    delivers: Adapters/ai-runtimes/claude-code/hooks/, Adapters/ai-runtimes/claude-code/settings.example.json, Adapters/ai-runtimes/claude-code/install-hooks.sh
+
+  - id: WU-IAENG-180
+    employee: Business Analyst
+    title: Project Bootstrap — profiles A/B/C, the "what constitutes PROOF" question, and the confidential-data question at inception
+    milestone: Convergence
+    delivers: Workflows/PROJECT_BOOTSTRAP.md
+
+  - id: WU-IAENG-181
+    employee: Code Reviewer
+    title: Code Review — multi-lens passes with cross-debate, line re-anchoring, the stated denominator, and the ten review lessons
+    milestone: Convergence
+    delivers: Workflows/CODE_REVIEW.md, Registry/workflows.yml
+
+  - id: WU-IAENG-182
+    employee: Technical Lead
+    title: Orchestration — the dependent-task queue with layered termination; Agent Conduct — Read First and the Reporting Contract
+    milestone: Convergence
+    delivers: Core/ORCHESTRATION.md, Core/AGENT_CONDUCT.md, Adapters/ai-runtimes/generate-agents.sh, Workflows/ONBOARDING.md
+
+  - id: WU-IAENG-184
+    employee: DevOps Engineer
+    title: Independent review bot for Claude Code, and an independent mode for the Review Recorded check keyed on the reviewer's login
+    milestone: Convergence
+    delivers: Adapters/ai-runtimes/claude-code/review-bot.yml, Adapters/github-actions/pr-validation.yml
+
+  - id: WU-IAENG-185
+    employee: Engineering Manager
+    title: Add the Autonomous Delivery workflow — conductor and poles, per-pole controls, centralised escalation, bounded budget, mandatory integration pass
+    milestone: Convergence
+    delivers: Workflows/AUTONOMOUS_DELIVERY.md, Templates/POLE_BRIEF.md, Registry/workflows.yml
+
+  - id: WU-IAENG-186
+    employee: Technical Writer
+    title: Add the oh-my-claudecode transport mapping — what maps, what does not, and where the framework binds regardless
+    milestone: Convergence
+    delivers: Adapters/ai-runtimes/omc/README.md
+
+  - id: WU-IAENG-187
+    employee: Technical Writer
+    title: Sync README, CLAUDE.md, and the Adapter READMEs with the Convergence milestone
+    milestone: Convergence
+    delivers: README.md, CLAUDE.md, Adapters/README.md, Adapters/ai-runtimes/README.md
+
+  - id: WU-IAENG-188
+    employee: DevOps Engineer
+    title: Make the Claude Code hooks pass the Shellcheck Adapters job — lexer as an awk file, source-path resolution in the CI command
+    milestone: Convergence
+    delivers: Adapters/ai-runtimes/claude-code/hooks/strip-quotes.awk, Adapters/ai-runtimes/claude-code/hooks/block-escape-hatches.sh, Adapters/github-actions/pr-validation.yml
+
+  - id: WU-IAENG-189
+    employee: DevOps Engineer
+    title: Generate agents into the project, not the submodule, and read the project roster of Domain Employees
+    milestone: Convergence
+    delivers: Adapters/ai-runtimes/generate-agents.sh, Adapters/ai-runtimes/README.md, Adapters/README.md, Templates/DOMAIN_EMPLOYEE.md, Registry/README.md
+
+  - id: WU-IAENG-190
+    employee: Test Automation Engineer
+    title: Check VERSION.md's Standards, Workflows, and Templates inventories against the repository, and correct the three that had drifted
+    milestone: Convergence
+    delivers: Adapters/scripts/validate-framework.sh, VERSION.md
+
+  - id: WU-IAENG-191
+    employee: Technical Writer
+    title: Add the Convergence vocabulary to the Glossary, order it, and check that ordering mechanically
+    milestone: Convergence
+    delivers: Core/GLOSSARY.md, Adapters/scripts/validate-framework.sh
+
+  - id: WU-IAENG-192
+    employee: Technical Lead
+    title: State which Standards bind every Employee regardless of its own list, and check that all 42 carry Standards First
+    milestone: Convergence
+    delivers: Core/AGENT_CONDUCT.md, Employees/Management/RELEASE_MANAGER.md, Employees/Management/SCRUM_MASTER.md, Adapters/scripts/validate-framework.sh, Governance/TROUBLESHOOTING.md
+
+  - id: WU-IAENG-193
+    employee: Technical Writer
+    title: Add the project CLAUDE.md template that Onboarding Step 1 tells every adopter to use
+    milestone: Convergence
+    delivers: Templates/PROJECT_CLAUDE.md, Workflows/ONBOARDING.md, VERSION.md, README.md
+
+  - id: WU-IAENG-194
+    employee: Security Engineer
+    title: Close seven bypasses and one false positive in the escape-hatch hook, and model command substitution in its lexer
+    milestone: Convergence
+    delivers: Adapters/ai-runtimes/claude-code/hooks/block-escape-hatches.sh, Adapters/ai-runtimes/claude-code/hooks/strip-quotes.awk, Adapters/ai-runtimes/claude-code/hooks/block-inline-suppression.sh
+
+  - id: WU-IAENG-195
+    employee: Test Automation Engineer
+    title: Ship the runtime-hook behaviour tests and run them in CI, with the shellcheck file list derived instead of enumerated
+    milestone: Convergence
+    delivers: Adapters/ai-runtimes/claude-code/hooks/tests/, Adapters/github-actions/pr-validation.yml, Adapters/scripts/setup-branch-protection.sh, Adapters/README.md, Adapters/ai-runtimes/claude-code/hooks/README.md
+
+  - id: WU-IAENG-196
+    employee: DevOps Engineer
+    title: Make generate-agents --dry-run agree with --check, and keep the generated header machine-independent
+    milestone: Convergence
+    delivers: Adapters/ai-runtimes/generate-agents.sh
+
+  - id: WU-IAENG-197
+    employee: Security Engineer
+    title: Close the remaining escape-hatch bypasses found by review — quoted subcommand, eval and shell -c, clean --force, forcing refspec, rm long options
+    milestone: Convergence
+    delivers: Adapters/ai-runtimes/claude-code/hooks/strip-quotes.awk, Adapters/ai-runtimes/claude-code/hooks/block-escape-hatches.sh, Adapters/ai-runtimes/claude-code/hooks/tests/
+
+  - id: WU-IAENG-198
+    employee: DevOps Engineer
+    title: Stop PR Size passing when it measured nothing, range it from the merge base, and tell an API failure from an absent review
+    milestone: Convergence
+    delivers: Adapters/github-actions/pr-validation.yml
+
+  - id: WU-IAENG-199
+    employee: Security Engineer
+    title: Make the history scan see deduplicated blobs, and refuse a zero-path scan over a non-empty range
+    milestone: Convergence
+    delivers: Adapters/scripts/data-policy-scan.sh
+
+  - id: WU-IAENG-200
+    employee: Test Automation Engineer
+    title: Fix four validator defects found by review, and catalogue the two mechanisms the review named
+    milestone: Convergence
+    delivers: Adapters/scripts/validate-framework.sh, Governance/TROUBLESHOOTING.md
+
+  - id: WU-IAENG-201
+    employee: Security Engineer
+    title: Block core.hooksPath as an escape hatch, and stop the suppression hook from refusing every edit on macOS
+    milestone: Convergence
+    delivers: Standards/GIT_STANDARD.md, Adapters/ai-runtimes/claude-code/hooks/block-escape-hatches.sh, Adapters/ai-runtimes/claude-code/hooks/block-inline-suppression.sh, Adapters/ai-runtimes/claude-code/hooks/tests/escape-hatch-cases.tsv
+
+  - id: WU-IAENG-202
+    employee: Technical Lead
+    title: Clear the review's minor findings — derived YAML list, honest independence claim, jq --arg, help ranges, install.sh scope, roster guard, review-bot concurrency and forks
+    milestone: Convergence
+    delivers: Adapters/github-actions/pr-validation.yml, Adapters/scripts/install.sh, Adapters/scripts/data-policy-scan.sh, Adapters/scripts/release.sh, Adapters/scripts/setup-project-bootstrap.sh, Adapters/scripts/validate-framework.sh, Adapters/ai-runtimes/generate-agents.sh, Adapters/ai-runtimes/claude-code/install-hooks.sh, Adapters/ai-runtimes/claude-code/review-bot.yml, Adapters/ai-runtimes/claude-code/hooks/tests/run.sh
+
+  - id: WU-IAENG-203
+    employee: Security Engineer
+    title: Scope the core.hooksPath rule to a git command — it refused a sed that merely named the setting
+    milestone: Convergence
+    delivers: Adapters/ai-runtimes/claude-code/hooks/block-escape-hatches.sh, Adapters/ai-runtimes/claude-code/hooks/tests/escape-hatch-cases.tsv, Governance/TROUBLESHOOTING.md
+
+  - id: WU-IAENG-204
+    employee: Security Engineer
+    title: Close the five bypasses the second verification found — backslash inside a flag, config key case, four destructive spellings, shell -lc, upper-case suppression directives
+    milestone: Convergence
+    delivers: Adapters/ai-runtimes/claude-code/hooks/strip-quotes.awk, Adapters/ai-runtimes/claude-code/hooks/block-escape-hatches.sh, Adapters/ai-runtimes/claude-code/hooks/block-inline-suppression.sh, Adapters/ai-runtimes/claude-code/hooks/tests/
+
+  - id: WU-IAENG-205
+    employee: Security Engineer
+    title: Close the three bypass families the attack pass found — ANSI-C quoting, brace expansion, alias writes — and three more git spellings
+    milestone: Convergence
+    delivers: Adapters/ai-runtimes/claude-code/hooks/strip-quotes.awk, Adapters/ai-runtimes/claude-code/hooks/block-escape-hatches.sh, Adapters/ai-runtimes/claude-code/hooks/tests/
+
+  - id: WU-IAENG-206
+    employee: Test Automation Engineer
+    title: Pin the false-positive guards for the brace expander and the ANSI-C decoder, which had none
+    milestone: Convergence
+    delivers: Adapters/ai-runtimes/claude-code/hooks/tests/
+
+  - id: WU-IAENG-207
+    employee: Security Engineer
+    title: Give ANSI-C quoting its own lexer state, make the expansion bounds fail closed, expand ranges, and stop expanding literal braces
+    milestone: Convergence
+    delivers: Adapters/ai-runtimes/claude-code/hooks/strip-quotes.awk, Adapters/ai-runtimes/claude-code/hooks/block-escape-hatches.sh, Adapters/ai-runtimes/claude-code/hooks/tests/
+
+  - id: WU-IAENG-208
+    employee: Technical Writer
+    title: Bring the chain Examples up to the Convergence rules they demonstrate — reports, risk records, review denominator, line re-anchoring
+    milestone: Convergence
+    delivers: Examples/FEATURE_CHAIN_EXAMPLE.md, Examples/REVIEW_CHAIN_EXAMPLE.md, Examples/HOTFIX_CHAIN_EXAMPLE.md, Examples/INCIDENT_CHAIN_EXAMPLE.md, Examples/README.md
+
+  - id: WU-IAENG-209
+    employee: Technical Lead
+    title: Close the brief-to-report contract — the report template named a destination the brief had no field for
+    milestone: Convergence
+    delivers: Templates/EMPLOYEE_BRIEF.md, Templates/WORK_UNIT.md
+
+  - id: WU-IAENG-210
+    employee: Security Engineer
+    title: Make every unread-input path in the lexer say so — increment ranges, control escapes, heredoc tags
+    milestone: Convergence
+    delivers: Adapters/ai-runtimes/claude-code/hooks/strip-quotes.awk, Adapters/ai-runtimes/claude-code/hooks/tests/
+
+  - id: WU-IAENG-211
+    employee: Security Engineer
+    title: Scan an unquoted heredoc body for substitutions, and read a here-string as a here-string
+    milestone: Convergence
+    delivers: Adapters/ai-runtimes/claude-code/hooks/strip-quotes.awk, Adapters/ai-runtimes/claude-code/hooks/tests/
+
+  - id: WU-IAENG-212
+    employee: Technical Lead
+    title: Record the commit-message backtick trap after its second instance, with the procedural rule
+    milestone: Convergence
+    delivers: Governance/TROUBLESHOOTING.md
+
+  - id: WU-IAENG-213
+    employee: Security Engineer
+    title: Let a read of core.hooksPath through — the rule matched the word, not the action
+    milestone: Convergence
+    delivers: Adapters/ai-runtimes/claude-code/hooks/block-escape-hatches.sh, Adapters/ai-runtimes/claude-code/hooks/tests/escape-hatch-cases.tsv
+
+  - id: WU-IAENG-214
+    employee: Test Automation Engineer
+    title: Resolve cross-references case-exactly so a local run answers what CI asks, and exempt the incident catalog
+    milestone: Convergence
+    delivers: Adapters/scripts/validate-framework.sh, Governance/TROUBLESHOOTING.md, Standards/CODE_QUALITY_STANDARD.md
+
+  - id: WU-IAENG-215
+    employee: Test Automation Engineer
+    title: Scan tracked files for cross-references, so a local scratch note cannot fail the validator
+    milestone: Convergence
+    delivers: Adapters/scripts/validate-framework.sh, .gitignore
+
+  - id: WU-IAENG-216
+    employee: Release Manager
+    title: Let one version carry several milestones, since v0.0.12 carries two
+    milestone: Automation
+    delivers: Adapters/scripts/release.sh
+
+  - id: WU-IAENG-217
+    employee: Release Manager
+    title: State that one version may carry several milestones, and why v0.0.12 does
+    milestone: Automation
+    delivers: Governance/VERSIONING_POLICY.md
+
+  - id: WU-IAENG-218
+    employee: Release Manager
+    title: A version number identifies a release, not a milestone
+    milestone: Automation
+    delivers: Governance/VERSIONING_POLICY.md
+
+  - id: WU-IAENG-219
+    employee: Release Manager
+    title: Bump to v0.0.12 and write the CHANGELOG section for both milestones
+    milestone: Automation
+    delivers: VERSION.md, CHANGELOG.md, CLAUDE.md, README.md
+
+  - id: WU-IAENG-220
+    employee: DevOps Engineer
+    title: Tell a back-merge from wrong refs in the PR Size check
+    milestone: Convergence
+    delivers: .github/workflows/pr-validation.yml, Adapters/github-actions/pr-validation.yml, CHANGELOG.md
+
+  - id: WU-IAENG-221
+    employee: Security Engineer
+    title: A merge-only range enumerates no paths by construction
+    milestone: Convergence
+    delivers: Adapters/scripts/data-policy-scan.sh
+
+  - id: WU-IAENG-222
+    employee: Release Manager
+    title: The back-merge is always required, because Step 6 leaves a commit on main
+    milestone: Convergence
+    delivers: Workflows/RELEASE.md
+
+  - id: WU-IAENG-223
+    employee: Release Manager
+    title: The back-merge cannot be opened with main as its head under strict mode
+    milestone: Convergence
+    delivers: Workflows/RELEASE.md

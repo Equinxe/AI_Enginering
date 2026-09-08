@@ -49,6 +49,8 @@ Before this workflow begins:
 
 ---
 
+# Steps
+
 ## Step 1 — Phase A: Project questions
 
 **Actor:** Main Agent, with Business Analyst and Product Manager
@@ -61,13 +63,14 @@ The Main Agent asks the Director a set of business-before-tech questions, roughl
 4. **Success criteria** — How is "working" measured? What is the definition of done for launch?
 5. **Constraints** — Is there a deadline, a budget, a team size, existing systems to integrate with?
 6. **Compliance / regulatory** — Does GDPR, HIPAA, PCI, SOC 2, ISO 27001, data residency, or licensing apply? What is the jurisdiction / geography of users and data processing — this is upstream of every other question here, since "does GDPR apply" cannot be answered without knowing where data subjects and processing are located. What are the breach notification obligations (e.g., GDPR Art. 33/34's 72-hour window) and data subject rights (access/erasure/portability, Art. 15-20) — both drive architecture decisions (logging, export/delete capability) and belong at inception, not retrofitted later.
-7. **Data sensitivity** — Will this handle PII or secrets? What are the retention needs?
+7. **Data sensitivity** — Will this handle PII or secrets? What are the retention needs? **Will real documents, exports, or samples be needed during development** — and if so, where do they live? The answer is always `Standards/DATA_PROTECTION_STANDARD.md`'s local data directory, gitignored before the first commit; the question is asked so the Director hears the rule before the first file exists, not after it is in history.
 
 > The frameworks and obligations named above (GDPR, HIPAA, PCI, SOC 2, ISO 27001, etc.) are engineering-discovery prompts to surface what needs architectural attention — not a statement of legal completeness, and not a substitute for qualified legal counsel. See the Compliance Engineer's Failure Modes for the same caveat applied to that Employee's own output.
 8. **Scale expectations** — What is the expected user/request/data volume at launch, and at a future horizon?
 9. **Lifecycle** — Is this a prototype, a product, a long-lived system? What maintenance is expected?
 10. **Stakeholders & decision authority** — Who is the Director for this project? Who else must approve decisions?
 11. **Assumptions & Risks** — What must be true for this to succeed? What is the biggest risk to delivery?
+12. **What constitutes PROOF** — For each output the project produces that someone will act on — a report, a total, a classification, a recommendation — what, concretely, shows it is *correct*? A reconciling total against a named source of truth? Agreement with an authoritative table? A domain expert's sign-off on a named sample? "The pipeline ran without error" is never the answer. This question decides whether the project needs a Domain Employee (`Templates/DOMAIN_EMPLOYEE.md`, `Workflows/ONBOARDING.md` Step 4), and it names the reference that Employee reconciles against. A project that cannot answer it yet records that as its first open risk under question 11.
 
 **Output:** Phase A answers captured. These become the durable **Project Charter** artifact (`Templates/PROJECT_CHARTER.md`), which records the business-requirements answers so they are not lost once implementation begins.
 
@@ -92,7 +95,21 @@ Only after Phase A is answered, the Software Architect asks the Director the tec
 - **Test tooling** — the testing framework(s) for the chosen stack.
 - **Secrets management** — how credentials and secrets will be stored and accessed.
 
-**Output:** Stack decided. The Software Architect drafts a **Stack Decision ADR** using `Templates/ADR.md`, following `Workflows/ARCHITECTURE_DECISION.md` end to end (research, draft, review, Director approval).
+### Project Profiles
+
+Before the individual questions, the Software Architect places the project in one of three **profiles**. The profile does not replace the questions; it decides which of them carry weight, what the first ADR is about, and which Employees `Workflows/ONBOARDING.md` Step 4 activates by default.
+
+| Profile | Shape | What dominates Phase B | Default roster emphasis | First ADR is usually |
+|---|---|---|---|---|
+| **A — Web application** | A service with a UI and/or API, its own data store, users who log in | Framework, data store, API style, hosting, secrets management | Backend Engineer, Frontend Engineer, Database Engineer, Security Engineer, QA Engineer | Data store selection |
+| **B — Integration with a heavy external system** | The project's value is in reading from, writing to, or orchestrating a system it does not own — an ERP, a legacy database, a vendor API, a hardware controller | The external system's contract and failure modes; **what constitutes PROOF** (Phase A question 12) becomes the central design input; test tooling against a system that cannot be run locally | Integration Engineer, Data Engineer, a **Domain Employee** for the external system's business rules, QA Engineer, Security Engineer | The integration boundary — sync vs. event-driven, source of truth, reconciliation |
+| **C — Library or CLI** | No persistent state of its own; consumed by other code or by an operator | Language/runtime, public interface stability, packaging and distribution, test tooling; data store and hosting questions usually do not apply | Backend Engineer (or the platform Engineer for the language), Technical Writer, QA Engineer | Public interface and versioning policy |
+
+A project that fits two profiles is two projects sharing a repository until the Director says otherwise; that observation itself is recorded in the Stack Decision ADR.
+
+Profile B is the one this framework most often meets on real engagements and the one where engineering correctness and *output* correctness diverge furthest — which is why its default roster includes a Domain Employee and why question 12 is not optional for it.
+
+**Output:** Stack decided. The Software Architect drafts a **Stack Decision ADR** using `Templates/ADR.md`, following `Workflows/ARCHITECTURE_DECISION.md` end to end (research, draft, review, Director approval). The ADR names the profile.
 
 **Handoff to:** Step 3 — only after the Stack Decision ADR is Accepted.
 
@@ -119,11 +136,9 @@ With the stack decided, generate the baseline repository content:
 
 **Actor:** DevOps Engineer
 
-1. Apply branch protection using `Adapters/scripts/setup-branch-protection.sh`.
-2. Install git hooks (`commit-msg`, `pre-push`) from `Adapters/git-hooks/`.
-3. Add `.github/workflows/pr-validation.yml` from the existing Adapter.
-4. Add `.github/workflows/ci-build-test.yml`, generated from `Adapters/github-actions/ci-build-test.yml` and a stack-appropriate `Dockerfile`, using `Adapters/scripts/setup-project-bootstrap.sh`.
-5. Add `.github/PULL_REQUEST_TEMPLATE.md` from the existing Adapter.
+1. Run `Adapters/scripts/setup-project-bootstrap.sh <stack>` with the stack decided in Step 2. One command installs the git hooks (via `core.hooksPath`), `.github/workflows/pr-validation.yml`, `.github/workflows/framework-validation.yml`, `.github/PULL_REQUEST_TEMPLATE.md`, `.github/ISSUE_TEMPLATE/` (Step 6 below), the `.gitattributes` LF rules, `.github/workflows/ci-build-test.yml`, `.github/workflows/ghcr-publish.yml` (Step 5 below), and a stack-appropriate `Dockerfile`. It is idempotent, supports `--dry-run`, and verifies the installed `commit-msg` hook actually rejects an invalid Employee trailer rather than assuming the copy worked.
+2. Apply branch protection using `Adapters/scripts/setup-branch-protection.sh`. This is deliberately **not** part of the script above: it mutates settings every collaborator sees and needs an authenticated `gh`, so it is run once per repository as its own decision.
+3. Confirm the script's closing report. It lists the Coverage Checklist items no script can complete — the README, `.gitignore`, Project Charter, Stack Decision ADR, `CLAUDE.md` roster, branch creation, and first Work Unit — so they stay visible instead of being assumed done.
 
 **Output:** CI/CD Adapter scaffolded and enforcing.
 
@@ -135,7 +150,7 @@ With the stack decided, generate the baseline repository content:
 
 **Actor:** DevOps Engineer, GitOps Engineer consulted
 
-1. Add `.github/workflows/ghcr-publish.yml`, generated from `Adapters/github-actions/ghcr-publish.yml`.
+1. Already installed by `Adapters/scripts/setup-project-bootstrap.sh` in Step 4, which copies `Adapters/github-actions/ghcr-publish.yml` alongside the CI workflow because both depend on the same stack decision. Confirm it is present and that the `Dockerfile` it builds matches the chosen stack.
 
 **GHCR scope is build and publish only.** This step results in the container image being built and published to `ghcr.io/<owner>/<repo>`. It does not produce Kubernetes manifests, Compose files, or any environment configuration, and it does not run the image anywhere. Actually deploying that published image to an environment is out of scope for this milestone — it belongs to a future, separate Deployment milestone. Do not treat GHCR publishing as deployment.
 
@@ -149,7 +164,10 @@ With the stack decided, generate the baseline repository content:
 
 **Actor:** DevOps Engineer
 
-1. Add `.github/ISSUE_TEMPLATE/` (bug report, feature request, config) from `Adapters/github/ISSUE_TEMPLATE/`.
+1. Already installed by `Adapters/scripts/setup-project-bootstrap.sh` in Step 4, which delegates it to `Adapters/scripts/install.sh`.
+2. Replace the `OWNER/REPO` placeholders in `.github/ISSUE_TEMPLATE/config.yml` with this project's own owner and repository name. The Adapter ships them as placeholders on purpose, and `install.sh` warns while they remain — left unreplaced, the Questions and Security Vulnerability contact links point at a repository that does not exist.
+
+Until WU-IAENG-142 this step was not actually performed by the script it named. `setup-project-bootstrap.sh` carried a TODO deferring issue-template installation to a follow-up Work Unit, gated on template files that had already shipped in v0.0.10 — so the deferral outlived its reason and was never removed. A project bootstrapped by following this workflow exactly ended up with no issue templates, and nothing reported the omission. `Adapters/scripts/validate-framework.sh` now fails on an unresolved work marker in any shipped Adapter, so the same gap cannot reopen quietly.
 
 Issue templates are an **independent external intake surface** — a way for anyone (not only the Director or active Employees) to file a bug report or feature request. They are deliberately **not** wired into the Work Unit/Pull Request flow: `Templates/WORK_UNIT.md` has no mandatory Issue ID field, and there is no procedural requirement to convert an Issue into a Work Unit before work can begin. This preserves the existing Work Unit model untouched. An Issue may inform a future Work Unit, at the Engineering Manager's discretion, but that is a judgment call, not a mandated handoff.
 
@@ -175,25 +193,41 @@ If Phase A question #6 or #7 (Step 1) was answered positively, the compliance fl
 
 # Coverage Checklist (Definition of Done)
 
-This workflow is not complete until every item below is checked. This is the explicit "check every place and thing to do" gate for Project Bootstrap:
+This workflow is not complete until every item below is checked. This is the explicit "check every place and thing to do" gate for Project Bootstrap.
 
-- [ ] `README.md` (project identity from Phase A answers)
-- [ ] `.gitignore` (stack-appropriate)
+Each item names what actually performs it. A checklist item whose mechanism is unnamed is an item that gets assumed done — which is precisely what happened to the issue templates before WU-IAENG-142.
+
+**Performed by `Adapters/scripts/setup-project-bootstrap.sh <stack>` (Step 4):**
+
 - [ ] `.gitattributes` (LF enforcement, mirroring this framework's own repo)
-- [ ] `main` + `develop` branches created
-- [ ] Branch protection applied (`Adapters/scripts/setup-branch-protection.sh`)
-- [ ] Git hooks installed (`commit-msg`, `pre-push`)
+- [ ] Git hooks installed (`commit-msg`, `pre-commit`, `pre-push`, via `core.hooksPath`)
+- [ ] `.gitignore` data-protection rules (`local_test_data/`, `.env`, `.ia-engineering/SESSION_STATE.md`) and the local data directory
 - [ ] `.github/workflows/pr-validation.yml`
+- [ ] `.github/workflows/framework-validation.yml`
+- [ ] `.github/workflows/data-policy.yml`
 - [ ] `.github/workflows/ci-build-test.yml`
 - [ ] `.github/workflows/ghcr-publish.yml`
 - [ ] `.github/PULL_REQUEST_TEMPLATE.md`
 - [ ] `.github/ISSUE_TEMPLATE/` (bug report, feature request, config)
 - [ ] `Dockerfile` (stack-appropriate)
+
+**Performed by a separate, deliberate command:**
+
+- [ ] Branch protection applied (`Adapters/scripts/setup-branch-protection.sh`) — separate because it mutates settings every collaborator sees
+- [ ] `main` + `develop` branches created and pushed
+- [ ] `.github/ISSUE_TEMPLATE/config.yml` `OWNER/REPO` placeholders replaced
+
+**Requires judgment, a decision, or the Director — no script can complete these:**
+
+- [ ] `README.md` (project identity from Phase A answers)
+- [ ] `.gitignore` (stack-appropriate)
 - [ ] `CLAUDE.md` created + active roster (handoff to `ONBOARDING.md` Step 4)
 - [ ] Project Charter artifact (Phase A answers)
-- [ ] Stack Decision ADR (Phase B decision)
+- [ ] Stack Decision ADR (Phase B decision, Accepted)
 - [ ] First Work Unit created + Director-approved (`ONBOARDING.md` Step 6)
 - [ ] Framework imported (submodule/reference)
+
+`setup-project-bootstrap.sh` prints the last two groups as a closing report, so the items it cannot perform stay visible rather than silently unchecked.
 
 ---
 
@@ -232,7 +266,7 @@ This workflow is complete when:
 
 Owner: IA Engineering
 
-Version: 0.0.10
+Version: 0.0.11
 
 Status: Draft
 

@@ -1,0 +1,213 @@
+block	git commit --no-verify -m x
+block	git commit -m x --no-verify
+block	git commit "--no-verify" -m x
+block	git commit '--no-verify' -m x
+block	git commit -n -m x
+block	git -c user.name=x commit --no-verify -m y
+block	git -C . push --force
+block	git push --force
+block	git push -f
+block	git push --force;
+block	git push --force && echo done
+block	git push --force-with-lease=main origin main
+block	git push --mirror origin
+block	git push origin main --force
+block	git push '--force'
+block	git push $(echo --force)
+block	GIT_DIR=.git git push --force
+block	git push -f origin main
+block	git push origin --delete release/v1
+block	git stash
+block	git stash push -m wip
+block	git rebase -i HEAD~3
+block	git add -p
+block	git reset --hard HEAD~1
+block	git clean -fd
+block	git checkout -- .
+block	git restore .
+block	git branch -D feat/x
+block	git filter-repo --path secret.pdf --invert-paths
+block	git filter-branch --tree-filter x
+block	rm -rf .git
+block	rm -rf /
+block	git commit --no-gpg-sign -m x
+block	git -c commit.gpgsign=false commit -m x
+allow	git commit -m "docs: never use --no-verify"
+allow	git commit -q -m "feat(x): a" -m "mentions --no-verify and git push --force in prose"
+allow	grep -rn -- --no-verify Standards/
+allow	grep -rn "no-verify" Standards/
+allow	echo "git push --force is forbidden" >> notes.md
+allow	git push -u origin feat/x
+allow	git push origin feat/x
+allow	git push -n origin feat/x
+allow	git push origin --delete feat/old
+allow	git stash list
+allow	git stash show
+allow	git add -A
+allow	git reset HEAD~1
+allow	git checkout -- Standards/X.md
+allow	git restore --staged file
+allow	git branch -d feat/x
+allow	rm -rf build/
+allow	ls -- -weird
+allow	git log --oneline -- Adapters/
+allow	git -c commit.gpgsign=true commit -m x
+allow	echo "$(git log --oneline -1)"
+allow	printf '%s\n' "$(git status --short)" | head -5
+allow	F="$(git rev-parse HEAD)"; echo "$F"
+allow	awk '/x/{print "a'"'"'b"; next} {print}' f && git commit -m ok
+block	git push --delete origin main
+block	git push origin --delete develop
+block	git push origin -d release/v0.0.12
+allow	git push origin --delete feature-main
+allow	git push origin --delete feat/mainline
+block	git "reset" --hard HEAD
+block	git commit -m msg "--no-verify"
+block	git reset "--hard" HEAD
+block	bash -c 'git commit --no-verify -m x'
+block	sh -c "git push --force"
+block	eval "git push --force"
+block	eval 'git reset --hard'
+block	git clean --force -d
+block	git clean --force
+block	git push origin +main
+block	git push origin +HEAD:main
+block	git push origin +refs/heads/x:refs/heads/main
+block	rm --recursive --force /
+block	rm -rf /*
+block	rm -rf .git/*
+allow	git commit -m "a short message"
+allow	git commit -m wip
+allow	git push origin main
+allow	echo "git push --force"
+allow	git log --format="%h %s"
+allow	rm -rf node_modules/
+allow	rm -rf build
+block	git -c core.hooksPath=/dev/null commit -m x
+block	git -c core.hooksPath= commit -m x
+block	git config core.hooksPath /dev/null
+block	git config --local core.hooksPath ""
+allow	./ia-engineering/Adapters/scripts/install.sh
+allow	git config --get core.editor
+allow	grep -rn core.hooksPath Standards/
+allow	sed -i 's|old core.hooksPath text|new text|' notes.md
+allow	echo "core.hooksPath is an escape hatch" >> notes.md
+allow	git log --oneline | grep core.hooksPath
+block	git commit --no-veri\fy -m x
+block	git push --for\ce origin main
+block	git reset --ha\rd HEAD
+block	git \reset --hard HEAD
+block	git -c commit.gpgSign=false commit -m x
+block	git -c commit.GPGSIGN=0 commit -m x
+block	git config commit.gpgsign false
+block	git config --global commit.gpgSign off
+block	git branch --delete --force feature/x
+block	git branch --force --delete feature/x
+block	git push origin :main
+block	git push origin :develop
+block	git checkout --force other-branch
+block	git checkout -f other-branch
+block	git switch --force other
+block	git update-ref -d refs/heads/main
+block	bash -lc "git push -f origin main"
+block	sh -ec 'git reset --hard'
+allow	git -c commit.gpgsign=true commit -m x
+allow	git config --get commit.gpgsign
+allow	git branch -d feature/x
+allow	git push origin feat/x:feat/x
+allow	git checkout other-branch
+allow	git switch other
+allow	git update-ref refs/heads/x HEAD
+allow	git commit -m "the flag --no-verify is banned"
+block	git push $'--force' origin main
+block	git push $'-f' origin main
+block	git push $'--mirror' origin
+block	git reset $'--hard' HEAD
+block	git clean $'-fd'
+block	git branch $'-D' feature/x
+block	git rebase $'-i' HEAD~3
+block	git commit $'-n' -m x
+block	git $'stash'
+block	git commit $'--no-verify' -m x
+block	git push $"--force" origin main
+block	git push $'\x2d\x2dforce' origin main
+block	git reset $'\055\055hard' HEAD
+block	git push $'--force' origin main
+block	git push --{f,f}orce origin main
+block	git commit --no-{verify,verify} -m x
+block	git reset --{hard,hard} HEAD
+block	git clean -{f,f}d
+block	git branch -{D,D} feature/x
+block	git push origin --delete refs/heads/main
+block	git push origin --delete refs/heads/develop
+block	git push origin :refs/heads/main
+block	git branch -d --force feature/x
+block	git branch --force -d feature/x
+block	git restore :/
+block	git checkout -- :/
+block	git config alias.yolo "push --force"
+block	git config --global alias.nv "commit --no-verify"
+block	git config alias.nuke "reset --hard"
+allow	git config alias.st status
+allow	git config alias.lg "log --oneline --graph"
+allow	git push origin --delete refs/heads/feat-x
+allow	git restore src/main.c
+allow	git checkout -- src/main.c
+allow	mkdir -p src/{a,b}
+allow	cp file.{txt,bak}
+allow	git checkout {main,develop}
+allow	rm -rf {build,dist}
+allow	find . -name "*.{js,ts}" -exec rm -rf {} \;
+allow	git log --format={short,full}
+allow	git push origin {feat-a,feat-b}
+allow	mv old/{x,y} new/
+allow	rm -rf {a,b}/
+allow	cd /tmp && rm -rf {x,y}
+allow	git log --pretty=$'%h %s'
+block	git push --{f,f}{o,o}rce origin
+block	git reset --h{a,a}rd HEAD
+block	git commit $'\'' --no-verify -m x
+block	git push $'\'' -f origin main
+block	git reset $'\'' --hard HEAD
+block	git push --{a,b,c,d,e,f,g,h,force} origin
+block	git push -{f,f}{,}{,}{,}{,}{,}{,}{,}{,} origin
+block	git push -{e..g} origin main
+block	git clean -{d..f} .
+block	git branch -{B..D} feature/x
+block	git commit $'\x2d\x2dno\x2dverify' -m x
+allow	git push "--{f,f}orce" origin main
+allow	git push '--{f,f}orce' origin main
+allow	git push --\{f,f\}orce origin main
+allow	git commit -m $'a quoted '\'' apostrophe'
+allow	mkdir -p dir{1..3}
+allow	echo $'hello\tworld'
+allow	git log --format=$'%h %s'
+allow	cp file.txt{,.bak}
+block	git push --f{o..o..1}rce origin main
+block	git commit -m x --no-veri{f..f..1}y
+block	git reset --h{a..a..1}rd
+block	git st{a..a..1}sh
+block	rm -r{f..f..1} /
+block	git -c core.hooksPat{h..h..1}=/dev/null commit -m x
+block	git push origin {+..,}main
+block	git branch {-..-..1}D x
+block	git push $'--force\c@DECOY' origin main
+block	git push $'--force\c ' origin main
+block	git reset $'--hard\c@D'
+block	git $'stash\c@D'
+block	git branch $'-D\c@D' x
+block	git $'filter-repo\c@DECOY' --path x
+block	git update-ref $'-d\c@D' refs/heads/main
+allow	mkdir -p dir{1..3}
+allow	mkdir -p dir{1..9..2}
+allow	touch file{a..e}.txt
+allow	printf $'\x41\x42'
+allow	echo $'hello\tworld'
+allow	cat <<<hello
+allow	cat <<< "hello world"
+allow	grep -q foo <<<"$VAR"
+allow	git config --get core.hooksPath
+allow	git config --get-all core.hooksPath
+allow	git config --list | grep core.hooksPath
+block	git config --unset core.hooksPath
+block	git config --local core.hooksPath .githooks
