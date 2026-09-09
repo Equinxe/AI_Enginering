@@ -775,7 +775,7 @@ CHECK_MAP="$SCRIPTS/check-risk-map.sh"
 
 # A Risk Map is wrong easily and SILENTLY: it classifies something important as
 # ordinary and everything downstream then behaves correctly on a false input.
-# Templates/RISK_MAP.md lists four ways that happens; these cases are those four
+# Templates/RISK_MAP.md lists five ways that happens; these cases are the first four
 # plus the states the check must tell apart.
 
 # risk_project — a fixture with a sensitive area, a routine area, and an

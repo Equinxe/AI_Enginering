@@ -184,7 +184,7 @@ meets that state says so rather than passing.
 
 ### Writing one
 
-`Templates/RISK_MAP.md` carries the shape, the four ways a map goes wrong, and the commands
+`Templates/RISK_MAP.md` carries the shape, the five ways a map goes wrong, and the commands
 that catch each. The short version: **a Risk Map is wrong easily and silently**, so it is
 verified by computing the level of every tracked file, never by re-reading the list.
 

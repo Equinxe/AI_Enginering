@@ -8,9 +8,12 @@
 #
 # A wrong Risk Map does not fail. It quietly classifies something important as
 # ordinary, and every control downstream then behaves correctly on a false
-# input. Templates/RISK_MAP.md lists four ways that happens, and the reason
-# they are listed is that all four were found by running commands and none by
-# re-reading a map. This script is those commands.
+# input. Templates/RISK_MAP.md lists five ways that happens; the first four
+# were found by running commands and none by re-reading a map, and this script
+# is those commands. The fifth — a zone drawn too wide, so a Risk Record is
+# demanded on every commit and stops meaning anything — is a judgement this
+# script cannot make: it does not know which of two files is a trust boundary.
+# It surfaced on the first Pull Request after this repository's own map merged.
 #
 # AN UNMAPPED PROJECT IS UNCLASSIFIED, NOT SAFE. Without a map every path falls
 # back to standard, which is the sensitive paths silently losing whatever the

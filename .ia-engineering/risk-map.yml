@@ -111,14 +111,50 @@ zones:
       deadlocked a release against its own required checks, and neither was
       visible by reading — only by executing the workflow.
 
-  - pattern: "Registry/*"
+  - pattern: ".ia-engineering/risk-map.yml"
     level: sensitive
     category: core_architecture
     reason: >
-      Read by the commit-msg hook and two required CI checks. A malformed
-      roster does not fail loudly: it resolves to nothing, and then every
-      commit is refused for a reason that describes the commits instead of
-      the file.
+      This file. A wrong map does not fail: it classifies something important
+      as ordinary, and every control that reads it then behaves correctly on
+      a false input. The one file whose errors are invisible by construction.
+
+  - pattern: "Registry/employees.yml"
+    level: sensitive
+    category: infrastructure_and_ci
+    reason: >
+      Read by the commit-msg hook and the Employee Trailer check to decide
+      which names may author a commit. A wrong name added here is ACCEPTED
+      from then on, and nothing reports that the roster widened.
+
+  # The other Registry files are NOT sensitive, and this is a correction made
+  # on the first Pull Request after the map merged. "Registry/*" was sensitive
+  # as a whole, and work-units.yml is appended on EVERY Work Unit to register
+  # it — so every commit in the repository would have required a RISK: line,
+  # and a record present everywhere records nothing. The difference between
+  # the roster above and the three below is what a wrong change does: the
+  # roster silently widens who may commit; these three fail loudly, because
+  # check-work-units.sh and validator section 13 each report a malformed or
+  # divergent file by name.
+  - pattern: "Registry/work-units.yml"
+    level: standard
+    reason: >
+      Appended on every Work Unit. A malformed entry is caught by
+      check-work-units.sh with a parsing-contract message that names the file,
+      not the commits. Bookkeeping, and classifying it higher makes the RISK
+      record noise.
+
+  - pattern: "Registry/chains.yml"
+    level: standard
+    reason: >
+      Derived from Core/AGENT_CHAINS.md and compared against it by validator
+      section 13, which fails by name on any divergence. Loud, not silent.
+
+  - pattern: "Registry/workflows.yml"
+    level: standard
+    reason: >
+      Derived from Workflows/ and compared against them by validator section
+      13, which fails by name on any divergence. Loud, not silent.
 
   - pattern: ".gitattributes"
     level: sensitive
