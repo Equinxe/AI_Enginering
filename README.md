@@ -165,7 +165,7 @@ Completed
 - ✅ Capability Tiers (AI-agnostic execution tiers matching capability to Work Unit complexity)
 - ✅ Adapters (GitHub git hooks, Actions CI checks, PR template, branch protection setup script, CI/CD + GHCR publishing, GitHub Issue Templates, data-policy scanner, PR size gate, Claude Code runtime hooks, independent review bot)
 - ✅ Project Bootstrap (dedicated bootstrap workflow, Project Charter template, CI/CD + GHCR publishing adapters, GitHub Issue Templates, compliance and business/product hardening)
-- ✅ Governance (Contributing, Versioning Policy, Deprecation Policy, Troubleshooting Catalog)
+- ✅ Governance (Contributing, Versioning Policy, Deprecation Policy, Troubleshooting Catalog, Dispatch in Practice)
 - ✅ Registry (machine-readable roster, agent chains, workflow steps and gates, Work Units — derived from the governed documents, never authoritative over them)
 - ✅ Automation (framework self-validation in CI, one-command Adapter installation, release-workflow automation up to the Director gate, runtime agent generation from the Employee definitions)
 - ✅ Convergence (governance concepts absorbed from sibling frameworks and made framework-wide: a shared Risk scale with stop tiers, structural Data Protection with a pre-commit hook and a history-scanning CI check, the Work Unit Report and Session State contracts, Domain Employees with a project roster, a review-size gate, the escape-hatch ban list enforced by Claude Code hooks, multi-lens review, the dependent-task queue, the conductor/pole Autonomous Delivery workflow, and the Troubleshooting Catalog with its learning loop)
