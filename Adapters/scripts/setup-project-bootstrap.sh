@@ -175,17 +175,114 @@ copy_into "$ADAPTERS_DIR/github-actions/ghcr-publish.yml" ".github/workflows/ghc
 # unions in. Only SESSION_STATE.md is gitignored. So this file belongs there
 # and must be COMMITTED — a declaration CI cannot read declares nothing.
 STACK_FILE=".ia-engineering/stack"
-if [ -f "$STACK_FILE" ] && ! printf '%s
-' "${PASSTHROUGH[@]+"${PASSTHROUGH[@]}"}" | grep -qx -- '--force'; then
+if [ -f "$STACK_FILE" ] && ! printf '%s\n' "${PASSTHROUGH[@]+"${PASSTHROUGH[@]}"}" | grep -qx -- '--force'; then
   echo "  ! $STACK_FILE already exists (declares '$(tr -d '[:space:]' < "$STACK_FILE")') — left untouched." >&2
   echo "    Re-run with --force to change the declared stack." >&2
 elif [ "$DRY_RUN" -eq 1 ]; then
   echo "  [dry-run] write $STACK_FILE containing '$STACK'"
 else
   mkdir -p "$(dirname "$STACK_FILE")"
-  printf '%s
-' "$STACK" > "$STACK_FILE"
+  printf '%s\n' "$STACK" > "$STACK_FILE"
   echo "  + $STACK_FILE ($STACK)  — commit this; CI reads it"
+fi
+
+# A STARTER RISK MAP, FOR THE FILES THIS SCRIPT JUST INSTALLED — AND ONLY THOSE.
+#
+# Standards/RISK_STANDARD.md: a project without a Risk Map is unclassified, not
+# safe, and the Risk Map CI check says so on the first Pull Request. That is the
+# right behaviour and it is also the first thing an adopter meets, so the
+# mechanical part is done here: the workflows, the Dockerfile and the
+# .gitattributes this script wrote are infrastructure, and the map itself is the
+# one file whose errors are invisible by construction.
+#
+# WHAT THIS DELIBERATELY DOES NOT DO is declare any category absent. Only the
+# project knows whether it authenticates anyone or stores personal data, and a
+# false declaration of absence switches the category off — the Standard calls
+# that worse than an omission. So the `absent:` block is left empty on purpose,
+# and check-risk-map.sh will list the unaccounted categories by name until the
+# project searches for each one. An honest incomplete map that says what is
+# missing beats a complete-looking one that guesses.
+RISK_MAP_FILE=".ia-engineering/risk-map.yml"
+if [ -f "$RISK_MAP_FILE" ] && ! printf '%s\n' "${PASSTHROUGH[@]+"${PASSTHROUGH[@]}"}" | grep -qx -- '--force'; then
+  echo "  ! $RISK_MAP_FILE already exists — left untouched. It is the project's own" >&2
+  echo "    classification; re-run with --force to replace it with the starter." >&2
+elif [ "$DRY_RUN" -eq 1 ]; then
+  echo "  [dry-run] write $RISK_MAP_FILE (starter: installed files only, no category declared absent)"
+else
+  mkdir -p "$(dirname "$RISK_MAP_FILE")"
+  cat > "$RISK_MAP_FILE" <<'RISKMAP'
+# Risk Map — STARTER, written by setup-project-bootstrap.sh
+#
+# Change-zone levels per Standards/RISK_STANDARD.md: routine | standard | sensitive.
+# Patterns are matched in order and the FIRST match wins. `*` crosses `/`.
+# How to finish this, and the five ways a map goes wrong: Templates/RISK_MAP.md.
+#
+# This starter classifies ONLY the files the bootstrap installed. It declares no
+# category absent, because only this project knows what it authenticates, stores
+# or spends — and a false declaration of absence switches a category off.
+# `check-risk-map.sh` will name the unaccounted categories until each is either
+# mapped to paths below or declared absent with a reason someone else can check.
+#
+# Verify after committing (the check reads tracked files):
+#   ./ia-engineering/Adapters/scripts/check-risk-map.sh
+#   ./ia-engineering/Adapters/scripts/check-risk-map.sh --explain
+
+version: 1
+
+zones:
+  - pattern: ".ia-engineering/risk-map.yml"
+    level: sensitive
+    category: core_architecture
+    reason: >
+      This file. A wrong map does not fail: it classifies something important
+      as ordinary, and every control that reads it then behaves correctly on
+      a false input.
+
+  - pattern: ".github/workflows/*"
+    level: sensitive
+    category: infrastructure_and_ci
+    reason: >
+      The CI gates. Loosening a trigger or a check is invisible in the diff of
+      the thing it stops guarding.
+
+  - pattern: "Dockerfile"
+    level: sensitive
+    category: infrastructure_and_ci
+    reason: >
+      What ships. A change here changes the runtime image for every deploy,
+      and the build passing says nothing about what the image contains.
+
+  # install.sh installs more infrastructure that belongs here ONCE YOU CONFIRM
+  # IT EXISTS — .gitattributes (LF enforcement the hooks depend on), the git
+  # hooks themselves, the PR and issue templates. They are NOT mapped by the
+  # starter because install.sh is a separate step that can fail, and a zone for
+  # a file that is not there is a dead entry (Templates/RISK_MAP.md, trap 4).
+  # When you have committed them, add:
+  #
+  #   - pattern: ".gitattributes"
+  #     level: sensitive
+  #     category: infrastructure_and_ci
+  #     reason: LF enforcement the hooks depend on; a CRLF hook is skipped silently.
+
+  # ---- YOUR PROJECT'S OWN ZONES GO ABOVE THIS LINE -------------------------
+  # Authentication, authorisation, payments, personal data, migrations,
+  # secrets, the modules the deliverable depends on: search for each of the
+  # eight categories in Standards/RISK_STANDARD.md and map what you find.
+
+  - pattern: "*"
+    level: standard
+    reason: >
+      The documented default for everything not classified above. A new path
+      lands here rather than nowhere.
+
+# Each of the eight categories is either mapped above, with its paths, or
+# declared here with a reason someone else can verify. NOTHING is declared
+# absent by the bootstrap: that is a judgement about your project, and a false
+# declaration of absence is worse than an omission. The check names what is
+# still unaccounted for.
+absent: []
+RISKMAP
+  echo "  + $RISK_MAP_FILE (starter — installed files only; the check will name what remains)"
 fi
 
 DOCKERFILE_SRC="$ADAPTERS_DIR/dockerfiles/$STACK.Dockerfile"
@@ -215,6 +312,9 @@ echo "  .gitignore             stack-appropriate for $STACK"
 echo "  Project Charter        Templates/PROJECT_CHARTER.md, from Phase A"
 echo "  Stack Decision ADR     Templates/ADR.md, Accepted before this step per"
 echo "                         Workflows/ARCHITECTURE_DECISION.md"
+echo "  Risk Map               .ia-engineering/risk-map.yml — the starter covers the installed"
+echo "                         files only; map your own zones and account for all eight"
+echo "                         categories (Templates/RISK_MAP.md), then run check-risk-map.sh"
 echo "  CLAUDE.md + roster     Workflows/ONBOARDING.md Step 4"
 echo "  First Work Unit        Workflows/ONBOARDING.md Step 6, Director-approved"
 echo

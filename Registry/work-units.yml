@@ -762,3 +762,9 @@ work_units:
     title: Measure what the framework loads before a Work Unit begins, and say which unit is measured
     milestone: Portability
     delivers: Core/CONTEXT_BUDGET.md, README.md
+
+  - id: WU-IAENG-250
+    employee: DevOps Engineer
+    title: The bootstrap writes a starter Risk Map for the files it installs, and declares no category absent
+    milestone: Portability
+    delivers: Adapters/scripts/setup-project-bootstrap.sh, Workflows/PROJECT_BOOTSTRAP.md, Adapters/scripts/tests/run.sh
