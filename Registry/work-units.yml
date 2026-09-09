@@ -774,3 +774,9 @@ work_units:
     title: grep -q short-circuiting a large producer under pipefail reads its SIGPIPE as a result
     milestone: Portability
     delivers: Adapters/scripts/check-risk-map.sh, Adapters/scripts/check-employee-trailers.sh, Adapters/scripts/check-work-units.sh, Adapters/scripts/check-review-recorded.sh, Governance/TROUBLESHOOTING.md, Adapters/scripts/tests/run.sh
+
+  - id: WU-IAENG-252
+    employee: Security Engineer
+    title: The runtime hooks had the grep -q pipefail bug too — a >64KB payload bypassed inline-suppression
+    milestone: Portability
+    delivers: Adapters/ai-runtimes/claude-code/hooks/block-inline-suppression.sh, Adapters/ai-runtimes/claude-code/hooks/block-escape-hatches.sh, Adapters/ai-runtimes/claude-code/hooks/tests/run.sh

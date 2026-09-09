@@ -118,6 +118,18 @@ expect_rc "escape-hatch: empty payload fails closed"        2 "$HOOKS/block-esca
 expect_rc "escape-hatch: ignores a non-Bash tool"           0 "$HOOKS/block-escape-hatches.sh"    '{"tool_name":"Read","tool_input":{"file_path":"x"}}'
 expect_rc "inline-suppression: refuses a directive in code" 2 "$HOOKS/block-inline-suppression.sh" "$PAY_CODE"
 expect_rc "inline-suppression: allows it in documentation"  0 "$HOOKS/block-inline-suppression.sh" "$PAY_DOC"
+
+# A directive on line 1 of a code file LARGER than the ~64 KB pipe buffer. The
+# old `printf "$TEXT" | grep -q` under pipefail let grep short-circuit the
+# printf, which took SIGPIPE, which pipefail reported as no-match — so this
+# exact payload was ALLOWED with no obfuscation, just size. A 64 KB source file
+# is ordinary. Built via --rawfile because a multi-MB string will not fit on a
+# jq command line (that failure looks like a pass). TROUBLESHOOTING X.
+BIGSUP="$HERE/bigsup.tmp"
+{ printf '# noqa\n'; yes 'filler line padding padding padding padding' | head -n 30000; } > "$BIGSUP"
+PAY_BIG="$(jq -n --arg f "big.py" --rawfile c "$BIGSUP" '{tool_name:"Write",tool_input:{file_path:$f,content:$c}}')"
+rm -f "$BIGSUP"
+expect_rc "inline-suppression: refuses a directive in a >64KB payload" 2 "$HOOKS/block-inline-suppression.sh" "$PAY_BIG"
 expect_rc "inline-suppression: ignores a non-edit tool"     0 "$HOOKS/block-inline-suppression.sh" '{"tool_name":"Bash","tool_input":{"command":"ls"}}'
 expect_rc "stop-gate: yields to its own loop guard"         0 "$HOOKS/stop-gate.sh"                '{"stop_hook_active":true}'
 
