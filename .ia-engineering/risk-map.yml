@@ -1,0 +1,214 @@
+# IA Engineering — Risk Map
+#
+# Change-zone levels per Standards/RISK_STANDARD.md: routine | standard | sensitive.
+# Patterns are matched in order and the FIRST match wins, so specific comes
+# before general. `*` crosses `/` — see Templates/RISK_MAP.md, trap 1.
+#
+# This repository is unusual in one way worth stating: it ships controls that
+# other projects install. A defect in a hook or a check here is a defect in
+# every project that adopted the framework, which is why so much of the tree
+# is infrastructure rather than application code.
+#
+# Verified with: Adapters/scripts/check-risk-map.sh --explain
+
+version: 1
+
+zones:
+  # ---- sensitive ------------------------------------------------------------
+
+  - pattern: "Adapters/ai-runtimes/claude-code/review-bot.yml"
+    level: sensitive
+    category: payments_and_spend
+    reason: >
+      Makes billed model calls. A billed model call is a real expense, so a
+      change that widens when it runs spends money that nobody approved, and
+      nothing in CI measures the bill. Listed before the ai-runtimes pattern
+      below because first match wins.
+
+  - pattern: "Adapters/ai-runtimes/claude-code/hooks/*"
+    level: sensitive
+    category: infrastructure_and_ci
+    reason: >
+      Decides what the model is allowed to do at runtime. Weakening one is
+      invisible in the diff of the thing it stops guarding, and the hooks are
+      installed into other projects — a bypass here is a bypass everywhere.
+
+  - pattern: "Adapters/git-hooks/*"
+    level: sensitive
+    category: infrastructure_and_ci
+    reason: >
+      The client-side gate on every commit in every adopting project. A hook
+      that stops enforcing still exits 0, so nothing reports the loss.
+
+  - pattern: "Adapters/scripts/data-policy-scan.sh"
+    level: sensitive
+    category: cryptography_and_secrets
+    reason: >
+      The only thing that looks for secrets before they are pushed. A pattern
+      removed here is a class of secret that stops being seen, and the scan
+      still reports clean.
+
+  - pattern: "Adapters/scripts/setup-branch-protection.sh"
+    level: sensitive
+    category: authorization
+    reason: >
+      Decides who may push where and which checks may be bypassed. It already
+      shipped a rule that read as protection and enforced nothing — the
+      release/* deletion rule that GitHub's own auto-delete ignored.
+
+  - pattern: "Adapters/scripts/*"
+    level: sensitive
+    category: infrastructure_and_ci
+    reason: >
+      The validator, the release script and the four required PR checks. A
+      check that passes without evaluating anything is this repository's own
+      named defect class, and it has recurred sixteen times.
+
+  - pattern: "Adapters/github-actions/*"
+    level: sensitive
+    category: infrastructure_and_ci
+    reason: >
+      The CI gates themselves, and the copies other projects install. Loosening
+      a trigger removes a check from every adopter at once.
+
+  - pattern: ".github/workflows/*"
+    level: sensitive
+    category: infrastructure_and_ci
+    reason: >
+      This repository's installed copies of the gates above. Byte-identical to
+      the Adapter originals by a required check, so a change here that is not
+      mirrored fails — but a change mirrored in both is a real gate change.
+
+  - pattern: "Employees/*"
+    level: sensitive
+    category: infrastructure_and_ci
+    reason: >
+      An Employee definition decides what an agent is allowed to do and what
+      standards bind it. That is closer to editing a CI gate than to editing
+      documentation, and no test asserts that a definition still forbids what
+      it used to forbid.
+
+  - pattern: "Core/*"
+    level: sensitive
+    category: core_architecture
+    reason: >
+      The conduct rules every session reads before acting, and the hierarchy
+      every other document extends. A change here changes behaviour everywhere
+      and is not visible in any diff of the behaviour it changes.
+
+  - pattern: "Standards/*"
+    level: sensitive
+    category: core_architecture
+    reason: >
+      What every Employee is measured against. Lowering a Standard silently
+      lowers every check that cites it.
+
+  - pattern: "Workflows/*"
+    level: sensitive
+    category: core_architecture
+    reason: >
+      The release and delivery processes. RELEASE.md carried two defects that
+      deadlocked a release against its own required checks, and neither was
+      visible by reading — only by executing the workflow.
+
+  - pattern: "Registry/*"
+    level: sensitive
+    category: core_architecture
+    reason: >
+      Read by the commit-msg hook and two required CI checks. A malformed
+      roster does not fail loudly: it resolves to nothing, and then every
+      commit is refused for a reason that describes the commits instead of
+      the file.
+
+  - pattern: ".gitattributes"
+    level: sensitive
+    category: infrastructure_and_ci
+    reason: >
+      Carries the LF enforcement the shell consumers depend on, and the
+      linguist-generated markings that decide what the review limit counts.
+
+  - pattern: ".gitignore"
+    level: sensitive
+    category: cryptography_and_secrets
+    reason: >
+      One of the three layers of Standards/DATA_PROTECTION_STANDARD.md.
+      Removing a rule here is how a real secret becomes committable, and
+      nothing else in the repository would notice.
+
+  # ---- routine --------------------------------------------------------------
+  #
+  # Routine means no observable behaviour changes. It does not mean small, and
+  # it does not mean unimportant: the Release Chain example went stale within
+  # hours of the Workflow it demonstrates changing, and misled a reader. It is
+  # still routine, because nothing reads it at runtime.
+
+  - pattern: "Examples/*"
+    level: routine
+    reason: >
+      Walkthroughs. Nothing executes them and no control reads them, so a
+      change alters no behaviour. Wrong content here misleads a human, which
+      is a documentation defect rather than a change-zone risk.
+
+  - pattern: "CHANGELOG.md"
+    level: routine
+    reason: >
+      A record of what shipped. One control reads it — validator section 16
+      compares its headings against tags — but only to check that a tag
+      exists, never to decide behaviour.
+
+  - pattern: "README.md"
+    level: routine
+    reason: No runtime effect. What a visitor reads before deciding to adopt.
+
+  - pattern: "SECURITY.md"
+    level: routine
+    reason: The reporting path. Wrong content delays a report; it changes nothing at runtime.
+
+  - pattern: "CONTRIBUTING.md"
+    level: routine
+    reason: A pointer to Governance/CONTRIBUTING.md. No runtime effect.
+
+  - pattern: "CODE_OF_CONDUCT.md"
+    level: routine
+    reason: A pointer to the Code of Conduct. No runtime effect.
+
+  - pattern: "LICENSE.md"
+    level: routine
+    reason: >
+      Legally significant and behaviourally inert. Changing it is a Director
+      decision, but it is not a change-zone risk — no control reads it.
+
+  # ---- standard -------------------------------------------------------------
+
+  - pattern: "*"
+    level: standard
+    reason: >
+      The documented default for everything not classified above — Templates,
+      Governance, Prompts, VERSION.md and anything added later. A new path
+      lands here rather than nowhere, which is what keeps the map from having
+      silent gaps.
+
+# A category is either mapped above, with its paths, or declared here with a
+# reason someone else can check. A FALSE declaration of absence is worse than
+# an omission: it switches the category off.
+absent:
+  - category: authentication
+    reason: >
+      This framework authenticates nobody. It has no users, no sessions and no
+      credentials of its own; the `gh` calls in Adapters/scripts/hosts/github/
+      use the operator's already-authenticated CLI and never read a secret.
+      Verified: `grep -rniE "password|login|session|oauth" --include='*.sh'
+      Adapters/` returns only prose in comments.
+
+  - category: personal_data
+    reason: >
+      No personal data of any kind is stored or processed. The repository
+      contains documents, shell scripts and YAML. Standards/DATA_PROTECTION_STANDARD.md
+      exists to keep it that way, and its history-scanning check runs on every
+      Pull Request.
+
+  - category: migrations_and_data_integrity
+    reason: >
+      No database, no schema, no persistent store. Registry/ is generated text
+      read at check time and rewritten wholesale; there is nothing to migrate
+      and no write that cannot simply be re-run.

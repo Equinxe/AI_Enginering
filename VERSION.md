@@ -66,7 +66,7 @@ Status
 
 ---
 
-### Templates (12)
+### Templates (13)
 
 - [x] Work Unit
 - [x] Work Unit Report
@@ -80,6 +80,7 @@ Status
 - [x] Project CLAUDE.md
 - [x] Session State
 - [x] Domain Employee
+- [x] Risk Map
 
 ---
 

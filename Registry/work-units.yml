@@ -733,3 +733,9 @@ work_units:
     title: Establish framework containment by walking parents, not by comparing spellings
     milestone: Portability
     delivers: Adapters/scripts/install.sh
+
+  - id: WU-IAENG-245
+    employee: Security Engineer
+    title: Classify a project's own paths, so a control can tell auth from a README
+    milestone: Portability
+    delivers: Standards/RISK_STANDARD.md, Templates/RISK_MAP.md, Adapters/scripts/check-risk-map.sh, .ia-engineering/risk-map.yml, .gitignore, VERSION.md
