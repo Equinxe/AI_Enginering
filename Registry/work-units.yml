@@ -752,6 +752,11 @@ work_units:
     milestone: Portability
     delivers: Governance/DISPATCH_IN_PRACTICE.md, README.md
 
+  - id: WU-IAENG-248
+    employee: Security Engineer
+    title: A zone drawn too wide makes the Risk Record noise — the fifth trap
+    milestone: Portability
+    delivers: .ia-engineering/risk-map.yml, Templates/RISK_MAP.md, Standards/RISK_STANDARD.md, Adapters/scripts/check-risk-map.sh, Adapters/scripts/tests/run.sh
   - id: WU-IAENG-249
     employee: Software Architect
     title: Measure what the framework loads before a Work Unit begins, and say which unit is measured
