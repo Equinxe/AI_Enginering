@@ -25,4 +25,16 @@ local_test_data/
 # operational, local, and not part of the framework it sits beside. The
 # Adapter installs the SESSION_STATE.md line into an adopting project; this
 # repository ignores the directory because it is also its own first adopter.
-.ia-engineering/
+.ia-engineering/*
+#
+# The pattern above excludes the CONTENTS, not the directory. Written as
+# `.ia-engineering/` git never descends into it, and the two exceptions below
+# are then silently inert — an exception cannot re-include a file whose parent
+# directory is excluded. Verified with `git check-ignore -v`, not assumed.
+#
+# ...except the two files that are project KNOWLEDGE rather than local state,
+# and which CI must be able to read. A Risk Map that is not committed classifies
+# nothing, and a stack declaration CI cannot read declares nothing. A colleague
+# who clones must inherit both, not rediscover them at their own expense.
+!.ia-engineering/risk-map.yml
+!.ia-engineering/stack

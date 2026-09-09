@@ -769,6 +769,150 @@ for op in ci-conclusion open-bugs create-release fetch-review-comments; do
   done
 done
 
+# ------------------------------------------------- check-risk-map.sh --------
+
+CHECK_MAP="$SCRIPTS/check-risk-map.sh"
+
+# A Risk Map is wrong easily and SILENTLY: it classifies something important as
+# ordinary and everything downstream then behaves correctly on a false input.
+# Templates/RISK_MAP.md lists four ways that happens; these cases are those four
+# plus the states the check must tell apart.
+
+# risk_project — a fixture with a sensitive area, a routine area, and an
+# ordinary one, so a map can be right or wrong about each.
+risk_project() {
+  new_repo "$1"
+  mkdir -p src/auth docs .ia-engineering
+  echo a > src/auth/login.js
+  echo b > src/app.js
+  echo c > docs/guide.md
+  git add -A && git commit -q -m "seed the fixture"
+}
+
+sound_risk_map() {
+  cat > .ia-engineering/risk-map.yml <<'RMAP'
+version: 1
+zones:
+  - pattern: "src/auth/*"
+    level: sensitive
+    category: authentication
+    reason: decides who the caller is
+  - pattern: "docs/*"
+    level: routine
+    reason: nothing reads it at runtime
+  - pattern: "*"
+    level: standard
+    reason: the documented default
+absent:
+  - category: authorization
+    reason: no roles
+  - category: personal_data
+    reason: no user data
+  - category: payments_and_spend
+    reason: no billing and no billed model call
+  - category: cryptography_and_secrets
+    reason: no secrets
+  - category: migrations_and_data_integrity
+    reason: no store
+  - category: infrastructure_and_ci
+    reason: no CI in this fixture
+  - category: core_architecture
+    reason: one module
+RMAP
+  git add -A
+}
+
+section "check-risk-map.sh"
+
+risk_project rm-sound; sound_risk_map
+expect 0 "a sound map is reported sound" -- bash "$CHECK_MAP" .
+expect_output "Risk Map is sound"
+
+# An unmapped project is UNCLASSIFIED, not safe: every path would fall back to
+# standard and the sensitive ones would lose what the project requires of them,
+# with nothing reporting the loss.
+risk_project rm-absent
+expect 1 "no map at all fails, and says unclassified rather than safe" -- bash "$CHECK_MAP" .
+expect_output "UNCLASSIFIED, not safe"
+
+# An unreadable map is not an empty one. Treating it as empty would classify the
+# whole project as unmapped without ever saying the file could not be read.
+risk_project rm-garbled
+printf 'zones: []\n' > .ia-engineering/risk-map.yml && git add -A
+expect 1 "a map that parses to zero zones fails as a parsing fault" -- bash "$CHECK_MAP" .
+expect_output "parsing contract"
+
+# Trap 4 — a pattern matching nothing reassures without keeping anything.
+risk_project rm-dead; sound_risk_map
+sed -i 's|- pattern: "docs/\*"|- pattern: "nowhere/*"|' .ia-engineering/risk-map.yml && git add -A
+expect 1 "a dead pattern fails" -- bash "$CHECK_MAP" .
+expect_output "matches no tracked file"
+
+# Trap 3 — verified by computing the level of every tracked file, never by
+# re-reading the list. A core module fallen through a removed catch-all is
+# invisible any other way.
+risk_project rm-uncovered; sound_risk_map
+sed -i '/- pattern: "\*"/,+2d' .ia-engineering/risk-map.yml && git add -A
+expect 1 "removing the catch-all leaves files unclassified" -- bash "$CHECK_MAP" .
+expect_output "match no zone"
+
+# A sensitive entry with no category is what makes coverage uncheckable.
+risk_project rm-nocat; sound_risk_map
+sed -i '/category: authentication/d' .ia-engineering/risk-map.yml && git add -A
+expect 1 "sensitive without a category fails" -- bash "$CHECK_MAP" .
+expect_output "names no category"
+
+risk_project rm-badcat; sound_risk_map
+sed -i 's/category: authentication/category: invented_category/' .ia-engineering/risk-map.yml && git add -A
+expect 1 "a category outside the closed list fails" -- bash "$CHECK_MAP" .
+expect_output "closed list"
+
+# A category left unmentioned is switched off silently, so it must be either
+# mapped to paths or declared absent.
+risk_project rm-uncovered-cat; sound_risk_map
+sed -i '/category: core_architecture/,+1d' .ia-engineering/risk-map.yml && git add -A
+expect 1 "a category neither mapped nor declared absent fails" -- bash "$CHECK_MAP" .
+expect_output "switched off silently"
+
+risk_project rm-noreason; sound_risk_map
+sed -i '/reason: nothing reads it at runtime/d' .ia-engineering/risk-map.yml && git add -A
+expect 1 "a zone with no reason fails" -- bash "$CHECK_MAP" .
+expect_output "has no reason"
+
+# THE COLUMN-SHIFT REGRESSION. A tab is an IFS whitespace character, so `read`
+# collapses a run of them even with IFS set to a tab alone. A zone with no
+# category emitted two tabs, they became one, every later column shifted left,
+# and every routine zone was reported as having no reason — the check was wrong
+# about the map and said so confidently. This case pins that: the fixture's
+# routine and standard zones carry no category, and the map must still be sound.
+risk_project rm-nocategory-columns; sound_risk_map
+expect 0 "zones without a category do not shift the later columns" -- bash "$CHECK_MAP" .
+expect_output "Risk Map is sound"
+
+# --range: the mechanical trigger the framework was missing. The RISK: record
+# already existed in Standards/RISK_STANDARD.md; nothing required it.
+risk_project rm-range; sound_risk_map
+git commit -q -m "map"
+RM_BASE="$(git rev-parse HEAD)"
+echo changed > src/auth/login.js && git commit -qam "touch the auth module"
+expect 1 "a sensitive change with no RISK record fails" -- bash "$CHECK_MAP" --range "$RM_BASE" HEAD .
+expect_output "no RISK: record"
+
+echo more >> src/auth/login.js
+git commit -qam "touch it again, with a record
+
+RISK: changes the identity check | tier=High | mitigation=reviewed | decided_by=Director"
+expect 0 "the same change with a RISK record passes" -- bash "$CHECK_MAP" --range "$RM_BASE" HEAD .
+
+risk_project rm-range-routine; sound_risk_map
+git commit -q -m "map"
+RM_BASE="$(git rev-parse HEAD)"
+echo more >> docs/guide.md && git commit -qam "documentation only"
+expect 0 "a routine-only change needs no record" -- bash "$CHECK_MAP" --range "$RM_BASE" HEAD .
+expect_output "highest change zone: routine"
+
+expect 2 "an unknown option is a usage error" -- bash "$CHECK_MAP" --nope .
+
 # ------------------------------------------- setup-project-bootstrap.sh -----
 
 section "setup-project-bootstrap.sh — the stack it records"
