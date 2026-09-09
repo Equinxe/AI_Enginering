@@ -82,7 +82,7 @@ absent:
 
 ---
 
-# The four ways a map goes wrong
+# The five ways a map goes wrong
 
 All four are silent. A wrong Risk Map does not fail — it quietly classifies something
 important as ordinary, and everything downstream behaves correctly on a false input.
@@ -131,6 +131,26 @@ reference you are classifying**, not a working tree that may be behind:
 git ls-tree -r --name-only origin/main    # not git ls-files, which reads the local tree
 ```
 
+## 5. The zone that is too wide
+
+Over-classification is the trap the first four make you fall into. Marking a whole
+directory sensitive feels safe; if one file in it is appended on every change, then
+**every change** needs a Risk Record, and a record present everywhere records nothing.
+The framework's own map did this on its first day: `Registry/*` was sensitive, the
+Work Unit registry is appended on every Work Unit, and the first Pull Request after the
+map merged was flagged for bookkeeping.
+
+The question that separates them is not "is this file important" but **"what does a
+wrong change here do — fail loudly, or misbehave silently?"** A roster that silently
+accepts a new name is sensitive. A registry whose malformed entry is reported by name
+by a check is not, however central it looks.
+
+```bash
+# how often does each sensitive path actually change? one that changes on every
+# commit is almost certainly bookkeeping, not a trust boundary
+git log --since='3 months ago' --name-only --format= | sort | uniq -c | sort -rn | head
+```
+
 ---
 
 # Writing one
@@ -142,7 +162,7 @@ git ls-tree -r --name-only origin/main    # not git ls-files, which reads the lo
 3. **Order patterns from most specific to `**` last.**
 4. **Write the reason for every entry** — what breaks, and why no test would catch it. A
    map without reasons goes stale and nobody dares touch it.
-5. **Run `check-risk-map.sh`.** It catches the four traps above mechanically.
+5. **Run `check-risk-map.sh`.** It catches the first four traps mechanically. The fifth is a judgement — the command in its section shows you which paths change on every commit, but only you know whether that path is a trust boundary or bookkeeping.
 6. **Have someone else read it.** A map is wrong easily and silently, and the person who
    wrote it is the person least able to see what it missed.
 
