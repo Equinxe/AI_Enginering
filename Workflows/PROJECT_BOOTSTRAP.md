@@ -210,6 +210,7 @@ Each item names what actually performs it. A checklist item whose mechanism is u
 - [ ] `.github/PULL_REQUEST_TEMPLATE.md`
 - [ ] `.github/ISSUE_TEMPLATE/` (bug report, feature request, config)
 - [ ] `Dockerfile` (stack-appropriate)
+- [ ] `.ia-engineering/risk-map.yml` — the bootstrap writes a **starter** covering only the files it installed and declares no category absent; the project maps its own zones and accounts for all eight categories (`Templates/RISK_MAP.md`), then runs `check-risk-map.sh`. Until then the Risk Map check names what is unaccounted for — that is the check working, not failing
 
 **Performed by a separate, deliberate command:**
 
@@ -266,7 +267,7 @@ This workflow is complete when:
 
 Owner: IA Engineering
 
-Version: 0.0.11
+Version: 0.0.12
 
 Status: Draft
 

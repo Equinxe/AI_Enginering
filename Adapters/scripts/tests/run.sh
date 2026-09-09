@@ -939,6 +939,73 @@ else
   [ -n "$VERBOSE" ] && printf '   ok   --dry-run wrote nothing\n'
 fi
 
+# The starter Risk Map is announced under --dry-run and, like everything else
+# in a dry run, not written.
+TOTAL=$((TOTAL + 1))
+if printf '%s' "$OUT" | grep -qF -- "[dry-run] write .ia-engineering/risk-map.yml"; then
+  [ -n "$VERBOSE" ] && printf '   ok   the bootstrap announces the starter Risk Map\n'
+else
+  printf '   FAIL the bootstrap did not announce the starter Risk Map\n'
+  FAILED=$((FAILED + 1))
+fi
+TOTAL=$((TOTAL + 1))
+if [ -f "$D/.ia-engineering/risk-map.yml" ]; then
+  printf '   FAIL --dry-run wrote the Risk Map; a dry run must change nothing\n'
+  FAILED=$((FAILED + 1))
+else
+  [ -n "$VERBOSE" ] && printf '   ok   --dry-run wrote no Risk Map\n'
+fi
+
+# THE STARTER MUST BE HONEST ABOUT WHAT IT DID NOT DO. Written into a real
+# fixture, it must (a) parse, (b) classify the installed files as intended, and
+# (c) FAIL the check — naming the categories the bootstrap refused to declare
+# absent on the project's behalf. A starter that passed would have guessed.
+# Run the REAL bootstrap in a real project, so the test cannot drift from the
+# script it checks: whatever the starter map actually is, this is it.
+new_repo bs-starter-map
+echo x > README.md && git add -A && git commit -q -m "seed"
+bash "$SCRIPTS/setup-project-bootstrap.sh" node >/dev/null 2>&1 || true
+git add -A >/dev/null 2>&1
+
+TOTAL=$((TOTAL + 1))
+if [ -f .ia-engineering/risk-map.yml ]; then
+  [ -n "$VERBOSE" ] && printf '   ok   the bootstrap wrote a starter Risk Map\n'
+else
+  printf '   FAIL the bootstrap wrote no Risk Map\n'; FAILED=$((FAILED + 1))
+fi
+
+# The starter fails the check — but ONLY for the honest reason. It names the
+# categories the bootstrap refused to declare absent on the project's behalf,
+# and it must NOT contain any structural fault: no dead entry, no unclassified
+# file. The starter's own crime, caught this way: it once mapped install.sh's
+# files, which the stack half does not guarantee, so the map arrived with dead
+# entries the moment install.sh had not run.
+expect 1 "the starter is honestly incomplete: unaccounted categories are named" -- \
+  bash "$SCRIPTS/check-risk-map.sh" .
+expect_output "neither mapped to a path nor declared absent"
+TOTAL=$((TOTAL + 1))
+if printf '%s' "$LAST_OUTPUT" | grep -qE "matches no tracked file|match no zone"; then
+  printf '   FAIL the starter map ships a dead entry or an unclassified file\n'
+  printf '%s\n' "$LAST_OUTPUT" | grep -E "matches no tracked file|match no zone" | sed 's/^/        | /'
+  FAILED=$((FAILED + 1))
+else
+  [ -n "$VERBOSE" ] && printf '   ok   the starter has no dead entry and no unclassified file — only category gaps\n'
+fi
+
+# The Dockerfile the stack half installed classifies sensitive.
+# Capture, THEN grep. `grep -q` in a pipeline closes the pipe on first match,
+# the producer takes SIGPIPE, and `set -o pipefail` reports that as the
+# pipeline's failure — so `if producer | grep -q` goes false on a real match
+# whenever the producer still had output to write. Captured first, there is no
+# pipe to break.
+TOTAL=$((TOTAL + 1))
+EXPLAIN_OUT="$(bash "$SCRIPTS/check-risk-map.sh" --explain . 2>/dev/null)"
+if printf '%s\n' "$EXPLAIN_OUT" | grep -qE '^Dockerfile sensitive$'; then
+  [ -n "$VERBOSE" ] && printf '   ok   the starter classifies the installed Dockerfile as sensitive\n'
+else
+  printf '   FAIL the starter did not classify Dockerfile as sensitive\n'; FAILED=$((FAILED + 1))
+fi
+
 # --------------------------------------------------------------- verdict ----
 
 cd "$HERE" || exit 1
