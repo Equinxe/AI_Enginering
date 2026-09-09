@@ -751,3 +751,9 @@ work_units:
     title: Record what dispatch actually does in practice, and only where it differs from the protocol
     milestone: Portability
     delivers: Governance/DISPATCH_IN_PRACTICE.md, README.md
+
+  - id: WU-IAENG-249
+    employee: Software Architect
+    title: Measure what the framework loads before a Work Unit begins, and say which unit is measured
+    milestone: Portability
+    delivers: Core/CONTEXT_BUDGET.md, README.md
