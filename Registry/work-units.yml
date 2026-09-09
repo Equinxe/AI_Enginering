@@ -727,3 +727,9 @@ work_units:
     title: Give a newcomer a way in, and stop claiming the contribution guide does not exist
     milestone: Portability
     delivers: README.md, SECURITY.md, CONTRIBUTING.md, CODE_OF_CONDUCT.md
+
+  - id: WU-IAENG-244
+    employee: Platform Engineer
+    title: Establish framework containment by walking parents, not by comparing spellings
+    milestone: Portability
+    delivers: Adapters/scripts/install.sh
