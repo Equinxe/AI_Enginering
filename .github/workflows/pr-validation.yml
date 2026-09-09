@@ -59,6 +59,14 @@ name: IA Engineering - PR Validation
 # (from data-policy.yml) as required status checks in branch protection.
 # Adapters/scripts/setup-branch-protection.sh already sets all ten.
 #
+# "Risk Map (advisory)" verifies the project's Risk Map and then reports the
+# highest change zone this Pull Request touches, requiring a RISK: record when
+# that zone is sensitive (Standards/RISK_STANDARD.md, The Risk Map). It is
+# advisory FOR NOW for the reason every new required check here has been: one
+# that has never reported blocks every merge on a status that cannot appear.
+# It is also the first check that fails on a project which has not written a
+# map, and that state deserves to be seen before it blocks anyone.
+#
 # "Review Recorded (advisory)" is deliberately NOT required: it matches comment
 # text, which can be satisfied by pasting the block, so requiring it would buy
 # false confidence. Promoting it stays a Director decision (see the job).
@@ -289,6 +297,41 @@ jobs:
             3) "$SCRIPTS/check-review-recorded.sh" "$COMMENTS" --fetch-incomplete ;;
             *) echo "::error::The review-comment fetcher failed outright (exit $rc). Nothing was read, so nothing is established."; exit 1 ;;
           esac
+
+  risk-map:
+    name: Risk Map (advisory)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: recursive
+      - name: Locate the framework
+        id: locate
+        run: |
+          set -euo pipefail
+          for candidate in . ia-engineering; do
+            if [ -x "$candidate/Adapters/scripts/check-risk-map.sh" ]; then
+              echo "scripts=$candidate/Adapters/scripts" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          done
+          echo "::error::Could not locate Adapters/scripts/check-risk-map.sh (looked in . and ia-engineering/)."
+          exit 1
+      - name: Verify the map, then classify this change set
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          SCRIPTS: ${{ steps.locate.outputs.scripts }}
+        run: |
+          set -euo pipefail
+          # The map is verified BEFORE it is used. A wrong map does not fail —
+          # it classifies something important as ordinary, and the range check
+          # below would then pass correctly on a false input.
+          "$SCRIPTS/check-risk-map.sh" .
+          "$SCRIPTS/check-risk-map.sh" --range "$BASE_SHA" "$HEAD_SHA" .
 
   script-tests:
     name: Script Tests

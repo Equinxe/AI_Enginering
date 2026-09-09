@@ -739,3 +739,9 @@ work_units:
     title: Classify a project's own paths, so a control can tell auth from a README
     milestone: Portability
     delivers: Standards/RISK_STANDARD.md, Templates/RISK_MAP.md, Adapters/scripts/check-risk-map.sh, .ia-engineering/risk-map.yml, .gitignore, VERSION.md
+
+  - id: WU-IAENG-246
+    employee: Test Automation Engineer
+    title: Pin the Risk Map check in the versioned suite, and report it in CI
+    milestone: Portability
+    delivers: Adapters/scripts/tests/run.sh, .github/workflows/pr-validation.yml, Adapters/github-actions/pr-validation.yml
