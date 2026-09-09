@@ -76,7 +76,14 @@ fi
 # are honoured: it errs toward blocking, which is the direction these hooks
 # fail in by design, and the cost of over-blocking is a rename, not a lost
 # control.
-check() { printf '%s\n' "$TEXT" | grep -qiE -- "$1"; }
+# here-string, not `printf | grep -q`. Under the `set -o pipefail` this hook
+# inherits from lib.sh, grep -q closing the pipe on its first match makes the
+# printf take SIGPIPE, and pipefail reports that as the pipeline's failure —
+# so a directive near the top of a payload larger than the ~64 KB pipe buffer
+# reads as ABSENT and the edit is ALLOWED. A 64 KB source file is ordinary, not
+# adversarial, so this bypassed the control with no obfuscation at all. The
+# here-string is not a pipeline; pipefail does not apply. TROUBLESHOOTING X.
+check() { grep -qiE -- "$1" <<< "$TEXT"; }
 
 if check '#[[:space:]]*noqa|#[[:space:]]*type:[[:space:]]*ignore|#[[:space:]]*pylint:[[:space:]]*disable|#[[:space:]]*pyright:[[:space:]]*ignore|#[[:space:]]*mypy:[[:space:]]*ignore'; then
   iaeng_block "inline Python lint/type suppression (${FILE:-unknown file})" \

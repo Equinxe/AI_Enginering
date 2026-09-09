@@ -52,7 +52,7 @@ STRIPPED="$(printf '%s\n' "$CMD" | awk -f "$LEXER")"
 # blocked and nine were allowed, while the shell produced the flag in both.
 # Reaching a bound means the command was not fully read, and unread input is
 # refused, which is the contract every other path in these hooks follows.
-if printf '%s\n' "$STRIPPED" | grep -qF '__IAENG_LEXER_LIMIT__'; then
+if grep -qF '__IAENG_LEXER_LIMIT__' <<< "$STRIPPED"; then
   iaeng_block "this command expands to more alternatives than the hook will enumerate, so it could not be read in full" \
     "Adapters/ai-runtimes/claude-code/hooks/README.md — unread input is refused rather than allowed. Write the command without the brace expansion."
 fi
@@ -72,14 +72,20 @@ G='git([[:space:]]+(-C[[:space:]]+[^[:space:]]+|-c[[:space:]]+[^[:space:]]+|--gi
 S='[[:space:]]'
 E='([[:space:]]|;|&|\||\)|$)'
 
-check() { printf '%s\n' "$STRIPPED" | grep -qE -- "$1"; }
+# here-strings, not `printf | grep -q`: under pipefail, grep -q closing the
+# pipe on an early match SIGPIPEs printf and pipefail returns that as failure,
+# so a forbidden token early in a command larger than the pipe buffer would
+# read as absent. Masked today by the lexer LIMIT for very large inputs, but
+# the pattern is unsafe and shared with block-inline-suppression, where it was
+# a live bypass. Same class as the check-*.sh fix. TROUBLESHOOTING X.
+check() { grep -qE -- "$1" <<< "$STRIPPED"; }
 
 # Case-insensitive variant, for git CONFIG KEYS only. Git treats the section
 # and key parts of a config name case-insensitively — `git -c
 # commit.gpgSign=false` disables signing exactly as the lowercase spelling
 # does, and was allowed while the lowercase one was blocked. Command names and
 # flags stay case-sensitive, because git's are.
-check_key() { printf '%s\n' "$STRIPPED" | grep -qiE -- "$1"; }
+check_key() { grep -qiE -- "$1" <<< "$STRIPPED"; }
 
 # --no-verify is scoped to a git command rather than matched anywhere, so that
 # searching the documentation for the string — `grep -rn -- --no-verify
