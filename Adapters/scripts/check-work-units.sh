@@ -135,7 +135,11 @@ for sha in $COMMITS; do
   while IFS= read -r wu_line; do
     [ -n "$wu_line" ] || continue
     WU="$(printf '%s' "${wu_line#Work Unit: }" | tr -d '\r')"
-    if printf '%s\n' "$KNOWN" | grep -qxF "$WU"; then
+    # here-string, not `printf | grep -q`: a long-lived project's Work Unit
+    # registry can exceed the pipe buffer, and grep -q short-circuiting it would
+    # SIGPIPE the producer — pipefail returns that, and a registered Work Unit
+    # reads as unregistered. TROUBLESHOOTING X.
+    if grep -qxF "$WU" <<< "$KNOWN"; then
       echo "  $sha -> $WU (resolved)"
     else
       err "Commit $sha claims '$WU', which is not in $REGISTRY. Either it is a typo, or the Work Unit was never registered. Register it in the same commit that performs the work — see the registry's own header for the field shape. If this line is an EXAMPLE quoted in the message body, indent it so it does not start at column 0."

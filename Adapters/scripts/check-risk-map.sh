@@ -167,7 +167,12 @@ level_of() {
   local file="$1" pat lvl re
   while IFS="$TAB" read -r pat lvl _cat _reason re; do
     [ -n "$pat" ] || continue
-    if printf '%s\n' "$file" | grep -qE "$re"; then
+    # here-string, not `printf | grep -q`. grep -q closes the pipe on its first
+    # match; the producer then takes SIGPIPE, and `set -o pipefail` reports that
+    # as the pipeline's failure — so a real match reads as a miss whenever the
+    # producer had more to write. Harmless for one filename, wrong for the large
+    # producers below, uniform here so the footgun is not copied. TROUBLESHOOTING X.
+    if grep -qE "$re" <<< "$file"; then
       printf '%s\n' "$lvl"
       return 0
     fi
@@ -227,7 +232,14 @@ EOF
   # already defines the line and requires it for any Medium or higher action;
   # a change landing in a sensitive zone is the mechanical trigger this
   # framework was missing. Read from git alone, so every forge gets it.
-  if git log --format=%B "$BASE..$HEAD_REF" | grep -qE '^[[:space:]]*RISK:'; then
+  # Captured, then matched with a here-string. `git log | grep -q` is the
+  # dangerous form of this bug: git log over a real range easily exceeds the
+  # 64 KB pipe buffer, and a RISK record on an early commit makes grep -q exit
+  # while git keeps writing — SIGPIPE, which `set -o pipefail` returns as the
+  # pipeline's status. The check would then report NO record while one is right
+  # there, and block a valid change. TROUBLESHOOTING X.
+  RANGE_MSGS="$(git log --format=%B "$BASE..$HEAD_REF")"
+  if grep -qE '^[[:space:]]*RISK:' <<< "$RANGE_MSGS"; then
     note "a sensitive zone was touched and a RISK: record is present in the range."
     exit 0
   fi
@@ -267,7 +279,10 @@ while IFS="$TAB" read -r pat lvl cat reason re; do
   fi
 
   # Trap 4: a pattern matching nothing reassures without protecting anything.
-  if ! printf '%s\n' "$TRACKED" | grep -qE "$re"; then
+  # here-string, not `printf | grep -q`: $TRACKED is git ls-files, which in a
+  # real project exceeds the pipe buffer, and grep -q short-circuiting it would
+  # make a LIVE zone read as dead under pipefail. TROUBLESHOOTING X.
+  if ! grep -qE "$re" <<< "$TRACKED"; then
     fail "zone '$pat' matches no tracked file. A dead entry reassures without keeping anything — trap 4 in Templates/RISK_MAP.md. Remove it, or fix the pattern."
   fi
 done <<EOF

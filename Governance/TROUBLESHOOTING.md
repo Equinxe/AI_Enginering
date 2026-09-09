@@ -315,6 +315,18 @@ The same applies to `--body` on `gh pr create` and `gh pr comment`; `--body-file
 
 ---
 
+## X. A check that short-circuits a large producer reads its SIGPIPE as a result
+
+**Symptom.** A check passes locally on a small fixture and gives the *wrong* answer on a real, larger repository: `check-risk-map.sh --range` reports no `RISK:` record when one is plainly in the range; a dead-entry error names a zone whose files exist; a registered Work Unit is called unregistered. The larger the input, the more reliable the wrong answer.
+
+**Cause.** `producer | grep -q PATTERN` under `set -o pipefail`. `grep -q` exits on its **first** match and closes the pipe. If the producer — `git log` over a range, `git ls-files`, a roster — has more to write than the ~64 KB pipe buffer holds, it takes SIGPIPE on the next write. `pipefail` then reports the pipeline's status as that failure, **even though grep matched**. Below the buffer size the producer finishes before grep exits, no signal fires, and the bug is invisible — which is why every fixture small enough to read passes.
+
+**Remedy.** Do not run `grep -q` as the tail of a pipeline whose producer can be large. Capture first, then match with a here-string, which is not a pipeline and to which `pipefail` does not apply: `out="$(producer)"; if grep -qE PATTERN <<< "$out"; then`. A here-string was verified correct at 5.9 MB.
+
+**Prevention.** The tell is `| grep -q` with a variable-size producer. A single filename or a fixed label list is safe; anything read from the repository — commit messages, tracked paths, a registry, a pasted comment — is not, because it grows with the project and the developer who wrote the check never has a repository large enough to see it fail. This is a member of class A (a check that reports without evaluating): here the check *did* evaluate and then discarded the answer. It was found while testing an unrelated assertion whose own `printf | grep -q` gave a false negative — the test caught the class before the shipped scripts shipped it to an adopter, which is the entire argument for testing checks by running them (`Adapters/scripts/tests/run.sh`).
+
+---
+
 # Adding an Entry
 
 1. The Work Unit that fixes the incident adds the entry — same commit, or the fix is not complete (`Governance/CONTRIBUTING.md`, Section 7).
