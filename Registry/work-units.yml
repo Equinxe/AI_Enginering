@@ -745,3 +745,9 @@ work_units:
     title: Pin the Risk Map check in the versioned suite, and report it in CI
     milestone: Portability
     delivers: Adapters/scripts/tests/run.sh, .github/workflows/pr-validation.yml, Adapters/github-actions/pr-validation.yml
+
+  - id: WU-IAENG-247
+    employee: Engineering Manager
+    title: Record what dispatch actually does in practice, and only where it differs from the protocol
+    milestone: Portability
+    delivers: Governance/DISPATCH_IN_PRACTICE.md, README.md
