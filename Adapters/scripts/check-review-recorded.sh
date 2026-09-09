@@ -147,7 +147,12 @@ for f in "$COMMENTS_DIR"/*; do
   # The body starts at line 2. Reading from line 1 would let the author header
   # itself be matched, which no rule wants but which a future edit could make
   # true by accident.
-  if tail -n +2 "$f" | grep -qiE '^[[:space:]]*Decision:[[:space:]]*approved'; then
+  # Captured, then matched with a here-string. A pasted log can make a comment
+  # exceed the pipe buffer, and a Decision: line near its top would make grep -q
+  # short-circuit `tail` — SIGPIPE, which pipefail returns as failure, and a
+  # recorded decision reads as absent. TROUBLESHOOTING X.
+  body="$(tail -n +2 "$f")"
+  if grep -qiE '^[[:space:]]*Decision:[[:space:]]*approved' <<< "$body"; then
     MATCHED=$((MATCHED + 1))
     echo "  decision found in $(basename "$f") (author: $author)"
   fi

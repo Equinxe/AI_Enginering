@@ -768,3 +768,9 @@ work_units:
     title: The bootstrap writes a starter Risk Map for the files it installs, and declares no category absent
     milestone: Portability
     delivers: Adapters/scripts/setup-project-bootstrap.sh, Workflows/PROJECT_BOOTSTRAP.md, Adapters/scripts/tests/run.sh
+
+  - id: WU-IAENG-251
+    employee: Security Engineer
+    title: grep -q short-circuiting a large producer under pipefail reads its SIGPIPE as a result
+    milestone: Portability
+    delivers: Adapters/scripts/check-risk-map.sh, Adapters/scripts/check-employee-trailers.sh, Adapters/scripts/check-work-units.sh, Adapters/scripts/check-review-recorded.sh, Governance/TROUBLESHOOTING.md, Adapters/scripts/tests/run.sh

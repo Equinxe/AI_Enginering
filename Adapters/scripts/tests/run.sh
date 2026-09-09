@@ -911,6 +911,31 @@ echo more >> docs/guide.md && git commit -qam "documentation only"
 expect 0 "a routine-only change needs no record" -- bash "$CHECK_MAP" --range "$RM_BASE" HEAD .
 expect_output "highest change zone: routine"
 
+# TROUBLESHOOTING X — the range's commit messages exceed the 64 KB pipe buffer
+# and the RISK record is on an early (newest) commit. `git log | grep -q` would
+# short-circuit git, git would take SIGPIPE, and pipefail would report the
+# record ABSENT while it is right there — blocking a valid sensitive change.
+# This case fails against that bug and passes against the here-string fix.
+risk_project rm-range-bigmsg; sound_risk_map
+git commit -q -m "map"
+RM_BASE="$(git rev-parse HEAD)"
+echo changed > src/auth/login.js
+{
+  echo "touch the auth module"
+  echo
+  echo "RISK: changes the identity check | tier=High | mitigation=reviewed | decided_by=Director"
+  echo
+  # ~1 MB of body. The threshold where git log's output actually SIGPIPEs the
+  # old code was measured at ~620 KB on the development machine (Git Bash) and
+  # is 64 KB on a Linux runner, so 30k filler lines reproduces comfortably on
+  # both. Below ~40 KB the old code passed here, which is why the first draft
+  # of this case proved nothing — it was measured, not guessed.
+  yes "filler line to push git log output past the pipe buffer" | head -n 30000
+} > "$WORK/bigmsg.txt"
+git commit -q -aF "$WORK/bigmsg.txt"
+expect 0 "a sensitive change with an early RISK record in a >64KB range still passes" -- bash "$CHECK_MAP" --range "$RM_BASE" HEAD .
+expect_output "RISK: record is present"
+
 expect 2 "an unknown option is a usage error" -- bash "$CHECK_MAP" --nope .
 
 # ------------------------------------------- setup-project-bootstrap.sh -----
