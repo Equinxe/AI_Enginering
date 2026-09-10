@@ -143,6 +143,15 @@ copy_into() {
     echo "Error: $src is missing from the framework." >&2
     exit 1
   fi
+  # AN EXISTING FILE IS THE PROJECT'S OWN WORK, and is left untouched without
+  # --force. This matters most when adopting into an ALREADY-STARTED project:
+  # if it happens to have a file at one of these paths, overwriting it silently
+  # would discard real work — the same reason the Dockerfile below is guarded.
+  # Greenfield projects have none of these, so nothing changes for them.
+  if [ -f "$dest" ] && ! printf '%s\n' "${PASSTHROUGH[@]+"${PASSTHROUGH[@]}"}" | grep -qx -- '--force'; then
+    echo "  ! $dest already exists — left untouched (the project's own). Re-run with --force to replace it with the framework's." >&2
+    return
+  fi
   if [ "$DRY_RUN" -eq 1 ]; then
     echo "  [dry-run] cp $src $dest"
     return
