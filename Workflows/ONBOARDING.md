@@ -56,6 +56,8 @@ It applies both to new projects starting from scratch and to existing projects a
 4. Run `Adapters/scripts/install.sh` from the project root so the hooks, CI workflows, `.gitignore` data-protection rules, and local data directory exist before the first commit — `Standards/DATA_PROTECTION_STANDARD.md` is enforceable only if its controls predate the data.
 5. Confirm the framework loads correctly in the AI assistant context.
 
+For a project that already has code and history, the install adds alongside what is there and never overwrites it — see **Adopting into an already-started project** below for the four realities greenfield never meets.
+
 **Output:** Framework imported. `CLAUDE.md` created and active. `SESSION_STATE.md` created and ignored. Adapters installed.
 
 ---
@@ -152,6 +154,20 @@ The Main Agent confirms:
 Director gives final confirmation. Work begins.
 
 **Output:** Project onboarded. IA Engineering operational.
+
+---
+
+# Adopting into an already-started project
+
+**Applies to:** existing projects (Step 3 above). A project with code and history adopts the framework the same way, with four realities greenfield never meets. Each is a consequence of the project pre-dating the framework, not a limitation of it. All four are verified on a real adoption, not asserted.
+
+1. **The project's own files are never overwritten.** `install.sh` and the stack bootstrap install *alongside* what the project already has: an existing file at a path the framework would write — a CI workflow, a `Dockerfile` — is left untouched, and the run says so on that line. Re-run with `--force` only to replace one deliberately. So the project's existing CI keeps running and the framework's CI is installed next to it; the project runs **both** until the Director decides which to keep.
+
+2. **The checks judge the change set under review, not the whole history.** The Employee-trailer, Work-Unit and review checks read the commits in the change being submitted — not every commit in the repository. Commits made before adoption carry no `Employee:` / `Work Unit:` trailers and are **not** judged retroactively: submit the adoption as a change set that begins at the adoption commit, and prior history is left exactly as it is. Every commit from adoption onward carries the trailers (`Standards/COMMIT_STANDARD.md`).
+
+3. **Existing inline suppressions are grandfathered — until a file is rewritten.** The suppression control refuses a lint or test suppression being *written into* a file; it does not reach back into code already committed. A pre-existing `disable-next-line` stays. But rewriting that whole file re-introduces the directive as new text and is refused — for partial changes, edit the file in place rather than rewriting it whole, or remove the suppression as part of the change (`Standards/CODE_QUALITY_STANDARD.md`).
+
+4. **The starter Risk Map covers only the files the bootstrap installed.** The project's own sensitive areas — authentication, payments, migrations, secrets, personal data — are unmapped until the Director classifies them, and `check-risk-map.sh` names each category still unaccounted for rather than assuming it absent. Mapping the existing code's zones (`Templates/RISK_MAP.md`) is among the first Work Units, not an afterthought: an unmapped project is unclassified, not safe (`Standards/RISK_STANDARD.md`).
 
 ---
 

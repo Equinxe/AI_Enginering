@@ -798,3 +798,9 @@ work_units:
     title: The validator proves every declared stack ships a Dockerfile, and no Dockerfile is an unreachable orphan
     milestone: Portability
     delivers: Adapters/scripts/validate-framework.sh
+
+  - id: WU-IAENG-256
+    employee: Engineering Manager
+    title: Onboarding names the four operational realities an already-started project meets that greenfield never does
+    milestone: Portability
+    delivers: Workflows/ONBOARDING.md
