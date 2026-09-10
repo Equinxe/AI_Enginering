@@ -1462,6 +1462,49 @@ else
   fi
 fi
 
+section "17. Every declared stack has a starter Dockerfile, and no orphan Dockerfile"
+# ==========================================================================
+# The framework's universality claim rests on ONE command adopting any stack.
+# setup-project-bootstrap.sh accepts a closed list, VALID_STACKS, and for each
+# copies Adapters/dockerfiles/<stack>.Dockerfile. If a stack is added to that
+# list without shipping its Dockerfile, bootstrap does not fail at build time —
+# it errors "no starter Dockerfile for stack '<x>'" only when an adopter picks
+# that stack, i.e. on someone else's machine. This makes the coverage a fact
+# the repository checks, not a promise. Both directions: a declared stack with
+# no Dockerfile is a broken adoption; a Dockerfile matching no declared stack is
+# a dead file or a typo an adopter can never reach.
+BOOTSTRAP="Adapters/scripts/setup-project-bootstrap.sh"
+DOCKERFILE_DIR="Adapters/dockerfiles"
+if [ ! -f "$BOOTSTRAP" ]; then
+  fail "$BOOTSTRAP is missing" "It declares VALID_STACKS, the closed list this section verifies against the shipped Dockerfiles."
+elif [ ! -d "$DOCKERFILE_DIR" ]; then
+  fail "$DOCKERFILE_DIR is missing" "The stack half of bootstrap copies its starter Dockerfile from here; without the directory no stack can be adopted."
+else
+  declared_stacks="$(grep -E '^VALID_STACKS=' "$BOOTSTRAP" | head -1 | sed 's/^VALID_STACKS=//' | tr -d '"' | tr -d "'" | tr -d '\015')"
+  if [ -z "$declared_stacks" ]; then
+    fail "could not read VALID_STACKS from $BOOTSTRAP" "The extraction reads a line 'VALID_STACKS=\"...\"'. Empty means the declaration moved and this section now verifies nothing — reported rather than passed."
+  else
+    # forward: every declared stack ships a non-empty Dockerfile.
+    for s in $declared_stacks; do
+      [ -n "$s" ] || continue
+      if [ -s "$DOCKERFILE_DIR/$s.Dockerfile" ]; then
+        pass "stack '$s' has a starter Dockerfile"
+      else
+        fail "stack '$s' is in VALID_STACKS but $DOCKERFILE_DIR/$s.Dockerfile is missing or empty" "An adopter who picks '$s' gets 'no starter Dockerfile for stack $s' and a half-installed project. Ship the Dockerfile, or remove '$s' from VALID_STACKS."
+      fi
+    done
+    # reverse: every shipped Dockerfile corresponds to a declared stack.
+    for f in "$DOCKERFILE_DIR"/*.Dockerfile; do
+      [ -e "$f" ] || continue
+      base="$(basename "$f" .Dockerfile)"
+      case " $declared_stacks " in
+        *" $base "*) pass "Dockerfile '$base.Dockerfile' matches a declared stack" ;;
+        *) fail "$f matches no stack in VALID_STACKS" "A Dockerfile no declared stack names is unreachable — an adopter can never select it. Add '$base' to VALID_STACKS if it is a real stack, or delete the file." ;;
+      esac
+    done
+  fi
+fi
+
 # ==========================================================================
 printf '\n== Result\n'
 

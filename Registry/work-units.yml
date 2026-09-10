@@ -792,3 +792,9 @@ work_units:
     title: check-risk-map tells a present-but-untracked zone from a dead one — every adopter hits this right after bootstrap
     milestone: Portability
     delivers: Adapters/scripts/check-risk-map.sh, Adapters/scripts/tests/run.sh, Templates/RISK_MAP.md
+
+  - id: WU-IAENG-255
+    employee: Test Automation Engineer
+    title: The validator proves every declared stack ships a Dockerfile, and no Dockerfile is an unreachable orphan
+    milestone: Portability
+    delivers: Adapters/scripts/validate-framework.sh
