@@ -780,3 +780,9 @@ work_units:
     title: The runtime hooks had the grep -q pipefail bug too — a >64KB payload bypassed inline-suppression
     milestone: Portability
     delivers: Adapters/ai-runtimes/claude-code/hooks/block-inline-suppression.sh, Adapters/ai-runtimes/claude-code/hooks/block-escape-hatches.sh, Adapters/ai-runtimes/claude-code/hooks/tests/run.sh
+
+  - id: WU-IAENG-253
+    employee: DevOps Engineer
+    title: The bootstrap leaves an existing file at a framework path untouched without --force — for already-started projects
+    milestone: Portability
+    delivers: Adapters/scripts/setup-project-bootstrap.sh, Adapters/scripts/tests/run.sh

@@ -1031,6 +1031,31 @@ else
   printf '   FAIL the starter did not classify Dockerfile as sensitive\n'; FAILED=$((FAILED + 1))
 fi
 
+# ADOPTION INTO AN EXISTING PROJECT: a file the project already has at one of
+# the bootstrap's install paths is its own work, and is left untouched without
+# --force. Greenfield never hits this; an already-started project would lose
+# real work silently, which is what the Dockerfile guard already prevented and
+# what copy_into now does for the workflows too.
+new_repo bs-existing-file
+mkdir -p .github/workflows
+printf 'name: the project own ci-build-test\n' > .github/workflows/ci-build-test.yml
+git add -A && git commit -q -m "an existing project with a colliding filename"
+before_md5="$(md5sum .github/workflows/ci-build-test.yml | cut -d' ' -f1)"
+bash "$SCRIPTS/setup-project-bootstrap.sh" node >/dev/null 2>&1 || true
+TOTAL=$((TOTAL + 1))
+if [ "$(md5sum .github/workflows/ci-build-test.yml | cut -d' ' -f1)" = "$before_md5" ]; then
+  [ -n "$VERBOSE" ] && printf '   ok   an existing ci-build-test.yml is preserved without --force\n'
+else
+  printf '   FAIL the bootstrap overwrote the project own ci-build-test.yml\n'; FAILED=$((FAILED + 1))
+fi
+bash "$SCRIPTS/setup-project-bootstrap.sh" node --force >/dev/null 2>&1 || true
+TOTAL=$((TOTAL + 1))
+if [ "$(md5sum .github/workflows/ci-build-test.yml | cut -d' ' -f1)" != "$before_md5" ]; then
+  [ -n "$VERBOSE" ] && printf '   ok   --force replaces it\n'
+else
+  printf '   FAIL --force did not replace the file\n'; FAILED=$((FAILED + 1))
+fi
+
 # --------------------------------------------------------------- verdict ----
 
 cd "$HERE" || exit 1
