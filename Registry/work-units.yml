@@ -786,3 +786,9 @@ work_units:
     title: The bootstrap leaves an existing file at a framework path untouched without --force — for already-started projects
     milestone: Portability
     delivers: Adapters/scripts/setup-project-bootstrap.sh, Adapters/scripts/tests/run.sh
+
+  - id: WU-IAENG-254
+    employee: Security Engineer
+    title: check-risk-map tells a present-but-untracked zone from a dead one — every adopter hits this right after bootstrap
+    milestone: Portability
+    delivers: Adapters/scripts/check-risk-map.sh, Adapters/scripts/tests/run.sh, Templates/RISK_MAP.md

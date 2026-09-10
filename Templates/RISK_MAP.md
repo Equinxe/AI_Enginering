@@ -131,6 +131,12 @@ reference you are classifying**, not a working tree that may be behind:
 git ls-tree -r --name-only origin/main    # not git ls-files, which reads the local tree
 ```
 
+A pattern matching a file that **exists but is not committed yet** is not this trap —
+it is the state you are in the moment after bootstrap, before you stage the workflows,
+the Dockerfile and this map. `check-risk-map.sh` tells the two apart: it says *stage and
+commit it* for a present-but-untracked match, and *remove it* only when nothing on disk
+matches at all. Commit the installed files; do not delete the entry the installer wrote.
+
 ## 5. The zone that is too wide
 
 Over-classification is the trap the first four make you fall into. Marking a whole

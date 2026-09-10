@@ -149,6 +149,15 @@ if ! TRACKED="$(git ls-files)"; then
 fi
 TRACKED_COUNT="$(printf '%s\n' "$TRACKED" | grep -c . || true)"
 
+# Files present in the working tree but not yet committed (respecting
+# .gitignore, so node_modules and the like do not appear). Used ONLY to tell a
+# zone that matches nothing TRACKED from one that matches a file the project has
+# but has not staged — the state EVERY adopter is in the first time they run
+# this, immediately after bootstrap installs the workflows, Dockerfile and the
+# map itself. "Remove the entry" is the wrong advice then; "commit the file" is
+# right. Captured once; matched with here-strings (TROUBLESHOOTING X).
+UNTRACKED="$(git ls-files --others --exclude-standard 2>/dev/null || true)"
+
 # NO FIELD IS EVER EMPTY in the records above, and that is not tidiness.
 #
 # A tab is an IFS *whitespace* character, so `read` collapses a run of them even
@@ -283,7 +292,14 @@ while IFS="$TAB" read -r pat lvl cat reason re; do
   # real project exceeds the pipe buffer, and grep -q short-circuiting it would
   # make a LIVE zone read as dead under pipefail. TROUBLESHOOTING X.
   if ! grep -qE "$re" <<< "$TRACKED"; then
-    fail "zone '$pat' matches no tracked file. A dead entry reassures without keeping anything — trap 4 in Templates/RISK_MAP.md. Remove it, or fix the pattern."
+    # Present-but-untracked is not a dead zone. The file exists; it is not
+    # committed yet. That is the expected state right after bootstrap, so the
+    # honest fix is to stage it, not to delete the entry the installer wrote.
+    if untracked_hit="$(grep -m1 -E "$re" <<< "$UNTRACKED")" && [ -n "$untracked_hit" ]; then
+      fail "zone '$pat' matches a file that exists but is not tracked yet (e.g. $untracked_hit). The map classifies committed files; stage and commit it — right after bootstrap this is expected, since the installed files are not committed yet. Until then the zone protects nothing."
+    else
+      fail "zone '$pat' matches no tracked file. A dead entry reassures without keeping anything — trap 4 in Templates/RISK_MAP.md. Remove it, or fix the pattern."
+    fi
   fi
 done <<EOF
 $ZONES
