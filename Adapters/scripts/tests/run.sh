@@ -848,6 +848,19 @@ sed -i 's|- pattern: "docs/\*"|- pattern: "nowhere/*"|' .ia-engineering/risk-map
 expect 1 "a dead pattern fails" -- bash "$CHECK_MAP" .
 expect_output "matches no tracked file"
 
+# A zone whose only match is present-but-UNTRACKED is not a dead zone — it is
+# the state every adopter is in the first time they run this, right after
+# bootstrap installs the workflows/Dockerfile/map and before anything is
+# committed. The advice must be "commit it", not trap 4's "remove it". The
+# fixture points a zone at a file that exists on disk and is deliberately not
+# staged; the genuinely-dead case above is the contrast.
+risk_project rm-untracked; sound_risk_map
+sed -i 's|- pattern: "docs/\*"|- pattern: "staged-later/*"|' .ia-engineering/risk-map.yml
+mkdir -p staged-later; echo report > staged-later/report.md   # exists, deliberately NOT staged
+git add .ia-engineering/risk-map.yml                          # stage the map edit only
+expect 1 "a zone matching a present-but-untracked file says stage it, not remove it" -- bash "$CHECK_MAP" .
+expect_output "not tracked yet"
+
 # Trap 3 — verified by computing the level of every tracked file, never by
 # re-reading the list. A core module fallen through a removed catch-all is
 # invisible any other way.
