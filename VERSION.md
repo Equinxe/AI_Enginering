@@ -2,11 +2,11 @@
 
 Current Version
 
-**v0.0.12**
+**v0.0.13**
 
 Codename
 
-**Automation & Convergence**
+**Portability**
 
 Status
 
@@ -229,6 +229,20 @@ The governance concepts of two sibling frameworks, absorbed as concepts rather t
 - [x] `Standards/PULL_REQUEST_STANDARD.md`, `Standards/GIT_STANDARD.md`, `Standards/CODE_QUALITY_STANDARD.md` — the review limit with a label-based Director override, the canonical escape-hatch table, and No Inline Suppression (WU-IAENG-177, WU-IAENG-178, WU-IAENG-201)
 - [x] `Adapters/scripts/setup-branch-protection.sh` — nine required status checks on `main`, `develop`, and `release/*` (WU-IAENG-173, WU-IAENG-177, WU-IAENG-195)
 
+### Portability (v0.0.13)
+
+The milestone that made the framework runnable somewhere other than where it was written. Two halves that turned out to be one problem: logic embedded in a CI workflow could only be tested by deploying it, and a framework that had only ever run on itself had never met another project's history.
+
+- [x] `Adapters/scripts/check-*.sh` — the four Pull Request checks lifted out of `pr-validation.yml` into scripts any host can run, with a behaviour suite (`tests/run.sh`) that builds a real git repository per case and mocks nothing (WU-IAENG-224 … 229)
+- [x] `Adapters/scripts/hosts/`, `resolve-host.sh`, `resolve-stack.sh` — the host seam, where the host fetches and acts but never decides and `none` is a real host, plus a declared stack/host beating a guess (WU-IAENG-230, WU-IAENG-237)
+- [x] `Adapters/dockerfiles/` — four first-class stacks become seven (`web`, `dotnet`, `php` added), and every declared stack's starter Dockerfile is pinned by `validate-framework.sh` section 17 so a stack without its Dockerfile fails here, not on an adopter's machine (WU-IAENG-231, WU-IAENG-255)
+- [x] The Risk Map — `Standards/RISK_STANDARD.md`, `Templates/RISK_MAP.md`, `check-risk-map.sh`, and this repository's own map: a project classifies its own paths, an unmapped project is unclassified not safe, and five documented traps each carry the command that catches them (WU-IAENG-245, WU-IAENG-246, WU-IAENG-248)
+- [x] `Adapters/scripts/setup-project-bootstrap.sh` — a starter Risk Map for the files it installs, declaring no category absent so the check names what remains; and an existing file at a framework path is never overwritten without `--force` (WU-IAENG-250, WU-IAENG-253)
+- [x] Adopting into an already-started project — `Workflows/ONBOARDING.md` names the four realities greenfield never meets, and that the checks judge the change set under review rather than prior history is pinned in the suite (WU-IAENG-256, WU-IAENG-257)
+- [x] `Core/CONTEXT_BUDGET.md`, `Governance/DISPATCH_IN_PRACTICE.md` — the first measurements of what the framework loads before a Work Unit and what dispatch actually does in practice, each figure carrying its command (WU-IAENG-247, WU-IAENG-249)
+- [x] Two `grep -q`-under-`pipefail` SIGPIPE defects fixed across the check scripts and the runtime hooks, the threshold measured not guessed; and `check-risk-map` taught to tell a present-but-untracked zone from a dead one (WU-IAENG-251, WU-IAENG-252, WU-IAENG-254)
+- [x] `SECURITY.md`, root `CONTRIBUTING.md` and `CODE_OF_CONDUCT.md`, and README's *What is proven, and what is not* — the files a public repository is judged on, stating on the front page that the framework has only ever been used on itself (WU-IAENG-243)
+
 ---
 
 ## Versioning Policy
@@ -241,13 +255,13 @@ The full, authoritative versioning policy — segment semantics, the `.FIX` vs. 
 
 ## Planned
 
-- TBD — no milestone is currently scoped. Several open issues exist as individual maintenance/tech-debt items (e.g. #61–#66, #69, #71), but none alone constitutes the next milestone.
-- The first adoption on a real project outside this repository is the next thing that will decide scope. Everything shipped through v0.0.12 has been proven on the framework itself; `Governance/TROUBLESHOOTING.md` exists for what that first project finds.
+- TBD — no next milestone is currently scoped. Several open issues exist as individual maintenance/tech-debt items (e.g. #61–#66, #69, #71, #112), but none alone constitutes the next milestone.
+- Portability made the framework adoptable off its own repository, and a first adoption was rehearsed against a real project to find what greenfield never surfaces. A sustained adoption on a real published project outside this repository is the next thing that will decide scope; `Governance/TROUBLESHOOTING.md` exists for what it finds.
 
 ---
 
 ## Next Milestone
 
-TBD — not yet scoped (see `Planned` above).
+TBD — not yet scoped (see `Planned` above). The next milestone takes **0.0.14**.
 
-v0.0.12 carries two milestones under one number: Automation and Convergence both completed on `develop` before either shipped, so both are named in the `CHANGELOG.md` heading and both are listed under Completed above. A number is not reserved for a milestone that never had a release of its own, so nothing was skipped and the next milestone takes **0.0.13**. `Governance/VERSIONING_POLICY.md` records why they shipped together, and why that is not the naming shortcut the same document forbids.
+v0.0.12 carried two milestones under one number: Automation and Convergence both completed on `develop` before either shipped, so both are named in that release's `CHANGELOG.md` heading. A number is not reserved for a milestone that never had a release of its own — so nothing was skipped, Portability took **0.0.13**, and the next takes 0.0.14. `Governance/VERSIONING_POLICY.md` records why v0.0.12's two milestones shipped together, and why that is not the naming shortcut the same document forbids.
