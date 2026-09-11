@@ -7,8 +7,9 @@
 #   - Workflows/CODE_REVIEW.md — a Pull Request must be reviewed before merge
 #   - Adapters/github-actions/pr-validation.yml and
 #     Adapters/github-actions/framework-validation.yml — their blocking jobs
-#     (PR Compliance, Employee Trailer, Shellcheck Adapters, Validate Workflow
-#     YAML, Framework Validation) become required status checks once this
+#     (PR Compliance, Work Unit Exists, Employee Trailer, Shellcheck Adapters,
+#     Validate Workflow YAML, Hook Tests, Script Tests, PR Size, Framework
+#     Validation, Data Policy) become required status checks once this
 #     script has run, on main, develop, AND release/*
 #   - Workflows/RELEASE.md — "The release branch `release/vX.X.X` is never
 #     deleted. It serves as a permanent snapshot of the exact state released
@@ -48,12 +49,26 @@
 
 set -euo pipefail
 
-REPO="${1:-}"
-if [ -z "$REPO" ]; then
-  REPO="$(gh repo view --json nameWithOwner -q .nameWithOwner)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# THIS SCRIPT IS THE GITHUB IMPLEMENTATION, and now establishes that before it
+# acts. The host is resolved here; what to do about a different one is decided
+# after REQUIRED_CHECKS is defined, because the checklist enumerates it.
+if [ -x "$SCRIPT_DIR/resolve-host.sh" ]; then
+  HOST="$(bash "$SCRIPT_DIR/resolve-host.sh" . 2>/dev/null || echo unknown)"
+else
+  HOST=github
+  echo "resolve-host.sh not found beside this script; assuming github." >&2
 fi
 
-echo "Configuring branch protection on $REPO for: main, develop, release/*"
+REPO=""
+if [ "$HOST" = "github" ]; then
+  REPO="${1:-}"
+  if [ -z "$REPO" ]; then
+    REPO="$(gh repo view --json nameWithOwner -q .nameWithOwner)"
+  fi
+fi
+
 
 # The blocking checks every protected branch requires, kept in one place so
 # main, develop, and the release/* ruleset cannot drift apart.
@@ -63,6 +78,18 @@ echo "Configuring branch protection on $REPO for: main, develop, release/*"
 # pending a decision, which meant the server-side backstop for Dispatch
 # Discipline reported its result and blocked nothing — a commit with no
 # Employee attribution could still merge past a red check.
+#
+# "Script Tests" was added in WU-IAENG-229, after the four PR checks moved out
+# of pr-validation.yml and into Adapters/scripts/check-*.sh. Without it the
+# move would have been a downgrade: the logic portable and covered by 80 cases,
+# and none of them run by anything that blocks a merge. Requiring the suite is
+# what makes the extraction an improvement rather than a relocation.
+#
+# It was added ONLY AFTER the job had reported on a real Pull Request. A
+# required check that has never reported blocks every merge on a status that
+# cannot appear, and GitHub offers no way to distinguish "not yet run" from
+# "will never run" — this repository has already had to sequence a merge before
+# a protection change once for exactly that reason.
 #
 # "Review Recorded (advisory)" is deliberately NOT here. It matches comment
 # text, which is softer evidence than a native gate and can be satisfied by
@@ -75,10 +102,50 @@ REQUIRED_CHECKS=(
   "Shellcheck Adapters"
   "Validate Workflow YAML"
   "Hook Tests"
+  "Script Tests"
   "PR Size"
   "Framework Validation"
   "Data Policy"
 )
+
+# Branch protection is the FIFTH forge-dependent operation, alongside the four
+# in Adapters/scripts/hosts/. It is not under hosts/ yet, and that is a
+# deliberate stop rather than an oversight: moving two hundred lines of GitHub
+# API calls into a directory shaped for a second forge, with no second forge to
+# verify the shape against, is motion that cannot be checked. It gets its fifth
+# operation when there is an instance to prove it on.
+#
+# What changes now is the FAILURE. Run on another forge, this used to call the
+# GitHub API against it and fail with whatever that API said. It recognises the
+# host first now and prints what a human must configure by hand — the same
+# bargain the `none` implementations make, because an adopter off GitHub
+# deserves a checklist rather than an authentication error.
+if [ "$HOST" != "github" ]; then
+  echo "host '$HOST': this script configures GitHub branch protection and cannot" >&2
+  echo "configure yours. Nothing was changed." >&2
+  echo >&2
+  echo "Configure the equivalent by hand on main, develop and release/*:" >&2
+  echo >&2
+  echo "  - require these status checks to pass before merging:" >&2
+  for c in "${REQUIRED_CHECKS[@]}"; do
+    echo "      $c" >&2
+  done
+  echo "  - require the branch to be up to date with its base before merging" >&2
+  echo "  - refuse force-pushes" >&2
+  echo "  - refuse branch deletion" >&2
+  echo "  - require a pull request for every change" >&2
+  echo "  - turn OFF automatic head-branch deletion on merge, if your forge has" >&2
+  echo "    it. On GitHub that setting bypasses the deletion rule entirely, and" >&2
+  echo "    Workflows/RELEASE.md Step 10 is unconditional: release branches are" >&2
+  echo "    never deleted." >&2
+  echo >&2
+  echo "'Review Recorded (advisory)' is deliberately NOT in that list: it matches" >&2
+  echo "comment text, which can be satisfied by pasting the block, so requiring it" >&2
+  echo "would buy false confidence." >&2
+  exit 1
+fi
+
+echo "Configuring branch protection on $REPO for: main, develop, release/*"
 
 # The two GitHub APIs used below want the same list in different shapes:
 # classic branch protection takes a bare array of context strings, while the
@@ -257,5 +324,48 @@ protect_release_branches() {
 }
 
 protect_release_branches
+
+# --- Automatic head-branch deletion -----------------------------------------
+#
+# THE RULESET'S `deletion` RULE DOES NOT STOP THE ONE DELETION THAT HAPPENS.
+#
+# `release/*` carries a deletion rule, and on 8 September 2026 merging a
+# release Pull Request deleted `release/v0.0.12` anyway. GitHub's automatic
+# head-branch deletion is performed by the platform itself and is not evaluated
+# against rulesets. So the rule stops a human or a token running
+# `git push --delete`, and does nothing about the only realistic way a release
+# branch disappears.
+#
+# CLAUDE.md and Workflows/RELEASE.md Step 10 both say release branches are
+# never deleted. A protection that reads as enforcement and is not one is worse
+# than no protection, because it is trusted.
+#
+# THE SETTING IS REPOSITORY-WIDE, and that cost is real: feature branches stop
+# being tidied up on merge too. It is applied rather than offered because the
+# framework's rule is unconditional — a project that prefers the tidy-up can
+# turn it back on, having read this, and accept that release branches then
+# depend on nobody clicking the button.
+echo "-> repository: automatic head-branch deletion"
+
+current="$(gh api "repos/$REPO" --jq '.delete_branch_on_merge' 2>/dev/null || echo "unknown")"
+if [ "$current" = "false" ]; then
+  echo "   already off."
+else
+  gh api --method PATCH "repos/$REPO" -F delete_branch_on_merge=false > /dev/null
+
+  # VERIFIED, NOT ASSUMED. install.sh proves the hook it installed rejects an
+  # invalid trailer rather than asserting that copying a file worked; the same
+  # standard applies to an API call whose failure mode is silence.
+  after="$(gh api "repos/$REPO" --jq '.delete_branch_on_merge' 2>/dev/null || echo "unknown")"
+  if [ "$after" = "false" ]; then
+    echo "   turned off (was: $current)."
+  else
+    echo "   FAILED: delete_branch_on_merge is still '$after' after the update." >&2
+    echo "   Release branches will be deleted on merge despite the release/* deletion rule," >&2
+    echo "   which does not apply to GitHub's own automatic deletion. Fix this in" >&2
+    echo "   Settings > General > Pull Requests before running a release." >&2
+    exit 1
+  fi
+fi
 
 echo "Done. Verify at: https://github.com/$REPO/settings/branches"

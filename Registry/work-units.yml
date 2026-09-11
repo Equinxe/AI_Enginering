@@ -613,3 +613,206 @@ work_units:
     title: The back-merge cannot be opened with main as its head under strict mode
     milestone: Convergence
     delivers: Workflows/RELEASE.md
+
+  - id: WU-IAENG-224
+    employee: DevOps Engineer
+    title: Extract the Work Unit check from the workflow, and give it a test suite
+    milestone: Portability
+    delivers: Adapters/scripts/check-work-units.sh, Adapters/scripts/tests/run.sh
+
+  - id: WU-IAENG-225
+    employee: DevOps Engineer
+    title: Extract the Employee trailer check, with the Domain Employee union
+    milestone: Portability
+    delivers: Adapters/scripts/check-employee-trailers.sh, Adapters/scripts/tests/run.sh
+
+  - id: WU-IAENG-226
+    employee: DevOps Engineer
+    title: Extract the PR size check, and pin both defects that reached production in it
+    milestone: Portability
+    delivers: Adapters/scripts/check-pr-size.sh, Adapters/scripts/tests/run.sh
+
+  - id: WU-IAENG-227
+    employee: DevOps Engineer
+    title: Extract the review-recorded decision, with the host supplying data and the script deciding
+    milestone: Portability
+    delivers: Adapters/scripts/check-review-recorded.sh, Adapters/scripts/tests/run.sh
+
+  - id: WU-IAENG-228
+    employee: DevOps Engineer
+    title: Rewire the workflow to call the scripts, and add the GitHub review fetcher
+    milestone: Portability
+    delivers: .github/workflows/pr-validation.yml, Adapters/github-actions/pr-validation.yml, Adapters/scripts/hosts/github/fetch-review-comments.sh
+
+  - id: WU-IAENG-229
+    employee: DevOps Engineer
+    title: Require Script Tests, now that the job has reported
+    milestone: Portability
+    delivers: Adapters/scripts/setup-branch-protection.sh, Adapters/README.md, .github/workflows/pr-validation.yml, Adapters/github-actions/pr-validation.yml
+
+  - id: WU-IAENG-230
+    employee: DevOps Engineer
+    title: Record the chosen stack instead of guessing it later
+    milestone: Portability
+    delivers: Adapters/scripts/resolve-stack.sh, Adapters/scripts/setup-project-bootstrap.sh, Adapters/github-actions/ci-build-test.yml, Adapters/scripts/tests/run.sh
+
+  - id: WU-IAENG-231
+    employee: Platform Engineer
+    title: Add the web, .NET and PHP stacks, and report an ambiguous project instead of ranking it
+    milestone: Portability
+    delivers: Adapters/dockerfiles/web.Dockerfile, Adapters/dockerfiles/dotnet.Dockerfile, Adapters/dockerfiles/php.Dockerfile, Adapters/scripts/resolve-stack.sh, Adapters/scripts/setup-project-bootstrap.sh, Adapters/github-actions/ci-build-test.yml, Adapters/scripts/tests/run.sh, Adapters/README.md, Workflows/PROJECT_BOOTSTRAP.md
+
+  - id: WU-IAENG-232
+    employee: DevOps Engineer
+    title: Turn off automatic head-branch deletion, which the ruleset rule never stopped
+    milestone: Portability
+    delivers: Adapters/scripts/setup-branch-protection.sh, Adapters/README.md
+
+  - id: WU-IAENG-233
+    employee: Release Manager
+    title: Check that every shipped CHANGELOG version has a tag
+    milestone: Portability
+    delivers: Adapters/scripts/validate-framework.sh, .github/workflows/framework-validation.yml, Adapters/github-actions/framework-validation.yml
+
+  - id: WU-IAENG-234
+    employee: Release Manager
+    title: Say which step is actually next, instead of always naming Step 2
+    milestone: Portability
+    delivers: Adapters/scripts/release.sh
+
+  - id: WU-IAENG-235
+    employee: Release Manager
+    title: Do not offer to cut a release that already shipped
+    milestone: Portability
+    delivers: Adapters/scripts/release.sh
+
+  - id: WU-IAENG-236
+    employee: Technical Writer
+    title: Bring the Release Chain example up to the rules it demonstrates
+    milestone: Portability
+    delivers: Examples/RELEASE_CHAIN_EXAMPLE.md
+
+  - id: WU-IAENG-237
+    employee: Platform Engineer
+    title: Resolve the forge, and make none a real host rather than a failure
+    milestone: Portability
+    delivers: Adapters/scripts/resolve-host.sh, Adapters/scripts/hosts/README.md, Adapters/scripts/hosts/github/ci-conclusion.sh, Adapters/scripts/hosts/github/open-bugs.sh, Adapters/scripts/hosts/github/create-release.sh, Adapters/scripts/hosts/none/ci-conclusion.sh, Adapters/scripts/hosts/none/open-bugs.sh, Adapters/scripts/hosts/none/create-release.sh, Adapters/scripts/hosts/none/fetch-review-comments.sh, Adapters/scripts/release.sh, Adapters/scripts/tests/run.sh
+
+  - id: WU-IAENG-239
+    employee: Platform Engineer
+    title: Refuse branch protection on a forge it cannot configure, with the checklist
+    milestone: Portability
+    delivers: Adapters/scripts/setup-branch-protection.sh
+
+  - id: WU-IAENG-240
+    employee: DevOps Engineer
+    title: Stop counting an installed copy twice against the review limit
+    milestone: Portability
+    delivers: .gitattributes, Adapters/scripts/validate-framework.sh
+
+  - id: WU-IAENG-241
+    employee: Security Engineer
+    title: Consult the Security Engineer during implementation, not only at review
+    milestone: Portability
+    delivers: Workflows/FEATURE_DEVELOPMENT.md
+
+  - id: WU-IAENG-242
+    employee: AI Engineer
+    title: A /create-project command that points at the Workflow without restating it
+    milestone: Portability
+    delivers: Adapters/ai-runtimes/claude-code/skills/create-project/SKILL.md, Adapters/ai-runtimes/claude-code/install-skills.sh, Adapters/scripts/install.sh, Adapters/README.md
+
+  - id: WU-IAENG-243
+    employee: Technical Writer
+    title: Give a newcomer a way in, and stop claiming the contribution guide does not exist
+    milestone: Portability
+    delivers: README.md, SECURITY.md, CONTRIBUTING.md, CODE_OF_CONDUCT.md
+
+  - id: WU-IAENG-244
+    employee: Platform Engineer
+    title: Establish framework containment by walking parents, not by comparing spellings
+    milestone: Portability
+    delivers: Adapters/scripts/install.sh
+
+  - id: WU-IAENG-245
+    employee: Security Engineer
+    title: Classify a project's own paths, so a control can tell auth from a README
+    milestone: Portability
+    delivers: Standards/RISK_STANDARD.md, Templates/RISK_MAP.md, Adapters/scripts/check-risk-map.sh, .ia-engineering/risk-map.yml, .gitignore, VERSION.md
+
+  - id: WU-IAENG-246
+    employee: Test Automation Engineer
+    title: Pin the Risk Map check in the versioned suite, and report it in CI
+    milestone: Portability
+    delivers: Adapters/scripts/tests/run.sh, .github/workflows/pr-validation.yml, Adapters/github-actions/pr-validation.yml
+
+  - id: WU-IAENG-247
+    employee: Engineering Manager
+    title: Record what dispatch actually does in practice, and only where it differs from the protocol
+    milestone: Portability
+    delivers: Governance/DISPATCH_IN_PRACTICE.md, README.md
+
+  - id: WU-IAENG-248
+    employee: Security Engineer
+    title: A zone drawn too wide makes the Risk Record noise — the fifth trap
+    milestone: Portability
+    delivers: .ia-engineering/risk-map.yml, Templates/RISK_MAP.md, Standards/RISK_STANDARD.md, Adapters/scripts/check-risk-map.sh, Adapters/scripts/tests/run.sh
+  - id: WU-IAENG-249
+    employee: Software Architect
+    title: Measure what the framework loads before a Work Unit begins, and say which unit is measured
+    milestone: Portability
+    delivers: Core/CONTEXT_BUDGET.md, README.md
+
+  - id: WU-IAENG-250
+    employee: DevOps Engineer
+    title: The bootstrap writes a starter Risk Map for the files it installs, and declares no category absent
+    milestone: Portability
+    delivers: Adapters/scripts/setup-project-bootstrap.sh, Workflows/PROJECT_BOOTSTRAP.md, Adapters/scripts/tests/run.sh
+
+  - id: WU-IAENG-251
+    employee: Security Engineer
+    title: grep -q short-circuiting a large producer under pipefail reads its SIGPIPE as a result
+    milestone: Portability
+    delivers: Adapters/scripts/check-risk-map.sh, Adapters/scripts/check-employee-trailers.sh, Adapters/scripts/check-work-units.sh, Adapters/scripts/check-review-recorded.sh, Governance/TROUBLESHOOTING.md, Adapters/scripts/tests/run.sh
+
+  - id: WU-IAENG-252
+    employee: Security Engineer
+    title: The runtime hooks had the grep -q pipefail bug too — a >64KB payload bypassed inline-suppression
+    milestone: Portability
+    delivers: Adapters/ai-runtimes/claude-code/hooks/block-inline-suppression.sh, Adapters/ai-runtimes/claude-code/hooks/block-escape-hatches.sh, Adapters/ai-runtimes/claude-code/hooks/tests/run.sh
+
+  - id: WU-IAENG-253
+    employee: DevOps Engineer
+    title: The bootstrap leaves an existing file at a framework path untouched without --force — for already-started projects
+    milestone: Portability
+    delivers: Adapters/scripts/setup-project-bootstrap.sh, Adapters/scripts/tests/run.sh
+
+  - id: WU-IAENG-254
+    employee: Security Engineer
+    title: check-risk-map tells a present-but-untracked zone from a dead one — every adopter hits this right after bootstrap
+    milestone: Portability
+    delivers: Adapters/scripts/check-risk-map.sh, Adapters/scripts/tests/run.sh, Templates/RISK_MAP.md
+
+  - id: WU-IAENG-255
+    employee: Test Automation Engineer
+    title: The validator proves every declared stack ships a Dockerfile, and no Dockerfile is an unreachable orphan
+    milestone: Portability
+    delivers: Adapters/scripts/validate-framework.sh
+
+  - id: WU-IAENG-256
+    employee: Engineering Manager
+    title: Onboarding names the four operational realities an already-started project meets that greenfield never does
+    milestone: Portability
+    delivers: Workflows/ONBOARDING.md
+
+  - id: WU-IAENG-257
+    employee: Test Automation Engineer
+    title: Pin adoption reality 2 — the trailer checks judge the change set under review, not prior history
+    milestone: Portability
+    delivers: Adapters/scripts/tests/run.sh
+
+  - id: WU-IAENG-258
+    employee: Release Manager
+    title: Bump VERSION.md to v0.0.13 and finalize the CHANGELOG.md section for the Portability release
+    milestone: Portability
+    delivers: VERSION.md, CHANGELOG.md

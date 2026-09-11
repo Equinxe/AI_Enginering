@@ -84,7 +84,7 @@ The Main Agent asks the Director a set of business-before-tech questions, roughl
 
 Only after Phase A is answered, the Software Architect asks the Director the technical questions needed to select a stack:
 
-- **Language / runtime** — Node, Python, Go, JVM, or another choice. These four are the first-class stacks: they have ready-made CI/Dockerfile templates. Anything else uses a Generic fallback template as a starting point.
+- **Language / runtime** — Node, a static web front end, Python, Go, JVM, .NET, PHP, or another choice. These seven are the first-class stacks: they have ready-made CI/Dockerfile templates. A static front end and a Node server are separate stacks because what they ship differs — a directory of files behind a web server, against a running process — and the choice is recorded in `.ia-engineering/stack` rather than guessed, since both have `package.json`. Anything else uses a Generic fallback template as a starting point.
 - **Primary framework** — the application framework within the chosen language/runtime.
 - **Data store** — this is a persistence/technology selection. Per `Workflows/ARCHITECTURE_DECISION.md`, this decision requires an ADR before implementation begins; it is exactly the kind of choice that workflow already mandates one for.
 - **API style** — REST, GraphQL, RPC, event-driven, or none (if not applicable).
@@ -210,6 +210,7 @@ Each item names what actually performs it. A checklist item whose mechanism is u
 - [ ] `.github/PULL_REQUEST_TEMPLATE.md`
 - [ ] `.github/ISSUE_TEMPLATE/` (bug report, feature request, config)
 - [ ] `Dockerfile` (stack-appropriate)
+- [ ] `.ia-engineering/risk-map.yml` — the bootstrap writes a **starter** covering only the files it installed and declares no category absent; the project maps its own zones and accounts for all eight categories (`Templates/RISK_MAP.md`), then runs `check-risk-map.sh`. Until then the Risk Map check names what is unaccounted for — that is the check working, not failing
 
 **Performed by a separate, deliberate command:**
 
@@ -248,7 +249,7 @@ This workflow is complete when:
 | Director cannot answer a Phase A question | Director — cannot proceed to Phase B without a clear business objective |
 | Stack choice is contested or unclear | Software Architect → Director, via `Workflows/ARCHITECTURE_DECISION.md` |
 | Desired CI host is not GitHub | Director — no Adapter exists yet for other hosts (see `Adapters/README.md` Planned) |
-| Desired stack is not Node, Python, Go, or JVM | Software Architect — use the Generic fallback template, document any gaps |
+| Desired stack is not one of the seven first-class stacks | Software Architect — use the Generic fallback template, document any gaps |
 | Deployment (beyond GHCR build/publish) is requested | Director — out of scope for this milestone, requires a future Deployment milestone |
 | Phase A question #6 or #7 is answered positively (compliance/regulatory framework applies, or PII/sensitive data is held) | Compliance Engineer (and Security Engineer) — this is a structural trigger, not optional: it must produce either a follow-on Work Unit for gap analysis and control work, or at minimum an explicit compliance flag carried into the `Workflows/ONBOARDING.md` handoff. A positive answer that only gets recorded in the Project Charter with no further action is an incomplete Phase A. |
 
@@ -266,7 +267,7 @@ This workflow is complete when:
 
 Owner: IA Engineering
 
-Version: 0.0.11
+Version: 0.0.12
 
 Status: Draft
 

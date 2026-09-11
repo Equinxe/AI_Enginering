@@ -846,6 +846,29 @@ check_parity() {
   else
     fail "$adapter and $installed have drifted" "$(diff "$adapter" "$installed" | head -4 | tr '\n' ' ')"
   fi
+
+  # AN INSTALLED COPY MUST BE MARKED DERIVED, or every change to the pair costs
+  # double against the review limit.
+  #
+  # Standards/PULL_REQUEST_STANDARD.md puts that limit on "the lines a reviewer
+  # must READ", and the two files above are byte-identical by the check that
+  # just ran — nobody reads them twice. Measured on the change set that exposed
+  # this: 1,274 of 2,618 lines were the same 637 counted once per copy, and
+  # PR Size refused a change that was near the limit rather than well over it.
+  # The effect is perverse: keeping the installed copy in sync, which is the
+  # correct habit, was the thing being penalised.
+  #
+  # Checked rather than left to whoever adds the next Adapter, because the
+  # failure is silent: a new pair simply starts costing double and nothing says
+  # so. `git check-attr` is asked, so what is verified is the attribute git
+  # actually resolves rather than the presence of a line in a file.
+  local attr
+  attr="$(git check-attr linguist-generated -- "$installed" 2>/dev/null | sed 's/.*: //')"
+  if [ "$attr" = "set" ] || [ "$attr" = "true" ]; then
+    pass "$base: installed copy is marked linguist-generated"
+  else
+    fail "$installed is not marked linguist-generated (git says: ${attr:-unreadable})" "It is byte-identical to $adapter, so a reviewer reads those lines once and PR Size counts them twice. Add '/$installed linguist-generated=true' to .gitattributes. Mark the INSTALLED copy, never the Adapter — the Adapter is the source and must stay reviewable."
+  fi
 }
 
 for adapter in Adapters/github-actions/*.yml; do
@@ -1360,8 +1383,131 @@ else
   fi
 fi
 
+section "16. Every shipped CHANGELOG version has a tag"
+
+# ==========================================================================
+# THIS SECTION EXISTS BECAUSE ITS ABSENCE COST TWO RELEASES.
+#
+# v0.0.11 — Governance merged to main on 24 July 2026 and was never tagged. It
+# had a CHANGELOG section, VERSION.md announced it for six weeks, and no tag or
+# GitHub Release existed. v0.0.9.1 has the same gap. The version that shipped
+# untagged is the one whose own milestone delivered the rule requiring a full
+# GitHub Release (WU-IAENG-131).
+#
+# Nothing checked it. This script passed 156 checks across 15 sections and
+# never compared a CHANGELOG heading against a tag; release.sh only looks at
+# the version being released. Governance/CONTRIBUTING.md Section 7: the second
+# instance of a class names the class and writes the rule, and a rule that can
+# be checked mechanically becomes a control. This is that control.
+#
+# THE VERSION BEING PREPARED IS EXEMPT, and it is a named allow-list of exactly
+# one version rather than "skip the newest heading". Workflows/RELEASE.md Step 2
+# writes the CHANGELOG section in the bump commit and Step 7 creates the tag
+# afterwards, so between those two steps the current version legitimately has a
+# section and no tag. Skipping "the newest" instead would also skip a genuinely
+# forgotten tag the moment anything landed after it.
+
+CHANGELOG_FILE="CHANGELOG.md"
+if [ ! -f "$CHANGELOG_FILE" ]; then
+  fail "$CHANGELOG_FILE is missing" "Every released version's notes are built from it (Workflows/RELEASE.md Step 7). Its absence cannot be a pass."
+elif ! git rev-parse --git-dir >/dev/null 2>&1; then
+  fail "not a git repository, so no tag could be read" "This section compares CHANGELOG versions against tags. Outside a repository it can establish nothing, which is a failure and not a pass."
+else
+  changelog_versions="$(grep -oE '^## \[[0-9][0-9.]*\]' "$CHANGELOG_FILE" | tr -d '#[] ' | tr -d '\015')"
+  changelog_count="$(printf '%s\n' "$changelog_versions" | grep -c . || true)"
+  tag_count="$(git tag | grep -c . || true)"
+
+  if [ "$changelog_count" -eq 0 ]; then
+    fail "$CHANGELOG_FILE yielded no version headings" "The extraction reads '## [x.y.z]'. Zero means the file was restructured and this check now reads nothing — reported rather than passed."
+  elif [ "$tag_count" -eq 0 ]; then
+    # Universal failure would be a fact about the checkout, not the repository
+    # — TROUBLESHOOTING entry T. Named as such instead of reported per version.
+    fail "no tags are present in this checkout, so $changelog_count CHANGELOG version(s) could not be compared" "A shallow clone carries no tags. Fetch them (actions/checkout with fetch-depth: 0, or 'git fetch --tags') and run again. Reporting every version untagged here would describe the clone and not the repository."
+  else
+    # VERSION.md's current version is the one exemption, resolved once.
+    preparing=""
+    if [ -f VERSION.md ]; then
+      preparing="$(grep -oE '^\*\*v[0-9][0-9.]*\*\*' VERSION.md | head -1 | tr -d '*v' | tr -d '\015')"
+    fi
+
+    # THE TAG IS LOOKED FOR FIRST, and the exemption applies only when it is
+    # genuinely absent. Exempting the current version outright would also
+    # excuse a tag that once existed and was deleted, and would make the pass
+    # message claim an exemption was needed when it was not.
+    untagged=""
+    exempted=""
+    checked=0
+    for v in $changelog_versions; do
+      [ -n "$v" ] || continue
+      checked=$((checked + 1))
+      if git rev-parse -q --verify "refs/tags/v$v" >/dev/null 2>&1; then
+        continue
+      fi
+      if [ -n "$preparing" ] && [ "$v" = "$preparing" ]; then
+        exempted="$v"
+        continue
+      fi
+      untagged="$untagged v$v"
+    done
+
+    if [ -n "$untagged" ]; then
+      fail "CHANGELOG versions with no tag:$untagged" "Workflows/RELEASE.md Step 7 tags the release and builds its GitHub Release from this section. A version with notes and no tag shipped without completing Step 7 — which is how v0.0.11 and v0.0.9.1 went untagged. Tag it at the commit that merged it to main, or remove the section if it never shipped."
+    else
+      if [ -n "$exempted" ]; then
+        pass "$checked CHANGELOG version(s): all tagged except v$exempted, which VERSION.md says is being prepared — Step 2 writes the section, Step 7 creates the tag"
+      else
+        pass "all $checked CHANGELOG version(s) have a tag"
+      fi
+    fi
+  fi
+fi
+
+section "17. Every declared stack has a starter Dockerfile, and no orphan Dockerfile"
+# ==========================================================================
+# The framework's universality claim rests on ONE command adopting any stack.
+# setup-project-bootstrap.sh accepts a closed list, VALID_STACKS, and for each
+# copies Adapters/dockerfiles/<stack>.Dockerfile. If a stack is added to that
+# list without shipping its Dockerfile, bootstrap does not fail at build time —
+# it errors "no starter Dockerfile for stack '<x>'" only when an adopter picks
+# that stack, i.e. on someone else's machine. This makes the coverage a fact
+# the repository checks, not a promise. Both directions: a declared stack with
+# no Dockerfile is a broken adoption; a Dockerfile matching no declared stack is
+# a dead file or a typo an adopter can never reach.
+BOOTSTRAP="Adapters/scripts/setup-project-bootstrap.sh"
+DOCKERFILE_DIR="Adapters/dockerfiles"
+if [ ! -f "$BOOTSTRAP" ]; then
+  fail "$BOOTSTRAP is missing" "It declares VALID_STACKS, the closed list this section verifies against the shipped Dockerfiles."
+elif [ ! -d "$DOCKERFILE_DIR" ]; then
+  fail "$DOCKERFILE_DIR is missing" "The stack half of bootstrap copies its starter Dockerfile from here; without the directory no stack can be adopted."
+else
+  declared_stacks="$(grep -E '^VALID_STACKS=' "$BOOTSTRAP" | head -1 | sed 's/^VALID_STACKS=//' | tr -d '"' | tr -d "'" | tr -d '\015')"
+  if [ -z "$declared_stacks" ]; then
+    fail "could not read VALID_STACKS from $BOOTSTRAP" "The extraction reads a line 'VALID_STACKS=\"...\"'. Empty means the declaration moved and this section now verifies nothing — reported rather than passed."
+  else
+    # forward: every declared stack ships a non-empty Dockerfile.
+    for s in $declared_stacks; do
+      [ -n "$s" ] || continue
+      if [ -s "$DOCKERFILE_DIR/$s.Dockerfile" ]; then
+        pass "stack '$s' has a starter Dockerfile"
+      else
+        fail "stack '$s' is in VALID_STACKS but $DOCKERFILE_DIR/$s.Dockerfile is missing or empty" "An adopter who picks '$s' gets 'no starter Dockerfile for stack $s' and a half-installed project. Ship the Dockerfile, or remove '$s' from VALID_STACKS."
+      fi
+    done
+    # reverse: every shipped Dockerfile corresponds to a declared stack.
+    for f in "$DOCKERFILE_DIR"/*.Dockerfile; do
+      [ -e "$f" ] || continue
+      base="$(basename "$f" .Dockerfile)"
+      case " $declared_stacks " in
+        *" $base "*) pass "Dockerfile '$base.Dockerfile' matches a declared stack" ;;
+        *) fail "$f matches no stack in VALID_STACKS" "A Dockerfile no declared stack names is unreachable — an adopter can never select it. Add '$base' to VALID_STACKS if it is a real stack, or delete the file." ;;
+      esac
+    done
+  fi
+fi
+
 # ==========================================================================
 printf '\n== Result\n'
+
 if [ "$FAILURES" -eq 0 ]; then
   printf '   %s checks passed.\n' "$CHECKS"
   exit 0

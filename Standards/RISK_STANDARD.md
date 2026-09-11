@@ -117,6 +117,79 @@ RISK: <hazard> | tier=<Low|Medium|High|Critical> | mitigation=<...> | decided_by
 
 `decided_by=self` is valid for Low and Medium only. For High and Critical it names the Director and the confirmation is quoted.
 
+## Three Scales, and Saying Which One
+
+Three different things in this framework are scored, and all three use words like "high".
+Confusing them is the easiest mistake a reader or an Employee can make, so the rule is
+simply: **always name the scale.**
+
+| Scale | Values | What it qualifies |
+|---|---|---|
+| **Action risk** | Low / Medium / High / Critical | *one action an Employee is about to take* — the Classification Model above |
+| **Finding severity** | Blocker / High / Medium / Low / Nit | *one remark in a review* (`Workflows/CODE_REVIEW.md`) |
+| **Change zone** | Routine / Standard / Sensitive | *the part of the repository a change touches* — the Risk Map below |
+
+A "High" action and a "High" finding are unrelated measurements of unrelated things. Write
+`tier=High` or `severity=High`, never a bare "high".
+
+---
+
+## The Risk Map
+
+The Classification Model scores an **action**. It says nothing about **where** in a
+repository that action lands, and every control in this framework treats `README.md` and an
+authentication module identically until something says otherwise.
+
+A project's **Risk Map** is what says otherwise. It classifies the project's own paths, and
+it is the project's, not the framework's — only the project knows which of its directories
+decide whether a user is who they claim to be.
+
+### The three levels
+
+| Level | The single criterion |
+|---|---|
+| **Routine** | **No observable behaviour changes.** This is not a synonym for "small" — a one-character change to a permission check is not Routine, and a thousand-line documentation rewrite is |
+| **Standard** | Everything not covered by the other two. The default |
+| **Sensitive** | The path falls in one of the categories below |
+
+### The sensitive categories — a closed list
+
+A Sensitive entry that names no category is not acceptable. The list is closed so that a
+map can be checked for coverage: a category is either **present**, with its paths, or
+**declared absent**, with a reason that can be verified. **A false declaration of absence is
+worse than an omission, because it switches the category off.**
+
+| Category | What it covers |
+|---|---|
+| `authentication` | login, session, password, token, OAuth, SSO |
+| `authorization` | access control, roles, CSRF, CORS, route guards |
+| `personal_data` | identity, contact, health, anything nominative |
+| `payments_and_spend` | billing and payment — **and any real expenditure. A billed model call is one** |
+| `cryptography_and_secrets` | encryption, signing, reading secrets from the environment |
+| `migrations_and_data_integrity` | schema, migrations, persistent writes, backups |
+| `infrastructure_and_ci` | CI, deployment, containers, lint and gate configuration — **and the Employee and agent definitions themselves** |
+| `core_architecture` | whatever correctness the deliverable depends on; trust boundaries |
+
+Two of those are easy to miss and are spelled out for that reason. **A billed model call is
+a real expense**, so whatever decides to make one belongs under `payments_and_spend`. And
+**an Employee definition is infrastructure**: it decides what an agent is allowed to do, so
+editing one is closer to editing a CI gate than to editing documentation.
+
+### An unmapped project is unclassified, not safe
+
+Without a Risk Map every path falls back to Standard. That is not a neutral default — it is
+the sensitive paths silently losing whatever the project requires of Sensitive changes, with
+nothing reporting the loss. A project with no map is **unclassified**, and a control that
+meets that state says so rather than passing.
+
+### Writing one
+
+`Templates/RISK_MAP.md` carries the shape, the five ways a map goes wrong, and the commands
+that catch each. The short version: **a Risk Map is wrong easily and silently**, so it is
+verified by computing the level of every tracked file, never by re-reading the list.
+
+---
+
 ## Generic Catalogs
 
 Three catalogs give default tiers for hazards every project meets. They are **starting points**: a project instantiates them in its own `CLAUDE.md` or project memory with its concrete modules, outputs, and paths, and may raise (never lower) a default.
@@ -221,7 +294,7 @@ The product catalog is included because the most expensive failures in software 
 
 Owner: IA Engineering
 
-Version: 0.0.12
+Version: 0.0.13
 
 Status: Draft
 

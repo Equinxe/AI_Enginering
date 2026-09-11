@@ -104,20 +104,54 @@ PROJECT="$(pwd)"
 # The hooks path recorded in git config must be relative to the project root,
 # so the setting keeps working if the checkout is moved or is on another
 # machine. An absolute path would be correct only for whoever ran the script.
-HOOKS_REL="${FRAMEWORK#"$PROJECT"/}"
-if [ "$HOOKS_REL" = "$FRAMEWORK" ]; then
-  # The framework is not under the project root: it is the project (this
-  # repository installing its own Adapters), or it lives somewhere unrelated.
-  if [ "$FRAMEWORK" = "$PROJECT" ]; then
-    HOOKS_REL="."
-  else
-    echo "install.sh: the framework at $FRAMEWORK is neither inside nor equal to" >&2
-    echo "  the project at $PROJECT. Workflows/ONBOARDING.md Step 1 imports the" >&2
-    echo "  framework as a submodule, copied reference, or linked directory" >&2
-    echo "  inside the project, so its path can be recorded relative to the" >&2
-    echo "  project root. Move it inside the project and re-run." >&2
-    exit 1
+#
+# THE RELATION IS ESTABLISHED BY WALKING, NOT BY COMPARING SPELLINGS.
+#
+# A string prefix test asks whether one path is written like another, which is
+# a different question from whether one directory contains another. It was
+# wrong here twice, in two different ways:
+#
+#   `git rev-parse --show-toplevel` reports "C:/Developpement/x" on Windows
+#   while `pwd` reports "/c/Developpement/x". Fixed earlier by deriving both
+#   from `pwd` — see the comment above.
+#
+#   The two can still differ in CASE. PROJECT begins as git's recorded
+#   spelling and FRAMEWORK is resolved from this script's own path, so a
+#   Windows checkout reachable as both "C--Foo" and "c--Foo" produced
+#   "/tmp/.../C--Foo/proj/ia-engineering" and "/tmp/.../c--Foo/proj". Neither
+#   is wrong; they are the same directory. install.sh refused a correct
+#   installation and told the adopter to move their framework.
+#
+# So the containment test walks up from the framework and asks `-ef` at each
+# step: are these the same file, by device and inode. That is immune to case,
+# to /c/ against C:/, to a trailing slash, and to a symlinked checkout — none
+# of which a prefix test survives. The relative path is accumulated on the way
+# up, so it is built from the real components rather than from a substring.
+HOOKS_REL=""
+_probe="$FRAMEWORK"
+_rel=""
+while :; do
+  if [ "$_probe" -ef "$PROJECT" ]; then
+    HOOKS_REL="${_rel:-.}"
+    break
   fi
+  _parent="$(dirname "$_probe")"
+  # dirname of the root is the root: stop rather than loop forever.
+  [ "$_parent" = "$_probe" ] && break
+  _rel="$(basename "$_probe")${_rel:+/$_rel}"
+  _probe="$_parent"
+done
+unset _probe _rel _parent
+
+if [ -z "$HOOKS_REL" ]; then
+  echo "install.sh: the framework at $FRAMEWORK is not inside, and is not," >&2
+  echo "  the project at $PROJECT. Workflows/ONBOARDING.md Step 1 imports the" >&2
+  echo "  framework as a submodule, copied reference, or linked directory" >&2
+  echo "  inside the project, so its path can be recorded relative to the" >&2
+  echo "  project root. Move it inside the project and re-run." >&2
+  echo "  (Checked by walking parents and comparing device and inode, so a" >&2
+  echo "  difference in spelling or letter case is not what caused this.)" >&2
+  exit 1
 fi
 
 CHANGED=0
@@ -494,6 +528,7 @@ if [ "$FRAMEWORK" != "$PROJECT" ]; then
   echo "  Stack CI/container  ./$HOOKS_REL/Adapters/scripts/setup-project-bootstrap.sh <stack>"
   echo "                      (needs the stack decided in Workflows/PROJECT_BOOTSTRAP.md Phase B)"
   echo "  Runtime hooks       ./$HOOKS_REL/Adapters/ai-runtimes/claude-code/install-hooks.sh"
+  echo "  Runtime skills      ./$HOOKS_REL/Adapters/ai-runtimes/claude-code/install-skills.sh"
   echo "                      (writes the COMMITTED .claude/settings.json, which decides what"
   echo "                       the model may do — a project reviews that like code)"
   echo "  Runtime agents      ./$HOOKS_REL/Adapters/ai-runtimes/generate-agents.sh"

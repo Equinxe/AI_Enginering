@@ -78,20 +78,36 @@ Executes the release-level Test Plan (`Templates/TEST_PLAN.md`), covering:
 
 1. Opens PR: `release/v1.3.0` → `main`.
 2. Merges after Director confirms.
-3. Tags `v1.3.0` on `main`.
+3. Runs `./ia-engineering/Adapters/scripts/release.sh publish v1.3.0 --confirm`, which creates the annotated tag, pushes it, **and creates the GitHub Release with notes extracted from this version's `CHANGELOG.md` section**.
 4. **Does not delete `release/v1.3.0`** — release branches are permanent.
 
-**Output:** v1.3.0 live on `main`, tagged, release branch preserved.
+**A bare tag is not a release.** `Workflows/RELEASE.md` Step 7 requires the full Release, with notes derived from the CHANGELOG entry, because a tag alone produces no description on the Releases page. That gap had to be patched after the fact for two consecutive releases before it became a rule, and a third shipped with no tag at all — which is why `validate-framework.sh` section 16 now checks that every CHANGELOG version has one.
+
+Without `--confirm` the script prints its plan and stops, changing nothing. Publishing is externally visible and effectively irreversible, so it is never the default.
+
+**Output:** v1.3.0 live on `main`, tagged, GitHub Release published from the CHANGELOG, release branch preserved.
 
 ---
 
 # Step 6 — Release Manager (back-merge check)
 
-Because the release branch was an exact snapshot of `develop` (the version bump already happened in Step 1), and no defect fixes were applied to the release branch during Step 3, `main` and `develop` already hold the same release content. The back-merge PR from `main` to `develop` (`Workflows/RELEASE.md` Step 8) is a no-op here and is skipped.
+**The back-merge is performed, not skipped.** An earlier version of this example reasoned that the release branch was an exact snapshot of `develop`, so `main` and `develop` already held the same release *content* and there was nothing to carry back. The content claim is true. The conclusion is wrong, and the difference is history rather than content.
 
-Had a defect been found during Step 3 acceptance testing, branch protection would have blocked a direct push to `release/v1.3.0`. Instead, a fix branch (for example `fix/release-v1.3.0-short-description`) would branch from `release/v1.3.0`, commit the fix, open a Pull Request targeting `release/v1.3.0` (not `develop`), wait for CI to pass, get reviewed by the Code Reviewer, and merge into the release branch. That divergence from `develop` is exactly what would make this back-merge step necessary: a Pull Request from `main` to `develop`, merged once CI passes.
+Merging the release branch into `main` in Step 5 creates a **merge commit on `main`**. That commit exists on `main` and nowhere else — nothing merges `main` anywhere, so `develop` never receives it. Every release therefore leaves `main` one commit ahead, carrying no content, and the gap accumulates one commit per release. It is invisible until `main` requires branches to be up to date, and from then on it blocks the *next* release: that Pull Request's head does not contain `main`'s tip and cannot be made to without performing the back-merge that was skipped.
 
-**Output:** `develop` confirmed in sync with `main`.
+So:
+
+1. **Branch from `develop`** (for example `chore/back-merge-main`) and merge `main` into it: `git merge --no-ff origin/main`. Push that branch.
+2. Open the Pull Request from **that branch** to `develop`, not from `main` itself.
+3. Merge once CI passes.
+
+**Do not open it with `main` as the head.** That is the obvious shape and it cannot work: "up to date" compares the *head* against the *base*, so a head of `main` would have to contain `develop`'s tip — the opposite of a back-merge, and it would put unreleased work on `main` outside this workflow.
+
+In the normal case that Pull Request **changes no files**: it carries only the merge commit from Step 5. That is expected. The `PR Size` and `Data Policy` checks recognise a range whose commits are all merges and pass it with a notice; a range with no commits at all, or one holding a non-merge commit that changed nothing, still fails.
+
+Had a defect been found during Step 3 acceptance testing, branch protection would have blocked a direct push to `release/v1.3.0`. Instead, a fix branch (for example `fix/release-v1.3.0-short-description`) would branch from `release/v1.3.0`, commit the fix, open a Pull Request targeting `release/v1.3.0` (not `develop`), wait for CI to pass, get reviewed by the Code Reviewer, and merge into the release branch. Those fixes then have real content to carry back, on top of the merge commit that always does.
+
+**Output:** `develop` contains `main`'s tip, so the next release can satisfy "require branches to be up to date".
 
 ---
 
@@ -109,7 +125,7 @@ Had a defect been found during Step 3 acceptance testing, branch protection woul
 
 Owner: IA Engineering
 
-Version: 0.0.8
+Version: 0.0.9
 
 Status: Draft
 

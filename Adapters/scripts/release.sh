@@ -78,6 +78,25 @@ current_version() {
 
 # Extracts one version's section from CHANGELOG.md: from its own "## [x.y.z]"
 # heading up to (not including) the next "## [" heading.
+# Resolves the forge once and prints the directory holding its implementations
+# of the four host-dependent operations. See Adapters/scripts/hosts/README.md.
+#
+# This script owns the RULES — what a green CI conclusion means for Step 1,
+# whether an open defect blocks, what belongs in release notes. The host owns
+# only how to ask its own API. Keeping the split here rather than at each call
+# site means a second forge adds one directory and changes nothing in this file.
+host_dir() {
+  local root host
+  root="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  if [ ! -x "$root/resolve-host.sh" ]; then
+    echo "resolve-host.sh is missing beside this script" >&2
+    return 1
+  fi
+  host="$(bash "$root/resolve-host.sh" . 2>/dev/null)" || return 1
+  [ -n "$host" ] || return 1
+  printf '%s\n' "$root/hosts/$host"
+}
+
 changelog_section() {
   local version="${1#v}"
   awk -v want="$version" '
@@ -133,6 +152,12 @@ milestone_released() {
 
 cmd_check() {
   local target="${1:-}"
+  # Whether Step 2's output is already present. Set from the VERSION.md and
+  # CHANGELOG.md checks below, read by the closing line.
+  STEP2_DONE=0
+  # Whether Step 7 already happened for this version — a tag exists for it.
+  ALREADY_RELEASED=0
+  RELEASED_VERSION=""
 
   echo "IA Engineering — release readiness (Workflows/RELEASE.md Step 1)"
   echo "Repository: $ROOT"
@@ -182,11 +207,27 @@ cmd_check() {
     local section
     section="$(changelog_section "$check_version")"
     if [ -z "$section" ]; then
+      STEP2_DONE=0
       bad "CHANGELOG.md has no section for ${check_version}" "Step 7 builds the GitHub Release notes from it. Without the section there is nothing to publish, which is how v0.0.10 and v0.0.10.1 both shipped with a bare tag."
     else
       local lines
       lines="$(printf '%s\n' "$section" | grep -c . || true)"
       ok "CHANGELOG.md section for ${check_version} present ($lines non-empty lines)"
+      # Reported rather than failed: a tagged version on develop is the normal
+      # state between one release and the next bump, not an error. It changes
+      # what the closing line should say, and nothing else.
+      if git rev-parse -q --verify "refs/tags/v${check_version#v}" >/dev/null 2>&1; then
+        note "v${check_version#v} is already tagged — this version has shipped"
+        ALREADY_RELEASED=1
+        RELEASED_VERSION="$check_version"
+      fi
+      # STEP 2'S OUTPUT, OBSERVED. Workflows/RELEASE.md Step 2 states its
+      # output as "develop carries the final VERSION.md and CHANGELOG.md for
+      # this release", and those are exactly the two conditions just checked.
+      # Recording it here is what lets the closing line say which step is
+      # actually next instead of always naming Step 2 — a gate that reads the
+      # output of a step and then tells the reader to perform it.
+      STEP2_DONE=1
       if [ "$lines" -lt 4 ]; then
         bad "the CHANGELOG.md section for ${check_version} looks too thin ($lines lines)" "Step 1 requires reviewing that every significant change since the last release is accounted for."
       fi
@@ -375,21 +416,25 @@ cmd_check() {
 
   head2 "Continuous integration on $branch"
 
-  if ! command -v gh > /dev/null 2>&1; then
-    bad "gh is not installed — cannot verify CI status" "Step 1 requires confirming CI is green on develop. Install the GitHub CLI, or verify it by hand and record that you did."
+  # The host reports the conclusion; the RULE that only "success" is green
+  # stays here, so every forge is judged by the same standard.
+  local hd conclusion ci_err
+  if ! hd="$(host_dir)"; then
+    bad "could not resolve the host" "Adapters/scripts/resolve-host.sh decides which implementation reads the CI conclusion. Without it, Step 1 condition 2 cannot be evaluated, and an unevaluated condition is not a met one."
+  elif [ ! -x "$hd/ci-conclusion.sh" ]; then
+    bad "$hd/ci-conclusion.sh is missing" "Every host implements the four operations listed in Adapters/scripts/hosts/README.md. A missing one cannot be a pass."
   else
-    local conclusion
-    conclusion="$(gh run list --branch "$branch" --limit 1 \
-      --json conclusion,status,workflowName 2>/dev/null || true)"
-    if [ -z "$conclusion" ] || [ "$conclusion" = "[]" ]; then
-      bad "no CI runs found for $branch" "Cannot confirm CI is green. A release with no CI evidence is not ready."
-    elif echo "$conclusion" | grep -q '"conclusion":"success"'; then
-      ok "latest CI run on $branch succeeded"
-    elif echo "$conclusion" | grep -q '"status":"in_progress"'; then
-      bad "a CI run on $branch is still in progress" "Wait for it. Step 1 requires green, not pending."
+    ci_err="$(mktemp)"
+    if conclusion="$("$hd/ci-conclusion.sh" "$branch" 2>"$ci_err")"; then
+      if [ "$conclusion" = "success" ]; then
+        ok "latest CI run on $branch succeeded"
+      else
+        bad "the latest CI run on $branch concluded '$conclusion'" "Step 1 requires green. Only success is green; anything else means shipping on a run that did not pass."
+      fi
     else
-      bad "the latest CI run on $branch did not succeed" "$conclusion"
+      bad "could not confirm CI is green on $branch" "$(tr '\n' ' ' < "$ci_err")"
     fi
+    rm -f "$ci_err"
   fi
 
   head2 "Framework consistency"
@@ -420,26 +465,47 @@ cmd_check() {
 
   head2 "Open defects"
 
-  if ! command -v gh > /dev/null 2>&1; then
-    note "gh is not installed — open defects not listed. The CI condition above already failed for the same reason."
+  # Reported, never failed — Step 1 condition 3 is a judgment and always was.
+  local bugs bugs_err bug_count
+  if ! hd="$(host_dir)" || [ ! -x "$hd/open-bugs.sh" ]; then
+    note "no host implementation to list open defects — review your tracker by hand for critical or high defects."
   else
-    local blockers
-    blockers="$(gh issue list --state open --label 'bug' --limit 100 --json number,title 2>/dev/null || true)"
-    if [ -z "$blockers" ] || [ "$blockers" = "[]" ]; then
-      ok "no open issues labelled bug"
+    bugs_err="$(mktemp)"
+    if bugs="$("$hd/open-bugs.sh" 2>"$bugs_err")"; then
+      bug_count="$(printf '%s\n' "$bugs" | grep -c . || true)"
+      if [ "$bug_count" -eq 0 ]; then
+        ok "no open issues labelled bug"
+      else
+        note "$bug_count open issue(s) labelled bug — Step 1 requires confirming none is critical or high"
+        note "This is a judgment call, not a mechanical one, so it is reported rather than failed."
+        printf '%s\n' "$bugs" | head -5 | sed 's/^/         /'
+      fi
     else
-      local count
-      count="$(echo "$blockers" | grep -o '"number"' | wc -l | tr -d ' ')"
-      note "$count open issue(s) labelled bug — Step 1 requires confirming none is critical or high"
-      note "This is a judgment call, not a mechanical one, so it is reported rather than failed."
-      echo "$blockers" | head -5
+      note "open defects could not be listed: $(tr '\n' ' ' < "$bugs_err")"
+      note "Nothing was established either way — that is not the same as having no blockers."
     fi
+    rm -f "$bugs_err"
   fi
 
   head2 "Result"
 
   if [ "$FAILURES" -eq 0 ]; then
-    echo "   Ready for Step 2 (version bump on develop), then Step 3 (release branch)."
+    if [ "${ALREADY_RELEASED:-0}" -eq 1 ]; then
+      # A TAG MEANS STEP 7 HAPPENED. Everything above is then a description of
+      # a release that already shipped, and "ready for Step 3" would invite
+      # cutting a second release branch for a version already on main. Found
+      # immediately after fixing the sibling defect (#81), by reading the very
+      # output that fix produced.
+      echo "   v${RELEASED_VERSION#v} is ALREADY RELEASED: the tag exists, so Step 7 is done"
+      echo "   and every condition above describes a release that has shipped."
+      echo "   Nothing here is ready to cut. Start the next release by bumping"
+      echo "   VERSION.md and adding its CHANGELOG.md section (Step 2)."
+    elif [ "${STEP2_DONE:-0}" -eq 1 ]; then
+      echo "   Step 2 is already on this branch: VERSION.md and CHANGELOG.md both"
+      echo "   carry this version. Ready for Step 3 (cut the release branch)."
+    else
+      echo "   Ready for Step 2 (version bump on develop), then Step 3 (release branch)."
+    fi
   else
     echo "   $FAILURES condition(s) not met."
     echo "   Workflows/RELEASE.md Step 1: \"If any condition is not met: block the"
@@ -547,7 +613,15 @@ cmd_publish() {
   echo "  Would run:"
   echo "    git tag -a $version -m \"$version — ${codename:-}\""
   echo "    git push origin $version"
-  echo "    gh release create $version --title \"$version — ${codename:-}\" --notes-file <changelog section>"
+  # Name the implementation that will actually run, not a GitHub command the
+  # host may not have. A plan that describes a different action than the one
+  # --confirm performs is worse than no plan.
+  local plan_hd
+  if plan_hd="$(host_dir)"; then
+    echo "    $plan_hd/create-release.sh $version \"$version — ${codename:-}\" <changelog section>"
+  else
+    echo "    <host unresolved> create-release.sh $version \"$version — ${codename:-}\" <changelog section>"
+  fi
   echo
 
   if [ "$confirm" != "--confirm" ]; then
@@ -567,18 +641,26 @@ cmd_publish() {
   git push origin "$version" || return 1
   echo "   pushed $version"
 
-  if command -v gh > /dev/null 2>&1; then
-    gh release create "$version" \
-      --title "$version — ${codename:-}" \
-      --notes-file "$notes_file" || return 1
-    echo "   GitHub Release created with notes from CHANGELOG.md"
-  else
-    echo "   gh not installed — the tag is pushed but NO GitHub Release exists." >&2
-    echo "   Step 7 is incomplete until one is created from the notes in" >&2
-    echo "   $notes_file. A tag without release notes is an incomplete release" >&2
-    echo "   (Governance/VERSIONING_POLICY.md, Versioning and Release Completeness)." >&2
+  # The tag is pushed by now, so a failure below leaves a real and incomplete
+  # state. The notes file is therefore NOT deleted on failure: it is what a
+  # human needs to finish Step 7 by hand, and re-deriving it means extracting
+  # the CHANGELOG section correctly under pressure.
+  local hd
+  if ! hd="$(host_dir)" || [ ! -x "$hd/create-release.sh" ]; then
+    echo "   No host implementation to create a Release — the tag is pushed and" >&2
+    echo "   Step 7 is INCOMPLETE. A tag without release notes is an incomplete" >&2
+    echo "   release (Governance/VERSIONING_POLICY.md, Versioning and Release" >&2
+    echo "   Completeness). Publish by hand from: $notes_file" >&2
     return 1
   fi
+
+  if ! "$hd/create-release.sh" "$version" "$version — ${codename:-}" "$notes_file"; then
+    echo "   Step 7 is INCOMPLETE: the tag is pushed and no Release exists." >&2
+    echo "   The notes are kept at $notes_file — publish from that file rather" >&2
+    echo "   than re-deriving them." >&2
+    return 1
+  fi
+  echo "   Release created with notes from CHANGELOG.md"
 
   rm -f "$notes_file"
 
