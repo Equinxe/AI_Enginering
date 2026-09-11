@@ -810,3 +810,9 @@ work_units:
     title: Pin adoption reality 2 — the trailer checks judge the change set under review, not prior history
     milestone: Portability
     delivers: Adapters/scripts/tests/run.sh
+
+  - id: WU-IAENG-258
+    employee: Release Manager
+    title: Bump VERSION.md to v0.0.13 and finalize the CHANGELOG.md section for the Portability release
+    milestone: Portability
+    delivers: VERSION.md, CHANGELOG.md
