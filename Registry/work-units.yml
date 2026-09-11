@@ -804,3 +804,9 @@ work_units:
     title: Onboarding names the four operational realities an already-started project meets that greenfield never does
     milestone: Portability
     delivers: Workflows/ONBOARDING.md
+
+  - id: WU-IAENG-257
+    employee: Test Automation Engineer
+    title: Pin adoption reality 2 — the trailer checks judge the change set under review, not prior history
+    milestone: Portability
+    delivers: Adapters/scripts/tests/run.sh
