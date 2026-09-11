@@ -221,6 +221,27 @@ BASE="$(git rev-parse develop)"
 expect 0 "a range of merges only is a pass, not a silence" -- bash "$CHECK_WU" "$BASE" HEAD
 expect_output "No non-merge commits to check."
 
+# Workflows/ONBOARDING.md "Adopting into an already-started project", reality 2:
+# the check judges the change set under review, not prior history. A commit made
+# before the project adopted the framework carries no Work Unit trailer, and is
+# NOT judged when the range begins at the adoption commit — which is exactly why
+# the guidance is to submit adoption from the adoption commit, not the repository
+# root. Both directions are pinned so a refactor that widened the range would
+# name itself: the untrailered ancestor passes when excluded, fails when included.
+new_repo wu-adoption
+echo seed > seed.txt && git add -A && git commit -q -m "initial project state"
+PRE="$(git rev-parse HEAD)"
+echo legacy > legacy.txt && git add -A && git commit -q -m "existing work, before the framework"
+write_wu_registry WU-TEST-001
+git add -A && git commit -q -m "adopt IA Engineering
+
+Work Unit: WU-TEST-001"
+ADOPT="$(git rev-parse HEAD)"
+commit_with "feat: first work after adoption" "Work Unit: WU-TEST-001"
+expect 0 "an untrailered commit before the adoption base is not judged" -- bash "$CHECK_WU" "$ADOPT" HEAD
+expect 1 "the same untrailered commit IS judged when the range includes it" -- bash "$CHECK_WU" "$PRE" HEAD
+expect_output "carries no"
+
 new_repo wu-no-registry
 BASE="$(git rev-parse HEAD)"
 commit_with "feat: anything" "Work Unit: WU-TEST-001"
@@ -307,6 +328,25 @@ git merge -q --no-ff develop -m "Merge develop into main"
 BASE="$(git rev-parse develop)"
 expect 0 "a merge-only range passes and says so" -- bash "$CHECK_EMP" "$BASE" HEAD
 expect_output "No non-merge commits to validate."
+
+# Workflows/ONBOARDING.md "Adopting into an already-started project", reality 2:
+# the same property for the Employee trailer. A commit made before adoption has
+# no Employee trailer and is not judged when the range starts at the adoption
+# commit; the identical commit fails once the range reaches back past it. Pinning
+# both directions makes the adoption guidance a checked fact, not a promise.
+new_repo emp-adoption
+echo seed > seed.txt && git add -A && git commit -q -m "initial project state"
+PRE="$(git rev-parse HEAD)"
+echo legacy > legacy.txt && git add -A && git commit -q -m "existing work, before the framework"
+write_employee_roster "Release Manager" "DevOps Engineer"
+git add -A && git commit -q -m "adopt IA Engineering
+
+Employee: DevOps Engineer"
+ADOPT="$(git rev-parse HEAD)"
+commit_with "feat: first work after adoption" "Employee: DevOps Engineer"
+expect 0 "an untrailered commit before the adoption base is not judged" -- bash "$CHECK_EMP" "$ADOPT" HEAD
+expect 1 "the same untrailered commit IS judged when the range includes it" -- bash "$CHECK_EMP" "$PRE" HEAD
+expect_output "missing an 'Employee: <Name>' trailer"
 
 new_repo emp-no-roster
 BASE="$(git rev-parse HEAD)"
