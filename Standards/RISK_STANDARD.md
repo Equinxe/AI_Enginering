@@ -326,7 +326,13 @@ Depends On:
 
 Referenced By:
 
-- `Core/DECISION_TREE.md`
+- `Core/AGENT_CONDUCT.md`
+- `Core/CONTEXT_BUDGET.md`
+- `Core/GLOSSARY.md`
 - `Core/ORCHESTRATION.md`
-- `Core/MAIN_AGENT_CONDUCT.md`
+- `Templates/DOMAIN_EMPLOYEE.md`
+- `Templates/EMPLOYEE_BRIEF.md`
+- `Templates/POLE_BRIEF.md`
+- `Templates/PROJECT_CLAUDE.md`
+- `Templates/RISK_MAP.md`
 - `Templates/WORK_UNIT_REPORT.md`

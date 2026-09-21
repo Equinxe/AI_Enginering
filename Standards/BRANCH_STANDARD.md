@@ -90,6 +90,8 @@ Branches should be:
 - merged once completed;
 - deleted when no longer needed.
 
+**Protected-branch exception:** `main`, `develop`, and `release/*` are protected and are never deleted — release branches in particular are preserved indefinitely. `Standards/GIT_STANDARD.md` is the controlling rule for branch protection; this lifecycle applies to feature, fix, and hotfix branches, not to protected ones.
+
 ---
 
 # Responsibilities
@@ -139,7 +141,7 @@ Following a consistent branching strategy provides:
 
 Owner: IA Engineering
 
-Version: 0.0.2
+Version: 0.0.3
 
 Status: Draft
 

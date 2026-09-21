@@ -271,7 +271,7 @@ The Registry records the six chains this document names. Chains composed ad hoc 
 
 # Chain Conventions
 
-- Every chain ends with a Director delivery step.
+- Most chains end with a Director delivery step; the Release and Hotfix chains end at the Release Manager's merge-and-tag, and the Architecture chain hands off to the Feature chain.
 - Every chain that touches `main` has a mandatory Director approval gate.
 - Security concerns anywhere in a chain escalate to the Security Engineer immediately — they do not wait for the next step.
 - Every chain produces at least one commit following the Commit Standard.
@@ -282,7 +282,7 @@ The Registry records the six chains this document names. Chains composed ad hoc 
 
 Owner: IA Engineering
 
-Version: 0.0.8
+Version: 0.0.9
 
 Status: Draft
 

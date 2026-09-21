@@ -888,3 +888,9 @@ work_units:
     title: Port RELEASE.md Step 8's proven back-merge PR shape into HOTFIX.md Step 9, closing the head=main deadlock it never inherited
     milestone: Precision
     delivers: Workflows/HOTFIX.md
+
+  - id: WU-IAENG-272
+    employee: Technical Writer
+    title: Correct four normative-doc precision defects — Agent Chains overbroad claim, Branch Standard lifecycle exception, Risk Standard stale cross-references, Agent Conduct citation form
+    milestone: Precision
+    delivers: Core/AGENT_CHAINS.md, Standards/BRANCH_STANDARD.md, Standards/RISK_STANDARD.md, Core/AGENT_CONDUCT.md
