@@ -864,3 +864,9 @@ work_units:
     title: Fix the hooks README verification example whose own comment claimed rc=0 while the shell construction actually produced rc=2
     milestone: Precision
     delivers: Adapters/ai-runtimes/claude-code/hooks/README.md, Workflows/ONBOARDING.md, Workflows/PROJECT_BOOTSTRAP.md
+
+  - id: WU-IAENG-268
+    employee: Technical Writer
+    title: Fix RELEASE_CHAIN_EXAMPLE's closing summary bullet still claiming the back-merge is normally a no-op, contradicting its own corrected Step 6 body
+    milestone: Precision
+    delivers: Examples/RELEASE_CHAIN_EXAMPLE.md
