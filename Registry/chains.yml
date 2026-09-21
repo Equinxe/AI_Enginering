@@ -189,6 +189,8 @@ chains:
     steps:
       - employee: SRE Engineer
         produces: Detection, severity assessment, incident declared
+      - employee: Engineering Manager
+        produces: Incident Commander assigned, team resources coordinated
       - gate: Director
         when: Severity is P1 or P2
         blocks: Nothing — this is a mandatory notification, not an approval
@@ -198,8 +200,6 @@ chains:
           mitigation pending an approval would worsen the incident.
       - employee: SRE Engineer
         produces: Containment and mitigation
-      - employee: Engineering Manager
-        produces: Incident Commander assigned, team resources coordinated
       - employee: Security Engineer
         when: The incident has a security dimension
         produces: Security containment assessment
