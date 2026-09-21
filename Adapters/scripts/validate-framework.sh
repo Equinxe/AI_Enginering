@@ -1505,6 +1505,41 @@ else
   fi
 fi
 
+section "18. README front door names the current version"
+# ==========================================================================
+# The README is the one page a visitor reads first, and its "Current Status"
+# block restates the version and codename that live authoritatively in
+# VERSION.md. Nothing checked the two agreed, so the block sat at "v0.0.12 -
+# Automation & Convergence" for ten days after v0.0.13 shipped — the exact
+# silent drift this repository keeps repairing, on its most-read page. This
+# pins them: the version and codename VERSION.md declares must appear, together,
+# in the README's Current Status block. Reported against the authoritative
+# document — VERSION.md is the source, the README the restatement.
+VER_FILE="VERSION.md"
+README_FILE="README.md"
+if [ ! -f "$VER_FILE" ] || [ ! -f "$README_FILE" ]; then
+  fail "cannot check the README front door: VERSION.md or README.md is missing" "Both must exist for the restated version to be checked against the authoritative one."
+else
+  # VERSION.md: the '**vX.Y.Z**' after 'Current Version', the '**Codename**'
+  # after 'Codename'. tr -d '\r' so a CRLF checkout does not defeat the match.
+  ver_version="$(grep -A2 '^Current Version' "$VER_FILE" | grep -oE 'v[0-9]+\.[0-9]+\.[0-9.]+' | head -1 | tr -d '\r')"
+  ver_codename="$(grep -A2 '^Codename' "$VER_FILE" | grep -oE '\*\*[^*]+\*\*' | head -1 | tr -d '*\r')"
+  # README's Current Status block: the 'vX.Y.Z - Codename' line.
+  readme_line="$(sed -n '/^## Current Status/,/^Completed/p' "$README_FILE" | grep -oE 'v[0-9]+\.[0-9]+\.[0-9.]+ - .+' | head -1 | tr -d '\r')"
+  if [ -z "$ver_version" ] || [ -z "$ver_codename" ]; then
+    fail "could not read the current version and codename from $VER_FILE" "The extraction reads '**vX.Y.Z**' under 'Current Version' and '**Codename**' under 'Codename'. Empty means that header moved and this section now verifies nothing — reported rather than passed."
+  elif [ -z "$readme_line" ]; then
+    fail "$README_FILE has no 'vX.Y.Z - Codename' line in its Current Status block" "The front door must restate the current version. Add it under '## Current Status' as 'v$ver_version - $ver_codename', or this check reads nothing."
+  else
+    expected="$ver_version - $ver_codename"
+    if [ "$readme_line" = "$expected" ]; then
+      pass "README Current Status names '$expected', matching $VER_FILE"
+    else
+      fail "README Current Status says '$readme_line' but $VER_FILE declares '$expected'" "The front door has drifted from the authoritative version. Fix README.md's '## Current Status' block to '$expected'. VERSION.md is the source; the README restates it."
+    fi
+  fi
+fi
+
 # ==========================================================================
 printf '\n== Result\n'
 

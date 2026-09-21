@@ -149,7 +149,7 @@ Current Version
 
 ```
 
-v0.0.12 - Automation & Convergence
+v0.0.13 - Portability
 
 ```
 
@@ -169,6 +169,7 @@ Completed
 - ✅ Registry (machine-readable roster, agent chains, workflow steps and gates, Work Units — derived from the governed documents, never authoritative over them)
 - ✅ Automation (framework self-validation in CI, one-command Adapter installation, release-workflow automation up to the Director gate, runtime agent generation from the Employee definitions)
 - ✅ Convergence (governance concepts absorbed from sibling frameworks and made framework-wide: a shared Risk scale with stop tiers, structural Data Protection with a pre-commit hook and a history-scanning CI check, the Work Unit Report and Session State contracts, Domain Employees with a project roster, a review-size gate, the escape-hatch ban list enforced by Claude Code hooks, multi-lens review, the dependent-task queue, the conductor/pole Autonomous Delivery workflow, and the Troubleshooting Catalog with its learning loop)
+- ✅ Portability (the framework made runnable off its own repository: the four Pull Request checks extracted from CI into scripts any forge can run with a real behaviour suite, a host seam where the host fetches and acts but never decides, seven first-class stacks each pinned to a starter Dockerfile, the Risk Map by which a project classifies its own paths, and an already-started-project adoption path that never overwrites the project's own work)
 
 Planned
 
@@ -209,6 +210,7 @@ Adapters/
 - Governance
 - Automation
 - Convergence
+- Portability
 - Public Release
 
 ---
