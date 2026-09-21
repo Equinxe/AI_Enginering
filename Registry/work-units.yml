@@ -894,3 +894,9 @@ work_units:
     title: Correct four normative-doc precision defects — Agent Chains overbroad claim, Branch Standard lifecycle exception, Risk Standard stale cross-references, Agent Conduct citation form
     milestone: Precision
     delivers: Core/AGENT_CHAINS.md, Standards/BRANCH_STANDARD.md, Standards/RISK_STANDARD.md, Core/AGENT_CONDUCT.md
+
+  - id: WU-IAENG-273
+    employee: Software Architect
+    title: Give STANDARDS_FIRST and the Manifest one answer to project-convention vs framework-Standard precedence, via a governed tie-break on the existing Documented Deviations mechanism
+    milestone: Precision
+    delivers: Standards/STANDARDS_FIRST.md, Core/AI_MANIFEST.md
