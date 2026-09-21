@@ -174,9 +174,13 @@ SRE Engineer
       ↓
   [Detection — severity assessment — incident declared]
       ↓
+Engineering Manager
+      ↓
+  [Incident Commander assigned — team resources coordinated]
+      ↓
 Main Agent → Director  (P1/P2 mandatory notification)
       ↓
-SRE Engineer + Engineering Manager
+SRE Engineer
       ↓
   [Containment — mitigation]
       ↓
@@ -278,7 +282,7 @@ The Registry records the six chains this document names. Chains composed ad hoc 
 
 Owner: IA Engineering
 
-Version: 0.0.7
+Version: 0.0.8
 
 Status: Draft
 

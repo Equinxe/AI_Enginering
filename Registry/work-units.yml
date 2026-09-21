@@ -876,3 +876,9 @@ work_units:
     title: Clarify how the Critical tier interacts with the Incident Chain's one non-pausing gate — reversible containment may proceed with post-hoc independent verification, irreversible still stops
     milestone: Precision
     delivers: Standards/RISK_STANDARD.md, Examples/INCIDENT_CHAIN_EXAMPLE.md
+
+  - id: WU-IAENG-270
+    employee: Software Architect
+    title: Align the Incident Chain diagram and Registry with the workflow's order — Incident Commander assigned before the P1/P2 notification, not folded into containment
+    milestone: Precision
+    delivers: Core/AGENT_CHAINS.md, Registry/chains.yml
