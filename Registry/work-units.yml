@@ -816,3 +816,9 @@ work_units:
     title: Bump VERSION.md to v0.0.13 and finalize the CHANGELOG.md section for the Portability release
     milestone: Portability
     delivers: VERSION.md, CHANGELOG.md
+
+  - id: WU-IAENG-260
+    employee: Technical Writer
+    title: Clear the post-release drift on the README front door — Current Status, Completed, and Roadmap name v0.0.13 Portability
+    milestone: Precision
+    delivers: README.md
