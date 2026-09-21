@@ -846,3 +846,9 @@ work_units:
     title: Clear the README Core/Templates enumeration drift and correct CONTEXT_BUDGET's false EMPLOYEE_BRIEF cross-reference
     milestone: Precision
     delivers: README.md, Core/CONTEXT_BUDGET.md
+
+  - id: WU-IAENG-265
+    employee: Test Automation Engineer
+    title: Guard the README Core/Templates enumeration bullets against silently dropping a file, by comma count against the directory
+    milestone: Precision
+    delivers: Adapters/scripts/validate-framework.sh
