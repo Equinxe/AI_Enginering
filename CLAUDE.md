@@ -120,8 +120,8 @@ Adapters/      — Tool integrations
 
 # Current Version
 
-v0.0.12 — Automation & Convergence
+v0.0.13 — Portability
 
-Two milestones under one number: both completed on `develop` before either shipped. See `Governance/VERSIONING_POLICY.md`.
+The framework made runnable somewhere other than where it was written: the Pull Request checks extracted from CI into scripts any forge can run, a host seam, seven first-class stacks, the Risk Map, and an already-started-project adoption path. See `CHANGELOG.md` and `Governance/VERSIONING_POLICY.md`.
 
-Next: TBD — not yet scoped. The next milestone takes 0.0.13.
+Next: TBD — not yet scoped. The next milestone takes 0.0.14.
