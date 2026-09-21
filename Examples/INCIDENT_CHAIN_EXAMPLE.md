@@ -31,16 +31,16 @@ Engineering Manager assigns the SRE Engineer as Incident Commander for this inci
 
 **P1/P2 notification to Director is mandatory and immediate** — not after resolution.
 
-This is the one gate in the framework that does **not** pause the chain (`Registry/workflows.yml` records it as `notification_only`). Containment proceeds while the Director is informed, because withholding mitigation to wait for an approval would worsen the incident. `Standards/RISK_STANDARD.md` does not conflict with that: the tier here is `Critical` — a source of truth is unavailable and every user is affected — and the containment action is recorded as it happens rather than escalated before it:
+This is the one gate in the framework that does **not** pause the chain (`Registry/workflows.yml` records it as `notification_only`). Containment proceeds while the Director is informed, because withholding mitigation to wait for an approval would worsen the incident. The containment action here lands at the `Critical` tier — a source of truth is unavailable and every user is affected — and `Standards/RISK_STANDARD.md`'s *Relationship to Incident Response* clause governs the interaction exactly: during a declared P1/P2 incident a **reversible** containment action MAY proceed on the Incident Commander's judgment without the Critical tier's pre-action stop, on three conditions — **(a)** it is genuinely reversible, **(b)** the mandatory P1/P2 notification has been made (Step 3 above), and **(c)** the independent verification pass Critical requires is still performed, moved to immediately after containment (Step 4) rather than waived. All three hold here, so the action is recorded as it happens rather than escalated before it:
 
 ```
 RISK: raising the connection-pool ceiling on a live production database |
-      tier=Critical | mitigation=change is reversible by reverting the config; the pool metric is
-      watched during and after | decided_by=Director (notified Step 3, confirmation quoted in the
-      post-mortem)
+      tier=Critical | mitigation=reversible by reverting the config; P1 notification made (Step 3);
+      independent post-hoc verification by the Observability Engineer (Step 4) |
+      decided_by=Director (notified Step 3, confirmation quoted in the post-mortem)
 ```
 
-An irreversible containment action — dropping connections, truncating a table — would have stopped for the confirmation instead, `Critical` requiring a named Director decision *and* an independent verification pass.
+An irreversible containment action — dropping connections, truncating a table — would **not** qualify under that clause: it fails condition (a), so it stops for an explicit Director decision naming the action even mid-incident, `Critical` requiring a named Director decision *and* an independent verification pass. Speed never converts an irreversible Critical action into a proceed-on-judgment one.
 
 ---
 
@@ -50,7 +50,10 @@ An irreversible containment action — dropping connections, truncating a table 
 - Incident Commander restarts the connection pool and applies a temporary connection limit increase to stop the immediate bleeding.
 - Engineering Manager coordinates — confirms no other team is mid-deploy, ensures single point of action.
 
-**Result:** Service restored within 12 minutes. Root cause not yet fixed — this is mitigation, not resolution.
+**Post-hoc independent verification (Critical tier, condition (c) from Step 3):**
+- **Observability Engineer** — *not* the Incident Commander who applied the change — independently confirms from the dashboards, immediately after containment, that the raised connection-pool ceiling took effect, that request success rate has recovered, and that the higher ceiling has introduced no new failure mode (no database CPU or memory pressure from the added connections). This is the independent verification pass Critical requires, performed *after* containment rather than before it, per `Standards/RISK_STANDARD.md`'s *Relationship to Incident Response* clause. Its result is recorded for the post-mortem.
+
+**Result:** Service restored within 12 minutes, containment independently verified. Root cause not yet fixed — this is mitigation, not resolution.
 
 ---
 

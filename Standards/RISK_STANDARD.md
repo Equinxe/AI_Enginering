@@ -238,6 +238,22 @@ Each Employee's Escalation Rules say **to whom** that Employee escalates. This s
 
 `Core/MAIN_AGENT_CONDUCT.md`'s Autonomous Release Execution lets the Main Agent run between gates without prompting. This standard adds gates, it does not remove them: a High or Critical action inside an otherwise autonomous sequence is a stop, exactly as a Workflow's mandatory Director gate is. Autonomy governs pacing; it never governs tier.
 
+## Relationship to Incident Response
+
+`Workflows/INCIDENT_RESPONSE.md` runs behind one gate that does **not** pause the chain: the mandatory P1/P2 Director notification (`Core/AGENT_CHAINS.md`, `Registry/workflows.yml` `notification_only: true`). That gate informs the Director without waiting for a reply, precisely so containment is not withheld while users are actively harmed. A containment action during a live incident can also land at the **Critical** tier — a source of truth is degraded and every user is affected — and this section reconciles the two. It narrows *when* the Critical stop happens; it never removes a Critical control.
+
+During a **declared P1 or P2 incident**, a containment or mitigation action taken to limit active harm MAY proceed on the responding Employee's judgment without the Critical tier's pre-action stop-and-wait, **only when all three of the following hold**:
+
+- **(a) it is genuinely reversible** — undoable by a known step (reverting the config, re-enabling a flag, restoring the prior value) with no data or history lost;
+- **(b) the mandatory P1/P2 Director notification has been made** — the non-pausing gate above, sent as the action is taken, not after resolution;
+- **(c) the independent verification pass the Critical tier requires is still performed** — by an Employee other than the one who acted — **moved to immediately after containment** rather than waived. Post-hoc verification defers the control's *timing* under incident pressure; it never removes the control.
+
+The action still leaves its Risk Record (`decided_by=Director`, citing the notification), and the post-mortem quotes the confirmation.
+
+An **irreversible** Critical action — dropping connections, truncating a table, deleting data, any step whose blast radius cannot be undone — **still stops for an explicit Director decision naming the action**, even mid-incident. Speed is the reason a *reversible* containment action may proceed; it is never a reason to convert an *irreversible* Critical action into a proceed-on-judgment one. When the fastest available mitigation is irreversible, the stop stands and the escalation block is sent.
+
+This interaction is confined to a live, declared incident. Outside one, the Critical tier's general rule above is unchanged: stop, an explicit Director decision naming the action, and an independent verification pass, all **before** acting.
+
 ---
 
 # Responsibilities
@@ -261,7 +277,7 @@ The Main Agent must additionally:
 
 Do not:
 
-- proceed on a High or Critical action on Employee judgment alone;
+- proceed on a High or Critical action on Employee judgment alone — the sole exception is a reversible containment action during a declared incident, and only under the three conditions in *Relationship to Incident Response* above, which defer the pre-action wait but not the verification;
 - lower a tier to avoid a gate;
 - treat "the test passed", "probably fine", or "it worked last time" as a risk assessment;
 - accept implicit confirmation, or a confirmation given for a different action;
@@ -294,7 +310,7 @@ The product catalog is included because the most expensive failures in software 
 
 Owner: IA Engineering
 
-Version: 0.0.13
+Version: 0.0.14
 
 Status: Draft
 
