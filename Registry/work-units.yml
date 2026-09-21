@@ -828,3 +828,9 @@ work_units:
     title: The validator pins the README front door against VERSION.md, so the stated current version cannot silently drift
     milestone: Precision
     delivers: Adapters/scripts/validate-framework.sh
+
+  - id: WU-IAENG-262
+    employee: Test Automation Engineer
+    title: Clear the CLAUDE.md front-door drift and extend the validator guard to the contract every agent reads first
+    milestone: Precision
+    delivers: CLAUDE.md, Adapters/scripts/validate-framework.sh

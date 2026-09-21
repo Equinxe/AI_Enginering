@@ -1505,37 +1505,54 @@ else
   fi
 fi
 
-section "18. README front door names the current version"
+section "18. Front doors name the current version"
 # ==========================================================================
-# The README is the one page a visitor reads first, and its "Current Status"
-# block restates the version and codename that live authoritatively in
-# VERSION.md. Nothing checked the two agreed, so the block sat at "v0.0.12 -
-# Automation & Convergence" for ten days after v0.0.13 shipped — the exact
-# silent drift this repository keeps repairing, on its most-read page. This
-# pins them: the version and codename VERSION.md declares must appear, together,
-# in the README's Current Status block. Reported against the authoritative
-# document — VERSION.md is the source, the README the restatement.
+# Two files restate the version and codename that live authoritatively in
+# VERSION.md: README.md (the page a visitor reads first) and CLAUDE.md (the
+# contract every agent reads first). Nothing checked they agreed, so the README
+# block sat at "v0.0.12 - Automation & Convergence" for ten days after v0.0.13
+# shipped, and CLAUDE.md still announced "the next milestone takes 0.0.13" after
+# 0.0.13 was the current one — the exact silent drift this repository keeps
+# repairing, on its two most-read pages. This pins both: the version and
+# codename VERSION.md declares must appear in each. VERSION.md is the source;
+# the two files are restatements, so a mismatch names the restatement to fix.
 VER_FILE="VERSION.md"
-README_FILE="README.md"
-if [ ! -f "$VER_FILE" ] || [ ! -f "$README_FILE" ]; then
-  fail "cannot check the README front door: VERSION.md or README.md is missing" "Both must exist for the restated version to be checked against the authoritative one."
+if [ ! -f "$VER_FILE" ]; then
+  fail "cannot check the front doors: $VER_FILE is missing" "It is the authoritative source the README and CLAUDE.md are checked against."
 else
   # VERSION.md: the '**vX.Y.Z**' after 'Current Version', the '**Codename**'
   # after 'Codename'. tr -d '\r' so a CRLF checkout does not defeat the match.
   ver_version="$(grep -A2 '^Current Version' "$VER_FILE" | grep -oE 'v[0-9]+\.[0-9]+\.[0-9.]+' | head -1 | tr -d '\r')"
   ver_codename="$(grep -A2 '^Codename' "$VER_FILE" | grep -oE '\*\*[^*]+\*\*' | head -1 | tr -d '*\r')"
-  # README's Current Status block: the 'vX.Y.Z - Codename' line.
-  readme_line="$(sed -n '/^## Current Status/,/^Completed/p' "$README_FILE" | grep -oE 'v[0-9]+\.[0-9]+\.[0-9.]+ - .+' | head -1 | tr -d '\r')"
   if [ -z "$ver_version" ] || [ -z "$ver_codename" ]; then
     fail "could not read the current version and codename from $VER_FILE" "The extraction reads '**vX.Y.Z**' under 'Current Version' and '**Codename**' under 'Codename'. Empty means that header moved and this section now verifies nothing — reported rather than passed."
-  elif [ -z "$readme_line" ]; then
-    fail "$README_FILE has no 'vX.Y.Z - Codename' line in its Current Status block" "The front door must restate the current version. Add it under '## Current Status' as 'v$ver_version - $ver_codename', or this check reads nothing."
   else
-    expected="$ver_version - $ver_codename"
-    if [ "$readme_line" = "$expected" ]; then
-      pass "README Current Status names '$expected', matching $VER_FILE"
+    # README: the exact 'vX.Y.Z - Codename' line in the Current Status block.
+    if [ ! -f README.md ]; then
+      fail "README.md is missing" "The front door must exist and restate the current version."
     else
-      fail "README Current Status says '$readme_line' but $VER_FILE declares '$expected'" "The front door has drifted from the authoritative version. Fix README.md's '## Current Status' block to '$expected'. VERSION.md is the source; the README restates it."
+      readme_line="$(sed -n '/^## Current Status/,/^Completed/p' README.md | grep -oE 'v[0-9]+\.[0-9]+\.[0-9.]+ - .+' | head -1 | tr -d '\r')"
+      expected="$ver_version - $ver_codename"
+      if [ -z "$readme_line" ]; then
+        fail "README.md has no 'vX.Y.Z - Codename' line in its Current Status block" "Add it under '## Current Status' as '$expected', or this check reads nothing."
+      elif [ "$readme_line" = "$expected" ]; then
+        pass "README Current Status names '$expected', matching $VER_FILE"
+      else
+        fail "README Current Status says '$readme_line' but $VER_FILE declares '$expected'" "The front door has drifted. Fix README.md's '## Current Status' block to '$expected'."
+      fi
+    fi
+    # CLAUDE.md: the '# Current Version' section must name BOTH the version and
+    # the codename. It uses an em-dash rather than the README's hyphen, so the
+    # two tokens are checked for presence rather than an exact 'X - Y' line.
+    if [ ! -f CLAUDE.md ]; then
+      fail "CLAUDE.md is missing" "It is the contract every agent reads first and must restate the current version."
+    else
+      claude_block="$(sed -n '/^# Current Version/,/^# /p' CLAUDE.md | tr -d '\r')"
+      if grep -qF "$ver_version" <<< "$claude_block" && grep -qF "$ver_codename" <<< "$claude_block"; then
+        pass "CLAUDE.md Current Version names '$ver_version' and '$ver_codename', matching $VER_FILE"
+      else
+        fail "CLAUDE.md's Current Version section does not name '$ver_version — $ver_codename'" "The contract every agent reads first has drifted. Fix CLAUDE.md's '# Current Version' section to name the version and codename $VER_FILE declares."
+      fi
     fi
   fi
 fi
