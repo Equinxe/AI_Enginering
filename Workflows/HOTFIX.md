@@ -152,8 +152,13 @@ Follow the Code Review Workflow. In a hotfix context:
 
 The `pre-push` hook (`Adapters/git-hooks/pre-push`) blocks direct pushes to `develop`, so the back-merge goes through a Pull Request like any other change.
 
-1. Open a Pull Request from `main` to `develop` to ensure the fix is present in future releases.
-2. Merge the PR once CI passes. The fix already went through review on its way into `main`, so no new conflicts are expected.
+**Do not open the Pull Request with `main` as its head.** That is the obvious shape and it cannot work once `develop` requires branches to be up to date: "up to date" compares the *head* against the *base*, and a Pull Request whose head is `main` would have to contain `develop`'s tip to be mergeable — the opposite of what a back-merge does. GitHub reports it as `the head branch is not up to date with the base branch`, and no amount of waiting clears it. This exact shape deadlocked real releases (v0.0.10.1 and v0.0.11) under `Workflows/RELEASE.md` Step 8, whose worked explanation is the canonical reference for why.
+
+1. **Branch from `develop`** (for example `chore/back-merge-main-hotfix`) and merge `main` into it: `git merge --no-ff origin/main`. Push that branch.
+2. Open the Pull Request from **that branch** to `develop` — not from `main` itself.
+3. Merge it once CI passes. The fix already went through review on its way into `main`, so no new conflicts are expected.
+
+A branch cut from `develop` that merges `main` contains both tips, so it satisfies the "up to date" rule while carrying exactly the same history a direct `main` → `develop` PR would have carried.
 
 **Output:** `develop` contains the hotfix.
 
@@ -215,7 +220,7 @@ This workflow is complete when:
 
 Owner: IA Engineering
 
-Version: 0.0.9.3
+Version: 0.0.9.4
 
 Status: Draft
 
