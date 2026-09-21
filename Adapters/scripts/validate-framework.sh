@@ -1557,6 +1557,78 @@ else
   fi
 fi
 
+section "19. README front-page counts match the framework"
+# ==========================================================================
+# Workflows/CODE_REVIEW.md rule 5 — "count the things prose counts" — is a
+# manual review step: every literal count drifts each time the set it counts
+# grows. The README front page states three such counts (engineering workflows,
+# required status checks, first-class stacks), each derivable from the tree or a
+# script. This mechanises the rule for those three, the same way section 3 does
+# for the roster: the claimed number, in digits or as a written-out word, must
+# equal what the framework actually has. Reported against the README — the
+# directory and the scripts are the source, the front page the restatement.
+
+# Written-out cardinals, one..twenty, so "seven first-class stacks" is checked
+# as strictly as "7". Returns the input unchanged when it is already digits.
+word2num() {
+  case "$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')" in
+    one) echo 1 ;; two) echo 2 ;; three) echo 3 ;; four) echo 4 ;;
+    five) echo 5 ;; six) echo 6 ;; seven) echo 7 ;; eight) echo 8 ;;
+    nine) echo 9 ;; ten) echo 10 ;; eleven) echo 11 ;; twelve) echo 12 ;;
+    thirteen) echo 13 ;; fourteen) echo 14 ;; fifteen) echo 15 ;;
+    sixteen) echo 16 ;; seventeen) echo 17 ;; eighteen) echo 18 ;;
+    nineteen) echo 19 ;; twenty) echo 20 ;;
+    *) printf '%s' "$1" ;;
+  esac
+}
+
+# check_front_page_count <label> <actual> <regex-with-count-token-first>
+# The regex must match a README phrase whose FIRST token is the count (digit or
+# cardinal word); grep -oE extracts the phrase, and the leading token is read.
+check_front_page_count() {
+  local label="$1" actual="$2" regex="$3" phrase tok claimed
+  phrase="$(grep -ohE "$regex" README.md | head -1 | tr -d '\r')"
+  if [ -z "$phrase" ]; then
+    fail "README: could not find the $label count" "Expected a phrase matching /$regex/. If the front page reworded it, update this check — a count no check reads drifts silently (Workflows/CODE_REVIEW.md rule 5)."
+    return
+  fi
+  tok="$(printf '%s' "$phrase" | grep -oiE '^[A-Za-z0-9]+')"
+  claimed="$(word2num "$tok")"
+  if ! printf '%s' "$claimed" | grep -qE '^[0-9]+$'; then
+    fail "README: could not read a number from '$phrase' for the $label count" "The leading token '$tok' is neither digits nor a cardinal one..twenty."
+  elif [ "$claimed" -ne "$actual" ]; then
+    fail "README says '$phrase' but the framework has $actual $label" "Front-page count drift. Fix README.md to state $actual, or the set changed and the front page did not (Workflows/CODE_REVIEW.md rule 5)."
+  else
+    pass "README $label count is $actual"
+  fi
+}
+
+gt_workflows="$(find Workflows -maxdepth 1 -name '*.md' 2>/dev/null | grep -c . || true)"
+gt_checks="$(sed -n '/^REQUIRED_CHECKS=(/,/^)/p' Adapters/scripts/setup-branch-protection.sh 2>/dev/null | grep -cE '^[[:space:]]*"' || true)"
+# First-class stacks = the declared stacks minus the generic fallback.
+gt_stacks_all="$(grep -m1 '^VALID_STACKS=' Adapters/scripts/setup-project-bootstrap.sh 2>/dev/null | grep -oE '"[^"]*"' | tr -d '"' | wc -w | tr -d ' ')"
+gt_stacks_fc="$(( gt_stacks_all > 0 ? gt_stacks_all - 1 : 0 ))"
+
+if [ ! -f README.md ]; then
+  fail "README.md is missing" "The front page must exist for its counts to be checked."
+else
+  if [ "$gt_workflows" -gt 0 ]; then
+    check_front_page_count "engineering workflows" "$gt_workflows" '[0-9]+ engineering workflows'
+  else
+    fail "could not count Workflows/*.md" "The workflow count is derived from the directory; an empty count means the directory moved."
+  fi
+  if [ "$gt_checks" -gt 0 ]; then
+    check_front_page_count "required status checks" "$gt_checks" '[A-Za-z0-9]+ required status checks'
+  else
+    fail "could not count REQUIRED_CHECKS in setup-branch-protection.sh" "The required-checks count is derived from that array; an empty count means it moved."
+  fi
+  if [ "$gt_stacks_fc" -gt 0 ]; then
+    check_front_page_count "first-class stacks" "$gt_stacks_fc" '[A-Za-z0-9]+ first-class stacks'
+  else
+    fail "could not count VALID_STACKS in setup-project-bootstrap.sh" "The stack count is derived from that array; an empty count means it moved."
+  fi
+fi
+
 # ==========================================================================
 printf '\n== Result\n'
 
