@@ -115,7 +115,7 @@ A sibling framework measured, on its own sessions, that **tool output** filled a
 - `Core/CAPABILITY_TIERS.md` — which capability a Work Unit needs. This document is what that capability has already spent on arrival.
 - `Core/AGENT_CONDUCT.md`, Read First — the list this document costs out.
 - `Governance/DISPATCH_IN_PRACTICE.md` — the observed truncation of dispatched replies that rule 2 answers.
-- `Templates/EMPLOYEE_BRIEF.md` — where the length budget of rule 2 is stated.
+- `Templates/EMPLOYEE_BRIEF.md` — the Brief rule 2 tells the Main Agent to carry a length budget in; the template does not yet prompt for one.
 
 ---
 
