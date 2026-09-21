@@ -870,3 +870,9 @@ work_units:
     title: Fix RELEASE_CHAIN_EXAMPLE's closing summary bullet still claiming the back-merge is normally a no-op, contradicting its own corrected Step 6 body
     milestone: Precision
     delivers: Examples/RELEASE_CHAIN_EXAMPLE.md
+
+  - id: WU-IAENG-269
+    employee: Security Engineer
+    title: Clarify how the Critical tier interacts with the Incident Chain's one non-pausing gate — reversible containment may proceed with post-hoc independent verification, irreversible still stops
+    milestone: Precision
+    delivers: Standards/RISK_STANDARD.md, Examples/INCIDENT_CHAIN_EXAMPLE.md
