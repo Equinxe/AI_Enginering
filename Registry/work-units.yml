@@ -882,3 +882,9 @@ work_units:
     title: Align the Incident Chain diagram and Registry with the workflow's order — Incident Commander assigned before the P1/P2 notification, not folded into containment
     milestone: Precision
     delivers: Core/AGENT_CHAINS.md, Registry/chains.yml
+
+  - id: WU-IAENG-271
+    employee: Technical Writer
+    title: Port RELEASE.md Step 8's proven back-merge PR shape into HOTFIX.md Step 9, closing the head=main deadlock it never inherited
+    milestone: Precision
+    delivers: Workflows/HOTFIX.md
