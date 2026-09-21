@@ -1608,6 +1608,14 @@ gt_checks="$(sed -n '/^REQUIRED_CHECKS=(/,/^)/p' Adapters/scripts/setup-branch-p
 # First-class stacks = the declared stacks minus the generic fallback.
 gt_stacks_all="$(grep -m1 '^VALID_STACKS=' Adapters/scripts/setup-project-bootstrap.sh 2>/dev/null | grep -oE '"[^"]*"' | tr -d '"' | wc -w | tr -d ' ')"
 gt_stacks_fc="$(( gt_stacks_all > 0 ? gt_stacks_all - 1 : 0 ))"
+# Named Agent Chains = the top-level chain entries in the Registry, the same
+# source Core/AGENT_CHAINS.md and Examples/ are built from.
+gt_chains="$(grep -cE '^  - name:' Registry/chains.yml 2>/dev/null || true)"
+# Example walkthroughs = Examples/*.md minus the directory's own index file.
+# Examples/README.md is the index (see its "Category: Example — Index"
+# metadata), not a seventh walkthrough; excluding it by name is excluding a
+# known non-walkthrough file, not hard-coding the walkthrough count.
+gt_examples="$(find Examples -maxdepth 1 -name '*.md' ! -name 'README.md' 2>/dev/null | grep -c . || true)"
 
 if [ ! -f README.md ]; then
   fail "README.md is missing" "The front page must exist for its counts to be checked."
@@ -1627,10 +1635,20 @@ else
   else
     fail "could not count VALID_STACKS in setup-project-bootstrap.sh" "The stack count is derived from that array; an empty count means it moved."
   fi
+  if [ "$gt_chains" -gt 0 ]; then
+    check_front_page_count "named Agent Chains" "$gt_chains" '[0-9]+ named Agent Chains'
+  else
+    fail "could not count '  - name:' entries in Registry/chains.yml" "The named-Agent-Chains count is derived from that Registry; an empty count means it moved or was renamed."
+  fi
+  if [ "$gt_examples" -gt 0 ]; then
+    check_front_page_count "end-to-end chain walkthroughs" "$gt_examples" '[0-9]+ end-to-end chain walkthroughs'
+  else
+    fail "could not count Examples/*.md walkthroughs (excluding README.md)" "The walkthrough count is derived from the directory minus its index file; an empty count means the directory moved or the index was renamed."
+  fi
 fi
 
 # ==========================================================================
-section "20. README enumeration completeness (Core, Templates)"
+section "20. README enumeration completeness (Core, Templates, Standards)"
 # ==========================================================================
 # Section 19 checks that the README's front-page COUNTS match the framework;
 # it does not check that the counted items are the right ones. A precision
@@ -1638,7 +1656,9 @@ section "20. README enumeration completeness (Core, Templates)"
 # enumeration bullets each silently dropped one file from their list while
 # every number elsewhere on the page stayed correct — nothing above would
 # have caught it, because nothing above reads the list itself, only digits
-# near it.
+# near it. WU-IAENG-266 extends the same coverage to the Standards bullet,
+# a full name-list of the same shape as Core and Templates, closing it
+# before the same drift repeats there unguarded.
 #
 # APPROACH CHOSEN: count-based, not title-derivation, on evidence rather than
 # a shortcut. Title-derivation was tried first, against the file each
@@ -1692,10 +1712,11 @@ check_enum_completeness() {
 }
 
 if [ ! -f README.md ]; then
-  fail "README.md is missing" "The Core and Templates enumeration bullets checked here live in its 'Completed' section."
+  fail "README.md is missing" "The Core, Templates, and Standards enumeration bullets checked here live in its 'Completed' section."
 else
   check_enum_completeness "Core" "Core"
   check_enum_completeness "Templates" "Templates"
+  check_enum_completeness "Standards" "Standards"
 fi
 
 # ==========================================================================
