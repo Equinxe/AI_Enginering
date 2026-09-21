@@ -46,12 +46,25 @@ If a project intentionally deviates from an official standard, the deviation mus
 
 # Standard Hierarchy
 
+This hierarchy governs **which body of engineering standards applies to the work product** — the code, documents, and artifacts an Employee produces. It is a separate axis from **which framework document governs a decision**, which `Core/AI_MANIFEST.md`'s Decision Hierarchy defines. The two never compete: one ranks engineering standards, the other ranks framework documents.
+
 Every project follows the same priority order.
 
 1. Official Standards
 2. Industry Best Practices
 3. Project Standards
 4. IA Engineering Standards
+
+---
+
+# Governed Precedence — Project Convention vs Framework Standard
+
+The priority order above answers "project convention or framework Standard — which wins?" one way in every case, so the two never both silently apply to the same decision:
+
+1. **Official and external standards apply first.** Where an official standard governs (see *Official Standards First* above), the framework never overrides it.
+2. **Where no official standard governs, the framework's Standards are the default and apply.** A framework Standard is not a suggestion a local habit may quietly displace.
+3. **A project may set a stricter or more specific Project Standard, or deviate from a framework default, only through a Documented Deviation** — documented, justified, approved (see *Documented Deviations* above). An *undocumented* local convention never silently wins over a framework Standard; absent an approved deviation, the framework default holds.
+4. **Framework governance and process Standards are not overridable by project context at all.** Work Unit discipline, `Standards/COMMIT_STANDARD.md`, `Standards/RISK_STANDARD.md`, and the mandatory review and approval gates bind every project regardless of local convention. They sit outside the deviation mechanism, not inside it as a stricter application.
 
 ---
 
@@ -97,7 +110,7 @@ Examples of applicable standards include:
 
 Owner: IA Engineering
 
-Version: 0.0.2
+Version: 0.0.3
 
 Status: Draft
 

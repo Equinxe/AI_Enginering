@@ -163,6 +163,8 @@ Lower-level documents may extend higher-level documents.
 
 They must never contradict them.
 
+This hierarchy governs which framework document authority governs a decision; for which engineering standards apply to the work product — a separate axis — see `Standards/STANDARDS_FIRST.md`.
+
 ---
 
 # Our Commitment
