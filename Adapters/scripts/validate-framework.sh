@@ -1630,6 +1630,75 @@ else
 fi
 
 # ==========================================================================
+section "20. README enumeration completeness (Core, Templates)"
+# ==========================================================================
+# Section 19 checks that the README's front-page COUNTS match the framework;
+# it does not check that the counted items are the right ones. A precision
+# audit (WU-IAENG-264) found the "Completed" section's Core and Templates
+# enumeration bullets each silently dropped one file from their list while
+# every number elsewhere on the page stayed correct — nothing above would
+# have caught it, because nothing above reads the list itself, only digits
+# near it.
+#
+# APPROACH CHOSEN: count-based, not title-derivation, on evidence rather than
+# a shortcut. Title-derivation was tried first, against the file each
+# enumeration names. For Templates, 12 of 13 README entries are exactly the
+# file's `# ` heading with a trailing " Template" stripped — but ADR.md's
+# heading is "Architecture Decision Record Template" and the README calls it
+# "ADR", an abbreviation, not a suffix strip. Core has the same shape in the
+# other direction: AI_MANIFEST.md, DECISION_TREE.md, GLOSSARY.md, and
+# ORCHESTRATION.md all drop words their heading has that the README does not
+# ("AI Engineering Manifest" -> "AI Manifest", "IA Engineering Decision Tree"
+# -> "Decision Tree", "IA Engineering Glossary" -> "Glossary",
+# "Orchestration Protocol" -> "Orchestration"). A strict match needs a
+# hand-maintained exception table for 5 of the 23 entries before it can run
+# at all — which is a second place for the same drift to happen unnoticed,
+# exactly what this section exists to remove.
+#
+# A count check needs no such table: the number of comma-separated entries in
+# the enumeration must equal the number of *.md files in the directory. It
+# catches exactly the failure this section was written for — a file silently
+# dropped from (or a phantom one added to) the list, which changes the count
+# either way. It does NOT catch a file swapped for a same-count rename (e.g.
+# one entry's name changed to duplicate another, or to the wrong file's
+# title), which title-matching would have caught. That gap is accepted: the
+# defect on record is a drop, not a swap, and this check is unconditionally
+# reliable where title-matching is reliable only after exceptions are
+# hand-maintained — the second copy of the bug the title approach would add.
+
+check_enum_completeness() {
+  local label="$1" dir="$2" line items n_items n_files
+  if [ ! -d "$dir" ]; then
+    fail "cannot check the $label enumeration: $dir/ is missing" "README.md's 'Completed' section enumerates $dir/*.md; without the directory this check verifies nothing."
+    return
+  fi
+  n_files="$(find "$dir" -maxdepth 1 -name '*.md' 2>/dev/null | grep -c . || true)"
+  if [ "$n_files" -eq 0 ]; then
+    fail "cannot check the $label enumeration: $dir/*.md matched nothing" "An empty input set is not a passing check."
+    return
+  fi
+  line="$(grep -oE "$label \\([^)]*\\)" README.md | head -1 | tr -d '\r')"
+  if [ -z "$line" ]; then
+    fail "README: could not find the $label enumeration bullet" "Expected a line matching /$label \\([^)]*\\)/ in the 'Completed' section. If the wording changed, update this check — an unread enumeration drifts silently."
+    return
+  fi
+  items="$(sed -E 's/^[A-Za-z]+ \(//; s/\)$//' <<< "$line")"
+  n_items="$(awk -F',' '{print NF}' <<< "$items")"
+  if [ "$n_items" -ne "$n_files" ]; then
+    fail "README's $label enumeration lists $n_items entries but $dir/ holds $n_files files" "A file was added to or dropped from $dir/ without the README enumeration following it. Compare '$line' against $dir/*.md."
+  else
+    pass "README's $label enumeration lists $n_items entries, matching $dir/ ($n_files files)"
+  fi
+}
+
+if [ ! -f README.md ]; then
+  fail "README.md is missing" "The Core and Templates enumeration bullets checked here live in its 'Completed' section."
+else
+  check_enum_completeness "Core" "Core"
+  check_enum_completeness "Templates" "Templates"
+fi
+
+# ==========================================================================
 printf '\n== Result\n'
 
 if [ "$FAILURES" -eq 0 ]; then
