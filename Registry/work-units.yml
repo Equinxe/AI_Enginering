@@ -840,3 +840,9 @@ work_units:
     title: Mechanise CODE_REVIEW rule 5 for the README front-page counts — workflows, required checks, first-class stacks
     milestone: Precision
     delivers: Adapters/scripts/validate-framework.sh
+
+  - id: WU-IAENG-264
+    employee: Technical Writer
+    title: Clear the README Core/Templates enumeration drift and correct CONTEXT_BUDGET's false EMPLOYEE_BRIEF cross-reference
+    milestone: Precision
+    delivers: README.md, Core/CONTEXT_BUDGET.md
