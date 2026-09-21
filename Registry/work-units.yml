@@ -858,3 +858,9 @@ work_units:
     title: Extend the README Completed-section guards to the Standards enumeration and the Agent Chains and Examples front-page counts
     milestone: Precision
     delivers: Adapters/scripts/validate-framework.sh
+
+  - id: WU-IAENG-267
+    employee: Technical Writer
+    title: Fix the hooks README verification example whose own comment claimed rc=0 while the shell construction actually produced rc=2
+    milestone: Precision
+    delivers: Adapters/ai-runtimes/claude-code/hooks/README.md, Workflows/ONBOARDING.md, Workflows/PROJECT_BOOTSTRAP.md

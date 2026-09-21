@@ -78,8 +78,8 @@ Each hook can also be run by hand with a payload on stdin; exit code and stderr 
 printf '{"tool_name":"Bash","tool_input":{"command":"git push --force"}}' \
   | bash Adapters/ai-runtimes/claude-code/hooks/block-escape-hatches.sh; echo "rc=$?"     # rc=2
 
-printf '{"tool_name":"Bash","tool_input":{"command":"git commit -m \"docs: never use --no-verify\""}}' \
-  | bash Adapters/ai-runtimes/claude-code/hooks/block-escape-hatches.sh; echo "rc=$?"     # rc=0 — quoted text is stripped
+jq -n --arg c 'git commit -m "docs: never use --no-verify"' '{tool_name:"Bash",tool_input:{command:$c}}' \
+  | bash Adapters/ai-runtimes/claude-code/hooks/block-escape-hatches.sh; echo "rc=$?"     # rc=0 — the flag is only inside quoted text, which the lexer strips
 
 printf '{"tool_name":"Write","tool_input":{"file_path":"a.py","content":"x = 1  # noqa"}}' \
   | bash Adapters/ai-runtimes/claude-code/hooks/block-inline-suppression.sh; echo "rc=$?" # rc=2
