@@ -834,3 +834,9 @@ work_units:
     title: Clear the CLAUDE.md front-door drift and extend the validator guard to the contract every agent reads first
     milestone: Precision
     delivers: CLAUDE.md, Adapters/scripts/validate-framework.sh
+
+  - id: WU-IAENG-263
+    employee: Test Automation Engineer
+    title: Mechanise CODE_REVIEW rule 5 for the README front-page counts — workflows, required checks, first-class stacks
+    milestone: Precision
+    delivers: Adapters/scripts/validate-framework.sh
