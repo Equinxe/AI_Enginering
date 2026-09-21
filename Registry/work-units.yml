@@ -852,3 +852,9 @@ work_units:
     title: Guard the README Core/Templates enumeration bullets against silently dropping a file, by comma count against the directory
     milestone: Precision
     delivers: Adapters/scripts/validate-framework.sh
+
+  - id: WU-IAENG-266
+    employee: Test Automation Engineer
+    title: Extend the README Completed-section guards to the Standards enumeration and the Agent Chains and Examples front-page counts
+    milestone: Precision
+    delivers: Adapters/scripts/validate-framework.sh
