@@ -116,7 +116,7 @@ Had a defect been found during Step 3 acceptance testing, branch protection woul
 - Why the version bump happens on `develop` before the release branch is cut — the release branch is a pure, traceable snapshot with no separate bump commit of its own.
 - Why the Director approval gate exists between QA sign-off and the merge to `main` — it is mandatory and cannot be inferred from a passing test suite alone.
 - Why release branches are never deleted — `release/v1.3.0` remains as a permanent historical record.
-- Why the back-merge to `develop` is normally a no-op — it only carries real content when a defect fix was applied directly to the release branch during acceptance testing.
+- Why the back-merge to `develop` is required on *every* release, not only when a defect fix diverged the release branch — the Step 5 merge always leaves a content-free merge commit on `main` that `develop` would otherwise never receive, and skipping it blocks the next release.
 - How Work Unit traceability survives all the way to the changelog (WU-TASKFLOW-014 is visible from commit to release note).
 
 ---
