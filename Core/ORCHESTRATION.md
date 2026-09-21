@@ -236,13 +236,29 @@ Escalation pauses the chain. Work resumes only after Director responds.
 | `Registry/chains.yml`, `Registry/workflows.yml` | The machine-readable form of the execution maps this protocol produces — chain sequences, workflow steps, and every mandatory gate, as data. Derived from `Core/AGENT_CHAINS.md` and `Workflows/`, which remain authoritative |
 | `Registry/employees.yml` | The roster the `Employee:` commit trailer required by Step 7 is validated against |
 
+## The two 7-step models correspond
+
+`Core/MAIN_AGENT_CONDUCT.md`'s Core Behavior lists seven steps (Understand, Analyze, Plan, Delegate, Review, Deliver, Stop); this document lists seven (Receive, Analyze, Plan, Dispatch, Collect, Review, Deliver). They are one lifecycle at two altitudes: Conduct is the abstract lifecycle, this Orchestration Protocol the concrete protocol — and "never skip a step" binds the phases below, however each document numbers them.
+
+| `Core/MAIN_AGENT_CONDUCT.md` (abstract) | This document (concrete) |
+|---|---|
+| Understand | Step 1 — Receive |
+| Analyze | Step 2 — Analyze |
+| Plan | Step 3 — Plan |
+| Delegate | Step 4 — Dispatch |
+| Review | Step 5 — Collect (per-Work-Unit verify) **and** Step 6 — Review (chain-level) |
+| Deliver | Step 7 — Deliver |
+| Stop | The closing action of Step 7 — Deliver (`:180`), not a separate numbered step |
+
+The one-to-one rows carry the same name or an exact synonym. The two that do not are deliberate: Conduct's single **Review** covers both verification altitudes this protocol splits — Step 5 verifies each Work Unit against its Definition of Done, Step 6 reviews the assembled chain — and Conduct's **Stop** is not a seventh phase of work here but the closing act of Step 7's delivery (`:180`, "The Main Agent stops after delivery"). Neither document renumbers the other; the phases correspond, the numbering need not.
+
 ---
 
 # Metadata
 
 Owner: IA Engineering
 
-Version: 0.0.9
+Version: 0.0.10
 
 Status: Draft
 

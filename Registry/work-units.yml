@@ -900,3 +900,9 @@ work_units:
     title: Give STANDARDS_FIRST and the Manifest one answer to project-convention vs framework-Standard precedence, via a governed tie-break on the existing Documented Deviations mechanism
     milestone: Precision
     delivers: Standards/STANDARDS_FIRST.md, Core/AI_MANIFEST.md
+
+  - id: WU-IAENG-274
+    employee: Software Architect
+    title: Map Conduct's 7-step Core Behavior to Orchestration's concrete protocol with a correspondence table, without renumbering either
+    milestone: Precision
+    delivers: Core/ORCHESTRATION.md
