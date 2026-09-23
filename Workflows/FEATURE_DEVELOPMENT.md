@@ -101,8 +101,9 @@ Before this workflow begins:
 **Actor:** Engineer
 
 1. Stage only the files relevant to this Work Unit.
-2. Write a commit message following the Commit Standard (Conventional Commits).
-3. One Work Unit = one commit. Do not bundle unrelated changes.
+2. If the Work Unit is not already registered, add it to `Registry/work-units.yml` (id, employee, title, milestone, delivers) in this same commit. The required `Work Unit Exists` CI check resolves every commit's `Work Unit:` trailer against that file and fails the Pull Request if the ID is not registered there — see `Registry/README.md`.
+3. Write a commit message following the Commit Standard (Conventional Commits).
+4. One Work Unit = one commit. Do not bundle unrelated changes.
 
 **Output:** Commit on the feature branch.
 
@@ -210,7 +211,7 @@ The two entries are deliberately parallel. `Workflows/CODE_REVIEW.md` treats the
 
 Owner: IA Engineering
 
-Version: 0.0.5
+Version: 0.0.6
 
 Status: Draft
 
