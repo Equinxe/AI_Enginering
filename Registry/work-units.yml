@@ -912,3 +912,9 @@ work_units:
     title: Document the Work Unit registration step in the authoring path — the golden path named no step for Registry/work-units.yml, so a newcomer following it hit an unnamed required CI check
     milestone: Precision
     delivers: Workflows/FEATURE_DEVELOPMENT.md, Templates/WORK_UNIT.md, Standards/COMMIT_STANDARD.md, Registry/work-units.yml
+
+  - id: WU-IAENG-276
+    employee: Technical Writer
+    title: Correct the README's stale self-validation and test counts against the tools' own measured output, and align two other docs that disagreed 3x on the hook-suite size
+    milestone: Precision
+    delivers: README.md, Adapters/README.md, Adapters/ai-runtimes/claude-code/hooks/README.md
