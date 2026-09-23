@@ -930,3 +930,9 @@ work_units:
     title: Document the express path for trivial/mechanical changes as lighter execution of every existing Feature Workflow step at the Lightweight Execution tier, not fewer steps
     milestone: Precision
     delivers: Workflows/FEATURE_DEVELOPMENT.md, Core/CAPABILITY_TIERS.md, Registry/work-units.yml
+
+  - id: WU-IAENG-279
+    employee: Technical Writer
+    title: Add a README Getting Started note for a reader handed this repository to work on the framework itself, pointing to CLAUDE.md and Governance/CONTRIBUTING.md
+    milestone: Precision
+    delivers: README.md, Registry/work-units.yml
