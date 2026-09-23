@@ -255,13 +255,13 @@ The full, authoritative versioning policy — segment semantics, the `.FIX` vs. 
 
 ## Planned
 
-- TBD — no next milestone is currently scoped. Several open issues exist as individual maintenance/tech-debt items (e.g. #61–#66, #69, #71, #112), but none alone constitutes the next milestone.
-- Portability made the framework adoptable off its own repository, and a first adoption was rehearsed against a real project to find what greenfield never surfaces. A sustained adoption on a real published project outside this repository is the next thing that will decide scope; `Governance/TROUBLESHOOTING.md` exists for what it finds.
+- The in-progress milestone on `develop` is **Precision**, targeting **v0.0.14**: the framework made exact and usable — every front-facing surface audited and guarded against drift, and the newcomer's operating path completed and dogfooded. Several open issues exist as individual maintenance/tech-debt items (e.g. #61–#66, #69, #71, #112), but none alone constitutes part of this milestone's scope.
+- Portability made the framework adoptable off its own repository, and a first adoption was rehearsed against a real project to find what greenfield never surfaces. A sustained adoption on a real published project outside this repository is the next thing that will decide scope beyond Precision; `Governance/TROUBLESHOOTING.md` exists for what it finds.
 
 ---
 
 ## Next Milestone
 
-TBD — not yet scoped (see `Planned` above). The next milestone takes **0.0.14**.
+**Precision** — in progress on `develop`, targets **v0.0.14**. The framework made exact and usable: every front-facing surface — README, CLAUDE.md, the Completed section, the documented commands, the Examples, the normative docs — audited and guarded against drift, and the newcomer's operating path completed and dogfooded (Work-Unit registration, the express path for trivial changes, entry-point clarity). Its Work Units are WU-IAENG-260 onward in `Registry/work-units.yml`.
 
 v0.0.12 carried two milestones under one number: Automation and Convergence both completed on `develop` before either shipped, so both are named in that release's `CHANGELOG.md` heading. A number is not reserved for a milestone that never had a release of its own — so nothing was skipped, Portability took **0.0.13**, and the next takes 0.0.14. `Governance/VERSIONING_POLICY.md` records why v0.0.12's two milestones shipped together, and why that is not the naming shortcut the same document forbids.
