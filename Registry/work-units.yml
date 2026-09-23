@@ -960,3 +960,9 @@ work_units:
     title: Sync CLAUDE.md and README.md's next-milestone lines to VERSION.md's Precision declaration, closing the drift a newcomer hits on the first hop
     milestone: Precision
     delivers: CLAUDE.md, README.md
+
+  - id: WU-IAENG-284
+    employee: Test Automation Engineer
+    title: Extend the front-door guard to the in-progress milestone VERSION.md declares, closing the drift class that let CLAUDE.md and README.md read TBD for two Work Units after Precision was declared
+    milestone: Precision
+    delivers: Adapters/scripts/validate-framework.sh
