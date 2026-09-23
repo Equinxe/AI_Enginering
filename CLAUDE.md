@@ -46,6 +46,10 @@ Lower levels extend upper levels. They never contradict them.
 - `Core/DECISION_TREE.md` — Decision process
 - `Core/GLOSSARY.md` — Official vocabulary
 - `Standards/STANDARDS_FIRST.md` — Standards hierarchy
+- `Core/ORCHESTRATION.md` — Main Agent dispatch protocol
+- `Core/AGENT_CHAINS.md` — the named Agent Chains
+- `Core/EMPLOYEE_SELECTION.md` — per-Employee dispatch triggers
+- `Core/CAPABILITY_TIERS.md` — execution tiers
 
 ---
 

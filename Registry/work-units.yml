@@ -918,3 +918,9 @@ work_units:
     title: Correct the README's stale self-validation and test counts against the tools' own measured output, and align two other docs that disagreed 3x on the hook-suite size
     milestone: Precision
     delivers: README.md, Adapters/README.md, Adapters/ai-runtimes/claude-code/hooks/README.md
+
+  - id: WU-IAENG-277
+    employee: Technical Writer
+    title: Add the four operating-critical Core docs missing from CLAUDE.md's Core Documents list, and clarify the canonical install command at ONBOARDING.md's entry point
+    milestone: Precision
+    delivers: CLAUDE.md, Workflows/ONBOARDING.md, Registry/work-units.yml
