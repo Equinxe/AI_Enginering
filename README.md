@@ -182,7 +182,7 @@ Completed
 
 Planned
 
-- TBD — no milestone is currently scoped
+- **Precision** (in progress on `develop`, targets v0.0.14) — the framework made exact and usable: every front-facing surface audited and guarded against drift, and the newcomer's operating path completed and dogfooded
 
 ---
 

@@ -128,4 +128,4 @@ v0.0.13 — Portability
 
 The framework made runnable somewhere other than where it was written: the Pull Request checks extracted from CI into scripts any forge can run, a host seam, seven first-class stacks, the Risk Map, and an already-started-project adoption path. See `CHANGELOG.md` and `Governance/VERSIONING_POLICY.md`.
 
-Next: TBD — not yet scoped. The next milestone takes 0.0.14.
+Next: **Precision**, in progress on `develop`, targeting v0.0.14.

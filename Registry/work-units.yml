@@ -954,3 +954,9 @@ work_units:
     title: Declare Precision as the in-progress milestone on develop, targeting v0.0.14, in VERSION.md
     milestone: Precision
     delivers: VERSION.md, Workflows/FEATURE_DEVELOPMENT.md
+
+  - id: WU-IAENG-283
+    employee: Release Manager
+    title: Sync CLAUDE.md and README.md's next-milestone lines to VERSION.md's Precision declaration, closing the drift a newcomer hits on the first hop
+    milestone: Precision
+    delivers: CLAUDE.md, README.md
