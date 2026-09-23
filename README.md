@@ -57,6 +57,15 @@ session with no context and no rules. `Workflows/PROJECT_BOOTSTRAP.md` walks
 through the questions behind it — including the one that decides whether your
 project needs a Domain Employee of its own.
 
+### Working on the framework itself
+
+Everything above is for *consuming* IA Engineering inside another project. If you
+have instead been handed *this* repository to work on the framework itself, start
+with two documents: `CLAUDE.md` — the operating contract every session in this
+repository reads first — and
+[`Governance/CONTRIBUTING.md`](Governance/CONTRIBUTING.md), which defines how a
+change to the framework is proposed, reviewed, and landed.
+
 ---
 
 ## What this is not
