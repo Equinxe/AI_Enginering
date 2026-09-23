@@ -98,6 +98,8 @@ Of the rules in this section, two are enforced mechanically: **exactly one `Work
 
 Both are enforced mechanically, not by convention: `Adapters/git-hooks/commit-msg` rejects the commit locally, and the `Employee Trailer` and `Work Unit Exists` CI checks re-validate server-side in case the hook was bypassed or never installed.
 
+A change that lands in a Sensitive change-zone additionally carries a one-line `RISK:` trailer in the same commit — see `Standards/RISK_STANDARD.md`'s Risk Record for the exact line shape. Run `Adapters/scripts/check-risk-map.sh --explain` to find which zone a given file falls in.
+
 ### Layout: keep the blank line between them
 
 Write the two trailers as shown above, **separated by a blank line**, with `Employee:` last.

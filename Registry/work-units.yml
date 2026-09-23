@@ -936,3 +936,9 @@ work_units:
     title: Add a README Getting Started note for a reader handed this repository to work on the framework itself, pointing to CLAUDE.md and Governance/CONTRIBUTING.md
     milestone: Precision
     delivers: README.md, Registry/work-units.yml
+
+  - id: WU-IAENG-280
+    employee: Technical Writer
+    title: Close five cycle-2 dogfood friction items — cross-link the tier docs, document the docs/ branch prefix, surface the RISK trailer from the Commit Standard, point Step 4 at the milestone source, and fix the commit-msg hook's header example
+    milestone: Precision
+    delivers: Governance/CONTRIBUTING.md, Workflows/FEATURE_DEVELOPMENT.md, Core/CAPABILITY_TIERS.md, Standards/BRANCH_STANDARD.md, Standards/COMMIT_STANDARD.md, Adapters/git-hooks/commit-msg, Registry/work-units.yml

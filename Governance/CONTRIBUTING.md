@@ -24,6 +24,8 @@ It does not apply to work inside a *project that uses* IA Engineering — that p
 
 Not every change to this repository carries the same weight. IA Engineering already has a framework for matching scrutiny to stakes: `Core/CAPABILITY_TIERS.md`'s three execution tiers (Lightweight Execution, Standard Execution, Strategic Judgment). That framing maps directly onto how much review a framework contribution needs, because the same question — *how much does getting this wrong cost, and how reversible is it?* — applies to both.
 
+For a genuinely mechanical change, `Workflows/FEATURE_DEVELOPMENT.md`'s "Trivial / Mechanical Changes (Express Path)" section shows this tiering already running end-to-end at Lightweight Execution.
+
 | Change type | Tier | Concrete review bar |
 |---|---|---|
 | Typo, broken link, formatting fix in a Workflow, Example, or Template doc | Lightweight Execution | Self-merge after one other person (or Employee) skims the diff. No PR discussion required. |

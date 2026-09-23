@@ -26,11 +26,15 @@
 #
 #   [optional body]
 #
+#   Work Unit: WU-<project>-<number>
+#
 #   Employee: <Exact Employee Name>
 #
 # Example:
 #
 #   feat(tasks): add PATCH /tasks/{id}/complete endpoint
+#
+#   Work Unit: WU-IAENG-042
 #
 #   Employee: Backend Engineer
 
