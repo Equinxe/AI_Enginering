@@ -942,3 +942,9 @@ work_units:
     title: Close five cycle-2 dogfood friction items — cross-link the tier docs, document the docs/ branch prefix, surface the RISK trailer from the Commit Standard, point Step 4 at the milestone source, and fix the commit-msg hook's header example
     milestone: Precision
     delivers: Governance/CONTRIBUTING.md, Workflows/FEATURE_DEVELOPMENT.md, Core/CAPABILITY_TIERS.md, Standards/BRANCH_STANDARD.md, Standards/COMMIT_STANDARD.md, Adapters/git-hooks/commit-msg, Registry/work-units.yml
+
+  - id: WU-IAENG-281
+    employee: Technical Writer
+    title: Tier root docs (README.md, CHANGELOG.md, other root-level *.md) like other doc types in CONTRIBUTING §1, closing the fallback to Strategic Judgment a trivial root-doc fix hit by default
+    milestone: Precision
+    delivers: Governance/CONTRIBUTING.md, Registry/work-units.yml

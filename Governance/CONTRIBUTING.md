@@ -28,8 +28,8 @@ For a genuinely mechanical change, `Workflows/FEATURE_DEVELOPMENT.md`'s "Trivial
 
 | Change type | Tier | Concrete review bar |
 |---|---|---|
-| Typo, broken link, formatting fix in a Workflow, Example, or Template doc | Lightweight Execution | Self-merge after one other person (or Employee) skims the diff. No PR discussion required. |
-| Wording clarification in a Standard, Employee, or Workflow document that does not change what the document requires or permits | Standard Execution | Standard Pull Request review per `Standards/PULL_REQUEST_STANDARD.md`. One reviewer approval. |
+| Typo, broken link, formatting fix in a Workflow, Example, Template, or root-level doc (`README.md`, `CHANGELOG.md`, and other root-level `*.md`) | Lightweight Execution | Self-merge after one other person (or Employee) skims the diff. No PR discussion required. |
+| Wording clarification in a Standard, Employee, Workflow, or root-level doc (`README.md`, `CHANGELOG.md`, and other root-level `*.md`) that does not change what the document requires or permits | Standard Execution | Standard Pull Request review per `Standards/PULL_REQUEST_STANDARD.md`. One reviewer approval. |
 | Adding a new Workflow, Template, or Standard | Standard Execution, escalating to Strategic Judgment if it changes how existing Workflows or Employees operate | See Section 3. Requires the cross-reference check (Section 3) and Director awareness before merge. |
 | Adding a new Employee to the 42-roster | Strategic Judgment | See Section 2. Requires Director approval before merge — a new Employee changes who is authorized to do what across every project on this framework. |
 | Any change to a document under `Core/*.md` | Strategic Judgment — the highest scrutiny tier this framework has | See Section 4. Mandatory Director approval, no exceptions. |
@@ -184,7 +184,7 @@ Two things the loop is not. It is not blame: entries name mechanisms, and where 
 
 Owner: IA Engineering
 
-Version: 0.0.2
+Version: 0.0.3
 
 Status: Draft
 
