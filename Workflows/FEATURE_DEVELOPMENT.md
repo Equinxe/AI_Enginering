@@ -72,7 +72,7 @@ Before this workflow begins:
 **Actor:** Engineer
 
 1. Checkout the latest `develop` branch.
-2. Create a feature branch following the Branch Standard: `feature/short-description`.
+2. Create a feature branch following the Branch Standard: `feature/short-description`. For a documentation-only Work Unit, use `docs/short-description` instead (`Standards/BRANCH_STANDARD.md`).
 3. Confirm the Work Unit objective and acceptance criteria before writing any code.
 
 **Output:** Feature branch ready for development.
@@ -101,7 +101,7 @@ Before this workflow begins:
 **Actor:** Engineer
 
 1. Stage only the files relevant to this Work Unit.
-2. If the Work Unit is not already registered, add it to `Registry/work-units.yml` (id, employee, title, milestone, delivers) in this same commit. The required `Work Unit Exists` CI check resolves every commit's `Work Unit:` trailer against that file and fails the Pull Request if the ID is not registered there — see `Registry/README.md`.
+2. If the Work Unit is not already registered, add it to `Registry/work-units.yml` (id, employee, title, milestone, delivers) in this same commit. The required `Work Unit Exists` CI check resolves every commit's `Work Unit:` trailer against that file and fails the Pull Request if the ID is not registered there — see `Registry/README.md`. For the `milestone` value: match the milestone of the most recent entries already in `Registry/work-units.yml` — no document currently declares the in-progress milestone name authoritatively.
 3. Write a commit message following the Commit Standard (Conventional Commits).
 4. One Work Unit = one commit. Do not bundle unrelated changes.
 
@@ -177,6 +177,8 @@ For a typo, a one-line fix, or a doc tweak, this workflow does not change. Every
 What changes is execution capability, not workflow shape. A Work Unit that is genuinely mechanical — bounded, unambiguous, with no tradeoff to weigh — is dispatched at the **Lightweight Execution** tier (`Core/CAPABILITY_TIERS.md`, Lightweight Override) for its entire path through this workflow, rather than the Standard Execution tier most Work Units default to. Each step becomes a fast confirmation instead of a full pass: the Architect's impact review is a quick triviality check rather than a design review; Code Review is a quick correctness pass; QA Validation (Step 7) is a quick pass/fail of the change against its acceptance criteria rather than a full test-plan execution. The genuinely conditional steps already in this workflow — Compliance Engineer and Security Engineer (Actors, above) and the ADR (Prerequisites, above) — are untouched by this section and still trigger only against their own existing criteria.
 
 It is still a Work Unit in the full sense: the Commit Standard, Work Unit registration (`Registry/work-units.yml`, Step 4), and every required CI check still apply, and Exit Criteria below still governs completion. **Less load, not fewer controls: this is lighter execution of every step, not fewer steps.**
+
+`Governance/CONTRIBUTING.md` §1 (Change Tiers) is where this same mechanical/non-mechanical distinction is framed for changes to the framework repository itself, rather than to a project built on it.
 
 ---
 

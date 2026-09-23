@@ -68,7 +68,11 @@ fix/login-timeout
 hotfix/security-patch
 
 release/v1.2.0
+
+docs/short-description
 ```
+
+`docs/` — documentation-only changes, no source or configuration touched (this repository's own history: `docs/express-path-trivial-changes`, `docs/entry-point-clarity`).
 
 The naming convention must remain consistent throughout the project.
 

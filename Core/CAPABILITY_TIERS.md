@@ -95,6 +95,7 @@ The Default Complexity Tier belongs to the Employee, not to the Work Unit. A spe
 | `Core/ORCHESTRATION.md` | Step 4 (Dispatch) — the Main Agent selects capability per this document before creating the Employee Brief |
 | `Core/MAIN_AGENT_CONDUCT.md` | Dispatch Discipline still governs naming and briefing regardless of capability tier chosen |
 | `Employees/` | Each Employee's Metadata declares its Default Complexity Tier |
+| `Governance/CONTRIBUTING.md` | §1 (Change Tiers) maps these tiers onto how much review a change to the framework repository itself needs |
 
 ---
 
