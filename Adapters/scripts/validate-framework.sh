@@ -1719,6 +1719,67 @@ else
   check_enum_completeness "Standards" "Standards"
 fi
 
+section "21. In-progress milestone named consistently across the front doors"
+# ==========================================================================
+# Section 18 pins the CURRENT version and codename across VERSION.md,
+# README.md and CLAUDE.md. It does not pin the IN-PROGRESS milestone that
+# VERSION.md separately declares under '## Next Milestone' — the exact gap
+# that let VERSION.md declare Precision (v0.0.14) while CLAUDE.md's 'Next:'
+# line and README's 'Planned' section still read TBD for two more Work
+# Units (fixed by WU-IAENG-283). VERSION.md is the source; CLAUDE.md's
+# 'Next:' line and README's 'Planned' bullet are restatements, so a mismatch
+# names the restatement to fix.
+#
+# DESIGN CHOICE, recorded rather than assumed: when VERSION.md's Next
+# Milestone is TBD/unscoped (no milestone name declared), this check does
+# NOT require the front doors to also read TBD. A between-milestones state
+# is legitimate, and asserting the negative ("the front doors name nothing")
+# is brittle against wording that has already varied across releases (see
+# VERSION.md history). The failure this section exists to catch is a SCOPED
+# milestone in VERSION.md that the front doors have not caught up to, not
+# the shape of the unscoped state's prose.
+if [ ! -f "$VER_FILE" ]; then
+  fail "cannot check the in-progress milestone: $VER_FILE is missing" "It is the authoritative source the README and CLAUDE.md are checked against."
+elif ! grep -q '^## Next Milestone' "$VER_FILE"; then
+  fail "cannot find '## Next Milestone' in $VER_FILE" "The extraction reads the first bold token in the two lines following that heading. A missing heading means it moved and this section verifies nothing."
+else
+  # The milestone name is the first '**...**' token within the heading plus
+  # the two lines that follow it (heading, blank line, content line) — the
+  # same '-A2' plus bold-token idiom section 18 uses for Codename. A TBD
+  # line carries no bold token, so this is empty for the unscoped state, by
+  # design (see above).
+  next_ms="$(grep -A2 '^## Next Milestone' "$VER_FILE" | grep -oE '\*\*[^*]+\*\*' | head -1 | tr -d '*\r')"
+  if [ -z "$next_ms" ]; then
+    pass "$VER_FILE's Next Milestone is unscoped (TBD); the front doors are not required to name one"
+  else
+    if [ ! -f CLAUDE.md ]; then
+      fail "CLAUDE.md is missing" "It must restate the in-progress milestone $VER_FILE declares."
+    else
+      claude_next="$(grep -E '^Next:' CLAUDE.md | tr -d '\r')"
+      if [ -z "$claude_next" ]; then
+        fail "CLAUDE.md has no 'Next:' line" "Expected a line starting 'Next:' naming '$next_ms', the in-progress milestone $VER_FILE declares."
+      elif grep -qF "$next_ms" <<< "$claude_next"; then
+        pass "CLAUDE.md's 'Next:' line names '$next_ms', matching $VER_FILE's Next Milestone"
+      else
+        fail "CLAUDE.md's 'Next:' line does not name '$next_ms'" "$VER_FILE's Next Milestone declares '$next_ms'; CLAUDE.md's 'Next:' line has drifted ('$claude_next'). Fix CLAUDE.md's 'Next:' line to name '$next_ms'."
+      fi
+    fi
+
+    if [ ! -f README.md ]; then
+      fail "README.md is missing" "It must restate the in-progress milestone $VER_FILE declares."
+    else
+      readme_planned="$(sed -n '/^Planned/,/^---/p' README.md | tr -d '\r')"
+      if [ -z "$readme_planned" ]; then
+        fail "README.md has no 'Planned' section" "Expected a 'Planned' section naming '$next_ms', the in-progress milestone $VER_FILE declares."
+      elif grep -qF "$next_ms" <<< "$readme_planned"; then
+        pass "README's 'Planned' section names '$next_ms', matching $VER_FILE's Next Milestone"
+      else
+        fail "README's 'Planned' section does not name '$next_ms'" "$VER_FILE's Next Milestone declares '$next_ms'; README's 'Planned' section has drifted. Fix it to name '$next_ms'."
+      fi
+    fi
+  fi
+fi
+
 # ==========================================================================
 printf '\n== Result\n'
 
