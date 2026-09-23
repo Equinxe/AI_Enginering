@@ -83,6 +83,8 @@ The Default Complexity Tier belongs to the Employee, not to the Work Unit. A spe
 
 **Downgrading to Lightweight is the tool for reducing turnaround time and cost on genuinely mechanical sub-tasks** — verification checklists, status reports, format-only edits — without lowering capability on the substantive Work Units that actually determine quality (implementation, review, architecture, sign-off).
 
+`Workflows/FEATURE_DEVELOPMENT.md`'s "Trivial / Mechanical Changes (Express Path)" section is a worked example of a whole-Work-Unit downgrade: every participant and gate in that workflow stays, run at this tier.
+
 ---
 
 # Relationship to Other Documents
