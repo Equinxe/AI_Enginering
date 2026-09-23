@@ -127,7 +127,7 @@ Format: `WU-[project]-[sequential number]`
 
 Example: `WU-SHOP-042`
 
-IDs are assigned by the Engineering Manager and are unique per project.
+IDs are assigned by the Engineering Manager and are unique per project. In this framework's own repository, the project prefix is `IAENG` (e.g., `WU-IAENG-042`); the next free number is the highest `id:` entry already present in `Registry/work-units.yml` plus one. Assigning an ID is not enough — the Work Unit must also be added to that file (id, employee, title, milestone, delivers) in the commit that performs the work, per `Workflows/FEATURE_DEVELOPMENT.md` Step 4, because the required `Work Unit Exists` CI check validates every commit's `Work Unit:` trailer against `Registry/work-units.yml` (see `Registry/README.md`).
 
 ---
 
@@ -135,7 +135,7 @@ IDs are assigned by the Engineering Manager and are unique per project.
 
 Owner: IA Engineering
 
-Version: 0.0.5
+Version: 0.0.6
 
 Status: Draft
 
