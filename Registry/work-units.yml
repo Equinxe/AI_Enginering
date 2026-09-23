@@ -948,3 +948,9 @@ work_units:
     title: Tier root docs (README.md, CHANGELOG.md, other root-level *.md) like other doc types in CONTRIBUTING §1, closing the fallback to Strategic Judgment a trivial root-doc fix hit by default
     milestone: Precision
     delivers: Governance/CONTRIBUTING.md, Registry/work-units.yml
+
+  - id: WU-IAENG-282
+    employee: Release Manager
+    title: Declare Precision as the in-progress milestone on develop, targeting v0.0.14, in VERSION.md
+    milestone: Precision
+    delivers: VERSION.md, Workflows/FEATURE_DEVELOPMENT.md
