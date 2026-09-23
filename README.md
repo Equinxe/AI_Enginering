@@ -79,7 +79,7 @@ skipping it:
 
 | | |
 |---|---|
-| **Proven by execution** | 163 framework self-validation checks, 140 behaviour tests over the check scripts, 264 over the runtime hooks, and ten required CI checks — all green on every merge, on Linux |
+| **Proven by execution** | as of v0.0.13: 189 framework self-validation checks, 185 behaviour tests over the check scripts, 265 over the runtime hooks, and ten required CI checks — all green on every merge, on Linux |
 | **Proven once, end to end** | a fresh project importing the framework, bootstrapping, generating its 42 agents, installing hooks that refuse a bad commit and accept a good one |
 | **Not yet proven** | **the framework has only ever been used on itself.** No third-party project has adopted it. The first one will find things `Governance/TROUBLESHOOTING.md` does not yet contain |
 | **Not yet proven** | 29 of the 42 Employees have never been dispatched. Their definitions are careful; carefulness is not evidence |
