@@ -978,3 +978,9 @@ work_units:
     title: Commit the legitimate-command corpus behind WU-285's reported 0-false-positives claim as allow cases, so the escape-hatch hook is guarded against over-blocking on every CI run rather than resting on an uncommitted one-time measurement
     milestone: Precision
     delivers: Adapters/ai-runtimes/claude-code/hooks/tests/escape-hatch-cases.tsv
+
+  - id: WU-IAENG-288
+    employee: Technical Writer
+    title: Write the snapshot-discipline half of session continuity — SESSION_STATE.md is rewritten not appended, a 15,000-character size budget, and a Handoff to a New Conversation checklist the Main Agent runs before Step 7's closing Stop
+    milestone: Precision
+    delivers: Templates/SESSION_STATE.md, Core/ORCHESTRATION.md, Registry/work-units.yml
