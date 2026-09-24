@@ -52,11 +52,21 @@
 # instead of a partial expansion, and the hook blocks on that marker — a bound
 # an attacker clears by typing one more comma is not a bound.
 #
-# WHAT THIS DELIBERATELY DOES NOT CATCH: a token assembled at runtime and never
-# visible in the text — `F=--force; git push $F`, `eval "$CMD"`, a flag read
-# from a file. Recovering those means evaluating the command, which is the
-# thing this hook exists to happen *before*. The hook stops an escape hatch
-# reached for by habit; it is not an adversary boundary, and
+# WHAT THIS MODELS AT RUNTIME, and where the line is. The shell's own
+# constructions are decoded: quoting, ANSI-C `$'\x2d'`, brace expansion, command
+# substitution, and printf's backslash escapes (`printf '\x2d\x2dforce'` reaches
+# git as `--force`, so printf in command position has its argument decoded — see
+# is_decode_context). These are deterministic shell mechanics, readable without
+# running anything.
+#
+# WHAT THIS DELIBERATELY DOES NOT CATCH: a token an EXTERNAL program builds or a
+# name carries — `$(python -c ...)`, `$(base64 -d ...)`, `$(echo .. | tr . -)`,
+# a flag read from a file, `F=--force; git push $F`, `eval "$CMD"`, or a token
+# split across two variables. Recovering those means evaluating the command,
+# which is the thing this hook exists to happen *before*, and each is trivially
+# interchangeable with the next — closing one leaves the rest, so the honest
+# boundary is "shell mechanics, yes; runtime values, no." The hook stops an
+# escape hatch reached for by habit; it is not an adversary boundary, and
 # Adapters/ai-runtimes/claude-code/hooks/README.md says so. What stops a
 # determined bypass is the server side — the pre-push hook, branch protection,
 # and the required CI checks — none of which a developer machine can skip.
@@ -96,6 +106,23 @@ function is_command_context(w) {
   # into the clone's configuration, and unlike variable indirection the value
   # is literal text, so it is reachable.
   return w == "eval" || w == "--command" || w ~ /^-[A-Za-z]*c$/ || w ~ /^alias\./
+}
+
+# printf DECODES the backslash escapes in its arguments at runtime, so a
+# single-quoted `printf '\x2d\x2dforce'` reaches git as `--force` — the exact
+# escape family this lexer already decodes for ANSI-C `$'...'`, spelled through a
+# command instead of a quote. Leaving that gap was an inconsistency: `$'\x2d'`
+# was caught, `printf '\x2d'` was not. When the word before a quote is printf,
+# its string argument is decoded like an ANSI-C region instead of kept literal.
+#
+# THIS IS SHELL-MECHANIC MODELLING, NOT AN ADVERSARY BOUNDARY. It cannot, and
+# does not, see a token an EXTERNAL program builds — `$(python -c ...)`,
+# `$(base64 -d ...)`, `$(echo .. | tr . -)`, a flag read from a file, or a token
+# split across two variables. Those remain out of scope by construction, exactly
+# as README.md and the header of this file state; the server side (pre-push
+# hook, branch protection, required CI) is what stops a determined bypass.
+function is_decode_context(w) {
+  return w == "printf" || w ~ /\/printf$/
 }
 
 # Pulls the COMMANDS out of an unquoted heredoc body: the contents of every
@@ -276,6 +303,7 @@ function expand_braces(s,   extra, groups, grp, inner, alts, n, k, pre, post, r,
   buf = ""
   tainted = 0
   cmdctx = 0
+  decodectx = 0
 
   while (i <= n) {
     c = substr(s, i, 1)
@@ -308,6 +336,7 @@ function expand_braces(s,   extra, groups, grp, inner, alts, n, k, pre, post, r,
         prev = out; sub(/[ \t\n]+$/, "", prev)
         nw = split(prev, words, /[ \t\n]+/)
         cmdctx = (nw > 0) ? is_command_context(words[nw]) : 0
+        decodectx = (nw > 0) ? is_decode_context(words[nw]) : 0
         i += 2; continue
       }
       if (c == SQ || c == "\"") {
@@ -316,6 +345,7 @@ function expand_braces(s,   extra, groups, grp, inner, alts, n, k, pre, post, r,
         prev = out; sub(/[ \t\n]+$/, "", prev)
         nw = split(prev, words, /[ \t\n]+/)
         cmdctx = (nw > 0) ? is_command_context(words[nw]) : 0
+        decodectx = (nw > 0) ? is_decode_context(words[nw]) : 0
         i++; continue
       }
       # `<<<` IS A HERE-STRING, NOT A HEREDOC. It consumes one word on the
@@ -393,9 +423,10 @@ function expand_braces(s,   extra, groups, grp, inner, alts, n, k, pre, post, r,
 
     if (mode == "sq") {
       if (c == SQ) {
-        if (cmdctx) out = out " " buf " "
+        if (decodectx) out = out " " decode_ansic(buf) " "
+        else if (cmdctx) out = out " " buf " "
         else if (!tainted && is_bare_word(buf)) out = out mark_literal_braces(buf)
-        mode = "out"; buf = ""; tainted = 0; cmdctx = 0
+        mode = "out"; buf = ""; tainted = 0; cmdctx = 0; decodectx = 0
         i++; continue
       }
       buf = buf c; i++; continue
@@ -410,7 +441,7 @@ function expand_braces(s,   extra, groups, grp, inner, alts, n, k, pre, post, r,
         buf = decode_ansic(buf)
         if (cmdctx) out = out " " buf " "
         else if (is_bare_word(buf)) out = out mark_literal_braces(buf)
-        mode = "out"; buf = ""; tainted = 0; cmdctx = 0
+        mode = "out"; buf = ""; tainted = 0; cmdctx = 0; decodectx = 0
         i++; continue
       }
       buf = buf c; i++; continue
@@ -425,9 +456,10 @@ function expand_braces(s,   extra, groups, grp, inner, alts, n, k, pre, post, r,
     }
     if (c == "`") { tainted = 1; buf = buf " "; i++; continue }
     if (c == "\"") {
-      if (cmdctx) out = out " " buf " "
+      if (decodectx) out = out " " decode_ansic(buf) " "
+      else if (cmdctx) out = out " " buf " "
       else if (!tainted && is_bare_word(buf)) out = out mark_literal_braces(buf)
-      mode = "out"; buf = ""; tainted = 0; cmdctx = 0
+      mode = "out"; buf = ""; tainted = 0; cmdctx = 0; decodectx = 0
       i++; continue
     }
     buf = buf c; i++

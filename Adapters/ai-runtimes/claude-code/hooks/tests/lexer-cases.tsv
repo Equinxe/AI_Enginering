@@ -52,3 +52,10 @@ unquoted heredoc body is scanned for substitutions	cat <<EOF\n$(git push --force
 quoted heredoc body stays inert	cat <<'EOF'\n$(git push --force)\nEOF	--force	no
 backtick in an unquoted heredoc body is scanned	cat <<EOF\n`git reset --hard`\nEOF	--hard	yes
 heredoc tag with an internal dash is read whole	cat <<EOF-X\nx\nEOF-X\ngit push --force	git push --force	yes
+# WU-IAENG-285: printf in command position has its argument DECODED (like
+# ANSI-C $'...') and emitted, so a printf-built flag reaches the rules. The
+# escape-DECODE assertions (\x2d -> -) live in escape-hatch-cases.tsv, whose
+# jq path carries a literal backslash; here the %b runner would decode \x2d
+# before awk ran, so escapes are asserted end-to-end there, not at this layer.
+printf argument reaches the rules	git $(printf 'reset --hard')	reset --hard	yes
+printf format alone fabricates no flag	printf 'just logging'	--	no
