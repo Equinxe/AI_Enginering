@@ -972,3 +972,9 @@ work_units:
     title: Decode printf's runtime escapes in the escape-hatch lexer, closing the printf-built-token bypass class of issue #112, and document the residual runtime-value limitation the hook does not and cannot catch
     milestone: Precision
     delivers: Adapters/ai-runtimes/claude-code/hooks/strip-quotes.awk, Adapters/ai-runtimes/claude-code/hooks/README.md, Adapters/ai-runtimes/claude-code/hooks/tests/escape-hatch-cases.tsv, Adapters/ai-runtimes/claude-code/hooks/tests/lexer-cases.tsv
+
+  - id: WU-IAENG-286
+    employee: Test Automation Engineer
+    title: Commit the legitimate-command corpus behind WU-285's reported 0-false-positives claim as allow cases, so the escape-hatch hook is guarded against over-blocking on every CI run rather than resting on an uncommitted one-time measurement
+    milestone: Precision
+    delivers: Adapters/ai-runtimes/claude-code/hooks/tests/escape-hatch-cases.tsv
