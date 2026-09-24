@@ -211,3 +211,22 @@ allow	git config --get-all core.hooksPath
 allow	git config --list | grep core.hooksPath
 block	git config --unset core.hooksPath
 block	git config --local core.hooksPath .githooks
+# --- WU-IAENG-285: printf decodes its backslash escapes at runtime (issue
+# #112). The lexer now decodes a printf argument the way it decodes ANSI-C
+# $'...'. These BLOCK; the runtime tokens were proven by set-- expansion.
+# RESIDUAL, documented in strip-quotes.awk and README.md and NOT caught: a
+# token an EXTERNAL program builds ($(python -c ...), $(base64 -d ...),
+# $(echo .. | tr . -)), a variable carries, or is split across two names.
+block	git commit -m x $(printf '\x2d\x2dno-verify')
+block	git commit -m x $(printf '\55\55no-verify')
+block	git commit -m x $(printf "\x2d\x2dno-verify")
+block	eval "$(printf 'git commit \x2d\x2dno-verify')"
+block	git push origin $(printf '\x2d\x2dforce')
+block	git reset $(printf '\x2d\x2dhard') HEAD
+# printf used legitimately still passes: escapes decode to whitespace,
+# colour bytes, or format text, never to a git flag.
+allow	printf '%s\n' "$(git rev-parse HEAD)"
+allow	printf -- '--output=%s\n' file
+allow	git commit -m "$(printf 'Release %s' v1)"
+allow	printf '\x1b[32mOK\x1b[0m\n'
+allow	echo "$(printf 'hello world')"
