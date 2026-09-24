@@ -71,3 +71,40 @@ iaeng_framework_root() {
   done
   return 1
 }
+
+# --- SESSION_STATE freshness helpers ----------------------------------------
+# Shared by session-start.sh (warns) and stop-gate.sh (blocks). Both compare
+# .ia-engineering/SESSION_STATE.md's file mtime against HEAD's commit time —
+# mtime, not the free-text "_Last updated:" header, is the primary signal: the
+# header is precisely what goes stale (edited many times, never refreshed).
+# Every helper here FAILS SAFE: on any error it prints nothing and returns 1,
+# so a caller that only acts when both values are present never mis-blocks or
+# mis-warns on a git error or an unsupported `date` flag. `date -r` (mtime of
+# a file) is available in both GNU date (Linux CI) and the GNU coreutils Git
+# for Windows ships (this box) — verified, not assumed.
+
+# iaeng_is_int <value>  — true if value is a non-negative integer.
+iaeng_is_int() {
+  case "$1" in
+    ''|*[!0-9]*) return 1 ;;
+    *) return 0 ;;
+  esac
+}
+
+# iaeng_file_mtime <path>  — epoch seconds of the file's last modification, or
+# nothing (and non-zero) if the file is missing or `date -r` is unsupported.
+iaeng_file_mtime() {
+  local ts
+  ts="$(date -r "$1" +%s 2>/dev/null)" || return 1
+  iaeng_is_int "$ts" || return 1
+  printf '%s' "$ts"
+}
+
+# iaeng_head_commit_time <repo-base>  — epoch seconds of HEAD's commit time,
+# or nothing (and non-zero) if there is no HEAD yet or git errors.
+iaeng_head_commit_time() {
+  local ts
+  ts="$(git -C "$1" log -1 --format=%ct 2>/dev/null)" || return 1
+  iaeng_is_int "$ts" || return 1
+  printf '%s' "$ts"
+}
