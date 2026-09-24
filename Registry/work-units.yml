@@ -979,6 +979,12 @@ work_units:
     milestone: Precision
     delivers: Adapters/ai-runtimes/claude-code/hooks/tests/escape-hatch-cases.tsv
 
+  - id: WU-IAENG-287
+    employee: DevOps Engineer
+    title: Keep .ia-engineering/SESSION_STATE.md in step with the repository — session-start.sh warns when it is behind HEAD, when its header was not refreshed, or when it exceeds a size budget; stop-gate.sh blocks ending a session whose SESSION_STATE is behind the repo, with a non-blocking reminder when the file does not exist
+    milestone: Precision
+    delivers: Adapters/ai-runtimes/claude-code/hooks/session-start.sh, Adapters/ai-runtimes/claude-code/hooks/stop-gate.sh, Adapters/ai-runtimes/claude-code/hooks/lib.sh, Adapters/ai-runtimes/claude-code/hooks/README.md, Adapters/ai-runtimes/claude-code/hooks/tests/run.sh
+
   - id: WU-IAENG-288
     employee: Technical Writer
     title: Write the snapshot-discipline half of session continuity — SESSION_STATE.md is rewritten not appended, a 15,000-character size budget, and a Handoff to a New Conversation checklist the Main Agent runs before Step 7's closing Stop

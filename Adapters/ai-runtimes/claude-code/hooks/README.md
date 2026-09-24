@@ -10,11 +10,11 @@ These hooks make five rules mechanical for the one runtime that currently expose
 
 | Hook | Event | Rule enforced | Source |
 |---|---|---|---|
-| `session-start.sh` | `SessionStart` (startup, resume, compact) | Read first: `CLAUDE.md`, then `.ia-engineering/SESSION_STATE.md`, then the brief — printed into context with the *current* state (last update, next step, blockers) so the reading order is seen, not remembered | `Core/AGENT_CONDUCT.md`, Read First |
+| `session-start.sh` | `SessionStart` (startup, resume, compact) | Read first: `CLAUDE.md`, then `.ia-engineering/SESSION_STATE.md`, then the brief — printed into context with the *current* state (last update, next step, blockers) so the reading order is seen, not remembered. Also warns — never blocks — when `SESSION_STATE.md` is behind the repository, when its `_Last updated:` header was not refreshed on the file's last edit, or when it has grown past a size budget; see SESSION_STATE Freshness below | `Core/AGENT_CONDUCT.md`, Read First; `Core/CONTEXT_BUDGET.md` |
 | `block-escape-hatches.sh` | `PreToolUse`, matcher `Bash` | No `--no-verify`, no `--no-gpg-sign`, no `stash` in place of a commit, no interactive git in a non-interactive session, no force/mirror push, no deletion of a protected branch, no `reset --hard` / `clean -f` / `checkout -- .` / `branch -D`, no history rewrite, no `rm -rf` of `.git` or `/` | `Standards/GIT_STANDARD.md`, Escape Hatches |
 | `block-inline-suppression.sh` | `PreToolUse`, matcher `Edit\|Write\|MultiEdit` | No inline linter / type-checker / test-runner disable written into code; no skipped or focused test; no swallowed exception. Documentation files are the named exemption — the Standard has to be able to quote what it forbids | `Standards/CODE_QUALITY_STANDARD.md`, No Inline Suppression |
 | `post-edit-lint.sh` | `PostToolUse`, matcher `Edit\|Write\|MultiEdit` | The file just written passes `bash -n` and `shellcheck` (shell), and the project's own `.ia-engineering/lint.sh` when it exists; a failure returns to the model immediately. When nothing applicable ran, it says so | `Standards/CODE_QUALITY_STANDARD.md`, Automated Quality |
-| `stop-gate.sh` | `Stop` | The session does not end with tracked files changed and uncommitted, unexplained. One continuation is granted (`stop_hook_active` guard) to commit or to state why not | `Core/AGENT_CONDUCT.md`, Reporting Contract |
+| `stop-gate.sh` | `Stop` | The session does not end with tracked files changed and uncommitted, unexplained (one continuation granted via the `stop_hook_active` guard). **Also blocks** when `.ia-engineering/SESSION_STATE.md` exists and is older than HEAD's last commit, so the agent updates it before the session ends; a missing file gets a non-blocking reminder instead — see SESSION_STATE Freshness below | `Core/AGENT_CONDUCT.md`, Reporting Contract; `Templates/SESSION_STATE.md` |
 
 ---
 
@@ -41,6 +41,28 @@ These hooks make five rules mechanical for the one runtime that currently expose
 
 ---
 
+# SESSION_STATE Freshness
+
+Measured on this repository on 24 September 2026: `.ia-engineering/SESSION_STATE.md`'s `_Last updated:` header read "9 September" while the last commit was 24 September — the body had been edited many times in between, the header never — and `session-start.sh` prints exactly that header into every new session's context, so a resumed conversation would have believed the state was fifteen days old. The same file had grown to 224 lines / ~36,000 characters, loaded unabridged on every resume. Nothing enforced `Templates/SESSION_STATE.md`'s "always update at session end": `stop-gate.sh` mentioned the file only when tracked changes were left uncommitted, and a clean tree gave no reminder at all. This section is the Director-approved (24 Sep) fix.
+
+**The primary signal is the file's mtime, not the header.** The header is exactly what went stale in the incident above — a free-text line a session can forget to touch even while rewriting everything around it. The file's own last-modified time cannot lie the same way. Both hooks compare `.ia-engineering/SESSION_STATE.md`'s mtime (`date -r`) against `HEAD`'s commit time (`git log -1 --format=%ct`); `lib.sh`'s `iaeng_file_mtime` and `iaeng_head_commit_time` fail safe (empty output, non-zero exit) on any missing file, unsupported `date` flag, or git error, and every caller treats "could not compute" as "do not block, do not warn falsely" — never as "behind".
+
+**`session-start.sh` — non-blocking, three warnings** (it is context injection; it has no compliance action to force, only information to surface):
+
+1. **Behind the repository.** `.ia-engineering/SESSION_STATE.md`'s mtime is older than `HEAD`'s commit time. Reports how many commits landed since, via `git rev-list --count --since=@<mtime> HEAD`.
+2. **Header not refreshed.** The `_Last updated:` header's date (parsed defensively out of its free-text line — an unparsable header is reported as unparsable, never silently skipped) is earlier than the file's mtime date. This is the specific failure the measurement above found: the body moved, the header did not.
+3. **Over budget.** The file exceeds 15,000 characters. `Core/CONTEXT_BUDGET.md` measures in characters (`wc -c`) and estimates tokens at ~4 characters each because no offline tokenizer ships with this repository; this hook does the same and says so. 15,000 characters (≈3,750 tokens estimated) is a little over twice this file's own healthy baseline as `CONTEXT_BUDGET.md` measured it (6,456 characters) and well under the ~36,000 characters this file had reached when the incident above was found — a threshold meant to catch "becoming a log" before it reaches "is one".
+
+**`stop-gate.sh` — blocking when behind, reminder when missing, fail-safe when the comparison itself cannot be trusted.** Checked only after the pre-existing uncommitted-tracked-changes gate has passed (a clean tree) — a dirty tree still blocks for that reason first, unchanged. When `.ia-engineering/SESSION_STATE.md` exists and its mtime is older than `HEAD`'s commit time, the hook **blocks the stop** (`exit 2`) and tells the agent to update it now — an absolute date in the header, "Where the Project Stands" and "Next Step" rewritten as a snapshot, not appended to as a log — then stop. This cannot loop: updating `SESSION_STATE.md` creates no commit (it is gitignored and refused by the pre-commit Adapter), so the next stop attempt sees a fresh mtime; the pre-existing `stop_hook_active` loop guard is checked first and unchanged, and still yields on the one continuation Claude Code grants after any Stop-hook block. When the file does **not** exist, the hook does not block forever waiting for one — a project that has never created it is a different condition from one whose file went stale, and blocking every no-state project on every stop would be the wrong response to a state that has nothing to be behind. It leaves a non-blocking reminder pointing at `Templates/SESSION_STATE.md` instead. And when `HEAD`'s commit is dated **after** the system clock — clock skew, or a deliberately future-dated commit — the hook does not compare mtime against it at all: see the correction below for why, and what it does instead.
+
+Both behaviours are exercised by throwaway git repositories built under `mktemp -d` in `tests/run.sh`'s "SESSION_STATE freshness" section — filesystem state, not just a JSON payload, is what this rule reads.
+
+**Portability and correctness corrections, found in review.** Warning 2's header parse first went through `date -d "24 September 2026"` — a GNU extension BSD/macOS date does not have, where the header-staleness check would have silently never fired. `lib.sh`'s `iaeng_ymd_from_header_date` builds `YYYY-MM-DD` out of the extracted day/month-name/year with a plain month-name table (`iaeng_month_num`) instead, so the check needs nothing beyond the `date -r` this file already established as portable.
+
+Separately, and found in a second review pass: a future-dated `HEAD` commit used to make an otherwise-fresh `SESSION_STATE.md` compare as "behind" with no way to clear it. The first fix tried was `iaeng_cap_at_now`, clamping `HEAD`'s commit time at `min(HEAD_TS, now)` before every comparison — which *looked* fixed (a file touched in the same second as the check passed) but was not: "now" is read live on every invocation while the file's mtime stays fixed at whatever moment it was actually touched, so real time moving forward alone — with no edit made — silently re-opened the block a second later. Reproduced in review: `stop-gate.sh` returned `0` immediately after `touch`, then `2` one second later with nothing changed. The fix that replaced it treats a future `HEAD_TS` as its own condition rather than a value to clamp and keep comparing: when `HEAD`'s commit time is after `iaeng_now`, both hooks skip the mtime comparison entirely and report that the comparison itself cannot be trusted — `stop-gate.sh` warns and does **not** block (the same fail-safe branch as a missing mtime or a git error), and `session-start.sh` prints that warning in place of the "behind the repository" one. `stop-gate.sh`'s messages also print `HEAD`'s commit date next to the system clock for diagnosability. This is stable regardless of how much real time passes or how old the file's mtime looks, which `tests/run.sh` proves with a fixture whose mtime is a fixed date in 2020 under a `HEAD` dated tomorrow, rather than by sleeping in the test.
+
+---
+
 # Installation
 
 From the project root, with the framework imported at `ia-engineering/` (or from the framework repository itself):
@@ -62,7 +84,7 @@ This writes `.claude/settings.json` from `settings.example.json`, substituting t
 There is a test suite, and it is the control:
 
 ```bash
-./Adapters/ai-runtimes/claude-code/hooks/tests/run.sh          # 265 checks
+./Adapters/ai-runtimes/claude-code/hooks/tests/run.sh          # 340 checks
 ./Adapters/ai-runtimes/claude-code/hooks/tests/run.sh --verbose
 ```
 

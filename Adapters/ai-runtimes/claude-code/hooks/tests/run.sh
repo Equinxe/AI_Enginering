@@ -173,6 +173,251 @@ else
   printf '   %s cases\n' "$lex_run"
 fi
 
+# --- SESSION_STATE freshness (session-start.sh, stop-gate.sh) ---------------
+# The cases above feed a fixed JSON payload to a hook and check its exit code
+# — enough for rules that read only the tool call. This rule reads the
+# filesystem (SESSION_STATE.md's mtime, HEAD's commit time), so each case
+# below builds one throwaway git repository under `mktemp -d`, points
+# CLAUDE_PROJECT_DIR at it, runs the hook, and is removed with the rest of
+# SSBASE at the end of this section — nothing here is committed or kept.
+
+echo "== SESSION_STATE freshness"
+
+STOPGATE="$HOOKS/stop-gate.sh"
+SESSTART="$HOOKS/session-start.sh"
+SSBASE="$(mktemp -d)"
+
+# ss_repo <name>  — a throwaway repo with one commit, under $SSBASE/<name>.
+ss_repo() {
+  local dir="$SSBASE/$1"
+  mkdir -p "$dir/.ia-engineering"
+  git -C "$dir" init -q
+  git -C "$dir" config user.email t@t.com
+  git -C "$dir" config user.name t
+  git -C "$dir" config commit.gpgsign false
+  echo a > "$dir/f.txt"
+  git -C "$dir" add f.txt
+  git -C "$dir" commit -qm init >/dev/null
+  printf '%s' "$dir"
+}
+
+# ss_run <dir> <hook> [stdin]  — sets SS_OUT (stdout+stderr) and SS_RC.
+ss_run() {
+  local dir="$1" hook="$2" stdin="${3:-{\}}"
+  SS_OUT="$( (export CLAUDE_PROJECT_DIR="$dir"; printf '%s' "$stdin" | bash "$hook") 2>&1 )"
+  SS_RC=$?
+}
+
+# ss_check_rc <label> <want_rc>  — checks $SS_RC from the most recent ss_run.
+ss_check_rc() {
+  local label="$1" want="$2"
+  TOTAL=$((TOTAL + 1))
+  if [ "$SS_RC" -eq "$want" ]; then
+    [ "$VERBOSE" -eq 1 ] && printf '   ok    %s (exit %s)\n' "$label" "$SS_RC"
+  else
+    FAILED=$((FAILED + 1))
+    printf '   FAIL  %s: want exit %s, got %s\n' "$label" "$want" "$SS_RC"
+    [ "$VERBOSE" -eq 1 ] && printf '%s\n' "$SS_OUT" | sed 's/^/         /'
+  fi
+}
+
+# ss_check_has <label> <yes|no> <needle>  — checks $SS_OUT from the most
+# recent ss_run contains (yes) or does not contain (no) needle.
+ss_check_has() {
+  local label="$1" want="$2" needle="$3" found=no
+  TOTAL=$((TOTAL + 1))
+  case "$SS_OUT" in
+    *"$needle"*) found=yes ;;
+  esac
+  if [ "$found" = "$want" ]; then
+    [ "$VERBOSE" -eq 1 ] && printf '   ok    %s\n' "$label"
+  else
+    FAILED=$((FAILED + 1))
+    printf '   FAIL  %s: expected "%s" present=%s, got present=%s\n' "$label" "$needle" "$want" "$found"
+  fi
+}
+
+# --- fixtures -----------------------------------------------------------
+# "stale": header and mtime both 1 January 2020 — behind any HEAD made today.
+STALE="$(ss_repo stale)"
+{
+  echo '# SESSION STATE — test'
+  echo '_Last updated: 1 January 2020, morning by Tester_'
+  echo '## Where the Project Stands'
+  echo 'x'
+} > "$STALE/.ia-engineering/SESSION_STATE.md"
+touch -t 202001010000 "$STALE/.ia-engineering/SESSION_STATE.md"
+
+# "fresh": header and mtime both after the repo's one commit.
+FRESH="$(ss_repo fresh)"
+{
+  echo '# SESSION STATE — test'
+  echo '_Last updated: 24 September 2026, afternoon by Tester_'
+  echo '## Where the Project Stands'
+  echo 'x'
+} > "$FRESH/.ia-engineering/SESSION_STATE.md"
+touch "$FRESH/.ia-engineering/SESSION_STATE.md"
+
+# "missing": no SESSION_STATE.md at all.
+MISSING="$(ss_repo missing)"
+
+# "unparsable": a header with no recognisable "DD Month YYYY".
+UNPARSABLE="$(ss_repo unparsable)"
+echo '_Last updated: some day by Tester_' > "$UNPARSABLE/.ia-engineering/SESSION_STATE.md"
+touch "$UNPARSABLE/.ia-engineering/SESSION_STATE.md"
+
+# "stale-header": mtime is current (after HEAD — not behind), but the header
+# text inside was never refreshed. Isolates Warning 2 from Warning 1.
+STALEHDR="$(ss_repo stale-header)"
+echo '_Last updated: 1 January 2020, morning by Tester_' > "$STALEHDR/.ia-engineering/SESSION_STATE.md"
+touch "$STALEHDR/.ia-engineering/SESSION_STATE.md"
+
+# "big": current header and mtime, body over the 15,000-character budget.
+BIG="$(ss_repo big)"
+{
+  echo '_Last updated: 24 September 2026, afternoon by Tester_'
+  echo '## Where the Project Stands'
+  yes 'padding padding padding padding padding' | head -n 400
+} > "$BIG/.ia-engineering/SESSION_STATE.md"
+touch "$BIG/.ia-engineering/SESSION_STATE.md"
+
+# "dirty": stale SESSION_STATE, plus an uncommitted change to a tracked file —
+# the pre-existing tracked-changes gate must still win, unchanged.
+DIRTY="$(ss_repo dirty)"
+cp "$STALE/.ia-engineering/SESSION_STATE.md" "$DIRTY/.ia-engineering/SESSION_STATE.md"
+touch -t 202001010000 "$DIRTY/.ia-engineering/SESSION_STATE.md"
+echo b >> "$DIRTY/f.txt"
+
+# "nogit": SESSION_STATE present and stale, but the directory is not a git
+# repository at all — the fail-safe path.
+NOGIT="$SSBASE/nogit"
+mkdir -p "$NOGIT/.ia-engineering"
+echo '_Last updated: 1 January 2020, morning by Tester_' > "$NOGIT/.ia-engineering/SESSION_STATE.md"
+touch -t 202001010000 "$NOGIT/.ia-engineering/SESSION_STATE.md"
+
+# ss_repo_future_head <name>  — like ss_repo, but HEAD's one commit is dated
+# a day in the future: a clock-skewed or deliberately forward-dated commit.
+# Built with the raw "<epoch> <tz>" form git accepts for *_DATE, so this
+# needs only `date +%s` (portable) — no `date -d`.
+ss_repo_future_head() {
+  local dir="$SSBASE/$1" future
+  mkdir -p "$dir/.ia-engineering"
+  git -C "$dir" init -q
+  git -C "$dir" config user.email t@t.com
+  git -C "$dir" config user.name t
+  git -C "$dir" config commit.gpgsign false
+  echo a > "$dir/f.txt"
+  git -C "$dir" add f.txt
+  future="$(( $(date +%s) + 86400 )) +0000"
+  GIT_COMMITTER_DATE="$future" GIT_AUTHOR_DATE="$future" git -C "$dir" commit -qm init >/dev/null
+  printf '%s' "$dir"
+}
+
+# "skew": HEAD dated a day from now; SESSION_STATE touched with a PLAIN
+# `touch` — exactly what a real edit does, unlike an earlier version of this
+# fixture that used `touch -d '+1 hour'` to keep mtime artificially ahead of
+# "now". That version passed for the wrong reason: a first fix clamped
+# HEAD's future time at a live-read "now" and kept comparing, which this
+# fixture could not catch (mtime was always ahead of the clamp by
+# construction) but review did — a real `touch`, checked a moment later,
+# still failed, because "now" moves forward on every invocation while mtime
+# stays fixed. The fix this now proves is different: a future HEAD_TS is
+# never compared against mtime at all, so a plain touch passes regardless of
+# how much real time elapses before the check runs.
+SKEW="$(ss_repo_future_head skew)"
+{
+  echo '_Last updated: 24 September 2026, afternoon by Tester_'
+  echo '## Where the Project Stands'
+  echo 'x'
+} > "$SKEW/.ia-engineering/SESSION_STATE.md"
+touch "$SKEW/.ia-engineering/SESSION_STATE.md"
+
+# "skew-old": same future-dated HEAD, but SESSION_STATE's mtime is a fixed,
+# ordinary date in the past — as real and "un-fresh" as a file gets. This is
+# the case that proves the gate STAYS unblocked no matter how much time has
+# passed or how old the file looks: since a future HEAD_TS is never used as
+# a comparison partner at all, mtime's own age is irrelevant here. Chosen
+# over an actual multi-second sleep in the test (which a slow CI box would
+# pay on every run) — the mechanism this proves is identical: the gate does
+# not silently re-open on elapsed real time.
+SKEWOLD="$(ss_repo_future_head skew-old)"
+echo '_Last updated: 1 January 2020, morning by Tester_' > "$SKEWOLD/.ia-engineering/SESSION_STATE.md"
+touch -t 202001010000 "$SKEWOLD/.ia-engineering/SESSION_STATE.md"
+
+# "no-datecmd-header": header "9 September 2026" (the reviewer's own
+# example), mtime fixed later — proves the header-staleness check (Warning
+# 2 / lib.sh's iaeng_ymd_from_header_date) works without `date -d` at all,
+# via a fixed date pair rather than relying on the real clock ever being
+# after 9 September 2026.
+NODATECMD="$(ss_repo no-datecmd-header)"
+echo '_Last updated: 9 September 2026, morning by Tester_' > "$NODATECMD/.ia-engineering/SESSION_STATE.md"
+touch -t 202609240930 "$NODATECMD/.ia-engineering/SESSION_STATE.md"
+
+# --- stop-gate.sh --------------------------------------------------------
+
+ss_run "$STALE" "$STOPGATE"
+ss_check_rc   "stop-gate: blocks when SESSION_STATE is older than HEAD" 2
+ss_check_has  "stop-gate: block message names the reason" yes "behind the repository"
+
+ss_run "$FRESH" "$STOPGATE"
+ss_check_rc   "stop-gate: passes when SESSION_STATE is newer than HEAD" 0
+
+ss_run "$MISSING" "$STOPGATE"
+ss_check_rc   "stop-gate: passes (non-blocking) when SESSION_STATE is missing" 0
+ss_check_has  "stop-gate: reminds when SESSION_STATE is missing" yes "does not exist"
+
+ss_run "$STALE" "$STOPGATE" '{"stop_hook_active":true}'
+ss_check_rc   "stop-gate: loop guard still yields even when SESSION_STATE is stale" 0
+
+ss_run "$DIRTY" "$STOPGATE"
+ss_check_rc   "stop-gate: uncommitted tracked changes still block first" 2
+ss_check_has  "stop-gate: dirty-tree message unchanged by the new gate" yes "uncommitted changes"
+
+ss_run "$NOGIT" "$STOPGATE"
+ss_check_rc   "stop-gate: fail-safe — not a git repo does not block" 0
+
+ss_run "$SKEW" "$STOPGATE"
+ss_check_rc   "stop-gate: a future-dated HEAD commit does not block a freshly-touched state (clock skew)" 0
+ss_check_has  "stop-gate: clock-skew message names HEAD's date, not the behind-repository message" yes "dated after the system clock"
+ss_check_has  "stop-gate: clock-skew case does not print the behind-repository message" no "is behind the repository"
+
+ss_run "$SKEWOLD" "$STOPGATE"
+ss_check_rc   "stop-gate: stays unblocked under clock skew even with an old, real mtime" 0
+ss_check_has  "stop-gate: old-mtime clock-skew case still names the reason" yes "dated after the system clock"
+
+# --- session-start.sh ------------------------------------------------------
+
+ss_run "$STALE" "$SESSTART" ''
+ss_check_has  "session-start: warns when SESSION_STATE is behind the repository" yes "behind the repository"
+
+ss_run "$FRESH" "$SESSTART" ''
+ss_check_has  "session-start: no behind-warning when SESSION_STATE is current" no "behind the repository"
+
+ss_run "$STALEHDR" "$SESSTART" ''
+ss_check_has  "session-start: warns when the header was not refreshed on the last edit" yes "was not refreshed on the file's last edit"
+
+ss_run "$UNPARSABLE" "$SESSTART" ''
+ss_check_has  "session-start: reports an unparsable header rather than staying silent" yes "no parsable date found"
+
+ss_run "$BIG" "$SESSTART" ''
+ss_check_has  "session-start: warns when SESSION_STATE exceeds the size budget" yes "15,000-character budget"
+
+ss_run "$FRESH" "$SESSTART" ''
+ss_check_has  "session-start: no size warning when SESSION_STATE is small" no "15,000-character budget"
+
+ss_run "$SKEW" "$SESSTART" ''
+ss_check_has  "session-start: no behind-warning when HEAD has a future committer date (clock skew)" no "behind the repository"
+ss_check_has  "session-start: reports the clock-skew condition instead" yes "dated after the system clock"
+
+ss_run "$SKEWOLD" "$SESSTART" ''
+ss_check_has  "session-start: stays silent on behind-warning under clock skew even with an old, real mtime" no "behind the repository"
+ss_check_has  "session-start: old-mtime clock-skew case still reports the reason" yes "dated after the system clock"
+
+ss_run "$NODATECMD" "$SESSTART" ''
+ss_check_has  "session-start: header staleness detected without date -d (9 September 2026 example)" yes "was not refreshed on the file's last edit"
+
+rm -rf "$SSBASE"
+
 # --- Verdict ----------------------------------------------------------------
 
 echo
