@@ -177,6 +177,8 @@ The Main Agent presents the result to the Director:
 
 The Director reviews and either approves or requests changes.
 
+Before that stop — when the session is ending or its context is about to be compacted or replaced — the Main Agent runs the Handoff to a New Conversation checklist (`Templates/SESSION_STATE.md`, Handoff to a New Conversation), including confirming the working directory is the right project for the work just delivered.
+
 **The Main Agent stops after delivery. It does not proceed without a new Director request.**
 
 ---
@@ -228,6 +230,7 @@ Escalation pauses the chain. Work resumes only after Director responds.
 | `Core/AGENT_CHAINS.md` | Named pre-defined chains — used in Step 2 to identify the execution map |
 | `Core/DECISION_TREE.md` | Each Employee uses this during their Work Unit |
 | `Templates/EMPLOYEE_BRIEF.md` | Used in Step 4 for every dispatch |
+| `Templates/SESSION_STATE.md` | Step 7 points here, before its closing Stop, for the Handoff to a New Conversation checklist |
 | `Templates/WORK_UNIT.md` | Used in Step 3 to define each Work Unit |
 | `Templates/WORK_UNIT_REPORT.md` | What Step 5 receives and verifies — a Work Unit without one is not complete |
 | `Standards/RISK_STANDARD.md` | A `High` or `Critical` action stops the queue for a Director decision, inside or outside an autonomous range |
@@ -258,7 +261,7 @@ The one-to-one rows carry the same name or an exact synonym. The two that do not
 
 Owner: IA Engineering
 
-Version: 0.0.10
+Version: 0.0.11
 
 Status: Draft
 
