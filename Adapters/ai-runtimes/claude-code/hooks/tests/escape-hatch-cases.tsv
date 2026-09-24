@@ -230,3 +230,52 @@ allow	printf -- '--output=%s\n' file
 allow	git commit -m "$(printf 'Release %s' v1)"
 allow	printf '\x1b[32mOK\x1b[0m\n'
 allow	echo "$(printf 'hello world')"
+# --- WU-IAENG-286: the legitimate-command corpus. WU-285 (#112) reported 0
+# false positives over a 47-command legitimate corpus, but that corpus was
+# never committed, so the headline number was not reproducible — only the
+# cases above existed in the suite. These ~37 cases are commands a real
+# project genuinely runs, spanning: printf for logging / commit messages /
+# ANSI colour; eval of a shell-init hook (ssh-agent, direnv, pyenv, rbenv,
+# starship, gh completion); a variable holding a non-forbidden flag; a
+# benign $(...) command substitution; an ordinary git push/commit/fetch/
+# pull/merge/tag; and grep/sed/awk/find pipelines. Each was verified rc=0
+# against the CURRENT hook before being added here — none of these is
+# asserting a false expectation. Re-run on every CI, this is what keeps
+# "0 false positives" a property of the hook rather than a one-time claim.
+allow	printf 'Building %s (%s)...\n' "$PKG" "$VERSION"
+allow	printf '\033[1;32mPASS\033[0m %s\n' "$test_name"
+allow	printf 'Warning: %s\n' "$msg" >&2
+allow	git commit -m "$(printf 'chore(deps): bump %s to %s' "$dep" "$ver")"
+allow	printf '%-20s %s\n' "Branch:" "$(git branch --show-current)"
+allow	eval "$(ssh-agent -s)"
+allow	eval "$(direnv hook bash)"
+allow	eval "$(pyenv init -)"
+allow	eval "$(rbenv init -)"
+allow	eval "$(starship init bash)"
+allow	eval "$(gh completion -s bash)"
+allow	FLAGS="--verbose"; npm test $FLAGS
+allow	DRYRUN="--dry-run"; terraform plan $DRYRUN
+allow	OPTS="-v -x"; ./run-tests.sh $OPTS
+allow	LEVEL="--fast"; git log $LEVEL -5
+allow	VERSION="$(git describe --tags --always)"
+allow	BRANCH="$(git rev-parse --abbrev-ref HEAD)"; echo "On $BRANCH"
+allow	echo "Commit: $(git rev-parse --short HEAD)"
+allow	TS="$(date -u +%Y%m%dT%H%M%SZ)"
+allow	COUNT="$(git rev-list --count HEAD)"
+allow	git push origin feature/wu-286
+allow	git push -u origin release/v0.0.14
+allow	git commit -am "fix(hooks): correct typo in comment"
+allow	git commit --amend --no-edit
+allow	git commit -m "feat(api): add pagination" -m "Longer body explaining why."
+allow	grep -rn "TODO" Adapters/ | wc -l
+allow	sed -n '1,20p' Standards/GIT_STANDARD.md
+allow	awk '{print $1}' file.txt | sort | uniq -c
+allow	find . -name "*.sh" -print0 | xargs -0 shellcheck
+allow	npm run build
+allow	pytest -q tests/
+allow	docker compose up -d
+allow	git fetch origin
+allow	git pull origin develop
+allow	git merge --no-ff feature/x
+allow	git tag v0.0.14
+allow	gh pr create --title "fix: x" --body "y"
