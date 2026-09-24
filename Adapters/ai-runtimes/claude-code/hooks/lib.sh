@@ -102,9 +102,11 @@ iaeng_file_mtime() {
 
 # iaeng_head_commit_time <repo-base>  — epoch seconds of HEAD's commit time,
 # or nothing (and non-zero) if there is no HEAD yet or git errors. This is
-# the RAW committer time — a clock-skewed or deliberately future-dated
-# commit is returned as-is; cap it with iaeng_cap_at_now before comparing it
-# against "now" (a freshly touched SESSION_STATE.md must always clear).
+# the RAW committer time. A clock-skewed or deliberately future-dated commit
+# is returned as-is — check it against iaeng_now before using it as the
+# comparison partner for SESSION_STATE's mtime; see iaeng_now for why a live
+# "cap" (min of this and now, re-read on every invocation) was tried and
+# reverted.
 iaeng_head_commit_time() {
   local ts
   ts="$(git -C "$1" log -1 --format=%ct 2>/dev/null)" || return 1
@@ -112,23 +114,27 @@ iaeng_head_commit_time() {
   printf '%s' "$ts"
 }
 
-# iaeng_cap_at_now <epoch>  — <epoch>, or the current time if <epoch> is
-# later than now. A future commit time — clock skew on the machine that
-# made the commit, or a deliberately future-dated one — is never a "you are
-# behind" signal: without this cap, SESSION_STATE.md touched at the actual
-# present moment would compare as older than a HEAD dated tomorrow and could
-# never clear the gate until the real clock caught up. Fails open: if "now"
-# cannot be read, <epoch> passes through unchanged rather than the
-# comparison being silently skipped.
-iaeng_cap_at_now() {
-  local ts="$1" now
-  now="$(date +%s 2>/dev/null)"
-  iaeng_is_int "$now" || { printf '%s' "$ts"; return 0; }
-  if iaeng_is_int "$ts" && [ "$ts" -gt "$now" ]; then
-    printf '%s' "$now"
-  else
-    printf '%s' "$ts"
-  fi
+# iaeng_now  — epoch seconds of the current time, or nothing (and non-zero)
+# if `date` cannot be read.
+#
+# HEAD_TS > iaeng_now is treated as a FAIL-SAFE condition, not something to
+# clamp and keep comparing against. A first pass capped HEAD_TS at
+# min(HEAD_TS, now) and re-ran that comparison on every invocation — which
+# looked fixed (a file touched in the same second as the check passed) but
+# was not: "now" is re-read live every run while SESSION_STATE's mtime is
+# frozen at whatever moment it was actually touched, so real time moving
+# forward alone re-opens the gate a second later with no edit and nothing
+# for a human to act on — reported and reproduced in review (stop-gate
+# rc=0 immediately after `touch`, rc=2 one second later, no change made).
+# A future HEAD_TS means the comparison partner itself cannot be trusted
+# (clock skew, or a deliberately forward-dated commit), so the honest
+# answer is "cannot verify this — here is why", exactly like a missing
+# mtime or a git error, not a clamped comparison dressed up as a real one.
+iaeng_now() {
+  local ts
+  ts="$(date +%s 2>/dev/null)" || return 1
+  iaeng_is_int "$ts" || return 1
+  printf '%s' "$ts"
 }
 
 # --- SESSION_STATE header date parsing (portable — no `date -d`) -----------

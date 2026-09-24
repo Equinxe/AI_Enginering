@@ -313,19 +313,36 @@ ss_repo_future_head() {
   printf '%s' "$dir"
 }
 
-# "skew": HEAD dated a day from now; SESSION_STATE touched an hour from now
-# — safely past "real now" at check time, but still a day short of HEAD's
-# raw date. The only way this can pass is if HEAD's future date is capped at
-# "now" before the comparison (see lib.sh's iaeng_cap_at_now); uncapped, this
-# reproduces the reported bug — a freshly-touched file could never clear it
-# until the real clock reached HEAD's date, up to a day away.
+# "skew": HEAD dated a day from now; SESSION_STATE touched with a PLAIN
+# `touch` — exactly what a real edit does, unlike an earlier version of this
+# fixture that used `touch -d '+1 hour'` to keep mtime artificially ahead of
+# "now". That version passed for the wrong reason: a first fix clamped
+# HEAD's future time at a live-read "now" and kept comparing, which this
+# fixture could not catch (mtime was always ahead of the clamp by
+# construction) but review did — a real `touch`, checked a moment later,
+# still failed, because "now" moves forward on every invocation while mtime
+# stays fixed. The fix this now proves is different: a future HEAD_TS is
+# never compared against mtime at all, so a plain touch passes regardless of
+# how much real time elapses before the check runs.
 SKEW="$(ss_repo_future_head skew)"
 {
   echo '_Last updated: 24 September 2026, afternoon by Tester_'
   echo '## Where the Project Stands'
   echo 'x'
 } > "$SKEW/.ia-engineering/SESSION_STATE.md"
-touch -d '+1 hour' "$SKEW/.ia-engineering/SESSION_STATE.md"
+touch "$SKEW/.ia-engineering/SESSION_STATE.md"
+
+# "skew-old": same future-dated HEAD, but SESSION_STATE's mtime is a fixed,
+# ordinary date in the past — as real and "un-fresh" as a file gets. This is
+# the case that proves the gate STAYS unblocked no matter how much time has
+# passed or how old the file looks: since a future HEAD_TS is never used as
+# a comparison partner at all, mtime's own age is irrelevant here. Chosen
+# over an actual multi-second sleep in the test (which a slow CI box would
+# pay on every run) — the mechanism this proves is identical: the gate does
+# not silently re-open on elapsed real time.
+SKEWOLD="$(ss_repo_future_head skew-old)"
+echo '_Last updated: 1 January 2020, morning by Tester_' > "$SKEWOLD/.ia-engineering/SESSION_STATE.md"
+touch -t 202001010000 "$SKEWOLD/.ia-engineering/SESSION_STATE.md"
 
 # "no-datecmd-header": header "9 September 2026" (the reviewer's own
 # example), mtime fixed later — proves the header-staleness check (Warning
@@ -361,6 +378,12 @@ ss_check_rc   "stop-gate: fail-safe — not a git repo does not block" 0
 
 ss_run "$SKEW" "$STOPGATE"
 ss_check_rc   "stop-gate: a future-dated HEAD commit does not block a freshly-touched state (clock skew)" 0
+ss_check_has  "stop-gate: clock-skew message names HEAD's date, not the behind-repository message" yes "dated after the system clock"
+ss_check_has  "stop-gate: clock-skew case does not print the behind-repository message" no "is behind the repository"
+
+ss_run "$SKEWOLD" "$STOPGATE"
+ss_check_rc   "stop-gate: stays unblocked under clock skew even with an old, real mtime" 0
+ss_check_has  "stop-gate: old-mtime clock-skew case still names the reason" yes "dated after the system clock"
 
 # --- session-start.sh ------------------------------------------------------
 
@@ -383,7 +406,12 @@ ss_run "$FRESH" "$SESSTART" ''
 ss_check_has  "session-start: no size warning when SESSION_STATE is small" no "15,000-character budget"
 
 ss_run "$SKEW" "$SESSTART" ''
-ss_check_has  "session-start: no behind-warning when HEAD has a future committer date and state is freshly touched (clock skew)" no "behind the repository"
+ss_check_has  "session-start: no behind-warning when HEAD has a future committer date (clock skew)" no "behind the repository"
+ss_check_has  "session-start: reports the clock-skew condition instead" yes "dated after the system clock"
+
+ss_run "$SKEWOLD" "$SESSTART" ''
+ss_check_has  "session-start: stays silent on behind-warning under clock skew even with an old, real mtime" no "behind the repository"
+ss_check_has  "session-start: old-mtime clock-skew case still reports the reason" yes "dated after the system clock"
 
 ss_run "$NODATECMD" "$SESSTART" ''
 ss_check_has  "session-start: header staleness detected without date -d (9 September 2026 example)" yes "was not refreshed on the file's last edit"

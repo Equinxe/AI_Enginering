@@ -29,11 +29,17 @@
 # non-blocking reminder pointing at Templates/SESSION_STATE.md, because a
 # project that has never created the file is a different condition than one
 # whose file went stale, and treating them the same would block every
-# no-state project on every stop. HEAD's commit time is capped at "now"
-# (iaeng_cap_at_now) before the comparison: a clock-skewed or deliberately
-# future-dated commit must never make a freshly touched SESSION_STATE.md
-# compare as behind — that would be a block no amount of touching the file
-# could clear until the real clock caught up.
+# no-state project on every stop. When HEAD's commit time is AFTER the
+# system clock (clock skew, or a deliberately future-dated commit), this
+# gate does not compare mtime against it at all: it prints the same
+# fail-safe "cannot verify" message as a missing mtime or a git error and
+# does not block. A first pass instead clamped HEAD's time at "now" and
+# kept comparing — which looked fixed but was not, because "now" is re-read
+# live on every invocation while SESSION_STATE's mtime stays fixed at
+# whatever moment it was actually touched: real time moving forward, with
+# no edit at all, silently re-opened the block a second later. Treating a
+# future HEAD_TS as unusable is the same fail-safe posture this gate
+# already takes when it cannot read a value at all — it just cannot verify.
 #
 # ADVISORY BY DESIGN for everything else: this hook does not know whether a
 # Work Unit Report was written (it lives in a PR body or a named file). It
@@ -67,13 +73,17 @@ STATE="$BASE/.ia-engineering/SESSION_STATE.md"
 if [ -f "$STATE" ]; then
   STATE_MTIME="$(iaeng_file_mtime "$STATE")"
   HEAD_TS="$(iaeng_head_commit_time "$BASE")"
-  # Capped at "now": a clock-skewed or deliberately future-dated HEAD must
-  # never make a freshly touched SESSION_STATE.md compare as behind — that
-  # would be an unclearable block (touching the file again cannot move it
-  # past a time that has not arrived yet).
-  [ -n "$HEAD_TS" ] && HEAD_TS="$(iaeng_cap_at_now "$HEAD_TS")"
-  if [ -n "$STATE_MTIME" ] && [ -n "$HEAD_TS" ]; then
-    if [ "$STATE_MTIME" -lt "$HEAD_TS" ]; then
+  NOW="$(iaeng_now)"
+  if [ -n "$STATE_MTIME" ] && [ -n "$HEAD_TS" ] && [ -n "$NOW" ]; then
+    if [ "$HEAD_TS" -gt "$NOW" ]; then
+      # HEAD's commit is dated after the system clock: clock skew, or a
+      # deliberately future-dated commit. The comparison partner itself
+      # cannot be trusted, so this is treated exactly like the "could not
+      # determine" branch below — warn, do not block — rather than blocked
+      # or silently passed.
+      HEAD_CDATE="$(git -C "$BASE" log -1 --format=%cd 2>/dev/null)"
+      echo "iaeng: stop gate — HEAD's last commit is dated after the system clock ($HEAD_CDATE vs. $(date 2>/dev/null)) — cannot verify whether SESSION_STATE.md is current; not blocking on it. Verify by hand." >&2
+    elif [ "$STATE_MTIME" -lt "$HEAD_TS" ]; then
       BEHIND="$(git -C "$BASE" rev-list --count --since="@$STATE_MTIME" HEAD 2>/dev/null)"
       HEAD_CDATE="$(git -C "$BASE" log -1 --format=%cd 2>/dev/null)"
       {
@@ -92,9 +102,9 @@ if [ -f "$STATE" ]; then
       exit 2
     fi
   else
-    # Fail safe: a git error or an unreadable mtime must not turn into a
-    # false block. Warn — do not block — and let the session end.
-    echo "iaeng: stop gate — could not determine whether SESSION_STATE.md is current (mtime or HEAD commit time unavailable); not blocking on it. Verify by hand." >&2
+    # Fail safe: a git error or an unreadable mtime/clock must not turn into
+    # a false block. Warn — do not block — and let the session end.
+    echo "iaeng: stop gate — could not determine whether SESSION_STATE.md is current (mtime, HEAD commit time, or system clock unavailable); not blocking on it. Verify by hand." >&2
   fi
 else
   echo "iaeng: SESSION_STATE.md does not exist — not blocking, but create it from Templates/SESSION_STATE.md before the next session resumes (Core/AGENT_CONDUCT.md, Read First)." >&2

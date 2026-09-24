@@ -39,12 +39,19 @@ if [ -f "$STATE" ]; then
   STATE_MTIME="$(iaeng_file_mtime "$STATE")"
 
   # --- Warning 1: behind the repository -----------------------------------
+  # A future HEAD_TS (clock skew, or a deliberately future-dated commit) is
+  # never compared against mtime at all: a clamp-and-compare against a
+  # live-read "now" looked right (a file touched in the same second passed)
+  # but was not — "now" moves forward on every invocation while mtime stays
+  # fixed, so it silently re-warned a second later with no edit made. A
+  # future HEAD_TS is instead reported as its own, distinct condition.
   if [ -n "$STATE_MTIME" ] && git -C "$BASE" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     HEAD_TS="$(iaeng_head_commit_time "$BASE")"
-    # Capped at "now": a clock-skewed or future-dated HEAD must never make a
-    # freshly touched SESSION_STATE.md compare as behind.
-    [ -n "$HEAD_TS" ] && HEAD_TS="$(iaeng_cap_at_now "$HEAD_TS")"
-    if [ -n "$HEAD_TS" ] && [ "$STATE_MTIME" -lt "$HEAD_TS" ]; then
+    NOW="$(iaeng_now)"
+    if [ -n "$HEAD_TS" ] && [ -n "$NOW" ] && [ "$HEAD_TS" -gt "$NOW" ]; then
+      HEAD_CDATE="$(git -C "$BASE" log -1 --format=%cd 2>/dev/null)"
+      echo "     WARNING: HEAD's last commit is dated after the system clock ($HEAD_CDATE vs. $(date 2>/dev/null)) — cannot verify SESSION_STATE.md's freshness; check it by hand."
+    elif [ -n "$HEAD_TS" ] && [ "$STATE_MTIME" -lt "$HEAD_TS" ]; then
       BEHIND="$(git -C "$BASE" rev-list --count --since="@$STATE_MTIME" HEAD 2>/dev/null)"
       if [ -n "$BEHIND" ] && iaeng_is_int "$BEHIND"; then
         echo "     WARNING: SESSION_STATE.md is $BEHIND commit(s) behind the repository — refresh it before acting."
