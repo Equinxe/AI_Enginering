@@ -57,6 +57,8 @@ Measured on this repository on 24 September 2026: `.ia-engineering/SESSION_STATE
 
 Both behaviours are exercised by throwaway git repositories built under `mktemp -d` in `tests/run.sh`'s "SESSION_STATE freshness" section — filesystem state, not just a JSON payload, is what this rule reads.
 
+**Two portability corrections, found in review.** A future-dated `HEAD` commit — clock skew on the machine that made it, or a deliberately forward-dated one — used to make an otherwise-fresh `SESSION_STATE.md` compare as "behind" with no way to clear it: touching the file again cannot move it past a time that has not arrived yet. `lib.sh`'s `iaeng_cap_at_now` caps `HEAD`'s commit time at the system's own "now" before either hook compares it, and `stop-gate.sh`'s block message now also prints `HEAD`'s commit date next to the system clock for diagnosability. Separately, Warning 2's header parse first went through `date -d "24 September 2026"` — a GNU extension BSD/macOS date does not have, where the header-staleness check would have silently never fired. `lib.sh`'s `iaeng_ymd_from_header_date` builds `YYYY-MM-DD` out of the extracted day/month-name/year with a plain month-name table (`iaeng_month_num`) instead, so the check needs nothing beyond the `date -r` this file already established as portable.
+
 ---
 
 # Installation
@@ -80,7 +82,7 @@ This writes `.claude/settings.json` from `settings.example.json`, substituting t
 There is a test suite, and it is the control:
 
 ```bash
-./Adapters/ai-runtimes/claude-code/hooks/tests/run.sh          # 265 checks
+./Adapters/ai-runtimes/claude-code/hooks/tests/run.sh          # 333 checks
 ./Adapters/ai-runtimes/claude-code/hooks/tests/run.sh --verbose
 ```
 

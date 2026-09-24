@@ -29,7 +29,11 @@
 # non-blocking reminder pointing at Templates/SESSION_STATE.md, because a
 # project that has never created the file is a different condition than one
 # whose file went stale, and treating them the same would block every
-# no-state project on every stop.
+# no-state project on every stop. HEAD's commit time is capped at "now"
+# (iaeng_cap_at_now) before the comparison: a clock-skewed or deliberately
+# future-dated commit must never make a freshly touched SESSION_STATE.md
+# compare as behind — that would be a block no amount of touching the file
+# could clear until the real clock caught up.
 #
 # ADVISORY BY DESIGN for everything else: this hook does not know whether a
 # Work Unit Report was written (it lives in a PR body or a named file). It
@@ -63,13 +67,22 @@ STATE="$BASE/.ia-engineering/SESSION_STATE.md"
 if [ -f "$STATE" ]; then
   STATE_MTIME="$(iaeng_file_mtime "$STATE")"
   HEAD_TS="$(iaeng_head_commit_time "$BASE")"
+  # Capped at "now": a clock-skewed or deliberately future-dated HEAD must
+  # never make a freshly touched SESSION_STATE.md compare as behind — that
+  # would be an unclearable block (touching the file again cannot move it
+  # past a time that has not arrived yet).
+  [ -n "$HEAD_TS" ] && HEAD_TS="$(iaeng_cap_at_now "$HEAD_TS")"
   if [ -n "$STATE_MTIME" ] && [ -n "$HEAD_TS" ]; then
     if [ "$STATE_MTIME" -lt "$HEAD_TS" ]; then
       BEHIND="$(git -C "$BASE" rev-list --count --since="@$STATE_MTIME" HEAD 2>/dev/null)"
+      HEAD_CDATE="$(git -C "$BASE" log -1 --format=%cd 2>/dev/null)"
       {
         echo "iaeng: stop gate — .ia-engineering/SESSION_STATE.md is behind the repository"
         if [ -n "$BEHIND" ] && iaeng_is_int "$BEHIND"; then
           echo "  ($BEHIND commit(s) have landed since it was last saved)."
+        fi
+        if [ -n "$HEAD_CDATE" ]; then
+          echo "  HEAD's last commit is dated: $HEAD_CDATE (vs. system clock: $(date 2>/dev/null))."
         fi
         echo "  Update it now, then stop: an absolute date in the _Last updated: header, and"
         echo "  rewrite \"Where the Project Stands\" and \"Next Step\" as a snapshot of where things"

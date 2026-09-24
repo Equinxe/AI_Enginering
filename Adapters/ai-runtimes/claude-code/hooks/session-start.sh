@@ -41,6 +41,9 @@ if [ -f "$STATE" ]; then
   # --- Warning 1: behind the repository -----------------------------------
   if [ -n "$STATE_MTIME" ] && git -C "$BASE" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     HEAD_TS="$(iaeng_head_commit_time "$BASE")"
+    # Capped at "now": a clock-skewed or future-dated HEAD must never make a
+    # freshly touched SESSION_STATE.md compare as behind.
+    [ -n "$HEAD_TS" ] && HEAD_TS="$(iaeng_cap_at_now "$HEAD_TS")"
     if [ -n "$HEAD_TS" ] && [ "$STATE_MTIME" -lt "$HEAD_TS" ]; then
       BEHIND="$(git -C "$BASE" rev-list --count --since="@$STATE_MTIME" HEAD 2>/dev/null)"
       if [ -n "$BEHIND" ] && iaeng_is_int "$BEHIND"; then
@@ -60,7 +63,7 @@ if [ -f "$STATE" ]; then
   if [ -n "$STATE_MTIME" ]; then
     HEADER_DATE="$(printf '%s' "$LAST" | grep -oE '[0-9]{1,2} [A-Za-z]+ [0-9]{4}' | head -1)"
     if [ -n "$HEADER_DATE" ]; then
-      HEADER_YMD="$(date -d "$HEADER_DATE" +%Y-%m-%d 2>/dev/null)"
+      HEADER_YMD="$(iaeng_ymd_from_header_date "$HEADER_DATE")"
       MTIME_YMD="$(date -r "$STATE" +%Y-%m-%d 2>/dev/null)"
       if [ -n "$HEADER_YMD" ] && [ -n "$MTIME_YMD" ]; then
         if [[ "$HEADER_YMD" < "$MTIME_YMD" ]]; then

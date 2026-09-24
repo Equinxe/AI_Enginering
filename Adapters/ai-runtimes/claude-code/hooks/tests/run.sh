@@ -295,6 +295,47 @@ mkdir -p "$NOGIT/.ia-engineering"
 echo '_Last updated: 1 January 2020, morning by Tester_' > "$NOGIT/.ia-engineering/SESSION_STATE.md"
 touch -t 202001010000 "$NOGIT/.ia-engineering/SESSION_STATE.md"
 
+# ss_repo_future_head <name>  — like ss_repo, but HEAD's one commit is dated
+# a day in the future: a clock-skewed or deliberately forward-dated commit.
+# Built with the raw "<epoch> <tz>" form git accepts for *_DATE, so this
+# needs only `date +%s` (portable) — no `date -d`.
+ss_repo_future_head() {
+  local dir="$SSBASE/$1" future
+  mkdir -p "$dir/.ia-engineering"
+  git -C "$dir" init -q
+  git -C "$dir" config user.email t@t.com
+  git -C "$dir" config user.name t
+  git -C "$dir" config commit.gpgsign false
+  echo a > "$dir/f.txt"
+  git -C "$dir" add f.txt
+  future="$(( $(date +%s) + 86400 )) +0000"
+  GIT_COMMITTER_DATE="$future" GIT_AUTHOR_DATE="$future" git -C "$dir" commit -qm init >/dev/null
+  printf '%s' "$dir"
+}
+
+# "skew": HEAD dated a day from now; SESSION_STATE touched an hour from now
+# — safely past "real now" at check time, but still a day short of HEAD's
+# raw date. The only way this can pass is if HEAD's future date is capped at
+# "now" before the comparison (see lib.sh's iaeng_cap_at_now); uncapped, this
+# reproduces the reported bug — a freshly-touched file could never clear it
+# until the real clock reached HEAD's date, up to a day away.
+SKEW="$(ss_repo_future_head skew)"
+{
+  echo '_Last updated: 24 September 2026, afternoon by Tester_'
+  echo '## Where the Project Stands'
+  echo 'x'
+} > "$SKEW/.ia-engineering/SESSION_STATE.md"
+touch -d '+1 hour' "$SKEW/.ia-engineering/SESSION_STATE.md"
+
+# "no-datecmd-header": header "9 September 2026" (the reviewer's own
+# example), mtime fixed later — proves the header-staleness check (Warning
+# 2 / lib.sh's iaeng_ymd_from_header_date) works without `date -d` at all,
+# via a fixed date pair rather than relying on the real clock ever being
+# after 9 September 2026.
+NODATECMD="$(ss_repo no-datecmd-header)"
+echo '_Last updated: 9 September 2026, morning by Tester_' > "$NODATECMD/.ia-engineering/SESSION_STATE.md"
+touch -t 202609240930 "$NODATECMD/.ia-engineering/SESSION_STATE.md"
+
 # --- stop-gate.sh --------------------------------------------------------
 
 ss_run "$STALE" "$STOPGATE"
@@ -318,6 +359,9 @@ ss_check_has  "stop-gate: dirty-tree message unchanged by the new gate" yes "unc
 ss_run "$NOGIT" "$STOPGATE"
 ss_check_rc   "stop-gate: fail-safe — not a git repo does not block" 0
 
+ss_run "$SKEW" "$STOPGATE"
+ss_check_rc   "stop-gate: a future-dated HEAD commit does not block a freshly-touched state (clock skew)" 0
+
 # --- session-start.sh ------------------------------------------------------
 
 ss_run "$STALE" "$SESSTART" ''
@@ -337,6 +381,12 @@ ss_check_has  "session-start: warns when SESSION_STATE exceeds the size budget" 
 
 ss_run "$FRESH" "$SESSTART" ''
 ss_check_has  "session-start: no size warning when SESSION_STATE is small" no "15,000-character budget"
+
+ss_run "$SKEW" "$SESSTART" ''
+ss_check_has  "session-start: no behind-warning when HEAD has a future committer date and state is freshly touched (clock skew)" no "behind the repository"
+
+ss_run "$NODATECMD" "$SESSTART" ''
+ss_check_has  "session-start: header staleness detected without date -d (9 September 2026 example)" yes "was not refreshed on the file's last edit"
 
 rm -rf "$SSBASE"
 
