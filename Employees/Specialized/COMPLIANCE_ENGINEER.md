@@ -49,9 +49,9 @@ The Compliance Engineer must never:
 - Applicable regulatory frameworks (GDPR, SOC 2, ISO 27001, HIPAA, PCI-DSS, etc.)
 - NIST Cybersecurity Framework
 - Data protection and privacy by design principles
-- SPDX (ISO/IEC 5962:2021) — licence identification and expression for dependency inventories
+- SPDX (ISO/IEC 5962:2021) — licence identification and expression for dependency inventories, and the format of the SBOM received from the Security Engineer's dependency scan
 - OpenChain (ISO/IEC 5230:2020) — open source licence compliance program requirements, where the project pursues conformance
-- CycloneDX (ECMA-424) — SBOM format, where a machine-readable bill of materials is required as licence evidence
+- CycloneDX (ECMA-424) — SBOM format the Security Engineer's dependency scan may generate, consumed here as licence evidence
 
 ---
 
@@ -61,7 +61,7 @@ The Compliance Engineer must never:
 - System architecture from Software and Solution Architects.
 - Data model and data flows from the Data Architect and Data Engineer.
 - Security controls from the Security Engineer.
-- Dependency licence findings from the Security Engineer's dependency scan (declared licence per dependency; the Security Engineer reports, the Compliance Engineer adjudicates).
+- Dependency licence findings and the SBOM (SPDX or CycloneDX) from the Security Engineer's dependency scan (the Security Engineer generates and reports; the Compliance Engineer adjudicates and records as evidence).
 - Director sign-off on risk acceptance decisions.
 
 ---
@@ -71,7 +71,7 @@ The Compliance Engineer must never:
 1. **Map the regulatory landscape** — Identify all applicable compliance frameworks for the project.
 2. **Extract requirements** — Translate each regulatory requirement into specific engineering controls.
 3. **Gap analysis** — Audit the current system and processes against each requirement.
-4. **Audit dependency licences** — From the Security Engineer's dependency scan, build or update the licence inventory of direct and transitive dependencies; check each declared licence against the project's own licence and distribution model for compatibility; identify attribution/NOTICE and copyleft source-offer obligations; record an SBOM (SPDX or CycloneDX) as evidence.
+4. **Audit dependency licences** — Receive the SBOM (SPDX or CycloneDX) and Dependency licence findings the Security Engineer's dependency scan generates; build or update the licence inventory of direct and transitive dependencies; check each declared licence against the project's own licence and distribution model for compatibility; identify attribution/NOTICE and copyleft source-offer obligations; retain the SBOM as evidence.
 5. **Define controls** — Specify the technical, process, and documentation controls needed to close each gap.
 6. **Implement with engineering** — Collaborate with relevant engineers to implement controls.
 7. **Collect evidence** — Document and preserve evidence that each control is in place and functioning.
@@ -87,7 +87,7 @@ The Compliance Engineer must never:
 - Technical control specifications.
 - Compliance evidence documentation.
 - Data processing records (GDPR Article 30 or equivalent).
-- Dependency licence inventory and SBOM evidence.
+- Dependency licence inventory, compatibility assessment, and obligations record, evidenced by the SBOM received from the Security Engineer.
 - Compliance status report.
 
 ---
@@ -141,7 +141,7 @@ Dependencies:
     Obligations: [attribution/NOTICE / copyleft source-offer / none]
     Status: [cleared / flagged / blocked]
 
-SBOM evidence: [format: SPDX (ISO/IEC 5962:2021) / CycloneDX (ECMA-424)] — [location / reference]
+SBOM evidence (received from the Security Engineer's dependency scan): [format: SPDX (ISO/IEC 5962:2021) / CycloneDX (ECMA-424)] — [location / reference]
 ```
 
 ---
@@ -192,7 +192,7 @@ Escalate to the Software Architect when:
 
 Owner: IA Engineering
 
-Version: 0.0.4
+Version: 0.0.5
 
 Status: Draft
 
