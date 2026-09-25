@@ -63,7 +63,7 @@ Employees whose Mission is centered on this kind of work default to this tier: a
 
 Work at the far edge of Strategic Judgment: demanding reasoning or long-horizon work where Strategic Judgment has demonstrably fallen short on the Work Unit at hand.
 
-Frontier is never a default and is never dispatched directly — it is reached only as a **Tier Override** upgrade from a Work Unit already at Strategic Judgment (see below), and it requires Director approval each time, recorded with its reason. Cost, not capability, is why an approval does not carry forward: an unbounded per-Work-Unit approval keeps the highest-cost capability level a deliberate, visible decision rather than a default anyone can reach for.
+Frontier is never a default and is never dispatched directly — it is reached only as a **Tier Override** upgrade from a Work Unit already at Strategic Judgment (see below), and it requires Director approval each time, recorded with its reason. Cost, not capability, is why an approval does not carry forward: a per-Work-Unit approval keeps the highest-cost capability level a deliberate, visible decision rather than a default anyone can reach for.
 
 ---
 
@@ -75,7 +75,7 @@ The tier descriptions above characterize the nature of work in general terms. In
 |---|---|
 | Read-only search, lookup, status check, re-running a script with a pass/fail result, confirming one fact | Lightweight |
 | Mechanical edit with a binary success criterion (a count, a link, a format fix), a registry or changelog entry from already-decided content, a session handoff | Lightweight |
-| Commit or merge plumbing | Lightweight |
+| Commit or merge plumbing, unless it carries a Medium-or-higher RISK (`Tier Override`, Guardrails) | Lightweight |
 | Implementation against an existing contract, authored documentation, a test plan, review of a non-sensitive change | Standard |
 | Cross-cutting work with no precedent, a tradeoff to weigh, or security/compliance/financial risk in scope | Strategic |
 
@@ -110,13 +110,14 @@ The Default Complexity Tier belongs to the Employee, not to the Work Unit. The M
 ## Guardrails
 
 - **Never below Standard** for review of a change in a Sensitive change zone (`.ia-engineering/risk-map.yml`) or for any Work Unit carrying a Medium-or-higher RISK decision (`Standards/RISK_STANDARD.md`).
-- **Never below the Employee's default** for a sign-off or gate step (a Director delivery gate, a release approval, and the like).
+- **Never below the Employee's default** for a sign-off or gate step — a Director delivery gate, a release approval, or a merge approval to `main`. This does not narrow `Workflows/FEATURE_DEVELOPMENT.md`'s Express Path: the Director decided (23 Sep 2026, "Alléger sans supprimer" — lighten without removing) that its Code Review and QA Validation steps run at Lightweight Execution for a genuinely mechanical Work Unit, except that the guardrail above still applies — a change in a Sensitive zone or carrying a Medium-or-higher RISK gets Standard review regardless.
+- **Plumbing that executes an already-recorded gate decision is not itself the gate step** — e.g., running the merge once a Director approval is already recorded may be dispatched at Lightweight Execution; the approval decision itself still runs at the Employee's default or higher.
 - **Any change from the default carries a one-line reason** — the same reason the paragraph above already requires, not a second, separate record.
-- **A Work Unit that fails its Definition of Done is re-dispatched one tier up**, within the existing return limit (`Core/ORCHESTRATION.md`, the Retry layer).
+- **A Work Unit that fails its Definition of Done because of a capability shortfall is re-dispatched one tier up, capped at Strategic Judgment**, within the existing return limit (`Core/ORCHESTRATION.md`, the Retry layer). Going beyond Strategic Judgment is a Frontier Override (Director approval each time, see below), never an automatic retry step. A failure caused by missing information or an incomplete brief is not a capability shortfall — it is resolved per `Core/DECISION_TREE.md` (stop and request what is missing), not by raising the tier.
 
 ## Frontier Override
 
-Frontier is reached the same way, with one further condition: the upgrade is only ever from a Work Unit already at Strategic Judgment, and it requires **Director approval each time** — approval on one Work Unit does not carry forward to the next, however similar. The Main Agent records the approval and its reason alongside the tier override. Frontier exists for demanding reasoning or long-horizon work where Strategic Judgment has demonstrably fallen short on the Work Unit at hand, not as a default upgrade path for every ambiguous task.
+Frontier is reached the same way, with one further condition: the upgrade is only ever from a Work Unit whose current Execution tier is already Strategic Judgment, and it requires **Director approval each time** — approval on one Work Unit does not carry forward to the next, however similar, and does not carry forward across a return of the same Work Unit either: a Work Unit returned and re-dispatched needs a fresh approval, even though it is nominally "the same" Work Unit. The Main Agent records the approval and its reason alongside the tier override. Frontier exists for demanding reasoning or long-horizon work where Strategic Judgment has demonstrably fallen short on the Work Unit at hand, not as a default upgrade path for every ambiguous task.
 
 ---
 
@@ -139,7 +140,7 @@ Frontier is reached the same way, with one further condition: the upgrade is onl
 
 Owner: IA Engineering
 
-Version: 0.0.9
+Version: 0.0.10
 
 Status: Draft
 

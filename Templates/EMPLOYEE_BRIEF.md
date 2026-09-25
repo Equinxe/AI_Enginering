@@ -22,7 +22,7 @@ This is the Context Engine in practice: the Main Agent filters, structures, and 
 **Work Unit:** [WU-ID]
 **Date:** [YYYY-MM-DD]
 **Execution tier:** [Lightweight | Standard | Strategic | Frontier] (default: <Employee tier>)
-**Tier reason:** [required only when the Execution tier differs from the default — see `Core/CAPABILITY_TIERS.md`, Tier Override]
+**Tier reason:** [required only when the Execution tier differs from the default — see `Core/CAPABILITY_TIERS.md`, Tier Override; for Frontier, quote the Director's approval]
 
 ---
 
@@ -178,7 +178,7 @@ A brief that is too long is as harmful as one that is too short. The Main Agent'
 
 Owner: IA Engineering
 
-Version: 0.0.6
+Version: 0.0.7
 
 Status: Draft
 

@@ -146,7 +146,7 @@ After each Employee completes their Work Unit, the Main Agent:
 3. Verifies the output against the Work Unit's Definition of Done, item by item as the report's own table lays it out.
 4. Verifies compliance with applicable Standards, and reads the report's Risk Record: any `High` or `Critical` line with `decided_by=self` is a violation of `Standards/RISK_STANDARD.md`, whatever the output looks like.
 5. If the output passes: mark the Work Unit `COMPLETE`, which is what releases the Work Units that depend on it.
-6. If the output fails: return to the Employee with specific feedback, naming the Definition of Done item. Do not proceed until the DoD is met — and not past the second return (Step 4, the Retry layer). A returned Work Unit is re-dispatched one execution tier up (`Core/CAPABILITY_TIERS.md`, Tier Override), within that same return limit.
+6. If the output fails: return to the Employee with specific feedback, naming the Definition of Done item. Do not proceed until the DoD is met — and not past the second return (Step 4, the Retry layer). A Work Unit returned for a capability shortfall is re-dispatched one execution tier up, capped at Strategic Judgment (`Core/CAPABILITY_TIERS.md`, Tier Override) — going beyond Strategic requires a Frontier Override with Director approval, never an automatic retry step. A Work Unit returned for missing information or an incomplete brief is not a capability shortfall; it is resolved per `Core/DECISION_TREE.md` (stop and request), not by raising the tier.
 
 **An output that does not meet its DoD is not an output. A report that was not verified is not evidence.**
 
@@ -261,7 +261,7 @@ The one-to-one rows carry the same name or an exact synonym. The two that do not
 
 Owner: IA Engineering
 
-Version: 0.0.12
+Version: 0.0.13
 
 Status: Draft
 

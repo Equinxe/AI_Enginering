@@ -32,7 +32,7 @@ It is a **transport mapping**, not an endorsement and not a dependency. `Core/AI
 
 # What Is Not Mapped, and Why
 
-- **OMC's model routing** (`haiku` / `sonnet` / `opus` per task size) is a runtime concern. The framework's `Core/CAPABILITY_TIERS.md` decides the *tier*; `generate-agents.sh --map` translates tiers to the runtime's capability names. Route by the Employee's tier, not by OMC's size heuristic, when they disagree.
+- **OMC's model routing** (`haiku` / `sonnet` / `opus` per task size) is a runtime concern. The framework's `Core/CAPABILITY_TIERS.md` decides the *tier*; `generate-agents.sh --map` translates tiers to the runtime's capability names. Route by the Work Unit's Execution tier — the Employee's Default Complexity Tier is only its default — not by OMC's size heuristic, when they disagree.
 - **OMC's keyword triggers** (`"ralph"`, `"ulw"`, `"autopilot"`) are conveniences of that runtime. No Workflow in this framework is triggered by them, and `Workflows/PROJECT_BOOTSTRAP.md`'s "project creation" phrase remains a documented convention rather than an OMC skill.
 - **OMC's "Direct writes OK for `~/.claude/**`, `.omc/**`, `.claude/**`, `CLAUDE.md`, `AGENTS.md`"** is narrower than it reads under the framework: `CLAUDE.md` is the project's committed contract and changes to it are Work Units with a Director decision (`Workflows/ONBOARDING.md`); `.claude/settings.json` decides what the model may do and is reviewed like code (`Adapters/ai-runtimes/claude-code/hooks/README.md`). "Direct write" means without dispatch, not without review.
 - **Team pipeline, commit protocol, and skills registry** of OMC are documented by OMC. Where OMC's commit protocol and `Standards/COMMIT_STANDARD.md` differ — trailer layout, one Work Unit per commit, the `Employee:` trailer — the Standard wins and the hooks enforce it.
@@ -52,7 +52,7 @@ It is a **transport mapping**, not an endorsement and not a dependency. `Core/AI
 
 Owner: IA Engineering
 
-Version: 0.0.12
+Version: 0.0.13
 
 Status: Draft
 
