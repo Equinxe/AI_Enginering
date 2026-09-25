@@ -115,7 +115,7 @@ They compose: use this document to identify the best-fit Employee; if that Emplo
 - **AI Engineer** — Dispatch to build AI-powered features: model selection, integration layers, evaluation pipelines, and AI observability.
 - **Prompt Engineer** — Dispatch when the deliverable is *itself a prompt or AI-instruction artifact*: prompt design, evaluation, guardrails, and versioned prompt libraries. See **Miscasting Risks** for the genuinely debatable AI-instruction-content case.
 - **Compliance Engineer** — Dispatch for regulatory/legal/contractual obligations: translating GDPR, SOC 2, ISO 27001, HIPAA, PCI-DSS, etc. into engineering controls, gap analysis, and audit evidence. See **Miscasting Risks**.
-- **Penetration Tester** — Dispatch for authorized offensive security testing within a Director-authorized scope: simulated attacks, CVSS-rated findings, and remediation verification. Distinct from the Security Engineer's defensive review role.
+- **Penetration Tester** — Dispatch for authorized offensive security testing within a Director-authorized scope: simulated attacks, CVSS-rated findings, and remediation verification — including adversarial passes on the framework's own controls (hooks, required checks, trailers) and on AI Employee behaviour. Distinct from the Security Engineer's defensive review role. See **Miscasting Risks**.
 
 ---
 
@@ -134,6 +134,10 @@ If the content *is* a business or requirements artifact — functional specifica
 ## Security Engineer vs. DevOps Engineer
 
 Anything touching **secrets, authentication, authorization, tokens, cryptography, PII, or infrastructure with production access** routes to the **Security Engineer** — not the DevOps Engineer, even when the work happens inside a pipeline or deployment config. The DevOps Engineer builds and operates pipelines; the moment the work is *about* the secret, the credential, the auth boundary, or production access rather than the pipeline mechanics, it is security work. The Security Engineer is the single most commonly under-dispatched Employee because so much security-relevant work is embedded in DevOps-shaped tasks. When both are needed, the Security Engineer defines the control and the DevOps Engineer wires it in — two Work Units, not one absorbed by the generalist. (`Core/AGENT_CHAINS.md`'s Review Chain already encodes the complementary rule: a security concern escalates to the Security Engineer immediately.)
+
+## Penetration Tester vs. Security Engineer
+
+If the work is *attacking* a control to find out whether it holds, the owner is the **Penetration Tester**, under Director authorization; if it is *reviewing* a design or change, or defining the control and its detection, the owner is the **Security Engineer**. A finding moves from the first to the second: the Penetration Tester hands it off, and the Security Engineer closes it as a regression test or a detection.
 
 ## Technical Lead vs. Software Architect
 
@@ -173,7 +177,7 @@ Note the boundary carefully: this document is about **what kind of work routes t
 
 Owner: IA Engineering
 
-Version: 0.0.1
+Version: 0.0.2
 
 Status: Draft
 

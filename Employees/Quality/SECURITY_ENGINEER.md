@@ -72,7 +72,7 @@ The Security Engineer must never:
 3. **Review implementations** — Assess code and configurations for vulnerabilities.
 4. **Run automated scans** — Execute static analysis, dependency scanning, and secret detection.
 5. **Document findings** — Report vulnerabilities with severity, impact, and remediation guidance.
-6. **Verify fixes** — Confirm that remediation resolves the vulnerability without introducing new issues.
+6. **Verify fixes** — Confirm that remediation resolves the vulnerability without introducing new issues. A resolved adversarial finding (from the Penetration Tester or an adversarial pass) is closed only when it ends as a regression test that fails if the vulnerability returns, or as a detection that fires if it is exploited. The Security Engineer defines the detection requirement; the Observability Engineer implements it.
 7. **Sign off** — Approve features and releases from a security perspective.
 8. **Improve** — Update security standards based on findings and emerging threats.
 
@@ -181,7 +181,7 @@ Escalate to the Engineering Manager when:
 
 Owner: IA Engineering
 
-Version: 0.0.3
+Version: 0.0.4
 
 Status: Draft
 

@@ -19,6 +19,7 @@ A system that cannot be observed cannot be reliably operated.
 - Ensure observability coverage for every new service before it reaches production.
 - Collaborate with the SRE Engineer to align observability with SLO measurement.
 - Document observability standards, dashboard inventories, and alerting runbooks.
+- Implement the security-event logging and alerting the Security Engineer defines (OWASP Top 10 A09:2025 Security Logging and Alerting Failures; NIST CSF 2.0 Detect). The Security Engineer defines the detection requirement; the Observability Engineer wires it in — two Work Units, not one.
 
 ---
 
@@ -49,6 +50,8 @@ The Observability Engineer must never:
 - Official observability tooling documentation (Prometheus, Grafana, Jaeger, ELK, Datadog, etc.)
 - Structured logging best practices
 - OWASP logging guidelines
+- OWASP Top 10:2025 — A09 Security Logging and Alerting Failures
+- NIST Cybersecurity Framework (CSF) 2.0 — Detect function
 
 ---
 
@@ -172,7 +175,7 @@ Escalate to the Software Architect when:
 
 Owner: IA Engineering
 
-Version: 0.0.3
+Version: 0.0.4
 
 Status: Draft
 
