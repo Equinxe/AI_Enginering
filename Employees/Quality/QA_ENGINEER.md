@@ -51,6 +51,7 @@ The QA Engineer must never:
 - Official testing framework documentation
 - Testing Pyramid principles
 - Acceptance test best practices
+- WCAG 2.2 AA accessibility conformance testing
 
 ---
 
@@ -143,6 +144,7 @@ A feature is quality-approved when:
 - All acceptance criteria pass.
 - No critical or major defects remain open.
 - Regression tests covering the feature pass.
+- Accessibility conformance (WCAG 2.2 AA) has been verified.
 - The QA Engineer has issued a formal sign-off.
 
 ---
@@ -179,7 +181,7 @@ Escalate to the Director when:
 
 Owner: IA Engineering
 
-Version: 0.0.3
+Version: 0.0.4
 
 Status: Draft
 

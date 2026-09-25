@@ -50,6 +50,7 @@ The Test Automation Engineer must never:
 - Official testing framework documentation (Pytest, JUnit, Jest, Vitest, Cypress, Playwright, etc.)
 - Test automation best practices
 - Page Object Model and other UI automation patterns (when applicable)
+- Automated accessibility checks in CI/CD pipelines where tooling is available
 
 ---
 
@@ -171,7 +172,7 @@ Escalate to the Technical Lead when:
 
 Owner: IA Engineering
 
-Version: 0.0.3
+Version: 0.0.4
 
 Status: Draft
 

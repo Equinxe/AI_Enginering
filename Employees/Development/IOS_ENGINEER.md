@@ -48,6 +48,7 @@ The iOS Engineer must never:
 - Apple Human Interface Guidelines
 - Swift API Design Guidelines
 - App Store Review Guidelines
+- Apple Accessibility Guidelines
 - Apple Privacy and Security best practices
 
 ---
@@ -152,7 +153,7 @@ Escalate to the Security Engineer when:
 
 Owner: IA Engineering
 
-Version: 0.0.3
+Version: 0.0.4
 
 Status: Draft
 

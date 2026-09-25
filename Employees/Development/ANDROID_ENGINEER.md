@@ -48,6 +48,7 @@ The Android Engineer must never:
 - Material Design Guidelines
 - Kotlin Coding Conventions
 - Android App Quality guidelines
+- Android Accessibility Guidelines
 - Google Play Developer Policy
 - Android Privacy and Security best practices
 
@@ -153,7 +154,7 @@ Escalate to the Security Engineer when:
 
 Owner: IA Engineering
 
-Version: 0.0.3
+Version: 0.0.4
 
 Status: Draft
 
