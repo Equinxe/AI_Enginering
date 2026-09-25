@@ -43,9 +43,11 @@ Each generated agent carries:
 
 This directory is an **Adapter**, and `Core/GLOSSARY.md` already defines what that means: AI-agnostic in the sense that matters — it works for any Employee, under any runtime — while not tool-agnostic, the way a GitHub Adapter assumes GitHub. Naming concrete models inside a `claude-code` target is the same category of statement as naming `.github/workflows/` in the GitHub Adapter.
 
-`Core/CAPABILITY_TIERS.md` anticipates this directly:
+`Core/CAPABILITY_TIERS.md` anticipates this directly — it names no model itself and points here instead:
 
-> A project's own `CLAUDE.md` may map these tiers to concrete models for its chosen AI runtime (e.g., "Lightweight Execution → Haiku, Standard Execution → Sonnet, Strategic Judgment → Opus" for a Claude-based project). That mapping is project context, not part of this framework document.
+> See `Adapters/ai-runtimes/README.md` for where a runtime's tier-to-model mapping lives.
+
+For this runtime, that mapping is Lightweight Execution → Haiku, Standard Execution → Sonnet, Strategic Judgment → Opus. (Frontier has no mapping here yet — a later Work Unit adds the key once a Frontier-capable model is chosen.)
 
 The mapping lives in the target definition and in `--map`. It never appears in `Core/`.
 
@@ -117,7 +119,7 @@ It does not make the claim unfalsifiable, and nothing can. `Core/MAIN_AGENT_COND
 
 Owner: IA Engineering
 
-Version: 0.0.12
+Version: 0.0.13
 
 Status: Draft
 

@@ -174,7 +174,9 @@ Follow the **Code Review Workflow**.
 
 For a typo, a one-line fix, or a doc tweak, this workflow does not change. Every participant and every gate above still applies: Business Analyst (Prerequisites), Architect impact review (Prerequisites), Code Reviewer (Step 6), QA Validation (Step 7), and the Director delivery gate at the end of the Feature Chain (`Core/AGENT_CHAINS.md`). No participant is dropped, no gate is skipped, and no step here is made conditional by this section.
 
-What changes is execution capability, not workflow shape. A Work Unit that is genuinely mechanical — bounded, unambiguous, with no tradeoff to weigh — is dispatched at the **Lightweight Execution** tier (`Core/CAPABILITY_TIERS.md`, Lightweight Override) for its entire path through this workflow, rather than the Standard Execution tier most Work Units default to. Each step becomes a fast confirmation instead of a full pass: the Architect's impact review is a quick triviality check rather than a design review; Code Review is a quick correctness pass; QA Validation (Step 7) is a quick pass/fail of the change against its acceptance criteria rather than a full test-plan execution. The genuinely conditional steps already in this workflow — Compliance Engineer and Security Engineer (Actors, above) and the ADR (Prerequisites, above) — are untouched by this section and still trigger only against their own existing criteria.
+What changes is execution capability, not workflow shape. A Work Unit that is genuinely mechanical — bounded, unambiguous, with no tradeoff to weigh — is dispatched at the **Lightweight Execution** tier (`Core/CAPABILITY_TIERS.md`, Tier Override) for its entire path through this workflow, rather than the Standard Execution tier most Work Units default to. Each step becomes a fast confirmation instead of a full pass: the Architect's impact review is a quick triviality check rather than a design review; Code Review is a quick correctness pass; QA Validation (Step 7) is a quick pass/fail of the change against its acceptance criteria rather than a full test-plan execution. The genuinely conditional steps already in this workflow — Compliance Engineer and Security Engineer (Actors, above) and the ADR (Prerequisites, above) — are untouched by this section and still trigger only against their own existing criteria.
+
+Code Review and QA Validation are not on `Core/CAPABILITY_TIERS.md`'s sign-off/gate floor (a Director delivery gate, a release approval, a merge approval to main), so the Director's 23 Sep decision runs them at Lightweight here — except that guardrail 1 still applies in full: a change in a Sensitive change zone or carrying a Medium-or-higher RISK runs Code Review and QA at Standard Execution.
 
 It is still a Work Unit in the full sense: the Commit Standard, Work Unit registration (`Registry/work-units.yml`, Step 4), and every required CI check still apply, and Exit Criteria below still governs completion. **Less load, not fewer controls: this is lighter execution of every step, not fewer steps.**
 
@@ -223,7 +225,7 @@ The two entries are deliberately parallel. `Workflows/CODE_REVIEW.md` treats the
 
 Owner: IA Engineering
 
-Version: 0.0.7
+Version: 0.0.9
 
 Status: Draft
 

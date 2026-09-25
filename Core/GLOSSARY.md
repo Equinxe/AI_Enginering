@@ -84,6 +84,14 @@ Escape hatches exist for genuine emergencies and are forbidden in engineering wo
 
 ---
 
+## Execution Tier
+
+The AI execution capability the Main Agent selects for a Work Unit — Lightweight Execution, Standard Execution, Strategic Judgment, or the override-only Frontier — set per Work Unit at dispatch: the Employee's Default Complexity Tier unless a Tier Override changes it, the Employee's tier being only the starting point.
+
+Not to be confused with Risk Tier, below: an Execution Tier is a capability applied to a Work Unit, a Risk Tier is a hazard classification of an action. See `Core/CAPABILITY_TIERS.md`.
+
+---
+
 # F
 
 ## Framework
@@ -178,7 +186,7 @@ Responsibilities define what an Employee owns.
 
 The classification of a risk-bearing action as Low, Medium, High, or Critical, obtained from its likelihood and its impact, and carrying a required behaviour: proceed, proceed with a stated mitigation, stop and escalate, or stop and require a named Director decision plus independent verification.
 
-A tier is never lowered to avoid a gate. See `Standards/RISK_STANDARD.md`.
+A Risk Tier is never lowered to avoid a gate. See `Standards/RISK_STANDARD.md`.
 
 ---
 
@@ -248,7 +256,7 @@ A sequence of coordinated work units executed to achieve an engineering objectiv
 
 # Document Metadata
 
-Version: 0.0.2
+Version: 0.0.3
 
 Status: Stable
 

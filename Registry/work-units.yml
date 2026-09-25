@@ -1008,3 +1008,9 @@ work_units:
     title: Make accessibility conformance testing an explicit verified quality gate — WCAG 2.2 AA in QA and automation scopes, update stale WCAG 2.1 references, platform-specific accessibility guidelines for iOS and Android
     milestone: Precision
     delivers: Employees/Quality/QA_ENGINEER.md, Employees/Quality/TEST_AUTOMATION_ENGINEER.md, Employees/Development/FRONTEND_ENGINEER.md, Employees/Specialized/UX_UI_DESIGNER.md, Employees/Development/IOS_ENGINEER.md, Employees/Development/ANDROID_ENGINEER.md
+
+  - id: WU-IAENG-292
+    employee: Technical Writer
+    title: Choose the execution tier per Work Unit rather than per Employee, and add a Director-approved, override-only Frontier tier reachable only by upgrading from Strategic Judgment
+    milestone: Precision
+    delivers: Core/CAPABILITY_TIERS.md, Core/ORCHESTRATION.md, Core/MAIN_AGENT_CONDUCT.md, Core/GLOSSARY.md, Workflows/FEATURE_DEVELOPMENT.md, Templates/EMPLOYEE_BRIEF.md, Templates/WORK_UNIT_REPORT.md, Governance/CONTRIBUTING.md, Adapters/ai-runtimes/README.md, Adapters/ai-runtimes/omc/README.md, Adapters/ai-runtimes/generate-agents.sh, Registry/work-units.yml
