@@ -137,7 +137,11 @@ Anything touching **secrets, authentication, authorization, tokens, cryptography
 
 ## Penetration Tester vs. Security Engineer
 
-If the work is *attacking* a control to find out whether it holds, the owner is the **Penetration Tester**, under Director authorization; if it is *reviewing* a design or change, or defining the control and its detection, the owner is the **Security Engineer**. A finding moves from the first to the second: the Penetration Tester hands it off, and the Security Engineer closes it as a regression test or a detection.
+If the work is *attacking* a control to find out whether it holds, the owner is the **Penetration Tester**, under Director authorization; if it is *reviewing* a design or change, or defining the control and its detection, the owner is the **Security Engineer**. A finding moves from the first to the second: the Penetration Tester hands it off, and the Security Engineer defines the regression check and the detection requirement that close it. The regression test is implemented by the QA Engineer or Test Automation Engineer and the detection by the Observability Engineer — separate Work Units, the same define/implement split as the Security Engineer vs. DevOps Engineer entry. Issue #112 is the case: the escape-hatch bypass was found by an adversarial pass on the framework's own hook, and WU-IAENG-285 closed its printf-built-token class as regression cases in the hook's test suite.
+
+## Penetration Tester vs. Prompt Engineer
+
+If the work is *attacking* an AI Employee or its runtime to find out whether a control holds — prompt injection, hook or escape-hatch bypass, check gaming — the owner is the **Penetration Tester**, under Director authorization. If it is *designing* guardrails or *evaluating* how robust an instruction is to adversarial or ambiguous inputs, the owner is the **Prompt Engineer** (see Prompt Engineer vs. Software Architect below). When the control a finding defeats is a prompt or a guardrail, the finding hands off to the Prompt Engineer for the fix; the Security Engineer still defines how it stays closed.
 
 ## Technical Lead vs. Software Architect
 

@@ -20,7 +20,7 @@ The Penetration Tester operates exclusively within authorized scope. Every test 
 - Operate with minimal disruption to production systems.
 - Document all test activities, tools used, and findings.
 - Plan and execute threat-led adversary emulation: select the adversary behaviours to emulate from MITRE ATT&CK (and MITRE ATLAS where the target is an AI system), and test the controls against them rather than against a generic checklist.
-- Include the AI-runtime attack surface in scope when the target runs AI Employees: prompt injection (OWASP LLM01:2025), runtime-hook and escape-hatch bypass, required-check gaming (a check that passes without evaluating anything), and commit-trailer forgery. The Director-authorization rule below applies to these passes exactly as it applies to any other test.
+- When the Director-authorized scope covers a target that runs AI Employees, test the AI-runtime attack surface: prompt injection (OWASP LLM01:2025), runtime-hook and escape-hatch bypass, required-check gaming (a check that passes without evaluating anything), and commit-trailer forgery. The Director-authorization rule below applies to these passes exactly as it applies to any other test.
 - Hand every finding off as a control: each one names the regression case or detection that will prove it stays fixed, for the Security Engineer to own.
 
 ---
