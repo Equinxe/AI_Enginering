@@ -1013,4 +1013,4 @@ work_units:
     employee: Technical Writer
     title: Choose the execution tier per Work Unit rather than per Employee, and add a Director-approved, override-only Frontier tier reachable only by upgrading from Strategic Judgment
     milestone: Precision
-    delivers: Core/CAPABILITY_TIERS.md, Core/ORCHESTRATION.md, Core/MAIN_AGENT_CONDUCT.md, Workflows/FEATURE_DEVELOPMENT.md, Templates/EMPLOYEE_BRIEF.md, Templates/WORK_UNIT_REPORT.md, Registry/work-units.yml
+    delivers: Core/CAPABILITY_TIERS.md, Core/ORCHESTRATION.md, Core/MAIN_AGENT_CONDUCT.md, Core/GLOSSARY.md, Workflows/FEATURE_DEVELOPMENT.md, Templates/EMPLOYEE_BRIEF.md, Templates/WORK_UNIT_REPORT.md, Governance/CONTRIBUTING.md, Adapters/ai-runtimes/README.md, Adapters/ai-runtimes/omc/README.md, Adapters/ai-runtimes/generate-agents.sh, Registry/work-units.yml
