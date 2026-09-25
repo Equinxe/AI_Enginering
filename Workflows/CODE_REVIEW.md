@@ -228,6 +228,7 @@ After the Code Reviewer approves a PR, the change is routed to the QA Engineer f
 - **Untrusted input at a trust boundary** — parsing, deserialization, file upload, or query construction from external input.
 - **Infrastructure, deployment, or configuration with production access** — IAM policies, network exposure, or secrets-management configuration.
 - **Security architecture changes** — any change that meets the "Security architecture change" ADR trigger in `Workflows/ARCHITECTURE_DECISION.md`.
+- **User-facing UI changes that affect accessibility** — new or modified interactive components, focus order, contrast, or ARIA / platform accessibility attributes.
 
 If the Code Reviewer flags a security concern during the review (Step 4), the Security Engineer is engaged before the QA Engineer, per the Escalation table.
 
@@ -269,7 +270,7 @@ This workflow is complete when:
 
 Owner: IA Engineering
 
-Version: 0.0.5
+Version: 0.0.6
 
 Status: Draft
 

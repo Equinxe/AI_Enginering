@@ -19,6 +19,7 @@ Where the QA Engineer defines what to test, the Test Automation Engineer builds 
 - Define test automation standards and best practices for the team.
 - Measure and report test coverage and automation maturity.
 - Collaborate with QA Engineers and development Employees to improve testability.
+- Integrate automated accessibility checks into the CI pipeline where the stack has tooling; automated checks cover only part of the success criteria — the rest is QA's manual pass.
 
 ---
 
@@ -68,10 +69,11 @@ The Test Automation Engineer must never:
 2. **Design the framework** — Choose appropriate tools and patterns for the test type and technology stack.
 3. **Implement tests** — Write automated tests that are deterministic, isolated, and maintainable.
 4. **Integrate into pipeline** — Ensure tests execute automatically on every relevant Git event.
-5. **Monitor stability** — Track flaky test rates and resolve instability promptly.
-6. **Measure coverage** — Report coverage metrics and identify untested areas.
-7. **Maintain** — Update tests when implementations change. Tests are engineering assets.
-8. **Document** — Maintain test framework documentation and onboarding guides.
+5. **Run automated accessibility checks** — Where the stack has tooling, run automated accessibility scans in the pipeline; report what they cover and hand off the rest to the QA Engineer's manual pass.
+6. **Monitor stability** — Track flaky test rates and resolve instability promptly.
+7. **Measure coverage** — Report coverage metrics and identify untested areas.
+8. **Maintain** — Update tests when implementations change. Tests are engineering assets.
+9. **Document** — Maintain test framework documentation and onboarding guides.
 
 ---
 
@@ -97,6 +99,7 @@ Coverage by type:
 - Unit tests: [%] — [count] tests
 - Integration tests: [%] — [count] tests
 - E2E tests: [count] critical flows covered
+- Automated accessibility checks: [tool used, or "not available for this stack"] — [count] issues found
 
 Flaky tests: [count] — [list]
 Failing tests: [count] — [list]
@@ -135,6 +138,7 @@ A test automation Work Unit is complete when:
 - Tests are integrated into the CI/CD pipeline and passing.
 - Test coverage meets or exceeds the agreed threshold.
 - No new flaky tests are introduced.
+- Automated accessibility checks run in the pipeline where the stack has tooling, with results available to the QA Engineer's manual pass.
 
 ---
 
@@ -171,7 +175,7 @@ Escalate to the Technical Lead when:
 
 Owner: IA Engineering
 
-Version: 0.0.3
+Version: 0.0.5
 
 Status: Draft
 
