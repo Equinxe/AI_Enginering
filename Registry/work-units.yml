@@ -990,3 +990,9 @@ work_units:
     title: Write the snapshot-discipline half of session continuity — SESSION_STATE.md is rewritten not appended, a 15,000-character size budget, and a Handoff to a New Conversation checklist the Main Agent runs before Step 7's closing Stop
     milestone: Precision
     delivers: Templates/SESSION_STATE.md, Core/ORCHESTRATION.md, Registry/work-units.yml
+
+  - id: WU-IAENG-291
+    employee: Technical Writer
+    title: Make accessibility conformance testing an explicit verified quality gate — WCAG 2.2 AA in QA and automation scopes, update stale WCAG 2.1 references, platform-specific accessibility guidelines for iOS and Android
+    milestone: Precision
+    delivers: Employees/Quality/QA_ENGINEER.md, Employees/Quality/TEST_AUTOMATION_ENGINEER.md, Employees/Development/FRONTEND_ENGINEER.md, Employees/Specialized/UX_UI_DESIGNER.md, Employees/Development/IOS_ENGINEER.md, Employees/Development/ANDROID_ENGINEER.md

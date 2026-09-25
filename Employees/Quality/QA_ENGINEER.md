@@ -17,6 +17,7 @@ The QA Engineer prevents defects from reaching users by building quality into th
 - Define the testing strategy for each feature and release.
 - Write and execute functional, regression, and acceptance tests.
 - Validate that delivered features meet their acceptance criteria.
+- Verify accessibility conformance against WCAG 2.2 AA standards.
 - Identify, document, and track defects to resolution.
 - Collaborate with Employees to ensure testability is built into implementations.
 - Define and maintain the project's Definition of Done from a quality perspective.
