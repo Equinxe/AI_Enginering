@@ -54,11 +54,12 @@ It applies both to new projects starting from scratch and to existing projects a
    - Open questions
 3. Create `.ia-engineering/SESSION_STATE.md` from `Templates/SESSION_STATE.md` — the project's dated operational state, read immediately after `CLAUDE.md` on every resume. It is **never committed**: `Adapters/scripts/install.sh` gitignores it and the `pre-commit` hook refuses it, because a file that records what is currently weak does not belong in the repository it describes. `CLAUDE.md` holds the stable contract; this file holds where things stand. One fact lives in exactly one of them.
 4. Run `Adapters/scripts/install.sh`, found in your imported framework directory, from the project root so the hooks, CI workflows, `.gitignore` data-protection rules, and local data directory exist before the first commit — `Standards/DATA_PROTECTION_STANDARD.md` is enforceable only if its controls predate the data. `install.sh` alone is the host-agnostic subset, for when no stack bootstrap is wanted — a project adopting a technology stack should instead run `Adapters/scripts/setup-project-bootstrap.sh <stack>`, which runs `install.sh` internally and additionally installs the stack's CI workflows and `Dockerfile` (see `Workflows/PROJECT_BOOTSTRAP.md` Step 4).
-5. Confirm the framework loads correctly in the AI assistant context.
+5. Install the AI-runtime integration — a separate, deliberate step from item 4 above, for the same reason `Workflows/PROJECT_BOOTSTRAP.md` Step 4 gives it its own step: `.claude/settings.json` is committed content that decides what the model may do, not something a per-clone installer writes unasked. From the project root, run `Adapters/ai-runtimes/generate-agents.sh`, found in your imported framework directory, to turn the Employee roster into agents the runtime can dispatch to. Using Claude Code as the runtime, also run `Adapters/ai-runtimes/claude-code/install-hooks.sh` and `Adapters/ai-runtimes/claude-code/install-skills.sh`, both in the same framework directory. A different runtime uses its own Adapter under `Adapters/ai-runtimes/<runtime>/` (`Core/AI_MANIFEST.md` Principle X). Restart the session afterward — Claude Code reads `.claude/settings.json` at session start — and confirm the session-start hook prints `.ia-engineering/SESSION_STATE.md`'s pointers into context.
+6. Confirm the framework loads correctly in the AI assistant context.
 
 For a project that already has code and history, the install adds alongside what is there and never overwrites it — see **Adopting into an already-started project** below for the four realities greenfield never meets.
 
-**Output:** Framework imported. `CLAUDE.md` created and active. `SESSION_STATE.md` created and ignored. Adapters installed.
+**Output:** Framework imported. `CLAUDE.md` created and active. `SESSION_STATE.md` created and ignored. Adapters installed, including the AI-runtime integration for the runtime in use.
 
 ---
 
@@ -204,7 +205,7 @@ This workflow is complete when:
 
 Owner: IA Engineering
 
-Version: 0.0.5
+Version: 0.0.7
 
 Status: Draft
 

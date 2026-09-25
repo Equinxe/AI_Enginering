@@ -990,3 +990,9 @@ work_units:
     title: Write the snapshot-discipline half of session continuity — SESSION_STATE.md is rewritten not appended, a 15,000-character size budget, and a Handoff to a New Conversation checklist the Main Agent runs before Step 7's closing Stop
     milestone: Precision
     delivers: Templates/SESSION_STATE.md, Core/ORCHESTRATION.md, Registry/work-units.yml
+
+  - id: WU-IAENG-289
+    employee: Technical Writer
+    title: Name the AI-runtime install step in Project Bootstrap and Onboarding, closing the gap that left a real greenfield adoption with no .claude/ directory, no hooks, and no skills
+    milestone: Precision
+    delivers: Workflows/PROJECT_BOOTSTRAP.md, Workflows/ONBOARDING.md, Registry/work-units.yml
