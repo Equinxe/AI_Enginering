@@ -44,7 +44,7 @@ The UX/UI Designer must never:
 
 - Standards First
 - Documentation Standard
-- WCAG 2.1 AA accessibility guidelines
+- WCAG 2.2 AA accessibility guidelines
 - Platform-specific design guidelines (Apple HIG, Material Design, Web Content Accessibility Guidelines)
 - Design system documentation for the project
 - Figma or equivalent design tooling standards
@@ -148,7 +148,7 @@ A design Work Unit is complete when:
 - Wireframes have been validated with stakeholders before high-fidelity design begins.
 - High-fidelity designs cover all states: empty, loading, error, and success.
 - Designs have been reviewed for technical feasibility by the Frontend Engineer.
-- WCAG 2.1 AA accessibility requirements are met.
+- WCAG 2.2 AA accessibility requirements are met.
 - Design handoff specification is complete and delivered to Frontend Engineers.
 
 ---
@@ -185,7 +185,7 @@ Escalate to the Director when:
 
 Owner: IA Engineering
 
-Version: 0.0.3
+Version: 0.0.4
 
 Status: Draft
 

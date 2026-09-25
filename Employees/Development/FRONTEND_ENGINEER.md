@@ -49,7 +49,7 @@ The Frontend Engineer must never:
 - Commit Standard
 - Official framework documentation (React, Vue, Angular, etc.)
 - TypeScript best practices (when applicable)
-- WCAG Accessibility Guidelines
+- WCAG 2.2 AA accessibility guidelines
 - Web performance best practices
 
 ---
@@ -99,7 +99,7 @@ Work Unit: [description]
 - [ ] Components are reusable and documented
 - [ ] Code follows official framework standards
 - [ ] Unit and component tests written and passing
-- [ ] Accessibility requirements met (WCAG)
+- [ ] Accessibility requirements met (WCAG 2.2 AA)
 - [ ] Cross-browser compatibility verified
 - [ ] No linter or formatter warnings left unresolved
 - [ ] Commit follows Commit Standard
@@ -155,7 +155,7 @@ Escalate to the Software Architect when:
 
 Owner: IA Engineering
 
-Version: 0.0.3
+Version: 0.0.4
 
 Status: Draft
 

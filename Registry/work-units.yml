@@ -1002,3 +1002,9 @@ work_units:
     title: Extend the Penetration Tester to threat-led adversary emulation including the AI-runtime attack surface, require every resolved adversarial finding to end as a regression test or a detection, and give the Observability Engineer the implementation half of security-event detection — three existing Employees extended, no new Employee, no new chain
     milestone: Precision
     delivers: Employees/Specialized/PENETRATION_TESTER.md, Employees/Quality/SECURITY_ENGINEER.md, Employees/DevOps/OBSERVABILITY_ENGINEER.md, Core/EMPLOYEE_SELECTION.md, Registry/work-units.yml
+
+  - id: WU-IAENG-291
+    employee: Technical Writer
+    title: Make accessibility conformance testing an explicit verified quality gate — WCAG 2.2 AA in QA and automation scopes, update stale WCAG 2.1 references, platform-specific accessibility guidelines for iOS and Android
+    milestone: Precision
+    delivers: Employees/Quality/QA_ENGINEER.md, Employees/Quality/TEST_AUTOMATION_ENGINEER.md, Employees/Development/FRONTEND_ENGINEER.md, Employees/Specialized/UX_UI_DESIGNER.md, Employees/Development/IOS_ENGINEER.md, Employees/Development/ANDROID_ENGINEER.md
