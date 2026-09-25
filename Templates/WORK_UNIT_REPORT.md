@@ -24,6 +24,7 @@ Two consequences follow:
 **To:** Main Agent
 **Work Unit:** [WU-ID] — [title]
 **Date:** [YYYY-MM-DD]
+**Executed at:** [tier] / [runtime model as reported by the runtime — the model that actually ran, never one dictated by the brief]
 
 ---
 
@@ -128,6 +129,7 @@ the session.]
 
 | Field | Purpose | Common mistakes |
 |---|---|---|
+| Executed at | The tier the Work Unit ran at, and the runtime's own model identifier | Copying the brief's Execution tier instead of reporting the runtime model actually used; leaving the model blank |
 | Verdict | One word the Main Agent can act on | "Mostly done"; a paragraph; a verdict that contradicts the DoD table |
 | What Was NOT Done | Makes omission visible | Left empty — silence reads as "everything", which is the failure this template exists to prevent |
 | Gate Evidence | Pasted output, checkable | Paraphrase ("tests green"); output from a previous run; output from a different branch |
@@ -154,6 +156,7 @@ In either case the report is a file or a PR body, not a message in a conversatio
 | Document | Relationship |
 |---|---|
 | `Templates/EMPLOYEE_BRIEF.md` | The input this report answers. Every Output and every Definition of Done item in the brief has a row here. |
+| `Core/CAPABILITY_TIERS.md` | Defines the tiers this report's "Executed at" field names, and the Tier Override that re-dispatches a failed Work Unit one tier up. |
 | `Core/ORCHESTRATION.md` | Step 5 (Collect) reads this report before anything else. |
 | `Core/MAIN_AGENT_CONDUCT.md` | Verification Over Waiting: the report is evidence, and the Main Agent re-verifies it directly. Durable Tracking of Findings: every open item becomes an Issue. |
 | `Standards/RISK_STANDARD.md` | Defines the Risk Record line. |
@@ -167,7 +170,7 @@ In either case the report is a file or a PR body, not a message in a conversatio
 
 Owner: IA Engineering
 
-Version: 0.0.12
+Version: 0.0.13
 
 Status: Draft
 

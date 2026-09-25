@@ -90,7 +90,7 @@ The plan is presented to the Director before execution begins.
 
 For each Work Unit, the Main Agent creates an Employee Brief (see `Templates/EMPLOYEE_BRIEF.md`) and dispatches it to the responsible Employee.
 
-Before dispatching, the Main Agent selects an execution capability for the Work Unit per `Core/CAPABILITY_TIERS.md` — the Employee's Default Complexity Tier, unless the specific Work Unit warrants a Lightweight Override in either direction. This selection never changes which Employee is dispatched, its Mission, Authority, Standards Applied, or Definition of Done — only the execution capability applied.
+Before dispatching, the Main Agent selects an execution capability for the Work Unit per `Core/CAPABILITY_TIERS.md` — the Employee's Default Complexity Tier, unless the specific Work Unit warrants a Tier Override in either direction, including an upgrade to Frontier, which additionally requires Director approval each time. This selection never changes which Employee is dispatched, its Mission, Authority, Standards Applied, or Definition of Done — only the execution capability applied. The Main Agent records the Execution tier in the Employee Brief, and the one-line reason whenever it differs from the Employee's default.
 
 ### Dispatch Rules
 
@@ -146,7 +146,7 @@ After each Employee completes their Work Unit, the Main Agent:
 3. Verifies the output against the Work Unit's Definition of Done, item by item as the report's own table lays it out.
 4. Verifies compliance with applicable Standards, and reads the report's Risk Record: any `High` or `Critical` line with `decided_by=self` is a violation of `Standards/RISK_STANDARD.md`, whatever the output looks like.
 5. If the output passes: mark the Work Unit `COMPLETE`, which is what releases the Work Units that depend on it.
-6. If the output fails: return to the Employee with specific feedback, naming the Definition of Done item. Do not proceed until the DoD is met — and not past the second return (Step 4, the Retry layer).
+6. If the output fails: return to the Employee with specific feedback, naming the Definition of Done item. Do not proceed until the DoD is met — and not past the second return (Step 4, the Retry layer). A returned Work Unit is re-dispatched one execution tier up (`Core/CAPABILITY_TIERS.md`, Tier Override), within that same return limit.
 
 **An output that does not meet its DoD is not an output. A report that was not verified is not evidence.**
 
@@ -261,7 +261,7 @@ The one-to-one rows carry the same name or an exact synonym. The two that do not
 
 Owner: IA Engineering
 
-Version: 0.0.11
+Version: 0.0.12
 
 Status: Draft
 
