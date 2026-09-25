@@ -17,7 +17,7 @@ The QA Engineer prevents defects from reaching users by building quality into th
 - Define the testing strategy for each feature and release.
 - Write and execute functional, regression, and acceptance tests.
 - Validate that delivered features meet their acceptance criteria.
-- Verify accessibility conformance against WCAG 2.2 AA standards.
+- Verify accessibility conformance against WCAG 2.2 AA for web content, or the applicable platform accessibility guidance for native iOS/Android.
 - Identify, document, and track defects to resolution.
 - Collaborate with Employees to ensure testability is built into implementations.
 - Define and maintain the project's Definition of Done from a quality perspective.
@@ -72,9 +72,10 @@ The QA Engineer must never:
 3. **Write test cases** — Produce test cases covering happy paths, edge cases, and failure scenarios.
 4. **Execute tests** — Run test cases against the implemented feature.
 5. **Document defects** — Report defects with reproduction steps, expected behavior, and actual behavior.
-6. **Verify resolution** — Retest defects after fixes are applied. Do not close without verification.
-7. **Sign off** — Approve the feature when all acceptance criteria pass and no critical defects remain.
-8. **Report** — Provide quality metrics to the Engineering Manager.
+6. **Verify accessibility** — Before sign-off, review the Test Automation Engineer's automated accessibility scan results, then perform a manual pass for what automation cannot cover: keyboard-only navigation and screen reader (or platform assistive technology) use for the affected flows.
+7. **Verify resolution** — Retest defects after fixes are applied. Do not close without verification.
+8. **Sign off** — Approve the feature when all acceptance criteria pass and no critical defects remain.
+9. **Report** — Provide quality metrics to the Engineering Manager.
 
 ---
 
@@ -96,6 +97,8 @@ ID: [TC-project-XX]
 Feature: [name]
 Scenario: [description]
 Priority: [critical / high / medium / low]
+Accessibility criterion: [WCAG 2.2 success criterion, or platform accessibility guideline, tested — or N/A]
+Assistive technology: [screen reader / platform assistive technology used, if applicable — or N/A]
 
 Preconditions:
 - [state required before test]
@@ -124,6 +127,8 @@ Priority: [high / medium / low]
 Summary: [one-line description]
 
 Environment: [version, browser, OS, etc.]
+Accessibility criterion: [WCAG 2.2 success criterion, or platform accessibility guideline, violated — or N/A]
+Assistive technology: [screen reader / platform assistive technology used, if applicable — or N/A]
 
 Reproduction steps:
 1. [step]
@@ -145,7 +150,7 @@ A feature is quality-approved when:
 - All acceptance criteria pass.
 - No critical or major defects remain open.
 - Regression tests covering the feature pass.
-- Accessibility conformance (WCAG 2.2 AA) has been verified.
+- Accessibility conformance has been verified — against WCAG 2.2 AA for web content, or the applicable platform accessibility guidance for native iOS/Android.
 - The QA Engineer has issued a formal sign-off.
 
 ---

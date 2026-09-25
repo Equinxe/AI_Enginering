@@ -45,10 +45,9 @@ The iOS Engineer must never:
 - Testing Standard
 - Documentation Standard
 - Commit Standard
-- Apple Human Interface Guidelines
+- Apple Human Interface Guidelines, including Accessibility
 - Swift API Design Guidelines
 - App Store Review Guidelines
-- Apple Accessibility Guidelines
 - Apple Privacy and Security best practices
 
 ---

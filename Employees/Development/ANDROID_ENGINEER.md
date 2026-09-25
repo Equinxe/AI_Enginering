@@ -45,10 +45,10 @@ The Android Engineer must never:
 - Testing Standard
 - Documentation Standard
 - Commit Standard
-- Material Design Guidelines
+- Material Design Guidelines, including Accessibility
 - Kotlin Coding Conventions
 - Android App Quality guidelines
-- Android Accessibility Guidelines
+- Android developer accessibility guidance
 - Google Play Developer Policy
 - Android Privacy and Security best practices
 
