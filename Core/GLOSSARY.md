@@ -86,7 +86,7 @@ Escape hatches exist for genuine emergencies and are forbidden in engineering wo
 
 ## Execution Tier
 
-The AI execution capability the Main Agent selects for a Work Unit — Lightweight Execution, Standard Execution, Strategic Judgment, or the override-only Frontier — set per Work Unit at dispatch through a Tier Override, distinct from the Employee's own Default Complexity Tier, which is only the starting point.
+The AI execution capability the Main Agent selects for a Work Unit — Lightweight Execution, Standard Execution, Strategic Judgment, or the override-only Frontier — set per Work Unit at dispatch: the Employee's Default Complexity Tier unless a Tier Override changes it, the Employee's tier being only the starting point.
 
 Not to be confused with Risk Tier, below: an Execution Tier is a capability applied to a Work Unit, a Risk Tier is a hazard classification of an action. See `Core/CAPABILITY_TIERS.md`.
 

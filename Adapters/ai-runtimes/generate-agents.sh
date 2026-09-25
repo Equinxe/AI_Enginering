@@ -166,11 +166,14 @@ case "$TARGET" in
     ;;
   claude-code)
     DEFAULT_OUT=".claude/agents"
-    # Core/CAPABILITY_TIERS.md's three capability levels, mapped to this
-    # runtime's models. Strategic Judgment is ambiguous tradeoffs and
-    # hard-to-reverse decisions; Standard Execution is work against an existing
-    # contract or pattern; Lightweight is mechanical and reached only through a
-    # per-Work-Unit override, never as an Employee default.
+    # Core/CAPABILITY_TIERS.md's two default execution tiers, plus the
+    # override-only Lightweight tier, mapped to this runtime's models.
+    # Strategic Judgment is ambiguous tradeoffs and hard-to-reverse decisions;
+    # Standard Execution is work against an existing contract or pattern;
+    # Lightweight is mechanical and reached only through a per-Work-Unit
+    # Tier Override, never as an Employee default. Frontier, the fourth,
+    # override-only tier reachable only by upgrading from Strategic Judgment
+    # with Director approval, has no mapping here yet.
     MAP_STRATEGIC="opus"
     MAP_STANDARD="sonnet"
     MAP_LIGHTWEIGHT="haiku"
@@ -482,7 +485,7 @@ if [ -n "$PROJECT_ROSTER" ]; then
 else
   echo "  project roster: none (no .ia-engineering/Registry/employees.yml under the project — no Domain Employees)"
 fi
-echo "  tiers:   Strategic Judgment -> $MAP_STRATEGIC, Standard Execution -> $MAP_STANDARD (Lightweight override -> $MAP_LIGHTWEIGHT)"
+echo "  tiers:   Strategic Judgment -> $MAP_STRATEGIC, Standard Execution -> $MAP_STANDARD (Lightweight via Tier Override -> $MAP_LIGHTWEIGHT)"
 echo
 
 # One awk pass per roster, same shape validate-framework.sh uses. The base
