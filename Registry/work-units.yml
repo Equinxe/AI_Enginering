@@ -991,6 +991,12 @@ work_units:
     milestone: Precision
     delivers: Templates/SESSION_STATE.md, Core/ORCHESTRATION.md, Registry/work-units.yml
 
+  - id: WU-IAENG-289
+    employee: Technical Writer
+    title: Name the AI-runtime install step in Project Bootstrap and Onboarding, closing the gap that left a real greenfield adoption with no .claude/ directory, no hooks, and no skills
+    milestone: Precision
+    delivers: Workflows/PROJECT_BOOTSTRAP.md, Workflows/ONBOARDING.md, Registry/work-units.yml
+
   - id: WU-IAENG-291
     employee: Technical Writer
     title: Make accessibility conformance testing an explicit verified quality gate — WCAG 2.2 AA in QA and automation scopes, update stale WCAG 2.1 references, platform-specific accessibility guidelines for iOS and Android

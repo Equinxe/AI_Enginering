@@ -138,9 +138,10 @@ With the stack decided, generate the baseline repository content:
 
 1. Run `Adapters/scripts/setup-project-bootstrap.sh <stack>`, found in your imported framework directory, with the stack decided in Step 2. One command installs the git hooks (via `core.hooksPath`), `.github/workflows/pr-validation.yml`, `.github/workflows/framework-validation.yml`, `.github/PULL_REQUEST_TEMPLATE.md`, `.github/ISSUE_TEMPLATE/` (Step 6 below), the `.gitattributes` LF rules, `.github/workflows/ci-build-test.yml`, `.github/workflows/ghcr-publish.yml` (Step 5 below), and a stack-appropriate `Dockerfile`. It is idempotent, supports `--dry-run`, and verifies the installed `commit-msg` hook actually rejects an invalid Employee trailer rather than assuming the copy worked.
 2. Apply branch protection using `Adapters/scripts/setup-branch-protection.sh`. This is deliberately **not** part of the script above: it mutates settings every collaborator sees and needs an authenticated `gh`, so it is run once per repository as its own decision.
-3. Confirm the script's closing report. It lists the Coverage Checklist items no script can complete — the README, `.gitignore`, Project Charter, Stack Decision ADR, `CLAUDE.md` roster, branch creation, and first Work Unit — so they stay visible instead of being assumed done.
+3. Confirm the script's closing report. It lists the Coverage Checklist items no script can complete — the README, `.gitignore`, Project Charter, Stack Decision ADR, `CLAUDE.md` roster, branch creation, and first Work Unit — so they stay visible instead of being assumed done. The same report separately names the AI-runtime integration under "Not installed by this script, by design" — install it deliberately as item 4 below.
+4. Install the AI-runtime integration, as a separate, deliberate step — not part of the script above. `Adapters/scripts/install.sh`'s own "WHAT THIS SCRIPT DOES NOT DO" section states why: the runtime hooks are installed into a COMMITTED `.claude/settings.json`, a file that decides what the model may do and that a project reviews like code, not something a per-clone installer should write unasked. From the project root, run `Adapters/ai-runtimes/generate-agents.sh`, found in your imported framework directory, to turn the Employee roster into agents the runtime can dispatch to. Using Claude Code as the runtime — the one Adapter this framework has executed end to end — also run `Adapters/ai-runtimes/claude-code/install-hooks.sh` (writes `.claude/settings.json`) and `Adapters/ai-runtimes/claude-code/install-skills.sh` (adds `/create-project`), both in the same framework directory. A different runtime uses its own Adapter under `Adapters/ai-runtimes/<runtime>/`, per `Core/AI_MANIFEST.md` Principle X (AI Agnostic) — the framework names no runtime as mandatory. **Restart the session after installing the hooks**: Claude Code reads `.claude/settings.json` at session start, so a session already running will not pick up hooks installed mid-session. Verify by starting a new session and confirming the session-start hook fires and reports `.ia-engineering/SESSION_STATE.md`'s status — its pointers if it already exists, or that it must be created — which is the proof the hooks are loaded, not just installed.
 
-**Output:** CI/CD Adapter scaffolded and enforcing.
+**Output:** CI/CD Adapter scaffolded and enforcing. AI-runtime integration installed for the runtime in use.
 
 **Handoff to:** Step 5.
 
@@ -217,6 +218,7 @@ Each item names what actually performs it. A checklist item whose mechanism is u
 - [ ] Branch protection applied (`Adapters/scripts/setup-branch-protection.sh`) — separate because it mutates settings every collaborator sees
 - [ ] `main` + `develop` branches created and pushed
 - [ ] `.github/ISSUE_TEMPLATE/config.yml` `OWNER/REPO` placeholders replaced
+- [ ] AI-runtime integration installed (Step 4 item 4) — `Adapters/ai-runtimes/generate-agents.sh`, and for Claude Code also `Adapters/ai-runtimes/claude-code/install-hooks.sh` + `install-skills.sh` — separate because `.claude/settings.json` is committed content that decides what the model may do
 
 **Requires judgment, a decision, or the Director — no script can complete these:**
 
@@ -267,7 +269,7 @@ This workflow is complete when:
 
 Owner: IA Engineering
 
-Version: 0.0.12
+Version: 0.0.14
 
 Status: Draft
 
