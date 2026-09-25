@@ -1014,3 +1014,9 @@ work_units:
     title: Choose the execution tier per Work Unit rather than per Employee, and add a Director-approved, override-only Frontier tier reachable only by upgrading from Strategic Judgment
     milestone: Precision
     delivers: Core/CAPABILITY_TIERS.md, Core/ORCHESTRATION.md, Core/MAIN_AGENT_CONDUCT.md, Core/GLOSSARY.md, Workflows/FEATURE_DEVELOPMENT.md, Templates/EMPLOYEE_BRIEF.md, Templates/WORK_UNIT_REPORT.md, Governance/CONTRIBUTING.md, Adapters/ai-runtimes/README.md, Adapters/ai-runtimes/omc/README.md, Adapters/ai-runtimes/generate-agents.sh, Registry/work-units.yml
+
+  - id: WU-IAENG-294
+    employee: Compliance Engineer
+    title: Give open-source licence compliance an owner — extend the Compliance Engineer with dependency licence inventory, compatibility, and obligation-tracking duties backed by SPDX/OpenChain/CycloneDX, and split the Security Engineer's dependency scan into a report/adjudicate hand-off
+    milestone: Precision
+    delivers: Employees/Specialized/COMPLIANCE_ENGINEER.md, Employees/Quality/SECURITY_ENGINEER.md, Registry/work-units.yml

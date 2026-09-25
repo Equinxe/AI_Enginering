@@ -16,7 +16,7 @@ Security is a continuous engineering discipline applied at every layer of the sy
 
 - Define and maintain the security requirements for all features and infrastructure.
 - Perform security reviews on implementations, architectures, and integrations.
-- Identify vulnerabilities through static analysis, dependency scanning, and manual review.
+- Identify vulnerabilities through static analysis, dependency scanning, and manual review. The dependency scan also reports each dependency's declared licence; the Security Engineer reports the licence findings, the Compliance Engineer adjudicates them.
 - Define and enforce secure coding standards aligned with OWASP guidelines.
 - Review authentication, authorization, and data protection implementations.
 - Respond to security incidents and coordinate remediation.
@@ -181,7 +181,7 @@ Escalate to the Engineering Manager when:
 
 Owner: IA Engineering
 
-Version: 0.0.4
+Version: 0.0.5
 
 Status: Draft
 
