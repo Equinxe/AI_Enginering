@@ -22,7 +22,7 @@ It does not apply to work inside a *project that uses* IA Engineering — that p
 
 # 1. Change Tiers — How Much Process a Change Needs
 
-Not every change to this repository carries the same weight. IA Engineering already has a framework for matching scrutiny to stakes: `Core/CAPABILITY_TIERS.md`'s three execution tiers (Lightweight Execution, Standard Execution, Strategic Judgment). That framing maps directly onto how much review a framework contribution needs, because the same question — *how much does getting this wrong cost, and how reversible is it?* — applies to both.
+Not every change to this repository carries the same weight. IA Engineering already has a framework for matching scrutiny to stakes: `Core/CAPABILITY_TIERS.md`'s two default execution tiers (Standard Execution, Strategic Judgment) plus its two override-only levels (Lightweight Execution, Frontier). That framing maps directly onto how much review a framework contribution needs, because the same question — *how much does getting this wrong cost, and how reversible is it?* — applies to both.
 
 For a genuinely mechanical change, `Workflows/FEATURE_DEVELOPMENT.md`'s "Trivial / Mechanical Changes (Express Path)" section shows this tiering already running end-to-end at Lightweight Execution.
 
@@ -184,7 +184,7 @@ Two things the loop is not. It is not blame: entries name mechanisms, and where 
 
 Owner: IA Engineering
 
-Version: 0.0.3
+Version: 0.0.4
 
 Status: Draft
 
