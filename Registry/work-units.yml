@@ -1026,3 +1026,9 @@ work_units:
     title: Give open-source licence compliance an owner — extend the Compliance Engineer with dependency licence inventory, compatibility, and obligation-tracking duties backed by SPDX/OpenChain/CycloneDX, and split the Security Engineer's dependency scan into a report/adjudicate hand-off
     milestone: Precision
     delivers: Employees/Specialized/COMPLIANCE_ENGINEER.md, Employees/Quality/SECURITY_ENGINEER.md, Registry/work-units.yml
+
+  - id: WU-IAENG-295
+    employee: Technical Lead
+    title: Add Miscasting Risks entries for the AI/ML cluster and the infrastructure cluster, plus Observability vs SRE, Code Reviewer vs Technical Lead, and Engineering Manager vs Scrum Master, and name accessibility conformance in the QA Engineer dispatch trigger
+    milestone: Precision
+    delivers: Core/EMPLOYEE_SELECTION.md, Registry/work-units.yml
