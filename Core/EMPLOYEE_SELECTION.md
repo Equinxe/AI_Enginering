@@ -114,7 +114,7 @@ They compose: use this document to identify the best-fit Employee; if that Emplo
 - **API Engineer** — Dispatch when the API *contract itself* is the deliverable: API design, schema/versioning strategy, contract-first design, and API lifecycle/deprecation, distinct from a Backend Engineer merely implementing an endpoint.
 - **AI Engineer** — Dispatch to build AI-powered features: model selection, integration layers, evaluation pipelines, and AI observability.
 - **Prompt Engineer** — Dispatch when the deliverable is *itself a prompt or AI-instruction artifact*: prompt design, evaluation, guardrails, and versioned prompt libraries. See **Miscasting Risks** for the genuinely debatable AI-instruction-content case.
-- **Compliance Engineer** — Dispatch for regulatory/legal/contractual obligations: translating GDPR, SOC 2, ISO 27001, HIPAA, PCI-DSS, etc. into engineering controls, gap analysis, and audit evidence. See **Miscasting Risks**.
+- **Compliance Engineer** — Dispatch for regulatory/legal/contractual obligations: translating GDPR, SOC 2, ISO 27001, HIPAA, PCI-DSS, etc. into engineering controls, gap analysis, and audit evidence, and open-source licence obligations of dependencies a Work Unit adds or updates. See **Miscasting Risks**.
 - **Penetration Tester** — Dispatch for authorized offensive security testing within a Director-authorized scope: simulated attacks, CVSS-rated findings, and remediation verification — including adversarial passes on the framework's own controls (hooks, required checks, trailers) and on AI Employee behaviour. Distinct from the Security Engineer's defensive review role. See **Miscasting Risks**.
 
 ---
@@ -181,7 +181,7 @@ Note the boundary carefully: this document is about **what kind of work routes t
 
 Owner: IA Engineering
 
-Version: 0.0.2
+Version: 0.0.3
 
 Status: Draft
 

@@ -17,6 +17,7 @@ The Compliance Engineer translates external requirements (GDPR, SOC 2, ISO 27001
 - Audit systems and processes for compliance gaps and remediation needs.
 - Maintain compliance documentation, evidence trails, and audit logs.
 - Collaborate with the Security Engineer on security controls required for compliance.
+- Maintain a licence inventory of direct and transitive dependencies, verify each licence's compatibility with the project's own licence and distribution model, and confirm attribution/NOTICE and copyleft source-offer obligations are identified and met, using SBOM evidence.
 - Review architecture and data model decisions for compliance implications.
 - Coordinate with the Director on compliance risk acceptance and remediation priorities.
 
@@ -48,6 +49,9 @@ The Compliance Engineer must never:
 - Applicable regulatory frameworks (GDPR, SOC 2, ISO 27001, HIPAA, PCI-DSS, etc.)
 - NIST Cybersecurity Framework
 - Data protection and privacy by design principles
+- SPDX (ISO/IEC 5962:2021) — licence identification and expression for dependency inventories, and the format of the SBOM received from the Security Engineer's dependency scan
+- OpenChain (ISO/IEC 5230:2020) — open source licence compliance program requirements, where the project pursues conformance
+- CycloneDX (ECMA-424) — SBOM format the Security Engineer's dependency scan may generate, consumed here as licence evidence
 
 ---
 
@@ -57,6 +61,7 @@ The Compliance Engineer must never:
 - System architecture from Software and Solution Architects.
 - Data model and data flows from the Data Architect and Data Engineer.
 - Security controls from the Security Engineer.
+- Dependency licence findings and the SBOM (SPDX or CycloneDX) from the Security Engineer's dependency scan (the Security Engineer generates and reports; the Compliance Engineer adjudicates and records as evidence).
 - Director sign-off on risk acceptance decisions.
 
 ---
@@ -66,11 +71,12 @@ The Compliance Engineer must never:
 1. **Map the regulatory landscape** — Identify all applicable compliance frameworks for the project.
 2. **Extract requirements** — Translate each regulatory requirement into specific engineering controls.
 3. **Gap analysis** — Audit the current system and processes against each requirement.
-4. **Define controls** — Specify the technical, process, and documentation controls needed to close each gap.
-5. **Implement with engineering** — Collaborate with relevant engineers to implement controls.
-6. **Collect evidence** — Document and preserve evidence that each control is in place and functioning.
-7. **Review and audit** — Periodically re-audit controls for effectiveness and continued applicability.
-8. **Report** — Maintain a compliance status report for the Director.
+4. **Audit dependency licences** — Receive the SBOM (SPDX or CycloneDX) and Dependency licence findings the Security Engineer's dependency scan generates; build or update the licence inventory of direct and transitive dependencies; check each declared licence against the project's own licence and distribution model for compatibility; identify attribution/NOTICE and copyleft source-offer obligations; retain the SBOM as evidence.
+5. **Define controls** — Specify the technical, process, and documentation controls needed to close each gap.
+6. **Implement with engineering** — Collaborate with relevant engineers to implement controls.
+7. **Collect evidence** — Document and preserve evidence that each control is in place and functioning.
+8. **Review and audit** — Periodically re-audit controls for effectiveness and continued applicability.
+9. **Report** — Maintain a compliance status report for the Director.
 
 ---
 
@@ -81,6 +87,7 @@ The Compliance Engineer must never:
 - Technical control specifications.
 - Compliance evidence documentation.
 - Data processing records (GDPR Article 30 or equivalent).
+- Dependency licence inventory, compatibility assessment, and obligations record, evidenced by the SBOM received from the Security Engineer.
 - Compliance status report.
 
 ---
@@ -121,6 +128,22 @@ Owner: [employee]
 Status: [implemented / in progress / planned]
 ```
 
+## Dependency Licence Audit
+
+```
+Project licence: [SPDX identifier, e.g. Apache-2.0]
+Distribution model: [OSS / SaaS / internal-only / bundled binary / etc.]
+Date: [date]
+
+Dependencies:
+  [name@version]: [SPDX licence identifier(s)]
+    Compatibility: [compatible / conditional / incompatible]
+    Obligations: [attribution/NOTICE / copyleft source-offer / none]
+    Status: [cleared / flagged / blocked]
+
+SBOM evidence (received from the Security Engineer's dependency scan): [format: SPDX (ISO/IEC 5962:2021) / CycloneDX (ECMA-424)] — [location / reference]
+```
+
 ---
 
 # Definition of Done
@@ -130,6 +153,7 @@ A compliance Work Unit is complete when:
 - All regulatory requirements in scope are documented.
 - Each gap has a defined remediation control with an owner and due date.
 - Evidence of control implementation is collected and stored.
+- Any Work Unit that adds or updates a dependency has its licence checked for compatibility, its obligations identified, and SBOM evidence recorded.
 - The compliance status report is updated.
 - The Director has been briefed on any unresolved high-risk gaps.
 
@@ -168,7 +192,7 @@ Escalate to the Software Architect when:
 
 Owner: IA Engineering
 
-Version: 0.0.3
+Version: 0.0.5
 
 Status: Draft
 
