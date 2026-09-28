@@ -63,8 +63,19 @@
 #                     employees.yml when it exists. A value naming a missing
 #                     file is refused, never skipped.
 #   --map <spec>      tier-to-capability mapping, as
-#                     "strategic=X,standard=Y,lightweight=Z". Overrides the
-#                     target's default.
+#                     "strategic=X,standard=Y,lightweight=Z,frontier=W".
+#                     Overrides the target's default. Frontier is never an
+#                     Employee's default tier and this key is never written
+#                     into any generated agent's `model:` field — it is
+#                     recorded only in the printed tiers: summary below, for
+#                     the Main Agent to pass as a per-dispatch Tier Override
+#                     (Core/CAPABILITY_TIERS.md, Frontier Override).
+#   --effort-map <spec>  tier-to-effort mapping, mirroring --map, as
+#                     "strategic=high,standard=,lightweight=,frontier=high".
+#                     Overrides the target's default. An empty value means
+#                     "inherit the runtime's default effort" — no `effort:`
+#                     frontmatter field is emitted for that tier. Values are
+#                     validated against the runtime's accepted effort levels.
 #   --dry-run         report what would be written, write nothing
 #   --check           exit non-zero if any generated file would differ from
 #                     what is on disk. For CI.
@@ -109,6 +120,7 @@ PROJECT_ROSTER=""
 TARGET="claude-code"
 OUT=""
 MAP_OVERRIDE=""
+EFFORT_MAP_OVERRIDE=""
 DRY_RUN=0
 CHECK=0
 
@@ -147,6 +159,7 @@ while [ "$#" -gt 0 ]; do
     --project) need_value --project "$#"; PROJECT="$2"; shift 2 ;;
     --roster)  need_value --roster "$#";  PROJECT_ROSTER="$2"; shift 2 ;;
     --map)     need_value --map "$#";     MAP_OVERRIDE="$2"; shift 2 ;;
+    --effort-map) need_value --effort-map "$#"; EFFORT_MAP_OVERRIDE="$2"; shift 2 ;;
     --dry-run) DRY_RUN=1; shift ;;
     --check)   CHECK=1; shift ;;
     --help|-h) sed -n '2,$p' "$0" | awk '/^#/{print; next} /^$/{print; next} {exit}'; exit 0 ;;
@@ -166,17 +179,33 @@ case "$TARGET" in
     ;;
   claude-code)
     DEFAULT_OUT=".claude/agents"
-    # Core/CAPABILITY_TIERS.md's two default execution tiers, plus the
-    # override-only Lightweight tier, mapped to this runtime's models.
+    # Core/CAPABILITY_TIERS.md's two default execution tiers, plus the two
+    # override-only tiers, mapped to this runtime's models.
     # Strategic Judgment is ambiguous tradeoffs and hard-to-reverse decisions;
     # Standard Execution is work against an existing contract or pattern;
     # Lightweight is mechanical and reached only through a per-Work-Unit
-    # Tier Override, never as an Employee default. Frontier, the fourth,
-    # override-only tier reachable only by upgrading from Strategic Judgment
-    # with Director approval, has no mapping here yet.
+    # Tier Override, never as an Employee default. Frontier is reached only
+    # by upgrading a Work Unit already at Strategic Judgment, with Director
+    # approval recorded each time (Core/CAPABILITY_TIERS.md, Frontier
+    # Override) — no Employee ever defaults to it, so it is never written as
+    # any generated agent's `model:`. It exists here only so the printed
+    # tiers: summary below gives the Main Agent a value to pass as a
+    # per-dispatch Tier Override.
     MAP_STRATEGIC="opus"
     MAP_STANDARD="sonnet"
     MAP_LIGHTWEIGHT="haiku"
+    MAP_FRONTIER="fable"
+    # Per-tier effort, alongside the per-tier model above. Director decision,
+    # 25 Sep 2026: Strategic Judgment runs at high effort; the other tiers
+    # inherit the runtime's default effort — an empty value here means no
+    # `effort:` frontmatter field is emitted, so the runtime's own default
+    # applies. This is deliberately an Adapter concern, not a Core one:
+    # Core/CAPABILITY_TIERS.md names no model and, by the same Principle X
+    # (Core/AI_MANIFEST.md), no effort level either.
+    EFFORT_STRATEGIC="high"
+    EFFORT_STANDARD=""
+    EFFORT_LIGHTWEIGHT=""
+    EFFORT_FRONTIER=""
     ;;
   *)
     echo "Unknown target: $TARGET" >&2
@@ -193,7 +222,41 @@ if [ -n "$MAP_OVERRIDE" ]; then
       strategic=*)   MAP_STRATEGIC="${pair#strategic=}" ;;
       standard=*)    MAP_STANDARD="${pair#standard=}" ;;
       lightweight=*) MAP_LIGHTWEIGHT="${pair#lightweight=}" ;;
+      frontier=*)    MAP_FRONTIER="${pair#frontier=}" ;;
       *) echo "Unrecognised --map entry: $pair" >&2; exit 2 ;;
+    esac
+  done
+fi
+
+# Accepted effort levels, verified against this runtime's own documentation
+# (code.claude.com/docs/en/sub-agents.md, model-config.md) at the time of
+# writing. An empty value is always accepted regardless of this list — it
+# means "no effort: field", i.e. inherit the runtime's default.
+is_valid_effort() {
+  case "$1" in
+    ""|low|medium|high|xhigh|max) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+if [ -n "$EFFORT_MAP_OVERRIDE" ]; then
+  for pair in ${EFFORT_MAP_OVERRIDE//,/ }; do
+    key="${pair%%=*}"
+    value="${pair#*=}"
+    case "$key" in
+      strategic|standard|lightweight|frontier) ;;
+      *) echo "Unrecognised --effort-map entry: $pair" >&2; exit 2 ;;
+    esac
+    if ! is_valid_effort "$value"; then
+      echo "Invalid --effort-map value in '$pair': '$value'" >&2
+      echo "  Accepted: low, medium, high, xhigh, max, or empty (inherit)." >&2
+      exit 2
+    fi
+    case "$key" in
+      strategic)   EFFORT_STRATEGIC="$value" ;;
+      standard)    EFFORT_STANDARD="$value" ;;
+      lightweight) EFFORT_LIGHTWEIGHT="$value" ;;
+      frontier)    EFFORT_FRONTIER="$value" ;;
     esac
   done
 fi
@@ -284,12 +347,12 @@ DIFFERENT=0
 
 generate_claude_code() {
   local name="$1" file="$2" category="$3" tier="$4" from_roster="$5" source_label="$6"
-  local slug model dest tmp
+  local slug model effort effort_note dest tmp
 
   slug="$(slugify "$name")"
   case "$tier" in
-    "Strategic Judgment") model="$MAP_STRATEGIC" ;;
-    "Standard Execution") model="$MAP_STANDARD" ;;
+    "Strategic Judgment") model="$MAP_STRATEGIC"; effort="$EFFORT_STRATEGIC" ;;
+    "Standard Execution") model="$MAP_STANDARD"; effort="$EFFORT_STANDARD" ;;
     *)
       echo "  ! $name has tier '$tier', which is neither default tier." >&2
       echo "    Core/CAPABILITY_TIERS.md defines exactly two Employee defaults;" >&2
@@ -299,6 +362,8 @@ generate_claude_code() {
       return
       ;;
   esac
+  effort_note=""
+  [ -n "$effort" ] && effort_note=", effort: $effort"
 
   dest="$OUT/$slug.md"
   tmp="$(mktemp)"
@@ -327,6 +392,11 @@ generate_claude_code() {
     printf 'description: %s — %s. %s\n' \
       "$name" "$mission" "Dispatch per Core/EMPLOYEE_SELECTION.md."
     echo "model: $model"
+    # Only when the tier has a non-empty effort: an absent field means
+    # "inherit the runtime's default effort", which is correct for every
+    # tier except Strategic Judgment (Director decision, 25 Sep 2026 — see
+    # Adapters/ai-runtimes/README.md).
+    [ -n "$effort" ] && echo "effort: $effort"
     echo "---"
     echo
     cat <<HEADER
@@ -336,7 +406,7 @@ generate_claude_code() {
   Source:    $source_label
   Generator: Adapters/ai-runtimes/generate-agents.sh --target claude-code
   Roster:    $from_roster
-  Tier:      $tier -> $model
+  Tier:      $tier -> $model$effort_note
 
   Edit the Employee definition and regenerate. An edited copy is a second
   definition of this Employee that will silently diverge from Employees/,
@@ -485,7 +555,9 @@ if [ -n "$PROJECT_ROSTER" ]; then
 else
   echo "  project roster: none (no .ia-engineering/Registry/employees.yml under the project — no Domain Employees)"
 fi
-echo "  tiers:   Strategic Judgment -> $MAP_STRATEGIC, Standard Execution -> $MAP_STANDARD (Lightweight via Tier Override -> $MAP_LIGHTWEIGHT)"
+echo "  tiers:   Strategic Judgment -> $MAP_STRATEGIC (effort: ${EFFORT_STRATEGIC:-inherit}), Standard Execution -> $MAP_STANDARD (effort: ${EFFORT_STANDARD:-inherit})"
+echo "           Lightweight via Tier Override -> $MAP_LIGHTWEIGHT (effort: ${EFFORT_LIGHTWEIGHT:-inherit})"
+echo "           Frontier via Tier Override, Director approval each time -> $MAP_FRONTIER (effort: ${EFFORT_FRONTIER:-inherit})"
 echo
 
 # One awk pass per roster, same shape validate-framework.sh uses. The base

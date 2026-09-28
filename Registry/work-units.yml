@@ -1014,3 +1014,9 @@ work_units:
     title: Choose the execution tier per Work Unit rather than per Employee, and add a Director-approved, override-only Frontier tier reachable only by upgrading from Strategic Judgment
     milestone: Precision
     delivers: Core/CAPABILITY_TIERS.md, Core/ORCHESTRATION.md, Core/MAIN_AGENT_CONDUCT.md, Core/GLOSSARY.md, Workflows/FEATURE_DEVELOPMENT.md, Templates/EMPLOYEE_BRIEF.md, Templates/WORK_UNIT_REPORT.md, Governance/CONTRIBUTING.md, Adapters/ai-runtimes/README.md, Adapters/ai-runtimes/omc/README.md, Adapters/ai-runtimes/generate-agents.sh, Registry/work-units.yml
+
+  - id: WU-IAENG-293
+    employee: DevOps Engineer
+    title: Add a Frontier key to generate-agents.sh's --map (never written as any Employee's default model), a per-tier effort field with a --effort-map override, document how a per-Work-Unit Execution tier is actually run against a statically generated agent file, document the provider aliasing caveat, and pin the independent review bot's model and effort explicitly
+    milestone: Precision
+    delivers: Adapters/ai-runtimes/generate-agents.sh, Adapters/ai-runtimes/README.md, Adapters/ai-runtimes/claude-code/review-bot.yml, Adapters/scripts/tests/run.sh, Registry/work-units.yml
