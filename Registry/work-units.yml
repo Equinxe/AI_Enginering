@@ -1032,3 +1032,9 @@ work_units:
     title: Add Miscasting Risks entries for the AI/ML cluster and the infrastructure cluster, plus Observability vs SRE, Code Reviewer vs Technical Lead, and Engineering Manager vs Scrum Master, and name accessibility conformance in the QA Engineer dispatch trigger
     milestone: Precision
     delivers: Core/EMPLOYEE_SELECTION.md, Registry/work-units.yml
+
+  - id: WU-IAENG-298
+    employee: Technical Writer
+    title: Align the RISK-record rule on the Pull Request range instead of the same commit, correcting Standards/COMMIT_STANDARD.md and check-risk-map.sh's error text to match the check that already validates the whole range
+    milestone: Precision
+    delivers: Standards/COMMIT_STANDARD.md, Adapters/scripts/check-risk-map.sh, Registry/work-units.yml

@@ -98,7 +98,7 @@ Of the rules in this section, two are enforced mechanically: **exactly one `Work
 
 Both are enforced mechanically, not by convention: `Adapters/git-hooks/commit-msg` rejects the commit locally, and the `Employee Trailer` and `Work Unit Exists` CI checks re-validate server-side in case the hook was bypassed or never installed.
 
-A change that lands in a Sensitive change-zone additionally carries a one-line `RISK:` trailer in the same commit — see `Standards/RISK_STANDARD.md`'s Risk Record for the exact line shape. Run `Adapters/scripts/check-risk-map.sh --explain` to find which zone a given file falls in.
+A change that lands in a Sensitive change-zone additionally carries a one-line `RISK:` trailer in a commit of the same Pull Request — ideally the commit that makes the sensitive change. `Adapters/scripts/check-risk-map.sh --range` checks the whole Pull Request range, not a single commit, so a record forgotten on the commit that touched the zone is added by a follow-up commit in the same Pull Request, never by amending that commit and force-pushing, which `Standards/GIT_STANDARD.md`'s Forbidden Practices bar as rewriting shared history without approval. See `Standards/RISK_STANDARD.md`'s Risk Record for the exact line shape. Run `Adapters/scripts/check-risk-map.sh --explain` to find which zone a given file falls in.
 
 ### Layout: keep the blank line between them
 
@@ -192,7 +192,7 @@ Following this standard provides:
 
 Owner: IA Engineering
 
-Version: 0.0.3
+Version: 0.0.4
 
 Status: Draft
 
