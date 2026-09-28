@@ -1109,6 +1109,114 @@ else
   printf '   FAIL --force did not replace the file\n'; FAILED=$((FAILED + 1))
 fi
 
+# --------------------------------------------- install.sh (WU-IAENG-296) ----
+#
+# install.sh refuses to run unless the FRAMEWORK directory is inside the
+# PROJECT (Workflows/ONBOARDING.md Step 1: submodule, copied reference, or
+# LINKED directory) -- so these cases link the real framework into a
+# throwaway project with `ln -s` rather than copying ~15,000 lines of
+# framework source into a fixture. Some Windows configurations refuse to
+# create a symlink/junction at all (no admin rights, Developer Mode off);
+# when `ln -s` itself fails here, the case is skipped with a reason and does
+# not count toward TOTAL, rather than reporting a false pass or fail for an
+# environment limitation the fix under test cannot control.
+
+section "install.sh — adopter ignore rules and framework-only eol rules (WU-IAENG-296)"
+
+FRAMEWORK_ROOT="$(cd "$SCRIPTS/../.." && pwd)"
+
+new_repo inst-adopter
+if ln -s "$FRAMEWORK_ROOT" ia-engineering 2>/dev/null; then
+  bash ./ia-engineering/Adapters/scripts/install.sh >/dev/null 2>&1
+
+  TOTAL=$((TOTAL + 1))
+  if grep -qxF ".claude/agents/" .gitignore 2>/dev/null; then
+    [ -n "$VERBOSE" ] && printf '   ok   adopter .gitignore ignores .claude/agents/ (generate-agents.sh output)\n'
+  else
+    printf '   FAIL adopter .gitignore does not ignore .claude/agents/\n'
+    FAILED=$((FAILED + 1))
+  fi
+
+  TOTAL=$((TOTAL + 1))
+  if grep -qxF ".claude/worktrees/" .gitignore 2>/dev/null; then
+    [ -n "$VERBOSE" ] && printf '   ok   adopter .gitignore ignores .claude/worktrees/ (isolated subagent worktrees)\n'
+  else
+    printf '   FAIL adopter .gitignore does not ignore .claude/worktrees/\n'
+    FAILED=$((FAILED + 1))
+  fi
+
+  TOTAL=$((TOTAL + 1))
+  if [ -f .gitattributes ] && grep -qF '/Adapters/**' .gitattributes; then
+    printf '   FAIL adopter .gitattributes carries the framework-only /Adapters/** rule\n'
+    FAILED=$((FAILED + 1))
+  elif [ -f .gitattributes ] && grep -qF '/Registry/**' .gitattributes; then
+    printf '   FAIL adopter .gitattributes carries the framework-only /Registry/** rule\n'
+    FAILED=$((FAILED + 1))
+  else
+    [ -n "$VERBOSE" ] && printf '   ok   adopter .gitattributes carries no /Adapters/** or /Registry/** rule\n'
+  fi
+
+  TOTAL=$((TOTAL + 1))
+  if [ -f .gitattributes ] && grep -qF '/.github/**' .gitattributes; then
+    [ -n "$VERBOSE" ] && printf '   ok   adopter .gitattributes still gets the /.github/** rule\n'
+  else
+    printf '   FAIL adopter .gitattributes is missing the /.github/** rule\n'
+    FAILED=$((FAILED + 1))
+  fi
+
+  # The framework repository's OWN .gitattributes governs itself and is not
+  # rewritten by an adopter install — it must already carry the framework-only
+  # rules that the adopter above correctly did not get.
+  TOTAL=$((TOTAL + 1))
+  if grep -qF '/Adapters/**' "$FRAMEWORK_ROOT/.gitattributes" \
+     && grep -qF '/Registry/**' "$FRAMEWORK_ROOT/.gitattributes"; then
+    [ -n "$VERBOSE" ] && printf '   ok   the framework own .gitattributes carries /Adapters/** and /Registry/**\n'
+  else
+    printf '   FAIL the framework own .gitattributes is missing /Adapters/** or /Registry/**\n'
+    FAILED=$((FAILED + 1))
+  fi
+else
+  printf '   SKIP install.sh adopter ignore/eol rules: ln -s failed on this platform\n'
+  printf '        (no admin rights / Developer Mode off) -- not a fix defect.\n'
+fi
+
+# ------------------------------------ setup-project-bootstrap.sh symlink ----
+#
+# WU-IAENG-296 defect 4: the branch-protection hint used to resolve through a
+# linked (symlink/junction) framework directory via `realpath
+# --relative-to=.`, which CANONICALIZES both sides and so printed the link's
+# physical target ("../<physical-target>/...") instead of the link name the
+# project actually sees ("./ia-engineering/..."). Same `ln -s` availability
+# caveat as above.
+
+section "setup-project-bootstrap.sh — link-safe bootstrap hint (WU-IAENG-296)"
+
+new_repo bs-symlink
+if ln -s "$FRAMEWORK_ROOT" ia-engineering 2>/dev/null; then
+  OUT="$(bash ./ia-engineering/Adapters/scripts/setup-project-bootstrap.sh generic --dry-run 2>&1)"
+
+  TOTAL=$((TOTAL + 1))
+  if printf '%s' "$OUT" | grep -qF -- "./ia-engineering/Adapters/scripts/setup-branch-protection.sh"; then
+    [ -n "$VERBOSE" ] && printf '   ok   the branch-protection hint stays under the link name\n'
+  else
+    printf '   FAIL the branch-protection hint did not stay under the link name\n'
+    printf '%s\n' "$OUT" | grep -i "branch protection" | sed 's/^/        | /'
+    FAILED=$((FAILED + 1))
+  fi
+
+  TOTAL=$((TOTAL + 1))
+  if printf '%s' "$OUT" | grep -qE -- '\.\./[^ ]*Adapters/scripts/setup-branch-protection\.sh'; then
+    printf '   FAIL the branch-protection hint resolved through the link to a physical path\n'
+    printf '%s\n' "$OUT" | grep -i "branch protection" | sed 's/^/        | /'
+    FAILED=$((FAILED + 1))
+  else
+    [ -n "$VERBOSE" ] && printf '   ok   the branch-protection hint did not resolve to a ../physical-target path\n'
+  fi
+else
+  printf '   SKIP setup-project-bootstrap.sh link-safe hint: ln -s failed on this platform\n'
+  printf '        (no admin rights / Developer Mode off) -- not a fix defect.\n'
+fi
+
 # ------------------------------------------------- generate-agents.sh -------
 #
 # generate-agents.sh lives under Adapters/ai-runtimes/, a sibling of

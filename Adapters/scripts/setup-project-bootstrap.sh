@@ -96,8 +96,54 @@ esac
 
 # Resolve the Adapters directory relative to this script, so the script works
 # regardless of the caller's current directory.
+#
+# `cd ... && pwd` here — without `-P` — resolves through `.`/`..` but NOT
+# through a symlink: bash's own logical `$PWD` keeps a symlinked path
+# component (e.g. a project's `ia-engineering -> ../elsewhere/ia-engineering`
+# checkout) intact as the name it was invoked through, rather than rewriting
+# it to the link's physical target. SCRIPT_DIR relies on that: it is used
+# below to print a path the reader can act on, and a project sees its own
+# framework checkout by the link name, not by wherever that link happens to
+# point on this machine.
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ADAPTERS_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+# Computes a relative path from directory $1 to path $2 by comparing path
+# segments as strings — no realpath, and no symlink resolution. GNU
+# `realpath --relative-to` CANONICALIZES both sides first, so a caller
+# reached through a symlinked directory gets back a path through the link's
+# physical target instead of the link name (e.g. `../actual-target/...`
+# instead of `./ia-engineering/...`); `realpath` is also not present on every
+# platform this script targets (Git Bash, Linux, macOS — the earlier
+# `--relative-to` call fell back to an absolute path when it failed). Both
+# inputs must already be absolute (SCRIPT_DIR and the caller's `pwd` both are,
+# from plain non -P `cd`/`pwd`).
+relpath() {
+  local from="$1" to="$2" i=0 up="" rest="" j
+  local -a from_parts to_parts
+  IFS='/' read -r -a from_parts <<<"$from"
+  IFS='/' read -r -a to_parts <<<"$to"
+  while [ "$i" -lt "${#from_parts[@]}" ] && [ "$i" -lt "${#to_parts[@]}" ] \
+        && [ "${from_parts[$i]}" = "${to_parts[$i]}" ]; do
+    i=$((i + 1))
+  done
+  j="$i"
+  while [ "$j" -lt "${#from_parts[@]}" ]; do
+    up="../$up"
+    j=$((j + 1))
+  done
+  j="$i"
+  while [ "$j" -lt "${#to_parts[@]}" ]; do
+    rest="$rest${to_parts[$j]}/"
+    j=$((j + 1))
+  done
+  rest="${rest%/}"
+  if [ -z "$up$rest" ]; then
+    printf '.'
+  else
+    printf '%s%s' "$up" "$rest"
+  fi
+}
 
 DRY_RUN=0
 for arg in "${PASSTHROUGH[@]+"${PASSTHROUGH[@]}"}"; do
@@ -314,7 +360,7 @@ echo
 #    requires every checklist item, and the items below need a decision, a
 #    Director, or an authenticated API call — not a file copy.
 echo "--- Remaining Coverage Checklist items (Workflows/PROJECT_BOOTSTRAP.md) ---"
-echo "  Branch protection      ./$(realpath --relative-to=. "$SCRIPT_DIR" 2>/dev/null || echo "$SCRIPT_DIR")/setup-branch-protection.sh"
+echo "  Branch protection      ./$(relpath "$(pwd)" "$SCRIPT_DIR")/setup-branch-protection.sh"
 echo "  main + develop created git branch develop && git push -u origin develop"
 echo "  README.md              from the Phase A answers (project identity)"
 echo "  .gitignore             stack-appropriate for $STACK"

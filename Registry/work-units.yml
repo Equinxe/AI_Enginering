@@ -1026,3 +1026,9 @@ work_units:
     title: Give open-source licence compliance an owner — extend the Compliance Engineer with dependency licence inventory, compatibility, and obligation-tracking duties backed by SPDX/OpenChain/CycloneDX, and split the Security Engineer's dependency scan into a report/adjudicate hand-off
     milestone: Precision
     delivers: Employees/Specialized/COMPLIANCE_ENGINEER.md, Employees/Quality/SECURITY_ENGINEER.md, Registry/work-units.yml
+
+  - id: WU-IAENG-296
+    employee: Platform Engineer
+    title: Fix four measured adopter-install defects — ignore generate-agents.sh's and this runtime's own derived/runtime artifacts (.claude/agents/, .claude/worktrees/) by default in an adopting project, matching the framework's own .gitignore reasoning; restrict install.sh's framework-only .gitattributes EOL rules (/Adapters/**, /Registry/**) to installing into the framework itself; and make setup-project-bootstrap.sh's branch-protection hint symlink/junction-safe instead of resolving through realpath to a physical path
+    milestone: Precision
+    delivers: Adapters/scripts/install.sh, Adapters/scripts/setup-project-bootstrap.sh, Adapters/scripts/tests/run.sh, .gitignore, Registry/work-units.yml

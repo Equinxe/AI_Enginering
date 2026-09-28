@@ -331,26 +331,36 @@ echo
 # written, so a project's own .gitattributes rules survive.
 
 echo "Line endings"
-ATTR_RULES="/Adapters/** text eol=lf
+# /Adapters/** and /Registry/** are the FRAMEWORK repository's own top-level
+# paths — install.sh copies individual files out of Adapters/ into a project,
+# it does not create an Adapters/ or Registry/ directory in the project being
+# set up, so an adopting project has nothing at either path for a
+# .gitattributes rule to match. Only /.github/** is meaningful there. The two
+# framework-only rules are appended only when FRAMEWORK = PROJECT below, i.e.
+# only when this script installs into the framework repository itself, which
+# is where /Adapters/** and /Registry/** actually exist.
+ATTR_RULES="/.github/** text eol=lf"
+FRAMEWORK_ONLY_ATTR_RULES="/Adapters/** text eol=lf
 /Registry/** text eol=lf
 /.github/** text eol=lf"
 
-if [ "$FRAMEWORK" = "$PROJECT" ]; then
-  same ".gitattributes (framework repository governs its own paths)"
-else
-  MISSING_RULES=""
+# Appends whichever lines of $1 (newline-separated) are missing from
+# .gitattributes, reporting $2 as the "nothing to do" message. Shared by both
+# branches below so the append/dry-run/report logic exists once.
+append_gitattributes_rules() {
+  local rules="$1" same_msg="$2" missing=""
   while IFS= read -r rule; do
     if [ ! -f .gitattributes ] || ! grep -qF "$rule" .gitattributes; then
-      MISSING_RULES="$MISSING_RULES$rule
+      missing="$missing$rule
 "
     fi
-  done < <(printf '%s\n' "$ATTR_RULES")
+  done < <(printf '%s\n' "$rules")
 
-  if [ -z "$MISSING_RULES" ]; then
-    same ".gitattributes (LF rules already present)"
+  if [ -z "$missing" ]; then
+    same "$same_msg"
   elif [ "$DRY_RUN" -eq 1 ]; then
     printf '  [dry-run] append to .gitattributes:\n'
-    printf '%s' "$MISSING_RULES" | sed 's/^/    /'
+    printf '%s' "$missing" | sed 's/^/    /'
   else
     {
       echo ""
@@ -358,10 +368,17 @@ else
       echo "# The Adapters are shell scripts and CI configs: a CRLF checkout breaks a"
       echo "# shebang on a Linux runner, and breaks the Registry parsing contract the"
       echo "# commit-msg hook depends on (Registry/README.md)."
-      printf '%s' "$MISSING_RULES"
+      printf '%s' "$missing"
     } >> .gitattributes
-    did ".gitattributes (appended $(printf '%s' "$MISSING_RULES" | grep -c .) LF rule(s))"
+    did ".gitattributes (appended $(printf '%s' "$missing" | grep -c .) LF rule(s))"
   fi
+}
+
+if [ "$FRAMEWORK" = "$PROJECT" ]; then
+  append_gitattributes_rules "$FRAMEWORK_ONLY_ATTR_RULES" \
+    ".gitattributes (framework repository governs its own paths)"
+else
+  append_gitattributes_rules "$ATTR_RULES" ".gitattributes (LF rules already present)"
 fi
 echo
 
@@ -412,6 +429,58 @@ if [ -d "$LOCAL_DATA_DIR" ]; then
   same "$LOCAL_DATA_DIR/ exists"
 else
   run mkdir -p "$LOCAL_DATA_DIR" && did "$LOCAL_DATA_DIR/ created (gitignored; the only place for real data on this machine)"
+fi
+echo
+
+# --- Generated and runtime artifacts ----------------------------------------
+# .claude/agents/ is Adapters/ai-runtimes/generate-agents.sh's output —
+# Employees/ and Registry/employees.yml rendered into one file per Employee,
+# roughly 9,000 lines of derived content. It is a build artifact, not a
+# source, the same way a compiled binary is not a source: every Employee edit
+# would otherwise carry a large mechanical diff beside the real one, and
+# `generate-agents.sh --check` in CI catches drift without the files being
+# tracked. This repository ignores it for exactly that reason (.gitignore,
+# Adapters/ai-runtimes/README.md, "Generated Output Is a Build Artifact") —
+# an adopting project gets the same default unless it opts back in.
+#
+# .claude/worktrees/ is where this runtime creates isolated git worktrees for
+# subagents (the Agent tool's `isolation: "worktree"`). It is per-session
+# scratch state, not specific to this framework — any Claude Code project
+# that uses isolated subagents gets the same untracked directory.
+#
+# Appended rather than written, so a project's own .gitignore rules survive,
+# and skipped for the framework repository itself: its own .gitignore already
+# carries both rules and is reported as-is, the same pattern as Data
+# protection above.
+
+echo "Generated and runtime artifacts"
+ARTIFACT_IGNORE_RULES=".claude/agents/
+.claude/worktrees/"
+
+MISSING_ARTIFACT_IGNORES=""
+while IFS= read -r rule; do
+  if [ ! -f .gitignore ] || ! grep -qxF "$rule" .gitignore; then
+    MISSING_ARTIFACT_IGNORES="$MISSING_ARTIFACT_IGNORES$rule
+"
+  fi
+done < <(printf '%s\n' "$ARTIFACT_IGNORE_RULES")
+
+if [ -z "$MISSING_ARTIFACT_IGNORES" ]; then
+  same ".gitignore (generated/runtime-artifact rules already present)"
+elif [ "$DRY_RUN" -eq 1 ]; then
+  printf '  [dry-run] append to .gitignore:\n'
+  printf '%s' "$MISSING_ARTIFACT_IGNORES" | sed 's/^/    /'
+else
+  {
+    echo ""
+    echo "# IA Engineering — generated and runtime artifacts (installed by"
+    echo "# Adapters/scripts/install.sh). .claude/agents/ is generate-agents.sh's"
+    echo "# derived output, regenerable with --check (Adapters/ai-runtimes/README.md)."
+    echo "# .claude/worktrees/ is this runtime's own per-session scratch state for"
+    echo "# isolated subagents."
+    printf '%s' "$MISSING_ARTIFACT_IGNORES"
+  } >> .gitignore
+  did ".gitignore (appended $(printf '%s' "$MISSING_ARTIFACT_IGNORES" | grep -c .) generated/runtime-artifact rule(s))"
 fi
 echo
 
