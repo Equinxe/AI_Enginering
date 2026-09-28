@@ -241,10 +241,16 @@ is_valid_effort() {
 
 if [ -n "$EFFORT_MAP_OVERRIDE" ]; then
   for pair in ${EFFORT_MAP_OVERRIDE//,/ }; do
-    key="${pair%%=*}"
-    value="${pair#*=}"
-    case "$key" in
-      strategic|standard|lightweight|frontier) ;;
+    # Pattern-matched like --map above, not split-then-validated: a pattern
+    # requires the literal "key=", so a bare "strategic" (no "=") falls
+    # straight to the catch-all "Unrecognised" error instead of being read as
+    # key="strategic" value="strategic" and rejected two lines later with the
+    # less clear "Invalid --effort-map value" message.
+    case "$pair" in
+      strategic=*)   key=strategic;   value="${pair#strategic=}" ;;
+      standard=*)    key=standard;    value="${pair#standard=}" ;;
+      lightweight=*) key=lightweight; value="${pair#lightweight=}" ;;
+      frontier=*)    key=frontier;    value="${pair#frontier=}" ;;
       *) echo "Unrecognised --effort-map entry: $pair" >&2; exit 2 ;;
     esac
     if ! is_valid_effort "$value"; then

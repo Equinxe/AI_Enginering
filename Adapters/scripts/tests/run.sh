@@ -1212,6 +1212,13 @@ expect 2 "an invalid --effort-map value is rejected" -- \
   bash "$GEN" --project "$D" --dry-run --effort-map "standard=bogus"
 expect_output "Accepted: low, medium, high, xhigh, max"
 
+# A bare key with no "=" is pattern-matched like --map, so it falls straight
+# to the "Unrecognised" error rather than being read as key=value=strategic
+# and rejected two lines later with the less clear "Invalid" message.
+expect 2 "a bare --effort-map key with no '=' is rejected as unrecognised" -- \
+  bash "$GEN" --project "$D" --dry-run --effort-map "strategic"
+expect_output "Unrecognised --effort-map entry: strategic"
+
 # An explicit empty override ("strategic=") is a valid way to ask for
 # inherit, distinct from an unrecognised value.
 D="$(project ga-effort-empty)"
