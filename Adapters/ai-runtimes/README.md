@@ -47,7 +47,9 @@ This directory is an **Adapter**, and `Core/GLOSSARY.md` already defines what th
 
 > See `Adapters/ai-runtimes/README.md` for where a runtime's tier-to-model mapping lives.
 
-For this runtime, that mapping is Lightweight Execution → Haiku, Standard Execution → Sonnet, Strategic Judgment → Opus. (Frontier has no mapping here yet — a later Work Unit adds the key once a Frontier-capable model is chosen.)
+For this runtime, that mapping is Lightweight Execution → Haiku, Standard Execution → Sonnet, Strategic Judgment → Opus, **Frontier → Fable**.
+
+Frontier is never a default. No Employee's Default Complexity Tier is ever Frontier (`Core/CAPABILITY_TIERS.md`), so `generate-agents.sh` never writes `fable` into any generated agent's `model:` field — the `frontier=` key exists only so the script's printed `tiers:` summary gives the Main Agent a value to pass as a per-dispatch **Tier Override** (`Core/CAPABILITY_TIERS.md`, Frontier Override) when a Work Unit already at Strategic Judgment is escalated, with Director approval, each time. Fable costs roughly **2.5× Opus** ($10 / $50 per million input/output tokens against Opus's $4 / $20 — [platform.claude.com/docs/en/about-claude/models/overview](https://platform.claude.com/docs/en/about-claude/models/overview)), which is the cost the Frontier Override paragraph above is deliberately not a default path to.
 
 The mapping lives in the target definition and in `--map`. It never appears in `Core/`.
 
@@ -58,10 +60,28 @@ Add a case branch to `generate-agents.sh` and a default output convention. The E
 ## Overriding the mapping
 
 ```bash
-./Adapters/ai-runtimes/generate-agents.sh --map strategic=opus,standard=sonnet,lightweight=haiku
+./Adapters/ai-runtimes/generate-agents.sh --map strategic=opus,standard=sonnet,lightweight=haiku,frontier=fable
 ```
 
 A project that has decided its own tier-to-capability mapping supplies it here rather than editing the script.
+
+## Per-tier effort
+
+Alongside the per-tier model, `generate-agents.sh` emits a per-tier `effort:` frontmatter field. Director decision, 25 Sep 2026: **Strategic Judgment runs at high effort; the other tiers inherit** the runtime's own default effort — which means Standard Execution, Lightweight Execution, and Frontier get no `effort:` field at all rather than an explicit one, so a future change to the runtime's own default effort still applies to them. This is deliberately an Adapter decision, not a Core one: `Core/CAPABILITY_TIERS.md` names no model, and by the same `AI_MANIFEST.md` Principle X, no effort level either.
+
+```bash
+./Adapters/ai-runtimes/generate-agents.sh --effort-map strategic=high,standard=,lightweight=,frontier=high
+```
+
+Overrides the default the same way `--map` does. An empty value (`standard=`) means "inherit" — no `effort:` field for that tier — which is also the default for every tier except Strategic Judgment. Values are validated against this runtime's accepted effort levels — `low`, `medium`, `high`, `xhigh`, `max` ([code.claude.com/docs/en/sub-agents](https://code.claude.com/docs/en/sub-agents), [code.claude.com/docs/en/model-config](https://code.claude.com/docs/en/model-config)) — and an unrecognised value is refused, not silently dropped.
+
+## How a per-Work-Unit Execution tier is actually run
+
+`Core/CAPABILITY_TIERS.md`'s **Tier Override** lets the Main Agent run a specific Work Unit at a different Execution tier than its Employee's Default Complexity Tier, in either direction. `generate-agents.sh` generates one static file per Employee with one model (and, for Strategic Judgment, one effort) baked into its frontmatter at generation time — it does not, and will not, emit a second `--lightweight` or `--frontier` variant per Employee. The override is carried instead by this runtime's own per-dispatch mechanism: the Main Agent's dispatch call (the `Agent` tool's `model` parameter, in the runtime this framework was written against) names an override model for that one invocation, which supersedes the generated file's pinned `model:` for that dispatch only — the generated file itself, and every other Employee's file, is untouched. Effort has no equivalent per-dispatch parameter today: a dispatch-time effort override is not something this runtime exposes, so an overridden dispatch runs at whatever effort the generated agent file already declares (inherited, or `high` for a Strategic Judgment Employee) regardless of which model tier the dispatch itself was overridden to. A runtime that later exposes a per-dispatch effort parameter closes that gap here, not in Core.
+
+## Provider aliasing is not this mapping
+
+`--map`'s values (`opus`, `sonnet`, `haiku`, `fable`) are Claude API model aliases. They are convenience pointers, and the snapshot they resolve to is **not the same across every provider that serves Claude, and not the same for every alias on a given provider**: `sonnet` currently resolves to an *older* dated snapshot than the Claude API on every non-Anthropic-API platform (Sonnet 4.5 on Amazon Bedrock and Google Cloud's Agent Platform, Sonnet 4.5 on Microsoft Foundry, Sonnet 4.6 on Claude Platform on AWS — against Sonnet 5 on the Claude API); `opus` resolves to the *same* Opus 5.5 as the Claude API on Amazon Bedrock and Google Cloud's Agent Platform, and is older only on Microsoft Foundry (Opus 4.6) — and the gap changes as new models ship ([code.claude.com/docs/en/model-config](https://code.claude.com/docs/en/model-config)). A project that needs a specific snapshot on a platform where the alias resolves older pins it with that platform's `ANTHROPIC_DEFAULT_OPUS_MODEL` / `ANTHROPIC_DEFAULT_SONNET_MODEL` / `ANTHROPIC_DEFAULT_HAIKU_MODEL` / `ANTHROPIC_DEFAULT_FABLE_MODEL` environment variable, set to that platform's own model ID — this is a runtime/provider configuration concern, out of scope for `--map`, which only ever writes the alias string into a generated agent's `model:` field and leaves resolving that alias to the runtime.
 
 ---
 
@@ -82,6 +102,8 @@ Installed by `claude-code/install-hooks.sh` into the project's committed `.claud
 # Independent Review Bot
 
 `claude-code/review-bot.yml` runs `Workflows/CODE_REVIEW.md` as the Code Reviewer Employee inside GitHub Actions, under the Actions identity — a second account, which is what the `Review Recorded` check never had. Setting the repository variable `IAENG_REVIEW_BOT_LOGIN` to that identity switches `Review Recorded` into **independent mode**, where only that login's `Decision:` block counts. Not installed by `install.sh` (it needs an API key and a Director decision to spend it); not a required check by default; documented in the file's header.
+
+Its `claude_args` pins `--model claude-opus-5-5 --effort high --max-turns 40` — deliberately, not generated from the `--map`/`--effort-map` mechanism above. This file is a fixed, non-generated consumer of a model and an effort level, listed `sensitive` / `payments_and_spend` in `.ia-engineering/risk-map.yml` because it makes billed model calls: an independent review gate must not change what it runs on silently, so a bump to the pinned model or effort is itself a reviewed change, not a side effect of regenerating agents. Re-check `platform.claude.com/docs/en/about-claude/model-deprecations` before bumping — a pinned model ID can retire out from under an unreviewed pin.
 
 # Other Runtimes
 

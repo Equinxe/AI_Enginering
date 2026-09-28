@@ -1109,6 +1109,135 @@ else
   printf '   FAIL --force did not replace the file\n'; FAILED=$((FAILED + 1))
 fi
 
+# ------------------------------------------------- generate-agents.sh -------
+#
+# generate-agents.sh lives under Adapters/ai-runtimes/, a sibling of
+# Adapters/scripts/ — not one of the check-*.sh scripts this suite otherwise
+# exercises. It reads the FRAMEWORK's own Registry/employees.yml (that path
+# is not overridable), so every case below points --project at a throwaway
+# directory and reads what was generated there, rather than trying to
+# construct a fake roster.
+
+GEN="$SCRIPTS/../ai-runtimes/generate-agents.sh"
+
+# Extracts the YAML frontmatter body (between the two `---` delimiters) of a
+# generated agent file, so a case can assert on `model:`/`effort:` without
+# also matching the same words if they appear in the Employee's prose body.
+frontmatter() {
+  awk '/^---$/{n++; next} n==1' "$1"
+}
+
+section "generate-agents.sh — Frontier key, per-tier effort (WU-IAENG-293)"
+
+# Frontier defaults to fable and appears in the printed tiers: summary the
+# Main Agent reads for a per-dispatch Tier Override — but it is never an
+# Employee's default tier (Core/CAPABILITY_TIERS.md), so it must never be
+# written as any generated agent's `model:`.
+D="$(project ga-frontier-default)"
+TOTAL=$((TOTAL + 1))
+OUT="$(bash "$GEN" --project "$D" --dry-run 2>&1)"
+if printf '%s' "$OUT" | grep -qF -- "Frontier via Tier Override, Director approval each time -> fable"; then
+  [ -n "$VERBOSE" ] && printf '   ok   Frontier defaults to fable in the printed tiers summary\n'
+else
+  printf '   FAIL the tiers summary does not show Frontier -> fable\n'
+  printf '%s\n' "$OUT" | sed 's/^/        | /'
+  FAILED=$((FAILED + 1))
+fi
+
+D="$(project ga-frontier-written)"
+bash "$GEN" --project "$D" >/dev/null 2>&1
+TOTAL=$((TOTAL + 1))
+if grep -rlF "model: fable" "$D/.claude/agents" >/dev/null 2>&1; then
+  printf '   FAIL fable was written as an Employee model: — Frontier must never be a default\n'
+  FAILED=$((FAILED + 1))
+else
+  [ -n "$VERBOSE" ] && printf '   ok   no generated agent has model: fable\n'
+fi
+
+# A custom --map frontier=X changes only the printed mapping. No Employee's
+# tier ever resolves to Frontier, so no generated file can show it either.
+D="$(project ga-frontier-map)"
+TOTAL=$((TOTAL + 1))
+OUT="$(bash "$GEN" --project "$D" --dry-run --map "frontier=my-frontier-model" 2>&1)"
+if printf '%s' "$OUT" | grep -qF -- "Frontier via Tier Override, Director approval each time -> my-frontier-model"; then
+  [ -n "$VERBOSE" ] && printf '   ok   --map frontier=X overrides the printed mapping\n'
+else
+  printf '   FAIL --map frontier=X did not change the printed mapping\n'
+  printf '%s\n' "$OUT" | sed 's/^/        | /'
+  FAILED=$((FAILED + 1))
+fi
+
+# Per-tier effort (Director decision, 25 Sep 2026): Strategic Judgment gets
+# effort: high by default; Standard Execution inherits — no effort: field at
+# all, not an empty one.
+D="$(project ga-effort-default)"
+bash "$GEN" --project "$D" >/dev/null 2>&1
+TOTAL=$((TOTAL + 1))
+if frontmatter "$D/.claude/agents/software-architect.md" | grep -qx "effort: high"; then
+  [ -n "$VERBOSE" ] && printf '   ok   Strategic Judgment (Software Architect) emits effort: high\n'
+else
+  printf '   FAIL Software Architect frontmatter has no effort: high\n'
+  FAILED=$((FAILED + 1))
+fi
+
+TOTAL=$((TOTAL + 1))
+if frontmatter "$D/.claude/agents/devops-engineer.md" | grep -q "^effort:"; then
+  printf '   FAIL Standard Execution (DevOps Engineer) must inherit — no effort: field\n'
+  FAILED=$((FAILED + 1))
+else
+  [ -n "$VERBOSE" ] && printf '   ok   Standard Execution (DevOps Engineer) has no effort: field (inherits)\n'
+fi
+
+# --effort-map overrides the default, mirroring --map.
+D="$(project ga-effort-map)"
+bash "$GEN" --project "$D" --effort-map "standard=medium,strategic=xhigh" >/dev/null 2>&1
+TOTAL=$((TOTAL + 1))
+if frontmatter "$D/.claude/agents/devops-engineer.md" | grep -qx "effort: medium"; then
+  [ -n "$VERBOSE" ] && printf '   ok   --effort-map standard=medium is honoured\n'
+else
+  printf '   FAIL --effort-map standard=medium was not applied to a Standard Execution Employee\n'
+  FAILED=$((FAILED + 1))
+fi
+TOTAL=$((TOTAL + 1))
+if frontmatter "$D/.claude/agents/software-architect.md" | grep -qx "effort: xhigh"; then
+  [ -n "$VERBOSE" ] && printf '   ok   --effort-map strategic=xhigh is honoured\n'
+else
+  printf '   FAIL --effort-map strategic=xhigh was not applied to a Strategic Judgment Employee\n'
+  FAILED=$((FAILED + 1))
+fi
+
+# An invalid effort level is rejected, never silently accepted.
+D="$(project ga-effort-invalid)"
+expect 2 "an invalid --effort-map value is rejected" -- \
+  bash "$GEN" --project "$D" --dry-run --effort-map "standard=bogus"
+expect_output "Accepted: low, medium, high, xhigh, max"
+
+# A bare key with no "=" is pattern-matched like --map, so it falls straight
+# to the "Unrecognised" error rather than being read as key=value=strategic
+# and rejected two lines later with the less clear "Invalid" message.
+expect 2 "a bare --effort-map key with no '=' is rejected as unrecognised" -- \
+  bash "$GEN" --project "$D" --dry-run --effort-map "strategic"
+expect_output "Unrecognised --effort-map entry: strategic"
+
+# An explicit empty override ("strategic=") is a valid way to ask for
+# inherit, distinct from an unrecognised value.
+D="$(project ga-effort-empty)"
+bash "$GEN" --project "$D" --effort-map "strategic=" >/dev/null 2>&1
+TOTAL=$((TOTAL + 1))
+if frontmatter "$D/.claude/agents/software-architect.md" | grep -q "^effort:"; then
+  printf '   FAIL --effort-map strategic= (empty) must clear the effort: field\n'
+  FAILED=$((FAILED + 1))
+else
+  [ -n "$VERBOSE" ] && printf '   ok   --effort-map strategic= (empty) clears the effort: field\n'
+fi
+
+# --check stays idempotent against a tree generated with the new fields —
+# the whole point of --check is to catch drift, not report drift of its own.
+D="$(project ga-check-idempotent)"
+bash "$GEN" --project "$D" >/dev/null 2>&1
+expect 0 "--check is idempotent against a tree generated with effort: fields" -- \
+  bash "$GEN" --project "$D" --check
+
 # --------------------------------------------------------------- verdict ----
 
 cd "$HERE" || exit 1
