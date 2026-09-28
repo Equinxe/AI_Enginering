@@ -13,6 +13,12 @@
 # and add `generate-agents.sh --check` to CI. See Adapters/ai-runtimes/README.md.
 .claude/agents/
 
+# Isolated git worktrees the runtime creates for subagents (the Agent tool's
+# `isolation: "worktree"`). Per-session scratch state, not framework-specific
+# — any Claude Code project that uses isolated subagents gets one of these.
+# `git status` surfaced it untracked before this line existed.
+.claude/worktrees/
+
 # Standards/DATA_PROTECTION_STANDARD.md — real data lives only in the local
 # data directory, secrets only in the environment, operational state is never
 # committed. Adapters/git-hooks/pre-commit and data-policy.yml refuse the same
