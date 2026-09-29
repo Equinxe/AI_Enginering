@@ -361,6 +361,18 @@ SECTION_NAMES=(
 # multi-line, multi-section blob in one read. Output is byte-identical to
 # the old pipeline; see the generator's own commit message for the diff
 # proof.
+#
+# CONTRACT: this function returns through the CALLER's SECTION_BODIES
+# array, not through stdout or an explicit `declare -g`, relying on bash's
+# dynamic scoping of `local` — a `local` variable is visible to every
+# function the declaring function calls, until it returns. That only works
+# if the caller has ALREADY run `local SECTION_BODIES=()` (or equivalent)
+# before calling extract_sections(); skip that and the `read -a` below
+# creates SECTION_BODIES as a genuine global instead, which happens to
+# still work for a single-threaded top-to-bottom script but leaks state
+# between calls and between this script and anything sourcing it later.
+# generate_claude_code() does the required pre-declaration; keep that
+# invariant if extract_sections() ever gets a second caller.
 extract_sections() {
   local file="$1" us want_joined
   us=$'\x1f'
@@ -376,7 +388,20 @@ extract_sections() {
       /^# / {
         h = $0
         sub(/^# /, "", h)
-        cur = (h in wanted) ? h : ""
+        # FIRST occurrence only, matching the old section_of(): it started
+        # "inside" on the first exact-text match and, once inside, EXITED
+        # entirely at the very next "# " line — so a repeated heading later
+        # in the file never contributed anything, because old section_of()
+        # had already returned. Marking done[h] the moment a wanted heading
+        # is seen (not when its capture ends) is what makes a SECOND
+        # occurrence of the SAME heading fall to the else branch below
+        # instead of reopening capture and concatenating both bodies.
+        if ((h in wanted) && !(h in done)) {
+          cur = h
+          done[h] = 1
+        } else {
+          cur = ""
+        }
         next
       }
       cur != "" {
@@ -399,6 +424,35 @@ extract_sections() {
     ' "$file"
     printf '\0'
   )
+
+  # Pad to exactly one element per SECTION_NAMES entry, IMMEDIATELY after the
+  # read and before anything else touches the array.
+  #
+  # `read -a` drops a TRAILING empty field the same way `IFS=, read -a arr
+  # <<< "a,b,"` yields two elements, not three: leading/trailing runs of the
+  # split character are trimmed, so a run of IFS characters right before the
+  # NUL that ends the read never produces a final empty element. That is
+  # exactly what a missing LAST wanted section produces: awk emits no `print`
+  # for it, so the byte stream ends "...<US><NUL>" with nothing between the
+  # last delimiter and the terminator. Reachable in practice — an adopter's
+  # PROJECT_ROSTER can name a Domain Employee file that simply omits Failure
+  # Modes, the last entry in SECTION_NAMES — and it silently shrinks
+  # SECTION_BODIES to one element short of SECTION_NAMES. Every consumer
+  # below indexes both arrays in lockstep, so the missing element is not read
+  # as "empty" — it is read as UNBOUND under `set -u`, and this script does
+  # not set `-e` but does set `-u` (see the top of the file), so that one
+  # Employee aborts the entire run instead of just omitting one heading from
+  # one generated file.
+  #
+  # `${SECTION_BODIES[i]:-}` is the fix, not a defensive nicety on top of one:
+  # default-value expansion is exempt from `set -u`'s unbound-variable error
+  # by design, so re-assigning through it both (a) forces every index in
+  # range to exist, however it got short, and (b) never itself trips the
+  # thing it is here to prevent.
+  local si
+  for ((si = 0; si < ${#SECTION_NAMES[@]}; si++)); do
+    SECTION_BODIES[si]="${SECTION_BODIES[si]:-}"
+  done
 
   # `read -a` preserves the trailing newline awk's own last `print` left on
   # each non-empty section (the old section_of() lost it for free: its
@@ -476,7 +530,7 @@ generate_claude_code() {
     # empty description, silently, for exactly one of the 42. Expansion has no
     # delimiter to collide with.
     local mission
-    mission="$(printf '%s\n' "${SECTION_BODIES[0]}" | head -1)"
+    mission="$(printf '%s\n' "${SECTION_BODIES[0]:-}" | head -1)"
     mission="${mission#The "$name" }"
     mission="${mission#The }"
     mission="${mission%.}"
@@ -520,7 +574,7 @@ HEADER
     local i s body
     for i in "${!SECTION_NAMES[@]}"; do
       s="${SECTION_NAMES[$i]}"
-      body="${SECTION_BODIES[$i]}"
+      body="${SECTION_BODIES[$i]:-}"
       if [ -n "$body" ]; then
         echo "## $s"
         echo
