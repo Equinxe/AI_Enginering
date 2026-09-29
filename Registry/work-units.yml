@@ -1050,3 +1050,9 @@ work_units:
     title: Align the RISK-record rule on the Pull Request range instead of the same commit, correcting Standards/COMMIT_STANDARD.md and check-risk-map.sh's error text to match the check that already validates the whole range
     milestone: Precision
     delivers: Standards/COMMIT_STANDARD.md, Adapters/scripts/check-risk-map.sh, Registry/work-units.yml
+
+  - id: WU-IAENG-299
+    employee: Technical Writer
+    title: Define the optional runtime attribution trailer — it names the model that actually ran, is never dictated by a brief, is not validated, and is not a substitute for Employee: — and cross-reference it from the Employee Brief and Work Unit Report templates
+    milestone: Precision
+    delivers: Standards/COMMIT_STANDARD.md, Templates/EMPLOYEE_BRIEF.md, Templates/WORK_UNIT_REPORT.md, Registry/work-units.yml
