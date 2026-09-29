@@ -143,6 +143,8 @@ If you encounter a blocker, escalate immediately — do not guess:
 Example: `feat(auth): add POST /auth/login with JWT response`
 ```
 
+A brief never prescribes which model authors the commit. If the runtime adds an optional attribution trailer, it names whichever model actually ran — see `Standards/COMMIT_STANDARD.md`, Runtime attribution trailer.
+
 ---
 
 # When to Use This Template

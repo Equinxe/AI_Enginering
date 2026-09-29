@@ -136,6 +136,20 @@ The hook rejects this:
 
 An unindented example is a claim the commit is making, and it is checked as one.
 
+### Runtime attribution trailer — optional
+
+A commit may additionally carry an attribution trailer naming the runtime model that actually executed the commit's authoring, in whatever form the runtime that produced the commit uses for that purpose.
+
+Three rules govern it:
+
+- **It names the model that ran, not the model a brief asked for.** The value comes from the runtime reporting on itself — the same source `Templates/WORK_UNIT_REPORT.md`'s "Executed at" field draws from — never a model specified in advance by `Templates/EMPLOYEE_BRIEF.md`. A brief written before execution cannot know which model will actually run the work; dictating one anyway made most of this trailer's own history wrong.
+- **It is not validated.** No hook or CI check can observe which model executed a given commit's authoring, so nothing in this framework enforces that this trailer is accurate. It is a courtesy record, not a gate — unlike `Work Unit:` and `Employee:`, both enforced mechanically per the Trailers section above.
+- **It is not a substitute for `Employee:`.** `Employee:` identifies who is accountable for the Work Unit and is the trailer every mechanical check above validates. The attribution trailer, when present, supplements it and never replaces it — an Employee's accountability does not depend on which model happened to execute it.
+
+When both are present, keep the attribution trailer contiguous with `Employee:` — no blank line between them — per the layout rule above: `Employee:` must be the trailer-shaped final paragraph for git to read it, and a line placed correctly alongside it stays inside that paragraph rather than starting a new one or (worse) rejoining `Work Unit:`'s unparseable block.
+
+This rule stays AI-agnostic on principle: it names no runtime or vendor. A runtime that adds this trailer defines its own concrete form (for example, a token such as `Co-Authored-By:` followed by the model's name and a contact address) in its own Adapter documentation, not here.
+
 ---
 
 ## Merge Commits
@@ -192,7 +206,7 @@ Following this standard provides:
 
 Owner: IA Engineering
 
-Version: 0.0.4
+Version: 0.0.5
 
 Status: Draft
 

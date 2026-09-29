@@ -161,6 +161,7 @@ In either case the report is a file or a PR body, not a message in a conversatio
 | `Core/MAIN_AGENT_CONDUCT.md` | Verification Over Waiting: the report is evidence, and the Main Agent re-verifies it directly. Durable Tracking of Findings: every open item becomes an Issue. |
 | `Standards/RISK_STANDARD.md` | Defines the Risk Record line. |
 | `Standards/PULL_REQUEST_STANDARD.md` | Governs the report when it takes the form of a PR description. |
+| `Standards/COMMIT_STANDARD.md` | Defines the optional runtime attribution trailer — if the runtime adds one to the commit, it names the same model this field's "runtime model" half reports. |
 
 **Provenance.** The "a bare Done is a failure" rule and the pasted-evidence requirement are adapted from a sibling governance corpus, where they were written after delegated agents repeatedly returned one-word completions that concealed unfinished work and unverified claims.
 
