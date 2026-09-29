@@ -1073,4 +1073,4 @@ work_units:
     employee: DevOps Engineer
     title: Accept the perf commit type
     milestone: Precision
-    delivers: Adapters/git-hooks/commit-msg, Standards/COMMIT_STANDARD.md, .github/PULL_REQUEST_TEMPLATE.md, Adapters/ai-runtimes/claude-code/hooks/tests/escape-hatch-cases.tsv, Registry/work-units.yml
+    delivers: Adapters/git-hooks/commit-msg, Standards/COMMIT_STANDARD.md, .github/PULL_REQUEST_TEMPLATE.md, Adapters/github/PULL_REQUEST_TEMPLATE.md, Adapters/ai-runtimes/claude-code/hooks/tests/escape-hatch-cases.tsv, Registry/work-units.yml
