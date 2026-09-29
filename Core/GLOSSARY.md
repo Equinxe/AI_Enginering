@@ -48,7 +48,7 @@ A Conductor is not a new role and holds no new authority: it decomposes the mand
 
 The human accountable for a project using IA Engineering.
 
-The Director makes all final decisions and approves every release, merge, and architectural or business decision. See `Core/MAIN_AGENT_CONDUCT.md` and `CLAUDE.md`.
+The Director makes all final decisions and approves every release, tag, merge to `main`, and architectural or business decision. Merging an approved Pull Request into `develop` is delegable (`Workflows/FEATURE_DEVELOPMENT.md` Step 8). See `Core/MAIN_AGENT_CONDUCT.md` and `CLAUDE.md`.
 
 ---
 
@@ -256,7 +256,7 @@ A sequence of coordinated work units executed to achieve an engineering objectiv
 
 # Document Metadata
 
-Version: 0.0.3
+Version: 0.0.4
 
 Status: Stable
 
