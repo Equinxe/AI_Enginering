@@ -261,6 +261,19 @@ touch "$FRESH/.ia-engineering/SESSION_STATE.md"
 # "missing": no SESSION_STATE.md at all.
 MISSING="$(ss_repo missing)"
 
+# "claude-present": has a CLAUDE.md — the pre-existing, unconditional line
+# must be unchanged (other tests may assert it).
+CLAUDEPRESENT="$(ss_repo claude-present)"
+echo '# CLAUDE' > "$CLAUDEPRESENT/CLAUDE.md"
+
+# "claude-template": no CLAUDE.md, but the repo itself satisfies
+# iaeng_framework_root (a Core/AGENT_CONDUCT.md of its own) and carries
+# Templates/PROJECT_CLAUDE.md — the "template found" branch.
+CLAUDETEMPLATE="$(ss_repo claude-template)"
+mkdir -p "$CLAUDETEMPLATE/Core" "$CLAUDETEMPLATE/Templates"
+echo 'placeholder' > "$CLAUDETEMPLATE/Core/AGENT_CONDUCT.md"
+echo 'placeholder' > "$CLAUDETEMPLATE/Templates/PROJECT_CLAUDE.md"
+
 # "unparsable": a header with no recognisable "DD Month YYYY".
 UNPARSABLE="$(ss_repo unparsable)"
 echo '_Last updated: some day by Tester_' > "$UNPARSABLE/.ia-engineering/SESSION_STATE.md"
@@ -415,6 +428,18 @@ ss_check_has  "session-start: old-mtime clock-skew case still reports the reason
 
 ss_run "$NODATECMD" "$SESSTART" ''
 ss_check_has  "session-start: header staleness detected without date -d (9 September 2026 example)" yes "was not refreshed on the file's last edit"
+
+ss_run "$CLAUDEPRESENT" "$SESSTART" ''
+ss_check_has  "session-start: CLAUDE.md present — unchanged line" yes "1. CLAUDE.md — the project's stable contract."
+ss_check_has  "session-start: CLAUDE.md present — does not warn it is missing" no "CLAUDE.md does not exist yet"
+
+ss_run "$MISSING" "$SESSTART" ''
+ss_check_has  "session-start: CLAUDE.md missing, template not found — says so" yes "CLAUDE.md does not exist yet and the framework's template was not found"
+ss_check_has  "session-start: CLAUDE.md missing — does not print the stable-contract line" no "1. CLAUDE.md — the project's stable contract."
+
+ss_run "$CLAUDETEMPLATE" "$SESSTART" ''
+ss_check_has  "session-start: CLAUDE.md missing, template found — points to PROJECT_BOOTSTRAP Phase B and Templates/PROJECT_CLAUDE.md" yes "CLAUDE.md does not exist yet — this project has not completed Workflows/PROJECT_BOOTSTRAP.md Phase B. It is created from $CLAUDETEMPLATE/Templates/PROJECT_CLAUDE.md at Workflows/ONBOARDING.md Step 1"
+ss_check_has  "session-start: CLAUDE.md missing, template found — does not print the stable-contract line" no "1. CLAUDE.md — the project's stable contract."
 
 rm -rf "$SSBASE"
 
