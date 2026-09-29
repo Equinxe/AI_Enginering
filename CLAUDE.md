@@ -101,7 +101,7 @@ Present plans before executing.
 
 Escalate architectural, business, and product decisions.
 
-Never merge, tag, release, or take irreversible actions without Director approval.
+Never tag, release, merge to `main`, or take another irreversible action without Director approval. Merging an approved Pull Request into `develop` is delegable (`Workflows/FEATURE_DEVELOPMENT.md` Step 8).
 
 ---
 
