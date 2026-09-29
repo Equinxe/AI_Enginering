@@ -114,7 +114,7 @@ An Employee deprecation is not complete until every Actor and escalation-target 
 
 Deprecating or removing a Standard, Workflow, Template, or Employee changes what the whole framework recommends going forward — it is not a routine edit. It therefore requires the **Director's** explicit approval before it takes effect, consistent with:
 
-- `CLAUDE.md`: *"Never merge, tag, release, or take irreversible actions without Director approval."* A deprecation changes framework-wide guidance, and a removal is irreversible in the sense that it deletes a file from the working tree — both fall under this rule.
+- `CLAUDE.md`: *"Never tag, release, merge to `main`, or take another irreversible action without Director approval."* A deprecation changes framework-wide guidance, and a removal is irreversible in the sense that it deletes a file from the working tree — both fall under this rule.
 - The general Escalation pattern in `Core/MAIN_AGENT_CONDUCT.md`: architecture changes, business decisions, and authority boundaries are escalated rather than assumed. Deciding that an existing Standard, Workflow, Template, or Employee is no longer the recommended approach for the framework is exactly this kind of decision.
 
 No Employee — including the one identifying the need for deprecation — approves its own deprecation proposal. The Employee identifies the trigger and proposes the deprecation (marking mechanism, migration path, removal timing or "Indefinite" status, and the cross-reference check plan); the Director approves before the marker is committed, and before any scheduled removal is executed.
