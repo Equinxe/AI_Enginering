@@ -35,6 +35,8 @@ Anything under `Adapters/` that runs on a developer machine or in CI:
 
 A **false positive is also in scope**, and is treated as seriously. A control that refuses legitimate work teaches people to route around controls, and that costs more than the thing it blocked.
 
+**Where the boundary is.** The runtime hooks (`Adapters/ai-runtimes/`) and the git hooks (`Adapters/git-hooks/`) run on the machine being governed and are guardrails: they stop an escape hatch reached for by habit, not one reached for on purpose. The boundary is server-side — branch protection and the required status checks. A bypass of a guardrail that a required check still catches is Low; a way to satisfy or skip a required check is in scope at full severity.
+
 ---
 
 ## What is out of scope
@@ -68,7 +70,7 @@ Only the latest release is supported. This is a pre-1.0 framework: version numbe
 
 Owner: IA Engineering
 
-Version: 0.0.13
+Version: 0.0.14
 
 Status: Draft
 

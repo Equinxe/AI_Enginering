@@ -68,8 +68,10 @@
 # boundary is "shell mechanics, yes; runtime values, no." The hook stops an
 # escape hatch reached for by habit; it is not an adversary boundary, and
 # Adapters/ai-runtimes/claude-code/hooks/README.md says so. What stops a
-# determined bypass is the server side — the pre-push hook, branch protection,
-# and the required CI checks — none of which a developer machine can skip.
+# determined bypass is the server side — branch protection and the required CI
+# checks, which run where a developer machine cannot skip them. The pre-push
+# hook is a second local guardrail, not part of that boundary — it is skipped
+# by the same --no-verify and core.hooksPath it exists to back up.
 
 BEGIN {
   RS = "\001"

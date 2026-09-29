@@ -1074,3 +1074,9 @@ work_units:
     title: Reword CLAUDE.md's Director section to split merge-approval scope precisely — merge to main, tags, and releases always need Director approval; merging an approved Pull Request into develop is delegable per Workflows/FEATURE_DEVELOPMENT.md Step 8 — and align every other statement of the merge-approval rule (Core/GLOSSARY.md, Templates/PROJECT_CLAUDE.md, Governance/DEPRECATION_POLICY.md's CLAUDE.md quote) without weakening anything about main, tags, releases, or irreversible actions
     milestone: Precision
     delivers: CLAUDE.md, Core/GLOSSARY.md, Templates/PROJECT_CLAUDE.md, Governance/DEPRECATION_POLICY.md, Registry/work-units.yml
+
+  - id: WU-IAENG-305
+    employee: Technical Writer
+    title: State where the security enforcement boundary actually is — correct the hooks README's mistaken claim that pre-push is part of the unskippable server-side boundary (it is a local guardrail skipped by the same --no-verify / core.hooksPath it backs up), align the same stale claim found duplicated in strip-quotes.awk's header comment, add a boundary paragraph to SECURITY.md distinguishing local guardrails from the server-side branch-protection/required-checks boundary for severity triage, and document the PT-04 SESSION_STATE mtime-touch limit and the PT-01 Bash-tool blind spot in block-inline-suppression.sh
+    milestone: Precision
+    delivers: Adapters/ai-runtimes/claude-code/hooks/README.md, Adapters/ai-runtimes/claude-code/hooks/strip-quotes.awk, SECURITY.md, Registry/work-units.yml
