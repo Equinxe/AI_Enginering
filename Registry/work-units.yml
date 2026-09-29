@@ -1086,3 +1086,9 @@ work_units:
     title: State where the security enforcement boundary actually is — correct the hooks README's mistaken claim that pre-push is part of the unskippable server-side boundary (it is a local guardrail skipped by the same --no-verify / core.hooksPath it backs up), align the same stale claim found duplicated in strip-quotes.awk's header comment, add a boundary paragraph to SECURITY.md distinguishing local guardrails from the server-side branch-protection/required-checks boundary for severity triage, and document the PT-04 SESSION_STATE mtime-touch limit and the PT-01 Bash-tool blind spot in block-inline-suppression.sh
     milestone: Precision
     delivers: Adapters/ai-runtimes/claude-code/hooks/README.md, Adapters/ai-runtimes/claude-code/hooks/strip-quotes.awk, SECURITY.md, Registry/work-units.yml
+
+  - id: WU-IAENG-306
+    employee: DevOps Engineer
+    title: Close three escape-hatch rule gaps found by Purple exercise #112's static penetration test (PT-03, PT-05, PT-06) — case-insensitive core.hooksPath matching plus new GIT_CONFIG_PARAMETERS/GIT_CONFIG_KEY_<n> env-var rules, a widened git global-options prefix, and a core.hooksPath read exemption anchored to an actual git config read instead of matching its flags anywhere on the line
+    milestone: Precision
+    delivers: Adapters/ai-runtimes/claude-code/hooks/block-escape-hatches.sh, Adapters/ai-runtimes/claude-code/hooks/tests/escape-hatch-cases.tsv, Adapters/ai-runtimes/claude-code/hooks/README.md, Registry/work-units.yml

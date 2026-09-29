@@ -68,7 +68,23 @@ fi
 # S  one whitespace character.
 # E  what may END a flag: whitespace, a command separator, or end of text.
 #    `git push --force;` was allowed while this was whitespace-or-end alone.
-G='git([[:space:]]+(-C[[:space:]]+[^[:space:]]+|-c[[:space:]]+[^[:space:]]+|--git-dir=[^[:space:]]+|--work-tree=[^[:space:]]+|--no-pager|-P))*[[:space:]]+'
+# WIDENED under Purple exercise #112, PT-05: the previous G recognised only
+# -C, -c, --git-dir=, --work-tree=, --no-pager and -P as global options, so
+# any OTHER real git global option prefixing the subcommand — --no-replace-
+# objects, --literal-pathspecs, -p (the short spelling of --paginate),
+# --no-optional-locks, the space form of --git-dir, --namespace=,
+# --config-env= — walked straight past every rule below, exactly as a bare
+# `-C` once did. `--[a-z][a-z-]*` covers every no-argument long option by
+# shape rather than by name, so a future git release's global option needs no
+# hook change; `-[pP]` covers -p/-P (paginate); the explicit alternation
+# covers the options that take a value, in both `=value` and `SPACE value`
+# form. Verified not to over-match: `git --version` has nothing after the
+# option for G's own mandatory trailing whitespace to consume, so it never
+# satisfies `${G}<subcommand>` for any rule; `git -p add` reads as `git
+# --paginate add` (the -p consumed as global, not as add's -p/--patch
+# argument), which is correctly NOT the interactive-add rule below, because
+# that rule's own -p match sits strictly after the subcommand.
+G='git([[:space:]]+(-C[[:space:]]+[^[:space:]]+|-c[[:space:]]+[^[:space:]]+|--(git-dir|work-tree|namespace|exec-path|config-env|super-prefix|attr-source)(=|[[:space:]]+)[^[:space:]]+|--[a-z][a-z-]*|-[pP]))*[[:space:]]+'
 S='[[:space:]]'
 E='([[:space:]]|;|&|\||\)|$)'
 
@@ -119,14 +135,67 @@ fi
 # anywhere in a git command, so `git config --local core.hooksPath` — which
 # prints the value and changes nothing — was refused, and refused the very
 # diagnostic someone runs to check whether the hooks are installed. The read
-# forms are a named allow-list, not a fall-through: --get, --get-all and
-# --list. Everything else touching the key is treated as a write, including
-# --unset, which removes the setting and so disables the framework's hooks
-# just as surely as pointing it elsewhere.
-if check "git[^|;&]*core\.hooksPath" \
-   && ! check "git[^|;&]*(--get|--get-all|--list)[^|;&]*core\.hooksPath"; then
+# forms are a named allow-list, not a fall-through: --get, --get-all,
+# --get-regexp, --list, -l, and the dashless `get`/`list` subcommands git now
+# also accepts. Everything else touching the key is treated as a write,
+# including --unset, which removes the setting and so disables the
+# framework's hooks just as surely as pointing it elsewhere.
+#
+# CASE-INSENSITIVE (Purple #112, PT-03). git treats a config section and key
+# case-insensitively — core.hooksPath, core.HooksPath and CORE.HOOKSPATH all
+# disable the same hook — and the previous `check` (case-sensitive) missed
+# every spelling but the lowercase one; `check_key` closes that the same way
+# it already does for commit.gpgsign, below.
+#
+# ANCHORED READ EXEMPTION (Purple #112, PT-06). The previous exemption
+# matched `(--get|--get-all|--list)` and `core\.hooksPath` ANYWHERE in the
+# command, in either order, with nothing tying the two together — so `git -c
+# a.b=--get -c core.hooksPath=/dev/null commit -m x` read as an exempted
+# read, because the literal substring `--get` happened to appear (as the
+# VALUE of an unrelated key, a.b) somewhere before core.hooksPath, and the
+# commit it actually ran with hooks disabled went straight through. The read
+# form now has to be the ACTUAL subcommand — `${G}config`, so a `-c` or
+# `--config-env=` before it is consumed as a global option rather than misread
+# as the read flag — followed by one of the read flags, followed by
+# core.hooksPath as that flag's own argument. WRITE_HOOKSPATH_VIA_C is a
+# second, independent guard for the same finding: even where READ_HOOKSPATH
+# were ever satisfied, a `-c`/`--config-env=` naming core.hooksPath anywhere
+# in the same git command is a write layered under a read and is never
+# exempted.
+READ_HOOKSPATH="${G}config[^|;&]*${S}(--get(-all|-regexp)?|--list|-l|get|list)([[:space:]]|\$)[^|;&]*core\.hooksPath"
+WRITE_HOOKSPATH_VIA_C="git[^|;&]*(-c${S}+|--config-env(=|${S}+))core\.hooksPath"
+if check_key "git[^|;&]*core\.hooksPath" \
+   && { ! check_key "$READ_HOOKSPATH" || check_key "$WRITE_HOOKSPATH_VIA_C"; }; then
   iaeng_block "setting core.hooksPath disables every git hook — the same effect as --no-verify, written as configuration" \
     "Standards/GIT_STANDARD.md, Escape Hatches. The sanctioned write of this setting is ./ia-engineering/Adapters/scripts/install.sh, which points it at the framework's hooks."
+fi
+# GIT_CONFIG_PARAMETERS encodes an arbitrary number of git config pairs —
+# `GIT_CONFIG_PARAMETERS="'core.hooksPath' '/dev/null'"` disables hooks for
+# every git command that inherits the variable — in a counted, escaped format
+# this hook has no reliable way to decode from stripped command text (Purple
+# #112, PT-03). Rather than parse that encoding and risk the same silent
+# under-read every earlier lexer version fell to, the variable is refused as
+# a token: unread input is refused, not assumed safe, same contract as the
+# lexer's own LIMIT marker above.
+if check "(^|[[:space:];&|(])GIT_CONFIG_PARAMETERS="; then
+  iaeng_block "GIT_CONFIG_PARAMETERS sets arbitrary git config for every git command in scope, in an encoding this hook cannot verify is safe from stripped command text" \
+    "Standards/GIT_STANDARD.md, Escape Hatches. Set the value some other way and describe why in the commit, or ask a human to run it."
+fi
+# GIT_CONFIG_KEY_<n> (paired with GIT_CONFIG_VALUE_<n>) names one git config
+# key per pair of variables — the indexed alternative to GIT_CONFIG_PARAMETERS
+# — and reads exactly like it when the KEY is a literal string in the
+# command: `GIT_CONFIG_KEY_0=core.hooksPath` is already caught by the
+# case-insensitive check above, because "core.hooksPath" is literally present
+# in the stripped text. What that check cannot see is a key built at runtime
+# — `GIT_CONFIG_KEY_0=$(...)`, a variable, anything the lexer cannot resolve
+# to literal text — where the key name is gone from STRIPPED and only the `=`
+# and the next separator remain. A readable, non-hooksPath key (the ordinary
+# case: GIT_CONFIG_KEY_0=safe.directory) is unaffected — the text after `=` is
+# not a separator or end-of-string — and stays allowed exactly as it does
+# today.
+if check "GIT_CONFIG_KEY_[0-9]+=([[:space:];&|]|\$)"; then
+  iaeng_block "GIT_CONFIG_KEY_<n> names a git config key this hook cannot read after quote-stripping — refused rather than assumed to be something other than core.hooksPath" \
+    "Standards/GIT_STANDARD.md, Escape Hatches. Write the key literally in the command so it can be reviewed, or ask a human to run it."
 fi
 if check "${G}stash$E" && ! check "${G}stash${S}+(list|show)$E"; then
   iaeng_block "git stash sets work aside with no record; it is local, unlabelled, and lost with the clone" \
@@ -203,9 +272,14 @@ fi
 # because the alias value is literal text in the command. The lexer surfaces
 # that value as command text (is_command_context matches `alias.`), so the
 # forbidden flag appears here and the two conditions together identify it
-# without blocking ordinary aliases.
+# without blocking ordinary aliases. The hooksPath alternative is matched
+# case-insensitively (check_key), same reason as the standalone hooksPath
+# rule above (Purple #112, PT-03) — this branch is a second path to the same
+# text, redundant with that rule for most inputs, and kept exact-match for
+# the case-sensitive flags because git's own flag spellings are.
 if check "${G}config[^|;&]*${S}alias\." \
-   && check '(--force|--no-verify|--no-gpg-sign|--hard|--mirror|-D|filter-repo|filter-branch|core\.hooksPath)'; then
+   && { check '(--force|--no-verify|--no-gpg-sign|--hard|--mirror|-D|filter-repo|filter-branch)' \
+        || check_key 'core\.hooksPath'; }; then
   iaeng_block "writing a git alias whose value is an escape hatch — the alias outlives the command and disables the control for every later use" \
     "Standards/GIT_STANDARD.md, Escape Hatches. An alias for a forbidden command is the forbidden command with a shorter name."
 fi
