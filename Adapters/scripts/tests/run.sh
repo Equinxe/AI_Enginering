@@ -24,7 +24,9 @@
 #
 # Exit 0 when every case passes, 1 otherwise. Prints the denominator, because
 # a suite that reports "all passed" without saying how many is not evidence
-# (Adapters/README.md, The Check Convention, rule 3).
+# (Adapters/README.md, The Check Convention, rule 3). A check that is skipped
+# for a genuine platform limitation is reported too (WU-IAENG-300): it is
+# never folded into "passed" and never silently absent from the total.
 
 set -uo pipefail
 
@@ -38,6 +40,8 @@ trap 'rm -rf "$WORK"' EXIT
 
 TOTAL=0
 FAILED=0
+SKIPPED=0
+SKIP_REASONS=""
 LAST_OUTPUT=""
 
 # ---------------------------------------------------------------- helpers ---
@@ -144,6 +148,34 @@ expect_output() {
   printf '%s\n' "$LAST_OUTPUT" | sed 's/^/        | /'
   FAILED=$((FAILED + 1))
   return 1
+}
+
+# skip <n> <reason...> — records that <n> checks were not executed, and why,
+# instead of leaving TOTAL exactly as a full run would (WU-IAENG-300: a
+# platform where `ln -s` fails used to print a bare SKIP line that touched no
+# counter, so "N checks passed" quietly meant a smaller N than a full run —
+# a skip absorbed into the denominator instead of visible in it).
+#
+# This framework's own CI runs on Linux, where `ln -s` always succeeds, so a
+# skip firing there is not a platform limitation, it is the fix under test
+# breaking in the one environment that must never let it slide. Under
+# CI=true a skip is therefore counted as a failure instead of trusted; on
+# every other platform — including a contributor's un-elevated Windows
+# checkout, which is the case this exists for — it is reported and excluded
+# from both TOTAL and FAILED, exactly as before.
+skip() {
+  local n="$1"; shift
+  local reason="$*"
+  if [ "${CI:-}" = "true" ]; then
+    TOTAL=$((TOTAL + n))
+    FAILED=$((FAILED + n))
+    printf '   FAIL (skip refused under CI=true) %s\n' "$reason"
+    return 1
+  fi
+  SKIPPED=$((SKIPPED + n))
+  SKIP_REASONS="${SKIP_REASONS:+$SKIP_REASONS; }$reason"
+  printf '   SKIP (%s skipped) %s\n' "$n" "$reason"
+  return 0
 }
 
 section() { printf '\n== %s\n' "$1"; }
@@ -1117,9 +1149,10 @@ fi
 # throwaway project with `ln -s` rather than copying ~15,000 lines of
 # framework source into a fixture. Some Windows configurations refuse to
 # create a symlink/junction at all (no admin rights, Developer Mode off);
-# when `ln -s` itself fails here, the case is skipped with a reason and does
-# not count toward TOTAL, rather than reporting a false pass or fail for an
-# environment limitation the fix under test cannot control.
+# when `ln -s` itself fails here, the case is recorded with `skip` (reported,
+# excluded from TOTAL and FAILED) rather than reporting a false pass or fail
+# for an environment limitation the fix under test cannot control. See
+# `skip`'s definition for why CI=true does not get this leniency.
 
 section "install.sh — adopter ignore rules and framework-only eol rules (WU-IAENG-296)"
 
@@ -1176,8 +1209,7 @@ if ln -s "$FRAMEWORK_ROOT" ia-engineering 2>/dev/null; then
     FAILED=$((FAILED + 1))
   fi
 else
-  printf '   SKIP install.sh adopter ignore/eol rules: ln -s failed on this platform\n'
-  printf '        (no admin rights / Developer Mode off) -- not a fix defect.\n'
+  skip 5 "install.sh adopter ignore/eol rules: ln -s failed on this platform (no admin rights / Developer Mode off) -- not a fix defect."
 fi
 
 # ------------------------------------ setup-project-bootstrap.sh symlink ----
@@ -1187,7 +1219,7 @@ fi
 # --relative-to=.`, which CANONICALIZES both sides and so printed the link's
 # physical target ("../<physical-target>/...") instead of the link name the
 # project actually sees ("./ia-engineering/..."). Same `ln -s` availability
-# caveat as above.
+# caveat as above, recorded the same way with `skip`.
 
 section "setup-project-bootstrap.sh — link-safe bootstrap hint (WU-IAENG-296)"
 
@@ -1213,8 +1245,7 @@ if ln -s "$FRAMEWORK_ROOT" ia-engineering 2>/dev/null; then
     [ -n "$VERBOSE" ] && printf '   ok   the branch-protection hint did not resolve to a ../physical-target path\n'
   fi
 else
-  printf '   SKIP setup-project-bootstrap.sh link-safe hint: ln -s failed on this platform\n'
-  printf '        (no admin rights / Developer Mode off) -- not a fix defect.\n'
+  skip 2 "setup-project-bootstrap.sh link-safe hint: ln -s failed on this platform (no admin rights / Developer Mode off) -- not a fix defect."
 fi
 
 # ------------------------------------------------- generate-agents.sh -------
@@ -1351,8 +1382,16 @@ expect 0 "--check is idempotent against a tree generated with effort: fields" --
 cd "$HERE" || exit 1
 printf '\n'
 if [ "$FAILED" -eq 0 ]; then
-  printf 'Result: %s checks passed.\n' "$TOTAL"
+  if [ "$SKIPPED" -gt 0 ]; then
+    printf 'Result: %s checks passed, %s skipped (%s).\n' "$TOTAL" "$SKIPPED" "$SKIP_REASONS"
+  else
+    printf 'Result: %s checks passed.\n' "$TOTAL"
+  fi
   exit 0
 fi
-printf 'Result: %s of %s checks FAILED.\n' "$FAILED" "$TOTAL"
+if [ "$SKIPPED" -gt 0 ]; then
+  printf 'Result: %s of %s checks FAILED (%s skipped: %s).\n' "$FAILED" "$TOTAL" "$SKIPPED" "$SKIP_REASONS"
+else
+  printf 'Result: %s of %s checks FAILED.\n' "$FAILED" "$TOTAL"
+fi
 exit 1

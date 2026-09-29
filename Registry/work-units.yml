@@ -1051,8 +1051,20 @@ work_units:
     milestone: Precision
     delivers: Standards/COMMIT_STANDARD.md, Adapters/scripts/check-risk-map.sh, Registry/work-units.yml
 
+  - id: WU-IAENG-299
+    employee: Technical Writer
+    title: Define the optional runtime attribution trailer — it names the model that actually ran, is never dictated by a brief, is not validated, and is not a substitute for Employee: — and cross-reference it from the Employee Brief and Work Unit Report templates
+    milestone: Precision
+    delivers: Standards/COMMIT_STANDARD.md, Templates/EMPLOYEE_BRIEF.md, Templates/WORK_UNIT_REPORT.md, Registry/work-units.yml
+
+  - id: WU-IAENG-300
+    employee: Test Automation Engineer
+    title: Count skipped checks instead of shrinking the total — the two ln -s-gated sections of Adapters/scripts/tests/run.sh printed SKIP without touching any counter, so a platform where ln -s fails silently reported a smaller "N checks passed" than a full run; add a skip helper with an explicit SKIPPED counter, report it in the final summary only when non-zero, and fail a skip outright under CI=true since this framework's CI runs on Linux where ln -s always succeeds
+    milestone: Precision
+    delivers: Adapters/scripts/tests/run.sh, Registry/work-units.yml
+
   - id: WU-IAENG-301
     employee: DevOps Engineer
     title: Collapse generate-agents.sh's per-section "awk | sed | awk" extraction (12 process-substitution calls per Employee) into one single-pass awk extraction per Employee file, fixing a multi-minute MSYS fork-emulation stall on Windows/Git Bash with byte-identical output, verified by diffing all 42 generated agents before and after
     milestone: Precision
-    delivers: Adapters/ai-runtimes/generate-agents.sh, Registry/work-units.yml
+    delivers: Adapters/ai-runtimes/generate-agents.sh, Adapters/scripts/tests/run.sh, Registry/work-units.yml
