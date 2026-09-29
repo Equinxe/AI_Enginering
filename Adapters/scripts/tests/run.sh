@@ -1377,6 +1377,132 @@ bash "$GEN" --project "$D" >/dev/null 2>&1
 expect 0 "--check is idempotent against a tree generated with effort: fields" -- \
   bash "$GEN" --project "$D" --check
 
+section "generate-agents.sh — single-pass section extraction edge cases (WU-IAENG-301)"
+
+# A missing LAST wanted section (Failure Modes) used to shrink SECTION_BODIES
+# by one element relative to SECTION_NAMES: `read -a` drops a TRAILING empty
+# field the same way `IFS=, read -a arr <<< "a,b,"` yields two elements, not
+# three. Every consumer indexes SECTION_BODIES and SECTION_NAMES in lockstep,
+# so the missing element was read as UNBOUND under `set -u` and aborted the
+# whole run instead of just omitting one heading from one generated file.
+# Reachable through an adopter's own Domain Employee file — a PROJECT_ROSTER
+# entry, exactly the shape built here, not the framework's own roster.
+D="$(project ga-missing-last-section)"
+mkdir -p "$D/CustomEmployees"
+cat > "$D/CustomEmployees/TEST_EMPLOYEE.md" <<'EMPLOYEE'
+# Mission
+
+The Test Employee does testing.
+
+# Responsibilities
+
+- Test things.
+
+# Authority
+
+May test.
+
+# Standards Applied
+
+- None.
+
+# Inputs
+
+- Test cases.
+
+# Process
+
+1. Test.
+
+# Outputs
+
+- Results.
+
+# Output Format
+
+Plain text.
+
+# Definition of Done
+
+Tests pass.
+
+# Escalation Rules
+
+Escalate on failure.
+EMPLOYEE
+mkdir -p "$D/.ia-engineering/Registry"
+cat > "$D/.ia-engineering/Registry/employees.yml" <<'ROSTER'
+employees:
+  - name: Test Employee
+    file: CustomEmployees/TEST_EMPLOYEE.md
+    category: Testing
+    tier: Standard Execution
+ROSTER
+expect 0 "an Employee file whose last section (Failure Modes) is missing does not abort" -- \
+  bash "$GEN" --project "$D"
+TOTAL=$((TOTAL + 1))
+if [ -f "$D/.claude/agents/test-employee.md" ] && ! grep -qF "## Failure Modes" "$D/.claude/agents/test-employee.md"; then
+  [ -n "$VERBOSE" ] && printf '   ok   the missing Failure Modes heading is simply omitted, not padded empty\n'
+else
+  printf '   FAIL expected test-employee.md to exist with no "## Failure Modes" heading\n'
+  FAILED=$((FAILED + 1))
+fi
+TOTAL=$((TOTAL + 1))
+if grep -qF "## Escalation Rules" "$D/.claude/agents/test-employee.md" 2>/dev/null; then
+  [ -n "$VERBOSE" ] && printf '   ok   the section before the missing one (Escalation Rules) is still present\n'
+else
+  printf '   FAIL Escalation Rules is missing — the whole tail of sections may have been dropped\n'
+  FAILED=$((FAILED + 1))
+fi
+
+# A repeated top-level heading must contribute only its FIRST occurrence,
+# exactly like the old section_of(): it started "inside" on the first
+# exact-text match and EXITED entirely at the very next "# " line, so a
+# repeated heading later in the same file never contributed anything — old
+# section_of() had already returned by the time it was reached.
+D="$(project ga-duplicate-heading)"
+mkdir -p "$D/CustomEmployees"
+cat > "$D/CustomEmployees/TEST_EMPLOYEE.md" <<'EMPLOYEE'
+# Mission
+
+First Mission body.
+
+# Responsibilities
+
+- Test things.
+
+# Mission
+
+Second Mission body should be ignored.
+
+# Authority
+
+May test.
+EMPLOYEE
+mkdir -p "$D/.ia-engineering/Registry"
+cat > "$D/.ia-engineering/Registry/employees.yml" <<'ROSTER'
+employees:
+  - name: Test Employee
+    file: CustomEmployees/TEST_EMPLOYEE.md
+    category: Testing
+    tier: Standard Execution
+ROSTER
+bash "$GEN" --project "$D" >/dev/null 2>&1
+TOTAL=$((TOTAL + 1))
+if grep -qF "Second Mission body should be ignored." "$D/.claude/agents/test-employee.md" 2>/dev/null; then
+  printf '   FAIL a second occurrence of a heading contributed content — first-occurrence-only is broken\n'
+  FAILED=$((FAILED + 1))
+else
+  [ -n "$VERBOSE" ] && printf '   ok   a second occurrence of "# Mission" contributes nothing\n'
+fi
+TOTAL=$((TOTAL + 1))
+if grep -qF "First Mission body." "$D/.claude/agents/test-employee.md" 2>/dev/null; then
+  [ -n "$VERBOSE" ] && printf '   ok   the first occurrence of "# Mission" is still captured\n'
+else
+  printf '   FAIL the first occurrence of "# Mission" is missing entirely\n'
+  FAILED=$((FAILED + 1))
+fi
+
 # --------------------------------------------------------------- verdict ----
 
 cd "$HERE" || exit 1

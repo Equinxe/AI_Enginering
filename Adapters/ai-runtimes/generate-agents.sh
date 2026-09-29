@@ -318,25 +318,156 @@ fi
 
 # --- Extraction ------------------------------------------------------------
 
-# Prints one top-level section's body from an Employee definition, without its
-# heading. Sections are delimited by "# Heading" lines.
-section_of() {
-  local file="$1" heading="$2"
-  awk -v want="# $heading" '
-    $0 == want { inside = 1; next }
-    inside && /^# / { exit }
-    inside { print }
-  ' "$file" | sed 's/[[:space:]]*$//' | awk '
-    # Trim leading and trailing blank lines and the horizontal rules that
-    # separate sections in these documents.
-    { lines[NR] = $0 }
-    END {
-      start = 1; end = NR
-      while (start <= end && (lines[start] == "" || lines[start] == "---")) start++
-      while (end >= start && (lines[end] == "" || lines[end] == "---")) end--
-      for (i = start; i <= end; i++) print lines[i]
-    }
-  '
+# Sections needed out of every Employee definition, in the order
+# generate_claude_code() consumes them. One shared list, so the extractor and
+# the consumer never drift apart.
+SECTION_NAMES=(
+  "Mission" "Responsibilities" "Authority" "Standards Applied" "Inputs"
+  "Process" "Outputs" "Output Format" "Definition of Done" "Escalation Rules"
+  "Failure Modes"
+)
+
+# Extracts every section in SECTION_NAMES from one Employee definition in a
+# SINGLE awk pass, populating the SECTION_BODIES array (same order as
+# SECTION_NAMES) with each body: heading stripped, leading/trailing blank
+# lines and "---" rules trimmed — same trimming rule the old three-stage
+# pipeline applied.
+#
+# Was section_of(): one "awk | sed | awk" command substitution PER SECTION,
+# called 12 times per Employee (11 sections + one extra Mission read for the
+# description line) — about 2,000 process creations for 42 Employees. On
+# Windows/Git Bash (MSYS fork emulation plus antivirus scanning of every new
+# process) that made a single --dry-run take minutes; Linux CI never saw it,
+# because a fork() there costs microseconds. The fix is not "a faster awk" —
+# it is not re-invoking awk per section at all. One awk process reads the
+# file once, buffers every wanted section's lines in a 2-D array keyed by
+# (heading, line number) — SUBSEP-joined subscripts, POSIX awk since the One
+# True Awk, portable to gawk/mawk/BSD awk without extensions — and prints
+# them back separated by ASCII Unit Separator (0x1F, chosen because it cannot
+# occur in these markdown files: verified with
+# `grep -rlP '[\x1e\x1f]' Employees/ Registry/`, no match).
+#
+# The separator byte is generated ONCE by bash ($'\x1f') and handed to awk
+# through -v, never spelled as an escape inside the awk program text: awk's
+# only portable string escapes are POSIX's \\, \", \t, \n, \r and octal
+# \ddd — "\x1f" is a gawk-only extension (and warns even there under
+# --posix). Passing the literal byte sidesteps the portability question
+# entirely instead of relying on an escape awk may not support.
+#
+# Bash then splits that single output on the same byte with one
+# `read -d '' -a`: `VAR=x read ...` scopes IFS to that one command, so it
+# does not leak into the caller, and the trailing NUL the caller appends
+# gives `read -d ''` (NUL-delimited) something to stop on for the whole
+# multi-line, multi-section blob in one read. Output is byte-identical to
+# the old pipeline; see the generator's own commit message for the diff
+# proof.
+#
+# CONTRACT: this function returns through the CALLER's SECTION_BODIES
+# array, not through stdout or an explicit `declare -g`, relying on bash's
+# dynamic scoping of `local` — a `local` variable is visible to every
+# function the declaring function calls, until it returns. That only works
+# if the caller has ALREADY run `local SECTION_BODIES=()` (or equivalent)
+# before calling extract_sections(); skip that and the `read -a` below
+# creates SECTION_BODIES as a genuine global instead, which happens to
+# still work for a single-threaded top-to-bottom script but leaks state
+# between calls and between this script and anything sourcing it later.
+# generate_claude_code() does the required pre-declaration; keep that
+# invariant if extract_sections() ever gets a second caller.
+extract_sections() {
+  local file="$1" us want_joined
+  us=$'\x1f'
+  want_joined="$(IFS="$us"; echo "${SECTION_NAMES[*]}")"
+
+  IFS="$us" read -r -d '' -a SECTION_BODIES < <(
+    awk -v want_joined="$want_joined" -v us="$us" '
+      BEGIN {
+        n = split(want_joined, order, us)
+        for (i = 1; i <= n; i++) wanted[order[i]] = 1
+        cur = ""
+      }
+      /^# / {
+        h = $0
+        sub(/^# /, "", h)
+        # FIRST occurrence only, matching the old section_of(): it started
+        # "inside" on the first exact-text match and, once inside, EXITED
+        # entirely at the very next "# " line — so a repeated heading later
+        # in the file never contributed anything, because old section_of()
+        # had already returned. Marking done[h] the moment a wanted heading
+        # is seen (not when its capture ends) is what makes a SECOND
+        # occurrence of the SAME heading fall to the else branch below
+        # instead of reopening capture and concatenating both bodies.
+        if ((h in wanted) && !(h in done)) {
+          cur = h
+          done[h] = 1
+        } else {
+          cur = ""
+        }
+        next
+      }
+      cur != "" {
+        line = $0
+        sub(/[[:space:]]*$/, "", line)
+        cnt[cur]++
+        lines[cur, cnt[cur]] = line
+      }
+      END {
+        for (i = 1; i <= n; i++) {
+          name = order[i]
+          c = cnt[name] + 0
+          start = 1; end = c
+          while (start <= end && (lines[name, start] == "" || lines[name, start] == "---")) start++
+          while (end >= start && (lines[name, end] == "" || lines[name, end] == "---")) end--
+          for (j = start; j <= end; j++) print lines[name, j]
+          if (i < n) printf "%s", us
+        }
+      }
+    ' "$file"
+    printf '\0'
+  )
+
+  # Pad to exactly one element per SECTION_NAMES entry, IMMEDIATELY after the
+  # read and before anything else touches the array.
+  #
+  # `read -a` drops a TRAILING empty field the same way `IFS=, read -a arr
+  # <<< "a,b,"` yields two elements, not three: leading/trailing runs of the
+  # split character are trimmed, so a run of IFS characters right before the
+  # NUL that ends the read never produces a final empty element. That is
+  # exactly what a missing LAST wanted section produces: awk emits no `print`
+  # for it, so the byte stream ends "...<US><NUL>" with nothing between the
+  # last delimiter and the terminator. Reachable in practice — an adopter's
+  # PROJECT_ROSTER can name a Domain Employee file that simply omits Failure
+  # Modes, the last entry in SECTION_NAMES — and it silently shrinks
+  # SECTION_BODIES to one element short of SECTION_NAMES. Every consumer
+  # below indexes both arrays in lockstep, so the missing element is not read
+  # as "empty" — it is read as UNBOUND under `set -u`, and this script does
+  # not set `-e` but does set `-u` (see the top of the file), so that one
+  # Employee aborts the entire run instead of just omitting one heading from
+  # one generated file.
+  #
+  # `${SECTION_BODIES[i]:-}` is the fix, not a defensive nicety on top of one:
+  # default-value expansion is exempt from `set -u`'s unbound-variable error
+  # by design, so re-assigning through it both (a) forces every index in
+  # range to exist, however it got short, and (b) never itself trips the
+  # thing it is here to prevent.
+  local si
+  for ((si = 0; si < ${#SECTION_NAMES[@]}; si++)); do
+    SECTION_BODIES[si]="${SECTION_BODIES[si]:-}"
+  done
+
+  # `read -a` preserves the trailing newline awk's own last `print` left on
+  # each non-empty section (the old section_of() lost it for free: its
+  # result went through a command substitution, and $(...) strips ALL
+  # trailing newlines). Without this, generate_claude_code()'s
+  # `printf '%s\n' "$body"` added a SECOND newline on top of the one already
+  # there, leaving a stray blank line before every section that follows a
+  # non-empty one — caught by the before/after diff this Work Unit's commit
+  # message documents, not by inspection.
+  local i
+  for i in "${!SECTION_BODIES[@]}"; do
+    while [[ "${SECTION_BODIES[i]}" == *$'\n' ]]; do
+      SECTION_BODIES[i]="${SECTION_BODIES[i]%$'\n'}"
+    done
+  done
 }
 
 slugify() {
@@ -371,6 +502,14 @@ generate_claude_code() {
   effort_note=""
   [ -n "$effort" ] && effort_note=", effort: $effort"
 
+  # One awk pass for every section this Employee needs, instead of one
+  # process substitution per section (see extract_sections() above). Kept
+  # after the tier check, not before, so an invalid-tier entry that returns
+  # early still costs zero extraction work — same as the pre-existing
+  # early-return shape.
+  local SECTION_BODIES=()
+  extract_sections "$file"
+
   dest="$OUT/$slug.md"
   tmp="$(mktemp)"
 
@@ -391,7 +530,7 @@ generate_claude_code() {
     # empty description, silently, for exactly one of the 42. Expansion has no
     # delimiter to collide with.
     local mission
-    mission="$(section_of "$file" "Mission" | head -1)"
+    mission="$(printf '%s\n' "${SECTION_BODIES[0]:-}" | head -1)"
     mission="${mission#The "$name" }"
     mission="${mission#The }"
     mission="${mission%.}"
@@ -432,10 +571,10 @@ trailer, and the commit-msg hook validates that name against the roster.
 
 HEADER
 
-    local s
-    for s in "Mission" "Responsibilities" "Authority" "Standards Applied" "Inputs" "Process" "Outputs" "Output Format" "Definition of Done" "Escalation Rules" "Failure Modes"; do
-      local body
-      body="$(section_of "$file" "$s")"
+    local i s body
+    for i in "${!SECTION_NAMES[@]}"; do
+      s="${SECTION_NAMES[$i]}"
+      body="${SECTION_BODIES[$i]:-}"
       if [ -n "$body" ]; then
         echo "## $s"
         echo
