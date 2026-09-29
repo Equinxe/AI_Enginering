@@ -21,6 +21,7 @@ Copy the template below into the PR description when opening a Pull Request.
 - [ ] fix — bug fix
 - [ ] docs — documentation only
 - [ ] refactor — code change without feature or fix
+- [ ] perf — performance improvement without behaviour change
 - [ ] test — adding or updating tests
 - [ ] chore — build, tooling, or dependency update
 
