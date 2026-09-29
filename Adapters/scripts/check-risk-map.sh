@@ -253,7 +253,7 @@ EOF
     exit 0
   fi
 
-  err "a sensitive zone was touched and no RISK: record appears in any commit message in $BASE..$HEAD_REF. Standards/RISK_STANDARD.md requires the one-line record for any Medium or higher action, and a change landing in a sensitive zone is one. Add it to the commit that makes the change: RISK: <hazard> | tier=<...> | mitigation=<...> | decided_by=<...>"
+  err "a sensitive zone was touched and no RISK: record appears in any commit message in $BASE..$HEAD_REF. Standards/RISK_STANDARD.md requires the one-line record for any Medium or higher action, and a change landing in a sensitive zone is one. Add it to a commit in this Pull Request — ideally the commit that makes the change, or a follow-up commit in the same PR if it was forgotten (never an amend + force-push): RISK: <hazard> | tier=<...> | mitigation=<...> | decided_by=<...>"
   exit 1
 fi
 
