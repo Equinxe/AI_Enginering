@@ -1068,3 +1068,9 @@ work_units:
     title: Collapse generate-agents.sh's per-section "awk | sed | awk" extraction (12 process-substitution calls per Employee) into one single-pass awk extraction per Employee file, fixing a multi-minute MSYS fork-emulation stall on Windows/Git Bash with byte-identical output, verified by diffing all 42 generated agents before and after
     milestone: Precision
     delivers: Adapters/ai-runtimes/generate-agents.sh, Adapters/scripts/tests/run.sh, Registry/work-units.yml
+
+  - id: WU-IAENG-302
+    employee: DevOps Engineer
+    title: Fix session-start.sh's unconditional CLAUDE.md line — it now checks the project's CLAUDE.md for existence the same way the SESSION_STATE branch already does, and when missing reports that it does not exist yet and where it comes from (Workflows/PROJECT_BOOTSTRAP.md Phase B / Workflows/ONBOARDING.md Step 1, from Templates/PROJECT_CLAUDE.md), found on the first external greenfield adoption (24 Sep)
+    milestone: Precision
+    delivers: Adapters/ai-runtimes/claude-code/hooks/session-start.sh, Adapters/ai-runtimes/claude-code/hooks/tests/run.sh, Adapters/ai-runtimes/claude-code/hooks/README.md, Registry/work-units.yml

@@ -16,7 +16,22 @@ STATE="$BASE/.ia-engineering/SESSION_STATE.md"
 
 echo "IA Engineering — read first, then say in one line what you read and what you are about to do (Core/AGENT_CONDUCT.md, Read First):"
 echo
-echo "  1. CLAUDE.md — the project's stable contract."
+
+# --- CLAUDE.md ---------------------------------------------------------
+# Mirrors the SESSION_STATE branch below: a project that has not yet
+# finished Workflows/PROJECT_BOOTSTRAP.md Phase B (or the ONBOARDING.md
+# Step 1 handoff that follows it) has no CLAUDE.md yet, and asserting one
+# exists — as this line unconditionally did before WU-IAENG-302 — misleads
+# the very first thing the model reads in the session.
+if [ -f "$BASE/CLAUDE.md" ]; then
+  echo "  1. CLAUDE.md — the project's stable contract."
+else
+  if [ -n "$ROOT" ] && [ -f "$ROOT/Templates/PROJECT_CLAUDE.md" ]; then
+    echo "  1. CLAUDE.md does not exist yet — this project has not completed Workflows/PROJECT_BOOTSTRAP.md Phase B. It is created from $ROOT/Templates/PROJECT_CLAUDE.md at Workflows/ONBOARDING.md Step 1, once the Stack Decision ADR is Accepted."
+  else
+    echo "  1. CLAUDE.md does not exist yet and the framework's template was not found (looked for Core/AGENT_CONDUCT.md at ., ia-engineering/, \$IAENG_FRAMEWORK)."
+  fi
+fi
 if [ -f "$STATE" ]; then
   echo "  2. .ia-engineering/SESSION_STATE.md — where things actually stand. Never committed."
   LAST="$(grep -m1 -E '^_Last updated:' "$STATE" | sed 's/^_//; s/_$//')"
