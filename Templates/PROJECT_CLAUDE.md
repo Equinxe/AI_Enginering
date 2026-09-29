@@ -154,9 +154,11 @@ listed in `Adapters/scripts/setup-branch-protection.sh`; the runtime hooks in
 [Name or role.] The Director makes all final decisions.
 
 Present plans before executing. Escalate architectural, business, and product
-decisions. Never merge, tag, release, or take an irreversible action without
-Director approval. High and Critical risks stop and wait for a confirmation
-that names the action (`Standards/RISK_STANDARD.md`).
+decisions. Never tag, release, merge to `main`, or take another irreversible
+action without Director approval. Merging an approved Pull Request into
+`develop` is delegable (`Workflows/FEATURE_DEVELOPMENT.md` Step 8). High and
+Critical risks stop and wait for a confirmation that names the action
+(`Standards/RISK_STANDARD.md`).
 
 ---
 
@@ -206,7 +208,7 @@ direction. Move an answered one into the body of this file and delete it here.]
 
 Owner: IA Engineering
 
-Version: 0.0.12
+Version: 0.0.13
 
 Status: Draft
 
