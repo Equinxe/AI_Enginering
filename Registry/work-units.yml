@@ -1050,3 +1050,9 @@ work_units:
     title: Align the RISK-record rule on the Pull Request range instead of the same commit, correcting Standards/COMMIT_STANDARD.md and check-risk-map.sh's error text to match the check that already validates the whole range
     milestone: Precision
     delivers: Standards/COMMIT_STANDARD.md, Adapters/scripts/check-risk-map.sh, Registry/work-units.yml
+
+  - id: WU-IAENG-301
+    employee: DevOps Engineer
+    title: Collapse generate-agents.sh's per-section "awk | sed | awk" extraction (12 process-substitution calls per Employee) into one single-pass awk extraction per Employee file, fixing a multi-minute MSYS fork-emulation stall on Windows/Git Bash with byte-identical output, verified by diffing all 42 generated agents before and after
+    milestone: Precision
+    delivers: Adapters/ai-runtimes/generate-agents.sh, Registry/work-units.yml
