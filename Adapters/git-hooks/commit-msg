@@ -61,12 +61,12 @@ fi
 
 # --- Rule 1: Conventional Commits subject line ---------------------------
 # Types kept in sync with Templates/PULL_REQUEST.md's Type checklist.
-CC_REGEX='^(feat|fix|docs|refactor|test|chore)(\([a-zA-Z0-9,._-]+\))?: .+'
+CC_REGEX='^(feat|fix|docs|refactor|perf|test|chore)(\([a-zA-Z0-9,._-]+\))?: .+'
 
 if ! echo "$SUBJECT" | grep -qE "$CC_REGEX"; then
   echo "commit-msg: rejected — subject line does not follow the Commit Standard." >&2
   echo "  Expected: type(scope): description" >&2
-  echo "  type is one of: feat, fix, docs, refactor, test, chore" >&2
+  echo "  type is one of: feat, fix, docs, refactor, perf, test, chore" >&2
   echo "  Got: $SUBJECT" >&2
   exit 1
 fi

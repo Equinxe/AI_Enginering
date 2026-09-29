@@ -1068,3 +1068,9 @@ work_units:
     title: Collapse generate-agents.sh's per-section "awk | sed | awk" extraction (12 process-substitution calls per Employee) into one single-pass awk extraction per Employee file, fixing a multi-minute MSYS fork-emulation stall on Windows/Git Bash with byte-identical output, verified by diffing all 42 generated agents before and after
     milestone: Precision
     delivers: Adapters/ai-runtimes/generate-agents.sh, Adapters/scripts/tests/run.sh, Registry/work-units.yml
+
+  - id: WU-IAENG-304
+    employee: DevOps Engineer
+    title: Accept the perf commit type
+    milestone: Precision
+    delivers: Adapters/git-hooks/commit-msg, Standards/COMMIT_STANDARD.md, .github/PULL_REQUEST_TEMPLATE.md, Adapters/ai-runtimes/claude-code/hooks/tests/escape-hatch-cases.tsv, Registry/work-units.yml
