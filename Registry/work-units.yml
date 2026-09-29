@@ -1033,6 +1033,18 @@ work_units:
     milestone: Precision
     delivers: Core/EMPLOYEE_SELECTION.md, Registry/work-units.yml
 
+  - id: WU-IAENG-296
+    employee: Platform Engineer
+    title: Fix four measured adopter-install defects — ignore generate-agents.sh's and this runtime's own derived/runtime artifacts (.claude/agents/, .claude/worktrees/) by default in an adopting project, matching the framework's own .gitignore reasoning; restrict install.sh's framework-only .gitattributes EOL rules (/Adapters/**, /Registry/**) to installing into the framework itself; and make setup-project-bootstrap.sh's branch-protection hint symlink/junction-safe instead of resolving through realpath to a physical path
+    milestone: Precision
+    delivers: Adapters/scripts/install.sh, Adapters/scripts/setup-project-bootstrap.sh, Adapters/scripts/tests/run.sh, .gitignore, Registry/work-units.yml
+
+  - id: WU-IAENG-297
+    employee: Technical Writer
+    title: Replace MAIN_AGENT_CONDUCT.md's stale copied Miscasting pairs list with a pointer to EMPLOYEE_SELECTION.md's Miscasting Risks section so it cannot drift again, and apply three Software Architect wording precisions from the PR #156 review (Observability vs SRE's SLO-derived paging thresholds, Cloud vs IaC's security-requirement origin, and Code Reviewer vs Technical Lead's merge-approval citation moved off CLAUDE.md to Workflows/RELEASE.md)
+    milestone: Precision
+    delivers: Core/MAIN_AGENT_CONDUCT.md, Core/EMPLOYEE_SELECTION.md, Registry/work-units.yml
+
   - id: WU-IAENG-298
     employee: Technical Writer
     title: Align the RISK-record rule on the Pull Request range instead of the same commit, correcting Standards/COMMIT_STANDARD.md and check-risk-map.sh's error text to match the check that already validates the whole range
