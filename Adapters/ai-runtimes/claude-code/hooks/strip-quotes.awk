@@ -68,8 +68,12 @@
 # boundary is "shell mechanics, yes; runtime values, no." The hook stops an
 # escape hatch reached for by habit; it is not an adversary boundary, and
 # Adapters/ai-runtimes/claude-code/hooks/README.md says so. What stops a
-# determined bypass is the server side — the pre-push hook, branch protection,
-# and the required CI checks — none of which a developer machine can skip.
+# determined bypass is the server side — branch protection and the required CI
+# checks, which run where a developer machine cannot skip them (within the
+# conditions stated in SECURITY.md, Where the boundary is). The pre-push hook
+# is a second local guardrail, not part of that boundary — it is skipped by
+# --no-verify or a core.hooksPath override — the escape hatches the runtime
+# hook refuses.
 
 BEGIN {
   RS = "\001"
@@ -119,8 +123,9 @@ function is_command_context(w) {
 # does not, see a token an EXTERNAL program builds — `$(python -c ...)`,
 # `$(base64 -d ...)`, `$(echo .. | tr . -)`, a flag read from a file, or a token
 # split across two variables. Those remain out of scope by construction, exactly
-# as README.md and the header of this file state; the server side (pre-push
-# hook, branch protection, required CI) is what stops a determined bypass.
+# as README.md and the header of this file state; the server side (branch
+# protection and the required CI checks — see README.md, Not an adversary
+# boundary) is what stops a determined bypass.
 function is_decode_context(w) {
   return w == "printf" || w ~ /\/printf$/
 }
