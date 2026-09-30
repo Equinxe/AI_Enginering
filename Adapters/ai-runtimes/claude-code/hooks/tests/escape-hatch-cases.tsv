@@ -332,3 +332,19 @@ allow	git --version
 # value.
 block	git -c a.b=--get -c core.hooksPath=/dev/null commit -m x
 block	git -c core.hooksPath=/dev/null config --list
+# WU-IAENG-306 review round: per-segment read exemption (a read in one segment
+# never exempts a write in another), closed option set around the read keyword
+# (an option value is never a read keyword), and GIT_CONFIG_KEY_<n> with a
+# runtime-built key.
+block	git config --get core.hooksPath; git config core.hooksPath /dev/null
+block	git config --get core.hooksPath && git config --unset core.hooksPath
+block	git config --comment get core.hooksPath /dev/null
+block	git config --comment --get core.hooksPath /dev/null
+block	git config set --comment list core.hooksPath /dev/null
+block	GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=$K GIT_CONFIG_VALUE_0=/dev/null git commit -m x
+block	GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0="$K" GIT_CONFIG_VALUE_0=/dev/null git commit -m x
+block	GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.$X GIT_CONFIG_VALUE_0=/dev/null git commit -m x
+allow	git config --show-origin --get core.hooksPath
+allow	git config --global --get core.hooksPath
+allow	git config --get core.hooksPath && git status
+allow	git config get core.hooksPath

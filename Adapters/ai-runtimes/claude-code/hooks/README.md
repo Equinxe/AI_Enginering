@@ -44,12 +44,12 @@ These hooks make five rules mechanical for the one runtime that currently expose
 
 # Purple Exercise #112 Corrections (29 Sep 2026)
 
-Director-authorized static penetration test of `block-escape-hatches.sh`. Three findings against the `core.hooksPath` rule and the global-options prefix, closed under WU-IAENG-306; the fourth-through-seventh findings from the same exercise (PT-01, PT-02, PT-04, PT-07) are separate Work Units and out of scope here.
+Director-authorized static penetration test of `block-escape-hatches.sh`. Three findings against the `core.hooksPath` rule and the global-options prefix, closed under WU-IAENG-306; the other findings from the same exercise are separate Work Units and out of scope here.
 
 - **Case-insensitivity.** git treats a config section and key case-insensitively — `core.hooksPath`, `core.HooksPath` and `CORE.HOOKSPATH` all disable the same hook — and the rule matched only the lowercase spelling. It now uses `check_key`, the same case-insensitive helper already used for `commit.gpgsign`.
-- **`GIT_CONFIG_PARAMETERS` and `GIT_CONFIG_KEY_<n>`.** These environment variables set git config for every git command that inherits them, including `core.hooksPath`, in an encoding (`GIT_CONFIG_PARAMETERS`) or an indirection (`GIT_CONFIG_KEY_<n>` paired with `GIT_CONFIG_VALUE_<n>`) this hook has no reliable way to decode from stripped command text. `GIT_CONFIG_PARAMETERS=` is refused outright as a token. `GIT_CONFIG_KEY_<n>=` is refused only when the key name is not literal text in the stripped command — a readable, non-hooksPath key (`GIT_CONFIG_KEY_0=safe.directory`) stays allowed, and a readable hooksPath key is already caught by the case-insensitive match above.
+- **`GIT_CONFIG_PARAMETERS` and `GIT_CONFIG_KEY_<n>`.** These environment variables set git config for every git command that inherits them. `GIT_CONFIG_PARAMETERS=` is refused as a token, because its encoding is not decoded from the stripped command text. `GIT_CONFIG_KEY_<n>=` is refused when its value is empty, ends at a separator, or contains a `$` (a variable or substitution, whole or partial), so the key cannot be read from the command text. A fully literal key is judged by the case-insensitive `core.hooksPath` rule; a literal non-hooksPath key such as `safe.directory` stays allowed.
 - **The global-options prefix (`G`) was too narrow.** It recognised `-C`, `-c`, `--git-dir=`, `--work-tree=`, `--no-pager` and `-P` — any OTHER real git global option ahead of the subcommand (`--no-replace-objects`, `--literal-pathspecs`, `-p`, `--no-optional-locks`, `--namespace=`, `--config-env=`, the space form of `--git-dir`) walked past every rule that anchors on `${G}<subcommand>`. `G` now matches every no-argument long option by shape, `-p`/`-P`, and the value-taking global options in both `=value` and `SPACE value` form.
-- **The `core.hooksPath` read exemption was unanchored.** It matched a read flag (`--get`, `--get-all`, `--list`) and the string `core.hooksPath` anywhere in the command, in either order — so a read flag appearing as the *value* of an unrelated `-c` key exempted a `commit` that separately carried `-c core.hooksPath=/dev/null`. The exemption now requires the read flag to be part of an actual `git config` invocation with `core.hooksPath` as that flag's own argument, and a `-c`/`--config-env=` naming hooksPath anywhere in the same command is never exempted regardless.
+- **The `core.hooksPath` read exemption was unanchored.** It matched a read flag and the key name anywhere in the command, in either order. It is now judged per segment (the command is split on `;`, `&`, `|` and newline): a segment is exempt only when it is a `git config` read (`--get`, `--get-all`, `--get-regexp`, `--list`, `-l`, `get`, `list`) that names `core.hooksPath`, with only a closed list of options (`--global`, `--system`, `--local`, `--worktree`, `--show-origin`, `--show-scope`, `--includes`, `--no-includes`, `--null`, `--name-only`, `-z`, and `--file`/`--blob`/`--type`/`--default` with a value) around the read keyword. Any other option leaves the segment un-exempted. A `-c`/`--config-env` naming hooksPath in the segment is never exempted, and a read in one segment does not exempt another segment.
 
 `hooks/tests/escape-hatch-cases.tsv` carries the reproducing cases for all four corrections, each verified to fail against the pre-fix rule before the fix landed.
 
@@ -100,7 +100,7 @@ This writes `.claude/settings.json` from `settings.example.json`, substituting t
 There is a test suite, and it is the control:
 
 ```bash
-./Adapters/ai-runtimes/claude-code/hooks/tests/run.sh          # 378 checks
+./Adapters/ai-runtimes/claude-code/hooks/tests/run.sh          # 391 checks
 ./Adapters/ai-runtimes/claude-code/hooks/tests/run.sh --verbose
 ```
 

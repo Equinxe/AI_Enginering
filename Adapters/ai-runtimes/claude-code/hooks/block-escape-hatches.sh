@@ -148,24 +148,35 @@ fi
 # it already does for commit.gpgsign, below.
 #
 # ANCHORED READ EXEMPTION (Purple #112, PT-06). The previous exemption
-# matched `(--get|--get-all|--list)` and `core\.hooksPath` ANYWHERE in the
-# command, in either order, with nothing tying the two together — so `git -c
-# a.b=--get -c core.hooksPath=/dev/null commit -m x` read as an exempted
-# read, because the literal substring `--get` happened to appear (as the
-# VALUE of an unrelated key, a.b) somewhere before core.hooksPath, and the
-# commit it actually ran with hooks disabled went straight through. The read
-# form now has to be the ACTUAL subcommand — `${G}config`, so a `-c` or
-# `--config-env=` before it is consumed as a global option rather than misread
-# as the read flag — followed by one of the read flags, followed by
-# core.hooksPath as that flag's own argument. WRITE_HOOKSPATH_VIA_C is a
-# second, independent guard for the same finding: even where READ_HOOKSPATH
-# were ever satisfied, a `-c`/`--config-env=` naming core.hooksPath anywhere
-# in the same git command is a write layered under a read and is never
-# exempted.
-READ_HOOKSPATH="${G}config[^|;&]*${S}(--get(-all|-regexp)?|--list|-l|get|list)([[:space:]]|\$)[^|;&]*core\.hooksPath"
+# matched a read flag and `core\.hooksPath` ANYWHERE in the command, in either
+# order, with nothing tying the two together, so a read flag that was only
+# another key's VALUE exempted a commit that separately carried a hooksPath
+# override. The exemption is now a positive match on one segment: the
+# segment's own `git ... config` invocation, then only options from a closed
+# list, then a read keyword (--get, --get-all, --get-regexp, --list, -l, get,
+# list), then only options from the same list, then core.hooksPath. The
+# closed list is deliberate: an option that takes a free-form value (such as
+# --comment) is not in it, so its value can never be mistaken for the read
+# keyword and the segment falls through to the block.
+#
+# PER SEGMENT (review of WU-IAENG-306). The stripped command is split on
+# `;`, `&`, `|` and newline and each segment is judged alone, so a read in one
+# segment cannot exempt a write to the same key in another. A segment is
+# blocked when it names core.hooksPath in a git command and either fails the
+# read match or carries a `-c` / `--config-env` that names hooksPath (a write
+# layered under a read, never exempted).
+READ_OPT="(--(global|system|local|worktree|show-origin|show-scope|includes|no-includes|null|name-only)|-z|--(file|blob|type|default)(=|${S}+)[^[:space:]]+)"
+READ_HOOKSPATH="^[[:space:](\`{]*([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*${S}+)*${G}config${S}+(${READ_OPT}${S}+)*(--get(-all|-regexp)?|--list|-l|get|list)${S}+(${READ_OPT}${S}+)*core\.hooksPath"
 WRITE_HOOKSPATH_VIA_C="git[^|;&]*(-c${S}+|--config-env(=|${S}+))core\.hooksPath"
-if check_key "git[^|;&]*core\.hooksPath" \
-   && { ! check_key "$READ_HOOKSPATH" || check_key "$WRITE_HOOKSPATH_VIA_C"; }; then
+HOOKSPATH_WRITE=0
+while IFS= read -r SEG; do
+  grep -qiE -- "git[^|;&]*core\.hooksPath" <<< "$SEG" || continue
+  if ! grep -qiE -- "$READ_HOOKSPATH" <<< "$SEG" \
+     || grep -qiE -- "$WRITE_HOOKSPATH_VIA_C" <<< "$SEG"; then
+    HOOKSPATH_WRITE=1
+  fi
+done < <(printf '%s\n' "$STRIPPED" | tr ';&|' '\n')
+if [ "$HOOKSPATH_WRITE" -eq 1 ]; then
   iaeng_block "setting core.hooksPath disables every git hook — the same effect as --no-verify, written as configuration" \
     "Standards/GIT_STANDARD.md, Escape Hatches. The sanctioned write of this setting is ./ia-engineering/Adapters/scripts/install.sh, which points it at the framework's hooks."
 fi
@@ -182,18 +193,14 @@ if check "(^|[[:space:];&|(])GIT_CONFIG_PARAMETERS="; then
     "Standards/GIT_STANDARD.md, Escape Hatches. Set the value some other way and describe why in the commit, or ask a human to run it."
 fi
 # GIT_CONFIG_KEY_<n> (paired with GIT_CONFIG_VALUE_<n>) names one git config
-# key per pair of variables — the indexed alternative to GIT_CONFIG_PARAMETERS
-# — and reads exactly like it when the KEY is a literal string in the
-# command: `GIT_CONFIG_KEY_0=core.hooksPath` is already caught by the
-# case-insensitive check above, because "core.hooksPath" is literally present
-# in the stripped text. What that check cannot see is a key built at runtime
-# — `GIT_CONFIG_KEY_0=$(...)`, a variable, anything the lexer cannot resolve
-# to literal text — where the key name is gone from STRIPPED and only the `=`
-# and the next separator remain. A readable, non-hooksPath key (the ordinary
-# case: GIT_CONFIG_KEY_0=safe.directory) is unaffected — the text after `=` is
-# not a separator or end-of-string — and stays allowed exactly as it does
-# today.
-if check "GIT_CONFIG_KEY_[0-9]+=([[:space:];&|]|\$)"; then
+# key per pair of variables, the indexed alternative to GIT_CONFIG_PARAMETERS.
+# A key written as literal text is judged by the case-insensitive hooksPath
+# rule above. This rule refuses the assignment when the key is not fully
+# literal in the stripped command: the value is empty or ends at a separator,
+# or it contains a `$` (a variable or command substitution, whole or as part
+# of the key). A fully literal, non-hooksPath key such as safe.directory is
+# unaffected.
+if check 'GIT_CONFIG_KEY_[0-9]+=([[:space:];&|]|$|[^[:space:];&|]*\$)'; then
   iaeng_block "GIT_CONFIG_KEY_<n> names a git config key this hook cannot read after quote-stripping — refused rather than assumed to be something other than core.hooksPath" \
     "Standards/GIT_STANDARD.md, Escape Hatches. Write the key literally in the command so it can be reviewed, or ask a human to run it."
 fi
