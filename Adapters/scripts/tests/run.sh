@@ -1560,6 +1560,152 @@ expect 1 "an unrecognised type (style) is rejected" -- \
   bash "$HOOK" msg-bad-type.txt
 expect_output "type is one of: feat, fix, docs, refactor, perf, test, chore"
 
+# ------------------------------- merge attribution: commit-msg (WU-IAENG-307) --
+#
+# A merge is exempt from the subject rule always, and from the Employee trailer
+# only while it authors nothing (PT-02 of the #112 exercise). Each case builds a
+# real merge in progress and runs the real hook against its message file.
+
+section "git-hooks/commit-msg — merge attribution (WU-IAENG-307)"
+
+# mk_merge_repo <name> — repo with a roster and a `side` branch one commit ahead.
+mk_merge_repo() {
+  new_repo "$1"
+  write_employee_roster "Test Employee"
+  git add -A && git commit -q -m "roster"
+  git checkout -qb side
+  echo side > side.txt && git add -A && git commit -q -m "side work"
+  git checkout -q main
+  echo main > main.txt && git add -A && git commit -q -m "main work"
+}
+
+mk_merge_repo cm-merge-clean
+git merge -q --no-commit --no-ff side
+printf "Merge branch 'side'\n" > msg-merge.txt
+expect 0 "a clean merge with no trailer is accepted" -- bash "$HOOK" msg-merge.txt
+
+mk_merge_repo cm-merge-authored
+git merge -q --no-commit --no-ff side
+echo extra > extra.txt && git add extra.txt
+printf "Merge branch 'side'\n" > msg-merge.txt
+expect 1 "an authored merge with no trailer is rejected" -- bash "$HOOK" msg-merge.txt
+expect_output "missing 'Employee: <Name>' trailer"
+
+printf "Merge branch 'side'\n\nEmployee: Test Employee\n" > msg-merge.txt
+expect 0 "an authored merge with a valid trailer is accepted" -- bash "$HOOK" msg-merge.txt
+
+# ----------------------- merge attribution: check-employee-trailers.sh --------
+
+section "check-employee-trailers.sh — merge attribution (WU-IAENG-307)"
+
+# mk_emp_merge_repo <name> — roster committed, then main and `side` diverge.
+# BASE is the roster commit. Leaves the shell on main, ready to merge side.
+mk_emp_merge_repo() {
+  new_repo "$1"
+  write_employee_roster "Release Manager" "DevOps Engineer"
+  git add -A && git commit -q -m "roster"
+  BASE="$(git rev-parse HEAD)"
+  git checkout -qb side
+  echo side > side.txt && git add -A && git commit -q -m "side work
+
+Employee: DevOps Engineer"
+  git checkout -q main
+  echo main > main.txt && git add -A && git commit -q -m "main work
+
+Employee: DevOps Engineer"
+}
+
+mk_emp_merge_repo mrg-clean
+git merge -q --no-ff side -m "Merge branch 'side'"
+expect 0 "a clean merge with no trailer passes" -- bash "$CHECK_EMP" "$BASE" HEAD
+
+mk_emp_merge_repo mrg-authored
+git merge -q --no-commit --no-ff side
+echo extra > extra.txt && git add extra.txt
+git commit -q -m "Merge branch 'side'"
+expect 1 "an authored merge with no trailer fails" -- bash "$CHECK_EMP" "$BASE" HEAD
+expect_output "carries no Employee trailer"
+
+mk_emp_merge_repo mrg-authored-ok
+git merge -q --no-commit --no-ff side
+echo extra > extra.txt && git add extra.txt
+git commit -q -m "Merge branch 'side'
+
+Employee: DevOps Engineer"
+expect 0 "an authored merge with a valid trailer passes" -- bash "$CHECK_EMP" "$BASE" HEAD
+
+# Conflict: both branches edit the same file differently.
+mk_emp_conflict() {
+  new_repo "$1"
+  write_employee_roster "Release Manager" "DevOps Engineer"
+  echo base > c.txt
+  git add -A && git commit -q -m "roster"
+  BASE="$(git rev-parse HEAD)"
+  git checkout -qb side
+  echo side > c.txt && git add -A && git commit -q -m "side edit
+
+Employee: DevOps Engineer"
+  git checkout -q main
+  echo main > c.txt && git add -A && git commit -q -m "main edit
+
+Employee: DevOps Engineer"
+  git merge --no-commit --no-ff side > /dev/null 2>&1
+  echo resolved > c.txt && git add c.txt
+}
+
+mk_emp_conflict mrg-conflict
+git commit -q -m "Merge branch 'side'"
+expect 1 "a conflict-resolved merge with no trailer fails" -- bash "$CHECK_EMP" "$BASE" HEAD
+
+mk_emp_conflict mrg-conflict-ok
+git commit -q -m "Merge branch 'side'
+
+Employee: DevOps Engineer"
+expect 0 "a conflict-resolved merge with a trailer passes" -- bash "$CHECK_EMP" "$BASE" HEAD
+
+# A claim that is present is always checked, even on a merge that needs none.
+mk_emp_merge_repo mrg-clean-bad
+git merge -q --no-ff side -m "Merge branch 'side'
+
+Employee: executor"
+expect 1 "a clean merge carrying an invalid Employee fails" -- bash "$CHECK_EMP" "$BASE" HEAD
+expect_output "is not a valid Employee name"
+
+mk_emp_merge_repo mrg-octopus
+git checkout -qb side2 "$BASE"
+echo s2 > side2.txt && git add -A && git commit -q -m "side2 work
+
+Employee: DevOps Engineer"
+git checkout -q main
+git merge -q --no-ff side side2 -m "Merge branches 'side', 'side2'" > /dev/null 2>&1
+expect 1 "a clean octopus merge with no trailer fails (never classified)" -- bash "$CHECK_EMP" "$BASE" HEAD
+
+mk_emp_merge_repo mrg-ours
+git merge -q -s ours --no-ff side -m "Merge branch 'side'"
+expect 1 "a -s ours merge that discards changes, no trailer, fails" -- bash "$CHECK_EMP" "$BASE" HEAD
+
+mk_emp_merge_repo mrg-exception
+git merge -q --no-commit --no-ff side
+echo extra > extra.txt && git add extra.txt
+git commit -q -m "Merge branch 'side'"
+mkdir -p Registry
+echo "$(git rev-parse HEAD) grandfathered for the test" > Registry/merge-attribution-exceptions.txt
+expect 0 "an authored merge listed in the exceptions file passes" -- bash "$CHECK_EMP" "$BASE" HEAD
+
+# Fail closed: a git whose merge-tree errors must not turn into a pass.
+mk_emp_merge_repo mrg-shim
+git merge -q --no-ff side -m "Merge branch 'side'"
+REAL_GIT="$(command -v git)"
+mkdir -p "$WORK/shim"
+cat > "$WORK/shim/git" <<SHIM
+#!/usr/bin/env bash
+if [ "\$1" = "merge-tree" ]; then exit 128; fi
+exec "$REAL_GIT" "\$@"
+SHIM
+chmod +x "$WORK/shim/git"
+expect 1 "a merge the classifier cannot run on fails closed" -- env PATH="$WORK/shim:$PATH" bash "$CHECK_EMP" "$BASE" HEAD
+expect_output "could not be classified"
+
 # --------------------------------------------------------------- verdict ----
 
 cd "$HERE" || exit 1

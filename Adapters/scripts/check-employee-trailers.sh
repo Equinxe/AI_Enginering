@@ -2,7 +2,13 @@
 # IA Engineering — check-employee-trailers.sh
 #
 # Every non-merge commit in a range carries an `Employee: <Name>` trailer, and
-# the name resolves against the Employee roster.
+# the name resolves against the Employee roster. A merge commit is held to the
+# same rule only when it AUTHORS content: its tree differs from the automatic
+# merge of its parents, or it has more than two parents. A clean merge needs no
+# trailer; an `Employee:` line present on any merge is validated regardless.
+# Historical authored merges are grandfathered by sha in
+# Registry/merge-attribution-exceptions.txt. Classifying needs git >= 2.38
+# (`git merge-tree --write-tree`); without it the check fails closed.
 #
 # This is the SERVER-SIDE BACKSTOP for Adapters/git-hooks/commit-msg. The hook
 # is the first line and the better one — it refuses before the commit exists —
@@ -32,8 +38,9 @@
 #
 #   check-employee-trailers.sh <base-ref> <head-ref>
 #
-# Exit 0 when every commit resolves, 1 when any does not or when the roster
-# cannot be found. A range with no non-merge commits is a pass and says so.
+# Exit 0 when every commit (and every authored merge) resolves, 1 when any does
+# not, when a merge cannot be classified, or when the roster cannot be found. A
+# range with no non-merge commits says so and still classifies its merges.
 
 set -uo pipefail
 
@@ -112,24 +119,13 @@ if ! COMMITS="$(git rev-list --no-merges "${BASE_REF}..${HEAD_REF}")"; then
   exit 1
 fi
 
-if [ -z "$COMMITS" ]; then
-  echo "No non-merge commits to validate."
-  exit 0
-fi
-
-echo "Commits to validate: $(printf '%s\n' "$COMMITS" | grep -c .)"
-
 fail=0
-for sha in $COMMITS; do
-  MSG="$(git log -1 --format=%B "$sha")"
-  EMPLOYEE_LINES="$(printf '%s\n' "$MSG" | grep -E '^Employee: ' || true)"
 
-  if [ -z "$EMPLOYEE_LINES" ]; then
-    err "Commit $sha is missing an 'Employee: <Name>' trailer. Per Core/MAIN_AGENT_CONDUCT.md (Dispatch Discipline), every commit must identify the Employee who produced it. This commit likely skipped the local commit-msg hook (--no-verify, or the hook was never installed)."
-    fail=1
-    continue
-  fi
-
+# validate_employee_lines <sha> <employee-lines>
+# Every claim is checked against the roster; the caller decides what an absent
+# claim means. Sets fail=1 on a bad name.
+validate_employee_lines() {
+  local sha="$1" lines="$2" emp_line EMPLOYEE_NAME
   while IFS= read -r emp_line; do
     [ -n "$emp_line" ] || continue
     EMPLOYEE_NAME="$(printf '%s' "${emp_line#Employee: }" | tr -d '\r')"
@@ -142,7 +138,105 @@ for sha in $COMMITS; do
       err "Commit $sha has 'Employee: $EMPLOYEE_NAME', which is not in $ROSTER${PROJECT_ROSTER:+ nor in the project roster $PROJECT_ROSTER}. A functional or tool label ('executor', 'coder', 'reviewer-bot') is not a valid Employee name — see Core/MAIN_AGENT_CONDUCT.md, 'Naming matters.' If this line is an EXAMPLE quoted in the message body, indent it so it does not start at column 0."
       fail=1
     fi
-  done < <(printf '%s\n' "$EMPLOYEE_LINES")
+  done < <(printf '%s\n' "$lines")
+}
+
+if [ -z "$COMMITS" ]; then
+  echo "No non-merge commits to validate."
+else
+  echo "Commits to validate: $(printf '%s\n' "$COMMITS" | grep -c .)"
+fi
+
+for sha in $COMMITS; do
+  MSG="$(git log -1 --format=%B "$sha")"
+  EMPLOYEE_LINES="$(printf '%s\n' "$MSG" | grep -E '^Employee: ' || true)"
+
+  if [ -z "$EMPLOYEE_LINES" ]; then
+    err "Commit $sha is missing an 'Employee: <Name>' trailer. Per Core/MAIN_AGENT_CONDUCT.md (Dispatch Discipline), every commit must identify the Employee who produced it. This commit likely skipped the local commit-msg hook (--no-verify, or the hook was never installed)."
+    fail=1
+    continue
+  fi
+
+  validate_employee_lines "$sha" "$EMPLOYEE_LINES"
 done
+
+# --- Merge commits ---------------------------------------------------------
+# A merge is not judged by its subject, which git generates. It is judged by
+# whether it AUTHORS anything: a merge whose tree equals the automatic merge of
+# its parents contains no new content and needs no attribution; one whose tree
+# differs (conflict resolution, extra edits, `-s ours`) or that has more than
+# two parents (octopus, never classified) put content in the history that no
+# other commit accounts for, and must name the Employee who produced it
+# (PT-02 of the #112 exercise; WU-IAENG-307). A claim that IS present on any
+# merge is always validated.
+#
+# Historical authored merges without a claim are grandfathered by sha in
+# Registry/merge-attribution-exceptions.txt (a closed list).
+#
+# The classifier is `git merge-tree --write-tree` (git >= 2.38). If it cannot
+# run, the merge is unclassified and the check FAILS: passing on an
+# unclassifiable merge is the check-that-passes-without-evaluating shape.
+if ! MERGES="$(git rev-list --merges "${BASE_REF}..${HEAD_REF}")"; then
+  err "git rev-list --merges failed over ${BASE_REF}..${HEAD_REF}; failing rather than skipping merges unexamined."
+  exit 1
+fi
+
+if [ -n "$MERGES" ]; then
+  EXCEPTIONS=""
+  for candidate in \
+    "${IAENG_MERGE_EXCEPTIONS:-}" \
+    "Registry/merge-attribution-exceptions.txt" \
+    "ia-engineering/Registry/merge-attribution-exceptions.txt"
+  do
+    if [ -n "$candidate" ] && [ -f "$candidate" ]; then
+      EXCEPTIONS="$candidate"
+      break
+    fi
+  done
+  echo "Merge commits to classify: $(printf '%s\n' "$MERGES" | grep -c .)"
+  echo "Merge attribution exceptions: ${EXCEPTIONS:-none}"
+
+  GIT_VER="$(git version | sed -E 's/^git version ([0-9]+)\.([0-9]+).*/\1 \2/')"
+  read -r GV_MAJOR GV_MINOR <<< "$GIT_VER"
+  if ! [[ "${GV_MAJOR:-}" =~ ^[0-9]+$ && "${GV_MINOR:-}" =~ ^[0-9]+$ ]] || [ $((GV_MAJOR * 1000 + GV_MINOR)) -lt 2038 ]; then
+    err "git $(git version) cannot classify merge commits: 'git merge-tree --write-tree' needs git 2.38 or newer. Failing closed rather than passing merges unclassified."
+    exit 1
+  fi
+
+  for sha in $MERGES; do
+    EMPLOYEE_LINES="$(git log -1 --format=%B "$sha" | grep -E '^Employee: ' || true)"
+    if [ -n "$EMPLOYEE_LINES" ]; then
+      validate_employee_lines "$sha" "$EMPLOYEE_LINES"
+      continue
+    fi
+
+    PARENTS="$(git rev-list --parents -n 1 "$sha" | cut -d' ' -f2-)"
+    read -ra PARR <<< "$PARENTS"
+    if [ "${#PARR[@]}" -ne 2 ]; then
+      KIND=authored
+    else
+      MT_RC=0
+      MT_OUT="$(git merge-tree --write-tree --no-messages "${PARR[0]}" "${PARR[1]}" 2>/dev/null)" || MT_RC=$?
+      if [ "$MT_RC" -gt 1 ]; then
+        err "Merge $sha could not be classified (git merge-tree exited $MT_RC — shallow history or missing objects?). Failing closed rather than passing an unclassified merge."
+        fail=1
+        continue
+      elif [ "$MT_RC" -eq 0 ] && [ "$(printf '%s\n' "$MT_OUT" | head -1)" = "$(git rev-parse "$sha^{tree}")" ]; then
+        KIND=clean
+      else
+        KIND=authored
+      fi
+    fi
+
+    if [ "$KIND" = clean ]; then
+      echo "  $sha -> merge, no content of its own"
+    elif [ -n "$EXCEPTIONS" ] && grep -qE "^${sha}( |$)" "$EXCEPTIONS"; then
+      echo "  $sha -> authored merge, grandfathered ($EXCEPTIONS)"
+    else
+      err "Merge $sha changes content beyond its parents' automatic merge and carries no Employee trailer. A merge that resolves conflicts or adds changes is authored work (Standards/COMMIT_STANDARD.md, Merge Commits): add 'Employee: <Name>' to its message."
+      fail=1
+    fi
+  done
+fi
 
 exit "$fail"
