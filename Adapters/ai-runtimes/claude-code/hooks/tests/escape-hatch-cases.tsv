@@ -420,3 +420,44 @@ allow	git commit -m docs -m "gh pr edit 1 --add-label control-change/approved"
 allow	echo control-change/approved
 allow	echo "gh pr edit 1 --add-label size/approved" >> notes.md
 allow	printf '%s\n' "the label size/approved is Director-only" > doc.md
+# --- Approval-label guard, review fixes (WU-IAENG-311): quoted lists, repo flags, gh.exe, alias, mixed methods, clone, chains.
+block	gh pr edit 170 --add-label "help wanted,size/approved"
+block	gh pr edit 170 --add-label "size/approved, bug"
+block	gh pr create --label "control-change/approved,help wanted"
+block	gh issue edit 5 --add-label 'bug, size/approved'
+block	gh pr edit 170 --title x --add-label "Help Wanted, SIZE/APPROVED" --body y
+block	gh pr edit 170 --add-label="help wanted,size/approved"
+block	gh -R o/r pr edit 170 --add-label size/approved
+block	gh --repo o/r pr edit 170 --add-label size/approved
+block	gh pr -R o/r edit 170 --add-label size/approved
+block	gh pr --repo=o/r edit 170 --add-label control-change/approved
+block	gh issue -R o/r create --label size/approved
+block	gh -R o/r label edit foo --name size/approved
+block	gh.exe pr edit 1 --add-label size/approved
+block	gh alias set approve 'pr edit --add-label size/approved'
+block	gh alias set approve "pr edit --add-label control-change/approved"
+block	gh alias import aliases.yml # size/approved
+block	gh api -X GET -X POST repos/o/r/issues/170/labels -f labels[]=size/approved
+block	gh api -X DELETE -X PUT repos/o/r/issues/170/labels -f labels[]=size/approved
+block	gh api -XPOST repos/o/r/issues/170/labels -f labels[]=size/approved
+block	gh api --method=PUT repos/o/r/issues/170/labels -f labels[]=size/approved
+block	gh label clone o/other --force
+block	gh label clone o/other -f
+block	gh pr view 1 | gh pr edit 1 --add-label size/approved
+block	x=$(gh pr edit 1 --add-label size/approved)
+block	git status && gh pr edit 1 --add-label control-change/approved && echo done
+block	true || gh issue edit 1 --add-label size/approved
+allow	gh pr edit 170 --add-label "help wanted,bug"
+allow	gh pr edit 170 --add-label "help wanted" --body "needs size/approved from the Director"
+allow	gh pr edit 170 --add-label bug --title "size/approved, control-change/approved"
+allow	gh pr edit 170 --add-label "bug, not-size/approved"
+allow	gh pr create --label "help wanted" --body "Under 1,500 lines or the Director applies size/approved."
+allow	gh pr edit 170 --remove-label "size/approved, bug"
+allow	gh -R o/r pr edit 170 --add-label bug
+allow	gh -R o/r pr view 170 --json labels
+allow	gh alias set co 'pr checkout'
+allow	gh alias list
+allow	gh label clone o/other
+allow	gh api -X GET repos/o/r/issues -f labels=size/approved -X DELETE
+allow	gh pr view 1 | gh pr comment 1 --body "size/approved is the Director's"
+allow	x=$(gh pr view 1 --json labels)

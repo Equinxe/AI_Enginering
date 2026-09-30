@@ -323,34 +323,77 @@ fi
 # Applying is refused; REMOVING (--remove-label, DELETE) is allowed because it
 # can only withdraw an approval; reads are allowed; creating the label is refused
 # (the Director creates it; `create --force` would redefine what the guard trusts).
+#
+# GATE: the whole block costs nothing for a command with no `gh` in it — a
+# builtin pattern test, no fork. Case is folded by the pattern itself (bash 3.2
+# has no ${var,,}).
+#
+# RAW CHECKS (quoted label lists). The lexer drops a quoted region that contains
+# whitespace, so `--add-label "help wanted,size/approved"` — the form gh's own
+# --help shows — leaves nothing after the flag in the stripped text. Only when
+# the STRIPPED segment is already a gh pr|issue edit|create carrying a label
+# flag is the RAW segment consulted, and only for the quoted VALUE of that flag
+# (never --body or --title). Same for `gh alias set|import`, whose value is a
+# command in quotes. Raw segments are split on ; & | like the stripped ones, so
+# a quoted `;` can split a value — that can only miss, never invent, a match.
 LBL='(control-change(/|%2f)approved|size(/|%2f)approved)'
 LEND='([[:space:]]|,|;|&|\||\)|$)'
 LVAL="([^[:space:],]*,)*${LBL}${LEND}"
-GHB='(^|[[:space:];&|(`/])gh'
+GHB='(^|[[:space:];&|(`/])gh(\.exe)?'
+# gh's repo flag may sit before or inside the subcommand: `gh -R o/r pr edit`,
+# `gh pr --repo=o/r edit`. Any long flag or -R/--repo with a value.
+GHF="(${S}+(-R|--repo)(=|${S}+)[^[:space:]]+|${S}+--[a-z][a-z-]*)*"
+GHEDIT="${GHB}${GHF}${S}+(pr|issue)${GHF}${S}+(edit|create)"
 LABEL_FLAG="(${S}--add-label(=|${S}+)|${S}--label(=|${S}+)|${S}-l(=|${S}*))"
+RLEND="([[:space:]]|,|\"|')"
+RAW_LVAL="(\"([^\"]*[^[:alnum:]_/-])?${LBL}${RLEND}|'([^']*[^[:alnum:]_/-])?${LBL}${RLEND})"
+WRITE_M="${S}(-X${S}*|--method(=|${S}+))(POST|PUT|PATCH)${E}"
+READ_M="${S}(-X${S}*|--method(=|${S}+))(GET|DELETE)${E}"
 APPROVAL_LABEL=0
-while IFS= read -r SEG; do
-  grep -qiE -- "${GHB}${S}" <<< "$SEG" || continue
-  if grep -qiE -- "${GHB}${S}+(pr|issue)${S}+(edit|create)[^|;&]*${LABEL_FLAG}${LVAL}" <<< "$SEG" \
-     || grep -qiE -- "${GHB}${S}+label${S}+edit[^|;&]*${S}(--name|-n)(=|${S}*)${LBL}${LEND}" <<< "$SEG" \
-     || grep -qiE -- "${GHB}${S}+label${S}+create${S}([^|;&]*${S})?${LBL}${LEND}" <<< "$SEG"; then
-    APPROVAL_LABEL=1
-  fi
-  if grep -qiE -- "${GHB}${S}+api${S}" <<< "$SEG" \
-     && ! grep -qiE -- "${S}(-X|--method)(=|${S}+)(GET|DELETE)${E}" <<< "$SEG"; then
-    WRITE_OPT="${S}(-X|--method)(=|${S}+)(POST|PUT|PATCH)${E}|${S}(-f|-F|--field|--raw-field|--input)"
-    if grep -qiE -- "(^|[^[:alnum:]_-])${LBL}${LEND}" <<< "$SEG" \
-       && grep -qiE -- "$WRITE_OPT" <<< "$SEG"; then
+GH_EDIT_LABELFLAG=0
+GH_ALIAS=0
+case "$STRIPPED" in *[gG][hH]*) GH_SEEN=1 ;; *) GH_SEEN=0 ;; esac
+if [ "$GH_SEEN" -eq 1 ]; then
+  while IFS= read -r SEG; do
+    grep -qiE -- "${GHB}${S}" <<< "$SEG" || continue
+    if grep -qiE -- "${GHEDIT}[^|;&]*${LABEL_FLAG}${LVAL}" <<< "$SEG" \
+       || grep -qiE -- "${GHB}${GHF}${S}+label${GHF}${S}+edit[^|;&]*${S}(--name|-n)(=|${S}*)${LBL}${LEND}" <<< "$SEG" \
+       || grep -qiE -- "${GHB}${GHF}${S}+label${GHF}${S}+create${S}([^|;&]*${S})?${LBL}${LEND}" <<< "$SEG" \
+       || grep -qiE -- "${GHB}${GHF}${S}+label${GHF}${S}+clone${S}([^|;&]*${S})?(-f|--force)${E}" <<< "$SEG"; then
       APPROVAL_LABEL=1
     fi
-    # --input names a file this hook cannot read: refused on the endpoints that
-    # set labels, since unread input is refused (see the lexer LIMIT contract).
-    if grep -qiE -- "${S}--input" <<< "$SEG" \
-       && grep -qiE -- "(issues|pulls)/[0-9]+(/labels)?${E}|/labels${E}" <<< "$SEG"; then
-      APPROVAL_LABEL=1
+    grep -qiE -- "${GHEDIT}[^|;&]*${LABEL_FLAG}" <<< "$SEG" && GH_EDIT_LABELFLAG=1
+    grep -qiE -- "${GHB}${GHF}${S}+alias${GHF}${S}+(set|import)${E}" <<< "$SEG" && GH_ALIAS=1
+    # The read exemption applies only when no write method is also present.
+    if grep -qiE -- "${GHB}${GHF}${S}+api${S}" <<< "$SEG" \
+       && { ! grep -qiE -- "$READ_M" <<< "$SEG" || grep -qiE -- "$WRITE_M" <<< "$SEG"; }; then
+      WRITE_OPT="${WRITE_M}|${S}(-f|-F|--field|--raw-field|--input)"
+      if grep -qiE -- "(^|[^[:alnum:]_-])${LBL}${LEND}" <<< "$SEG" \
+         && grep -qiE -- "$WRITE_OPT" <<< "$SEG"; then
+        APPROVAL_LABEL=1
+      fi
+      # --input names a file this hook cannot read: refused on the endpoints that
+      # set labels, since unread input is refused (see the lexer LIMIT contract).
+      if grep -qiE -- "${S}--input" <<< "$SEG" \
+         && grep -qiE -- "(issues|pulls)/[0-9]+(/labels)?${E}|/labels${E}" <<< "$SEG"; then
+        APPROVAL_LABEL=1
+      fi
     fi
+  done < <(printf '%s\n' "$STRIPPED" | tr ';&|' '\n')
+  if [ "$GH_EDIT_LABELFLAG" -eq 1 ] || [ "$GH_ALIAS" -eq 1 ]; then
+    while IFS= read -r SEG; do
+      if [ "$GH_EDIT_LABELFLAG" -eq 1 ] \
+         && grep -qiE -- "${GHEDIT}[^|;&]*${LABEL_FLAG}${RAW_LVAL}" <<< "$SEG"; then
+        APPROVAL_LABEL=1
+      fi
+      if [ "$GH_ALIAS" -eq 1 ] \
+         && grep -qiE -- "${GHB}${GHF}${S}+alias${GHF}${S}+(set|import)${E}" <<< "$SEG" \
+         && grep -qiE -- "(^|[^[:alnum:]_-])${LBL}" <<< "$SEG"; then
+        APPROVAL_LABEL=1
+      fi
+    done < <(printf '%s\n' "$CMD" | tr ';&|' '\n')
   fi
-done < <(printf '%s\n' "$STRIPPED" | tr ';&|' '\n')
+fi
 if [ "$APPROVAL_LABEL" -eq 1 ]; then
   iaeng_block "applying control-change/approved or size/approved — only the Director applies these approval labels" \
     "Adapters/ai-runtimes/claude-code/hooks/README.md, Approval Label Guard. Ask the Director to apply the label; removing it, listing labels and mentioning it in text are allowed."
