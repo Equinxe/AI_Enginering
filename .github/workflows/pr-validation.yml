@@ -234,10 +234,12 @@ jobs:
           # --norc: shellcheck otherwise reads .shellcheckrc from each script's
           # directory upward, i.e. from the PR's own tree, so a PR that adds
           # `disable=all` at the root or in Adapters/ would silence this
-          # required check. --norc ignores every rc file (since 0.8.0). It is
-          # deliberately not version-guarded: an older shellcheck that does not
-          # know the flag exits non-zero, so the step fails closed instead of
-          # silently running with the PR's configuration.
+          # required check. --norc ignores every rc file. It is deliberately
+          # not version-guarded: a shellcheck that does not know the flag exits
+          # non-zero, so the step fails closed instead of silently running with
+          # the PR's configuration. The binary is the runner image's, not the
+          # PR's; its version is printed here so a run can be audited.
+          shellcheck --version
           shellcheck --norc -x -P SCRIPTDIR "${SHELL_FILES[@]}"
 
   yaml-lint:
@@ -267,11 +269,21 @@ jobs:
           # `npx js-yaml` lets a PR (or a compromised registry release) change
           # what "valid YAML" means. Bump the pin deliberately, in its own
           # Work Unit. The files are passed as absolute paths.
+          # 4.3.2 is the last release of the v4 line; js-yaml's latest is 5.x.
+          # v4 is kept because this only needs a syntax check, and it had no
+          # known advisories as of 30 Sep 2026. A bump to 5.x must be tracked.
+          # NPM_CONFIG_GLOBALCONFIG is left alone on purpose: it is the runner
+          # image's, not the PR tree's; nulling it breaks enterprise mirrors,
+          # and nulling it together with USERCONFIG makes npm fail with
+          # "double-loading config".
+          # The npx cache is per-run too, so a persistent (self-hosted) runner
+          # cannot serve a previously cached, different js-yaml.
           JS_YAML_VERSION="4.3.2"
           ROOT="$(pwd)"
           GRADER_DIR="$(mktemp -d)"
           trap 'rm -rf "$GRADER_DIR"' EXIT
           export NPM_CONFIG_USERCONFIG=/dev/null
+          export NPM_CONFIG_CACHE="$GRADER_DIR/npm-cache"
           fail=0
           for f in "${YAML_FILES[@]}"; do
             if (cd "$GRADER_DIR" && npx --yes -q "js-yaml@${JS_YAML_VERSION}" "$ROOT/$f") > /dev/null 2>&1; then
