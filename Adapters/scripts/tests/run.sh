@@ -1594,6 +1594,19 @@ expect_output "missing 'Employee: <Name>' trailer"
 printf "Merge branch 'side'\n\nEmployee: Test Employee\n" > msg-merge.txt
 expect 0 "an authored merge with a valid trailer is accepted" -- bash "$HOOK" msg-merge.txt
 
+# Classifier unavailable locally: warn and defer to CI, do not block.
+printf "Merge branch 'side'\n" > msg-merge.txt
+REAL_GIT="$(command -v git)"
+mkdir -p "$WORK/shim-hook"
+cat > "$WORK/shim-hook/git" <<SHIM
+#!/usr/bin/env bash
+if [ "\$1" = "merge-tree" ]; then exit 128; fi
+exec "$REAL_GIT" "\$@"
+SHIM
+chmod +x "$WORK/shim-hook/git"
+expect 0 "an unclassifiable merge warns and is left to CI" -- env PATH="$WORK/shim-hook:$PATH" bash "$HOOK" msg-merge.txt
+expect_output "cannot classify this merge locally"
+
 # ----------------------- merge attribution: check-employee-trailers.sh --------
 
 section "check-employee-trailers.sh — merge attribution (WU-IAENG-307)"
@@ -1684,13 +1697,35 @@ mk_emp_merge_repo mrg-ours
 git merge -q -s ours --no-ff side -m "Merge branch 'side'"
 expect 1 "a -s ours merge that discards changes, no trailer, fails" -- bash "$CHECK_EMP" "$BASE" HEAD
 
-mk_emp_merge_repo mrg-exception
+# SEC-IAENG-307-01: the grandfather list is a constant inside the script. The
+# check runs from the PR's own tree, so any data file in that tree is
+# attacker-editable and must NOT be able to exempt a merge. The two real
+# grandfathered shas are exercised by running the check over v0.0.13..develop
+# (recorded in the PR), since fixture shas cannot be predicted.
+mk_emp_merge_repo mrg-exception-ignored
 git merge -q --no-commit --no-ff side
 echo extra > extra.txt && git add extra.txt
 git commit -q -m "Merge branch 'side'"
-mkdir -p Registry
-echo "$(git rev-parse HEAD) grandfathered for the test" > Registry/merge-attribution-exceptions.txt
-expect 0 "an authored merge listed in the exceptions file passes" -- bash "$CHECK_EMP" "$BASE" HEAD
+mkdir -p Registry ia-engineering/Registry
+echo "$(git rev-parse HEAD) planted by the PR under test" > Registry/merge-attribution-exceptions.txt
+cp Registry/merge-attribution-exceptions.txt ia-engineering/Registry/
+expect 1 "an exceptions file planted in the tree does not exempt a merge" -- \
+  env IAENG_MERGE_EXCEPTIONS=Registry/merge-attribution-exceptions.txt bash "$CHECK_EMP" "$BASE" HEAD
+expect_output "carries no Employee trailer"
+
+# Fail closed on a git too old to classify.
+mk_emp_merge_repo mrg-old-git
+git merge -q --no-ff side -m "Merge branch 'side'"
+REAL_GIT="$(command -v git)"
+mkdir -p "$WORK/shim-old"
+cat > "$WORK/shim-old/git" <<SHIM
+#!/usr/bin/env bash
+if [ "\$1" = "version" ]; then echo "git version 2.30.0"; exit 0; fi
+exec "$REAL_GIT" "\$@"
+SHIM
+chmod +x "$WORK/shim-old/git"
+expect 1 "git older than 2.38 fails closed" -- env PATH="$WORK/shim-old:$PATH" bash "$CHECK_EMP" "$BASE" HEAD
+expect_output "cannot classify"
 
 # Fail closed: a git whose merge-tree errors must not turn into a pass.
 mk_emp_merge_repo mrg-shim

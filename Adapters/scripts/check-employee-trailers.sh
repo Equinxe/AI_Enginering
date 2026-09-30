@@ -6,8 +6,8 @@
 # same rule only when it AUTHORS content: its tree differs from the automatic
 # merge of its parents, or it has more than two parents. A clean merge needs no
 # trailer; an `Employee:` line present on any merge is validated regardless.
-# Historical authored merges are grandfathered by sha in
-# Registry/merge-attribution-exceptions.txt. Classifying needs git >= 2.38
+# Historical authored merges are grandfathered by sha in a constant inside this
+# script (GRANDFATHERED_MERGES). Classifying needs git >= 2.38
 # (`git merge-tree --write-tree`); without it the check fails closed.
 #
 # This is the SERVER-SIDE BACKSTOP for Adapters/git-hooks/commit-msg. The hook
@@ -170,8 +170,15 @@ done
 # (PT-02 of the #112 exercise; WU-IAENG-307). A claim that IS present on any
 # merge is always validated.
 #
-# Historical authored merges without a claim are grandfathered by sha in
-# Registry/merge-attribution-exceptions.txt (a closed list).
+# Historical authored merges without a claim are grandfathered by sha in the
+# constant below. It lives in THIS script, not in a data file, on purpose: the
+# required check runs from the PR's own tree, so a data file could be edited by
+# the very PR it is meant to judge. Exempting a merge means editing the check's
+# source, which is what review of a control change is for. The list is closed:
+# both entries predate the rule (WU-IAENG-307); never add a new merge.
+#   3babf69d... merge of origin/develop into feat/commit-type-perf
+#   93c850a7... merge of origin/develop into perf/generate-agents-single-pass
+readonly GRANDFATHERED_MERGES="3babf69d9664ddb590acd7381a99fa90d1e40f70 93c850a754a26a050b621d52ac1881645d21be5f"
 #
 # The classifier is `git merge-tree --write-tree` (git >= 2.38). If it cannot
 # run, the merge is unclassified and the check FAILS: passing on an
@@ -182,19 +189,7 @@ if ! MERGES="$(git rev-list --merges "${BASE_REF}..${HEAD_REF}")"; then
 fi
 
 if [ -n "$MERGES" ]; then
-  EXCEPTIONS=""
-  for candidate in \
-    "${IAENG_MERGE_EXCEPTIONS:-}" \
-    "Registry/merge-attribution-exceptions.txt" \
-    "ia-engineering/Registry/merge-attribution-exceptions.txt"
-  do
-    if [ -n "$candidate" ] && [ -f "$candidate" ]; then
-      EXCEPTIONS="$candidate"
-      break
-    fi
-  done
   echo "Merge commits to classify: $(printf '%s\n' "$MERGES" | grep -c .)"
-  echo "Merge attribution exceptions: ${EXCEPTIONS:-none}"
 
   GIT_VER="$(git version | sed -E 's/^git version ([0-9]+)\.([0-9]+).*/\1 \2/')"
   read -r GV_MAJOR GV_MINOR <<< "$GIT_VER"
@@ -221,7 +216,11 @@ if [ -n "$MERGES" ]; then
         err "Merge $sha could not be classified (git merge-tree exited $MT_RC — shallow history or missing objects?). Failing closed rather than passing an unclassified merge."
         fail=1
         continue
-      elif [ "$MT_RC" -eq 0 ] && [ "$(printf '%s\n' "$MT_OUT" | head -1)" = "$(git rev-parse "$sha^{tree}")" ]; then
+      elif ! M_TREE="$(git rev-parse "$sha^{tree}")"; then
+        err "Merge $sha could not be classified (its tree could not be read). Failing closed rather than passing an unclassified merge."
+        fail=1
+        continue
+      elif [ "$MT_RC" -eq 0 ] && [ "$(printf '%s\n' "$MT_OUT" | head -1)" = "$M_TREE" ]; then
         KIND=clean
       else
         KIND=authored
@@ -230,8 +229,8 @@ if [ -n "$MERGES" ]; then
 
     if [ "$KIND" = clean ]; then
       echo "  $sha -> merge, no content of its own"
-    elif [ -n "$EXCEPTIONS" ] && grep -qE "^${sha}( |$)" "$EXCEPTIONS"; then
-      echo "  $sha -> authored merge, grandfathered ($EXCEPTIONS)"
+    elif [[ " $GRANDFATHERED_MERGES " == *" $sha "* ]]; then
+      echo "  $sha -> authored merge, grandfathered (GRANDFATHERED_MERGES in this script)"
     else
       err "Merge $sha changes content beyond its parents' automatic merge and carries no Employee trailer. A merge that resolves conflicts or adds changes is authored work (Standards/COMMIT_STANDARD.md, Merge Commits): add 'Employee: <Name>' to its message."
       fail=1

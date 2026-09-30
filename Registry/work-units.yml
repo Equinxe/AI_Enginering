@@ -1097,4 +1097,4 @@ work_units:
     employee: DevOps Engineer
     title: Require attribution on merges that author content (PT-02 of the #112 exercise) - classify merges by comparing their tree to the automatic merge of their parents; authored merges need an Employee trailer in CI and in commit-msg; historical ones grandfathered
     milestone: Precision
-    delivers: Adapters/scripts/check-employee-trailers.sh, Adapters/git-hooks/commit-msg, Standards/COMMIT_STANDARD.md, Registry/merge-attribution-exceptions.txt, Adapters/scripts/tests/run.sh, Registry/work-units.yml
+    delivers: Adapters/scripts/check-employee-trailers.sh, Adapters/git-hooks/commit-msg, Standards/COMMIT_STANDARD.md, Adapters/scripts/tests/run.sh, Registry/work-units.yml
