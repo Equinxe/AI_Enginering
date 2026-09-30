@@ -280,3 +280,71 @@ allow	git pull origin develop
 allow	git merge --no-ff feature/x
 allow	git tag v0.0.14
 allow	gh pr create --title "fix: x" --body "y"
+# --- Purple exercise #112 (29 Sep 2026), Director-authorized. WU-IAENG-306
+# closes PT-03, PT-05 and PT-06 of the Penetration Tester's static report and
+# the Security Engineer's decision pass. See
+# Adapters/ai-runtimes/claude-code/hooks/block-escape-hatches.sh for the rule
+# changes each group of cases below proves.
+#
+# PT-03 — core.hooksPath case-insensitivity, GIT_CONFIG_PARAMETERS as an
+# opaque token, and GIT_CONFIG_KEY_<n> when its value is unreadable after
+# quote-stripping. A readable, non-hooksPath key stays allowed.
+block	GIT_CONFIG_PARAMETERS=1 git commit -m x
+block	GIT_CONFIG_KEY_0=$(whoami) git commit -m x
+block	git -c core.hookspath=/dev/null commit -m x
+block	git -c CORE.HOOKSPATH=/dev/null commit -m x
+block	git config core.HooksPath /dev/null
+block	git --config-env=core.hooksPath=/dev/null commit -m x
+block	git config alias.yolo "-c core.hookspath=/dev/null commit"
+allow	GIT_CONFIG_KEY_0=safe.directory GIT_CONFIG_VALUE_0=/repo git status
+allow	GIT_CONFIG_GLOBAL=/dev/null git commit -m x
+allow	printenv GIT_CONFIG_PARAMETERS
+allow	env | grep GIT_CONFIG
+allow	unset GIT_CONFIG_PARAMETERS
+allow	grep "core.hooksPath" Standards/GIT_STANDARD.md
+allow	echo "core.hooksPath is fine to mention"
+allow	git config get core.hooksPath
+allow	git config --show-origin --get core.hooksPath
+allow	git config list | grep -i hookspath
+#
+# PT-05 — G (the git-global-options prefix) widened to cover every no-
+# argument long option by shape, -p/-P, and the value-taking options in both
+# = and SPACE form; verified not to over-match a bare `git --version` or a
+# subcommand's OWN trailing -p (git add -p stays blocked, unaffected below).
+block	git --no-replace-objects push --force
+block	git --literal-pathspecs push -f
+block	git -p push --force
+block	git --no-optional-locks reset --hard
+block	git --git-dir ../r push --force
+block	git --namespace=x push --force
+block	git --config-env=a.b=V commit --no-verify
+allow	git --no-pager log
+allow	git -p log
+allow	git -p add
+allow	git --literal-pathspecs add
+allow	git --no-optional-locks status
+allow	git --version
+#
+# PT-06 — the core.hooksPath read exemption anchored to an actual `git
+# config` read subcommand with core.hooksPath as that flag's own argument;
+# a -c/--config-env= naming hooksPath anywhere in the command is never
+# exempted, even alongside a read flag that appears only as another key's
+# value.
+block	git -c a.b=--get -c core.hooksPath=/dev/null commit -m x
+block	git -c core.hooksPath=/dev/null config --list
+# WU-IAENG-306 review round: per-segment read exemption (a read in one segment
+# never exempts a write in another), closed option set around the read keyword
+# (an option value is never a read keyword), and GIT_CONFIG_KEY_<n> with a
+# runtime-built key.
+block	git config --get core.hooksPath; git config core.hooksPath /dev/null
+block	git config --get core.hooksPath && git config --unset core.hooksPath
+block	git config --comment get core.hooksPath /dev/null
+block	git config --comment --get core.hooksPath /dev/null
+block	git config set --comment list core.hooksPath /dev/null
+block	GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=$K GIT_CONFIG_VALUE_0=/dev/null git commit -m x
+block	GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0="$K" GIT_CONFIG_VALUE_0=/dev/null git commit -m x
+block	GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.$X GIT_CONFIG_VALUE_0=/dev/null git commit -m x
+allow	git config --show-origin --get core.hooksPath
+allow	git config --global --get core.hooksPath
+allow	git config --get core.hooksPath && git status
+allow	git config get core.hooksPath

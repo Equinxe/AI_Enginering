@@ -11,7 +11,7 @@ These hooks make five rules mechanical for the one runtime that currently expose
 | Hook | Event | Rule enforced | Source |
 |---|---|---|---|
 | `session-start.sh` | `SessionStart` (startup, resume, compact) | Read first: `CLAUDE.md`, then `.ia-engineering/SESSION_STATE.md`, then the brief — printed into context with the *current* state (last update, next step, blockers) so the reading order is seen, not remembered. If `CLAUDE.md` does not exist yet (a project that has not completed `Workflows/PROJECT_BOOTSTRAP.md` Phase B / the `Workflows/ONBOARDING.md` Step 1 handoff), it says so instead of asserting the line, and names `Templates/PROJECT_CLAUDE.md` as the source when the framework's own root can be found. Also warns — never blocks — when `SESSION_STATE.md` is behind the repository, when its `_Last updated:` header was not refreshed on the file's last edit, or when it has grown past a size budget; see SESSION_STATE Freshness below | `Core/AGENT_CONDUCT.md`, Read First; `Core/CONTEXT_BUDGET.md` |
-| `block-escape-hatches.sh` | `PreToolUse`, matcher `Bash` | No `--no-verify`, no `--no-gpg-sign`, no `stash` in place of a commit, no interactive git in a non-interactive session, no force/mirror push, no deletion of a protected branch, no `reset --hard` / `clean -f` / `checkout -- .` / `branch -D`, no history rewrite, no `rm -rf` of `.git` or `/` | `Standards/GIT_STANDARD.md`, Escape Hatches |
+| `block-escape-hatches.sh` | `PreToolUse`, matcher `Bash` | No `--no-verify`, no `--no-gpg-sign`, no `stash` in place of a commit, no interactive git in a non-interactive session, no force/mirror push, no deletion of a protected branch, no `reset --hard` / `clean -f` / `checkout -- .` / `branch -D`, no history rewrite, no `rm -rf` of `.git` or `/`, no `core.hooksPath` write in any case spelling or via a global option, no opaque `GIT_CONFIG_PARAMETERS`/`GIT_CONFIG_KEY_<n>` env-var config injection | `Standards/GIT_STANDARD.md`, Escape Hatches |
 | `block-inline-suppression.sh` | `PreToolUse`, matcher `Edit\|Write\|MultiEdit` | No inline linter / type-checker / test-runner disable written into code; no skipped or focused test; no swallowed exception. Documentation files are the named exemption — the Standard has to be able to quote what it forbids | `Standards/CODE_QUALITY_STANDARD.md`, No Inline Suppression |
 | `post-edit-lint.sh` | `PostToolUse`, matcher `Edit\|Write\|MultiEdit` | The file just written passes `bash -n` and `shellcheck` (shell), and the project's own `.ia-engineering/lint.sh` when it exists; a failure returns to the model immediately. When nothing applicable ran, it says so | `Standards/CODE_QUALITY_STANDARD.md`, Automated Quality |
 | `stop-gate.sh` | `Stop` | The session does not end with tracked files changed and uncommitted, unexplained (one continuation granted via the `stop_hook_active` guard). **Also blocks** when `.ia-engineering/SESSION_STATE.md` exists and is older than HEAD's last commit, so the agent updates it before the session ends; a missing file gets a non-blocking reminder instead — see SESSION_STATE Freshness below | `Core/AGENT_CONDUCT.md`, Reporting Contract; `Templates/SESSION_STATE.md` |
@@ -39,6 +39,19 @@ These hooks make five rules mechanical for the one runtime that currently expose
 **Name the exemption.** Documentation files are exempt from the suppression hook, by extension, in the script. `git stash list` and `git stash show` are exempt from the stash rule. `git push --delete` of a non-protected branch is allowed. Each exemption is a line a reviewer can read; none is a fall-through.
 
 **Say what did not run.** `post-edit-lint.sh` reports "no linter ran for this file" rather than exiting silently, because silence reads as a pass.
+
+---
+
+# Purple Exercise #112 Corrections (29 Sep 2026)
+
+Director-authorized static penetration test of `block-escape-hatches.sh`. Three findings against the `core.hooksPath` rule and the global-options prefix, closed under WU-IAENG-306; the other findings from the same exercise are separate Work Units and out of scope here.
+
+- **Case-insensitivity.** git treats a config section and key case-insensitively — `core.hooksPath`, `core.HooksPath` and `CORE.HOOKSPATH` all disable the same hook — and the rule matched only the lowercase spelling. It now uses `check_key`, the same case-insensitive helper already used for `commit.gpgsign`.
+- **`GIT_CONFIG_PARAMETERS` and `GIT_CONFIG_KEY_<n>`.** These environment variables set git config for every git command that inherits them. `GIT_CONFIG_PARAMETERS=` is refused as a token, because its encoding is not decoded from the stripped command text. `GIT_CONFIG_KEY_<n>=` is refused when its value is empty, ends at a separator, or contains a `$` (a variable or substitution, whole or partial), so the key cannot be read from the command text. A fully literal key is judged by the case-insensitive `core.hooksPath` rule; a literal non-hooksPath key such as `safe.directory` stays allowed.
+- **The global-options prefix (`G`) was too narrow.** It recognised `-C`, `-c`, `--git-dir=`, `--work-tree=`, `--no-pager` and `-P` — any OTHER real git global option ahead of the subcommand (`--no-replace-objects`, `--literal-pathspecs`, `-p`, `--no-optional-locks`, `--namespace=`, `--config-env=`, the space form of `--git-dir`) walked past every rule that anchors on `${G}<subcommand>`. `G` now matches every no-argument long option by shape, `-p`/`-P`, and the value-taking global options in both `=value` and `SPACE value` form.
+- **The `core.hooksPath` read exemption was unanchored.** It matched a read flag and the key name anywhere in the command, in either order. It is now judged per segment (the command is split on `;`, `&`, `|` and newline): a segment is exempt only when it is a `git config` read (`--get`, `--get-all`, `--get-regexp`, `--list`, `-l`, `get`, `list`) that names `core.hooksPath`, with only a closed list of options (`--global`, `--system`, `--local`, `--worktree`, `--show-origin`, `--show-scope`, `--includes`, `--no-includes`, `--null`, `--name-only`, `-z`, and `--file`/`--blob`/`--type`/`--default` with a value) around the read keyword. Any other option leaves the segment un-exempted. A `-c`/`--config-env` naming hooksPath in the segment is never exempted, and a read in one segment does not exempt another segment.
+
+`hooks/tests/escape-hatch-cases.tsv` carries the reproducing cases for all four corrections, each verified to fail against the pre-fix rule before the fix landed.
 
 ---
 
@@ -87,7 +100,7 @@ This writes `.claude/settings.json` from `settings.example.json`, substituting t
 There is a test suite, and it is the control:
 
 ```bash
-./Adapters/ai-runtimes/claude-code/hooks/tests/run.sh          # 340 checks
+./Adapters/ai-runtimes/claude-code/hooks/tests/run.sh          # 391 checks
 ./Adapters/ai-runtimes/claude-code/hooks/tests/run.sh --verbose
 ```
 
