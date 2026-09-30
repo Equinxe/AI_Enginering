@@ -137,12 +137,28 @@ expect_rc "inline-suppression: ignores a non-edit tool"     0 "$HOOKS/block-inli
 PAY_JS="$(jq -n --arg c "$(printf '%s%s' '// eslint' '-disable-next-line')" '{tool_name:"Write",tool_input:{file_path:"a.ts",content:$c}}')"
 PAY_TEST="$(jq -n --arg c "$(printf '%s%s' 'it.' 'skip("x", f)')" '{tool_name:"Write",tool_input:{file_path:"a.test.js",content:$c}}')"
 PAY_CLEAN="$(jq -n '{tool_name:"Write",tool_input:{file_path:"a.py",content:"x = 1"}}')"
-PAY_PATFILE="$(jq -n --arg c "$SUPPRESSED" '{tool_name:"Write",tool_input:{file_path:"Adapters/scripts/suppression-patterns.tsv",content:$c}}')"
+# The pattern-file and hooks/tests exemptions compare the CANONICAL path of the
+# edit (a relative path resolved against the payload's cwd) with the framework's
+# own files, not a suffix: a file that merely ends in the same words, or sits in
+# an unrelated hooks/tests/ directory, is code (SEC-04, SEC-06).
+PATFILE_ABS="$(cd "$HOOKS/../../../scripts" && pwd)/suppression-patterns.tsv"
+HOOKTESTS_ABS="$HOOKS/tests"
+mkpay() { jq -n --arg f "$1" --arg c "$SUPPRESSED" --arg w "${2:-}" '{tool_name:"Write",cwd:$w,tool_input:{file_path:$f,content:$c}}'; }
+PAY_PATFILE="$(mkpay "$PATFILE_ABS")"
 expect_rc "inline-suppression: a pattern from the file (JS/TS row) blocks" 2 "$HOOKS/block-inline-suppression.sh" "$PAY_JS"
 expect_rc "inline-suppression: a pattern from the file (skipped-test row) blocks" 2 "$HOOKS/block-inline-suppression.sh" "$PAY_TEST"
 expect_rc "inline-suppression: clean code is allowed" 0 "$HOOKS/block-inline-suppression.sh" "$PAY_CLEAN"
 expect_rc "inline-suppression: a Write to the pattern file is allowed (it quotes every directive)" 0 "$HOOKS/block-inline-suppression.sh" "$PAY_PATFILE"
 
+expect_rc "inline-suppression: the pattern file given relative to the payload cwd is allowed" 0 "$HOOKS/block-inline-suppression.sh" "$(mkpay "scripts/suppression-patterns.tsv" "$(dirname "$PATFILE_ABS")/..")"
+expect_rc "inline-suppression: a bare relative path that only looks like the pattern file is code" 2 "$HOOKS/block-inline-suppression.sh" "$(mkpay "Adapters/scripts/suppression-patterns.tsv" "/nonexistent")"
+expect_rc "inline-suppression: another tree's file ending in the pattern file's path is code" 2 "$HOOKS/block-inline-suppression.sh" "$(mkpay "/tmp/evil/Adapters/scripts/suppression-patterns.tsv")"
+expect_rc "inline-suppression: a case-variant of the pattern file's path is code" 2 "$HOOKS/block-inline-suppression.sh" "$(mkpay "$(dirname "$PATFILE_ABS")/SUPPRESSION-PATTERNS.TSV")"
+expect_rc "inline-suppression: a .. path that resolves elsewhere is code" 2 "$HOOKS/block-inline-suppression.sh" "$(mkpay "$(dirname "$PATFILE_ABS")/../scripts/../x.py")"
+expect_rc "inline-suppression: this hook's own tests/ directory is exempt" 0 "$HOOKS/block-inline-suppression.sh" "$(mkpay "$HOOKTESTS_ABS/cases.sh")"
+expect_rc "inline-suppression: a relative path into it, resolved against cwd, is exempt" 0 "$HOOKS/block-inline-suppression.sh" "$(mkpay "tests/cases.sh" "$HOOKS")"
+expect_rc "inline-suppression: an unrelated src/hooks/tests/ directory is code" 2 "$HOOKS/block-inline-suppression.sh" "$(mkpay "/work/proj/src/hooks/tests/x.sh")"
+expect_rc "inline-suppression: a .. escape out of tests/ is code" 2 "$HOOKS/block-inline-suppression.sh" "$(mkpay "$HOOKTESTS_ABS/../x.sh")"
 # Fail closed when the pattern file is missing. The hook is copied into a
 # scratch tree of the same shape with and without the data file, and the SAME
 # clean payload is run against both: a missing list must be refused, and the

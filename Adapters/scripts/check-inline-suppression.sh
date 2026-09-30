@@ -32,23 +32,34 @@
 # EXEMPTIONS — named, by path, none a fall-through
 #   - documentation: a FINAL extension of .md .rst .txt .adoc (`notes.md.py`
 #     is code). The Standard quotes every directive in order to forbid it.
-#   - anything under a hooks/tests/ directory: the hook's own test corpus has
-#     to contain what the hook refuses.
-#   - Adapters/scripts/suppression-patterns.tsv itself.
+#   - the framework's own hook test corpus, Adapters/ai-runtimes/claude-code/hooks/tests/
+#     (or under an adopter's ia-engineering/): it has to contain what the hook
+#     refuses. Anchored to that path, not to any hooks/tests/ directory.
+#   - Adapters/scripts/suppression-patterns.tsv itself (same anchoring).
 #   - files marked `linguist-generated` in .gitattributes: nobody edits them.
 #   - a committed allow file, .ia-engineering/suppression.allow. One entry per
 #     line: <path ERE> TAB <line ERE> TAB <reason>. A finding is allowed only
-#     when BOTH expressions match. An entry with an empty reason, a missing
-#     field, or an expression grep cannot compile is INVALID, and an invalid
-#     allow file fails the check: an exemption nobody explained is not an
-#     exemption. Blank lines and lines beginning with # are ignored.
+#     when BOTH expressions match. The path expression must be anchored (^...$)
+#     and neither expression may match the empty string, so no entry is a
+#     blanket. An entry with an empty reason, a missing field, or an expression
+#     grep cannot compile is INVALID, and an invalid allow file fails the check:
+#     an exemption nobody explained is not an exemption. Blank lines and lines
+#     beginning with # are ignored.
 #
 # THE ALLOW FILE IS READ FROM THE CHECKED-OUT TREE, which on a Pull Request is
 # the PR's own. A PR can therefore add the entry that excuses its own
 # directive. This check is ADVISORY for that reason and no other: the
 # entry is a visible line in the diff, but a required check that the change
 # under review can edit is a check it can grade itself on
-# (.ia-engineering/purple-112-spec.md, PT-07 — a Director decision).
+# (PT-07 of the #112 Purple exercise - a Director decision).
+#
+# OUT OF SCOPE: the content of a git submodule. The superproject diff shows a
+# submodule only as a changed commit id, so an adopter's ia-engineering/ is not
+# scanned here; that repository runs its own checks.
+#
+# A path containing a newline is REFUSED (exit 1): the exemption lists are
+# line-oriented, and a name that a list cannot represent is a name it could be
+# made to exempt another file with.
 #
 # OUTPUT
 #   path:line: <label>: <the line, at most 200 characters>
@@ -147,7 +158,17 @@ if [ -f "$ALLOW_FILE" ]; then
         err "$ALLOW_FILE:$n: '$re' is not a valid extended regular expression. The file is invalid."
         exit 1
       fi
+      # An expression that matches the empty string matches every line or path.
+      if grep -qE -- "$re" <<< ""; then
+        err "$ALLOW_FILE:$n: '$re' matches the empty string, so the entry would allow everything. The file is invalid."
+        exit 1
+      fi
     done
+    # The path expression is anchored, so 'a\.py' cannot excuse src/a.py.py.
+    case "$ap" in
+      '^'*'$') ;;
+      *) err "$ALLOW_FILE:$n: the path expression '$ap' must be anchored (^...$). The file is invalid."; exit 1 ;;
+    esac
     ALLOW_PATHS+=("$ap")
     ALLOW_LINES+=("$al")
   done < "$ALLOW_FILE"
@@ -158,7 +179,7 @@ fi
 # Explicit prefixes and quotePath: a user's diff.noprefix or diff.mnemonicPrefix
 # would otherwise change what the header parse below is reading.
 GITD=(git -c core.quotePath=false -c diff.renames=true diff --no-color --no-ext-diff --no-textconv
-      --src-prefix=a/ --dst-prefix=b/ --diff-filter=ACMR)
+      --src-prefix=a/ --dst-prefix=b/ --diff-filter=ACMRT)
 
 if [ "$STAGED" -eq 1 ]; then
   SPEC=(--cached)
@@ -173,7 +194,10 @@ else
 fi
 
 "${GITD[@]}" --name-only -z "${SPEC[@]}" > "$WORK/names" 2>/dev/null || nothing "git diff --name-only failed for $DESC"
-"${GITD[@]}" -U0 "${SPEC[@]}" > "$WORK/diff" 2>/dev/null || nothing "git diff failed for $DESC"
+# --text: a file git classifies as binary (a NUL byte, or -diff / binary in
+# .gitattributes) prints "Binary files differ" and no lines; its directive would
+# never be scanned. The added lines are scanned as text whatever git thinks.
+"${GITD[@]}" --text -U0 "${SPEC[@]}" > "$WORK/diff" 2>/dev/null || nothing "git diff failed for $DESC"
 
 # --- Exemptions, by path --------------------------------------------------------
 
@@ -189,17 +213,24 @@ done < "$WORK/attrs"
 FILES=0
 EXEMPT=0
 : > "$WORK/exempt"
-shopt -s nocasematch
 while IFS= read -r -d '' p; do
   [ -n "$p" ] || continue
+  case "$p" in
+    *$'\n'*) nothing "a changed path contains a newline (the exemption lists are line-oriented and cannot represent it)" ;;
+  esac
   FILES=$((FILES + 1))
   skip=0
+  # Extensions fold case (README.MD is documentation); the path exemptions
+  # below do not: on a case-sensitive filesystem a differently-cased directory
+  # is a different directory.
+  shopt -s nocasematch
   case "$p" in
     *.md|*.rst|*.txt|*.adoc) skip=1 ;;
   esac
-  case "/$p" in
-    */hooks/tests/*) skip=1 ;;
-    */Adapters/scripts/suppression-patterns.tsv) skip=1 ;;
+  shopt -u nocasematch
+  case "$p" in
+    Adapters/ai-runtimes/claude-code/hooks/tests/*|ia-engineering/Adapters/ai-runtimes/claude-code/hooks/tests/*) skip=1 ;;
+    Adapters/scripts/suppression-patterns.tsv|ia-engineering/Adapters/scripts/suppression-patterns.tsv) skip=1 ;;
   esac
   if [ "$skip" -eq 0 ] && grep -qxF -- "$p" "$WORK/generated"; then skip=1; fi
   if [ "$skip" -eq 1 ]; then
@@ -207,7 +238,6 @@ while IFS= read -r -d '' p; do
     printf '%s\n' "$p" >> "$WORK/exempt"
   fi
 done < "$WORK/names"
-shopt -u nocasematch
 
 # A diff of zero files is a back-merge or wrong refs. Wrong refs are caught
 # above; here the only remaining cause is that a non-merge commit changed
@@ -231,7 +261,7 @@ fi
 awk -v meta="$WORK/meta" -v text="$WORK/text" -v exf="$WORK/exempt" '
   BEGIN { while ((getline line < exf) > 0) ex[line] = 1; close(exf) }
   /^diff --git / { inhdr = 1; path = ""; next }
-  inhdr && /^\+\+\+ / { path = substr($0, 5); sub(/^b\//, "", path); next }
+  inhdr && /^\+\+\+ / { path = substr($0, 5); sub(/^b\//, "", path); sub(/\t$/, "", path); next }
   /^@@ / {
     inhdr = 0
     s = $0; sub(/^@@ -[0-9,]+ \+/, "", s); sub(/[ ,].*$/, "", s)
@@ -262,7 +292,7 @@ while [ "$i" -lt "${#LABELS[@]}" ]; do
   re="${REGEXES[$i]}"
   i=$((i + 1))
   rc=0
-  grep -inE -- "$re" "$WORK/text" > "$WORK/hits" 2>/dev/null || rc=$?
+  grep -inaE -- "$re" "$WORK/text" > "$WORK/hits" 2>/dev/null || rc=$?
   [ "$rc" -le 1 ] || nothing "grep failed applying the '$label' pattern"
   while IFS= read -r hit || [ -n "$hit" ]; do
     [ -n "$hit" ] || continue

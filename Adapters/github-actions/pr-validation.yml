@@ -76,7 +76,8 @@ name: IA Engineering - PR Validation
 # required_status_checks.contexts: a required check that has never reported
 # blocks every merge, and it reads its allow file from the PR's own tree.
 # Promoting it is a Director decision.
-## "Review Recorded (advisory)" is deliberately NOT required: it matches comment
+#
+# "Review Recorded (advisory)" is deliberately NOT required: it matches comment
 # text, which can be satisfied by pasting the block, so requiring it would buy
 # false confidence. Promoting it stays a Director decision (see the job).
 #
@@ -374,6 +375,7 @@ jobs:
           # check for a directive that arrived any other way (the Bash tool, a
           # human, another runtime). It scans the merge-base diff's ADDED lines.
           "$SCRIPTS/check-inline-suppression.sh" "$BASE_SHA" "$HEAD_SHA"
+
   script-tests:
     name: Script Tests
     runs-on: ubuntu-latest

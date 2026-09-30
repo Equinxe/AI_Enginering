@@ -29,10 +29,10 @@ FILE="$(iaeng_field '.tool_input.file_path')"
 # 1. Documentation. Standards/CODE_QUALITY_STANDARD.md quotes every directive
 #    below in order to forbid it; a hook that stopped the Standard from being
 #    written would be the joke version of itself.
-# 2. This hook's own test corpus, under a hooks/tests/ directory. A test that
+# 2. This hook's own test corpus, this hook's tests/ directory. A test that
 #    proves a directive is refused has to contain that directive. Found by this
 #    hook refusing the very file that tests it — the same shape as (1), one
-#    level down. Scoped to hooks/tests/ rather than to any path containing the
+#    level down. Scoped to that one directory rather than to any hooks/tests/ or any path containing the
 #    word test, because a directory whose whole contents become exempt is how
 #    the synthetic-fixture marker was defeated before it was anchored
 #    (Standards/DATA_PROTECTION_STANDARD.md, Synthetic Fixtures).
@@ -41,22 +41,58 @@ FILE="$(iaeng_field '.tool_input.file_path')"
 # file is not exempt from itself: its own comments name the directives
 # obliquely for that reason, and the rule they implement is stated in full in
 # the Standard.
-# `shopt -s nocasematch` rather than ${FILE,,}: the lowercasing expansion is
-# bash 4.0+, and macOS still ships bash 3.2 as /bin/bash. There it is not a
-# runtime error but a PARSE error, so bash exits 2 before running a line — and
-# Claude Code reads exit 2 from a PreToolUse hook as *block*. Every Edit and
-# Write would have been refused, with no reason text, on every macOS machine.
-# It was the only bash-4 construct in any hook. (`mapfile` in
-# Adapters/github-actions/pr-validation.yml is also bash 4, and stays: that
-# one runs on ubuntu-latest, where the version is known.)
-shopt -s nocasematch
+# `shopt -s nocasematch
 case "$FILE" in
   *.md|*.rst|*.txt|*.adoc) exit 0 ;;
-  */hooks/tests/*|*\\hooks\\tests\\*) exit 0 ;;
-  # 3. The pattern file: it quotes every directive in order to forbid it.
-  Adapters/scripts/suppression-patterns.tsv|*/Adapters/scripts/suppression-patterns.tsv|*\\Adapters\\scripts\\suppression-patterns.tsv) exit 0 ;;
 esac
 shopt -u nocasematch
+
+# The two path exemptions compare CANONICAL paths, not suffixes. A suffix match
+# exempted any file that merely ended in the same words (evil/Adapters/scripts/
+# <the pattern file's name>, src/hooks/tests/anything), and the pattern-file
+# match was case-insensitive as well. The edit's path is made absolute (a
+# relative one against the payload's cwd), `.` and `..` are resolved, and it is
+# compared with the framework's OWN files, which this hook locates from its own
+# directory — so the same rule holds in this repository and under an adopter's
+# ia-engineering/. Symlinks are not resolved: a link inside tests/ that points
+# elsewhere is still exempt, which is the same reach the write already has.
+#
+# 2. (continued) the hooks/tests/ directory next to this hook.
+# 3. The pattern file (Adapters/scripts/suppression-patterns.tsv): it quotes
+#    every directive in order to forbid it, and exempting it also lets a deleted
+#    copy be restored through Write.
+iaeng_canon() {
+  local p="$1" base="${2:-}" seg n r=""
+  local out=()
+  if command -v cygpath >/dev/null 2>&1; then
+    p="$(cygpath -u -- "$p" 2>/dev/null)" || p="$1"
+    [ -z "$base" ] || base="$(cygpath -u -- "$base" 2>/dev/null)" || base="${2:-}"
+  else
+    p="${p//\\//}"
+    base="${base//\\//}"
+  fi
+  case "$p" in /*) ;; *) p="${base:-$PWD}/$p" ;; esac
+  set -f
+  local IFS=/
+  for seg in $p; do
+    case "$seg" in
+      ''|.) ;;
+      ..) n=${#out[@]}; if [ "$n" -gt 0 ]; then unset "out[$((n - 1))]"; fi ;;
+      *) out+=("$seg") ;;
+    esac
+  done
+  set +f
+  for seg in ${out[@]+"${out[@]}"}; do r="$r/$seg"; done
+  printf '%s' "${r:-/}"
+}
+
+HOOK_DIR="$(cd "$(dirname "$0")" && pwd)"
+PATTERNS="$HOOK_DIR/../../../scripts/suppression-patterns.tsv"
+if [ -n "$FILE" ]; then
+  CANON="$(iaeng_canon "$FILE" "$(iaeng_field '.cwd')")"
+  [ "$CANON" != "$(iaeng_canon "$PATTERNS")" ] || exit 0
+  case "$CANON" in "$(iaeng_canon "$HOOK_DIR")"/tests/*) exit 0 ;; esac
+fi
 
 # Every string the edit would write. With jq: new_string, content, and each
 # MultiEdit edit's new_string. Without jq: the raw payload — the patterns are
@@ -107,7 +143,6 @@ check() {
   return "$rc"
 }
 
-PATTERNS="$(dirname "$0")/../../../scripts/suppression-patterns.tsv"
 if [ ! -f "$PATTERNS" ]; then
   iaeng_block "Adapters/scripts/suppression-patterns.tsv is missing — cannot tell which edits are suppressions" \
     "Standards/CODE_QUALITY_STANDARD.md, No Inline Suppression. Restore the file; the hook reads its patterns from it and fails closed without it."

@@ -1922,6 +1922,161 @@ sup_commit a.py 'x = 1'
 expect 1 "a missing pattern file fails closed" -- bash "$WORK/sup-noscripts/check-inline-suppression.sh" "$SBASE" HEAD
 expect_output "is missing"
 
+# --- Review findings (SEC-01..07, CR): each case below failed before its fix. ----
+
+# plumb <mode> <path> <content>  — puts a blob in the index at <path> without a
+# working-tree file, so a path git allows and a filesystem may not (a newline in
+# the name, a symlink on a host without them) is testable everywhere.
+plumb() {
+  local sha
+  sha="$(printf '%s\n' "$3" | git hash-object -w --stdin)"
+  git update-index --add --cacheinfo "$1" "$sha" "$2"
+}
+
+# SEC-01 (High): the exempt list was newline-separated, so a file NAMED
+# "<real path>\n<x>.md" exempted the real file as well. Any newline in a path is
+# now refused: a list that cannot represent a name has established nothing.
+sup_repo sup-newline
+# git on Windows refuses such a name in the index, so the tree is built with
+# mktree and committed with commit-tree; no working-tree file is involved.
+NL_SHA="$(printf 'x = 1  %s\n' "$D_NOQA" | git hash-object -w --stdin)"
+NL_CLEAN="$(printf 'y = 2\n' | git hash-object -w --stdin)"
+NL_TREE="$(printf '100644 blob %s\treal.py\x00100644 blob %s\treal.py\nz.md\x00' "$NL_SHA" "$NL_CLEAN" | git mktree -z)"
+git update-ref refs/heads/main "$(git commit-tree "$NL_TREE" -p HEAD -m 'newline in a path')"
+expect 1 "SEC-01: a path containing a newline is refused, not used to exempt another file" -- bash "$CHECK_SUP" "$SBASE" HEAD
+expect_output "newline"
+
+# SEC-02 (High): a file git classifies as binary (a NUL byte, or -diff /
+# binary in .gitattributes) prints "Binary files differ" and no lines, so its
+# directive was never scanned. --text makes git print the lines.
+sup_repo sup-binary-nul
+{ printf 'x = 1  %s\n' "$D_NOQA"; printf '\0\0\0\n'; } > bin.py
+git add -A && git commit -q -m "binary by NUL"
+expect 1 "SEC-02: a file with a NUL byte is scanned as text" -- bash "$CHECK_SUP" "$SBASE" HEAD
+expect_output "bin.py:1: "
+
+sup_repo sup-binary-attr
+printf '*.dat -diff\n' > .gitattributes
+printf 'x = 1  %s\n' "$D_NOQA" > a.dat
+git add -A && git commit -q -m "binary by attribute"
+expect 1 "SEC-02: a file marked -diff in .gitattributes is scanned as text" -- bash "$CHECK_SUP" "$SBASE" HEAD
+
+# SEC-03 (High): a type change (symlink -> regular file) is diff-filter T, which
+# the filter did not list.
+sup_repo sup-typechange
+plumb 120000 a.py "target.txt"
+git commit -q -m "a symlink"
+SBASE="$(git rev-parse HEAD)"
+plumb 100644 a.py "x = 1  $D_NOQA"
+plumb 100644 b.py "y = 2"
+git commit -q -m "symlink becomes a file"
+expect 1 "SEC-03: a symlink replaced by a regular file is scanned" -- bash "$CHECK_SUP" "$SBASE" HEAD
+expect_output "a.py:1: "
+
+# SEC-04 (Medium): */hooks/tests/* exempted ANY hooks/tests directory. Only the
+# framework's own corpus is exempt, in-tree or under an adopter's ia-engineering/.
+sup_repo sup-hooktests-anywhere
+sup_commit src/hooks/tests/x.sh "x = 1  $D_NOQA"
+expect 1 "SEC-04: an unrelated src/hooks/tests/ directory is not exempt" -- bash "$CHECK_SUP" "$SBASE" HEAD
+
+sup_repo sup-hooktests-submodule
+sup_commit ia-engineering/Adapters/ai-runtimes/claude-code/hooks/tests/x.sh "x = 1  $D_NOQA"
+expect 0 "SEC-04: the framework's corpus under ia-engineering/ stays exempt" -- bash "$CHECK_SUP" "$SBASE" HEAD
+
+sup_repo sup-patternfile-elsewhere
+sup_commit evil/Adapters/scripts/suppression-patterns.tsv "python-lint-suppression${TAB}$D_NOQA"
+expect 1 "SEC-04: a file that merely ends in the pattern file's path is not exempt" -- bash "$CHECK_SUP" "$SBASE" HEAD
+
+# SEC-05 (Low): git appends a TAB to the "+++ b/<path>" header when the path
+# contains a space, which became part of the reported (and allow-matched) path.
+sup_repo sup-space
+sup_commit "my file.py" "x = 1  $D_NOQA"
+expect 1 "SEC-05: a path with a space is reported without a trailing TAB" -- bash "$CHECK_SUP" "$SBASE" HEAD
+expect_output "my file.py:1: "
+
+# SEC-07 (Low): an allow entry must not be a blanket. A path expression is
+# anchored ^...$, and neither expression may match the empty string.
+sup_repo sup-allow-blanket
+mkdir -p .ia-engineering
+printf '.%s.%sa reason\n' "$TAB" "$TAB" > .ia-engineering/suppression.allow
+sup_commit a.py "x = 1  $D_NOQA"
+expect 1 "SEC-07: an allow entry of . TAB . excuses nothing and is invalid" -- bash "$CHECK_SUP" "$SBASE" HEAD
+expect_output "anchored"
+
+sup_repo sup-allow-unanchored
+mkdir -p .ia-engineering
+printf 'a\\.py%sx = 1%sa reason\n' "$TAB" "$TAB" > .ia-engineering/suppression.allow
+sup_commit a.py "x = 1  $D_NOQA"
+expect 1 "SEC-07: an allow path expression that is not anchored is invalid" -- bash "$CHECK_SUP" "$SBASE" HEAD
+expect_output "anchored"
+
+sup_repo sup-allow-emptymatch
+mkdir -p .ia-engineering
+printf '^a\\.py$%s.*%sa reason\n' "$TAB" "$TAB" > .ia-engineering/suppression.allow
+sup_commit a.py "x = 1  $D_NOQA"
+expect 1 "SEC-07: an allow line expression that matches the empty string is invalid" -- bash "$CHECK_SUP" "$SBASE" HEAD
+expect_output "empty string"
+
+# Tripwire: one positive sample per row of the REAL pattern file. A pattern that
+# was mistyped into something that never matches is otherwise a control that
+# passes every test written against a different, working pattern.
+sample_for() {
+  case "$1" in
+    python-lint-suppression)  printf 'x = 1  %s' "$D_NOQA" ;;
+    js-ts-suppression)        printf '%s' "$D_ESLINT" ;;
+    other-suppression)        printf '%s' "$D_SHELLCHECK" ;;
+    skipped-or-focused-test)  printf '%s' "$D_SKIP" ;;
+    swallowed-exception)      printf 'except:' ;;
+    *) return 1 ;;
+  esac
+}
+sup_repo sup-tripwire
+TW_MISSING=""
+while IFS= read -r row || [ -n "$row" ]; do
+  case "$row" in ''|'#'*) continue ;; esac
+  lbl="${row%%"$TAB"*}"
+  if s="$(sample_for "$lbl")"; then printf '%s\n' "$s" > "tw_$lbl.py"; else TW_MISSING="$TW_MISSING $lbl"; fi
+done < "$SCRIPTS/suppression-patterns.tsv"
+git add -A && git commit -q -m "one sample per pattern"
+expect 0 "tripwire: every row of the real pattern file has a sample here (add one with the row)" -- test -z "$TW_MISSING"
+expect 1 "tripwire: the samples are found" -- bash "$CHECK_SUP" "$SBASE" HEAD
+while IFS= read -r row || [ -n "$row" ]; do
+  case "$row" in ''|'#'*) continue ;; esac
+  lbl="${row%%"$TAB"*}"
+  expect_output "tw_$lbl.py:1: $lbl:"
+done < "$SCRIPTS/suppression-patterns.tsv"
+
+# Code review: the exits nobody had a case for.
+sup_repo sup-backmerge
+git switch -q -c side
+git switch -q main
+sup_commit m.txt 'main moves on'
+git switch -q side
+git merge -q --no-ff main -m "Merge main into side"
+expect 0 "a back-merge (empty diff, no non-merge commit) passes and says why" -- bash "$CHECK_SUP" main HEAD
+expect_output "lists no files"
+
+sup_repo sup-emptycommit
+git commit -q --allow-empty -m "changes nothing"
+expect 1 "a non-merge commit that changed nothing fails closed" -- bash "$CHECK_SUP" "$SBASE" HEAD
+expect_output "lists no files"
+
+expect 2 "no arguments is a usage error" -- bash "$CHECK_SUP"
+expect 2 "one argument is a usage error" -- bash "$CHECK_SUP" onlyone
+expect 2 "--staged with an extra argument is a usage error" -- bash "$CHECK_SUP" --staged extra
+
+sup_repo sup-badpatterns
+mkdir -p "$WORK/sup-emptypat" "$WORK/sup-malformedpat"
+cp "$CHECK_SUP" "$WORK/sup-emptypat/"
+cp "$CHECK_SUP" "$WORK/sup-malformedpat/"
+printf '# nothing but a comment\n\n' > "$WORK/sup-emptypat/suppression-patterns.tsv"
+printf 'label-without-a-tab\n' > "$WORK/sup-malformedpat/suppression-patterns.tsv"
+sup_commit a.py 'x = 1'
+expect 1 "a pattern file with no rows fails closed" -- bash "$WORK/sup-emptypat/check-inline-suppression.sh" "$SBASE" HEAD
+expect_output "holds no patterns"
+expect 1 "a pattern row without a TAB fails closed" -- bash "$WORK/sup-malformedpat/check-inline-suppression.sh" "$SBASE" HEAD
+expect_output "without a TAB"
+
 # The allow file is committed knowledge, and .ia-engineering/* is ignored. Without
 # the exception an allow entry would sit on one machine and CI would never see it.
 expect 1 "the allow file is not gitignored (exception in .gitignore)" -- git -C "$SCRIPTS/../.." check-ignore -q .ia-engineering/suppression.allow
