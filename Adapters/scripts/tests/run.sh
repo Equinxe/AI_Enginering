@@ -1503,6 +1503,63 @@ else
   FAILED=$((FAILED + 1))
 fi
 
+# ------------------------------------------------- git-hooks/commit-msg -----
+#
+# WU-IAENG-304 added `perf` as an accepted Conventional Commits type but
+# shipped no case that runs commit-msg itself. The row it added to
+# escape-hatch-cases.tsv ("allow git commit -m \"perf(db): optimize query
+# performance\"") exercises a DIFFERENT hook — the PreToolUse escape-hatch
+# guard that blocks --no-verify/--force-shaped Bash commands — and only
+# proves a perf(...) commit message does not trip that lexer. It is kept:
+# harmless, and a real (if narrow) regression pin for that hook, but it
+# proves nothing about commit-msg's own type regex. These cases close that
+# gap by running the real commit-msg script against real message files, in a
+# real repo, per this file's header ("build a REAL repo and run the REAL
+# script").
+
+section "git-hooks/commit-msg — accepted commit types (WU-IAENG-304)"
+
+HOOK="$SCRIPTS/../git-hooks/commit-msg"
+
+# commit-msg resolves the Employee roster from REPO_ROOT/Registry/employees.yml
+# (Adapters/git-hooks/commit-msg, "Locate the Employee roster"), so the
+# throwaway repo needs one, exactly like check-employee-trailer.sh's cases
+# above.
+new_repo commit-msg-types
+write_employee_roster "Test Employee"
+git add -A && git commit -q -m "roster"
+
+cat > msg-perf.txt <<'MSG'
+perf(cache): avoid a redundant lookup on the hot path
+
+Work Unit: WU-TEST-001
+
+Employee: Test Employee
+MSG
+expect 0 "perf(scope): ... with a valid trailer block is accepted" -- \
+  bash "$HOOK" msg-perf.txt
+
+cat > msg-fix.txt <<'MSG'
+fix(cache): correct an off-by-one on eviction
+
+Work Unit: WU-TEST-001
+
+Employee: Test Employee
+MSG
+expect 0 "fix(scope): ... (baseline, pre-existing type) is still accepted" -- \
+  bash "$HOOK" msg-fix.txt
+
+cat > msg-bad-type.txt <<'MSG'
+style(cache): reformat
+
+Work Unit: WU-TEST-001
+
+Employee: Test Employee
+MSG
+expect 1 "an unrecognised type (style) is rejected" -- \
+  bash "$HOOK" msg-bad-type.txt
+expect_output "type is one of: feat, fix, docs, refactor, perf, test, chore"
+
 # --------------------------------------------------------------- verdict ----
 
 cd "$HERE" || exit 1

@@ -267,6 +267,7 @@ allow	git push -u origin release/v0.0.14
 allow	git commit -am "fix(hooks): correct typo in comment"
 allow	git commit --amend --no-edit
 allow	git commit -m "feat(api): add pagination" -m "Longer body explaining why."
+allow	git commit -m "perf(db): optimize query performance"
 allow	grep -rn "TODO" Adapters/ | wc -l
 allow	sed -n '1,20p' Standards/GIT_STANDARD.md
 allow	awk '{print $1}' file.txt | sort | uniq -c
