@@ -1104,3 +1104,9 @@ work_units:
     title: Require attribution on merges that author content (PT-02 of the #112 exercise) - classify merges by comparing their tree to the automatic merge of their parents; authored merges need an Employee trailer in CI and in commit-msg; historical ones grandfathered
     milestone: Precision
     delivers: Adapters/scripts/check-employee-trailers.sh, Adapters/git-hooks/commit-msg, Standards/COMMIT_STANDARD.md, Adapters/scripts/tests/run.sh, Registry/work-units.yml
+
+  - id: WU-IAENG-309
+    employee: DevOps Engineer
+    title: Guard control paths with a pull_request_target check (PT-07 of the #112 exercise) - a base-branch job that never runs PR code, lists the PR files through the API and fails when a control path is touched unless the Director applies control-change/approved after the last push
+    milestone: Precision
+    delivers: Adapters/github-actions/control-path-guard.yml, .github/workflows/control-path-guard.yml, Adapters/scripts/check-control-paths.sh, Adapters/scripts/tests/run.sh, Adapters/scripts/install.sh, Adapters/README.md, SECURITY.md, .gitattributes, Registry/work-units.yml

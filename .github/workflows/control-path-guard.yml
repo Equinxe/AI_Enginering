@@ -1,0 +1,154 @@
+name: IA Engineering - Control Path Guard
+
+# PT-07 of the #112 exercise (Purple, 29 Sep 2026; Director decision).
+#
+# THE PROBLEM. The required checks run the definitions carried by the Pull
+# Request under review: the `pull_request` trigger uses the PR's own workflow
+# files, and those workflows call the PR's own Adapters/scripts. With no
+# required approval and no CODEOWNERS, a PR can rewrite the rule it is graded
+# by and be graded green by the rewritten rule.
+#
+# THE GUARD. This job runs on `pull_request_target`, so GitHub runs the
+# definition that exists on the BASE branch, not the one in the PR. It never
+# checks out or executes PR code. It asks the API which files the PR changes,
+# hands their names to Adapters/scripts/check-control-paths.sh (from the BASE
+# checkout — that script holds the one list of control paths), and FAILS when
+# any is touched, unless the Director has approved.
+#
+# SECURITY POSTURE, per GitHub's "Keeping your GitHub Actions and workflows
+# secure" (https://docs.github.com/en/actions/reference/security/secure-use):
+#   - "Workflows that use these triggers must not explicitly check out
+#     untrusted code" — the only checkout below is the base SHA, and it is
+#     the only code that runs.
+#   - untrusted values (file names, labels) reach shell only through
+#     environment variables or files, never through ${{ }} inside `run:`,
+#     "so the value does not interact with the script generation process".
+#   - the token is read-only: contents: read, pull-requests: read.
+# File names are attacker-controlled: they travel as NUL-delimited data, are
+# never evaluated, and may contain spaces, newlines, or a leading dash.
+#
+# THE OVERRIDE IS A LABEL. `control-change/approved`, applied by the Director.
+# Applying a label needs write permission on the repository; a PR author
+# without it cannot approve their own change. THE LABEL MUST BE CREATED BY THE
+# DIRECTOR (this workflow creates nothing). It is bound to the head commit:
+#   - only a `labeled` event for that exact label approves. Any other event
+#     (opened, synchronize, reopened, unlabeled, another label added) is judged
+#     without the label, so a label applied to an earlier version of the PR
+#     cannot bless commits pushed after it. After a push the Director
+#     re-applies the label (remove it, add it again) to approve the new head.
+#   - re-running this job replays the same event, so it does not change that.
+#
+# NOT A REQUIRED CHECK YET. Adding "Control Path Guard" to required contexts is
+# the Director's decision, through Adapters/scripts/setup-branch-protection.sh,
+# after it has reported on real PRs. Until then it is a red signal, not a gate.
+# A PR that introduces or edits this workflow is judged by the base's copy, so
+# the guard cannot run on the PR that first adds it.
+#
+# Install in a project that has imported IA Engineering as a submodule:
+#   ./ia-engineering/Adapters/scripts/install.sh
+
+on:
+  pull_request_target:
+    branches: [main, develop, 'release/**']
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  control-path-guard:
+    name: Control Path Guard
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      # The BASE commit, explicitly. Never the PR head, never a merge ref.
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+          submodules: recursive
+
+      - name: Locate the framework (base checkout)
+        id: locate
+        run: |
+          set -euo pipefail
+          for candidate in . ia-engineering; do
+            if [ -x "$candidate/Adapters/scripts/check-control-paths.sh" ]; then
+              echo "root=$candidate" >> "$GITHUB_OUTPUT"
+              echo "Framework found at: $candidate"
+              exit 0
+            fi
+          done
+          echo "::error::Could not locate Adapters/scripts/check-control-paths.sh on the base branch (looked in . and ia-engineering/). The guard fails closed when its matcher is absent."
+          exit 1
+
+      - name: Fail when the PR touches a control path
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          CHANGED_FILES: ${{ github.event.pull_request.changed_files }}
+          ACTION: ${{ github.event.action }}
+          LABEL_ADDED: ${{ github.event.label.name }}
+          LABELS_JSON: ${{ toJSON(github.event.pull_request.labels.*.name) }}
+          APPROVAL_LABEL: control-change/approved
+          FRAMEWORK_ROOT: ${{ steps.locate.outputs.root }}
+        run: |
+          set -euo pipefail
+
+          tmp="$(mktemp -d)"
+          trap 'rm -rf "$tmp"' EXIT
+
+          # The files endpoint lists at most 3000 files. A PR at or past that
+          # cannot be fully listed, and a partial list is not a clean bill.
+          if [ "$CHANGED_FILES" -ge 3000 ]; then
+            echo "::error::This PR changes $CHANGED_FILES files; the API lists at most 3000, so it cannot be checked for control paths. Split it, or the Director reviews it by hand and applies '$APPROVAL_LABEL'."
+            exit 1
+          fi
+
+          gh api "repos/$REPO/pulls/$PR_NUMBER/files" --paginate > "$tmp/files.json"
+
+          # Guard against a truncated or short listing (fail closed).
+          listed="$(jq -s 'map(length) | add // 0' "$tmp/files.json")"
+          if [ "$listed" -ne "$CHANGED_FILES" ]; then
+            echo "::error::The API listed $listed files but the PR reports $CHANGED_FILES. Refusing to guess."
+            exit 1
+          fi
+
+          # NUL-delimited: a name may hold a newline. Both sides of a rename are
+          # listed, so moving a file OUT of a control path is caught too.
+          jq -j '.[] | (.filename, (.previous_filename // empty)) | . + "\u0000"' \
+            "$tmp/files.json" > "$tmp/paths.z"
+
+          set +e
+          "$FRAMEWORK_ROOT/Adapters/scripts/check-control-paths.sh" -z < "$tmp/paths.z" > "$tmp/report.txt"
+          rc=$?
+          set -e
+          # The report holds file names; print it as data, not as workflow commands.
+          sed 's/::/: :/g' "$tmp/report.txt"
+
+          if [ "$rc" -eq 0 ]; then
+            echo "No control path is touched."
+            exit 0
+          fi
+          if [ "$rc" -ne 1 ]; then
+            echo "::error::check-control-paths.sh failed (exit $rc). Failing closed."
+            exit 1
+          fi
+
+          approved=false
+          if [ "$ACTION" = "labeled" ] && [ "$LABEL_ADDED" = "$APPROVAL_LABEL" ] \
+             && printf '%s' "$LABELS_JSON" | jq -e --arg l "$APPROVAL_LABEL" 'index($l) != null' > /dev/null; then
+            approved=true
+          fi
+
+          if [ "$approved" = true ]; then
+            echo "::notice::Control paths are touched and the Director has just applied '$APPROVAL_LABEL'. Passing."
+            exit 0
+          fi
+          echo "::error::This PR touches control paths (listed above): files that define the checks it is judged by. It needs the Director's '$APPROVAL_LABEL' label, applied after the last push (remove and re-add it to approve a newer head)."
+          exit 1

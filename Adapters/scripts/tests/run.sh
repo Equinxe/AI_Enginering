@@ -1741,6 +1741,53 @@ chmod +x "$WORK/shim/git"
 expect 1 "a merge the classifier cannot run on fails closed" -- env PATH="$WORK/shim:$PATH" bash "$CHECK_EMP" "$BASE" HEAD
 expect_output "could not be classified"
 
+# ------------------------------------- check-control-paths.sh (WU-IAENG-309) --
+
+CHECK_CP="$SCRIPTS/check-control-paths.sh"
+
+# CP_RUN <printf-%b-text-of-the-path-list> [-z]
+CP_RUN=(bash -c "printf '%b' \"\$1\" | bash '$CHECK_CP' \"\${@:2}\"" _)
+
+section "check-control-paths.sh — the pull_request_target guard's path matcher (WU-IAENG-309)"
+
+expect 0 "ordinary source and docs paths are not control paths" -- "${CP_RUN[@]}" 'src/app.c\nREADME.md\ndocs/a.md\n'
+expect_output "none of the 3"
+expect 0 "an empty change list passes" -- "${CP_RUN[@]}" ''
+expect 1 "a workflow file is a control path" -- "${CP_RUN[@]}" 'src/a.c\n.github/workflows/pr-validation.yml\n'
+expect_output "control path touched: .github/workflows/pr-validation.yml"
+expect 1 "the Adapter copy of a workflow is a control path" -- "${CP_RUN[@]}" 'Adapters/github-actions/data-policy.yml\n'
+expect 1 "a git hook is a control path" -- "${CP_RUN[@]}" 'Adapters/git-hooks/commit-msg\n'
+expect 1 "a check script is a control path" -- "${CP_RUN[@]}" 'Adapters/scripts/check-employee-trailers.sh\n'
+expect 1 "a check script test is a control path" -- "${CP_RUN[@]}" 'Adapters/scripts/tests/run.sh\n'
+expect 1 "the suppression pattern file is a control path" -- "${CP_RUN[@]}" 'Adapters/scripts/suppression-patterns.tsv\n'
+expect 1 "a runtime hook at depth is a control path" -- "${CP_RUN[@]}" 'Adapters/ai-runtimes/claude-code/hooks/tests/x.tsv\n'
+expect 0 "a runtime file outside hooks/ is not" -- "${CP_RUN[@]}" 'Adapters/ai-runtimes/claude-code/README.md\n'
+expect 1 ".claude/settings.json is a control path" -- "${CP_RUN[@]}" '.claude/settings.json\n'
+expect 1 "the roster is a control path" -- "${CP_RUN[@]}" 'Registry/employees.yml\n'
+expect 0 "another registry file is not" -- "${CP_RUN[@]}" 'Registry/work-units.yml\n'
+expect 1 "an allow file is a control path" -- "${CP_RUN[@]}" '.ia-engineering/suppression.allow\n'
+expect 1 "the risk map is a control path" -- "${CP_RUN[@]}" '.ia-engineering/risk-map.yml\n'
+expect 1 "the root ignore file is a control path" -- "${CP_RUN[@]}" '.gitignore\n'
+expect 1 "the root attributes file is a control path" -- "${CP_RUN[@]}" '.gitattributes\n'
+expect 1 "an attributes file at depth is a control path" -- "${CP_RUN[@]}" 'vendor/lib/deep/.gitattributes\n'
+expect 1 ".gitmodules is a control path" -- "${CP_RUN[@]}" '.gitmodules\n'
+expect 1 "the ia-engineering gitlink is a control path" -- "${CP_RUN[@]}" 'ia-engineering\n'
+expect 0 "a file merely inside a similarly named directory is not the gitlink" -- "${CP_RUN[@]}" 'docs/ia-engineering\nia-engineering-notes.md\n'
+expect 1 "matching is case-insensitive (fail closed)" -- "${CP_RUN[@]}" '.GitHub/Workflows/x.yml\n'
+expect 1 "a name with a space is matched, not split" -- "${CP_RUN[@]}" 'Adapters/scripts/a b.sh\n'
+expect 1 "a leading-dash name under a control path is matched" -- "${CP_RUN[@]}" 'Adapters/scripts/-rf\n'
+expect 0 "a leading-dash ordinary name is inert" -- "${CP_RUN[@]}" '-rf\n'
+expect 1 "a .. component is refused, not trusted" -- "${CP_RUN[@]}" 'src/../Adapters/scripts/x\n'
+expect 1 "an absolute path is refused" -- "${CP_RUN[@]}" '/etc/passwd\n'
+expect 1 "a ./ component is refused" -- "${CP_RUN[@]}" './src/a.c\n'
+# The NUL-delimited form is what the workflow feeds: a newline inside a name
+# must not split it into a second, control-looking, path.
+expect 0 "a newline inside a name does not fabricate a control path (-z)" -- "${CP_RUN[@]}" 'src/x\n.github/workflows/y\0' -z
+expect_output "none of the 1"
+expect 1 "a newline before a real control path still flags it (-z)" -- "${CP_RUN[@]}" 'a\nb\0.github/workflows/y\0' -z
+expect 1 "one control path among many NUL-delimited names (-z)" -- "${CP_RUN[@]}" 'a b\0-x\0Adapters/git-hooks/pre-push\0c\0' -z
+expect 2 "an unknown option is a usage error" -- "${CP_RUN[@]}" 'a\n' --bogus
+
 # --------------------------------------------------------------- verdict ----
 
 cd "$HERE" || exit 1
