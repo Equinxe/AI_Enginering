@@ -131,7 +131,32 @@ PAY_BIG="$(jq -n --arg f "big.py" --rawfile c "$BIGSUP" '{tool_name:"Write",tool
 rm -f "$BIGSUP"
 expect_rc "inline-suppression: refuses a directive in a >64KB payload" 2 "$HOOKS/block-inline-suppression.sh" "$PAY_BIG"
 expect_rc "inline-suppression: ignores a non-edit tool"     0 "$HOOKS/block-inline-suppression.sh" '{"tool_name":"Bash","tool_input":{"command":"ls"}}'
-expect_rc "stop-gate: yields to its own loop guard"         0 "$HOOKS/stop-gate.sh"                '{"stop_hook_active":true}'
+# The patterns are read from Adapters/scripts/suppression-patterns.tsv, shared
+# with check-inline-suppression.sh. One row from each of two different labels
+# still blocks, so a hook that read only the first row would be caught.
+PAY_JS="$(jq -n --arg c "$(printf '%s%s' '// eslint' '-disable-next-line')" '{tool_name:"Write",tool_input:{file_path:"a.ts",content:$c}}')"
+PAY_TEST="$(jq -n --arg c "$(printf '%s%s' 'it.' 'skip("x", f)')" '{tool_name:"Write",tool_input:{file_path:"a.test.js",content:$c}}')"
+PAY_CLEAN="$(jq -n '{tool_name:"Write",tool_input:{file_path:"a.py",content:"x = 1"}}')"
+PAY_PATFILE="$(jq -n --arg c "$SUPPRESSED" '{tool_name:"Write",tool_input:{file_path:"Adapters/scripts/suppression-patterns.tsv",content:$c}}')"
+expect_rc "inline-suppression: a pattern from the file (JS/TS row) blocks" 2 "$HOOKS/block-inline-suppression.sh" "$PAY_JS"
+expect_rc "inline-suppression: a pattern from the file (skipped-test row) blocks" 2 "$HOOKS/block-inline-suppression.sh" "$PAY_TEST"
+expect_rc "inline-suppression: clean code is allowed" 0 "$HOOKS/block-inline-suppression.sh" "$PAY_CLEAN"
+expect_rc "inline-suppression: a Write to the pattern file is allowed (it quotes every directive)" 0 "$HOOKS/block-inline-suppression.sh" "$PAY_PATFILE"
+
+# Fail closed when the pattern file is missing. The hook is copied into a
+# scratch tree of the same shape with and without the data file, and the SAME
+# clean payload is run against both: a missing list must be refused, and the
+# copy that has it must allow the edit, or the refusal proves only that the
+# copy is broken.
+SCRATCH="$(mktemp -d)"
+mkdir -p "$SCRATCH/Adapters/ai-runtimes/claude-code/hooks" "$SCRATCH/Adapters/scripts"
+cp "$HOOKS/block-inline-suppression.sh" "$HOOKS/lib.sh" "$SCRATCH/Adapters/ai-runtimes/claude-code/hooks/"
+expect_rc "inline-suppression: pattern file missing fails closed" 2 "$SCRATCH/Adapters/ai-runtimes/claude-code/hooks/block-inline-suppression.sh" "$PAY_CLEAN"
+cp "$HOOKS/../../../scripts/suppression-patterns.tsv" "$SCRATCH/Adapters/scripts/"
+expect_rc "inline-suppression: the same copy with the pattern file allows clean code" 0 "$SCRATCH/Adapters/ai-runtimes/claude-code/hooks/block-inline-suppression.sh" "$PAY_CLEAN"
+rm -rf "$SCRATCH"
+
+expect_rc "stop-gate: yields to its own loop guard"        0 "$HOOKS/stop-gate.sh"                '{"stop_hook_active":true}'
 
 # --- Lexer ------------------------------------------------------------------
 # The lexer decides what the rules ever see, so it is checked directly: text

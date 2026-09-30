@@ -1,0 +1,21 @@
+# IA Engineering - inline suppression patterns (Standards/CODE_QUALITY_STANDARD.md, No Inline Suppression)
+#
+# ONE LIST, TWO READERS. The Claude Code hook (hooks/block-inline-suppression.sh,
+# Edit/Write/MultiEdit) and the Pull Request check (check-inline-suppression.sh,
+# the added lines of a diff) both read this file, so a directive the hook learns
+# to refuse is reported by the check on the same commit. Two copies drift; the
+# hook would then pass what CI reports, or the reverse.
+#
+# Format: label<TAB>extended regular expression, one per line. Blank lines and
+# lines beginning with # are ignored. Matched case-insensitively, per line, with
+# grep -iE. The label is what a finding prints.
+#
+# This file quotes every directive in order to forbid it, so both readers exempt
+# it by path (Adapters/scripts/suppression-patterns.tsv), as they exempt the
+# documentation that quotes them. Both FAIL CLOSED when it is missing: a missing
+# pattern list is not an empty one.
+python-lint-suppression	#[[:space:]]*noqa|#[[:space:]]*type:[[:space:]]*ignore|#[[:space:]]*pylint:[[:space:]]*disable|#[[:space:]]*pyright:[[:space:]]*ignore|#[[:space:]]*mypy:[[:space:]]*ignore
+js-ts-suppression	eslint-disable|@ts-ignore|@ts-nocheck|@ts-expect-error|biome-ignore|prettier-ignore
+other-suppression	@SuppressWarnings|#pragma[[:space:]]+warning[[:space:]]+disable|#nosec|//[[:space:]]*nolint|#[[:space:]]*rubocop:disable|#[[:space:]]*shellcheck[[:space:]]+disable
+skipped-or-focused-test	\.(skip|only)\(|^[[:space:]]*(xit|xdescribe|xtest|fit|fdescribe)\(|@pytest\.mark\.skip|pytest\.skip\(|@unittest\.skip|t\.Skip\(
+swallowed-exception	^[[:space:]]*except[[:space:]]*:[[:space:]]*$|except[[:space:]]*(Exception|BaseException)?[[:space:]]*:[[:space:]]*pass[[:space:]]*$|catch[[:space:]]*\([^)]*\)[[:space:]]*\{[[:space:]]*\}

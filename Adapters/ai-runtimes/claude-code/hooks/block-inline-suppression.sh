@@ -24,7 +24,7 @@ case "$TOOL" in ""|Edit|Write|MultiEdit) ;; *) exit 0 ;; esac
 
 FILE="$(iaeng_field '.tool_input.file_path')"
 
-# NAMED EXEMPTIONS — two, both by path, neither a fall-through.
+# NAMED EXEMPTIONS — three, all by path, none a fall-through.
 #
 # 1. Documentation. Standards/CODE_QUALITY_STANDARD.md quotes every directive
 #    below in order to forbid it; a hook that stopped the Standard from being
@@ -53,6 +53,8 @@ shopt -s nocasematch
 case "$FILE" in
   *.md|*.rst|*.txt|*.adoc) exit 0 ;;
   */hooks/tests/*|*\\hooks\\tests\\*) exit 0 ;;
+  # 3. The pattern file: it quotes every directive in order to forbid it.
+  Adapters/scripts/suppression-patterns.tsv|*/Adapters/scripts/suppression-patterns.tsv|*\\Adapters\\scripts\\suppression-patterns.tsv) exit 0 ;;
 esac
 shopt -u nocasematch
 
@@ -83,27 +85,51 @@ fi
 # reads as ABSENT and the edit is ALLOWED. A 64 KB source file is ordinary, not
 # adversarial, so this bypassed the control with no obfuscation at all. The
 # here-string is not a pipeline; pipefail does not apply. TROUBLESHOOTING X.
-check() { grep -qiE -- "$1" <<< "$TEXT"; }
+# THE PATTERNS LIVE IN ONE DATA FILE, Adapters/scripts/suppression-patterns.tsv
+# (label<TAB>ERE), read by this hook and by check-inline-suppression.sh. This
+# hook sees only Edit/Write/MultiEdit; a directive written through the Bash
+# tool, by a human, or by another runtime never reaches it, and the Pull
+# Request check reads the same list where those paths meet. Two copies of the
+# list would drift.
+#
+# FAIL CLOSED when the file is missing: an absent pattern list is not an empty
+# one, and a hook that allowed everything because its data was gone is the
+# defect Adapters/README.md's Check Convention names. Same shape as the lexer
+# check in block-escape-hatches.sh. The pattern file itself is exempt by path
+# (below, with the other named exemptions) because it quotes every directive;
+# that also lets a deleted file be restored through an Edit or Write.
+check() {
+  local rc=0
+  grep -qiE -- "$1" <<< "$TEXT" || rc=$?
+  # rc 2 is a pattern grep could not compile: an unreadable rule is a failure,
+  # not a rule that matched nothing.
+  [ "$rc" -le 1 ] || iaeng_block "suppression-patterns.tsv holds a pattern grep cannot compile: $1" "Fix the row."
+  return "$rc"
+}
 
-if check '#[[:space:]]*noqa|#[[:space:]]*type:[[:space:]]*ignore|#[[:space:]]*pylint:[[:space:]]*disable|#[[:space:]]*pyright:[[:space:]]*ignore|#[[:space:]]*mypy:[[:space:]]*ignore'; then
-  iaeng_block "inline Python lint/type suppression (${FILE:-unknown file})" \
-    "Standards/CODE_QUALITY_STANDARD.md, No Inline Suppression. Configure the rule for the project, or satisfy it."
+PATTERNS="$(dirname "$0")/../../../scripts/suppression-patterns.tsv"
+if [ ! -f "$PATTERNS" ]; then
+  iaeng_block "Adapters/scripts/suppression-patterns.tsv is missing — cannot tell which edits are suppressions" \
+    "Standards/CODE_QUALITY_STANDARD.md, No Inline Suppression. Restore the file; the hook reads its patterns from it and fails closed without it."
 fi
-if check 'eslint-disable|@ts-ignore|@ts-nocheck|@ts-expect-error|biome-ignore|prettier-ignore'; then
-  iaeng_block "inline JavaScript/TypeScript lint/type suppression (${FILE:-unknown file})" \
-    "Standards/CODE_QUALITY_STANDARD.md, No Inline Suppression."
-fi
-if check '@SuppressWarnings|#pragma[[:space:]]+warning[[:space:]]+disable|#nosec|//[[:space:]]*nolint|#[[:space:]]*rubocop:disable|#[[:space:]]*shellcheck[[:space:]]+disable'; then
-  iaeng_block "inline suppression directive (${FILE:-unknown file})" \
-    "Standards/CODE_QUALITY_STANDARD.md, No Inline Suppression. A tool false positive that configuration cannot scope is applied by a human with the constraint named on the preceding line."
-fi
-if check '\.(skip|only)\(|^[[:space:]]*(xit|xdescribe|xtest|fit|fdescribe)\(|@pytest\.mark\.skip|pytest\.skip\(|@unittest\.skip|t\.Skip\('; then
-  iaeng_block "skipped or focused test (${FILE:-unknown file}) — a red signal turned green without changing what it measured" \
-    "Standards/CODE_QUALITY_STANDARD.md, No Inline Suppression; Standards/TESTING_STANDARD.md. Fix the test or delete it in its own reviewed Work Unit."
-fi
-if check '^[[:space:]]*except[[:space:]]*:[[:space:]]*$|except[[:space:]]*(Exception|BaseException)?[[:space:]]*:[[:space:]]*pass[[:space:]]*$|catch[[:space:]]*\([^)]*\)[[:space:]]*\{[[:space:]]*\}'; then
-  iaeng_block "swallowed exception (${FILE:-unknown file}) — a failure reported as success" \
-    "Standards/CODE_QUALITY_STANDARD.md, No Inline Suppression; Standards/RISK_STANDARD.md, product catalog (High)."
-fi
+
+SEEN=0
+while IFS= read -r row || [ -n "$row" ]; do
+  row="${row%$'\r'}"
+  case "$row" in ''|'#'*) continue ;; esac
+  case "$row" in *$'\t'*) ;; *) iaeng_block "malformed row in suppression-patterns.tsv (no TAB): $row" "Each row is label<TAB>ERE." ;; esac
+  label="${row%%$'\t'*}"
+  re="${row#*$'\t'}"
+  if [ -z "$label" ] || [ -z "$re" ]; then
+    iaeng_block "malformed row in suppression-patterns.tsv (empty label or pattern): $row" "Each row is label<TAB>ERE."
+  fi
+  SEEN=$((SEEN + 1))
+  if check "$re"; then
+    iaeng_block "inline suppression: ${label} (${FILE:-unknown file}) — a red signal turned green without changing what it measured" \
+      "Standards/CODE_QUALITY_STANDARD.md, No Inline Suppression (Standards/TESTING_STANDARD.md for skipped tests). Configure the rule for the project, or satisfy it; a tool false positive that configuration cannot scope is applied by a human with the constraint named on the preceding line."
+  fi
+done < "$PATTERNS"
+
+[ "$SEEN" -gt 0 ] || iaeng_block "suppression-patterns.tsv holds no patterns" "An empty list would allow everything; restore it."
 
 exit 0
