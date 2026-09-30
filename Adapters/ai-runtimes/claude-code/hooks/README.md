@@ -11,7 +11,7 @@ These hooks make five rules mechanical for the one runtime that currently expose
 | Hook | Event | Rule enforced | Source |
 |---|---|---|---|
 | `session-start.sh` | `SessionStart` (startup, resume, compact) | Read first: `CLAUDE.md`, then `.ia-engineering/SESSION_STATE.md`, then the brief — printed into context with the *current* state (last update, next step, blockers) so the reading order is seen, not remembered. If `CLAUDE.md` does not exist yet (a project that has not completed `Workflows/PROJECT_BOOTSTRAP.md` Phase B / the `Workflows/ONBOARDING.md` Step 1 handoff), it says so instead of asserting the line, and names `Templates/PROJECT_CLAUDE.md` as the source when the framework's own root can be found. Also warns — never blocks — when `SESSION_STATE.md` is behind the repository, when its `_Last updated:` header was not refreshed on the file's last edit, or when it has grown past a size budget; see SESSION_STATE Freshness below | `Core/AGENT_CONDUCT.md`, Read First; `Core/CONTEXT_BUDGET.md` |
-| `block-escape-hatches.sh` | `PreToolUse`, matcher `Bash` | No `--no-verify`, no `--no-gpg-sign`, no `stash` in place of a commit, no interactive git in a non-interactive session, no force/mirror push, no deletion of a protected branch, no `reset --hard` / `clean -f` / `checkout -- .` / `branch -D`, no history rewrite, no `rm -rf` of `.git` or `/`, no `core.hooksPath` write in any case spelling or via a global option, no opaque `GIT_CONFIG_PARAMETERS`/`GIT_CONFIG_KEY_<n>` env-var config injection | `Standards/GIT_STANDARD.md`, Escape Hatches |
+| `block-escape-hatches.sh` | `PreToolUse`, matcher `Bash` | No `--no-verify`, no `--no-gpg-sign`, no `stash` in place of a commit, no interactive git in a non-interactive session, no force/mirror push, no deletion of a protected branch, no `reset --hard` / `clean -f` / `checkout -- .` / `branch -D`, no history rewrite, no `rm -rf` of `.git` or `/`, no `core.hooksPath` write in any case spelling or via a global option, no opaque `GIT_CONFIG_PARAMETERS`/`GIT_CONFIG_KEY_<n>` env-var config injection; no command that applies the Director-only approval labels (see Approval Label Guard below) | `Standards/GIT_STANDARD.md`, Escape Hatches; the Approval Label Guard section below |
 | `block-inline-suppression.sh` | `PreToolUse`, matcher `Edit\|Write\|MultiEdit` | No inline linter / type-checker / test-runner disable written into code; no skipped or focused test; no swallowed exception. Documentation files are the named exemption — the Standard has to be able to quote what it forbids | `Standards/CODE_QUALITY_STANDARD.md`, No Inline Suppression |
 | `post-edit-lint.sh` | `PostToolUse`, matcher `Edit\|Write\|MultiEdit` | The file just written passes `bash -n` and `shellcheck` (shell), and the project's own `.ia-engineering/lint.sh` when it exists; a failure returns to the model immediately. When nothing applicable ran, it says so | `Standards/CODE_QUALITY_STANDARD.md`, Automated Quality |
 | `stop-gate.sh` | `Stop` | The session does not end with tracked files changed and uncommitted, unexplained (one continuation granted via the `stop_hook_active` guard). **Also blocks** when `.ia-engineering/SESSION_STATE.md` exists and is older than HEAD's last commit, so the agent updates it before the session ends; a missing file gets a non-blocking reminder instead — see SESSION_STATE Freshness below | `Core/AGENT_CONDUCT.md`, Reporting Contract; `Templates/SESSION_STATE.md` |
@@ -52,6 +52,20 @@ Director-authorized static penetration test of `block-escape-hatches.sh`. Three 
 - **The `core.hooksPath` read exemption was unanchored.** It matched a read flag and the key name anywhere in the command, in either order. It is now judged per segment (the command is split on `;`, `&`, `|` and newline): a segment is exempt only when it is a `git config` read (`--get`, `--get-all`, `--get-regexp`, `--list`, `-l`, `get`, `list`) that names `core.hooksPath`, with only a closed list of options (`--global`, `--system`, `--local`, `--worktree`, `--show-origin`, `--show-scope`, `--includes`, `--no-includes`, `--null`, `--name-only`, `-z`, and `--file`/`--blob`/`--type`/`--default` with a value) around the read keyword. Any other option leaves the segment un-exempted. A `-c`/`--config-env` naming hooksPath in the segment is never exempted, and a read in one segment does not exempt another segment.
 
 `hooks/tests/escape-hatch-cases.tsv` carries the reproducing cases for all four corrections, each verified to fail against the pre-fix rule before the fix landed.
+
+---
+
+# Approval Label Guard
+
+Rule: an agent never applies `control-change/approved` or `size/approved`. Only the Director does. `block-escape-hatches.sh` refuses a command that would apply either label, case-insensitively, and the block message says so.
+
+Refused: `gh pr|issue edit --add-label` and `gh pr|issue create --label|-l` naming either label (also inside a comma list, `=` form, or a repeated flag); `gh api` writes (a POST/PUT/PATCH, or any `-f`/`-F`/`--field`/`--raw-field`/`--input` without an explicit GET) that name either label; a `gh api` write with `--input` to an issue's or pull request's `labels` or issue endpoint, because the file cannot be read and unread input is refused; `gh label edit --name|-n` renaming another label into either name; `gh label create` of either name.
+
+Allowed on purpose: every read (`gh pr view --json labels`, `gh label list`, `gh pr list --label …`, `gh api` with no write); **removing** either label (`--remove-label`, `gh api -X DELETE`, `gh label delete`), because removal only withdraws an approval and can never grant one; editing the label's colour or description; mentioning the name in a commit message, a comment, `grep`, or `echo`, since quoted text is stripped as for every other rule.
+
+Creating the label is refused although it applies nothing: the Director creates these two labels, so an agent has no legitimate reason to, and `gh label create --force` would otherwise let it redefine the label the guard workflow trusts.
+
+**This is a speed bump, not a boundary.** The pull-request guard cannot tell an agent from the Director when both act under the same GitHub identity, so this hook only interrupts the agent that reaches for the label by habit or by mistake. The Bash tool can build the command indirectly (a variable, `eval`, a script written to disk, `curl` against the API, a GraphQL `addLabelsToLabelable` mutation, a JSON body in a file) and none of that is seen here. The real control is the server-side check of who applied the label, which only works once the Director's identity and the agent's are separate. Until then, treat a block from this rule as the Director's line, not a bug to route around.
 
 ---
 
@@ -100,7 +114,7 @@ This writes `.claude/settings.json` from `settings.example.json`, substituting t
 There is a test suite, and it is the control:
 
 ```bash
-./Adapters/ai-runtimes/claude-code/hooks/tests/run.sh          # 391 checks
+./Adapters/ai-runtimes/claude-code/hooks/tests/run.sh          # 478 checks
 ./Adapters/ai-runtimes/claude-code/hooks/tests/run.sh --verbose
 ```
 

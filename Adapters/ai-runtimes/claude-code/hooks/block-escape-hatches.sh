@@ -307,4 +307,53 @@ if check "(^|${S}|;|&&|\|)rm(${S}+${RMFLAG})*${S}+(/|\.git)(/|\*|${S}|$)"; then
     "Standards/RISK_STANDARD.md, operational catalog (Critical)."
 fi
 
+# --- Approval labels (WU-IAENG-311) --------------------------------------------
+# control-change/approved and size/approved are Director-only: the pull-request
+# guard passes a change when the Director applies one. Agents run under the
+# Director's own GitHub identity, so the server cannot tell the two apart; this
+# rule is the local SPEED BUMP the Security Engineer asked for, and nothing more.
+# The Bash tool can build the command indirectly (variable, eval, a script, curl,
+# GraphQL, a JSON file) and none of that is read here — hooks/README.md,
+# Approval Label Guard, says so. The real control is a server-side check of who
+# applied the label, once the identities are separate.
+#
+# Judged per segment, on the stripped text, so a quoted MENTION (a commit message,
+# a comment body, echo) is not a use — same contract as every rule above. Label
+# names are case-insensitive and may be URL-encoded (%2F) in an API path.
+# Applying is refused; REMOVING (--remove-label, DELETE) is allowed because it
+# can only withdraw an approval; reads are allowed; creating the label is refused
+# (the Director creates it; `create --force` would redefine what the guard trusts).
+LBL='(control-change(/|%2f)approved|size(/|%2f)approved)'
+LEND='([[:space:]]|,|;|&|\||\)|$)'
+LVAL="([^[:space:],]*,)*${LBL}${LEND}"
+GHB='(^|[[:space:];&|(`/])gh'
+LABEL_FLAG="(${S}--add-label(=|${S}+)|${S}--label(=|${S}+)|${S}-l(=|${S}*))"
+APPROVAL_LABEL=0
+while IFS= read -r SEG; do
+  grep -qiE -- "${GHB}${S}" <<< "$SEG" || continue
+  if grep -qiE -- "${GHB}${S}+(pr|issue)${S}+(edit|create)[^|;&]*${LABEL_FLAG}${LVAL}" <<< "$SEG" \
+     || grep -qiE -- "${GHB}${S}+label${S}+edit[^|;&]*${S}(--name|-n)(=|${S}*)${LBL}${LEND}" <<< "$SEG" \
+     || grep -qiE -- "${GHB}${S}+label${S}+create${S}([^|;&]*${S})?${LBL}${LEND}" <<< "$SEG"; then
+    APPROVAL_LABEL=1
+  fi
+  if grep -qiE -- "${GHB}${S}+api${S}" <<< "$SEG" \
+     && ! grep -qiE -- "${S}(-X|--method)(=|${S}+)(GET|DELETE)${E}" <<< "$SEG"; then
+    WRITE_OPT="${S}(-X|--method)(=|${S}+)(POST|PUT|PATCH)${E}|${S}(-f|-F|--field|--raw-field|--input)"
+    if grep -qiE -- "(^|[^[:alnum:]_-])${LBL}${LEND}" <<< "$SEG" \
+       && grep -qiE -- "$WRITE_OPT" <<< "$SEG"; then
+      APPROVAL_LABEL=1
+    fi
+    # --input names a file this hook cannot read: refused on the endpoints that
+    # set labels, since unread input is refused (see the lexer LIMIT contract).
+    if grep -qiE -- "${S}--input" <<< "$SEG" \
+       && grep -qiE -- "(issues|pulls)/[0-9]+(/labels)?${E}|/labels${E}" <<< "$SEG"; then
+      APPROVAL_LABEL=1
+    fi
+  fi
+done < <(printf '%s\n' "$STRIPPED" | tr ';&|' '\n')
+if [ "$APPROVAL_LABEL" -eq 1 ]; then
+  iaeng_block "applying control-change/approved or size/approved — only the Director applies these approval labels" \
+    "Adapters/ai-runtimes/claude-code/hooks/README.md, Approval Label Guard. Ask the Director to apply the label; removing it, listing labels and mentioning it in text are allowed."
+fi
+
 exit 0
