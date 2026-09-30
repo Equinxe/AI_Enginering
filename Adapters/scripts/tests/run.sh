@@ -1741,6 +1741,346 @@ chmod +x "$WORK/shim/git"
 expect 1 "a merge the classifier cannot run on fails closed" -- env PATH="$WORK/shim:$PATH" bash "$CHECK_EMP" "$BASE" HEAD
 expect_output "could not be classified"
 
+# ------------------------------------------ check-inline-suppression.sh -------
+
+CHECK_SUP="$SCRIPTS/check-inline-suppression.sh"
+
+section "check-inline-suppression.sh"
+
+# Directive strings are BUILT BY CONCATENATION. This file is itself a code file
+# in the diff of the Pull Request that adds it, and the check it tests scans
+# added lines: a literal directive here would be a finding against its own test.
+# (The hook's test corpus under hooks/tests/ is exempt by path; this file is
+# not, and that is deliberate — code is never exempt.)
+D_NOQA="$(printf '%s%s' '#' ' noqa')"
+D_NOQA_UPPER="$(printf '%s' "$D_NOQA" | tr '[:lower:]' '[:upper:]')"
+D_ESLINT="$(printf '%s%s' '// eslint' '-disable-next-line no-console')"
+D_SKIP="$(printf '%s%s' 'it.' 'skip("does a thing", () => {})')"
+D_SHELLCHECK="$(printf '%s%s' '# shellcheck' ' disable=SC2034')"
+TAB="$(printf '\t')"
+
+# expect_output_absent <string> — the mirror of expect_output.
+expect_output_absent() {
+  TOTAL=$((TOTAL + 1))
+  if printf '%s' "$LAST_OUTPUT" | grep -qF -- "$1"; then
+    printf '   FAIL output unexpectedly contains: %s\n' "$1"
+    printf '%s\n' "$LAST_OUTPUT" | sed 's/^/        | /'
+    FAILED=$((FAILED + 1))
+    return 1
+  fi
+  [ -n "$VERBOSE" ] && printf '   ok   output does not contain: %s\n' "$1"
+  return 0
+}
+
+# sup_repo <name>  — a repository whose HEAD is the base of the change under test.
+sup_repo() { new_repo "$1"; SBASE="$(git rev-parse HEAD)"; }
+
+# sup_commit <path> <content>  — writes the file (parents created) and commits it.
+sup_commit() {
+  mkdir -p "$(dirname "$1")"
+  printf '%s\n' "$2" > "$1"
+  git add -A
+  git commit -q -m "change $1"
+}
+
+sup_repo sup-clean
+sup_commit a.py 'x = 1'
+expect 0 "a change with no directive is clean" -- bash "$CHECK_SUP" "$SBASE" HEAD
+expect_output "clean"
+expect_output "1 added line(s)"
+expect_output "against 5 pattern(s)"
+
+sup_repo sup-flag
+sup_commit a.py "x = 1  $D_NOQA"
+expect 1 "a directive on an added line is a finding" -- bash "$CHECK_SUP" "$SBASE" HEAD
+expect_output "a.py:1: python-lint-suppression:"
+
+sup_repo sup-lineno
+sup_commit a.py "$(printf 'a = 1\nb = 2\nc = 3  %s\nd = 4' "$D_NOQA")"
+expect 1 "the reported line number is the line in the new file" -- bash "$CHECK_SUP" "$SBASE" HEAD
+expect_output "a.py:3: "
+
+sup_repo sup-case
+sup_commit a.py "x = 1  $D_NOQA_UPPER"
+expect 1 "matching is case-insensitive" -- bash "$CHECK_SUP" "$SBASE" HEAD
+
+sup_repo sup-js
+sup_commit src/app.ts "$D_ESLINT"
+expect 1 "a directive from another row of the pattern file is reported with that row's label" -- bash "$CHECK_SUP" "$SBASE" HEAD
+expect_output "src/app.ts:1: js-ts-suppression:"
+
+sup_repo sup-shell
+sup_commit tools/x.sh "$D_SHELLCHECK"
+expect 1 "a shell-lint directive is a finding" -- bash "$CHECK_SUP" "$SBASE" HEAD
+expect_output "other-suppression"
+
+sup_repo sup-skip
+sup_commit spec/a.test.js "$D_SKIP"
+expect 1 "a skipped test is a finding" -- bash "$CHECK_SUP" "$SBASE" HEAD
+expect_output "skipped-or-focused-test"
+
+sup_repo sup-md
+sup_commit README.md "Do not write $D_NOQA in code."
+expect 0 "documentation quoting a directive is exempt" -- bash "$CHECK_SUP" "$SBASE" HEAD
+expect_output "1 exempt"
+
+sup_repo sup-finalext
+sup_commit notes.md.py "x = 1  $D_NOQA"
+expect 1 "the extension exemption reads the FINAL extension: notes.md.py is code" -- bash "$CHECK_SUP" "$SBASE" HEAD
+
+sup_repo sup-hooktests
+sup_commit Adapters/ai-runtimes/claude-code/hooks/tests/cases.sh "x = 1  $D_NOQA"
+expect 0 "a file under hooks/tests/ is exempt" -- bash "$CHECK_SUP" "$SBASE" HEAD
+
+sup_repo sup-patternfile
+sup_commit Adapters/scripts/suppression-patterns.tsv "python-lint-suppression${TAB}$D_NOQA"
+expect 0 "the pattern file itself is exempt" -- bash "$CHECK_SUP" "$SBASE" HEAD
+
+sup_repo sup-generated
+printf 'gen.js linguist-generated=true\n' > .gitattributes
+printf '%s\n' "$D_ESLINT" > gen.js
+git add -A && git commit -q -m "generated file"
+expect 0 "a linguist-generated file is exempt" -- bash "$CHECK_SUP" "$SBASE" HEAD
+
+sup_repo sup-removed
+sup_commit a.py "x = 1  $D_NOQA"
+SBASE="$(git rev-parse HEAD)"
+sup_commit b.py 'y = 2'
+sup_commit a.py 'x = 1'
+expect 0 "a directive already present, or removed, is not an added line" -- bash "$CHECK_SUP" "$SBASE" HEAD
+
+sup_repo sup-evilmerge
+git switch -q -c side
+sup_commit side.txt 'side'
+git switch -q main
+sup_commit main.txt 'main'
+SBASE="$(git rev-parse HEAD)"
+git merge -q --no-commit --no-ff side
+printf '%s\n' "x = 1  $D_NOQA" > evil.py
+git add evil.py
+git commit -q -m "Merge branch 'side'"
+expect 1 "content authored in a merge commit is scanned (merge-base diff)" -- bash "$CHECK_SUP" "$SBASE" HEAD
+expect_output "evil.py:1: "
+
+sup_repo sup-big
+{ printf '%s\n' "x = 1  $D_NOQA"; yes 'filler line padding padding padding padding' | head -n 30000; } > big.py
+git add -A && git commit -q -m "big file"
+expect 1 "a directive on line 1 of a payload larger than the pipe buffer is still found" -- bash "$CHECK_SUP" "$SBASE" HEAD
+
+sup_repo sup-truncate
+LONG="$(printf 'Z%.0s' $(seq 1 400))"
+sup_commit a.py "x = 1  $D_NOQA $LONG"
+expect 1 "a long line is reported truncated" -- bash "$CHECK_SUP" "$SBASE" HEAD
+expect_output_absent "$(printf 'Z%.0s' $(seq 1 250))"
+
+sup_repo sup-allow
+mkdir -p .ia-engineering
+printf '^a\\.py$%s%s%s%s\n' "$TAB" 'x = 1' "$TAB" 'the tool reports a false positive that configuration cannot scope' > .ia-engineering/suppression.allow
+sup_commit a.py "x = 1  $D_NOQA"
+expect 0 "a finding matched by an allow entry with a reason is allowed" -- bash "$CHECK_SUP" "$SBASE" HEAD
+expect_output "1 allowed"
+
+sup_repo sup-allow-noreason
+mkdir -p .ia-engineering
+printf '^a\\.py$%s%s%s\n' "$TAB" 'x = 1' "$TAB" > .ia-engineering/suppression.allow
+sup_commit a.py "x = 1  $D_NOQA"
+expect 1 "an allow entry with an empty reason is invalid and fails the check" -- bash "$CHECK_SUP" "$SBASE" HEAD
+expect_output "empty reason"
+
+sup_repo sup-allow-twofields
+mkdir -p .ia-engineering
+printf '^a\\.py$%s%s\n' "$TAB" 'x = 1' > .ia-engineering/suppression.allow
+sup_commit a.py "x = 1  $D_NOQA"
+expect 1 "an allow entry with fewer than three fields is invalid" -- bash "$CHECK_SUP" "$SBASE" HEAD
+expect_output "fewer than three fields"
+
+sup_repo sup-allow-otherpath
+mkdir -p .ia-engineering
+printf '^other\\.py$%s%s%s%s\n' "$TAB" 'x = 1' "$TAB" 'a reason for a different file' > .ia-engineering/suppression.allow
+sup_commit a.py "x = 1  $D_NOQA"
+expect 1 "an allow entry whose path expression does not match allows nothing" -- bash "$CHECK_SUP" "$SBASE" HEAD
+
+sup_repo sup-badref
+expect 1 "an unresolvable ref fails: nothing was established" -- bash "$CHECK_SUP" "$SBASE" no-such-ref
+expect_output "nothing was established"
+
+sup_repo sup-staged
+printf '%s\n' "x = 1  $D_NOQA" > a.py
+git add a.py
+expect 1 "--staged reports a directive in the index" -- bash "$CHECK_SUP" --staged
+expect_output "a.py:1: python-lint-suppression:"
+git reset -q
+rm -f a.py
+printf 'x = 1\n' > b.py
+git add b.py
+expect 0 "--staged is clean when the index holds no directive" -- bash "$CHECK_SUP" --staged
+
+sup_repo sup-nopatterns
+mkdir -p "$WORK/sup-noscripts"
+cp "$CHECK_SUP" "$WORK/sup-noscripts/"
+sup_commit a.py 'x = 1'
+expect 1 "a missing pattern file fails closed" -- bash "$WORK/sup-noscripts/check-inline-suppression.sh" "$SBASE" HEAD
+expect_output "is missing"
+
+# --- Review findings (SEC-01..07, CR): each case below failed before its fix. ----
+
+# plumb <mode> <path> <content>  — puts a blob in the index at <path> without a
+# working-tree file, so a path git allows and a filesystem may not (a newline in
+# the name, a symlink on a host without them) is testable everywhere.
+plumb() {
+  local sha
+  sha="$(printf '%s\n' "$3" | git hash-object -w --stdin)"
+  git update-index --add --cacheinfo "$1" "$sha" "$2"
+}
+
+# SEC-01 (High): the exempt list was newline-separated, so a file NAMED
+# "<real path>\n<x>.md" exempted the real file as well. Any newline in a path is
+# now refused: a list that cannot represent a name has established nothing.
+sup_repo sup-newline
+# git on Windows refuses such a name in the index, so the tree is built with
+# mktree and committed with commit-tree; no working-tree file is involved.
+NL_SHA="$(printf 'x = 1  %s\n' "$D_NOQA" | git hash-object -w --stdin)"
+NL_CLEAN="$(printf 'y = 2\n' | git hash-object -w --stdin)"
+NL_TREE="$(printf '100644 blob %s\treal.py\x00100644 blob %s\treal.py\nz.md\x00' "$NL_SHA" "$NL_CLEAN" | git mktree -z)"
+git update-ref refs/heads/main "$(git commit-tree "$NL_TREE" -p HEAD -m 'newline in a path')"
+expect 1 "SEC-01: a path containing a newline is refused, not used to exempt another file" -- bash "$CHECK_SUP" "$SBASE" HEAD
+expect_output "newline"
+
+# SEC-02 (High): a file git classifies as binary (a NUL byte, or -diff /
+# binary in .gitattributes) prints "Binary files differ" and no lines, so its
+# directive was never scanned. --text makes git print the lines.
+sup_repo sup-binary-nul
+{ printf 'x = 1  %s\n' "$D_NOQA"; printf '\0\0\0\n'; } > bin.py
+git add -A && git commit -q -m "binary by NUL"
+expect 1 "SEC-02: a file with a NUL byte is scanned as text" -- bash "$CHECK_SUP" "$SBASE" HEAD
+expect_output "bin.py:1: "
+
+sup_repo sup-binary-attr
+printf '*.dat -diff\n' > .gitattributes
+printf 'x = 1  %s\n' "$D_NOQA" > a.dat
+git add -A && git commit -q -m "binary by attribute"
+expect 1 "SEC-02: a file marked -diff in .gitattributes is scanned as text" -- bash "$CHECK_SUP" "$SBASE" HEAD
+
+# SEC-03 (High): a type change (symlink -> regular file) is diff-filter T, which
+# the filter did not list.
+sup_repo sup-typechange
+plumb 120000 a.py "target.txt"
+git commit -q -m "a symlink"
+SBASE="$(git rev-parse HEAD)"
+plumb 100644 a.py "x = 1  $D_NOQA"
+plumb 100644 b.py "y = 2"
+git commit -q -m "symlink becomes a file"
+expect 1 "SEC-03: a symlink replaced by a regular file is scanned" -- bash "$CHECK_SUP" "$SBASE" HEAD
+expect_output "a.py:1: "
+
+# SEC-04 (Medium): */hooks/tests/* exempted ANY hooks/tests directory. Only the
+# framework's own corpus is exempt, in-tree or under an adopter's ia-engineering/.
+sup_repo sup-hooktests-anywhere
+sup_commit src/hooks/tests/x.sh "x = 1  $D_NOQA"
+expect 1 "SEC-04: an unrelated src/hooks/tests/ directory is not exempt" -- bash "$CHECK_SUP" "$SBASE" HEAD
+
+sup_repo sup-hooktests-submodule
+sup_commit ia-engineering/Adapters/ai-runtimes/claude-code/hooks/tests/x.sh "x = 1  $D_NOQA"
+expect 0 "SEC-04: the framework's corpus under ia-engineering/ stays exempt" -- bash "$CHECK_SUP" "$SBASE" HEAD
+
+sup_repo sup-patternfile-elsewhere
+sup_commit evil/Adapters/scripts/suppression-patterns.tsv "python-lint-suppression${TAB}$D_NOQA"
+expect 1 "SEC-04: a file that merely ends in the pattern file's path is not exempt" -- bash "$CHECK_SUP" "$SBASE" HEAD
+
+# SEC-05 (Low): git appends a TAB to the "+++ b/<path>" header when the path
+# contains a space, which became part of the reported (and allow-matched) path.
+sup_repo sup-space
+sup_commit "my file.py" "x = 1  $D_NOQA"
+expect 1 "SEC-05: a path with a space is reported without a trailing TAB" -- bash "$CHECK_SUP" "$SBASE" HEAD
+expect_output "my file.py:1: "
+
+# SEC-07 (Low): an allow entry must not be a blanket. A path expression is
+# anchored ^...$, and neither expression may match the empty string.
+sup_repo sup-allow-blanket
+mkdir -p .ia-engineering
+printf '.%s.%sa reason\n' "$TAB" "$TAB" > .ia-engineering/suppression.allow
+sup_commit a.py "x = 1  $D_NOQA"
+expect 1 "SEC-07: an allow entry of . TAB . excuses nothing and is invalid" -- bash "$CHECK_SUP" "$SBASE" HEAD
+expect_output "anchored"
+
+sup_repo sup-allow-unanchored
+mkdir -p .ia-engineering
+printf 'a\\.py%sx = 1%sa reason\n' "$TAB" "$TAB" > .ia-engineering/suppression.allow
+sup_commit a.py "x = 1  $D_NOQA"
+expect 1 "SEC-07: an allow path expression that is not anchored is invalid" -- bash "$CHECK_SUP" "$SBASE" HEAD
+expect_output "anchored"
+
+sup_repo sup-allow-emptymatch
+mkdir -p .ia-engineering
+printf '^a\\.py$%s.*%sa reason\n' "$TAB" "$TAB" > .ia-engineering/suppression.allow
+sup_commit a.py "x = 1  $D_NOQA"
+expect 1 "SEC-07: an allow line expression that matches the empty string is invalid" -- bash "$CHECK_SUP" "$SBASE" HEAD
+expect_output "empty string"
+
+# Tripwire: one positive sample per row of the REAL pattern file. A pattern that
+# was mistyped into something that never matches is otherwise a control that
+# passes every test written against a different, working pattern.
+sample_for() {
+  case "$1" in
+    python-lint-suppression)  printf 'x = 1  %s' "$D_NOQA" ;;
+    js-ts-suppression)        printf '%s' "$D_ESLINT" ;;
+    other-suppression)        printf '%s' "$D_SHELLCHECK" ;;
+    skipped-or-focused-test)  printf '%s' "$D_SKIP" ;;
+    swallowed-exception)      printf 'except:' ;;
+    *) return 1 ;;
+  esac
+}
+sup_repo sup-tripwire
+TW_MISSING=""
+while IFS= read -r row || [ -n "$row" ]; do
+  case "$row" in ''|'#'*) continue ;; esac
+  lbl="${row%%"$TAB"*}"
+  if s="$(sample_for "$lbl")"; then printf '%s\n' "$s" > "tw_$lbl.py"; else TW_MISSING="$TW_MISSING $lbl"; fi
+done < "$SCRIPTS/suppression-patterns.tsv"
+git add -A && git commit -q -m "one sample per pattern"
+expect 0 "tripwire: every row of the real pattern file has a sample here (add one with the row)" -- test -z "$TW_MISSING"
+expect 1 "tripwire: the samples are found" -- bash "$CHECK_SUP" "$SBASE" HEAD
+while IFS= read -r row || [ -n "$row" ]; do
+  case "$row" in ''|'#'*) continue ;; esac
+  lbl="${row%%"$TAB"*}"
+  expect_output "tw_$lbl.py:1: $lbl:"
+done < "$SCRIPTS/suppression-patterns.tsv"
+
+# Code review: the exits nobody had a case for.
+sup_repo sup-backmerge
+git switch -q -c side
+git switch -q main
+sup_commit m.txt 'main moves on'
+git switch -q side
+git merge -q --no-ff main -m "Merge main into side"
+expect 0 "a back-merge (empty diff, no non-merge commit) passes and says why" -- bash "$CHECK_SUP" main HEAD
+expect_output "lists no files"
+
+sup_repo sup-emptycommit
+git commit -q --allow-empty -m "changes nothing"
+expect 1 "a non-merge commit that changed nothing fails closed" -- bash "$CHECK_SUP" "$SBASE" HEAD
+expect_output "lists no files"
+
+expect 2 "no arguments is a usage error" -- bash "$CHECK_SUP"
+expect 2 "one argument is a usage error" -- bash "$CHECK_SUP" onlyone
+expect 2 "--staged with an extra argument is a usage error" -- bash "$CHECK_SUP" --staged extra
+
+sup_repo sup-badpatterns
+mkdir -p "$WORK/sup-emptypat" "$WORK/sup-malformedpat"
+cp "$CHECK_SUP" "$WORK/sup-emptypat/"
+cp "$CHECK_SUP" "$WORK/sup-malformedpat/"
+printf '# nothing but a comment\n\n' > "$WORK/sup-emptypat/suppression-patterns.tsv"
+printf 'label-without-a-tab\n' > "$WORK/sup-malformedpat/suppression-patterns.tsv"
+sup_commit a.py 'x = 1'
+expect 1 "a pattern file with no rows fails closed" -- bash "$WORK/sup-emptypat/check-inline-suppression.sh" "$SBASE" HEAD
+expect_output "holds no patterns"
+expect 1 "a pattern row without a TAB fails closed" -- bash "$WORK/sup-malformedpat/check-inline-suppression.sh" "$SBASE" HEAD
+expect_output "without a TAB"
+
+# The allow file is committed knowledge, and .ia-engineering/* is ignored. Without
+# the exception an allow entry would sit on one machine and CI would never see it.
+expect 1 "the allow file is not gitignored (exception in .gitignore)" -- git -C "$SCRIPTS/../.." check-ignore -q .ia-engineering/suppression.allow
+
 # ------------------------------------- check-control-paths.sh (WU-IAENG-309) --
 
 CHECK_CP="$SCRIPTS/check-control-paths.sh"

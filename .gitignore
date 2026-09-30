@@ -44,3 +44,9 @@ local_test_data/
 # who clones must inherit both, not rediscover them at their own expense.
 !.ia-engineering/risk-map.yml
 !.ia-engineering/stack
+#
+# ...and the suppression allow file (Adapters/scripts/check-inline-suppression.sh):
+# a committed list of the inline-suppression findings a project has decided to
+# accept, each with a reason. Ignored, an entry would sit on one machine and CI
+# would never see it.
+!.ia-engineering/suppression.allow
