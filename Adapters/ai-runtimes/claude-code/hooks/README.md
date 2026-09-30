@@ -100,7 +100,7 @@ This writes `.claude/settings.json` from `settings.example.json`, substituting t
 There is a test suite, and it is the control:
 
 ```bash
-./Adapters/ai-runtimes/claude-code/hooks/tests/run.sh          # 372 checks
+./Adapters/ai-runtimes/claude-code/hooks/tests/run.sh          # 378 checks
 ./Adapters/ai-runtimes/claude-code/hooks/tests/run.sh --verbose
 ```
 
