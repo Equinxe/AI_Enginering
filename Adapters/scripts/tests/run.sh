@@ -2081,6 +2081,26 @@ expect_output "without a TAB"
 # the exception an allow entry would sit on one machine and CI would never see it.
 expect 1 "the allow file is not gitignored (exception in .gitignore)" -- git -C "$SCRIPTS/../.." check-ignore -q .ia-engineering/suppression.allow
 
+# ------------- pr-validation.yml — graders cannot be reconfigured by a PR -----
+# WU-IAENG-310. The required checks run inside the PR's own checkout, so a
+# grader that resolves its configuration from that tree can be reconfigured by
+# the change it grades. These are content guards on the workflow (the Adapter
+# and this repository's installed copy), so the two hardenings cannot regress
+# silently: a workflow edit that drops --norc, or goes back to an unpinned npx
+# run from the checkout root, fails here rather than passing review unnoticed.
+
+for PRV in "$SCRIPTS/../github-actions/pr-validation.yml" "$SCRIPTS/../../.github/workflows/pr-validation.yml"; do
+  PRV_NAME="${PRV#"$SCRIPTS"/../}"
+  expect 0 "$PRV_NAME: shellcheck runs with --norc" -- grep -Eq '^[[:space:]]*shellcheck --norc ' "$PRV"
+  expect 1 "$PRV_NAME: no shellcheck invocation without --norc" -- grep -Eq '^[[:space:]]*shellcheck (-[^-]|--[^n])' "$PRV"
+  expect 0 "$PRV_NAME: js-yaml version is pinned to an exact x.y.z" -- grep -Eq '^[[:space:]]*JS_YAML_VERSION="[0-9]+\.[0-9]+\.[0-9]+"' "$PRV"
+  expect 0 "$PRV_NAME: npx runs the pinned js-yaml" -- grep -Fq 'npx --yes -q "js-yaml@${JS_YAML_VERSION}"' "$PRV"
+  expect 1 "$PRV_NAME: no unpinned npx js-yaml" -- grep -Eq 'npx .*js-yaml([[:space:]]|")' "$PRV"
+  expect 0 "$PRV_NAME: js-yaml runs from a fresh mktemp -d directory" -- grep -Fq 'GRADER_DIR="$(mktemp -d)"' "$PRV"
+  expect 0 "$PRV_NAME: js-yaml is executed inside that directory" -- grep -Fq '(cd "$GRADER_DIR" && npx' "$PRV"
+  expect 0 "$PRV_NAME: no user npmrc is honoured" -- grep -Fq 'export NPM_CONFIG_USERCONFIG=/dev/null' "$PRV"
+done
+
 # --------------------------------------------------------------- verdict ----
 
 cd "$HERE" || exit 1
