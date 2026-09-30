@@ -36,6 +36,17 @@
 #     path git can produce. It is reported as a control path rather than trusted.
 #   - In `case` patterns `*` also matches `/`, so `dir/*` covers every depth.
 #
+# DELIBERATELY NOT LISTED, and why: Registry/work-units.yml (every PR appends
+# to it; it registers work, it does not grade it), and .claude/agents and
+# .claude/commands (they shape how Employees behave, not how a PR is graded in
+# CI).
+#
+# BACKWARD COMPATIBILITY IS A CONSTRAINT. GitHub runs the pull_request_target
+# workflow file from the DEFAULT branch, while this script is checked out at the
+# PR's base SHA, so the two can be different versions. The interface the
+# workflow depends on - `-z`, paths on stdin, exit 0 (none) / 1 (touched) /
+# 2 (usage) - must keep working in both directions across releases.
+#
 # `ia-engineering` (exact) is the submodule gitlink of an adopting project:
 # bumping it swaps every script and hook the project runs.
 
@@ -57,9 +68,14 @@ is_control() {
     //* | */./* | */../* | *//*) return 0 ;;
   esac
   case "$p" in
-    .github/workflows/* | .github/actions/* | .github/CODEOWNERS | CODEOWNERS) return 0 ;;
+    .github/workflows/* | .github/actions/* | .github/CODEOWNERS | CODEOWNERS | docs/CODEOWNERS) return 0 ;;
     Adapters/github-actions/* | Adapters/git-hooks/* | Adapters/scripts/*) return 0 ;;
     Adapters/ai-runtimes/*/hooks/*) return 0 ;;
+    Adapters/ai-runtimes/*/settings*.json | Adapters/ai-runtimes/*/install-hooks.sh) return 0 ;;
+    Adapters/ai-runtimes/generate-agents.sh) return 0 ;;
+    # Tool configuration that changes what a check does when it runs, at any depth.
+    .shellcheckrc | */.shellcheckrc | .npmrc | */.npmrc) return 0 ;;
+    package.json | package-lock.json | node_modules/*) return 0 ;;
     .claude/settings.json | .claude/settings.local.json | .claude/hooks/*) return 0 ;;
     Registry/employees.yml) return 0 ;;
     .ia-engineering/*.allow | .ia-engineering/risk-map.yml) return 0 ;;
