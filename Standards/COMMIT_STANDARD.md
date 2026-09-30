@@ -72,6 +72,20 @@ If the answer cannot be expressed in one sentence, the Work Unit should probably
 
 ---
 
+## Commit Types
+
+A commit's `type` indicates the nature of the change. Valid types are:
+
+- feat — new feature
+- fix — bug fix
+- docs — documentation only
+- refactor — code change without feature or fix
+- perf — a change that improves performance without changing behaviour
+- test — adding or updating tests
+- chore — build, tooling, or dependency update
+
+---
+
 ## Trailers
 
 Every commit carries two trailers:
@@ -206,7 +220,7 @@ Following this standard provides:
 
 Owner: IA Engineering
 
-Version: 0.0.5
+Version: 0.0.6
 
 Status: Draft
 

@@ -1081,6 +1081,12 @@ work_units:
     milestone: Precision
     delivers: CLAUDE.md, Core/GLOSSARY.md, Templates/PROJECT_CLAUDE.md, Governance/DEPRECATION_POLICY.md, Registry/work-units.yml
 
+  - id: WU-IAENG-304
+    employee: DevOps Engineer
+    title: Accept the perf commit type
+    milestone: Precision
+    delivers: Adapters/git-hooks/commit-msg, Standards/COMMIT_STANDARD.md, .github/PULL_REQUEST_TEMPLATE.md, Adapters/github/PULL_REQUEST_TEMPLATE.md, Templates/PULL_REQUEST.md, Adapters/ai-runtimes/claude-code/hooks/tests/escape-hatch-cases.tsv, Adapters/scripts/tests/run.sh, Registry/work-units.yml
+
   - id: WU-IAENG-305
     employee: Technical Writer
     title: State where the security enforcement boundary actually is — correct the hooks README's mistaken claim that pre-push is part of the unskippable server-side boundary (it is a local guardrail skipped by the same --no-verify / core.hooksPath it backs up), align the same stale claim found duplicated in strip-quotes.awk's header comment, add a boundary paragraph to SECURITY.md distinguishing local guardrails from the server-side branch-protection/required-checks boundary for severity triage, and document the PT-04 SESSION_STATE mtime-touch limit and the PT-01 Bash-tool blind spot in block-inline-suppression.sh
