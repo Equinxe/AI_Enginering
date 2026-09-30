@@ -1098,3 +1098,9 @@ work_units:
     title: Close three escape-hatch rule gaps found by Purple exercise #112's static penetration test (PT-03, PT-05, PT-06) — case-insensitive core.hooksPath matching plus new GIT_CONFIG_PARAMETERS/GIT_CONFIG_KEY_<n> env-var rules, a widened git global-options prefix, and a core.hooksPath read exemption anchored to an actual git config read instead of matching its flags anywhere on the line
     milestone: Precision
     delivers: Adapters/ai-runtimes/claude-code/hooks/block-escape-hatches.sh, Adapters/ai-runtimes/claude-code/hooks/tests/escape-hatch-cases.tsv, Adapters/ai-runtimes/claude-code/hooks/README.md, Registry/work-units.yml
+
+  - id: WU-IAENG-307
+    employee: DevOps Engineer
+    title: Require attribution on merges that author content (PT-02 of the #112 exercise) - classify merges by comparing their tree to the automatic merge of their parents; authored merges need an Employee trailer in CI and in commit-msg; historical ones grandfathered
+    milestone: Precision
+    delivers: Adapters/scripts/check-employee-trailers.sh, Adapters/git-hooks/commit-msg, Standards/COMMIT_STANDARD.md, Adapters/scripts/tests/run.sh, Registry/work-units.yml
