@@ -55,20 +55,58 @@ SUBJECT="$(head -1 "$COMMIT_MSG_FILE")"
 # MERGE_HEAD but shares a common git dir).
 MERGE_HEAD_PATH="$(git rev-parse --git-path MERGE_HEAD)"
 
+# A merge is exempt from the SUBJECT rule always, but not from attribution when
+# it authors content (PT-02 of the #112 exercise; WU-IAENG-307). Classified
+# locally by comparing the index tree about to be committed against the
+# automatic merge of HEAD and MERGE_HEAD (`git merge-tree --write-tree`, git
+# >= 2.38):
+#   clean     tree == automatic merge  -> no subject rule, Employee lines
+#                                         validated only if present, exit 0
+#   authored  tree differs, conflicts resolved, or several MERGE_HEAD lines
+#             (octopus)                -> no subject rule, Rule 2 REQUIRED
+#   unknown   git too old / merge-tree errors -> warn, keep the old behaviour
+#             (exit 0); CI (check-employee-trailers.sh) classifies it instead
+# Known friction, by design: `-s ours`, `-X theirs`, and conflicts resolved in
+# the GitHub web editor produce a tree that differs from the automatic merge,
+# so they need an Employee trailer (or, for the web editor, resolve locally).
+IS_MERGE=0
+MERGE_KIND=""
 if [ -f "$MERGE_HEAD_PATH" ]; then
-  exit 0
+  IS_MERGE=1
+  if [ "$(grep -c . "$MERGE_HEAD_PATH")" -ne 1 ]; then
+    MERGE_KIND=authored
+  else
+    MT_RC=0
+    MT_OUT="$(git merge-tree --write-tree --no-messages HEAD "$(cat "$MERGE_HEAD_PATH")" 2>/dev/null)" || MT_RC=$?
+    if [ "$MT_RC" -gt 1 ]; then
+      MERGE_KIND=unknown
+    elif [ "$MT_RC" -eq 0 ] && [ "$(printf '%s\n' "$MT_OUT" | head -1)" = "$(git write-tree 2>/dev/null)" ]; then
+      MERGE_KIND=clean
+    else
+      MERGE_KIND=authored
+    fi
+  fi
+  if [ "$MERGE_KIND" = unknown ]; then
+    echo "commit-msg: warning — cannot classify this merge locally; CI will." >&2
+    exit 0
+  fi
 fi
 
 # --- Rule 1: Conventional Commits subject line ---------------------------
 # Types kept in sync with Templates/PULL_REQUEST.md's Type checklist.
 CC_REGEX='^(feat|fix|docs|refactor|perf|test|chore)(\([a-zA-Z0-9,._-]+\))?: .+'
 
-if ! echo "$SUBJECT" | grep -qE "$CC_REGEX"; then
+if [ "$IS_MERGE" -eq 0 ] && ! echo "$SUBJECT" | grep -qE "$CC_REGEX"; then
   echo "commit-msg: rejected — subject line does not follow the Commit Standard." >&2
   echo "  Expected: type(scope): description" >&2
   echo "  type is one of: feat, fix, docs, refactor, perf, test, chore" >&2
   echo "  Got: $SUBJECT" >&2
   exit 1
+fi
+
+# A clean merge carrying no Employee claim has nothing left to check.
+if [ "$MERGE_KIND" = clean ] && ! grep -qE '^Employee: ' "$COMMIT_MSG_FILE"; then
+  exit 0
 fi
 
 # --- Locate the Employee roster -------------------------------------------
@@ -212,6 +250,7 @@ if [ "$WU_COUNT" -gt 1 ]; then
 fi
 
 if [ -z "$EMPLOYEE_LINES" ]; then
+  [ "$MERGE_KIND" = authored ] && echo "commit-msg: this merge changes content beyond its parents' automatic merge, so it is authored work." >&2
   echo "commit-msg: rejected — missing 'Employee: <Name>' trailer." >&2
   echo "  Per Core/MAIN_AGENT_CONDUCT.md (Dispatch Discipline), every commit must" >&2
   echo "  identify the Employee who produced it — never the Main Agent, never a" >&2
