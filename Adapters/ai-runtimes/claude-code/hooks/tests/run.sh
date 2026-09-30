@@ -145,6 +145,7 @@ PATFILE_ABS="$(cd "$HOOKS/../../../scripts" && pwd)/suppression-patterns.tsv"
 HOOKTESTS_ABS="$HOOKS/tests"
 mkpay() { jq -n --arg f "$1" --arg c "$SUPPRESSED" --arg w "${2:-}" '{tool_name:"Write",cwd:$w,tool_input:{file_path:$f,content:$c}}'; }
 PAY_PATFILE="$(mkpay "$PATFILE_ABS")"
+expect_rc "inline-suppression: the documentation exemption folds case (README.MD)" 0 "$HOOKS/block-inline-suppression.sh" "$(mkpay "/work/proj/README.MD")"
 expect_rc "inline-suppression: a pattern from the file (JS/TS row) blocks" 2 "$HOOKS/block-inline-suppression.sh" "$PAY_JS"
 expect_rc "inline-suppression: a pattern from the file (skipped-test row) blocks" 2 "$HOOKS/block-inline-suppression.sh" "$PAY_TEST"
 expect_rc "inline-suppression: clean code is allowed" 0 "$HOOKS/block-inline-suppression.sh" "$PAY_CLEAN"

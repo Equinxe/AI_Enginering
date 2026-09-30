@@ -29,19 +29,29 @@ FILE="$(iaeng_field '.tool_input.file_path')"
 # 1. Documentation. Standards/CODE_QUALITY_STANDARD.md quotes every directive
 #    below in order to forbid it; a hook that stopped the Standard from being
 #    written would be the joke version of itself.
-# 2. This hook's own test corpus, this hook's tests/ directory. A test that
-#    proves a directive is refused has to contain that directive. Found by this
-#    hook refusing the very file that tests it — the same shape as (1), one
-#    level down. Scoped to that one directory rather than to any hooks/tests/ or any path containing the
-#    word test, because a directory whose whole contents become exempt is how
-#    the synthetic-fixture marker was defeated before it was anchored
+# 2. This hook's own test corpus, the tests/ directory next to this hook. A
+#    test that proves a directive is refused has to contain that directive.
+#    Found by this hook refusing the very file that tests it: the same shape
+#    as (1), one level down. Scoped to that one directory rather than to any
+#    hooks/tests/ directory or any path containing the word test, because a
+#    directory whose whole contents become exempt is how the synthetic-fixture
+#    marker was defeated before it was anchored
 #    (Standards/DATA_PROTECTION_STANDARD.md, Synthetic Fixtures).
 #
 # Code is never exempt, and there is no environment override. Note that this
 # file is not exempt from itself: its own comments name the directives
 # obliquely for that reason, and the rule they implement is stated in full in
 # the Standard.
-# `shopt -s nocasematch
+#
+# `shopt -s nocasematch` rather than ${FILE,,}: the lowercasing expansion is
+# bash 4.0+, and macOS still ships bash 3.2 as /bin/bash. There it is not a
+# runtime error but a PARSE error, so bash exits 2 before running a line, and
+# Claude Code reads exit 2 from a PreToolUse hook as *block*. Every Edit and
+# Write would have been refused, with no reason text, on every macOS machine.
+# It was the only bash-4 construct in any hook. (`mapfile` in
+# Adapters/github-actions/pr-validation.yml is also bash 4, and stays: that
+# one runs on ubuntu-latest, where the version is known.)
+shopt -s nocasematch
 case "$FILE" in
   *.md|*.rst|*.txt|*.adoc) exit 0 ;;
 esac
