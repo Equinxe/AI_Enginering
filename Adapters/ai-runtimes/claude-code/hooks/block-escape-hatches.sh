@@ -328,14 +328,17 @@ fi
 # builtin pattern test, no fork. Case is folded by the pattern itself (bash 3.2
 # has no ${var,,}).
 #
-# RAW CHECKS (quoted label lists). The lexer drops a quoted region that contains
-# whitespace, so `--add-label "help wanted,size/approved"` — the form gh's own
-# --help shows — leaves nothing after the flag in the stripped text. Only when
-# the STRIPPED segment is already a gh pr|issue edit|create carrying a label
-# flag is the RAW segment consulted, and only for the quoted VALUE of that flag
-# (never --body or --title). Same for `gh alias set|import`, whose value is a
-# command in quotes. Raw segments are split on ; & | like the stripped ones, so
-# a quoted `;` can split a value — that can only miss, never invent, a match.
+# QUOTED LABEL LISTS. The lexer drops a quoted region that contains whitespace,
+# so `--add-label "help wanted,size/approved"` — the form gh's own --help shows
+# — leaves nothing after the flag in the stripped text. Only when the STRIPPED
+# segment is already a gh pr|issue edit|create carrying a label flag (or a gh
+# alias set|import) is the command lexed a second time in KEEPQ mode
+# (strip-quotes.awk): quoted regions are kept as single words with their inner
+# whitespace replaced by a placeholder, heredoc bodies still skipped. A flag or
+# a `gh` that only appears inside quoted prose (a --body, a --title, a commit
+# message) has no whitespace boundary left and cannot match; a real flag's
+# quoted value is one word and is matched by the same label pattern. Quoted
+# `;`, `&` and `|` are folded into the placeholder too, so they cannot split it.
 LBL='(control-change(/|%2f)approved|size(/|%2f)approved)'
 LEND='([[:space:]]|,|;|&|\||\)|$)'
 LVAL="([^[:space:],]*,)*${LBL}${LEND}"
@@ -345,8 +348,6 @@ GHB='(^|[[:space:];&|(`/])gh(\.exe)?'
 GHF="(${S}+(-R|--repo)(=|${S}+)[^[:space:]]+|${S}+--[a-z][a-z-]*)*"
 GHEDIT="${GHB}${GHF}${S}+(pr|issue)${GHF}${S}+(edit|create)"
 LABEL_FLAG="(${S}--add-label(=|${S}+)|${S}--label(=|${S}+)|${S}-l(=|${S}*))"
-RLEND="([[:space:]]|,|\"|')"
-RAW_LVAL="(\"([^\"]*[^[:alnum:]_/-])?${LBL}${RLEND}|'([^']*[^[:alnum:]_/-])?${LBL}${RLEND})"
 WRITE_M="${S}(-X${S}*|--method(=|${S}+))(POST|PUT|PATCH)${E}"
 READ_M="${S}(-X${S}*|--method(=|${S}+))(GET|DELETE)${E}"
 APPROVAL_LABEL=0
@@ -381,9 +382,17 @@ if [ "$GH_SEEN" -eq 1 ]; then
     fi
   done < <(printf '%s\n' "$STRIPPED" | tr ';&|' '\n')
   if [ "$GH_EDIT_LABELFLAG" -eq 1 ] || [ "$GH_ALIAS" -eq 1 ]; then
+    # The KEEPQ view of the command: quoted regions kept as single words, their
+    # inner whitespace replaced by PH, heredoc bodies still skipped. A flag or a
+    # `gh` that sits INSIDE quoted prose has lost its whitespace boundary, so
+    # only a real flag is matched; a real flag's quoted value is one word.
+    KEPT="$(printf '%s\n' "$CMD" | awk -v KEEPQ=1 -f "$LEXER")"
+    PHC=$'\004'
+    LENDK="([[:space:]]|,|;|&|\||\)|$|${PHC})"
+    LVALK="([^[:space:],]*,)*${PHC}*${LBL}${LENDK}"
     while IFS= read -r SEG; do
       if [ "$GH_EDIT_LABELFLAG" -eq 1 ] \
-         && grep -qiE -- "${GHEDIT}[^|;&]*${LABEL_FLAG}${RAW_LVAL}" <<< "$SEG"; then
+         && grep -qiE -- "${GHEDIT}[^|;&]*${LABEL_FLAG}${LVALK}" <<< "$SEG"; then
         APPROVAL_LABEL=1
       fi
       if [ "$GH_ALIAS" -eq 1 ] \
@@ -391,7 +400,7 @@ if [ "$GH_SEEN" -eq 1 ]; then
          && grep -qiE -- "(^|[^[:alnum:]_-])${LBL}" <<< "$SEG"; then
         APPROVAL_LABEL=1
       fi
-    done < <(printf '%s\n' "$CMD" | tr ';&|' '\n')
+    done < <(printf '%s\n' "$KEPT" | tr ';&|' '\n')
   fi
 fi
 if [ "$APPROVAL_LABEL" -eq 1 ]; then

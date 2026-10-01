@@ -80,6 +80,7 @@ BEGIN {
   SQ = "\047"
   BL = "\002"          # a literal { the shell will not expand
   BR = "\003"          # a literal }
+  PH = "\004"          # whitespace inside a quoted region, KEEPQ mode only
   LIMIT = " __IAENG_LEXER_LIMIT__ "
   MAX_ALTS = 32        # alternatives in one group
   MAX_GROUPS = 16      # groups expanded in one command
@@ -159,6 +160,20 @@ function extract_subs(b,   res, i, n, c, d, depth, start) {
     i++
   }
   return res
+}
+
+# KEEPQ MODE (`awk -v KEEPQ=1`, used only by the approval-label rule in
+# block-escape-hatches.sh). Keeps every top-level quoted region, with each
+# whitespace character, `;`, `&` and `|` inside it replaced by PH (a control
+# character that is not whitespace to a regex), so a quoted separator cannot
+# split the command either. A quoted value `"help wanted,size/approved"` survives
+# as ONE word, while a flag or a command that only appears INSIDE quoted text
+# (`--body "run gh pr edit --add-label x"`) loses the whitespace boundary every
+# rule anchors on, so quoted prose never reads as a command. Heredoc bodies are
+# still skipped. Unset, this mode does nothing: the default output is unchanged.
+function keepq(s) {
+  gsub(/[ \t\n;&|]/, PH, s)
+  return mark_literal_braces(s)
 }
 
 # Braces that came from a quoted or escaped source are literal to the shell.
@@ -430,6 +445,7 @@ function expand_braces(s,   extra, groups, grp, inner, alts, n, k, pre, post, r,
       if (c == SQ) {
         if (decodectx) out = out " " decode_ansic(buf) " "
         else if (cmdctx) out = out " " buf " "
+        else if (KEEPQ == 1) out = out keepq(buf)
         else if (!tainted && is_bare_word(buf)) out = out mark_literal_braces(buf)
         mode = "out"; buf = ""; tainted = 0; cmdctx = 0; decodectx = 0
         i++; continue
@@ -445,6 +461,7 @@ function expand_braces(s,   extra, groups, grp, inner, alts, n, k, pre, post, r,
       if (c == SQ) {
         buf = decode_ansic(buf)
         if (cmdctx) out = out " " buf " "
+        else if (KEEPQ == 1) out = out keepq(buf)
         else if (is_bare_word(buf)) out = out mark_literal_braces(buf)
         mode = "out"; buf = ""; tainted = 0; cmdctx = 0; decodectx = 0
         i++; continue
@@ -463,6 +480,7 @@ function expand_braces(s,   extra, groups, grp, inner, alts, n, k, pre, post, r,
     if (c == "\"") {
       if (decodectx) out = out " " decode_ansic(buf) " "
       else if (cmdctx) out = out " " buf " "
+      else if (KEEPQ == 1) out = out keepq(buf)
       else if (!tainted && is_bare_word(buf)) out = out mark_literal_braces(buf)
       mode = "out"; buf = ""; tainted = 0; cmdctx = 0; decodectx = 0
       i++; continue

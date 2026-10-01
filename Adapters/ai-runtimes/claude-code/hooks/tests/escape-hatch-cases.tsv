@@ -461,3 +461,16 @@ allow	gh label clone o/other
 allow	gh api -X GET repos/o/r/issues -f labels=size/approved -X DELETE
 allow	gh pr view 1 | gh pr comment 1 --body "size/approved is the Director's"
 allow	x=$(gh pr view 1 --json labels)
+# --- Approval-label guard, round 3 (WU-IAENG-311): quoted prose is never read as a flag; ANSI-C quoted lists.
+allow	gh pr create --label bug --body "To approve, the Director runs gh pr edit N --add-label 'size/approved'"
+allow	gh pr edit 1 --add-label bug --title "use --label 'size/approved'"
+allow	gh pr edit 1 --add-label bug && git commit -m "docs: gh pr edit 1 --add-label 'size/approved'"
+allow	gh pr edit 1 --add-label bug --body 'run: gh pr edit 1 --add-label "help wanted,control-change/approved"'
+allow	gh pr edit 1 --add-label "help wanted" && echo "gh pr create --label 'size/approved'"
+allow	gh alias set co 'pr checkout' && git commit -m "gh alias set a 'pr edit --add-label size/approved'"
+block	gh pr edit 170 --add-label $'help wanted,size/approved'
+block	gh pr edit 170 --add-label $"help wanted,size/approved"
+block	gh pr edit 170 --add-label " size/approved,bug"
+block	gh pr edit 170 --add-label "a b" --add-label "c, size/approved"
+block	gh pr edit 170 --body "see docs" --add-label "help wanted,size/approved"
+block	gh pr create --body "x; y" --label "help wanted,control-change/approved"
