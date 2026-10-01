@@ -297,6 +297,8 @@ install_file "$FRAMEWORK/Adapters/github-actions/framework-validation.yml" \
              ".github/workflows/framework-validation.yml"
 install_file "$FRAMEWORK/Adapters/github-actions/data-policy.yml" \
              ".github/workflows/data-policy.yml"
+install_file "$FRAMEWORK/Adapters/github-actions/control-path-guard.yml" \
+             ".github/workflows/control-path-guard.yml"
 echo
 
 # --- GitHub templates ------------------------------------------------------
