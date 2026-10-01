@@ -2081,6 +2081,176 @@ expect_output "without a TAB"
 # the exception an allow entry would sit on one machine and CI would never see it.
 expect 1 "the allow file is not gitignored (exception in .gitignore)" -- git -C "$SCRIPTS/../.." check-ignore -q .ia-engineering/suppression.allow
 
+section "data-policy-scan.sh — merge-authored content and binary-classified files (WU-IAENG-312)"
+
+DPS="$SCRIPTS/data-policy-scan.sh"
+# Secret-shaped strings are BUILT BY CONCATENATION: the repo's own scanners and
+# hooks refuse the literal shape, and this file is in the diff they scan.
+DP_AWS="$(printf '%s%s' 'AKIA' 'ABCDEFGHIJKLMNOP')"
+DP_SECRET_LINE="aws_access_key_id = $DP_AWS"
+
+# dp_conflict_repo <name> — base, then feat and main both rewrite app.conf, then
+# `git merge feat` on main stops with a conflict. BASE is the shared ancestor.
+dp_conflict_repo() {
+  new_repo "$1"
+  printf 'mode=base\n' > app.conf
+  git add -A && git commit -qm "base"
+  BASE="$(git rev-parse HEAD)"
+  git checkout -qb feat
+  printf 'mode=feat\n' > app.conf
+  git commit -qam "feat edits app.conf"
+  git checkout -q main
+  printf 'mode=main\n' > app.conf
+  git commit -qam "main edits app.conf"
+  git merge feat >/dev/null 2>&1 || true
+}
+
+# PT2-01: the secret is written only in the merge resolution.
+dp_conflict_repo dp-evil-resolution
+printf '%s\n' "$DP_SECRET_LINE" > app.conf
+git add app.conf && git commit -qm "Merge feat (resolved)"
+expect 1 "PT2-01: a secret written in a conflict resolution is refused in --history" -- bash "$DPS" --history "$BASE..HEAD"
+expect_output "app.conf:1"
+expect_output "aws-access-key-id"
+expect_output_absent "$DP_AWS"
+
+dp_conflict_repo dp-ordinary-control
+git merge --abort
+printf '%s\n' "$DP_SECRET_LINE" > app.conf
+git commit -qam "ordinary commit with the same line"
+expect 1 "control: the same line as an ordinary commit is refused" -- bash "$DPS" --history "$BASE..HEAD"
+
+# A merge that adds a NEW file the conflict-free way: `merge --no-commit`, then
+# write into the index before committing.
+new_repo dp-evil-newfile
+BASE="$(git rev-parse HEAD)"
+git checkout -qb feat
+echo f > f.txt && git add -A && git commit -qm "feat"
+git checkout -q main
+echo m > m.txt && git add -A && git commit -qm "main"
+git merge --no-commit --no-ff feat >/dev/null 2>&1
+printf '%s\n' "$DP_SECRET_LINE" > smuggled.conf
+git add smuggled.conf && git commit -qm "Merge feat"
+expect 1 "PT2-01: a line in a file the merge itself adds is refused" -- bash "$DPS" --history "$BASE..HEAD"
+expect_output "smuggled.conf:1"
+
+# A PATH the merge itself adds, whose blob already exists on the excluded side
+# (an empty file: the empty blob exists from the first empty file onwards).
+# The object walk never lists it, and `log --name-only` skips merges unless
+# told how to diff them — so the path was classified by neither source.
+new_repo dp-evil-path-only
+: > placeholder.txt
+git add -A && git commit -qm "an empty file, so the empty blob exists"
+BASE="$(git rev-parse HEAD)"
+git checkout -qb feat
+echo f > f.txt && git add -A && git commit -qm "feat"
+git checkout -q main
+echo m > m.txt && git add -A && git commit -qm "main"
+git merge --no-commit --no-ff feat >/dev/null 2>&1
+: > .env
+git add .env && git commit -qm "Merge feat"
+expect 1 "PT2-01: a refused path the merge itself adds (pre-existing blob) is refused" -- bash "$DPS" --history "$BASE..HEAD"
+expect_output "REFUSED  .env"
+
+# Pre-commit path: a conflicted merge's staged resolution is an ordinary
+# `diff --cached` against HEAD, so it was already scanned. Pinned, not assumed.
+dp_conflict_repo dp-staged-resolution
+printf '%s\n' "$DP_SECRET_LINE" > app.conf
+git add app.conf
+expect 1 "a conflicted merge's staged resolution is refused by --staged" -- bash "$DPS" --staged
+expect_output "app.conf"
+
+# Controls: an evil merge with clean content stays clean, and says what it read.
+dp_conflict_repo dp-clean-resolution
+printf 'mode=resolved\n' > app.conf
+git add app.conf && git commit -qm "Merge feat (resolved)"
+expect 0 "an authored merge with clean content is clean" -- bash "$DPS" --history "$BASE..HEAD"
+expect_output "clean"
+# Denominator: one line from each side's commit plus the one the merge authored.
+expect_output "3 added line(s)"
+
+# Lines the merge merely carries are not re-scanned: an allowed secret-shaped
+# line on the feature side, merged without conflict, stays clean.
+new_repo dp-carried-allowed
+mkdir -p .ia-engineering
+printf 'content:%s\n' 'aws_access_key_id = AKIA[A-Z]{16}' > .ia-engineering/data-policy.allow
+git add -A && git commit -qm "allow file"
+BASE="$(git rev-parse HEAD)"
+git checkout -qb feat
+printf '%s\n' "$DP_SECRET_LINE" > example.conf
+git add -A && git commit -qm "feat adds an allowed example line"
+git checkout -q main
+echo m > m.txt && git add -A && git commit -qm "main"
+git merge -q --no-ff feat -m "Merge feat"
+expect 0 "an allowed line carried in by a clean merge is not refused" -- bash "$DPS" --history "$BASE..HEAD"
+
+# The content allow-list still applies to merge-authored lines.
+dp_conflict_repo dp-evil-allowed
+mkdir -p .ia-engineering
+printf 'content:%s\n' 'aws_access_key_id = AKIA[A-Z]{16}' > .ia-engineering/data-policy.allow
+printf '%s\n' "$DP_SECRET_LINE" > app.conf
+git add -A && git commit -qm "Merge feat (resolved)"
+expect 0 "the content allow file still exempts a merge-authored line" -- bash "$DPS" --history "$BASE..HEAD"
+
+# Developing branch merged into a feature branch: its changes are not authored
+# by the merge, so a flagged line already on the excluded side is not re-read.
+new_repo dp-develop-into-feature
+git checkout -qb develop
+printf '%s\n' "$DP_SECRET_LINE" > legacy.conf
+git add -A && git commit -qm "old, already accepted on develop"
+git checkout -qb feature
+echo x > x.txt && git add -A && git commit -qm "feature work"
+git checkout -q develop
+echo y > y.txt && git add -A && git commit -qm "develop moves on"
+git checkout -q feature
+BASE="$(git rev-parse develop)"
+git merge -q --no-ff develop -m "Merge develop into feature"
+expect 0 "develop merged into a feature branch does not re-read develop's lines" -- bash "$DPS" --history "$BASE..HEAD"
+
+# A back-merge (every commit a merge) keeps its named exception.
+new_repo dp-backmerge
+git checkout -qb develop
+echo b > b.txt && git add -A && git commit -qm "authored work B"
+git checkout -q main
+git merge -q --no-ff develop -m "Merge develop into main"
+git checkout -q develop
+echo c > c.txt && git add -A && git commit -qm "further work C"
+expect 0 "a back-merge range still passes" -- bash "$DPS" --history "develop..main"
+expect_output "every one a merge"
+
+# PT2-02: a path marked -diff makes git print "Binary files differ".
+new_repo dp-nodiff-attr
+BASE="$(git rev-parse HEAD)"
+printf 'settings.conf -diff\n' > .gitattributes
+printf '%s\n' "$DP_SECRET_LINE" > settings.conf
+git add -A && git commit -qm "add settings"
+expect 1 "PT2-02: a secret in a -diff path is refused in --history" -- bash "$DPS" --history "$BASE..HEAD"
+expect_output "settings.conf:1"
+git reset -q --soft "$BASE"
+git reset -q
+git add -A
+expect 1 "PT2-02: a secret in a -diff path is refused by --staged" -- bash "$DPS" --staged
+expect_output "settings.conf:1"
+
+# A NUL byte makes git's own heuristic call the file binary.
+new_repo dp-nul-binary
+BASE="$(git rev-parse HEAD)"
+{ printf 'head\0tail\n'; printf '%s\n' "$DP_SECRET_LINE"; } > blob.conf
+git add -A && git commit -qm "nul-bearing file"
+expect 1 "PT2-02: a secret in a NUL-bearing file is refused in --history" -- bash "$DPS" --history "$BASE..HEAD"
+
+# A genuinely binary file must not crash the scan or be falsely refused.
+new_repo dp-real-binary
+BASE="$(git rev-parse HEAD)"
+printf '\211PNG\r\n\032\n\0\0\0\rIHDR\0\0\0\1\0\0\0\1\010\6\0\0\0\37\25\304\211\0\0\0\nIDAT\170\234c\0\1\0\0\5\0\1\r\n-\264\0\0\0\0IEND\256B`\202' > pixel.png
+git add -A && git commit -qm "add a png"
+expect 0 "a real PNG is neither refused nor a crash under --text (history)" -- bash "$DPS" --history "$BASE..HEAD"
+expect_output "clean"
+git reset -q --soft "$BASE"
+git reset -q
+git add -A
+expect 0 "a real PNG is neither refused nor a crash under --text (staged)" -- bash "$DPS" --staged
+
 # --------------------------------------------------------------- verdict ----
 
 cd "$HERE" || exit 1
