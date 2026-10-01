@@ -1,18 +1,32 @@
 #!/usr/bin/env bash
 # IA Engineering — merge-classify.sh (SOURCED, not executed)
 #
-# The single definition of "does this merge commit AUTHOR content?", shared by
-# check-employee-trailers.sh and check-work-units.sh. Before WU-IAENG-313 the
-# classifier lived only in the first, so the second let an authored merge carry
-# no Work Unit trailer (PT2-03). Two copies of a classifier is how a control
-# ends up enforced on one trailer and not the other, so it is extracted rather
-# than duplicated.
+# The single definition, for the CI checks, of "does this merge commit AUTHOR
+# content?", shared by check-employee-trailers.sh and check-work-units.sh.
+# Before WU-IAENG-313 the classifier lived only in the first, so the second let
+# an authored merge carry no Work Unit trailer (PT2-03). Two copies of a
+# classifier is how a control ends up enforced on one trailer and not the
+# other, so it is extracted rather than duplicated.
+#
+# It is not the only classifier. The local commit-msg hook
+# (Adapters/git-hooks/commit-msg) classifies BEFORE the merge commit exists —
+# HEAD against MERGE_HEAD, not a commit's two parents — so it keeps its own
+# copy. That copy does not carry the attribute pin described below; aligning
+# it is a follow-up, not part of this file.
 #
 # A merge is CLEAN when its tree equals the automatic merge of its two parents
-# (`git merge-tree --write-tree`, git >= 2.38): it contains nothing of its own.
-# Anything else is AUTHORED: a tree that differs (conflict resolution, extra
-# edits, `-s ours`), a conflicted automatic merge (exit 1), or more than two
-# parents (octopus, never classified as clean).
+# (`git merge-tree --write-tree`): it contains nothing of its own. Anything
+# else is AUTHORED: a tree that differs (conflict resolution, extra edits,
+# `-s ours`), a conflicted automatic merge (exit 1), or more than two parents
+# (octopus, never classified as clean).
+#
+# THE AUTOMATIC MERGE IGNORES THE TREE'S OWN ATTRIBUTES (SEC-IAENG-313-01).
+# `git merge-tree` reads `merge=` drivers from .gitattributes in the working
+# tree, which in CI is the Pull Request's own tree. A PR adding `* merge=union`
+# would make a union-shaped hand resolution equal the "automatic" merge, and
+# classify clean. The merge is therefore computed with --attr-source pinned to
+# the empty tree (4b825dc6...), so no attribute the PR controls changes the
+# answer. --attr-source needs git >= 2.40, which is the floor below.
 #
 # This file is a control path. The scripts that source it are the required
 # checks, and they run from the PR's own tree, so changing this file is
@@ -22,17 +36,21 @@
 #
 # API (no global state: the answer is printed, so a caller reads it with $(...))
 #
-#   merge_classify_git_ok          returns 0 when git can classify (>= 2.38)
+#   merge_classify_git_ok          returns 0 when git can classify (>= 2.40)
 #   merge_classify <merge-sha>     prints one line and always returns 0:
 #                                    clean
 #                                    authored
 #                                    error: <reason>
 
+# The empty tree: a well-known object every git resolves without it being
+# stored, so it is a valid --attr-source in any repository.
+readonly MERGE_CLASSIFY_EMPTY_TREE=4b825dc642cb6eb9a060e54bf8d69288fbee4904
+
 merge_classify_git_ok() {
   local ver gv_major gv_minor
   ver="$(git version | sed -E 's/^git version ([0-9]+)\.([0-9]+).*/\1 \2/')"
   read -r gv_major gv_minor <<< "$ver"
-  if ! [[ "${gv_major:-}" =~ ^[0-9]+$ && "${gv_minor:-}" =~ ^[0-9]+$ ]] || [ $((gv_major * 1000 + gv_minor)) -lt 2038 ]; then
+  if ! [[ "${gv_major:-}" =~ ^[0-9]+$ && "${gv_minor:-}" =~ ^[0-9]+$ ]] || [ $((gv_major * 1000 + gv_minor)) -lt 2040 ]; then
     return 1
   fi
   return 0
@@ -54,7 +72,7 @@ merge_classify() {
   fi
 
   mt_rc=0
-  mt_out="$(git merge-tree --write-tree --no-messages "${parr[0]}" "${parr[1]}" 2>/dev/null)" || mt_rc=$?
+  mt_out="$(git --attr-source="$MERGE_CLASSIFY_EMPTY_TREE" merge-tree --write-tree --no-messages "${parr[0]}" "${parr[1]}" 2>/dev/null)" || mt_rc=$?
   if [ "$mt_rc" -gt 1 ]; then
     echo "error: git merge-tree exited $mt_rc - shallow history or missing objects?"
     return 0

@@ -1720,12 +1720,16 @@ REAL_GIT="$(command -v git)"
 mkdir -p "$WORK/shim-old"
 cat > "$WORK/shim-old/git" <<SHIM
 #!/usr/bin/env bash
-if [ "\$1" = "version" ]; then echo "git version 2.30.0"; exit 0; fi
+if [ "\$1" = "version" ]; then echo "git version 2.39.5"; exit 0; fi
 exec "$REAL_GIT" "\$@"
 SHIM
 chmod +x "$WORK/shim-old/git"
-expect 1 "git older than 2.38 fails closed" -- env PATH="$WORK/shim-old:$PATH" bash "$CHECK_EMP" "$BASE" HEAD
+# 2.39, not anything older: it has merge-tree --write-tree but not
+# --attr-source, so it pins the floor the attribute pin raised to 2.40
+# (SEC-IAENG-313-01).
+expect 1 "git older than 2.40 fails closed" -- env PATH="$WORK/shim-old:$PATH" bash "$CHECK_EMP" "$BASE" HEAD
 expect_output "cannot classify"
+expect_output "2.40"
 
 # Fail closed: a git whose merge-tree errors must not turn into a pass.
 mk_emp_merge_repo mrg-shim
@@ -1734,7 +1738,9 @@ REAL_GIT="$(command -v git)"
 mkdir -p "$WORK/shim"
 cat > "$WORK/shim/git" <<SHIM
 #!/usr/bin/env bash
-if [ "\$1" = "merge-tree" ]; then exit 128; fi
+# Any argument, not just \$1: the classifier calls
+# 'git --attr-source=<tree> merge-tree', so merge-tree is not first.
+for a in "\$@"; do [ "\$a" = "merge-tree" ] && exit 128; done
 exec "$REAL_GIT" "\$@"
 SHIM
 chmod +x "$WORK/shim/git"
@@ -1829,8 +1835,9 @@ expect 1 "a -s ours merge, no Work Unit trailer, fails" -- bash "$CHECK_WU" "$BA
 # Fail closed on a git too old to classify.
 mk_wu_merge_repo wmrg-old-git
 git merge -q --no-ff side -m "Merge branch 'side'"
-expect 1 "git older than 2.38 fails closed (work units)" -- env PATH="$WORK/shim-old:$PATH" bash "$CHECK_WU" "$BASE" HEAD
+expect 1 "git older than 2.40 fails closed (work units)" -- env PATH="$WORK/shim-old:$PATH" bash "$CHECK_WU" "$BASE" HEAD
 expect_output "cannot classify"
+expect_output "2.40"
 
 # Fail closed: a git whose merge-tree errors must not turn into a pass.
 mk_wu_merge_repo wmrg-shim
@@ -1855,6 +1862,28 @@ expect 0 "a grandfathered authored merge passes" -- bash "$WORK/gf-scripts/check
 expect_output "grandfathered"
 expect 1 "the same merge fails without the constant naming it" -- bash "$CHECK_WU" "$BASE" HEAD
 
+# A grandfathered merge is skipped before the any-merge claim validation: its
+# Work Unit line is history, not a claim the check vouches for (d097e2ed, the
+# v0.0.13 back-merge, claims a never-registered WU-IAENG-259).
+mk_wu_merge_repo wmrg-grandfathered-claim
+git merge -q --no-ff side -m "Merge branch 'side'
+
+Work Unit: WU-TEST-999"
+GFC_SHA="$(git rev-parse HEAD)"
+mkdir -p "$WORK/gfc-scripts"
+cp "$CHECK_WU" "$SCRIPTS/merge-classify.sh" "$WORK/gfc-scripts/"
+sed -i "s/^readonly GRANDFATHERED_MERGES=\"/readonly GRANDFATHERED_MERGES=\"$GFC_SHA /" "$WORK/gfc-scripts/check-work-units.sh"
+expect 0 "a grandfathered merge's unregistered Work Unit claim is not judged" -- bash "$WORK/gfc-scripts/check-work-units.sh" "$BASE" HEAD
+expect_output "grandfathered"
+expect 1 "the same claim fails without the constant naming it" -- bash "$CHECK_WU" "$BASE" HEAD
+expect_output "WU-TEST-999"
+
+# The shipped list is exactly these three shas: widening it is a control
+# change that must name itself here.
+GF_SHIPPED="$(sed -n 's/^readonly GRANDFATHERED_MERGES="\(.*\)"$/\1/p' "$CHECK_WU" | tr ' ' '\n' | sort | tr '\n' ' ')"
+expect 0 "check-work-units.sh grandfathers exactly the three known merges" -- \
+  test "$GF_SHIPPED" = "3babf69d9664ddb590acd7381a99fa90d1e40f70 93c850a754a26a050b621d52ac1881645d21be5f d097e2ed66e3e2c45454725664b20abd94b07968 "
+
 # A data file planted in the tree must not exempt a merge.
 mkdir -p Registry ia-engineering/Registry
 echo "$GF_SHA planted by the PR under test" > Registry/merge-attribution-exceptions.txt
@@ -1870,6 +1899,96 @@ expect_output "merge-classify.sh not found"
 cp "$CHECK_EMP" "$WORK/no-helper/"
 expect 1 "a missing merge-classify.sh fails closed (employee trailers)" -- bash "$WORK/no-helper/check-employee-trailers.sh" "$BASE" HEAD
 expect_output "merge-classify.sh not found"
+
+# SEC-IAENG-313-02: a Work Unit claim present on a merge is validated whatever
+# the classification, as an Employee claim is. A clean merge needs no trailer,
+# but one naming an unregistered Work Unit is a false record in the history.
+mk_wu_merge_repo wmrg-clean-unregistered
+git merge -q --no-ff side -m "Merge branch 'side'
+
+Work Unit: WU-TEST-999"
+expect 1 "a clean merge naming an unregistered Work Unit fails" -- bash "$CHECK_WU" "$BASE" HEAD
+expect_output "WU-TEST-999"
+
+mk_wu_merge_repo wmrg-clean-registered
+git merge -q --no-ff side -m "Merge branch 'side'
+
+Work Unit: WU-TEST-002"
+expect 0 "a clean merge naming a registered Work Unit passes" -- bash "$CHECK_WU" "$BASE" HEAD
+expect_output "WU-TEST-002 (resolved)"
+
+# SEC-IAENG-313-01: the automatic merge must not read merge drivers from the
+# tree under review. With `* merge=union` committed, git resolves the conflict
+# by concatenation; an unpinned merge-tree reproduces that same tree and calls
+# the merge clean. Pinned to the empty tree's attributes, it conflicts, and the
+# merge is authored — as a hand resolution of that shape is.
+mk_union_merge_repo() {
+  new_repo "$1"
+  write_wu_registry WU-TEST-001
+  write_employee_roster "DevOps Engineer"
+  echo '* merge=union' > .gitattributes
+  echo base > c.txt
+  git add -A && git commit -q -m "registry"
+  BASE="$(git rev-parse HEAD)"
+  git checkout -qb side
+  echo side > c.txt && git add -A && git commit -q -m "side edit
+
+Work Unit: WU-TEST-001
+Employee: DevOps Engineer"
+  git checkout -q main
+  echo main > c.txt && git add -A && git commit -q -m "main edit
+
+Work Unit: WU-TEST-001
+Employee: DevOps Engineer"
+  git merge --no-commit --no-ff side > /dev/null 2>&1
+  git add -A
+  git commit -q -m "Merge branch 'side'"
+}
+
+mk_union_merge_repo wmrg-union
+expect 1 "a union-attribute merge is classified authored (work units)" -- bash "$CHECK_WU" "$BASE" HEAD
+expect_output "carries no 'Work Unit: <WU-ID>' trailer"
+expect 1 "a union-attribute merge is classified authored (employee trailers)" -- bash "$CHECK_EMP" "$BASE" HEAD
+expect_output "carries no Employee trailer"
+
+# A range whose only commit is an authored merge: nothing non-merge to check,
+# which the script says, and the merge is still held to the rule. The base is
+# the merged branch's tip, so the merge is the sole commit in the range.
+new_repo wmrg-merge-only-authored
+write_wu_registry WU-TEST-001
+git add -A && git commit -q -m "registry"
+git checkout -qb develop
+echo side > side.txt && git add -A && git commit -q -m "authored work
+
+Work Unit: WU-TEST-001"
+git checkout -q main
+git merge -q --no-commit --no-ff develop
+echo extra > extra.txt && git add extra.txt
+git commit -q -m "Merge develop into main"
+BASE="$(git rev-parse develop)"
+expect 1 "a range of one authored merge and no other commit fails" -- bash "$CHECK_WU" "$BASE" HEAD
+expect_output "No non-merge commits to check."
+expect_output "carries no 'Work Unit: <WU-ID>' trailer"
+
+# CDPATH: with an exported CDPATH, a bare `cd <relative-dir>` resolves through
+# it and PRINTS the directory, which a $(cd ... && pwd) capture then holds
+# twice — the helper is "not found" and a correct check fails. Invoked by a
+# relative path, exactly as a host's job step would.
+mk_wu_merge_repo wmrg-cdpath
+git merge -q --no-ff side -m "Merge branch 'side'"
+mkdir -p tools
+cp "$CHECK_WU" "$SCRIPTS/merge-classify.sh" tools/
+expect 0 "CDPATH=. with a relative invocation still finds the helper (work units)" -- \
+  env CDPATH=. bash tools/check-work-units.sh "$BASE" HEAD
+expect_output "merge, no content of its own"
+
+mk_emp_merge_repo mrg-cdpath
+git merge -q --no-ff side -m "Merge branch 'side'"
+mkdir -p tools
+cp "$CHECK_EMP" "$SCRIPTS/merge-classify.sh" tools/
+expect 0 "CDPATH=. with a relative invocation still finds the helper (employee trailers)" -- \
+  env CDPATH=. bash tools/check-employee-trailers.sh "$BASE" HEAD
+expect_output "merge, no content of its own"
 
 # ------------------------------------------ check-inline-suppression.sh -------
 

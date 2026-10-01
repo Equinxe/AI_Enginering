@@ -5,12 +5,15 @@
 # column 0, and the ID it names is registered in Registry/work-units.yml. A
 # merge commit is held to the same rule only when it AUTHORS content (its tree
 # differs from the automatic merge of its parents, or it has more than two
-# parents); a clean merge needs no trailer. Historical authored merges are
+# parents); a clean merge needs no trailer, but a `Work Unit:` line present on
+# any merge is validated regardless. Historical authored merges are
 # grandfathered by sha in a constant inside this script (GRANDFATHERED_MERGES).
-# Classifying needs git >= 2.38 (`git merge-tree --write-tree`); without it,
-# or when a merge cannot be classified, the check fails closed. The classifier
-# is merge-classify.sh, sourced from beside this script and shared with
-# check-employee-trailers.sh.
+# Classifying needs git >= 2.40 (`git merge-tree --write-tree` with
+# --attr-source); without it, or when a merge cannot be classified, the check
+# fails closed. The classifier is merge-classify.sh, sourced from beside this
+# script and shared with check-employee-trailers.sh, so the script must run
+# from its real location: a copy or symlink without the helper beside it
+# fails closed.
 #
 # WHY THIS IS A SCRIPT AND NOT A CI JOB BODY
 #
@@ -57,8 +60,9 @@ set -uo pipefail
 # The merge classifier is shared with check-employee-trailers.sh. It sits beside
 # this script, so BASH_SOURCE resolves it wherever the framework is checked out.
 # A missing helper is a failure: continuing without it would pass every
-# authored merge.
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# authored merge. `CDPATH=` keeps an exported CDPATH from redirecting the cd
+# (and from printing the directory into the captured value).
+SCRIPT_DIR="$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 if [ ! -f "$SCRIPT_DIR/merge-classify.sh" ]; then
   echo "check-work-units: ERROR: $SCRIPT_DIR/merge-classify.sh not found; failing closed." >&2
   exit 1
@@ -70,12 +74,14 @@ fi
 # the Pull Request; every other host shows it as noise. The prefix is therefore
 # applied only where it means something.
 #
-# This helper is repeated verbatim in the sibling check scripts rather than
-# sourced from a shared file. That is deliberate: these scripts are invoked
-# from a consumer project where the framework sits at an arbitrary path, and a
-# `source` would need that path resolved correctly in every host's working
-# directory. Five duplicated lines cost less than a sourcing bug that only
-# appears in somebody else's repository.
+# This helper is repeated in each sibling check script rather than sourced
+# from a shared file. Sourcing itself is not the obstacle: a sibling resolved
+# through BASH_SOURCE, as merge-classify.sh is above, works wherever the
+# framework is checked out and fails closed when missing. `err` stays
+# duplicated because it differs per script (each prefixes its own name), and
+# most check-*.sh scripts source nothing — making all of them depend on a
+# shared file to save five lines would add a failure mode to every check for
+# no gain in what any of them enforces.
 err() {
   if [ -n "${GITHUB_ACTIONS:-}" ]; then
     printf '::error::%s\n' "$1" >&2
@@ -147,12 +153,17 @@ fail=0
 # edited by the very PR it is meant to judge (SEC-IAENG-307-01). Exempting a
 # merge means editing the check's source, which is what review of a control
 # change is for. The list is closed: never add a new merge.
-# Found by running this check over v0.0.13..origin/develop (WU-IAENG-313); they
-# are the same two merges check-employee-trailers.sh grandfathers, and for the
-# same reason: they predate the rule and carry neither trailer.
+# Found by running this check over v0.0.13..origin/develop (WU-IAENG-313). The
+# first two are the merges check-employee-trailers.sh grandfathers, for the
+# same reason: they predate the rule and carry neither trailer. The third is
+# grandfathered here only, because its Employee claim is valid; its Work Unit
+# claim is not, and the any-merge claim validation (SEC-IAENG-313-02) would
+# otherwise refuse it. A grandfathered merge is skipped entirely, claim
+# included: it is history, not a claim this check vouches for.
 #   3babf69d... merge of origin/develop into feat/commit-type-perf
 #   93c850a7... merge of origin/develop into perf/generate-agents-single-pass
-readonly GRANDFATHERED_MERGES="3babf69d9664ddb590acd7381a99fa90d1e40f70 93c850a754a26a050b621d52ac1881645d21be5f"
+#   d097e2ed... v0.0.13 back-merge (11 Sep 2026) carries a cosmetic Work Unit: WU-IAENG-259 that was never registered; Registry forbids historical backfill
+readonly GRANDFATHERED_MERGES="3babf69d9664ddb590acd7381a99fa90d1e40f70 93c850a754a26a050b621d52ac1881645d21be5f d097e2ed66e3e2c45454725664b20abd94b07968"
 
 # check_commit <sha> <what>
 # Exactly one `Work Unit:` line at column 0, naming a registered ID. Sets
@@ -202,19 +213,39 @@ done
 
 # --- Merge commits ---------------------------------------------------------
 # The classifier is merge-classify.sh (sourced; shared with
-# check-employee-trailers.sh), built on `git merge-tree --write-tree` (git >=
-# 2.38). If it cannot run the merge is unclassified and the check FAILS:
-# passing on an unclassifiable merge is the check-that-passes-without-
-# evaluating shape.
+# check-employee-trailers.sh), built on `git merge-tree --write-tree` with
+# --attr-source pinned (git >= 2.40). If it cannot run the merge is
+# unclassified and the check FAILS: passing on an unclassifiable merge is the
+# check-that-passes-without-evaluating shape.
+#
+# A `Work Unit:` line at column 0 that IS present on any merge is validated
+# whatever the classification (SEC-IAENG-313-02), as check-employee-trailers.sh
+# validates any Employee line present: a claim in the history is read
+# downstream, so an unregistered one is a defect even on a merge that needed
+# none.
 if [ -n "$MERGES" ]; then
   echo "Merge commits to classify: $(printf '%s\n' "$MERGES" | grep -c .)"
 
   if ! merge_classify_git_ok; then
-    err "git $(git version) cannot classify merge commits: 'git merge-tree --write-tree' needs git 2.38 or newer. Failing closed rather than passing merges unclassified."
+    err "git $(git version) cannot classify merge commits: 'git merge-tree --write-tree' with --attr-source needs git 2.40 or newer. Failing closed rather than passing merges unclassified."
     exit 1
   fi
 
   for sha in $MERGES; do
+    # Exact-sha match against the in-source constant, before anything else: a
+    # grandfathered merge is history, so neither its trailer nor its absence is
+    # judged.
+    if [[ " $GRANDFATHERED_MERGES " == *" $sha "* ]]; then
+      echo "  $sha -> merge, grandfathered (GRANDFATHERED_MERGES in this script)"
+      continue
+    fi
+
+    # here-string, not a pipe into grep -q: see check_commit.
+    if grep -qE '^Work Unit: ' <<< "$(git log -1 --format=%B "$sha")"; then
+      check_commit "$sha" Merge
+      continue
+    fi
+
     KIND="$(merge_classify "$sha")"
     if [ "${KIND#error}" != "$KIND" ]; then
       err "Merge $sha could not be classified (${KIND#error: }). Failing closed rather than passing an unclassified merge."
@@ -224,8 +255,6 @@ if [ -n "$MERGES" ]; then
 
     if [ "$KIND" = clean ]; then
       echo "  $sha -> merge, no content of its own"
-    elif [[ " $GRANDFATHERED_MERGES " == *" $sha "* ]]; then
-      echo "  $sha -> authored merge, grandfathered (GRANDFATHERED_MERGES in this script)"
     else
       check_commit "$sha" Merge
     fi
