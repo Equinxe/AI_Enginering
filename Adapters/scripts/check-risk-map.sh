@@ -42,8 +42,12 @@
 # sensitive zone is touched it requires the Risk Record of
 # Standards/RISK_STANDARD.md in a commit message of the range: a paragraph
 # starting with `RISK:` at column 0 that carries tier= (one of Low, Medium,
-# High, Critical), mitigation= and decided_by=. An indented or quoted example
-# does not count, which is what the other checks tell authors. The check is
+# High, Critical), mitigation= and decided_by=. The field names are lowercase
+# and matched case-sensitively as whole words (`notier=` is not `tier=`); the
+# tier VALUE is matched case-insensitively and must be exactly one of the four;
+# mitigation= and decided_by= must have a value. One well-formed record
+# anywhere in the range satisfies the gate. An indented or quoted example does
+# not count, which is what the other checks tell authors. The check is
 # advisory: it verifies the record is there and has its fields, not that the
 # tier or the decision is the right one.
 #
@@ -283,16 +287,32 @@ EOF
   # A record is the paragraph that starts with `RISK:` at column 0: commit
   # bodies are wrapped, and most records in this repository's own history run
   # over several lines, so the lines up to the next blank line are read as
-  # part of it. It must carry the three fields the Standard names. tier= is
-  # checked against the Standard's closed list (case-insensitively);
-  # mitigation= and decided_by= are checked for presence only — whether the
-  # tier is right and who may decide at that tier are review judgements this
-  # script cannot make. Separators are not checked.
+  # part of it. It must carry the three fields the Standard names, each as a
+  # whole word — a field name is preceded by the start of the record or by a
+  # character that cannot continue an identifier, so `notier=` and
+  # `xmitigation=` are not fields — and each with a value: the tier value is
+  # one of the Standard's closed list, case-insensitively, ending at a space,
+  # a `|` or the end of the record (`tier=High-ish` is not a tier);
+  # mitigation= and decided_by= need at least one character that is neither
+  # a space nor a separator. Whether the tier is right and who may decide at
+  # that tier are review judgements this script cannot make. Separators
+  # between fields are not checked.
   if awk '
+    function well_formed(r,   rest, v) {
+      if (r !~ /(^|[^a-z_])mitigation=[^ \t|]/) return 0
+      if (r !~ /(^|[^a-z_])decided_by=[^ \t|]/) return 0
+      # Every tier= occurrence is tried, so a hazard that quotes the word
+      # does not hide the real field that follows it.
+      rest = r
+      while (match(rest, /(^|[^a-z_])tier=[^ \t|]+/)) {
+        v = substr(rest, RSTART, RLENGTH); sub(/.*tier=/, "", v)
+        if (tolower(v) ~ /^(low|medium|high|critical)$/) return 1
+        rest = substr(rest, RSTART + RLENGTH)
+      }
+      return 0
+    }
     function flush() {
-      if (rec != "" &&
-          tolower(rec) ~ /tier=(low|medium|high|critical)([^a-z]|$)/ &&
-          rec ~ /mitigation=/ && rec ~ /decided_by=/) found = 1
+      if (rec != "" && well_formed(rec)) found = 1
       rec = ""
     }
     /^RISK:/ { flush(); rec = $0; next }
@@ -304,7 +324,7 @@ EOF
     exit 0
   fi
 
-  err "a sensitive zone was touched and no well-formed RISK: record appears in any commit message in $BASE..$HEAD_REF. A record starts at column 0 (an indented line is read as an example) and carries tier= (Low, Medium, High or Critical), mitigation= and decided_by=. Standards/RISK_STANDARD.md requires the one-line record for any Medium or higher action, and a change landing in a sensitive zone is one. Add it to a commit in this Pull Request — ideally the commit that makes the change, or a follow-up commit in the same PR if it was forgotten (never an amend + force-push): RISK: <hazard> | tier=<...> | mitigation=<...> | decided_by=<...>"
+  err "a sensitive zone was touched and no well-formed RISK: record appears in any commit message in $BASE..$HEAD_REF. A record starts at column 0 (an indented line is read as an example) and carries, as whole lowercase field names each with a value, tier= (exactly Low, Medium, High or Critical), mitigation= and decided_by=. Standards/RISK_STANDARD.md requires the one-line record for any Medium or higher action, and a change landing in a sensitive zone is one. Add it to a commit in this Pull Request — ideally the commit that makes the change, or a follow-up commit in the same PR if it was forgotten (never an amend + force-push): RISK: <hazard> | tier=<...> | mitigation=<...> | decided_by=<...>"
   exit 1
 fi
 

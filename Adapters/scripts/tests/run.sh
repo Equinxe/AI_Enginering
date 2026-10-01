@@ -1056,6 +1056,34 @@ git commit -qam "touch it again, record without a decider
 RISK: changes the identity check | tier=High | mitigation=reviewed"
 expect 1 "a RISK line with no decided_by does not satisfy the gate" -- bash "$CHECK_MAP" --range "$RM_BASE" HEAD .
 
+# The field names are whole words with values (Code Reviewer, PR #175). A
+# matcher that looked for the substring `tier=` accepted `notier=low`, and one
+# that let any non-letter end the tier value accepted `tier=High-ish`; a field
+# matched for presence alone accepted `mitigation=` with nothing after it.
+echo more >> src/auth/login.js
+git commit -qam "touch it again, a field name that merely ends in tier=
+
+RISK: changes the identity check | notier=Low | mitigation=reviewed | decided_by=Director"
+expect 1 "notier= is not the tier= field" -- bash "$CHECK_MAP" --range "$RM_BASE" HEAD .
+
+echo more >> src/auth/login.js
+git commit -qam "touch it again, a tier value that only starts with a valid one
+
+RISK: changes the identity check | tier=High-ish | mitigation=reviewed | decided_by=Director"
+expect 1 "tier=High-ish is not a tier in the closed list" -- bash "$CHECK_MAP" --range "$RM_BASE" HEAD .
+
+echo more >> src/auth/login.js
+git commit -qam "touch it again, an empty mitigation
+
+RISK: changes the identity check | tier=High | mitigation= | decided_by=Director"
+expect 1 "an empty mitigation= does not satisfy the gate" -- bash "$CHECK_MAP" --range "$RM_BASE" HEAD .
+
+echo more >> src/auth/login.js
+git commit -qam "touch it again, an empty decider
+
+RISK: changes the identity check | tier=High | mitigation=reviewed | decided_by="
+expect 1 "an empty decided_by= does not satisfy the gate" -- bash "$CHECK_MAP" --range "$RM_BASE" HEAD .
+
 echo more >> src/auth/login.js
 git commit -qam "touch it again, a well-formed record wrapped over two lines
 
