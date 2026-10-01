@@ -2,7 +2,15 @@
 # IA Engineering — check-work-units.sh
 #
 # Every non-merge commit in a range carries exactly one `Work Unit:` line at
-# column 0, and the ID it names is registered in Registry/work-units.yml.
+# column 0, and the ID it names is registered in Registry/work-units.yml. A
+# merge commit is held to the same rule only when it AUTHORS content (its tree
+# differs from the automatic merge of its parents, or it has more than two
+# parents); a clean merge needs no trailer. Historical authored merges are
+# grandfathered by sha in a constant inside this script (GRANDFATHERED_MERGES).
+# Classifying needs git >= 2.38 (`git merge-tree --write-tree`); without it,
+# or when a merge cannot be classified, the check fails closed. The classifier
+# is merge-classify.sh, sourced from beside this script and shared with
+# check-employee-trailers.sh.
 #
 # WHY THIS IS A SCRIPT AND NOT A CI JOB BODY
 #
@@ -31,9 +39,10 @@
 #
 #   check-work-units.sh <base-ref> <head-ref>
 #
-# Exit 0 when every commit resolves, 1 when any does not or when the registry
-# cannot be found. A range with no non-merge commits is a pass and says so —
-# a back-merge carries no authored commits to attribute.
+# Exit 0 when every commit (and every authored merge) resolves, 1 when any does
+# not, when a merge cannot be classified, or when the registry cannot be found.
+# A range with no non-merge commits and only clean merges is a pass and says
+# so — a back-merge carries no authored commits to attribute.
 #
 # The registry is searched at $IAENG_REGISTRY_WORK_UNITS, then
 # Registry/work-units.yml, then ia-engineering/Registry/work-units.yml, so the
@@ -44,6 +53,18 @@
 # Check Convention, rule 1).
 
 set -uo pipefail
+
+# The merge classifier is shared with check-employee-trailers.sh. It sits beside
+# this script, so BASH_SOURCE resolves it wherever the framework is checked out.
+# A missing helper is a failure: continuing without it would pass every
+# authored merge.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [ ! -f "$SCRIPT_DIR/merge-classify.sh" ]; then
+  echo "check-work-units: ERROR: $SCRIPT_DIR/merge-classify.sh not found; failing closed." >&2
+  exit 1
+fi
+# shellcheck source=merge-classify.sh
+. "$SCRIPT_DIR/merge-classify.sh"
 
 # Host-specific output. GitHub Actions renders `::error::` as an annotation on
 # the Pull Request; every other host shows it as noise. The prefix is therefore
@@ -65,7 +86,7 @@ err() {
 
 if [ "$#" -ne 2 ]; then
   echo "Usage: $0 <base-ref> <head-ref>" >&2
-  echo "  Checks every non-merge commit in <base-ref>..<head-ref>." >&2
+  echo "  Checks every non-merge commit, and every authored merge, in <base-ref>..<head-ref>." >&2
   exit 2
 fi
 
@@ -108,28 +129,49 @@ if ! COMMITS="$(git rev-list --no-merges "${BASE_REF}..${HEAD_REF}")"; then
   exit 1
 fi
 
-if [ -z "$COMMITS" ]; then
-  echo "No non-merge commits to check."
-  exit 0
+# Merge commits are classified, not skipped: a merge that AUTHORS content (its
+# tree differs from the automatic merge of its parents, or it has more than two
+# parents) is held to the same rule as any commit. A clean merge needs no
+# trailer. PT2-03 of the 1 Oct 2026 exercise: with `--no-merges` alone, an
+# authored merge adding content carried no Work Unit and passed.
+if ! MERGES="$(git rev-list --merges "${BASE_REF}..${HEAD_REF}")"; then
+  err "git rev-list --merges failed over ${BASE_REF}..${HEAD_REF}; failing rather than skipping merges unexamined."
+  exit 1
 fi
 
-echo "Commits to check: $(printf '%s\n' "$COMMITS" | grep -c .)"
-
 fail=0
-for sha in $COMMITS; do
+
+# Historical authored merges without a Work Unit are grandfathered by sha in
+# the constant below. It lives in THIS script, not in a data file, on purpose:
+# the required check runs from the PR's own tree, so a data file could be
+# edited by the very PR it is meant to judge (SEC-IAENG-307-01). Exempting a
+# merge means editing the check's source, which is what review of a control
+# change is for. The list is closed: never add a new merge.
+# Found by running this check over v0.0.13..origin/develop (WU-IAENG-313); they
+# are the same two merges check-employee-trailers.sh grandfathers, and for the
+# same reason: they predate the rule and carry neither trailer.
+#   3babf69d... merge of origin/develop into feat/commit-type-perf
+#   93c850a7... merge of origin/develop into perf/generate-agents-single-pass
+readonly GRANDFATHERED_MERGES="3babf69d9664ddb590acd7381a99fa90d1e40f70 93c850a754a26a050b621d52ac1881645d21be5f"
+
+# check_commit <sha> <what>
+# Exactly one `Work Unit:` line at column 0, naming a registered ID. Sets
+# fail=1 on any defect. <what> is "Commit" or "Merge" for the messages.
+check_commit() {
+  local sha="$1" what="$2" WU_LINES WU_COUNT wu_line WU
   WU_LINES="$(git log -1 --format=%B "$sha" | grep -E '^Work Unit: ' || true)"
 
   if [ -z "$WU_LINES" ]; then
-    err "Commit $sha carries no 'Work Unit: <WU-ID>' trailer. Per CLAUDE.md one Work Unit is one commit, and per Templates/WORK_UNIT.md every change must trace to a Work Unit. A Work Unit ID in the Pull Request description does not substitute: a description can be reworded after review, a trailer cannot."
+    err "$what $sha carries no 'Work Unit: <WU-ID>' trailer. Per CLAUDE.md one Work Unit is one commit, and per Templates/WORK_UNIT.md every change must trace to a Work Unit. A Work Unit ID in the Pull Request description does not substitute: a description can be reworded after review, a trailer cannot."
     fail=1
-    continue
+    return 0
   fi
 
   WU_COUNT="$(printf '%s\n' "$WU_LINES" | grep -c . || true)"
   if [ "$WU_COUNT" -gt 1 ]; then
-    err "Commit $sha carries $WU_COUNT 'Work Unit:' lines at column 0. One Work Unit is one commit (Standards/COMMIT_STANDARD.md), and downstream readers rely on there being exactly one. If one is an EXAMPLE quoted in the body — a deferral note, a reference to earlier work — indent it so it does not start at column 0."
+    err "$what $sha carries $WU_COUNT 'Work Unit:' lines at column 0. One Work Unit is one commit (Standards/COMMIT_STANDARD.md), and downstream readers rely on there being exactly one. If one is an EXAMPLE quoted in the body — a deferral note, a reference to earlier work — indent it so it does not start at column 0."
     fail=1
-    continue
+    return 0
   fi
 
   while IFS= read -r wu_line; do
@@ -142,10 +184,52 @@ for sha in $COMMITS; do
     if grep -qxF "$WU" <<< "$KNOWN"; then
       echo "  $sha -> $WU (resolved)"
     else
-      err "Commit $sha claims '$WU', which is not in $REGISTRY. Either it is a typo, or the Work Unit was never registered. Register it in the same commit that performs the work — see the registry's own header for the field shape. If this line is an EXAMPLE quoted in the message body, indent it so it does not start at column 0."
+      err "$what $sha claims '$WU', which is not in $REGISTRY. Either it is a typo, or the Work Unit was never registered. Register it in the same commit that performs the work — see the registry's own header for the field shape. If this line is an EXAMPLE quoted in the message body, indent it so it does not start at column 0."
       fail=1
     fi
   done < <(printf '%s\n' "$WU_LINES")
+}
+
+if [ -z "$COMMITS" ]; then
+  echo "No non-merge commits to check."
+else
+  echo "Commits to check: $(printf '%s\n' "$COMMITS" | grep -c .)"
+fi
+
+for sha in $COMMITS; do
+  check_commit "$sha" Commit
 done
+
+# --- Merge commits ---------------------------------------------------------
+# The classifier is merge-classify.sh (sourced; shared with
+# check-employee-trailers.sh), built on `git merge-tree --write-tree` (git >=
+# 2.38). If it cannot run the merge is unclassified and the check FAILS:
+# passing on an unclassifiable merge is the check-that-passes-without-
+# evaluating shape.
+if [ -n "$MERGES" ]; then
+  echo "Merge commits to classify: $(printf '%s\n' "$MERGES" | grep -c .)"
+
+  if ! merge_classify_git_ok; then
+    err "git $(git version) cannot classify merge commits: 'git merge-tree --write-tree' needs git 2.38 or newer. Failing closed rather than passing merges unclassified."
+    exit 1
+  fi
+
+  for sha in $MERGES; do
+    KIND="$(merge_classify "$sha")"
+    if [ "${KIND#error}" != "$KIND" ]; then
+      err "Merge $sha could not be classified (${KIND#error: }). Failing closed rather than passing an unclassified merge."
+      fail=1
+      continue
+    fi
+
+    if [ "$KIND" = clean ]; then
+      echo "  $sha -> merge, no content of its own"
+    elif [[ " $GRANDFATHERED_MERGES " == *" $sha "* ]]; then
+      echo "  $sha -> authored merge, grandfathered (GRANDFATHERED_MERGES in this script)"
+    else
+      check_commit "$sha" Merge
+    fi
+  done
+fi
 
 exit "$fail"

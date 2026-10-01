@@ -1741,6 +1741,136 @@ chmod +x "$WORK/shim/git"
 expect 1 "a merge the classifier cannot run on fails closed" -- env PATH="$WORK/shim:$PATH" bash "$CHECK_EMP" "$BASE" HEAD
 expect_output "could not be classified"
 
+# ----------------------- merge attribution: check-work-units.sh ---------------
+
+section "check-work-units.sh — merge attribution (WU-IAENG-313, PT2-03)"
+
+# mk_wu_merge_repo <name> — registry committed, then main and `side` diverge,
+# each with a registered Work Unit trailer. BASE is the registry commit.
+# Leaves the shell on main, ready to merge side.
+mk_wu_merge_repo() {
+  new_repo "$1"
+  write_wu_registry WU-TEST-001 WU-TEST-002
+  git add -A && git commit -q -m "registry"
+  BASE="$(git rev-parse HEAD)"
+  git checkout -qb side
+  echo side > side.txt && git add -A && git commit -q -m "side work
+
+Work Unit: WU-TEST-001"
+  git checkout -q main
+  echo main > main.txt && git add -A && git commit -q -m "main work
+
+Work Unit: WU-TEST-001"
+}
+
+mk_wu_merge_repo wmrg-clean
+git merge -q --no-ff side -m "Merge branch 'side'"
+expect 0 "a clean merge with no Work Unit trailer passes" -- bash "$CHECK_WU" "$BASE" HEAD
+expect_output "merge, no content of its own"
+
+# This is the PT2-03 repro: before WU-IAENG-313 the script ran
+# `git rev-list --no-merges`, never saw the merge, and exited 0 here.
+mk_wu_merge_repo wmrg-authored
+git merge -q --no-commit --no-ff side
+echo extra > extra.txt && git add extra.txt
+git commit -q -m "Merge branch 'side'"
+expect 1 "an authored merge with no Work Unit trailer fails" -- bash "$CHECK_WU" "$BASE" HEAD
+expect_output "Merge "
+expect_output "carries no 'Work Unit: <WU-ID>' trailer"
+
+mk_wu_merge_repo wmrg-authored-ok
+git merge -q --no-commit --no-ff side
+echo extra > extra.txt && git add extra.txt
+git commit -q -m "Merge branch 'side'
+
+Work Unit: WU-TEST-002"
+expect 0 "an authored merge with a registered Work Unit trailer passes" -- bash "$CHECK_WU" "$BASE" HEAD
+
+mk_wu_merge_repo wmrg-authored-unregistered
+git merge -q --no-commit --no-ff side
+echo extra > extra.txt && git add extra.txt
+git commit -q -m "Merge branch 'side'
+
+Work Unit: WU-TEST-999"
+expect 1 "an authored merge naming an unregistered Work Unit fails" -- bash "$CHECK_WU" "$BASE" HEAD
+expect_output "WU-TEST-999"
+
+new_repo wmrg-conflict
+write_wu_registry WU-TEST-001
+echo base > c.txt
+git add -A && git commit -q -m "registry"
+BASE="$(git rev-parse HEAD)"
+git checkout -qb side
+echo side > c.txt && git add -A && git commit -q -m "side edit
+
+Work Unit: WU-TEST-001"
+git checkout -q main
+echo main > c.txt && git add -A && git commit -q -m "main edit
+
+Work Unit: WU-TEST-001"
+git merge --no-commit --no-ff side > /dev/null 2>&1
+echo resolved > c.txt && git add c.txt
+git commit -q -m "Merge branch 'side'"
+expect 1 "a conflict-resolved merge with no Work Unit trailer fails" -- bash "$CHECK_WU" "$BASE" HEAD
+
+mk_wu_merge_repo wmrg-octopus
+git checkout -qb side2 "$BASE"
+echo s2 > side2.txt && git add -A && git commit -q -m "side2 work
+
+Work Unit: WU-TEST-001"
+git checkout -q main
+git merge -q --no-ff side side2 -m "Merge branches 'side', 'side2'" > /dev/null 2>&1
+expect 1 "a clean octopus merge with no Work Unit trailer fails (never classified)" -- bash "$CHECK_WU" "$BASE" HEAD
+
+mk_wu_merge_repo wmrg-ours
+git merge -q -s ours --no-ff side -m "Merge branch 'side'"
+expect 1 "a -s ours merge, no Work Unit trailer, fails" -- bash "$CHECK_WU" "$BASE" HEAD
+
+# Fail closed on a git too old to classify.
+mk_wu_merge_repo wmrg-old-git
+git merge -q --no-ff side -m "Merge branch 'side'"
+expect 1 "git older than 2.38 fails closed (work units)" -- env PATH="$WORK/shim-old:$PATH" bash "$CHECK_WU" "$BASE" HEAD
+expect_output "cannot classify"
+
+# Fail closed: a git whose merge-tree errors must not turn into a pass.
+mk_wu_merge_repo wmrg-shim
+git merge -q --no-ff side -m "Merge branch 'side'"
+expect 1 "a merge the classifier cannot run on fails closed (work units)" -- env PATH="$WORK/shim:$PATH" bash "$CHECK_WU" "$BASE" HEAD
+expect_output "could not be classified"
+
+# The grandfather list is a constant inside the script, never a data file
+# (SEC-IAENG-307-01). Fixture shas cannot be predicted, so the mechanism is
+# exercised on a COPY of the scripts whose constant names the fixture merge.
+# The two real grandfathered shas are exercised by running the check over
+# v0.0.13..develop, recorded in the PR.
+mk_wu_merge_repo wmrg-grandfathered
+git merge -q --no-commit --no-ff side
+echo extra > extra.txt && git add extra.txt
+git commit -q -m "Merge branch 'side'"
+GF_SHA="$(git rev-parse HEAD)"
+mkdir -p "$WORK/gf-scripts"
+cp "$CHECK_WU" "$SCRIPTS/merge-classify.sh" "$WORK/gf-scripts/"
+sed -i "s/^readonly GRANDFATHERED_MERGES=\"/readonly GRANDFATHERED_MERGES=\"$GF_SHA /" "$WORK/gf-scripts/check-work-units.sh"
+expect 0 "a grandfathered authored merge passes" -- bash "$WORK/gf-scripts/check-work-units.sh" "$BASE" HEAD
+expect_output "grandfathered"
+expect 1 "the same merge fails without the constant naming it" -- bash "$CHECK_WU" "$BASE" HEAD
+
+# A data file planted in the tree must not exempt a merge.
+mkdir -p Registry ia-engineering/Registry
+echo "$GF_SHA planted by the PR under test" > Registry/merge-attribution-exceptions.txt
+cp Registry/merge-attribution-exceptions.txt ia-engineering/Registry/
+expect 1 "an exceptions file planted in the tree does not exempt a merge (work units)" -- \
+  env IAENG_MERGE_EXCEPTIONS=Registry/merge-attribution-exceptions.txt bash "$CHECK_WU" "$BASE" HEAD
+
+# The classifier is sourced; its absence must fail closed, not pass.
+mkdir -p "$WORK/no-helper"
+cp "$CHECK_WU" "$WORK/no-helper/"
+expect 1 "a missing merge-classify.sh fails closed (work units)" -- bash "$WORK/no-helper/check-work-units.sh" "$BASE" HEAD
+expect_output "merge-classify.sh not found"
+cp "$CHECK_EMP" "$WORK/no-helper/"
+expect 1 "a missing merge-classify.sh fails closed (employee trailers)" -- bash "$WORK/no-helper/check-employee-trailers.sh" "$BASE" HEAD
+expect_output "merge-classify.sh not found"
+
 # ------------------------------------------ check-inline-suppression.sh -------
 
 CHECK_SUP="$SCRIPTS/check-inline-suppression.sh"
