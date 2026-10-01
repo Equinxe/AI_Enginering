@@ -1117,6 +1117,12 @@ work_units:
     milestone: Precision
     delivers: Adapters/github-actions/control-path-guard.yml, .github/workflows/control-path-guard.yml, Adapters/scripts/check-control-paths.sh, Adapters/scripts/tests/run.sh, Adapters/scripts/install.sh, Adapters/README.md, SECURITY.md, .gitattributes, Registry/work-units.yml
 
+  - id: WU-IAENG-311
+    employee: DevOps Engineer
+    title: Refuse an agent command that applies the Director-only approval labels control-change/approved and size/approved - a local speed bump in the escape-hatch hook, not a boundary, covering gh pr/issue edit and create, gh api label writes and gh label rename or create
+    milestone: Precision
+    delivers: Adapters/ai-runtimes/claude-code/hooks/block-escape-hatches.sh, Adapters/ai-runtimes/claude-code/hooks/tests/escape-hatch-cases.tsv, Adapters/ai-runtimes/claude-code/hooks/README.md, Registry/work-units.yml
+
   - id: WU-IAENG-315
     employee: DevOps Engineer
     title: Extend pre-push to release/* (pen-test PT2-08) - creation allowed, any update (fast-forward or force) and any deletion refused per Workflows/RELEASE.md Steps 3, 4 and 10, main/develop behaviour unchanged; first behaviour cases for the hook, fed git's real stdin protocol; the last shellcheck disable directive removed
