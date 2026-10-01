@@ -38,16 +38,20 @@
 #   see the noise argument above. The matched VALUE is never printed; the path,
 #   the line number, and the pattern's name are.
 #   Lines are read as text whatever git thinks of the file (--text), so a path
-#   marked -diff or binary in .gitattributes is scanned like any other. In
-#   --history, what a MERGE itself authored (a conflict resolution, a line or a
-#   file added in the merge commit) is scanned via the dense combined diff
-#   (--cc, the same as --diff-merges=dense-combined): it shows only what is in
-#   the merge result and in NONE of its parents. What a merge merely carries
-#   from a parent is not re-read — it was scanned where it was authored, or it
-#   sits on the excluded side of the range. --diff-merges=first-parent was the
-#   alternative and was rejected: it re-reads everything the second parent
-#   brought in, so `develop` merged into a feature branch would be re-scanned
-#   and could be refused for lines an earlier review or the allow file settled.
+#   marked -diff or binary in .gitattributes, or holding a NUL byte, is scanned
+#   like any other. In --history, what a MERGE itself authored (a conflict
+#   resolution, a line or a file added in the merge commit) is scanned too:
+#   for every path the dense combined diff names (`diff-tree --cc`), the merge
+#   result is diffed against EACH parent, as text, and a line added relative
+#   to every parent is the merge's own. That is the rule git's combined diff
+#   applies, computed from per-parent diffs because git's combined diff itself
+#   ignores --text and prints "Binary files differ" for exactly the files
+#   above. What a merge merely carries from a parent is not re-read — it was
+#   scanned where it was authored, or it sits on the excluded side of the
+#   range. --diff-merges=first-parent was the alternative and was rejected: it
+#   re-reads everything the second parent brought in, so `develop` merged into
+#   a feature branch would be re-scanned and could be refused for lines an
+#   earlier review or the allow file settled.
 #
 # EXEMPTIONS — named, never fall-throughs:
 #   - a basename beginning with SYNTHETIC_ (anchored: a directory called
@@ -196,64 +200,90 @@ classify_path() {
 }
 
 # --- Content scan --------------------------------------------------------------
-# Reads a unified diff on stdin; prints "path<TAB>lineno<TAB>pattern-name" for
-# every ADDED line matching a secret pattern. Values are never echoed.
+# Reads a unified diff on stdin; prints "path<TAB>lineno<TAB>text" for EVERY
+# added line. The matcher and the denominator both read this list, so they
+# count the same lines — an empty added line or one whose text begins "++ "
+# included.
+#
+# "+++ " is a path header only between a "diff --" line and its first hunk. An
+# added line whose text begins "++ " reads "+++ " in the diff; taking it for a
+# header skipped that line and attributed every later line to a path that does
+# not exist. The trailing TAB git puts on the header of a path with spaces is
+# stripped.
 
-scan_diff_content() {
-  local re_all="" entry
-  for entry in "${SECRET_PATTERNS[@]}"; do
-    re_all="$re_all|${entry#*|}"
-  done
-  re_all="${re_all#|}"
-
-  awk -v re="$re_all" '
-    /^\+\+\+ / { path = substr($0, 5); sub(/^b\//, "", path); next }
-    /^@@ /     { split($0, h, /\+/); split(h[2], n, /[, ]/); ln = n[1] - 1; next }
-    /^\+/      { ln++; if ($0 ~ re) print path "\t" ln "\t" substr($0, 2); next }
-    /^[^-]/    { ln++ }
+added_lines() {
+  awk '
+    /^diff --/          { inhdr = 1; next }
+    inhdr && /^\+\+\+ / { path = substr($0, 5); sub(/^b\//, "", path); sub(/\t$/, "", path); next }
+    /^@@ /              { inhdr = 0; split($0, h, /\+/); split(h[2], n, /[, ]/); ln = n[1] - 1; next }
+    inhdr               { next }
+    /^\\/               { next }
+    /^\+/               { ln++; print path "\t" ln "\t" substr($0, 2); next }
+    /^[^-]/             { ln++ }
   '
 }
 
-# Reads a COMBINED diff (git log --cc) on stdin. A hunk header carries one "@"
-# pair-plus-one per parent ("@@@" for two parents), and every content line starts
-# with one column per parent: "+" = absent from that parent, " " = present, "-" =
-# removed relative to it. A line is merge-authored when EVERY column is "+".
-# Line numbers count result lines only (no "-" in any column).
-#   count -> prints the number of merge-authored lines (the denominator)
-#   match -> prints "path<TAB>lineno<TAB>text" for those matching a secret shape
-# File headers are recognised only between a "diff --" line and the first hunk,
-# so an added line whose text begins with "++ " is not mistaken for one.
-scan_combined_diff() {
+# Keeps the added lines whose TEXT matches a secret pattern. The path and the
+# line number columns are not matched — a path is judged by classify_path.
+# Values are never echoed by the caller.
+match_secret_lines() {
   local re_all="" entry
   for entry in "${SECRET_PATTERNS[@]}"; do
     re_all="$re_all|${entry#*|}"
   done
   re_all="${re_all#|}"
+  awk -v re="$re_all" '{ t = $0; sub(/^[^\t]*\t[^\t]*\t/, "", t); if (t ~ re) print }'
+}
 
-  awk -v re="$re_all" -v mode="$1" '
-    /^diff --/ { inhunk = 0; next }
-    !inhunk && /^\+\+\+ / { path = substr($0, 5); sub(/^b\//, "", path); next }
-    /^@@@+ / {
-      inhunk = 1
-      np = index($0, " ") - 2
-      s = $0; sub(/^[^+]*[+]/, "", s); split(s, n, /[, ]/); ln = n[1] - 1
-      # Built by a loop: a "*" width in printf is not POSIX awk, and the CI
-      # runner awk is mawk.
-      allplus = ""; for (i = 0; i < np; i++) allplus = allplus "+"
-      next
-    }
-    inhunk && /^\\/ { next }
-    inhunk {
-      col = substr($0, 1, np)
-      if (col ~ /-/) next
-      ln++
-      if (col == allplus) {
-        total++
-        if (mode == "match" && substr($0, np + 1) ~ re) print path "\t" ln "\t" substr($0, np + 1)
-      }
-    }
-    END { if (mode == "count") print total + 0 }
-  '
+count_lines() {
+  if [ -n "$1" ]; then printf '%s\n' "$1" | wc -l | tr -d '[:space:]'; else printf 0; fi
+}
+
+# MERGE-AUTHORED LINES of every merge commit in $ARG, as "path<TAB>lineno<TAB>text".
+#
+# `log -p` prints nothing for a merge, so a line typed while resolving a
+# conflict, or smuggled into a merge commit, was in no patch at all. The rule
+# that names the merge's own lines is the dense combined diff's (--cc): a line
+# of the result that is added relative to EVERY parent. A line present in one
+# parent was already in a commit of this range (scanned with the ordinary
+# patches) or on the excluded side (accepted there), and a resolution that
+# copies it is not re-read.
+#
+# The rule is computed here from per-parent diffs rather than read from
+# `log --cc`: git's combined diff ignores --text and prints "Binary files
+# differ" for a path marked -diff or binary, or holding a NUL byte — exactly
+# the files PT2-02 is about — so a secret resolved into such a file was still
+# unscanned. `git diff --text <parent> <merge> -- <path>` honours --text, and
+# a result line is identified by its line number, which is the same in every
+# parent's diff because the result side is the same file. The paths come from
+# `diff-tree --cc --name-only -z`: it names a path only when the result
+# differs from every parent (a clean merge, or a resolution that takes one side
+# verbatim, names nothing — the all-merge back-merge range stays empty), and
+# -z hands the name over unquoted. ":(literal)" keeps a name that starts with
+# ":" or contains a glob character from being read as pathspec magic.
+#
+# Choosing --diff-merges=first-parent instead would re-scan everything a merge
+# brought in from the other side, including a whole `develop` merged into a
+# feature branch, and could refuse lines the allow file or an earlier review
+# already settled. The content allow file applies to these lines exactly as to
+# ordinary added lines (same scan_content).
+merge_authored_lines() {
+  local sha parents p np path
+  while IFS= read -r sha; do
+    parents="$(git rev-list --parents -n 1 "$sha")"
+    parents="${parents#* }"
+    np=0
+    for p in $parents; do np=$((np + 1)); done
+    while IFS= read -r -d '' path; do
+      [ -n "$path" ] || continue
+      for p in $parents; do
+        git -c core.quotePath=false diff --text -U0 --no-color --no-ext-diff --no-textconv "$p" "$sha" -- ":(literal)$path" \
+          | added_lines
+      done | awk -F'\t' -v np="$np" -v path="$path" '
+          { k = $0; sub(/^[^\t]*\t/, "", k); c[k]++; if (c[k] == np) print path "\t" k }
+        '
+    done < <(git -c core.quotePath=false diff-tree --cc --no-commit-id --name-only -z -r "$sha")
+  done < <(git rev-list --merges "$ARG")
 }
 
 name_of_pattern() {
@@ -296,27 +326,23 @@ scan_paths_lines() {
 scan_content() {
   local path ln text
   while IFS=$'\t' read -r path ln text; do
-    LINES_SCANNED=$((LINES_SCANNED + 1))
     allowed_content "$text" && continue
     report_line "$path" "$ln" "$(name_of_pattern "$text")"
   done
 }
 
-count_added_lines() {
-  # Denominator for the content scan: how many added lines were examined.
-  grep -c '^+[^+]' || true
-}
-
 case "$MODE" in
   staged)
-    scan_paths_nul < <(git -c core.quotePath=false diff --cached --name-only --diff-filter=ACMR -z)
+    # T (type change): a symlink replaced by a regular file holding a secret
+    # is a staged change like any other; ACMR alone listed no path for it.
+    scan_paths_nul < <(git -c core.quotePath=false diff --cached --name-only --diff-filter=ACMRT -z)
     # --text: see the history branch below. A file git classifies as binary
     # (a NUL byte, or -diff / binary in .gitattributes) prints "Binary files
     # differ" and no lines, so a secret added to it would never be scanned.
-    DIFF="$(git -c core.quotePath=false diff --cached --text -U0 --no-color --no-ext-diff --no-textconv --diff-filter=ACMR)"
-    ADDED="$(printf '%s\n' "$DIFF" | count_added_lines)"
-    scan_content < <(printf '%s\n' "$DIFF" | scan_diff_content)
-    LINES_SCANNED="$ADDED"
+    DIFF="$(git -c core.quotePath=false diff --cached --text -U0 --no-color --no-ext-diff --no-textconv --diff-filter=ACMRT)"
+    ADDED_LINES="$(printf '%s\n' "$DIFF" | added_lines)"
+    scan_content < <(printf '%s\n' "$ADDED_LINES" | match_secret_lines)
+    LINES_SCANNED="$(count_lines "$ADDED_LINES")"
     ;;
   tree)
     git rev-parse --verify --quiet "$ARG^{tree}" >/dev/null || die "cannot resolve tree '$ARG'"
@@ -354,10 +380,11 @@ case "$MODE" in
     # has) the object walk missed it too. The combined diff names only paths
     # whose merge result differs from EVERY parent: a clean merge, or a
     # resolution that takes one side verbatim, names nothing, so the all-merge
-    # back-merge range below still enumerates zero paths.
+    # back-merge range below still enumerates zero paths. T: a type change
+    # (symlink to regular file) is a path introduced like any other.
     scan_paths_lines < <(
       {
-        git -c core.quotePath=false log --cc --format= --name-only --diff-filter=ACMR "$ARG"
+        git -c core.quotePath=false log --cc --format= --name-only --diff-filter=ACMRT "$ARG"
         git -c core.quotePath=false rev-list --objects "$ARG" \
           | awk 'NF > 1 { sub(/^[0-9a-f]+ /, ""); print }'
       } | sort -u
@@ -371,26 +398,14 @@ case "$MODE" in
     # --no-textconv and --no-ext-diff stay: a configured converter or external
     # driver must not rewrite the bytes being scanned.
     DIFF="$(git -c core.quotePath=false log -p --text -U0 --no-color --no-ext-diff --no-textconv --format= "$ARG")"
-    ADDED="$(printf '%s\n' "$DIFF" | count_added_lines)"
-    scan_content < <(printf '%s\n' "$DIFF" | scan_diff_content)
+    ADDED_LINES="$(printf '%s\n' "$DIFF" | added_lines)"
+    scan_content < <(printf '%s\n' "$ADDED_LINES" | match_secret_lines)
 
-    # MERGE-AUTHORED CONTENT (PT2-01). `log -p` prints nothing for a merge, so a
-    # line typed while resolving a conflict, or smuggled into a merge commit,
-    # was in no patch at all. `--cc` is the dense combined diff: it shows only
-    # the lines of the merge result that are in NONE of the parents (columns of
-    # every parent are "+"). That is exactly what the merge authored — a line
-    # present in one parent was already in a commit of this range (scanned
-    # above) or on the excluded side (already accepted there). Choosing
-    # `--diff-merges=first-parent` instead would re-scan everything a merge
-    # brought in from the other side, including a whole `develop` merged into a
-    # feature branch, and could refuse lines the allow file or earlier review
-    # already settled. A line a resolution copies from a parent is not
-    # re-scanned, and need not be. The content allow file applies to these
-    # lines exactly as to ordinary added lines (same scan_content).
-    MERGE_DIFF="$(git -c core.quotePath=false log --merges --cc --text -U0 --no-color --no-ext-diff --no-textconv --format= "$ARG")"
-    MERGE_ADDED="$(printf '%s\n' "$MERGE_DIFF" | scan_combined_diff count)"
-    scan_content < <(printf '%s\n' "$MERGE_DIFF" | scan_combined_diff match)
-    LINES_SCANNED=$((ADDED + MERGE_ADDED))
+    # MERGE-AUTHORED CONTENT (PT2-01): see merge_authored_lines. Its lines are
+    # part of the reported denominator.
+    MERGE_LINES="$(merge_authored_lines)"
+    scan_content < <(printf '%s\n' "$MERGE_LINES" | match_secret_lines)
+    LINES_SCANNED=$(( $(count_lines "$ADDED_LINES") + $(count_lines "$MERGE_LINES") ))
     ;;
 esac
 

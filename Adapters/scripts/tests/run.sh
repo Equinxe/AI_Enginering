@@ -2089,11 +2089,13 @@ DPS="$SCRIPTS/data-policy-scan.sh"
 DP_AWS="$(printf '%s%s' 'AKIA' 'ABCDEFGHIJKLMNOP')"
 DP_SECRET_LINE="aws_access_key_id = $DP_AWS"
 
-# dp_conflict_repo <name> — base, then feat and main both rewrite app.conf, then
-# `git merge feat` on main stops with a conflict. BASE is the shared ancestor.
+# dp_conflict_repo <name> [<.gitattributes line>] — base, then feat and main
+# both rewrite app.conf, then `git merge feat` on main stops with a conflict.
+# BASE is the shared ancestor. The optional attribute line is committed in base.
 dp_conflict_repo() {
   new_repo "$1"
   printf 'mode=base\n' > app.conf
+  [ -z "${2:-}" ] || printf '%s\n' "$2" > .gitattributes
   git add -A && git commit -qm "base"
   BASE="$(git rev-parse HEAD)"
   git checkout -qb feat
@@ -2192,20 +2194,35 @@ printf '%s\n' "$DP_SECRET_LINE" > app.conf
 git add -A && git commit -qm "Merge feat (resolved)"
 expect 0 "the content allow file still exempts a merge-authored line" -- bash "$DPS" --history "$BASE..HEAD"
 
-# Developing branch merged into a feature branch: its changes are not authored
-# by the merge, so a flagged line already on the excluded side is not re-read.
+# develop merged into a feature branch: a flagged line develop gained AFTER the
+# branch point arrives through the merge's second parent. It is added relative
+# to the first parent, so first-parent would re-read it; it is present in the
+# second parent, so the dense rule does not. The range excludes develop, where
+# the line was accepted. The first-parent patch is shown to contain the line,
+# so the control discriminates between the two rules rather than passing under
+# both.
 new_repo dp-develop-into-feature
 git checkout -qb develop
-printf '%s\n' "$DP_SECRET_LINE" > legacy.conf
-git add -A && git commit -qm "old, already accepted on develop"
+echo d > d.txt && git add -A && git commit -qm "develop before the branch point"
 git checkout -qb feature
 echo x > x.txt && git add -A && git commit -qm "feature work"
 git checkout -q develop
-echo y > y.txt && git add -A && git commit -qm "develop moves on"
+printf '%s\n' "$DP_SECRET_LINE" > legacy.conf
+git add -A && git commit -qm "develop moves on, with a line accepted there"
 git checkout -q feature
 BASE="$(git rev-parse develop)"
 git merge -q --no-ff develop -m "Merge develop into feature"
+FIRST_PARENT_PATCH="$(git log --diff-merges=first-parent -p --format= "$BASE..HEAD")"
+expect 0 "first-parent WOULD re-read the line develop gained after the branch point" -- grep -qF -- "$DP_AWS" <<< "$FIRST_PARENT_PATCH"
 expect 0 "develop merged into a feature branch does not re-read develop's lines" -- bash "$DPS" --history "$BASE..HEAD"
+expect_output "1 added line(s)"
+
+# A resolution that takes one side verbatim authors nothing: the two sides'
+# lines are the whole denominator.
+dp_conflict_repo dp-pick-one-side
+git checkout -q --theirs app.conf && git add app.conf && git commit -qm "Merge feat (takes feat)"
+expect 0 "a resolution that takes one side verbatim is clean and authors nothing" -- bash "$DPS" --history "$BASE..HEAD"
+expect_output "2 added line(s)"
 
 # A back-merge (every commit a merge) keeps its named exception.
 new_repo dp-backmerge
@@ -2250,6 +2267,106 @@ git reset -q --soft "$BASE"
 git reset -q
 git add -A
 expect 0 "a real PNG is neither refused nor a crash under --text (staged)" -- bash "$DPS" --staged
+
+# SEC-176-01: git's own combined diff ignores --text, so a secret resolved into
+# a path marked -diff or binary, or into a NUL-bearing file, printed "Binary
+# files differ" and was never scanned. The merge's own lines are now read from
+# per-parent diffs, which honour --text.
+dp_conflict_repo dp-merge-nodiff-attr 'app.conf -diff'
+printf '%s\n' "$DP_SECRET_LINE" > app.conf
+git add app.conf && git commit -qm "Merge feat (resolved)"
+expect 1 "SEC-176-01: a secret resolved into a -diff path is refused" -- bash "$DPS" --history "$BASE..HEAD"
+expect_output "app.conf:1"
+
+dp_conflict_repo dp-merge-binary-attr 'app.conf binary'
+printf '%s\n' "$DP_SECRET_LINE" > app.conf
+git add app.conf && git commit -qm "Merge feat (resolved)"
+expect 1 "SEC-176-01: a secret resolved into a binary-attributed path is refused" -- bash "$DPS" --history "$BASE..HEAD"
+expect_output "app.conf:1"
+
+dp_conflict_repo dp-merge-nul
+{ printf 'head\0tail\n'; printf '%s\n' "$DP_SECRET_LINE"; } > app.conf
+git add app.conf && git commit -qm "Merge feat (resolved)"
+expect 1 "SEC-176-01: a secret resolved into a NUL-bearing file is refused" -- bash "$DPS" --history "$BASE..HEAD"
+expect_output "app.conf:2"
+
+# SEC-176-02: an added line whose text begins "++ " reads "+++ " in the diff
+# and was taken for a path header — never scanned, and every later line
+# attributed to a path that does not exist. It is also counted.
+new_repo dp-plusplus
+BASE="$(git rev-parse HEAD)"
+printf '++ %s\n' "$DP_SECRET_LINE" > notes.conf
+git add -A && git commit -qm "a line that begins with ++"
+expect 1 "SEC-176-02: an added line beginning with ++ is scanned in --history" -- bash "$DPS" --history "$BASE..HEAD"
+expect_output "notes.conf:1"
+expect_output "1 added line(s)"
+git reset -q --soft "$BASE"
+git reset -q
+git add -A
+expect 1 "SEC-176-02: an added line beginning with ++ is scanned by --staged" -- bash "$DPS" --staged
+expect_output "notes.conf:1"
+
+# SEC-176-03: a symlink replaced by a regular file is a type change (filter
+# T), which ACMR excluded — the staged scan listed "0 path(s)" and read no
+# line. The symlink is written to the index directly, so the case does not
+# depend on the platform supporting symlinks.
+new_repo dp-typechange
+LINK_BLOB="$(printf 'target.txt' | git hash-object -w --stdin)"
+git update-index --add --cacheinfo "120000,$LINK_BLOB,link.conf"
+git commit -qm "a symlink"
+BASE="$(git rev-parse HEAD)"
+printf '%s\n' "$DP_SECRET_LINE" > link.conf
+FILE_BLOB="$(git hash-object -w link.conf)"
+git update-index --add --cacheinfo "100644,$FILE_BLOB,link.conf"
+expect 1 "SEC-176-03: a symlink replaced by a regular file with a secret is refused by --staged" -- bash "$DPS" --staged
+expect_output "link.conf:1"
+git commit -qm "the symlink becomes a file"
+expect 1 "SEC-176-03: the same type change is refused in --history" -- bash "$DPS" --history "$BASE..HEAD"
+expect_output "link.conf:1"
+
+# An octopus merge (three parents) that adds a file of its own.
+new_repo dp-octopus
+BASE="$(git rev-parse HEAD)"
+git checkout -qb a && echo a > a.txt && git add -A && git commit -qm "a"
+git checkout -q main && git checkout -qb b && echo b > b.txt && git add -A && git commit -qm "b"
+git checkout -q main
+git merge --no-commit --no-ff a b >/dev/null 2>&1
+printf '%s\n' "$DP_SECRET_LINE" > oct.conf
+git add oct.conf && git commit -qm "Octopus merge"
+expect 1 "a secret in a file an octopus merge adds is refused" -- bash "$DPS" --history "$BASE..HEAD"
+expect_output "oct.conf:1"
+
+# dp_multihunk_repo <name> — both sides rewrite three separated lines of
+# app.conf, so the resolution has three places to pick a side or write anew.
+dp_multihunk_repo() {
+  new_repo "$1"
+  printf 'a=base\nkeep\nb=base\nkeep2\nc=base\n' > app.conf
+  git add -A && git commit -qm "base"
+  BASE="$(git rev-parse HEAD)"
+  git checkout -qb feat
+  printf 'a=feat\nkeep\nb=feat\nkeep2\nc=feat\n' > app.conf
+  git commit -qam "feat"
+  git checkout -q main
+  printf 'a=main\nkeep\nb=main\nkeep2\nc=main\n' > app.conf
+  git commit -qam "main"
+  git merge feat >/dev/null 2>&1 || true
+}
+
+# Picks main for a, feat for b and c: nothing is the merge's own.
+dp_multihunk_repo dp-multihunk-picks
+printf 'a=main\nkeep\nb=feat\nkeep2\nc=feat\n' > app.conf
+git add app.conf && git commit -qm "Merge feat (picks sides)"
+expect 0 "a multi-hunk resolution that picks a side in every hunk is clean" -- bash "$DPS" --history "$BASE..HEAD"
+expect_output "6 added line(s)"
+
+# Picks main for a, writes a new line for b, feat for c: one line is the
+# merge's own, and it is reported at its line in the result.
+dp_multihunk_repo dp-multihunk-authored
+printf 'a=main\nkeep\n%s\nkeep2\nc=feat\n' "$DP_SECRET_LINE" > app.conf
+git add app.conf && git commit -qm "Merge feat (one new line)"
+expect 1 "a multi-hunk resolution with one new line is refused at that line" -- bash "$DPS" --history "$BASE..HEAD"
+expect_output "app.conf:3"
+expect_output "7 added line(s)"
 
 # --------------------------------------------------------------- verdict ----
 
