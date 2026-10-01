@@ -1110,3 +1110,9 @@ work_units:
     title: Scan a Pull Request's added lines for inline suppressions (PT-01 of the #112 exercise) - one shared pattern file read by the hook and a new advisory check, so a directive written through the Bash tool, by a human or by another runtime is reported server-side
     milestone: Precision
     delivers: Adapters/scripts/check-inline-suppression.sh, Adapters/scripts/suppression-patterns.tsv, Adapters/ai-runtimes/claude-code/hooks/block-inline-suppression.sh, Adapters/github-actions/pr-validation.yml, .github/workflows/pr-validation.yml, Adapters/scripts/tests/run.sh, Adapters/ai-runtimes/claude-code/hooks/tests/run.sh, Adapters/ai-runtimes/claude-code/hooks/README.md, Adapters/README.md, .gitignore, Registry/work-units.yml
+
+  - id: WU-IAENG-314
+    employee: DevOps Engineer
+    title: Close PT2-05 and PT2-06 in the advisory Risk Map check - diff the range from the merge base so a file the base advanced after the fork is not attributed to the change, and require the RISK record to start at column 0 and carry tier=, mitigation= and decided_by= so an indented example no longer satisfies the gate
+    milestone: Precision
+    delivers: Adapters/scripts/check-risk-map.sh, Adapters/scripts/tests/run.sh, Adapters/README.md, Registry/work-units.yml
