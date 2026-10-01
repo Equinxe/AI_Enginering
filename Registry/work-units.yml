@@ -1111,8 +1111,20 @@ work_units:
     milestone: Precision
     delivers: Adapters/scripts/check-inline-suppression.sh, Adapters/scripts/suppression-patterns.tsv, Adapters/ai-runtimes/claude-code/hooks/block-inline-suppression.sh, Adapters/github-actions/pr-validation.yml, .github/workflows/pr-validation.yml, Adapters/scripts/tests/run.sh, Adapters/ai-runtimes/claude-code/hooks/tests/run.sh, Adapters/ai-runtimes/claude-code/hooks/README.md, Adapters/README.md, .gitignore, Registry/work-units.yml
 
+  - id: WU-IAENG-309
+    employee: DevOps Engineer
+    title: Guard control paths with a pull_request_target check (PT-07 of the #112 exercise) - a base-branch job that never runs PR code, lists the PR files through the API and fails when a control path is touched unless the Director applies control-change/approved after the last push
+    milestone: Precision
+    delivers: Adapters/github-actions/control-path-guard.yml, .github/workflows/control-path-guard.yml, Adapters/scripts/check-control-paths.sh, Adapters/scripts/tests/run.sh, Adapters/scripts/install.sh, Adapters/README.md, SECURITY.md, .gitattributes, Registry/work-units.yml
+
   - id: WU-IAENG-310
     employee: DevOps Engineer
     title: Harden the pr-validation graders against reconfiguration by the change they grade - shellcheck runs with --norc so a .shellcheckrc in the PR tree cannot disable it, and workflow YAML is parsed by a pinned js-yaml run from a fresh temp directory with no npmrc honoured, so the PR tree cannot supply the parser; content guards keep both from regressing
     milestone: Precision
     delivers: Adapters/github-actions/pr-validation.yml, .github/workflows/pr-validation.yml, Adapters/scripts/tests/run.sh, Adapters/README.md, SECURITY.md, Registry/work-units.yml
+
+  - id: WU-IAENG-311
+    employee: DevOps Engineer
+    title: Refuse an agent command that applies the Director-only approval labels control-change/approved and size/approved - a local speed bump in the escape-hatch hook, not a boundary, covering gh pr/issue edit and create, gh api label writes and gh label rename or create
+    milestone: Precision
+    delivers: Adapters/ai-runtimes/claude-code/hooks/block-escape-hatches.sh, Adapters/ai-runtimes/claude-code/hooks/tests/escape-hatch-cases.tsv, Adapters/ai-runtimes/claude-code/hooks/README.md, Registry/work-units.yml

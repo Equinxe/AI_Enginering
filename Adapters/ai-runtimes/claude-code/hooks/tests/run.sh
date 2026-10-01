@@ -116,6 +116,13 @@ PAY_DOC="$(jq -n --arg c "$SUPPRESSED"  '{tool_name:"Write",tool_input:{file_pat
 
 expect_rc "escape-hatch: empty payload fails closed"        2 "$HOOKS/block-escape-hatches.sh"    '{}'
 expect_rc "escape-hatch: ignores a non-Bash tool"           0 "$HOOKS/block-escape-hatches.sh"    '{"tool_name":"Read","tool_input":{"file_path":"x"}}'
+# Multi-line commands cannot live in the one-line .tsv corpus. A heredoc body
+# is data: an approval-label command quoted in one is not run, and a real
+# label flag before a heredoc is still refused (WU-IAENG-311).
+HD_ALLOW=$'gh pr create --label bug --body-file - <<\'EOF\'\ngh pr edit 1 --add-label "help wanted,size/approved"\nEOF'
+HD_BLOCK=$'gh pr edit 1 --add-label "help wanted,size/approved" --body-file - <<\'EOF\'\nsome text\nEOF'
+expect_rc "approval-label: a command quoted in a heredoc body is data" 0 "$HOOKS/block-escape-hatches.sh" "$(jq -n --arg c "$HD_ALLOW" '{tool_name:"Bash",tool_input:{command:$c}}')"
+expect_rc "approval-label: a real quoted label list before a heredoc is refused" 2 "$HOOKS/block-escape-hatches.sh" "$(jq -n --arg c "$HD_BLOCK" '{tool_name:"Bash",tool_input:{command:$c}}')"
 expect_rc "inline-suppression: refuses a directive in code" 2 "$HOOKS/block-inline-suppression.sh" "$PAY_CODE"
 expect_rc "inline-suppression: allows it in documentation"  0 "$HOOKS/block-inline-suppression.sh" "$PAY_DOC"
 
