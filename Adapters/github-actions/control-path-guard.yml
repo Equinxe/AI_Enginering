@@ -1,0 +1,211 @@
+name: IA Engineering - Control Path Guard
+
+# PT-07 of the #112 exercise (Purple, 29 Sep 2026; Director decision).
+#
+# THE PROBLEM. The required checks run the definitions carried by the Pull
+# Request under review: the `pull_request` trigger uses the PR's own workflow
+# files, and those workflows call the PR's own Adapters/scripts. With no
+# required approval and no CODEOWNERS, a PR can rewrite the rule it is graded
+# by and be graded green by the rewritten rule.
+#
+# THE GUARD. This job runs on `pull_request_target`, so it never runs the PR's
+# own copy of any workflow. It never checks out or executes PR code. It asks
+# the API which files the PR changes, hands their names to
+# Adapters/scripts/check-control-paths.sh (from the BASE checkout - that script
+# holds the one list of control paths), and FAILS when any is touched, unless
+# an approval is in place (below).
+#
+# WHICH COPY OF THIS FILE RUNS. For pull_request_target, GitHub takes the
+# workflow file from the repository's DEFAULT branch (main), NOT from the PR's
+# base branch (GitHub docs, "Events that trigger workflows", and the
+# 2025-11-07 changelog). Consequences, stated because they are easy to miss:
+#   - a PR to `develop` is not guarded until this file has been released to
+#     `main`; until then the check does not run on it at all;
+#   - an edit to this file takes effect only when it reaches `main`, i.e. at
+#     release, not when it merges to `develop`;
+#   - the YAML (from `main`) and the matcher script (checked out below at the
+#     event's base SHA) can be DIFFERENT VERSIONS. The interface between them
+#     - `check-control-paths.sh -z`, paths on stdin, exit 0 / 1 / 2 - must stay
+#     backward compatible in both directions (see the note in that script).
+#
+# SECURITY POSTURE, per GitHub's "Keeping your GitHub Actions and workflows
+# secure" (https://docs.github.com/en/actions/reference/security/secure-use):
+#   - "Workflows that use these triggers must not explicitly check out
+#     untrusted code" - the only checkout below is the base SHA, and it is
+#     the only code that runs.
+#   - untrusted values (file names, labels) reach shell only through
+#     environment variables or files, never through ${{ }} inside `run:`,
+#     "so the value does not interact with the script generation process".
+#   - the token is read-only: contents: read, pull-requests: read.
+# File names are attacker-controlled: they travel as NUL-delimited data, are
+# never evaluated, and may contain spaces, newlines, or a leading dash.
+#
+# THE APPROVAL. The label `control-change/approved`, applied by the Director.
+# The Director creates the label and the repository variable
+# IAENG_DIRECTOR_LOGIN (this workflow creates neither). A label can be applied
+# by anyone with Triage, Write, Maintain or Admin - not only the Director - so
+# the label alone proves nothing: the event's SENDER must also equal
+# IAENG_DIRECTOR_LOGIN, and if that variable is unset the guard fails closed
+# with a message saying so. RESIDUAL LIMIT: with a single shared identity (the
+# configuration setup-branch-protection.sh applies; SECURITY.md, Where the
+# boundary is) the sender check cannot tell an agent acting under the
+# Director's login from the Director. It closes the other-collaborator case
+# only.
+#
+# The approval is bound to the head commit:
+#   - only a `labeled` event for that exact label, sent by the Director, passes;
+#     every other event (opened, synchronize, reopened, unlabeled, any other
+#     label added or removed) is judged without the label, so a label applied
+#     to an earlier version of the PR cannot bless commits pushed after it;
+#   - the head SHA is read from the API before and after the file listing and
+#     must equal the event's head SHA, or the run fails closed.
+# CONSEQUENCE FOR THE DIRECTOR: any later labeled/unlabeled event, for ANY
+# label, re-runs the job and turns it red again while control paths are
+# touched. Apply `control-change/approved` LAST, and re-apply it (remove, add)
+# after every push.
+#
+# NOT A REQUIRED CHECK YET. Adding "Control Path Guard" to required contexts is
+# the Director's decision, through Adapters/scripts/setup-branch-protection.sh,
+# after it has reported on real PRs. Until then it is a red signal, not a gate.
+#
+# Install in a project that has imported IA Engineering as a submodule:
+#   ./ia-engineering/Adapters/scripts/install.sh
+
+on:
+  pull_request_target:
+    branches: [main, develop, 'release/**']
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  control-path-guard:
+    name: Control Path Guard
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      # The BASE commit, explicitly. Never the PR head, never a merge ref.
+      # base.sha is the base as recorded on the event: it may be behind the
+      # current tip of the base branch. That is acceptable - it is only ever
+      # code that was merged to the base, and the next event (any push or label
+      # change) picks up a newer base. What matters here is that the code that
+      # runs is not the PR's.
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+          submodules: recursive
+
+      - name: Locate the framework (base checkout)
+        id: locate
+        run: |
+          set -euo pipefail
+          for candidate in . ia-engineering; do
+            if [ -x "$candidate/Adapters/scripts/check-control-paths.sh" ]; then
+              echo "root=$candidate" >> "$GITHUB_OUTPUT"
+              echo "Framework found at: $candidate"
+              exit 0
+            fi
+          done
+          echo "::error::Could not locate Adapters/scripts/check-control-paths.sh on the base branch (looked in . and ia-engineering/). The guard fails closed when its matcher is absent."
+          exit 1
+
+      - name: Fail when the PR touches a control path
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          CHANGED_FILES: ${{ github.event.pull_request.changed_files }}
+          ACTION: ${{ github.event.action }}
+          LABEL_ADDED: ${{ github.event.label.name }}
+          SENDER: ${{ github.event.sender.login }}
+          DIRECTOR_LOGIN: ${{ vars.IAENG_DIRECTOR_LOGIN }}
+          EVENT_HEAD: ${{ github.event.pull_request.head.sha }}
+          LABELS_JSON: ${{ toJSON(github.event.pull_request.labels.*.name) }}
+          APPROVAL_LABEL: control-change/approved
+          FRAMEWORK_ROOT: ${{ steps.locate.outputs.root }}
+        run: |
+          set -euo pipefail
+
+          tmp="$(mktemp -d)"
+          trap 'rm -rf "$tmp"' EXIT
+
+          # The files endpoint lists at most 3000 files. A PR at or past that
+          # cannot be fully listed, and a partial list is not a clean bill.
+          if [ "$CHANGED_FILES" -ge 3000 ]; then
+            echo "::error::This PR changes $CHANGED_FILES files; the API lists at most 3000, so it cannot be checked for control paths. Split it, or the Director reviews it by hand and applies '$APPROVAL_LABEL'."
+            exit 1
+          fi
+
+          # The event's head SHA must be a full SHA and must still be the PR's
+          # head before AND after the listing: an approval and a listing are
+          # only meaningful for one commit.
+          if ! printf '%s' "$EVENT_HEAD" | grep -qE '^[0-9a-f]{40}$'; then
+            echo "::error::The event carries no valid head SHA. Failing closed."
+            exit 1
+          fi
+          head_before="$(gh api "repos/$REPO/pulls/$PR_NUMBER" --jq .head.sha)"
+          if [ "$head_before" != "$EVENT_HEAD" ]; then
+            echo "::error::The PR head moved since this event ($EVENT_HEAD -> $head_before). Failing closed; a newer event will re-run the guard."
+            exit 1
+          fi
+
+          gh api "repos/$REPO/pulls/$PR_NUMBER/files" --paginate > "$tmp/files.json"
+
+          head_after="$(gh api "repos/$REPO/pulls/$PR_NUMBER" --jq .head.sha)"
+          if [ "$head_after" != "$EVENT_HEAD" ]; then
+            echo "::error::The PR head moved while its files were being listed ($EVENT_HEAD -> $head_after). Failing closed."
+            exit 1
+          fi
+
+          # Guard against a truncated or short listing (fail closed).
+          listed="$(jq -s 'map(length) | add // 0' "$tmp/files.json")"
+          if [ "$listed" -ne "$CHANGED_FILES" ]; then
+            echo "::error::The API listed $listed files but the PR reports $CHANGED_FILES. Refusing to guess."
+            exit 1
+          fi
+
+          # NUL-delimited: a name may hold a newline. Both sides of a rename are
+          # listed, so moving a file OUT of a control path is caught too.
+          jq -j '.[] | (.filename, (.previous_filename // empty)) | . + "\u0000"' \
+            "$tmp/files.json" > "$tmp/paths.z"
+
+          set +e
+          "$FRAMEWORK_ROOT/Adapters/scripts/check-control-paths.sh" -z < "$tmp/paths.z" > "$tmp/report.txt"
+          rc=$?
+          set -e
+          # The report holds file names; print it as data, not as workflow commands.
+          sed 's/::/: :/g' "$tmp/report.txt"
+
+          if [ "$rc" -eq 0 ]; then
+            echo "No control path is touched."
+            exit 0
+          fi
+          if [ "$rc" -ne 1 ]; then
+            echo "::error::check-control-paths.sh failed (exit $rc). Failing closed."
+            exit 1
+          fi
+
+          if [ -z "$DIRECTOR_LOGIN" ]; then
+            echo "::error::This PR touches control paths (listed above), and the repository variable IAENG_DIRECTOR_LOGIN is not set, so no approval can be recognised. The Director sets it to their login. Failing closed."
+            exit 1
+          fi
+
+          approved=false
+          if [ "$ACTION" = "labeled" ] && [ "$LABEL_ADDED" = "$APPROVAL_LABEL" ] \
+             && [ "$SENDER" = "$DIRECTOR_LOGIN" ] \
+             && printf '%s' "$LABELS_JSON" | jq -e --arg l "$APPROVAL_LABEL" 'index($l) != null' > /dev/null; then
+            approved=true
+          fi
+
+          if [ "$approved" = true ]; then
+            echo "::notice::Control paths are touched and the Director ($DIRECTOR_LOGIN) has just applied '$APPROVAL_LABEL' to this head. Passing."
+            exit 0
+          fi
+          echo "::error::This PR touches control paths (listed above): files that define the checks it is judged by. It needs '$APPROVAL_LABEL' applied by the Director ($DIRECTOR_LOGIN) as the LAST event on this head; any later label change or push voids it (remove and re-add the label)."
+          exit 1
