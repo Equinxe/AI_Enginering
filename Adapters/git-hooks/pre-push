@@ -6,22 +6,50 @@
 # these branches only through a reviewed Pull Request merged on the remote,
 # never through a local `git push` to them directly.
 #
+# release/* is protected too (Standards/BRANCH_STANDARD.md, Protected-branch
+# exception), with one difference from main/develop, taken from
+# Workflows/RELEASE.md:
+#
+#   - Step 3 creates the release branch and pushes it. Creation is allowed.
+#   - Step 4 lands every acceptance-testing fix through a Pull Request that
+#     targets the release branch. Any update to an existing release branch —
+#     fast-forward or force — is refused.
+#   - Step 10: a release branch is never deleted. Deletion is refused.
+#
+# This is a LOCAL echo of the server rules in
+# Adapters/scripts/setup-branch-protection.sh (classic protection on
+# main/develop; the release/* ruleset's deletion, non_fast_forward and
+# pull_request rules). It runs only where it is installed, and any push that
+# skips client hooks skips it. The server rules are the control; this hook
+# stops the mistake before it reaches them.
+#
 # Install in a project that has imported IA Engineering as a submodule:
 #   cp ia-engineering/Adapters/git-hooks/pre-push .git/hooks/pre-push
 #   chmod +x .git/hooks/pre-push
 #
 # If a project's protected-branch names differ from main/develop, edit
-# PROTECTED_BRANCHES below to match.
+# PROTECTED_BRANCHES below to match. RELEASE_PREFIX names the release-branch
+# namespace.
 
 set -euo pipefail
 
 PROTECTED_BRANCHES=("main" "develop")
+RELEASE_PREFIX="release/"
 
-# Git's pre-push hook contract always passes four fields per ref update; only
-# remote_ref is needed here, but the other three must still be read to consume
-# stdin correctly. Not unused code — an unavoidable part of the hook interface.
-# shellcheck disable=SC2034
-while read -r local_ref local_sha remote_ref remote_sha; do
+# Git writes the all-zero object name as the local sha of a deletion and as
+# the remote sha of a creation. Its length follows the repository's hash
+# (40 for SHA-1, 64 for SHA-256), so match "all zeros" rather than one length.
+is_zero_sha() {
+  case "$1" in
+    *[!0]*|"") return 1 ;;
+    *) return 0 ;;
+  esac
+}
+
+# Git's pre-push hook contract passes four fields per ref update on stdin:
+#   <local ref> <local sha> <remote ref> <remote sha>
+# The local ref is not needed and is read into `_`.
+while read -r _ local_sha remote_ref remote_sha; do
   branch="${remote_ref#refs/heads/}"
 
   for protected in "${PROTECTED_BRANCHES[@]}"; do
@@ -33,6 +61,31 @@ while read -r local_ref local_sha remote_ref remote_sha; do
       exit 1
     fi
   done
+
+  # Only a branch ref can be a release branch: a tag such as
+  # refs/tags/release/v1 keeps its refs/tags/ prefix and does not match.
+  case "$remote_ref" in
+    "refs/heads/$RELEASE_PREFIX"*) ;;
+    *) continue ;;
+  esac
+
+  if is_zero_sha "$local_sha"; then
+    echo "pre-push: rejected — deleting release branch '$branch' is not allowed." >&2
+    echo "  Per Workflows/RELEASE.md Step 10, a release branch is never deleted:" >&2
+    echo "  it is the permanent snapshot of what was released." >&2
+    exit 1
+  fi
+
+  if is_zero_sha "$remote_sha"; then
+    # Creation — Workflows/RELEASE.md Step 3.
+    continue
+  fi
+
+  echo "pre-push: rejected — direct push to existing release branch '$branch' is not allowed." >&2
+  echo "  Per Workflows/RELEASE.md Step 4, a fix reaches a release branch only" >&2
+  echo "  through a Pull Request targeting it. A force-push would also rewrite" >&2
+  echo "  the released history. Branch from '$branch' and open a PR instead." >&2
+  exit 1
 done
 
 exit 0

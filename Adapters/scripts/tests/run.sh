@@ -2081,6 +2081,106 @@ expect_output "without a TAB"
 # the exception an allow entry would sit on one machine and CI would never see it.
 expect 1 "the allow file is not gitignored (exception in .gitignore)" -- git -C "$SCRIPTS/../.." check-ignore -q .ia-engineering/suppression.allow
 
+# ------------------------------------------------- git-hooks/pre-push -------
+#
+# Pen-test finding PT2-08 (1 Oct 2026): pre-push refused every push to main
+# and develop but knew nothing of release/*, so a client-side deletion of a
+# release branch — which CLAUDE.md and Workflows/RELEASE.md Step 10 say never
+# happens — or a force-push to one went through. The hook also had no case
+# anywhere. The policy below is Workflows/RELEASE.md's: Step 3 creates and
+# pushes the release branch (allowed); Step 4 lands every fix through a Pull
+# Request targeting it (so any direct update, fast-forward or force, is
+# refused); Step 10 never deletes it (refused).
+#
+# Each case feeds the REAL hook git's REAL stdin protocol —
+#   <local ref> <local sha> <remote ref> <remote sha>
+# one line per ref, all-zero sha for a deletion (local) or a creation
+# (remote) — with object names taken from a real throwaway repository. The
+# hook is run directly: nothing here pushes anywhere.
+
+section "git-hooks/pre-push — protected and release branches (WU-IAENG-315)"
+
+PREPUSH="$SCRIPTS/../git-hooks/pre-push"
+
+new_repo pre-push
+PP_OLD="$(git rev-parse HEAD)"
+echo two > two.txt && git add two.txt && git commit -q -m "two"
+PP_NEW="$(git rev-parse HEAD)"
+# PP_SIDE is not a descendant of PP_NEW: replacing PP_NEW with it on the
+# remote is a force-push.
+git checkout -q -b side "$PP_OLD"
+echo side > side.txt && git add side.txt && git commit -q -m "side"
+PP_SIDE="$(git rev-parse HEAD)"
+git checkout -q main
+PP_ZERO="0000000000000000000000000000000000000000"
+PP_ZERO256="0000000000000000000000000000000000000000000000000000000000000000"
+
+# "${PP[@]}" <stdin line...> — runs the hook with one stdin line per argument,
+# and the two positional arguments git passes (remote name, remote URL). A
+# feeder script rather than a shell function: a function reached only through
+# `expect "$@"` is reported unreachable by shellcheck (SC2317).
+cat > "$WORK/pre-push-feed.sh" <<'FEED'
+hook="$1"; shift
+printf '%s\n' "$@" | bash "$hook" origin https://example.invalid/repo.git
+FEED
+PP=(bash "$WORK/pre-push-feed.sh" "$PREPUSH")
+
+for pp_branch in main develop; do
+  expect 1 "push to $pp_branch (fast-forward) is refused" -- \
+    "${PP[@]}" "refs/heads/work $PP_NEW refs/heads/$pp_branch $PP_OLD"
+  expect_output "direct push to '$pp_branch' is not allowed"
+  expect 1 "force-push to $pp_branch is refused" -- \
+    "${PP[@]}" "refs/heads/side $PP_SIDE refs/heads/$pp_branch $PP_NEW"
+  expect 1 "deletion of $pp_branch is refused" -- \
+    "${PP[@]}" "(delete) $PP_ZERO refs/heads/$pp_branch $PP_NEW"
+  expect 1 "creation of $pp_branch is refused" -- \
+    "${PP[@]}" "refs/heads/work $PP_NEW refs/heads/$pp_branch $PP_ZERO"
+done
+
+expect 1 "a multi-ref push with develop after an allowed feature ref is refused" -- \
+  "${PP[@]}" "refs/heads/feature/x $PP_NEW refs/heads/feature/x $PP_OLD" \
+     "refs/heads/develop $PP_NEW refs/heads/develop $PP_OLD"
+expect_output "direct push to 'develop' is not allowed"
+expect 1 "a multi-ref push (--all / --mirror shape) touching main is refused" -- \
+  "${PP[@]}" "refs/heads/feature/x $PP_NEW refs/heads/feature/x $PP_ZERO" \
+     "refs/tags/v1.0.0 $PP_NEW refs/tags/v1.0.0 $PP_ZERO" \
+     "refs/heads/main $PP_NEW refs/heads/main $PP_OLD"
+
+expect 0 "creating a feature branch is allowed" -- \
+  "${PP[@]}" "refs/heads/feature/x $PP_NEW refs/heads/feature/x $PP_ZERO"
+expect 0 "updating a feature branch is allowed" -- \
+  "${PP[@]}" "refs/heads/feature/x $PP_NEW refs/heads/feature/x $PP_OLD"
+expect 0 "deleting a feature branch is allowed" -- \
+  "${PP[@]}" "(delete) $PP_ZERO refs/heads/feature/x $PP_NEW"
+
+expect 0 "creating release/v9.9.9 is allowed (RELEASE.md Step 3)" -- \
+  "${PP[@]}" "refs/heads/release/v9.9.9 $PP_NEW refs/heads/release/v9.9.9 $PP_ZERO"
+expect 1 "a fast-forward to an existing release branch is refused (RELEASE.md Step 4: fixes land by PR)" -- \
+  "${PP[@]}" "refs/heads/release/v9.9.9 $PP_NEW refs/heads/release/v9.9.9 $PP_OLD"
+expect_output "direct push to existing release branch 'release/v9.9.9' is not allowed"
+expect 1 "a force-push to a release branch is refused" -- \
+  "${PP[@]}" "refs/heads/side $PP_SIDE refs/heads/release/v9.9.9 $PP_NEW"
+expect 1 "deleting a release branch is refused (RELEASE.md Step 10)" -- \
+  "${PP[@]}" "(delete) $PP_ZERO refs/heads/release/v9.9.9 $PP_NEW"
+expect_output "deleting release branch 'release/v9.9.9' is not allowed"
+expect 1 "deleting a release branch is refused in a SHA-256 repository (64-zero sha)" -- \
+  "${PP[@]}" "(delete) $PP_ZERO256 refs/heads/release/v9.9.9 $PP_NEW"
+expect 1 "a release-branch deletion after an allowed feature ref is refused" -- \
+  "${PP[@]}" "refs/heads/feature/x $PP_NEW refs/heads/feature/x $PP_OLD" \
+     "(delete) $PP_ZERO refs/heads/release/v9.9.9 $PP_NEW"
+
+expect 0 "a branch merely starting with 'release' (release-notes) is not a release branch" -- \
+  "${PP[@]}" "refs/heads/release-notes $PP_NEW refs/heads/release-notes $PP_OLD"
+expect 0 "a branch containing release/ deeper in its name is not a release branch" -- \
+  "${PP[@]}" "refs/heads/feature/release/x $PP_NEW refs/heads/feature/release/x $PP_OLD"
+
+expect 0 "pushing a tag is allowed" -- \
+  "${PP[@]}" "refs/tags/v1.0.0 $PP_NEW refs/tags/v1.0.0 $PP_ZERO"
+expect 0 "a tag under refs/tags/release/ is not a release branch" -- \
+  "${PP[@]}" "refs/tags/release/v1 $PP_NEW refs/tags/release/v1 $PP_ZERO"
+expect 0 "an empty push (nothing on stdin) is allowed" -- \
+  bash "$PREPUSH" origin https://example.invalid/repo.git < /dev/null
+
 # --------------------------------------------------------------- verdict ----
 
 cd "$HERE" || exit 1
