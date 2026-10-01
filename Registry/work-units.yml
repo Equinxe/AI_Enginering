@@ -1116,3 +1116,9 @@ work_units:
     title: Guard control paths with a pull_request_target check (PT-07 of the #112 exercise) - a base-branch job that never runs PR code, lists the PR files through the API and fails when a control path is touched unless the Director applies control-change/approved after the last push
     milestone: Precision
     delivers: Adapters/github-actions/control-path-guard.yml, .github/workflows/control-path-guard.yml, Adapters/scripts/check-control-paths.sh, Adapters/scripts/tests/run.sh, Adapters/scripts/install.sh, Adapters/README.md, SECURITY.md, .gitattributes, Registry/work-units.yml
+
+  - id: WU-IAENG-311
+    employee: DevOps Engineer
+    title: Refuse an agent command that applies the Director-only approval labels control-change/approved and size/approved - a local speed bump in the escape-hatch hook, not a boundary, covering gh pr/issue edit and create, gh api label writes and gh label rename or create
+    milestone: Precision
+    delivers: Adapters/ai-runtimes/claude-code/hooks/block-escape-hatches.sh, Adapters/ai-runtimes/claude-code/hooks/tests/escape-hatch-cases.tsv, Adapters/ai-runtimes/claude-code/hooks/README.md, Registry/work-units.yml
