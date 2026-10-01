@@ -1117,6 +1117,12 @@ work_units:
     milestone: Precision
     delivers: Adapters/github-actions/control-path-guard.yml, .github/workflows/control-path-guard.yml, Adapters/scripts/check-control-paths.sh, Adapters/scripts/tests/run.sh, Adapters/scripts/install.sh, Adapters/README.md, SECURITY.md, .gitattributes, Registry/work-units.yml
 
+  - id: WU-IAENG-310
+    employee: DevOps Engineer
+    title: Harden the pr-validation graders against reconfiguration by the change they grade - shellcheck runs with --norc so a .shellcheckrc in the PR tree cannot disable it, and workflow YAML is parsed by a pinned js-yaml run from a fresh temp directory with no npmrc honoured, so the PR tree cannot supply the parser; content guards keep both from regressing
+    milestone: Precision
+    delivers: Adapters/github-actions/pr-validation.yml, .github/workflows/pr-validation.yml, Adapters/scripts/tests/run.sh, Adapters/README.md, SECURITY.md, Registry/work-units.yml
+
   - id: WU-IAENG-311
     employee: DevOps Engineer
     title: Refuse an agent command that applies the Director-only approval labels control-change/approved and size/approved - a local speed bump in the escape-hatch hook, not a boundary, covering gh pr/issue edit and create, gh api label writes and gh label rename or create

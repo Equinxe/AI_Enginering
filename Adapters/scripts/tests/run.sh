@@ -2081,6 +2081,150 @@ expect_output "without a TAB"
 # the exception an allow entry would sit on one machine and CI would never see it.
 expect 1 "the allow file is not gitignored (exception in .gitignore)" -- git -C "$SCRIPTS/../.." check-ignore -q .ia-engineering/suppression.allow
 
+# ------------- pr-validation.yml — graders cannot be reconfigured by a PR -----
+# WU-IAENG-310. The required checks run inside the PR's own checkout, so a
+# grader that resolves its configuration from that tree can be reconfigured by
+# the change it grades. These are content guards on the workflow (the Adapter
+# and this repository's installed copy), so the hardenings cannot regress
+# silently. They assert INVARIANTS over every code line (comments are stripped
+# first, so a comment cannot satisfy or trip a guard): every shellcheck call
+# carries --norc, every npx call is the pinned, isolated one.
+#
+# Literals containing a dollar sign come from a quoted heredoc rather than a
+# single-quoted string, so shellcheck (which grades this file) sees no
+# expansion to warn about and no suppression directive is needed.
+
+PRV_NPX_LITERAL="$(cat <<'LITERAL'
+(cd "$GRADER_DIR" && npx --yes -q "js-yaml@${JS_YAML_VERSION}"
+LITERAL
+)"
+PRV_TRAP_LITERAL="$(cat <<'LITERAL'
+trap 'rm -rf "$GRADER_DIR"' EXIT
+LITERAL
+)"
+PRV_MKTEMP_LITERAL="$(cat <<'LITERAL'
+GRADER_DIR="$(mktemp -d)"
+LITERAL
+)"
+PRV_CACHE_LITERAL="$(cat <<'LITERAL'
+export NPM_CONFIG_CACHE="$GRADER_DIR/npm-cache"
+LITERAL
+)"
+PRV_LOOP_LITERAL="$(cat <<'LITERAL'
+for f in "${YAML_FILES[@]}"; do
+LITERAL
+)"
+
+# prv_code <file> — the workflow with comment lines and trailing comments removed.
+prv_code() {
+  sed -E -e '/^[[:space:]]*#/d' -e 's/[[:space:]]#.*//' "$1"
+}
+
+# prv_line_of <file> <literal> — line number of the first code line containing it.
+prv_line_of() {
+  prv_code "$1" | grep -nF -m1 -- "$2" | cut -d: -f1
+}
+
+# prv_guard <file> — exit 0 when every grader-isolation invariant holds,
+# otherwise print what is broken and exit 1.
+prv_guard() {
+  local file="$1" bad=0 n line loop_at at sc_calls
+  sc_calls="$(prv_code "$file" | grep -E '(^|[;&|(])[[:space:]]*shellcheck([[:space:]]|$)')"
+  if [ -z "$sc_calls" ]; then
+    echo "no shellcheck invocation found"; bad=1
+  fi
+  while IFS= read -r line; do
+    [ -z "$line" ] && continue
+    case "$line" in
+      *--norc*) ;;
+      *) if ! printf '%s\n' "$line" | grep -Eq '^[[:space:]]*shellcheck --version[[:space:]]*$'; then
+           echo "shellcheck call without --norc: $line"; bad=1
+         fi ;;
+    esac
+  done <<< "$sc_calls"
+  if ! printf '%s\n' "$sc_calls" | grep -q -- '--norc -x'; then
+    echo "the grading shellcheck call is missing"; bad=1
+  fi
+
+  n="$(prv_code "$file" | grep -c 'npx')"
+  if [ "$n" -lt 1 ]; then
+    echo "no npx invocation found"; bad=1
+  fi
+  while IFS= read -r line; do
+    [ -z "$line" ] && continue
+    case "$line" in
+      *"$PRV_NPX_LITERAL"*) ;;
+      *) echo "npx call is not the pinned, isolated one: $line"; bad=1 ;;
+    esac
+  done < <(prv_code "$file" | grep 'npx')
+
+  if ! prv_code "$file" | grep -Eq '^[[:space:]]*JS_YAML_VERSION="[0-9]+\.[0-9]+\.[0-9]+"'; then
+    echo "JS_YAML_VERSION is not an exact x.y.z"; bad=1
+  fi
+  if ! prv_code "$file" | grep -qF -- "$PRV_MKTEMP_LITERAL"; then
+    echo "grader directory is not created with mktemp -d"; bad=1
+  fi
+  if ! prv_code "$file" | grep -qF -- "$PRV_TRAP_LITERAL"; then
+    echo "no trap removing the grader directory"; bad=1
+  fi
+  loop_at="$(prv_line_of "$file" "$PRV_LOOP_LITERAL")"
+  for at in 'export NPM_CONFIG_USERCONFIG=/dev/null' "$PRV_CACHE_LITERAL"; do
+    n="$(prv_line_of "$file" "$at")"
+    if [ -z "$n" ] || [ -z "$loop_at" ] || [ "$n" -ge "$loop_at" ]; then
+      echo "missing, or not before the parse loop: $at"; bad=1
+    fi
+  done
+  return "$bad"
+}
+
+# prv_expect <expected-exit> <description> <file> — like expect, but calls
+# prv_guard directly (shellcheck cannot see a function named only as an
+# argument to expect, and reports it as never invoked).
+prv_expect() {
+  local want="$1" desc="$2" file="$3" got
+  TOTAL=$((TOTAL + 1))
+  LAST_OUTPUT="$(prv_guard "$file" 2>&1)"
+  got=$?
+  if [ "$got" = "$want" ]; then
+    [ -n "$VERBOSE" ] && printf '   ok   %s\n' "$desc"
+    return 0
+  fi
+  printf '   FAIL %s\n' "$desc"
+  printf '        expected exit %s, got %s\n' "$want" "$got"
+  printf '%s\n' "$LAST_OUTPUT" | sed 's/^/        | /'
+  FAILED=$((FAILED + 1))
+  return 1
+}
+
+for PRV in "$SCRIPTS/../github-actions/pr-validation.yml" "$SCRIPTS/../../.github/workflows/pr-validation.yml"; do
+  PRV_NAME="${PRV#"$SCRIPTS"/../}"
+  prv_expect 0 "$PRV_NAME: grader-isolation invariants hold" "$PRV"
+done
+
+# Mutation cases: the same guard, fed a workflow with one hardening undone, must
+# fail. Without these the guard could pass on anything.
+PRV_SRC="$SCRIPTS/../github-actions/pr-validation.yml"
+mkdir -p "$WORK/prv-mut"
+prv_mutant() { # <name> <sed args...>
+  local name="$1"; shift
+  sed -E "$@" "$PRV_SRC" > "$WORK/prv-mut/$name.yml"
+}
+prv_mutant no-norc         -e 's/shellcheck --norc/shellcheck/'
+prv_mutant unpinned-latest -e 's/js-yaml@[$]\{JS_YAML_VERSION\}/js-yaml@latest/'
+prv_mutant unpinned-major  -e 's/^([[:space:]]*JS_YAML_VERSION=")[0-9.]+"/\14"/'
+prv_mutant cd-elsewhere    -e 's/GRADER_DIR" && npx/PWD" \&\& npx/'
+prv_mutant no-userconfig   -e '/export NPM_CONFIG_USERCONFIG/d'
+prv_mutant no-cache        -e '/export NPM_CONFIG_CACHE/d'
+prv_mutant no-trap         -e '/^[[:space:]]*trap /d'
+prv_mutant no-mktemp       -e 's/mktemp -d/pwd/'
+{ cat "$PRV_SRC"; printf '          shellcheck -x extra.sh\n'; } > "$WORK/prv-mut/bare-second-call.yml"
+{ cat "$PRV_SRC"; printf '          npx --yes -q js-yaml extra.yml\n'; } > "$WORK/prv-mut/bare-npx.yml"
+# --norc kept only in a comment: the guard must not be satisfied by it.
+{ sed -E 's/shellcheck --norc/shellcheck/' "$PRV_SRC"; printf '          # shellcheck --norc -x is only mentioned in a comment\n'; } > "$WORK/prv-mut/comment-only.yml"
+for m in no-norc unpinned-latest unpinned-major cd-elsewhere no-userconfig no-cache no-trap no-mktemp bare-second-call bare-npx comment-only; do
+  prv_expect 1 "guard rejects the mutant: $m" "$WORK/prv-mut/$m.yml"
+done
+
 # ------------------------------------- check-control-paths.sh (WU-IAENG-309) --
 
 CHECK_CP="$SCRIPTS/check-control-paths.sh"
