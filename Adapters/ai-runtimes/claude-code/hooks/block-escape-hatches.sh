@@ -187,7 +187,7 @@ READ_HOOKSPATH="^[[:space:](\`{]*([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*${S}+)*${G
 READ_HOOKSPATH_LEGACY="^[[:space:](\`{]*([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*${S}+)*${G}config${S}+(${READ_OPT}${S}+)*core\.hooksPath${S}*\$"
 WRITE_HOOKSPATH_VIA_C="git[^|;&]*(-c${S}+|--config-env(=|${S}+))core\.hooksPath"
 case "$CMD" in
-  *\'*|*\"*|*\\*|*'`'*|*'$('*|*$'\n'*) LEGACY_OK=0 ;;
+  *\'*|*\"*|*\\*|*'`'*|*\$\(*|*$'\n'*) LEGACY_OK=0 ;;
   *) LEGACY_OK=1 ;;
 esac
 HOOKSPATH_WRITE=0
