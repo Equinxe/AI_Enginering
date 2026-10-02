@@ -402,7 +402,7 @@ cmd_check() {
         while IFS= read -r id; do
           [ -n "$id" ] || continue
           total=$((total + 1))
-          printf '%s\n' "$merged_ids" | grep -qxF "$id" || missing_wu="$missing_wu$id "
+          grep -qxF "$id" <<< "$merged_ids" || missing_wu="$missing_wu$id "
         done < <(printf '%s\n' "$registry_ids")
 
         if [ -n "$missing_wu" ]; then

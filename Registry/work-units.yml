@@ -1128,3 +1128,9 @@ work_units:
     title: Refuse an agent command that applies the Director-only approval labels control-change/approved and size/approved - a local speed bump in the escape-hatch hook, not a boundary, covering gh pr/issue edit and create, gh api label writes and gh label rename or create
     milestone: Precision
     delivers: Adapters/ai-runtimes/claude-code/hooks/block-escape-hatches.sh, Adapters/ai-runtimes/claude-code/hooks/tests/escape-hatch-cases.tsv, Adapters/ai-runtimes/claude-code/hooks/README.md, Registry/work-units.yml
+
+  - id: WU-IAENG-319
+    employee: DevOps Engineer
+    title: Stop the validator reading SIGPIPE as a missing path - the cross-reference check's pipe into grep -q and awk failed intermittently on CI (PR #174, PR #182) because a bash-builtin printf flushes ~4 KB at a time; membership tests over captured variables use has_line or a here-string across the validator, hooks and scripts, and a 100 KB regression case makes the failure deterministic
+    milestone: Precision
+    delivers: Adapters/scripts/validate-framework.sh, Adapters/scripts/release.sh, Adapters/scripts/data-policy-scan.sh, Adapters/scripts/check-pr-size.sh, Adapters/git-hooks/commit-msg, Adapters/ai-runtimes/claude-code/hooks/session-start.sh, Adapters/scripts/tests/run.sh, Governance/TROUBLESHOOTING.md, Registry/work-units.yml
