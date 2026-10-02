@@ -37,6 +37,20 @@
 #   check-risk-map.sh --range <base> <head> [project-root]
 #                                                 highest level a change set touches
 #
+# --range diffs from the MERGE BASE of <base> and <head>, as check-pr-size.sh
+# does, so only what the change set itself changed is classified. When a
+# sensitive zone is touched it requires the Risk Record of
+# Standards/RISK_STANDARD.md in a commit message of the range: a paragraph
+# starting with `RISK:` at column 0 that carries tier= (one of Low, Medium,
+# High, Critical), mitigation= and decided_by=. The field names are lowercase
+# and matched case-sensitively as whole words (`notier=` is not `tier=`); the
+# tier VALUE is matched case-insensitively and must be exactly one of the four;
+# mitigation= and decided_by= must have a value. One well-formed record
+# anywhere in the range satisfies the gate. An indented or quoted example does
+# not count, which is what the other checks tell authors. The check is
+# advisory: it verifies the record is there and has its fields, not that the
+# tier or the decision is the right one.
+#
 # Exit 0 when the map is sound (or, in --range, when the change set is
 # acceptable), 1 otherwise, 2 on a usage error.
 
@@ -204,8 +218,20 @@ fi
 
 # --- range -------------------------------------------------------------------
 if [ "$MODE" = range ]; then
-  if ! CHANGED="$(git diff --name-only "$BASE" "$HEAD_REF")"; then
-    err "git diff failed between $BASE and $HEAD_REF. Nothing was classified, so nothing is established."
+  # THE DIFF IS FROM THE MERGE BASE, not the base branch tip — the same rule
+  # as check-pr-size.sh. An endpoint diff `git diff <base> <head>` also
+  # contains the inverse of every commit the base gained after the fork
+  # point, so a sensitive file somebody else moved on was attributed to a
+  # Pull Request that never touched it and a record was demanded for it;
+  # and a file the change DID touch disappeared from the diff whenever the
+  # base had since made the same edit (PT2-05). The commit-message scan
+  # below uses `<base>..<head>`, which is already merge-base-relative.
+  if ! MERGE_BASE="$(git merge-base "$BASE" "$HEAD_REF")"; then
+    err "Could not compute the merge base of $BASE and $HEAD_REF. Nothing was classified, so nothing is established."
+    exit 1
+  fi
+  if ! CHANGED="$(git diff --name-only "$MERGE_BASE" "$HEAD_REF")"; then
+    err "git diff failed between the merge base $MERGE_BASE and $HEAD_REF. Nothing was classified, so nothing is established."
     exit 1
   fi
   n="$(printf '%s\n' "$CHANGED" | grep -c . || true)"
@@ -248,12 +274,57 @@ EOF
   # pipeline's status. The check would then report NO record while one is right
   # there, and block a valid change. TROUBLESHOOTING X.
   RANGE_MSGS="$(git log --format=%B "$BASE..$HEAD_REF")"
-  if grep -qE '^[[:space:]]*RISK:' <<< "$RANGE_MSGS"; then
+
+  # THE RECORD MUST BE A RECORD, not a mention of one (PT2-06). The line is
+  # the one Standards/RISK_STANDARD.md defines —
+  #     RISK: <hazard> | tier=<Low|Medium|High|Critical> | mitigation=<...> | decided_by=<...>
+  # — and the test is the one check-work-units.sh and check-employee-trailers.sh
+  # apply to their trailers: it starts at column 0, so an author keeps an
+  # example from counting by indenting it, exactly as those checks tell them
+  # to. `^[[:space:]]*RISK:` accepted the indented example above and so did
+  # the opposite of the rest of the framework.
+  #
+  # A record is the paragraph that starts with `RISK:` at column 0: commit
+  # bodies are wrapped, and most records in this repository's own history run
+  # over several lines, so the lines up to the next blank line are read as
+  # part of it. It must carry the three fields the Standard names, each as a
+  # whole word — a field name is preceded by the start of the record or by a
+  # character that cannot continue an identifier, so `notier=` and
+  # `xmitigation=` are not fields — and each with a value: the tier value is
+  # one of the Standard's closed list, case-insensitively, ending at a space,
+  # a `|` or the end of the record (`tier=High-ish` is not a tier);
+  # mitigation= and decided_by= need at least one character that is neither
+  # a space nor a separator. Whether the tier is right and who may decide at
+  # that tier are review judgements this script cannot make. Separators
+  # between fields are not checked.
+  if awk '
+    function well_formed(r,   rest, v) {
+      if (r !~ /(^|[^a-z_])mitigation=[^ \t|]/) return 0
+      if (r !~ /(^|[^a-z_])decided_by=[^ \t|]/) return 0
+      # Every tier= occurrence is tried, so a hazard that quotes the word
+      # does not hide the real field that follows it.
+      rest = r
+      while (match(rest, /(^|[^a-z_])tier=[^ \t|]+/)) {
+        v = substr(rest, RSTART, RLENGTH); sub(/.*tier=/, "", v)
+        if (tolower(v) ~ /^(low|medium|high|critical)$/) return 1
+        rest = substr(rest, RSTART + RLENGTH)
+      }
+      return 0
+    }
+    function flush() {
+      if (rec != "" && well_formed(rec)) found = 1
+      rec = ""
+    }
+    /^RISK:/ { flush(); rec = $0; next }
+    /^[[:space:]]*$/ { flush(); next }
+    rec != "" { rec = rec " " $0 }
+    END { flush(); exit(found ? 0 : 1) }
+  ' <<< "$RANGE_MSGS"; then
     note "a sensitive zone was touched and a RISK: record is present in the range."
     exit 0
   fi
 
-  err "a sensitive zone was touched and no RISK: record appears in any commit message in $BASE..$HEAD_REF. Standards/RISK_STANDARD.md requires the one-line record for any Medium or higher action, and a change landing in a sensitive zone is one. Add it to a commit in this Pull Request — ideally the commit that makes the change, or a follow-up commit in the same PR if it was forgotten (never an amend + force-push): RISK: <hazard> | tier=<...> | mitigation=<...> | decided_by=<...>"
+  err "a sensitive zone was touched and no well-formed RISK: record appears in any commit message in $BASE..$HEAD_REF. A record starts at column 0 (an indented line is read as an example) and carries, as whole lowercase field names each with a value, tier= (exactly Low, Medium, High or Critical), mitigation= and decided_by=. Standards/RISK_STANDARD.md requires the one-line record for any Medium or higher action, and a change landing in a sensitive zone is one. Add it to a commit in this Pull Request — ideally the commit that makes the change, or a follow-up commit in the same PR if it was forgotten (never an amend + force-push): RISK: <hazard> | tier=<...> | mitigation=<...> | decided_by=<...>"
   exit 1
 fi
 
