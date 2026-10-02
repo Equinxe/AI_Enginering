@@ -555,6 +555,33 @@ allow	read -r GIT_CONFIG_VALUE_0 < /tmp/v
 allow	printf -v GIT_CONFIG_COUNT %s 1
 allow	declare -x GIT_CONFIG_NOSYSTEM
 allow	local x=GIT_CONFIG_PARAMETERS
+# --- Legacy positional get of core.hooksPath (Refs #181): a read when nothing follows the key; every set form stays refused.
+allow	git config core.hooksPath
+allow	git config --local core.hooksPath
+allow	git config --global core.hooksPath
+allow	git config --system core.hooksPath
+allow	git config --worktree core.hooksPath
+allow	git config --file .git/config core.hooksPath
+allow	git config --show-origin --local core.hooksPath
+allow	git -C . config --local core.hooksPath
+allow	git config --local CORE.HOOKSPATH
+allow	git config --local core.hooksPath | cat
+allow	x=$(git config --local core.hooksPath)
+block	git config core.hooksPath x
+block	git config --local core.hooksPath /dev/null
+block	git config --global core.hooksPath ""
+block	git config --add core.hooksPath x
+block	git config --local --add core.hooksPath x
+block	git config --replace-all core.hooksPath x
+block	git config set core.hooksPath x
+block	git config --unset core.hooksPath
+block	git config --local --unset core.hooksPath
+block	git config --unset-all core.hooksPath
+block	git config --local --unset-all core.hooksPath
+block	git -c core.hooksPath=/dev/null commit -m x
+block	git -c core.hooksPath=/dev/null config --local core.hooksPath
+block	git config --local core.hooksPath; git config core.hooksPath x
+block	git config --local core.hooksPath && git config --add core.hooksPath x
 allow	git commit -m "export GIT_CONFIG_PARAMETERS"
 allow	git commit -m "printf -v GIT_CONFIG_PARAMETERS and read -r GIT_CONFIG_PARAMETERS are refused"
 allow	git commit -m 'declare -x GIT_CONFIG_KEY_0' -m "mapfile GIT_CONFIG_PARAMETERS"

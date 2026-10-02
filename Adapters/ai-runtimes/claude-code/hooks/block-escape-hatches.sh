@@ -167,14 +167,37 @@ fi
 # layered under a read, never exempted).
 READ_OPT="(--(global|system|local|worktree|show-origin|show-scope|includes|no-includes|null|name-only)|-z|--(file|blob|type|default)(=|${S}+)[^[:space:]]+)"
 READ_HOOKSPATH="^[[:space:](\`{]*([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*${S}+)*${G}config${S}+(${READ_OPT}${S}+)*(--get(-all|-regexp)?|--list|-l|get|list)${S}+(${READ_OPT}${S}+)*core\.hooksPath"
+# LEGACY POSITIONAL GET (Refs #181). `git config [scope] core.hooksPath` with
+# NOTHING after the key reads the value, as `--get` does. It is exempt on the same
+# terms: the closed option list only, then the key, then end of segment. Any value
+# after the key makes it a set, and --add, --replace-all, --unset, --unset-all and
+# set are not in the list, so they fall through to the block.
+#
+# THE KEY MUST ALSO END THE SEGMENT IN THE RAW TEXT. The lexer drops quoted text,
+# so `git config core.hooksPath ""` (an empty value, a write) strips down to
+# exactly the legacy read. The exemption therefore holds only while every raw
+# segment that names the key is itself a read (either form); one that is not
+# disables it for the whole command. A trailing `)` or backtick is allowed so
+# `$(git config --local core.hooksPath)` reads as a read.
+READ_HOOKSPATH_LEGACY="^[[:space:](\`{]*([A-Za-z_][A-Za-z0-9_]*=([^[:space:]]*${S}+|\\\$?[(\`]))*${G}config${S}+(${READ_OPT}${S}+)*core\.hooksPath[[:space:])\`]*\$"
 WRITE_HOOKSPATH_VIA_C="git[^|;&]*(-c${S}+|--config-env(=|${S}+))core\.hooksPath"
+LEGACY_RAW_OK=1
+while IFS= read -r SEG; do
+  grep -qiE -- "git[^|;&]*core\.hooksPath" <<< "$SEG" || continue
+  grep -qiE -- "$READ_HOOKSPATH" <<< "$SEG" \
+    || grep -qiE -- "$READ_HOOKSPATH_LEGACY" <<< "$SEG" \
+    || LEGACY_RAW_OK=0
+done < <(printf '%s\n' "$CMD" | tr ';&|' '\n')
 HOOKSPATH_WRITE=0
 while IFS= read -r SEG; do
   grep -qiE -- "git[^|;&]*core\.hooksPath" <<< "$SEG" || continue
-  if ! grep -qiE -- "$READ_HOOKSPATH" <<< "$SEG" \
-     || grep -qiE -- "$WRITE_HOOKSPATH_VIA_C" <<< "$SEG"; then
+  if grep -qiE -- "$READ_HOOKSPATH" <<< "$SEG" \
+     || { [ "$LEGACY_RAW_OK" -eq 1 ] && grep -qiE -- "$READ_HOOKSPATH_LEGACY" <<< "$SEG"; }; then
+    :
+  else
     HOOKSPATH_WRITE=1
   fi
+  grep -qiE -- "$WRITE_HOOKSPATH_VIA_C" <<< "$SEG" && HOOKSPATH_WRITE=1
 done < <(printf '%s\n' "$STRIPPED" | tr ';&|' '\n')
 if [ "$HOOKSPATH_WRITE" -eq 1 ]; then
   iaeng_block "setting core.hooksPath disables every git hook — the same effect as --no-verify, written as configuration" \
