@@ -1129,6 +1129,24 @@ work_units:
     milestone: Precision
     delivers: Adapters/ai-runtimes/claude-code/hooks/block-escape-hatches.sh, Adapters/ai-runtimes/claude-code/hooks/tests/escape-hatch-cases.tsv, Adapters/ai-runtimes/claude-code/hooks/README.md, Registry/work-units.yml
 
+  - id: WU-IAENG-312
+    employee: DevOps Engineer
+    title: Close PT2-01 and PT2-02 in the required Data Policy check - scan what a merge itself authored (conflict-resolution lines, paths and lines added in the merge commit) via the dense combined diff in --history, and read added lines as text (--text) so a -diff or binary-classified path is no longer skipped as Binary files differ
+    milestone: Precision
+    delivers: Adapters/scripts/data-policy-scan.sh, Adapters/scripts/tests/run.sh, Adapters/README.md, Registry/work-units.yml
+
+  - id: WU-IAENG-313
+    employee: DevOps Engineer
+    title: Close PT2-03 in the required Work Unit Exists check - classify merges with the shared merge-tree classifier so an authored merge must carry a registered Work Unit trailer; extract the classifier into a sourced helper used by both check scripts; historical authored merges grandfathered in a closed in-script constant
+    milestone: Precision
+    delivers: Adapters/scripts/merge-classify.sh, Adapters/scripts/check-work-units.sh, Adapters/scripts/check-employee-trailers.sh, Adapters/scripts/tests/run.sh, Adapters/README.md, Standards/COMMIT_STANDARD.md, Registry/work-units.yml
+
+  - id: WU-IAENG-314
+    employee: DevOps Engineer
+    title: Close PT2-05 and PT2-06 in the advisory Risk Map check - diff the range from the merge base so a file the base advanced after the fork is not attributed to the change, and require the RISK record to start at column 0 and carry tier=, mitigation= and decided_by= so an indented example no longer satisfies the gate
+    milestone: Precision
+    delivers: Adapters/scripts/check-risk-map.sh, Adapters/scripts/tests/run.sh, Adapters/README.md, Registry/work-units.yml
+
   - id: WU-IAENG-316
     employee: DevOps Engineer
     title: Refuse GIT_CONFIG_PARAMETERS and GIT_CONFIG_KEY_<n> set through an assigning builtin (PT2-07) - printf -v, read, mapfile, readarray, export, readonly, declare, typeset, local, for, getopts and the += and ${NAME:=} forms - when the name is the builtin's operand, while reads, unset, grep, echo, declare -p, export -n and quoted mentions stay allowed; a speed bump, not a boundary
