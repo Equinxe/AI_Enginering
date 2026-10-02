@@ -981,7 +981,7 @@ git commit -q -m "map"
 RM_BASE="$(git rev-parse HEAD)"
 echo changed > src/auth/login.js && git commit -qam "touch the auth module"
 expect 1 "a sensitive change with no RISK record fails" -- bash "$CHECK_MAP" --range "$RM_BASE" HEAD .
-expect_output "no RISK: record"
+expect_output "no well-formed RISK: record"
 
 echo more >> src/auth/login.js
 git commit -qam "touch it again, with a record
@@ -1020,6 +1020,110 @@ echo changed > src/auth/login.js
 git commit -q -aF "$WORK/bigmsg.txt"
 expect 0 "a sensitive change with an early RISK record in a >64KB range still passes" -- bash "$CHECK_MAP" --range "$RM_BASE" HEAD .
 expect_output "RISK: record is present"
+
+# PT2-06 — the record must BE a record, not a mention of one. The gate used to
+# accept any line that began with optional whitespace and `RISK:`, so an
+# indented or quoted example satisfied it: the opposite of what
+# check-work-units.sh and check-employee-trailers.sh tell authors, who are told
+# to indent an example so that it does not count.
+risk_project rm-range-record; sound_risk_map
+git commit -q -m "map"
+RM_BASE="$(git rev-parse HEAD)"
+echo changed > src/auth/login.js
+git commit -qam "touch the auth module, quoting the format
+
+The record format is:
+
+    RISK: changes the identity check | tier=High | mitigation=reviewed | decided_by=Director"
+expect 1 "an indented RISK example does not satisfy the gate" -- bash "$CHECK_MAP" --range "$RM_BASE" HEAD .
+expect_output "no well-formed RISK: record"
+
+echo more >> src/auth/login.js
+git commit -qam "touch it again, record without a tier
+
+RISK: changes the identity check | mitigation=reviewed | decided_by=Director"
+expect 1 "a column-0 RISK line with no tier does not satisfy the gate" -- bash "$CHECK_MAP" --range "$RM_BASE" HEAD .
+
+echo more >> src/auth/login.js
+git commit -qam "touch it again, record with an invalid tier
+
+RISK: changes the identity check | tier=Severe | mitigation=reviewed | decided_by=Director"
+expect 1 "a RISK line whose tier is not in the closed list does not satisfy the gate" -- bash "$CHECK_MAP" --range "$RM_BASE" HEAD .
+
+echo more >> src/auth/login.js
+git commit -qam "touch it again, record without a decider
+
+RISK: changes the identity check | tier=High | mitigation=reviewed"
+expect 1 "a RISK line with no decided_by does not satisfy the gate" -- bash "$CHECK_MAP" --range "$RM_BASE" HEAD .
+
+# The field names are whole words with values (Code Reviewer, PR #175). A
+# matcher that looked for the substring `tier=` accepted `notier=low`, and one
+# that let any non-letter end the tier value accepted `tier=High-ish`; a field
+# matched for presence alone accepted `mitigation=` with nothing after it.
+echo more >> src/auth/login.js
+git commit -qam "touch it again, a field name that merely ends in tier=
+
+RISK: changes the identity check | notier=Low | mitigation=reviewed | decided_by=Director"
+expect 1 "notier= is not the tier= field" -- bash "$CHECK_MAP" --range "$RM_BASE" HEAD .
+
+echo more >> src/auth/login.js
+git commit -qam "touch it again, a tier value that only starts with a valid one
+
+RISK: changes the identity check | tier=High-ish | mitigation=reviewed | decided_by=Director"
+expect 1 "tier=High-ish is not a tier in the closed list" -- bash "$CHECK_MAP" --range "$RM_BASE" HEAD .
+
+echo more >> src/auth/login.js
+git commit -qam "touch it again, an empty mitigation
+
+RISK: changes the identity check | tier=High | mitigation= | decided_by=Director"
+expect 1 "an empty mitigation= does not satisfy the gate" -- bash "$CHECK_MAP" --range "$RM_BASE" HEAD .
+
+echo more >> src/auth/login.js
+git commit -qam "touch it again, an empty decider
+
+RISK: changes the identity check | tier=High | mitigation=reviewed | decided_by="
+expect 1 "an empty decided_by= does not satisfy the gate" -- bash "$CHECK_MAP" --range "$RM_BASE" HEAD .
+
+echo more >> src/auth/login.js
+git commit -qam "touch it again, a well-formed record wrapped over two lines
+
+RISK: changes the identity check | tier=High |
+mitigation=reviewed | decided_by=Director"
+expect 0 "a well-formed column-0 RISK record, wrapped, satisfies the gate" -- bash "$CHECK_MAP" --range "$RM_BASE" HEAD .
+expect_output "RISK: record is present"
+
+# PT2-05 — the range is diffed from the merge base. The endpoint diff
+# `git diff <base> <head>` also contains the inverse of whatever the base branch
+# gained after the fork point: a sensitive file the base moved on was
+# attributed to a Pull Request that never touched it.
+risk_project rm-range-forked; sound_risk_map
+git commit -q -m "map"
+RM_MAIN="$(git rev-parse --abbrev-ref HEAD)"
+git switch -q -c feature-docs
+echo changed > docs/guide.md && git commit -qam "documentation only, on the feature branch"
+git switch -q "$RM_MAIN"
+echo advanced > src/auth/login.js && git commit -qam "the base branch moves a sensitive file on, after the fork point"
+expect 0 "a sensitive file the base advanced after the fork is not attributed to the change" -- bash "$CHECK_MAP" --range "$RM_MAIN" feature-docs .
+expect_output "highest change zone: routine"
+
+# ...and a file the change itself touched is still classified.
+git switch -q feature-docs
+echo changed > src/auth/login.js && git commit -qam "the feature branch touches the sensitive file itself"
+expect 1 "a sensitive file the change itself touched is still classified" -- bash "$CHECK_MAP" --range "$RM_MAIN" feature-docs .
+expect_output "Sensitive paths touched: src/auth/login.js"
+
+# ...and the under-report in the other direction: the base makes the SAME edit
+# to the sensitive file after the fork, so the endpoint diff shows no change to
+# it at all and the change set's own sensitive edit went unclassified.
+risk_project rm-range-hidden; sound_risk_map
+git commit -q -m "map"
+RM_MAIN="$(git rev-parse --abbrev-ref HEAD)"
+git switch -q -c feature-auth
+echo same-edit > src/auth/login.js && git commit -qam "the feature branch touches the sensitive file"
+git switch -q "$RM_MAIN"
+echo same-edit > src/auth/login.js && git commit -qam "the base branch lands the identical edit after the fork point"
+expect 1 "a sensitive edit the base has since duplicated is still attributed to the change" -- bash "$CHECK_MAP" --range "$RM_MAIN" feature-auth .
+expect_output "Sensitive paths touched: src/auth/login.js"
 
 expect 2 "an unknown option is a usage error" -- bash "$CHECK_MAP" --nope .
 
@@ -1720,12 +1824,16 @@ REAL_GIT="$(command -v git)"
 mkdir -p "$WORK/shim-old"
 cat > "$WORK/shim-old/git" <<SHIM
 #!/usr/bin/env bash
-if [ "\$1" = "version" ]; then echo "git version 2.30.0"; exit 0; fi
+if [ "\$1" = "version" ]; then echo "git version 2.39.5"; exit 0; fi
 exec "$REAL_GIT" "\$@"
 SHIM
 chmod +x "$WORK/shim-old/git"
-expect 1 "git older than 2.38 fails closed" -- env PATH="$WORK/shim-old:$PATH" bash "$CHECK_EMP" "$BASE" HEAD
+# 2.39, not anything older: it has merge-tree --write-tree but not
+# --attr-source, so it pins the floor the attribute pin raised to 2.40
+# (SEC-IAENG-313-01).
+expect 1 "git older than 2.40 fails closed" -- env PATH="$WORK/shim-old:$PATH" bash "$CHECK_EMP" "$BASE" HEAD
 expect_output "cannot classify"
+expect_output "2.40"
 
 # Fail closed: a git whose merge-tree errors must not turn into a pass.
 mk_emp_merge_repo mrg-shim
@@ -1734,12 +1842,257 @@ REAL_GIT="$(command -v git)"
 mkdir -p "$WORK/shim"
 cat > "$WORK/shim/git" <<SHIM
 #!/usr/bin/env bash
-if [ "\$1" = "merge-tree" ]; then exit 128; fi
+# Any argument, not just \$1: the classifier calls
+# 'git --attr-source=<tree> merge-tree', so merge-tree is not first.
+for a in "\$@"; do [ "\$a" = "merge-tree" ] && exit 128; done
 exec "$REAL_GIT" "\$@"
 SHIM
 chmod +x "$WORK/shim/git"
 expect 1 "a merge the classifier cannot run on fails closed" -- env PATH="$WORK/shim:$PATH" bash "$CHECK_EMP" "$BASE" HEAD
 expect_output "could not be classified"
+
+# ----------------------- merge attribution: check-work-units.sh ---------------
+
+section "check-work-units.sh — merge attribution (WU-IAENG-313, PT2-03)"
+
+# mk_wu_merge_repo <name> — registry committed, then main and `side` diverge,
+# each with a registered Work Unit trailer. BASE is the registry commit.
+# Leaves the shell on main, ready to merge side.
+mk_wu_merge_repo() {
+  new_repo "$1"
+  write_wu_registry WU-TEST-001 WU-TEST-002
+  git add -A && git commit -q -m "registry"
+  BASE="$(git rev-parse HEAD)"
+  git checkout -qb side
+  echo side > side.txt && git add -A && git commit -q -m "side work
+
+Work Unit: WU-TEST-001"
+  git checkout -q main
+  echo main > main.txt && git add -A && git commit -q -m "main work
+
+Work Unit: WU-TEST-001"
+}
+
+mk_wu_merge_repo wmrg-clean
+git merge -q --no-ff side -m "Merge branch 'side'"
+expect 0 "a clean merge with no Work Unit trailer passes" -- bash "$CHECK_WU" "$BASE" HEAD
+expect_output "merge, no content of its own"
+
+# This is the PT2-03 repro: before WU-IAENG-313 the script ran
+# `git rev-list --no-merges`, never saw the merge, and exited 0 here.
+mk_wu_merge_repo wmrg-authored
+git merge -q --no-commit --no-ff side
+echo extra > extra.txt && git add extra.txt
+git commit -q -m "Merge branch 'side'"
+expect 1 "an authored merge with no Work Unit trailer fails" -- bash "$CHECK_WU" "$BASE" HEAD
+expect_output "Merge "
+expect_output "carries no 'Work Unit: <WU-ID>' trailer"
+
+mk_wu_merge_repo wmrg-authored-ok
+git merge -q --no-commit --no-ff side
+echo extra > extra.txt && git add extra.txt
+git commit -q -m "Merge branch 'side'
+
+Work Unit: WU-TEST-002"
+expect 0 "an authored merge with a registered Work Unit trailer passes" -- bash "$CHECK_WU" "$BASE" HEAD
+
+mk_wu_merge_repo wmrg-authored-unregistered
+git merge -q --no-commit --no-ff side
+echo extra > extra.txt && git add extra.txt
+git commit -q -m "Merge branch 'side'
+
+Work Unit: WU-TEST-999"
+expect 1 "an authored merge naming an unregistered Work Unit fails" -- bash "$CHECK_WU" "$BASE" HEAD
+expect_output "WU-TEST-999"
+
+new_repo wmrg-conflict
+write_wu_registry WU-TEST-001
+echo base > c.txt
+git add -A && git commit -q -m "registry"
+BASE="$(git rev-parse HEAD)"
+git checkout -qb side
+echo side > c.txt && git add -A && git commit -q -m "side edit
+
+Work Unit: WU-TEST-001"
+git checkout -q main
+echo main > c.txt && git add -A && git commit -q -m "main edit
+
+Work Unit: WU-TEST-001"
+git merge --no-commit --no-ff side > /dev/null 2>&1
+echo resolved > c.txt && git add c.txt
+git commit -q -m "Merge branch 'side'"
+expect 1 "a conflict-resolved merge with no Work Unit trailer fails" -- bash "$CHECK_WU" "$BASE" HEAD
+
+mk_wu_merge_repo wmrg-octopus
+git checkout -qb side2 "$BASE"
+echo s2 > side2.txt && git add -A && git commit -q -m "side2 work
+
+Work Unit: WU-TEST-001"
+git checkout -q main
+git merge -q --no-ff side side2 -m "Merge branches 'side', 'side2'" > /dev/null 2>&1
+expect 1 "a clean octopus merge with no Work Unit trailer fails (never classified)" -- bash "$CHECK_WU" "$BASE" HEAD
+
+mk_wu_merge_repo wmrg-ours
+git merge -q -s ours --no-ff side -m "Merge branch 'side'"
+expect 1 "a -s ours merge, no Work Unit trailer, fails" -- bash "$CHECK_WU" "$BASE" HEAD
+
+# Fail closed on a git too old to classify.
+mk_wu_merge_repo wmrg-old-git
+git merge -q --no-ff side -m "Merge branch 'side'"
+expect 1 "git older than 2.40 fails closed (work units)" -- env PATH="$WORK/shim-old:$PATH" bash "$CHECK_WU" "$BASE" HEAD
+expect_output "cannot classify"
+expect_output "2.40"
+
+# Fail closed: a git whose merge-tree errors must not turn into a pass.
+mk_wu_merge_repo wmrg-shim
+git merge -q --no-ff side -m "Merge branch 'side'"
+expect 1 "a merge the classifier cannot run on fails closed (work units)" -- env PATH="$WORK/shim:$PATH" bash "$CHECK_WU" "$BASE" HEAD
+expect_output "could not be classified"
+
+# The grandfather list is a constant inside the script, never a data file
+# (SEC-IAENG-307-01). Fixture shas cannot be predicted, so the mechanism is
+# exercised on a COPY of the scripts whose constant names the fixture merge.
+# The two real grandfathered shas are exercised by running the check over
+# v0.0.13..develop, recorded in the PR.
+mk_wu_merge_repo wmrg-grandfathered
+git merge -q --no-commit --no-ff side
+echo extra > extra.txt && git add extra.txt
+git commit -q -m "Merge branch 'side'"
+GF_SHA="$(git rev-parse HEAD)"
+mkdir -p "$WORK/gf-scripts"
+cp "$CHECK_WU" "$SCRIPTS/merge-classify.sh" "$WORK/gf-scripts/"
+sed -i "s/^readonly GRANDFATHERED_MERGES=\"/readonly GRANDFATHERED_MERGES=\"$GF_SHA /" "$WORK/gf-scripts/check-work-units.sh"
+expect 0 "a grandfathered authored merge passes" -- bash "$WORK/gf-scripts/check-work-units.sh" "$BASE" HEAD
+expect_output "grandfathered"
+expect 1 "the same merge fails without the constant naming it" -- bash "$CHECK_WU" "$BASE" HEAD
+
+# A grandfathered merge is skipped before the any-merge claim validation: its
+# Work Unit line is history, not a claim the check vouches for (d097e2ed, the
+# v0.0.13 back-merge, claims a never-registered WU-IAENG-259).
+mk_wu_merge_repo wmrg-grandfathered-claim
+git merge -q --no-ff side -m "Merge branch 'side'
+
+Work Unit: WU-TEST-999"
+GFC_SHA="$(git rev-parse HEAD)"
+mkdir -p "$WORK/gfc-scripts"
+cp "$CHECK_WU" "$SCRIPTS/merge-classify.sh" "$WORK/gfc-scripts/"
+sed -i "s/^readonly GRANDFATHERED_MERGES=\"/readonly GRANDFATHERED_MERGES=\"$GFC_SHA /" "$WORK/gfc-scripts/check-work-units.sh"
+expect 0 "a grandfathered merge's unregistered Work Unit claim is not judged" -- bash "$WORK/gfc-scripts/check-work-units.sh" "$BASE" HEAD
+expect_output "grandfathered"
+expect 1 "the same claim fails without the constant naming it" -- bash "$CHECK_WU" "$BASE" HEAD
+expect_output "WU-TEST-999"
+
+# The shipped list is exactly these three shas: widening it is a control
+# change that must name itself here.
+GF_SHIPPED="$(sed -n 's/^readonly GRANDFATHERED_MERGES="\(.*\)"$/\1/p' "$CHECK_WU" | tr ' ' '\n' | sort | tr '\n' ' ')"
+expect 0 "check-work-units.sh grandfathers exactly the three known merges" -- \
+  test "$GF_SHIPPED" = "3babf69d9664ddb590acd7381a99fa90d1e40f70 93c850a754a26a050b621d52ac1881645d21be5f d097e2ed66e3e2c45454725664b20abd94b07968 "
+
+# A data file planted in the tree must not exempt a merge.
+mkdir -p Registry ia-engineering/Registry
+echo "$GF_SHA planted by the PR under test" > Registry/merge-attribution-exceptions.txt
+cp Registry/merge-attribution-exceptions.txt ia-engineering/Registry/
+expect 1 "an exceptions file planted in the tree does not exempt a merge (work units)" -- \
+  env IAENG_MERGE_EXCEPTIONS=Registry/merge-attribution-exceptions.txt bash "$CHECK_WU" "$BASE" HEAD
+
+# The classifier is sourced; its absence must fail closed, not pass.
+mkdir -p "$WORK/no-helper"
+cp "$CHECK_WU" "$WORK/no-helper/"
+expect 1 "a missing merge-classify.sh fails closed (work units)" -- bash "$WORK/no-helper/check-work-units.sh" "$BASE" HEAD
+expect_output "merge-classify.sh not found"
+cp "$CHECK_EMP" "$WORK/no-helper/"
+expect 1 "a missing merge-classify.sh fails closed (employee trailers)" -- bash "$WORK/no-helper/check-employee-trailers.sh" "$BASE" HEAD
+expect_output "merge-classify.sh not found"
+
+# SEC-IAENG-313-02: a Work Unit claim present on a merge is validated whatever
+# the classification, as an Employee claim is. A clean merge needs no trailer,
+# but one naming an unregistered Work Unit is a false record in the history.
+mk_wu_merge_repo wmrg-clean-unregistered
+git merge -q --no-ff side -m "Merge branch 'side'
+
+Work Unit: WU-TEST-999"
+expect 1 "a clean merge naming an unregistered Work Unit fails" -- bash "$CHECK_WU" "$BASE" HEAD
+expect_output "WU-TEST-999"
+
+mk_wu_merge_repo wmrg-clean-registered
+git merge -q --no-ff side -m "Merge branch 'side'
+
+Work Unit: WU-TEST-002"
+expect 0 "a clean merge naming a registered Work Unit passes" -- bash "$CHECK_WU" "$BASE" HEAD
+expect_output "WU-TEST-002 (resolved)"
+
+# SEC-IAENG-313-01: the automatic merge must not read merge drivers from the
+# tree under review. With `* merge=union` committed, git resolves the conflict
+# by concatenation; an unpinned merge-tree reproduces that same tree and calls
+# the merge clean. Pinned to the empty tree's attributes, it conflicts, and the
+# merge is authored — as a hand resolution of that shape is.
+mk_union_merge_repo() {
+  new_repo "$1"
+  write_wu_registry WU-TEST-001
+  write_employee_roster "DevOps Engineer"
+  echo '* merge=union' > .gitattributes
+  echo base > c.txt
+  git add -A && git commit -q -m "registry"
+  BASE="$(git rev-parse HEAD)"
+  git checkout -qb side
+  echo side > c.txt && git add -A && git commit -q -m "side edit
+
+Work Unit: WU-TEST-001
+Employee: DevOps Engineer"
+  git checkout -q main
+  echo main > c.txt && git add -A && git commit -q -m "main edit
+
+Work Unit: WU-TEST-001
+Employee: DevOps Engineer"
+  git merge --no-commit --no-ff side > /dev/null 2>&1
+  git add -A
+  git commit -q -m "Merge branch 'side'"
+}
+
+mk_union_merge_repo wmrg-union
+expect 1 "a union-attribute merge is classified authored (work units)" -- bash "$CHECK_WU" "$BASE" HEAD
+expect_output "carries no 'Work Unit: <WU-ID>' trailer"
+expect 1 "a union-attribute merge is classified authored (employee trailers)" -- bash "$CHECK_EMP" "$BASE" HEAD
+expect_output "carries no Employee trailer"
+
+# A range whose only commit is an authored merge: nothing non-merge to check,
+# which the script says, and the merge is still held to the rule. The base is
+# the merged branch's tip, so the merge is the sole commit in the range.
+new_repo wmrg-merge-only-authored
+write_wu_registry WU-TEST-001
+git add -A && git commit -q -m "registry"
+git checkout -qb develop
+echo side > side.txt && git add -A && git commit -q -m "authored work
+
+Work Unit: WU-TEST-001"
+git checkout -q main
+git merge -q --no-commit --no-ff develop
+echo extra > extra.txt && git add extra.txt
+git commit -q -m "Merge develop into main"
+BASE="$(git rev-parse develop)"
+expect 1 "a range of one authored merge and no other commit fails" -- bash "$CHECK_WU" "$BASE" HEAD
+expect_output "No non-merge commits to check."
+expect_output "carries no 'Work Unit: <WU-ID>' trailer"
+
+# CDPATH: with an exported CDPATH, a bare `cd <relative-dir>` resolves through
+# it and PRINTS the directory, which a $(cd ... && pwd) capture then holds
+# twice — the helper is "not found" and a correct check fails. Invoked by a
+# relative path, exactly as a host's job step would.
+mk_wu_merge_repo wmrg-cdpath
+git merge -q --no-ff side -m "Merge branch 'side'"
+mkdir -p tools
+cp "$CHECK_WU" "$SCRIPTS/merge-classify.sh" tools/
+expect 0 "CDPATH=. with a relative invocation still finds the helper (work units)" -- \
+  env CDPATH=. bash tools/check-work-units.sh "$BASE" HEAD
+expect_output "merge, no content of its own"
+
+mk_emp_merge_repo mrg-cdpath
+git merge -q --no-ff side -m "Merge branch 'side'"
+mkdir -p tools
+cp "$CHECK_EMP" "$SCRIPTS/merge-classify.sh" tools/
+expect 0 "CDPATH=. with a relative invocation still finds the helper (employee trailers)" -- \
+  env CDPATH=. bash tools/check-employee-trailers.sh "$BASE" HEAD
+expect_output "merge, no content of its own"
 
 # ------------------------------------------ check-inline-suppression.sh -------
 
@@ -2512,6 +2865,73 @@ for m in no-norc unpinned-latest unpinned-major cd-elsewhere no-userconfig no-ca
   prv_expect 1 "guard rejects the mutant: $m" "$WORK/prv-mut/$m.yml"
 done
 
+# ------------- workflows — a checkout needs contents: read (WU-IAENG-317) -----
+# Declaring a permissions block sets every unlisted scope to none, so a job that
+# declares one, checks out, and omits `contents: read` cannot read its own
+# repository: actions/checkout fails with "repository not found" on a private
+# repository (issue 180). A job with no block of its own inherits the workflow
+# level block, if any. Comments are stripped first.
+
+# wfp_guard <file> — print each offending job and return 1, else return 0.
+wfp_guard() {
+  sed -E -e '/^[[:space:]]*#/d' -e 's/[[:space:]]#.*//' "$1" | awk '
+    function flush() {
+      if (job == "") return
+      has = jp ? 1 : wh
+      ok = jp ? jc : wc
+      if (co && has && !ok) {
+        print "job " job ": checks out but its permissions lack contents: read"
+        bad = 1
+      }
+    }
+    /^permissions:/ { wh = 1; scope = "w"; next }
+    /^[A-Za-z]/ { scope = ""; injobs = ($0 ~ /^jobs:/) ; next }
+    injobs && /^  [A-Za-z0-9_-]+:[[:space:]]*$/ {
+      flush(); job = $1; sub(/:$/, "", job); jp = 0; jc = 0; co = 0; scope = "j"; next
+    }
+    /^    permissions:/ { jp = 1; scope = "jp"; next }
+    /^    [A-Za-z_-]+:/ { scope = "j" }
+    scope == "w" && /^  contents:[[:space:]]*(read|write)/ { wc = 1 }
+    scope == "jp" && /^      contents:[[:space:]]*(read|write)/ { jc = 1 }
+    /actions\/checkout/ { co = 1 }
+    END { flush(); exit bad }
+  '
+}
+
+# wfp_expect <expected-exit> <description> <file> — like prv_expect.
+wfp_expect() {
+  local want="$1" desc="$2" file="$3" got
+  TOTAL=$((TOTAL + 1))
+  LAST_OUTPUT="$(wfp_guard "$file" 2>&1)"
+  got=$?
+  if [ "$got" = "$want" ]; then
+    [ -n "$VERBOSE" ] && printf '   ok   %s\n' "$desc"
+    return 0
+  fi
+  printf '   FAIL %s\n' "$desc"
+  printf '        expected exit %s, got %s\n' "$want" "$got"
+  printf '%s\n' "$LAST_OUTPUT" | sed 's/^/        | /'
+  FAILED=$((FAILED + 1))
+  return 1
+}
+
+for WFP in "$SCRIPTS"/../github-actions/*.yml "$SCRIPTS"/../../.github/workflows/*.yml; do
+  WFP_NAME="${WFP#"$SCRIPTS"/../}"
+  wfp_expect 0 "$WFP_NAME: every job that checks out and declares permissions grants contents: read" "$WFP"
+done
+
+# Mutation cases: the shape of the develop workflow before the fix (the
+# review-recorded job without contents: read), and a workflow-level block
+# without it. The guard must reject both, or it could pass on anything.
+mkdir -p "$WORK/wfp-mut"
+sed -E '/^  review-recorded:/,/^    steps:/{/contents: read/d}' "$SCRIPTS/../github-actions/pr-validation.yml" > "$WORK/wfp-mut/job-without-contents.yml"
+printf 'permissions:\n  issues: read\n\njobs:\n  a:\n    steps:\n      - uses: actions/checkout@v4\n' > "$WORK/wfp-mut/workflow-level-without-contents.yml"
+wfp_expect 1 "guard rejects the mutant: a job block without contents: read" "$WORK/wfp-mut/job-without-contents.yml"
+wfp_expect 1 "guard rejects the mutant: an inherited workflow block without contents: read" "$WORK/wfp-mut/workflow-level-without-contents.yml"
+if [ "$(wfp_guard "$WORK/wfp-mut/job-without-contents.yml")" != "job review-recorded: checks out but its permissions lack contents: read" ]; then
+  TOTAL=$((TOTAL + 1)); FAILED=$((FAILED + 1)); printf '   FAIL the guard names the offending job\n'
+fi
+
 # ------------------------------------- check-control-paths.sh (WU-IAENG-309) --
 
 CHECK_CP="$SCRIPTS/check-control-paths.sh"
@@ -2571,6 +2991,189 @@ expect_output "none of the 1"
 expect 1 "a newline before a real control path still flags it (-z)" -- "${CP_RUN[@]}" 'a\nb\0.github/workflows/y\0' -z
 expect 1 "one control path among many NUL-delimited names (-z)" -- "${CP_RUN[@]}" 'a b\0-x\0Adapters/git-hooks/pre-push\0c\0' -z
 expect 2 "an unknown option is a usage error" -- "${CP_RUN[@]}" 'a\n' --bogus
+
+# ------------------------------------------------- git-hooks/pre-push -------
+#
+# Pen-test finding PT2-08 (1 Oct 2026): pre-push refused every push to main
+# and develop but knew nothing of release/*, so a client-side deletion of a
+# release branch — which CLAUDE.md and Workflows/RELEASE.md Step 10 say never
+# happens — or a force-push to one went through. The hook also had no case
+# anywhere. The policy below is Workflows/RELEASE.md's: Step 3 creates and
+# pushes the release branch (allowed); Step 4 lands every fix through a Pull
+# Request targeting it (so any direct update, fast-forward or force, is
+# refused); Step 10 never deletes it (refused). DEF-2 (QA adoption test,
+# 2 Oct 2026) extended the creation rule to main and develop: a new project's
+# documented first push of them (Workflows/PROJECT_BOOTSTRAP.md) was refused,
+# and the only way through was a hook bypass. Every update and deletion of
+# them stays refused.
+#
+# Most cases feed the REAL hook git's REAL stdin protocol —
+#   <local ref> <local sha> <remote ref> <remote sha>
+# one line per ref, all-zero sha for a deletion (local) or a creation
+# (remote) — with object names taken from a real throwaway repository. The
+# last blocks install the hook and push for real, into throwaway bare
+# repositories under $WORK only.
+
+section "git-hooks/pre-push — protected and release branches (WU-IAENG-315)"
+
+PREPUSH="$SCRIPTS/../git-hooks/pre-push"
+
+new_repo pre-push
+PP_OLD="$(git rev-parse HEAD)"
+echo two > two.txt && git add two.txt && git commit -q -m "two"
+PP_NEW="$(git rev-parse HEAD)"
+# PP_SIDE is not a descendant of PP_NEW: replacing PP_NEW with it on the
+# remote is a force-push.
+git checkout -q -b side "$PP_OLD"
+echo side > side.txt && git add side.txt && git commit -q -m "side"
+PP_SIDE="$(git rev-parse HEAD)"
+git checkout -q main
+PP_ZERO="0000000000000000000000000000000000000000"
+PP_ZERO256="0000000000000000000000000000000000000000000000000000000000000000"
+
+# "${PP[@]}" <stdin line...> — runs the hook with one stdin line per argument,
+# and the two positional arguments git passes (remote name, remote URL). A
+# feeder script rather than a shell function: a function reached only through
+# `expect "$@"` is reported unreachable by shellcheck (SC2317).
+cat > "$WORK/pre-push-feed.sh" <<'FEED'
+hook="$1"; shift
+printf '%s\n' "$@" | bash "$hook" origin https://example.invalid/repo.git
+FEED
+PP=(bash "$WORK/pre-push-feed.sh" "$PREPUSH")
+
+for pp_branch in main develop; do
+  expect 1 "push to $pp_branch (fast-forward) is refused" -- \
+    "${PP[@]}" "refs/heads/work $PP_NEW refs/heads/$pp_branch $PP_OLD"
+  expect_output "direct push to '$pp_branch' is not allowed"
+  expect 1 "force-push to $pp_branch is refused" -- \
+    "${PP[@]}" "refs/heads/side $PP_SIDE refs/heads/$pp_branch $PP_NEW"
+  expect 1 "deletion of $pp_branch is refused" -- \
+    "${PP[@]}" "(delete) $PP_ZERO refs/heads/$pp_branch $PP_NEW"
+  # DEF-2: a new project's first push of main and develop
+  # (Workflows/PROJECT_BOOTSTRAP.md) creates them, and that must not need a
+  # hook bypass. Creation overwrites nothing; branch protection takes over
+  # once the branch exists.
+  expect 0 "creation of an absent $pp_branch is allowed (bootstrap)" -- \
+    "${PP[@]}" "refs/heads/$pp_branch $PP_NEW refs/heads/$pp_branch $PP_ZERO"
+done
+
+expect 1 "a multi-ref push with develop after an allowed feature ref is refused" -- \
+  "${PP[@]}" "refs/heads/feature/x $PP_NEW refs/heads/feature/x $PP_OLD" \
+     "refs/heads/develop $PP_NEW refs/heads/develop $PP_OLD"
+expect_output "direct push to 'develop' is not allowed"
+expect 1 "a multi-ref push (feature, tag, then main) touching main is refused" -- \
+  "${PP[@]}" "refs/heads/feature/x $PP_NEW refs/heads/feature/x $PP_ZERO" \
+     "refs/tags/v1.0.0 $PP_NEW refs/tags/v1.0.0 $PP_ZERO" \
+     "refs/heads/main $PP_NEW refs/heads/main $PP_OLD"
+
+expect 0 "creating a feature branch is allowed" -- \
+  "${PP[@]}" "refs/heads/feature/x $PP_NEW refs/heads/feature/x $PP_ZERO"
+expect 0 "updating a feature branch is allowed" -- \
+  "${PP[@]}" "refs/heads/feature/x $PP_NEW refs/heads/feature/x $PP_OLD"
+expect 0 "deleting a feature branch is allowed" -- \
+  "${PP[@]}" "(delete) $PP_ZERO refs/heads/feature/x $PP_NEW"
+
+expect 0 "creating release/v9.9.9 is allowed (RELEASE.md Step 3)" -- \
+  "${PP[@]}" "refs/heads/release/v9.9.9 $PP_NEW refs/heads/release/v9.9.9 $PP_ZERO"
+expect 1 "a fast-forward to an existing release branch is refused (RELEASE.md Step 4: fixes land by PR)" -- \
+  "${PP[@]}" "refs/heads/release/v9.9.9 $PP_NEW refs/heads/release/v9.9.9 $PP_OLD"
+expect_output "direct push to existing release branch 'release/v9.9.9' is not allowed"
+expect 1 "a force-push to a release branch is refused" -- \
+  "${PP[@]}" "refs/heads/side $PP_SIDE refs/heads/release/v9.9.9 $PP_NEW"
+expect_output "direct push to existing release branch 'release/v9.9.9' is not allowed"
+expect 1 "deleting a release branch is refused (RELEASE.md Step 10)" -- \
+  "${PP[@]}" "(delete) $PP_ZERO refs/heads/release/v9.9.9 $PP_NEW"
+expect_output "deleting release branch 'release/v9.9.9' is not allowed"
+expect 1 "deleting a release branch is refused in a SHA-256 repository (64-zero sha)" -- \
+  "${PP[@]}" "(delete) $PP_ZERO256 refs/heads/release/v9.9.9 $PP_NEW"
+expect 1 "a release-branch deletion after an allowed feature ref is refused" -- \
+  "${PP[@]}" "refs/heads/feature/x $PP_NEW refs/heads/feature/x $PP_OLD" \
+     "(delete) $PP_ZERO refs/heads/release/v9.9.9 $PP_NEW"
+
+expect 0 "a branch merely starting with 'release' (release-notes) is not a release branch" -- \
+  "${PP[@]}" "refs/heads/release-notes $PP_NEW refs/heads/release-notes $PP_OLD"
+expect 0 "a branch containing release/ deeper in its name is not a release branch" -- \
+  "${PP[@]}" "refs/heads/feature/release/x $PP_NEW refs/heads/feature/release/x $PP_OLD"
+
+expect 0 "pushing a tag is allowed" -- \
+  "${PP[@]}" "refs/tags/v1.0.0 $PP_NEW refs/tags/v1.0.0 $PP_ZERO"
+expect 0 "a tag under refs/tags/release/ is not a release branch" -- \
+  "${PP[@]}" "refs/tags/release/v1 $PP_NEW refs/tags/release/v1 $PP_ZERO"
+expect 0 "an empty push (nothing on stdin) is allowed" -- \
+  bash "$PREPUSH" origin https://example.invalid/repo.git < /dev/null
+
+# --- The documented limit, pinned with a REAL push (SEC-IAENG-179-01). ---
+# `git push --mirror` deletes a remote branch that is absent locally without
+# reporting that deletion to pre-push: the hook runs, receives no line for
+# it, and the branch is gone (observed on git 2.54). The hook header and
+# Adapters/README.md say so; the server deletion rule and GIT_STANDARD's ban
+# on --mirror cover the case. If git ever starts reporting these deletions,
+# the mirror case below fails and the documentation can be tightened.
+#
+# The hook is installed as a wrapper that logs the stdin it receives, and an
+# explicit deletion first proves the installed hook really runs here.
+PPM_REMOTE="$WORK/pre-push-mirror-remote.git"
+PPM_LOG="$WORK/pre-push-mirror-calls.log"
+rm -rf "$PPM_REMOTE" "$PPM_LOG"
+git init -q --bare "$PPM_REMOTE"
+new_repo pre-push-mirror
+git branch -q -m main feature/x
+git branch -q release/v1
+git push -q "$PPM_REMOTE" feature/x release/v1
+cat > .git/hooks/pre-push <<HOOK
+#!/usr/bin/env bash
+input="\$(cat)"
+printf '%s\n' "\$input" >> "$PPM_LOG"
+echo "--- call end" >> "$PPM_LOG"
+printf '%s\n' "\$input" | bash "$PREPUSH" "\$@"
+HOOK
+chmod +x .git/hooks/pre-push
+
+expect 1 "control: the installed hook refuses an explicit release-branch deletion" -- \
+  git push -q "$PPM_REMOTE" :refs/heads/release/v1
+expect_output "deleting release branch 'release/v1' is not allowed"
+git branch -q -D release/v1
+expect 0 "limit: a mirror push deletes release/v1 without the hook refusing it" -- \
+  git push -q --mirror "$PPM_REMOTE"
+expect 1 "limit: release/v1 is gone from the remote after the mirror push" -- \
+  git --git-dir="$PPM_REMOTE" rev-parse -q --verify refs/heads/release/v1
+PPM_CALLS="$(grep -c -- '^--- call end' "$PPM_LOG")"
+PPM_NAMED="$(grep -c 'refs/heads/release/v1' "$PPM_LOG")"
+expect 0 "limit: the hook ran for both pushes (2 calls, got $PPM_CALLS)" -- \
+  test "$PPM_CALLS" = 2
+expect 0 "limit: only the explicit deletion named release/v1 (1 line, got $PPM_NAMED)" -- \
+  test "$PPM_NAMED" = 1
+
+# --- DEF-2, with a REAL push: the bootstrap's first push of main and develop
+# into an empty remote, through the installed hook, then the refusals that
+# must still hold once the branches exist.
+PPB_REMOTE="$WORK/pre-push-bootstrap-remote.git"
+rm -rf "$PPB_REMOTE"
+git init -q --bare "$PPB_REMOTE"
+new_repo pre-push-bootstrap
+cat > .git/hooks/pre-push <<HOOK
+#!/usr/bin/env bash
+exec bash "$PREPUSH" "\$@"
+HOOK
+chmod +x .git/hooks/pre-push
+
+expect 0 "bootstrap: creating main on an empty remote is allowed" -- \
+  git push -q -u "$PPB_REMOTE" main
+git branch develop
+expect 0 "bootstrap: creating develop is allowed" -- \
+  git push -q -u "$PPB_REMOTE" develop
+expect 0 "bootstrap: both branches now exist on the remote" -- \
+  git --git-dir="$PPB_REMOTE" rev-parse -q --verify refs/heads/develop
+echo more > more.txt && git add more.txt && git commit -q -m "more"
+expect 1 "bootstrap: a later update of main is refused" -- \
+  git push -q "$PPB_REMOTE" main
+expect_output "direct push to 'main' is not allowed"
+expect 1 "bootstrap: a later update of develop is refused" -- \
+  git push -q "$PPB_REMOTE" main:develop
+expect 1 "bootstrap: deleting develop is refused" -- \
+  git push -q "$PPB_REMOTE" :refs/heads/develop
+expect 0 "bootstrap: develop survived the refused deletion" -- \
+  git --git-dir="$PPB_REMOTE" rev-parse -q --verify refs/heads/develop
 
 # --------------------------------------------------------------- verdict ----
 

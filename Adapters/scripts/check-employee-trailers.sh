@@ -7,8 +7,11 @@
 # merge of its parents, or it has more than two parents. A clean merge needs no
 # trailer; an `Employee:` line present on any merge is validated regardless.
 # Historical authored merges are grandfathered by sha in a constant inside this
-# script (GRANDFATHERED_MERGES). Classifying needs git >= 2.38
-# (`git merge-tree --write-tree`); without it the check fails closed.
+# script (GRANDFATHERED_MERGES). Classifying needs git >= 2.40
+# (`git merge-tree --write-tree` with --attr-source); without it the check
+# fails closed. The classifier is merge-classify.sh, sourced from beside this
+# script, so the script must run from its real location: a copy or symlink
+# without the helper beside it fails closed.
 #
 # This is the SERVER-SIDE BACKSTOP for Adapters/git-hooks/commit-msg. The hook
 # is the first line and the better one — it refuses before the commit exists —
@@ -44,9 +47,23 @@
 
 set -uo pipefail
 
-# See the note in check-work-units.sh on why this helper is duplicated rather
-# than sourced: these scripts run from a consumer project where the framework
-# path varies, and a sourcing bug would only appear in somebody else's repo.
+# The merge classifier is shared with check-work-units.sh. It sits beside this
+# script, so BASH_SOURCE resolves it wherever the framework is checked out. A
+# missing helper is a failure: continuing without it would pass every authored
+# merge. `CDPATH=` keeps an exported CDPATH from redirecting the cd (and from
+# printing the directory into the captured value).
+SCRIPT_DIR="$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+if [ ! -f "$SCRIPT_DIR/merge-classify.sh" ]; then
+  echo "check-employee-trailers: ERROR: $SCRIPT_DIR/merge-classify.sh not found; failing closed." >&2
+  exit 1
+fi
+# shellcheck source=merge-classify.sh
+. "$SCRIPT_DIR/merge-classify.sh"
+
+# See the note in check-work-units.sh on why this helper is duplicated while
+# merge-classify.sh is sourced: sourcing a sibling via BASH_SOURCE is safe,
+# but `err` differs per script (its prefix) and most check-*.sh siblings
+# source nothing.
 err() {
   if [ -n "${GITHUB_ACTIONS:-}" ]; then
     printf '::error::%s\n' "$1" >&2
@@ -180,8 +197,9 @@ done
 #   93c850a7... merge of origin/develop into perf/generate-agents-single-pass
 readonly GRANDFATHERED_MERGES="3babf69d9664ddb590acd7381a99fa90d1e40f70 93c850a754a26a050b621d52ac1881645d21be5f"
 #
-# The classifier is `git merge-tree --write-tree` (git >= 2.38). If it cannot
-# run, the merge is unclassified and the check FAILS: passing on an
+# The classifier is merge-classify.sh (sourced, shared with check-work-units.sh),
+# built on `git merge-tree --write-tree` with --attr-source pinned (git >=
+# 2.40). If it cannot run, the merge is unclassified and the check FAILS: passing on an
 # unclassifiable merge is the check-that-passes-without-evaluating shape.
 if ! MERGES="$(git rev-list --merges "${BASE_REF}..${HEAD_REF}")"; then
   err "git rev-list --merges failed over ${BASE_REF}..${HEAD_REF}; failing rather than skipping merges unexamined."
@@ -191,10 +209,8 @@ fi
 if [ -n "$MERGES" ]; then
   echo "Merge commits to classify: $(printf '%s\n' "$MERGES" | grep -c .)"
 
-  GIT_VER="$(git version | sed -E 's/^git version ([0-9]+)\.([0-9]+).*/\1 \2/')"
-  read -r GV_MAJOR GV_MINOR <<< "$GIT_VER"
-  if ! [[ "${GV_MAJOR:-}" =~ ^[0-9]+$ && "${GV_MINOR:-}" =~ ^[0-9]+$ ]] || [ $((GV_MAJOR * 1000 + GV_MINOR)) -lt 2038 ]; then
-    err "git $(git version) cannot classify merge commits: 'git merge-tree --write-tree' needs git 2.38 or newer. Failing closed rather than passing merges unclassified."
+  if ! merge_classify_git_ok; then
+    err "git $(git version) cannot classify merge commits: 'git merge-tree --write-tree' with --attr-source needs git 2.40 or newer. Failing closed rather than passing merges unclassified."
     exit 1
   fi
 
@@ -205,26 +221,11 @@ if [ -n "$MERGES" ]; then
       continue
     fi
 
-    PARENTS="$(git rev-list --parents -n 1 "$sha" | cut -d' ' -f2-)"
-    read -ra PARR <<< "$PARENTS"
-    if [ "${#PARR[@]}" -ne 2 ]; then
-      KIND=authored
-    else
-      MT_RC=0
-      MT_OUT="$(git merge-tree --write-tree --no-messages "${PARR[0]}" "${PARR[1]}" 2>/dev/null)" || MT_RC=$?
-      if [ "$MT_RC" -gt 1 ]; then
-        err "Merge $sha could not be classified (git merge-tree exited $MT_RC — shallow history or missing objects?). Failing closed rather than passing an unclassified merge."
-        fail=1
-        continue
-      elif ! M_TREE="$(git rev-parse "$sha^{tree}")"; then
-        err "Merge $sha could not be classified (its tree could not be read). Failing closed rather than passing an unclassified merge."
-        fail=1
-        continue
-      elif [ "$MT_RC" -eq 0 ] && [ "$(printf '%s\n' "$MT_OUT" | head -1)" = "$M_TREE" ]; then
-        KIND=clean
-      else
-        KIND=authored
-      fi
+    KIND="$(merge_classify "$sha")"
+    if [ "${KIND#error}" != "$KIND" ]; then
+      err "Merge $sha could not be classified (${KIND#error: }). Failing closed rather than passing an unclassified merge."
+      fail=1
+      continue
     fi
 
     if [ "$KIND" = clean ]; then
