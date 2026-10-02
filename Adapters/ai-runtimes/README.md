@@ -97,7 +97,7 @@ Overrides the default the same way `--map` does. An empty value (`standard=`) me
 | `post-edit-lint.sh` | Nothing — runs `bash -n`/`shellcheck` and the project's `.ia-engineering/lint.sh` on the file just written, returns failures to the model, says when nothing ran | `Standards/CODE_QUALITY_STANDARD.md`, Automated Quality |
 | `stop-gate.sh` | Ending the session with tracked changes uncommitted and unexplained — once, then the loop guard yields | `Core/AGENT_CONDUCT.md`, Reporting Contract |
 
-Installed by `claude-code/install-hooks.sh` into the project's committed `.claude/settings.json`, so every clone runs them without a per-clone step. Every hook fails closed on unreadable input and has no disabling switch; `claude-code/hooks/README.md` is the reference. They are the executable form of Standards that exist first as documents — a rule that lived only in a hook would be a rule the framework does not have.
+Installed by `claude-code/install-hooks.sh` into the project's committed `.claude/settings.json`, so every clone runs them without a per-clone step. The guard hooks (`block-escape-hatches`, `block-inline-suppression`) fail closed on unreadable input, and no hook has a disabling switch; `claude-code/hooks/README.md` is the reference. They are the executable form of Standards that exist first as documents — a rule that lived only in a hook would be a rule the framework does not have.
 
 # Independent Review Bot
 
