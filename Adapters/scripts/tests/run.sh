@@ -2865,6 +2865,73 @@ for m in no-norc unpinned-latest unpinned-major cd-elsewhere no-userconfig no-ca
   prv_expect 1 "guard rejects the mutant: $m" "$WORK/prv-mut/$m.yml"
 done
 
+# ------------- workflows — a checkout needs contents: read (WU-IAENG-317) -----
+# Declaring a permissions block sets every unlisted scope to none, so a job that
+# declares one, checks out, and omits `contents: read` cannot read its own
+# repository: actions/checkout fails with "repository not found" on a private
+# repository (issue 180). A job with no block of its own inherits the workflow
+# level block, if any. Comments are stripped first.
+
+# wfp_guard <file> — print each offending job and return 1, else return 0.
+wfp_guard() {
+  sed -E -e '/^[[:space:]]*#/d' -e 's/[[:space:]]#.*//' "$1" | awk '
+    function flush() {
+      if (job == "") return
+      has = jp ? 1 : wh
+      ok = jp ? jc : wc
+      if (co && has && !ok) {
+        print "job " job ": checks out but its permissions lack contents: read"
+        bad = 1
+      }
+    }
+    /^permissions:/ { wh = 1; scope = "w"; next }
+    /^[A-Za-z]/ { scope = ""; injobs = ($0 ~ /^jobs:/) ; next }
+    injobs && /^  [A-Za-z0-9_-]+:[[:space:]]*$/ {
+      flush(); job = $1; sub(/:$/, "", job); jp = 0; jc = 0; co = 0; scope = "j"; next
+    }
+    /^    permissions:/ { jp = 1; scope = "jp"; next }
+    /^    [A-Za-z_-]+:/ { scope = "j" }
+    scope == "w" && /^  contents:[[:space:]]*(read|write)/ { wc = 1 }
+    scope == "jp" && /^      contents:[[:space:]]*(read|write)/ { jc = 1 }
+    /actions\/checkout/ { co = 1 }
+    END { flush(); exit bad }
+  '
+}
+
+# wfp_expect <expected-exit> <description> <file> — like prv_expect.
+wfp_expect() {
+  local want="$1" desc="$2" file="$3" got
+  TOTAL=$((TOTAL + 1))
+  LAST_OUTPUT="$(wfp_guard "$file" 2>&1)"
+  got=$?
+  if [ "$got" = "$want" ]; then
+    [ -n "$VERBOSE" ] && printf '   ok   %s\n' "$desc"
+    return 0
+  fi
+  printf '   FAIL %s\n' "$desc"
+  printf '        expected exit %s, got %s\n' "$want" "$got"
+  printf '%s\n' "$LAST_OUTPUT" | sed 's/^/        | /'
+  FAILED=$((FAILED + 1))
+  return 1
+}
+
+for WFP in "$SCRIPTS"/../github-actions/*.yml "$SCRIPTS"/../../.github/workflows/*.yml; do
+  WFP_NAME="${WFP#"$SCRIPTS"/../}"
+  wfp_expect 0 "$WFP_NAME: every job that checks out and declares permissions grants contents: read" "$WFP"
+done
+
+# Mutation cases: the shape of the develop workflow before the fix (the
+# review-recorded job without contents: read), and a workflow-level block
+# without it. The guard must reject both, or it could pass on anything.
+mkdir -p "$WORK/wfp-mut"
+sed -E '/^  review-recorded:/,/^    steps:/{/contents: read/d}' "$SCRIPTS/../github-actions/pr-validation.yml" > "$WORK/wfp-mut/job-without-contents.yml"
+printf 'permissions:\n  issues: read\n\njobs:\n  a:\n    steps:\n      - uses: actions/checkout@v4\n' > "$WORK/wfp-mut/workflow-level-without-contents.yml"
+wfp_expect 1 "guard rejects the mutant: a job block without contents: read" "$WORK/wfp-mut/job-without-contents.yml"
+wfp_expect 1 "guard rejects the mutant: an inherited workflow block without contents: read" "$WORK/wfp-mut/workflow-level-without-contents.yml"
+if [ "$(wfp_guard "$WORK/wfp-mut/job-without-contents.yml")" != "job review-recorded: checks out but its permissions lack contents: read" ]; then
+  TOTAL=$((TOTAL + 1)); FAILED=$((FAILED + 1)); printf '   FAIL the guard names the offending job\n'
+fi
+
 # ------------------------------------- check-control-paths.sh (WU-IAENG-309) --
 
 CHECK_CP="$SCRIPTS/check-control-paths.sh"
