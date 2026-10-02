@@ -136,7 +136,7 @@ With the stack decided, generate the baseline repository content:
 
 **Actor:** DevOps Engineer
 
-1. Run `Adapters/scripts/setup-project-bootstrap.sh <stack>`, found in your imported framework directory, with the stack decided in Step 2. One command installs the git hooks (via `core.hooksPath`), `.github/workflows/pr-validation.yml`, `.github/workflows/framework-validation.yml`, `.github/PULL_REQUEST_TEMPLATE.md`, `.github/ISSUE_TEMPLATE/` (Step 6 below), the `.gitattributes` LF rules, `.github/workflows/ci-build-test.yml`, `.github/workflows/ghcr-publish.yml` (Step 5 below), and a stack-appropriate `Dockerfile`. It is idempotent, supports `--dry-run`, and verifies the installed `commit-msg` hook actually rejects an invalid Employee trailer rather than assuming the copy worked.
+1. Run `Adapters/scripts/setup-project-bootstrap.sh <stack>`, found in your imported framework directory, with the stack decided in Step 2. One command installs the git hooks (via `core.hooksPath`), `.github/workflows/pr-validation.yml`, `.github/workflows/framework-validation.yml`, `.github/workflows/data-policy.yml`, `.github/workflows/control-path-guard.yml`, `.github/PULL_REQUEST_TEMPLATE.md`, `.github/ISSUE_TEMPLATE/` (Step 6 below), the `.gitattributes` LF rules, `.github/workflows/ci-build-test.yml`, `.github/workflows/ghcr-publish.yml` (Step 5 below), a stack-appropriate `Dockerfile`, the committed `.ia-engineering/stack` declaration that CI reads, and a starter `.ia-engineering/risk-map.yml` (see the Coverage Checklist). It is idempotent, supports `--dry-run`, and verifies the installed `commit-msg` hook actually rejects an invalid Employee trailer rather than assuming the copy worked. **The Control Path Guard has prerequisites the script cannot create.** It is a `pull_request_target` workflow, which GitHub takes from the default branch, so it does not run on a Pull Request to `develop` until the file has reached `main`. When it does run, it fails a Pull Request that touches the files defining the checks (`Adapters/scripts/check-control-paths.sh` holds the list) unless the Director's login has just applied the label `control-change/approved`. The Director therefore creates that label and sets the repository variable `IAENG_DIRECTOR_LOGIN` to their login; while the variable is unset, the guard fails closed on such a Pull Request. It is not a required check unless the Director adds it through `setup-branch-protection.sh`.
 2. Apply branch protection using `Adapters/scripts/setup-branch-protection.sh`. This is deliberately **not** part of the script above: it mutates settings every collaborator sees and needs an authenticated `gh`, so it is run once per repository as its own decision.
 3. Confirm the script's closing report. It lists the Coverage Checklist items no script can complete — the README, `.gitignore`, Project Charter, Stack Decision ADR, `CLAUDE.md` roster, branch creation, and first Work Unit — so they stay visible instead of being assumed done. The same report separately names the AI-runtime integration under "Not installed by this script, by design" — install it deliberately as item 4 below.
 4. Install the AI-runtime integration, as a separate, deliberate step — not part of the script above. `Adapters/scripts/install.sh`'s own "WHAT THIS SCRIPT DOES NOT DO" section states why: the runtime hooks are installed into a COMMITTED `.claude/settings.json`, a file that decides what the model may do and that a project reviews like code, not something a per-clone installer should write unasked. From the project root, run `Adapters/ai-runtimes/generate-agents.sh`, found in your imported framework directory, to turn the Employee roster into agents the runtime can dispatch to. Using Claude Code as the runtime — the one Adapter this framework has executed end to end — also run `Adapters/ai-runtimes/claude-code/install-hooks.sh` (writes `.claude/settings.json`) and `Adapters/ai-runtimes/claude-code/install-skills.sh` (adds `/create-project`), both in the same framework directory. A different runtime uses its own Adapter under `Adapters/ai-runtimes/<runtime>/`, per `Core/AI_MANIFEST.md` Principle X (AI Agnostic) — the framework names no runtime as mandatory. **Restart the session after installing the hooks**: Claude Code reads `.claude/settings.json` at session start, so a session already running will not pick up hooks installed mid-session. Verify by starting a new session and confirming the session-start hook fires and reports `.ia-engineering/SESSION_STATE.md`'s status — its pointers if it already exists, or that it must be created — which is the proof the hooks are loaded, not just installed.
@@ -182,11 +182,11 @@ Issue templates are an **independent external intake surface** — a way for any
 
 **Actor:** Main Agent
 
-With the stack decided and the repository, CI/CD, GHCR, and issue templates all scaffolded, this workflow ends and control passes to `Workflows/ONBOARDING.md`, beginning at **Step 4 — Activate employees**. Onboarding Steps 1-3 (import the framework, define project context, architecture review) are already satisfied by this workflow's Phase A/Phase B work and do not need to be repeated. Onboarding's Step 5 (Initialize git workflow) is also already satisfied by Step 3 and Step 4 above — do not repeat it.
+With the stack decided and the repository, CI/CD, GHCR, and issue templates all scaffolded, this workflow ends and control passes to `Workflows/ONBOARDING.md`, beginning at **Step 4 — Activate employees**, after two Onboarding Step 1 items this workflow never performs: create `CLAUDE.md` from `Templates/PROJECT_CLAUDE.md` (`Workflows/ONBOARDING.md` Step 1 item 2, filled from the Project Charter and the Stack Decision ADR) and create `.ia-engineering/SESSION_STATE.md` from `Templates/SESSION_STATE.md` (Step 1 item 3). Do both now, before Step 4 — Step 4 item 3 documents the roster in the `CLAUDE.md` that must already exist. The rest of Onboarding Steps 1-3 (framework import, install scripts, AI-runtime integration, project context, architecture review) is satisfied by this workflow's Phase A/Phase B work and Steps 3-4 above and does not need to be repeated. Onboarding's Step 5 (Initialize git workflow) is also already satisfied by Step 3 and Step 4 above — do not repeat it.
 
 If Phase A question #6 or #7 (Step 1) was answered positively, the compliance flag and its follow-on Work Unit or handoff note (see the Escalation table below) must be carried into this handoff explicitly — it does not get dropped silently just because control is passing to a new document.
 
-**Output:** Control handed to `Workflows/ONBOARDING.md` at Step 4.
+**Output:** `CLAUDE.md` and `SESSION_STATE.md` created; control handed to `Workflows/ONBOARDING.md` at Step 4.
 
 **Handoff to:** `Workflows/ONBOARDING.md` Step 4 onward (roster activation, first Work Unit, readiness confirmation).
 
@@ -206,11 +206,13 @@ Each item names what actually performs it. A checklist item whose mechanism is u
 - [ ] `.github/workflows/pr-validation.yml`
 - [ ] `.github/workflows/framework-validation.yml`
 - [ ] `.github/workflows/data-policy.yml`
+- [ ] `.github/workflows/control-path-guard.yml` — installed, but inert until the Director has set the repository variable `IAENG_DIRECTOR_LOGIN`, created the label `control-change/approved`, and the file has reached the default branch (Step 4 item 1)
 - [ ] `.github/workflows/ci-build-test.yml`
 - [ ] `.github/workflows/ghcr-publish.yml`
 - [ ] `.github/PULL_REQUEST_TEMPLATE.md`
 - [ ] `.github/ISSUE_TEMPLATE/` (bug report, feature request, config)
 - [ ] `Dockerfile` (stack-appropriate)
+- [ ] `.ia-engineering/stack` — the declared stack; **commit it**, CI reads it
 - [ ] `.ia-engineering/risk-map.yml` — the bootstrap writes a **starter** covering only the files it installed and declares no category absent; the project maps its own zones and accounts for all eight categories (`Templates/RISK_MAP.md`), then runs `check-risk-map.sh`. Until then the Risk Map check names what is unaccounted for — that is the check working, not failing
 
 **Performed by a separate, deliberate command:**
@@ -224,7 +226,8 @@ Each item names what actually performs it. A checklist item whose mechanism is u
 
 - [ ] `README.md` (project identity from Phase A answers)
 - [ ] `.gitignore` (stack-appropriate)
-- [ ] `CLAUDE.md` created + active roster (handoff to `ONBOARDING.md` Step 4)
+- [ ] `CLAUDE.md` created from `Templates/PROJECT_CLAUDE.md` (`ONBOARDING.md` Step 1 item 2) + active roster (`ONBOARDING.md` Step 4)
+- [ ] `.ia-engineering/SESSION_STATE.md` created from `Templates/SESSION_STATE.md` (`ONBOARDING.md` Step 1 item 3) — never committed; the `.gitignore` rule above keeps it out
 - [ ] Project Charter artifact (Phase A answers)
 - [ ] Stack Decision ADR (Phase B decision, Accepted)
 - [ ] First Work Unit created + Director-approved (`ONBOARDING.md` Step 6)
