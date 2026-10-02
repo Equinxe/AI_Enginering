@@ -806,6 +806,16 @@ expect 1 "create-release refuses: a tag with no notes is an incomplete release" 
 expect_output "Step 7 is NOT complete"
 expect_output "/tmp/notes.md"
 
+# WU-IAENG-322: the closing text of `release.sh publish` once said the Step 8
+# back-merge was needed only if a fix landed on the release branch. Workflows/
+# RELEASE.md Step 8 says it is always required (Step 6 leaves a merge commit
+# on main that develop never sees). Extract the shipped heredoc, not a copy.
+sed -n "/^  cat <<.REMAINING.\$/,/^REMAINING\$/p" "$SCRIPTS/release.sh" | tr -s ' \n' '  ' > "$WORK/publish-closing.txt"
+expect 0 "publish closing text: Step 8 back-merge is stated as always required" -- \
+  grep -qF -- "Back-merge to develop via Pull Request. ALWAYS required, on every release" "$WORK/publish-closing.txt"
+expect 1 "publish closing text no longer says the back-merge is conditional" -- \
+  grep -qF -- "Not needed when the release branch never diverged" "$WORK/publish-closing.txt"
+
 # Exit 3 again, and it must leave the directory behind: check-review-recorded
 # treats an ABSENT directory as a broken pipeline and an EMPTY one as "read,
 # nothing there". Only the second is true here.
