@@ -566,7 +566,30 @@ allow	git config --show-origin --local core.hooksPath
 allow	git -C . config --local core.hooksPath
 allow	git config --local CORE.HOOKSPATH
 allow	git config --local core.hooksPath | cat
-allow	x=$(git config --local core.hooksPath)
+block	x=$(git config --local core.hooksPath)
+# --- Legacy get is granted to a plain command only (SEC-IAENG-316-01/-02): a quote, backslash, backtick, $( or newline withholds it. Fails closed.
+block	git config co""re.hooksPath ""
+block	git config core.hooks""Path ""
+block	git config --global core.hooks""Path ''
+block	g""it config core.hooksPath ""
+block	git config core.hooksPath ''
+block	git config core.hooksPath `echo /dev/null`
+block	git config core.hooksPath $(echo /dev/null)
+block	git config core.hooksPath \
+block	echo `git config core.hooksPath`
+block	echo "git config --local core.hooksPath"; git config --local core.hooksPath
+allow	git config --local core.hooksPath ; echo done
+allow	git config --local core.hooksPath && git config --local core.hooksPath
+allow	git commit -m x && git config --local core.hooksPath
+# --- WU-IAENG-316 review lows: KEY_<n>=literal is judged by the literal-key rule; coproc, + options and ) as command position.
+allow	export GIT_CONFIG_KEY_0=safe.directory
+allow	declare -x GIT_CONFIG_KEY_0=safe.directory
+block	export GIT_CONFIG_KEY_0=$K
+block	export GIT_CONFIG_KEY_0=
+block	coproc read -r GIT_CONFIG_PARAMETERS
+block	coproc export GIT_CONFIG_PARAMETERS
+block	declare +x GIT_CONFIG_PARAMETERS
+block	case x in y) export GIT_CONFIG_PARAMETERS;; esac
 block	git config core.hooksPath x
 block	git config --local core.hooksPath /dev/null
 block	git config --global core.hooksPath ""

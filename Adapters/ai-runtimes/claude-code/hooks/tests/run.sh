@@ -123,6 +123,15 @@ HD_ALLOW=$'gh pr create --label bug --body-file - <<\'EOF\'\ngh pr edit 1 --add-
 HD_BLOCK=$'gh pr edit 1 --add-label "help wanted,size/approved" --body-file - <<\'EOF\'\nsome text\nEOF'
 expect_rc "approval-label: a command quoted in a heredoc body is data" 0 "$HOOKS/block-escape-hatches.sh" "$(jq -n --arg c "$HD_ALLOW" '{tool_name:"Bash",tool_input:{command:$c}}')"
 expect_rc "approval-label: a real quoted label list before a heredoc is refused" 2 "$HOOKS/block-escape-hatches.sh" "$(jq -n --arg c "$HD_BLOCK" '{tool_name:"Bash",tool_input:{command:$c}}')"
+# A newline withholds the legacy core.hooksPath get (SEC-IAENG-316-02): a value
+# on the next line after a backtick is a write the segment split cannot see.
+NL_A=$'git config core.hooksPath `\necho /dev/null`'
+NL_B=$'git config --local core.hooksPath `\n/dev/null`'
+NL_C=$'git config --global core.hooksPath\n/dev/null'
+NL_D=$'git config --local core.hooksPath\ngit log'
+for NL_CMD in "$NL_A" "$NL_B" "$NL_C" "$NL_D"; do
+  expect_rc "hooksPath: a newline withholds the legacy get" 2 "$HOOKS/block-escape-hatches.sh" "$(jq -n --arg c "$NL_CMD" '{tool_name:"Bash",tool_input:{command:$c}}')"
+done
 expect_rc "inline-suppression: refuses a directive in code" 2 "$HOOKS/block-inline-suppression.sh" "$PAY_CODE"
 expect_rc "inline-suppression: allows it in documentation"  0 "$HOOKS/block-inline-suppression.sh" "$PAY_DOC"
 
