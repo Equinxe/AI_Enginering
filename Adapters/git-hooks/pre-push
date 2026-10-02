@@ -14,7 +14,16 @@
 #   - Step 4 lands every acceptance-testing fix through a Pull Request that
 #     targets the release branch. Any update to an existing release branch —
 #     fast-forward or force — is refused.
-#   - Step 10: a release branch is never deleted. Deletion is refused.
+#   - Step 10: a release branch is never deleted. Every deletion git reports
+#     to this hook is refused.
+#
+# A hook sees only what git reports on stdin. `git push --mirror` does not
+# report the deletions it performs implicitly (a branch present on the remote
+# and absent locally): the hook runs, is told nothing about them, and the
+# branch is deleted (observed on git 2.54; pinned in
+# Adapters/scripts/tests/run.sh). That case is covered by the server's
+# deletion rule and by Standards/GIT_STANDARD.md, which forbids `--mirror`
+# outright, not by this hook.
 #
 # This is a LOCAL echo of the server rules in
 # Adapters/scripts/setup-branch-protection.sh (classic protection on

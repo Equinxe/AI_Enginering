@@ -2201,7 +2201,7 @@ expect 1 "a multi-ref push with develop after an allowed feature ref is refused"
   "${PP[@]}" "refs/heads/feature/x $PP_NEW refs/heads/feature/x $PP_OLD" \
      "refs/heads/develop $PP_NEW refs/heads/develop $PP_OLD"
 expect_output "direct push to 'develop' is not allowed"
-expect 1 "a multi-ref push (--all / --mirror shape) touching main is refused" -- \
+expect 1 "a multi-ref push (feature, tag, then main) touching main is refused" -- \
   "${PP[@]}" "refs/heads/feature/x $PP_NEW refs/heads/feature/x $PP_ZERO" \
      "refs/tags/v1.0.0 $PP_NEW refs/tags/v1.0.0 $PP_ZERO" \
      "refs/heads/main $PP_NEW refs/heads/main $PP_OLD"
@@ -2220,6 +2220,7 @@ expect 1 "a fast-forward to an existing release branch is refused (RELEASE.md St
 expect_output "direct push to existing release branch 'release/v9.9.9' is not allowed"
 expect 1 "a force-push to a release branch is refused" -- \
   "${PP[@]}" "refs/heads/side $PP_SIDE refs/heads/release/v9.9.9 $PP_NEW"
+expect_output "direct push to existing release branch 'release/v9.9.9' is not allowed"
 expect 1 "deleting a release branch is refused (RELEASE.md Step 10)" -- \
   "${PP[@]}" "(delete) $PP_ZERO refs/heads/release/v9.9.9 $PP_NEW"
 expect_output "deleting release branch 'release/v9.9.9' is not allowed"
@@ -2240,6 +2241,48 @@ expect 0 "a tag under refs/tags/release/ is not a release branch" -- \
   "${PP[@]}" "refs/tags/release/v1 $PP_NEW refs/tags/release/v1 $PP_ZERO"
 expect 0 "an empty push (nothing on stdin) is allowed" -- \
   bash "$PREPUSH" origin https://example.invalid/repo.git < /dev/null
+
+# --- The documented limit, pinned with a REAL push (SEC-IAENG-179-01). ---
+# `git push --mirror` deletes a remote branch that is absent locally without
+# reporting that deletion to pre-push: the hook runs, receives no line for
+# it, and the branch is gone (observed on git 2.54). The hook header and
+# Adapters/README.md say so; the server deletion rule and GIT_STANDARD's ban
+# on --mirror cover the case. If git ever starts reporting these deletions,
+# the mirror case below fails and the documentation can be tightened.
+#
+# The hook is installed as a wrapper that logs the stdin it receives, and an
+# explicit deletion first proves the installed hook really runs here.
+PPM_REMOTE="$WORK/pre-push-mirror-remote.git"
+PPM_LOG="$WORK/pre-push-mirror-calls.log"
+rm -rf "$PPM_REMOTE" "$PPM_LOG"
+git init -q --bare "$PPM_REMOTE"
+new_repo pre-push-mirror
+git branch -q -m main feature/x
+git branch -q release/v1
+git push -q "$PPM_REMOTE" feature/x release/v1
+cat > .git/hooks/pre-push <<HOOK
+#!/usr/bin/env bash
+input="\$(cat)"
+printf '%s\n' "\$input" >> "$PPM_LOG"
+echo "--- call end" >> "$PPM_LOG"
+printf '%s\n' "\$input" | bash "$PREPUSH" "\$@"
+HOOK
+chmod +x .git/hooks/pre-push
+
+expect 1 "control: the installed hook refuses an explicit release-branch deletion" -- \
+  git push -q "$PPM_REMOTE" :refs/heads/release/v1
+expect_output "deleting release branch 'release/v1' is not allowed"
+git branch -q -D release/v1
+expect 0 "limit: a mirror push deletes release/v1 without the hook refusing it" -- \
+  git push -q --mirror "$PPM_REMOTE"
+expect 1 "limit: release/v1 is gone from the remote after the mirror push" -- \
+  git --git-dir="$PPM_REMOTE" rev-parse -q --verify refs/heads/release/v1
+PPM_CALLS="$(grep -c -- '^--- call end' "$PPM_LOG")"
+PPM_NAMED="$(grep -c 'refs/heads/release/v1' "$PPM_LOG")"
+expect 0 "limit: the hook ran for both pushes (2 calls, got $PPM_CALLS)" -- \
+  test "$PPM_CALLS" = 2
+expect 0 "limit: only the explicit deletion named release/v1 (1 line, got $PPM_NAMED)" -- \
+  test "$PPM_NAMED" = 1
 
 # --------------------------------------------------------------- verdict ----
 
