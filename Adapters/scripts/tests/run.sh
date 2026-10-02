@@ -2368,6 +2368,210 @@ expect 1 "a multi-hunk resolution with one new line is refused at that line" -- 
 expect_output "app.conf:3"
 expect_output "7 added line(s)"
 
+# ------------- pr-validation.yml — graders cannot be reconfigured by a PR -----
+# WU-IAENG-310. The required checks run inside the PR's own checkout, so a
+# grader that resolves its configuration from that tree can be reconfigured by
+# the change it grades. These are content guards on the workflow (the Adapter
+# and this repository's installed copy), so the hardenings cannot regress
+# silently. They assert INVARIANTS over every code line (comments are stripped
+# first, so a comment cannot satisfy or trip a guard): every shellcheck call
+# carries --norc, every npx call is the pinned, isolated one.
+#
+# Literals containing a dollar sign come from a quoted heredoc rather than a
+# single-quoted string, so shellcheck (which grades this file) sees no
+# expansion to warn about and no suppression directive is needed.
+
+PRV_NPX_LITERAL="$(cat <<'LITERAL'
+(cd "$GRADER_DIR" && npx --yes -q "js-yaml@${JS_YAML_VERSION}"
+LITERAL
+)"
+PRV_TRAP_LITERAL="$(cat <<'LITERAL'
+trap 'rm -rf "$GRADER_DIR"' EXIT
+LITERAL
+)"
+PRV_MKTEMP_LITERAL="$(cat <<'LITERAL'
+GRADER_DIR="$(mktemp -d)"
+LITERAL
+)"
+PRV_CACHE_LITERAL="$(cat <<'LITERAL'
+export NPM_CONFIG_CACHE="$GRADER_DIR/npm-cache"
+LITERAL
+)"
+PRV_LOOP_LITERAL="$(cat <<'LITERAL'
+for f in "${YAML_FILES[@]}"; do
+LITERAL
+)"
+
+# prv_code <file> — the workflow with comment lines and trailing comments removed.
+prv_code() {
+  sed -E -e '/^[[:space:]]*#/d' -e 's/[[:space:]]#.*//' "$1"
+}
+
+# prv_line_of <file> <literal> — line number of the first code line containing it.
+prv_line_of() {
+  prv_code "$1" | grep -nF -m1 -- "$2" | cut -d: -f1
+}
+
+# prv_guard <file> — exit 0 when every grader-isolation invariant holds,
+# otherwise print what is broken and exit 1.
+prv_guard() {
+  local file="$1" bad=0 n line loop_at at sc_calls
+  sc_calls="$(prv_code "$file" | grep -E '(^|[;&|(])[[:space:]]*shellcheck([[:space:]]|$)')"
+  if [ -z "$sc_calls" ]; then
+    echo "no shellcheck invocation found"; bad=1
+  fi
+  while IFS= read -r line; do
+    [ -z "$line" ] && continue
+    case "$line" in
+      *--norc*) ;;
+      *) if ! printf '%s\n' "$line" | grep -Eq '^[[:space:]]*shellcheck --version[[:space:]]*$'; then
+           echo "shellcheck call without --norc: $line"; bad=1
+         fi ;;
+    esac
+  done <<< "$sc_calls"
+  if ! printf '%s\n' "$sc_calls" | grep -q -- '--norc -x'; then
+    echo "the grading shellcheck call is missing"; bad=1
+  fi
+
+  n="$(prv_code "$file" | grep -c 'npx')"
+  if [ "$n" -lt 1 ]; then
+    echo "no npx invocation found"; bad=1
+  fi
+  while IFS= read -r line; do
+    [ -z "$line" ] && continue
+    case "$line" in
+      *"$PRV_NPX_LITERAL"*) ;;
+      *) echo "npx call is not the pinned, isolated one: $line"; bad=1 ;;
+    esac
+  done < <(prv_code "$file" | grep 'npx')
+
+  if ! prv_code "$file" | grep -Eq '^[[:space:]]*JS_YAML_VERSION="[0-9]+\.[0-9]+\.[0-9]+"'; then
+    echo "JS_YAML_VERSION is not an exact x.y.z"; bad=1
+  fi
+  if ! prv_code "$file" | grep -qF -- "$PRV_MKTEMP_LITERAL"; then
+    echo "grader directory is not created with mktemp -d"; bad=1
+  fi
+  if ! prv_code "$file" | grep -qF -- "$PRV_TRAP_LITERAL"; then
+    echo "no trap removing the grader directory"; bad=1
+  fi
+  loop_at="$(prv_line_of "$file" "$PRV_LOOP_LITERAL")"
+  for at in 'export NPM_CONFIG_USERCONFIG=/dev/null' "$PRV_CACHE_LITERAL"; do
+    n="$(prv_line_of "$file" "$at")"
+    if [ -z "$n" ] || [ -z "$loop_at" ] || [ "$n" -ge "$loop_at" ]; then
+      echo "missing, or not before the parse loop: $at"; bad=1
+    fi
+  done
+  return "$bad"
+}
+
+# prv_expect <expected-exit> <description> <file> — like expect, but calls
+# prv_guard directly (shellcheck cannot see a function named only as an
+# argument to expect, and reports it as never invoked).
+prv_expect() {
+  local want="$1" desc="$2" file="$3" got
+  TOTAL=$((TOTAL + 1))
+  LAST_OUTPUT="$(prv_guard "$file" 2>&1)"
+  got=$?
+  if [ "$got" = "$want" ]; then
+    [ -n "$VERBOSE" ] && printf '   ok   %s\n' "$desc"
+    return 0
+  fi
+  printf '   FAIL %s\n' "$desc"
+  printf '        expected exit %s, got %s\n' "$want" "$got"
+  printf '%s\n' "$LAST_OUTPUT" | sed 's/^/        | /'
+  FAILED=$((FAILED + 1))
+  return 1
+}
+
+for PRV in "$SCRIPTS/../github-actions/pr-validation.yml" "$SCRIPTS/../../.github/workflows/pr-validation.yml"; do
+  PRV_NAME="${PRV#"$SCRIPTS"/../}"
+  prv_expect 0 "$PRV_NAME: grader-isolation invariants hold" "$PRV"
+done
+
+# Mutation cases: the same guard, fed a workflow with one hardening undone, must
+# fail. Without these the guard could pass on anything.
+PRV_SRC="$SCRIPTS/../github-actions/pr-validation.yml"
+mkdir -p "$WORK/prv-mut"
+prv_mutant() { # <name> <sed args...>
+  local name="$1"; shift
+  sed -E "$@" "$PRV_SRC" > "$WORK/prv-mut/$name.yml"
+}
+prv_mutant no-norc         -e 's/shellcheck --norc/shellcheck/'
+prv_mutant unpinned-latest -e 's/js-yaml@[$]\{JS_YAML_VERSION\}/js-yaml@latest/'
+prv_mutant unpinned-major  -e 's/^([[:space:]]*JS_YAML_VERSION=")[0-9.]+"/\14"/'
+prv_mutant cd-elsewhere    -e 's/GRADER_DIR" && npx/PWD" \&\& npx/'
+prv_mutant no-userconfig   -e '/export NPM_CONFIG_USERCONFIG/d'
+prv_mutant no-cache        -e '/export NPM_CONFIG_CACHE/d'
+prv_mutant no-trap         -e '/^[[:space:]]*trap /d'
+prv_mutant no-mktemp       -e 's/mktemp -d/pwd/'
+{ cat "$PRV_SRC"; printf '          shellcheck -x extra.sh\n'; } > "$WORK/prv-mut/bare-second-call.yml"
+{ cat "$PRV_SRC"; printf '          npx --yes -q js-yaml extra.yml\n'; } > "$WORK/prv-mut/bare-npx.yml"
+# --norc kept only in a comment: the guard must not be satisfied by it.
+{ sed -E 's/shellcheck --norc/shellcheck/' "$PRV_SRC"; printf '          # shellcheck --norc -x is only mentioned in a comment\n'; } > "$WORK/prv-mut/comment-only.yml"
+for m in no-norc unpinned-latest unpinned-major cd-elsewhere no-userconfig no-cache no-trap no-mktemp bare-second-call bare-npx comment-only; do
+  prv_expect 1 "guard rejects the mutant: $m" "$WORK/prv-mut/$m.yml"
+done
+
+# ------------------------------------- check-control-paths.sh (WU-IAENG-309) --
+
+CHECK_CP="$SCRIPTS/check-control-paths.sh"
+
+# CP_RUN <printf-%b-text-of-the-path-list> [-z]
+CP_RUN=(bash -c "printf '%b' \"\$1\" | bash '$CHECK_CP' \"\${@:2}\"" _)
+
+section "check-control-paths.sh — the pull_request_target guard's path matcher (WU-IAENG-309)"
+
+expect 0 "ordinary source and docs paths are not control paths" -- "${CP_RUN[@]}" 'src/app.c\nREADME.md\ndocs/a.md\n'
+expect_output "none of the 3"
+expect 0 "an empty change list passes" -- "${CP_RUN[@]}" ''
+expect 1 "a workflow file is a control path" -- "${CP_RUN[@]}" 'src/a.c\n.github/workflows/pr-validation.yml\n'
+expect_output "control path touched: .github/workflows/pr-validation.yml"
+expect 1 "the Adapter copy of a workflow is a control path" -- "${CP_RUN[@]}" 'Adapters/github-actions/data-policy.yml\n'
+expect 1 "a git hook is a control path" -- "${CP_RUN[@]}" 'Adapters/git-hooks/commit-msg\n'
+expect 1 "a check script is a control path" -- "${CP_RUN[@]}" 'Adapters/scripts/check-employee-trailers.sh\n'
+expect 1 "a check script test is a control path" -- "${CP_RUN[@]}" 'Adapters/scripts/tests/run.sh\n'
+expect 1 "the suppression pattern file is a control path" -- "${CP_RUN[@]}" 'Adapters/scripts/suppression-patterns.tsv\n'
+expect 1 "a runtime hook at depth is a control path" -- "${CP_RUN[@]}" 'Adapters/ai-runtimes/claude-code/hooks/tests/x.tsv\n'
+expect 0 "a runtime file outside hooks/ is not" -- "${CP_RUN[@]}" 'Adapters/ai-runtimes/claude-code/README.md\n'
+expect 1 ".claude/settings.json is a control path" -- "${CP_RUN[@]}" '.claude/settings.json\n'
+expect 1 "the roster is a control path" -- "${CP_RUN[@]}" 'Registry/employees.yml\n'
+expect 0 "another registry file is not" -- "${CP_RUN[@]}" 'Registry/work-units.yml\n'
+expect 1 "an allow file is a control path" -- "${CP_RUN[@]}" '.ia-engineering/suppression.allow\n'
+expect 1 "the risk map is a control path" -- "${CP_RUN[@]}" '.ia-engineering/risk-map.yml\n'
+expect 1 "the root ignore file is a control path" -- "${CP_RUN[@]}" '.gitignore\n'
+expect 1 "the root attributes file is a control path" -- "${CP_RUN[@]}" '.gitattributes\n'
+expect 1 "an attributes file at depth is a control path" -- "${CP_RUN[@]}" 'vendor/lib/deep/.gitattributes\n'
+expect 1 "docs/CODEOWNERS is a control path" -- "${CP_RUN[@]}" 'docs/CODEOWNERS\n'
+expect 1 "a .shellcheckrc at the root is a control path" -- "${CP_RUN[@]}" '.shellcheckrc\n'
+expect 1 "a .shellcheckrc at depth is a control path" -- "${CP_RUN[@]}" 'Adapters/x/y/.shellcheckrc\n'
+expect 1 "an .npmrc at the root is a control path" -- "${CP_RUN[@]}" '.npmrc\n'
+expect 1 "an .npmrc at depth is a control path" -- "${CP_RUN[@]}" 'tools/web/.npmrc\n'
+expect 1 "the root package.json is a control path" -- "${CP_RUN[@]}" 'package.json\n'
+expect 1 "package-lock.json is a control path" -- "${CP_RUN[@]}" 'package-lock.json\n'
+expect 1 "node_modules content is a control path" -- "${CP_RUN[@]}" 'node_modules/.bin/x\n'
+expect 0 "a nested package.json is not" -- "${CP_RUN[@]}" 'examples/app/package.json\n'
+expect 1 "a runtime settings example is a control path" -- "${CP_RUN[@]}" 'Adapters/ai-runtimes/claude-code/settings.example.json\n'
+expect 1 "a runtime install-hooks.sh is a control path" -- "${CP_RUN[@]}" 'Adapters/ai-runtimes/claude-code/install-hooks.sh\n'
+expect 1 "generate-agents.sh is a control path" -- "${CP_RUN[@]}" 'Adapters/ai-runtimes/generate-agents.sh\n'
+expect 0 ".claude/agents stays out of the list" -- "${CP_RUN[@]}" '.claude/agents/x.md\n.claude/commands/y.md\n'
+expect 1 ".gitmodules is a control path"-- "${CP_RUN[@]}" '.gitmodules\n'
+expect 1 "the ia-engineering gitlink is a control path" -- "${CP_RUN[@]}" 'ia-engineering\n'
+expect 0 "a file merely inside a similarly named directory is not the gitlink" -- "${CP_RUN[@]}" 'docs/ia-engineering\nia-engineering-notes.md\n'
+expect 1 "matching is case-insensitive (fail closed)" -- "${CP_RUN[@]}" '.GitHub/Workflows/x.yml\n'
+expect 1 "a name with a space is matched, not split" -- "${CP_RUN[@]}" 'Adapters/scripts/a b.sh\n'
+expect 1 "a leading-dash name under a control path is matched" -- "${CP_RUN[@]}" 'Adapters/scripts/-rf\n'
+expect 0 "a leading-dash ordinary name is inert" -- "${CP_RUN[@]}" '-rf\n'
+expect 1 "a .. component is refused, not trusted" -- "${CP_RUN[@]}" 'src/../Adapters/scripts/x\n'
+expect 1 "an absolute path is refused" -- "${CP_RUN[@]}" '/etc/passwd\n'
+expect 1 "a ./ component is refused" -- "${CP_RUN[@]}" './src/a.c\n'
+# The NUL-delimited form is what the workflow feeds: a newline inside a name
+# must not split it into a second, control-looking, path.
+expect 0 "a newline inside a name does not fabricate a control path (-z)" -- "${CP_RUN[@]}" 'src/x\n.github/workflows/y\0' -z
+expect_output "none of the 1"
+expect 1 "a newline before a real control path still flags it (-z)" -- "${CP_RUN[@]}" 'a\nb\0.github/workflows/y\0' -z
+expect 1 "one control path among many NUL-delimited names (-z)" -- "${CP_RUN[@]}" 'a b\0-x\0Adapters/git-hooks/pre-push\0c\0' -z
+expect 2 "an unknown option is a usage error" -- "${CP_RUN[@]}" 'a\n' --bogus
+
 # --------------------------------------------------------------- verdict ----
 
 cd "$HERE" || exit 1
