@@ -206,7 +206,7 @@ Each item names what actually performs it. A checklist item whose mechanism is u
 - [ ] `.github/workflows/pr-validation.yml`
 - [ ] `.github/workflows/framework-validation.yml`
 - [ ] `.github/workflows/data-policy.yml`
-- [ ] `.github/workflows/control-path-guard.yml` — installed, but inert until the Director has set the repository variable `IAENG_DIRECTOR_LOGIN`, created the label `control-change/approved`, and the file has reached the default branch (Step 4 item 1)
+- [ ] `.github/workflows/control-path-guard.yml` — installed; does not run until it reaches the default branch, and fails closed on PRs that touch control paths until the Director sets `IAENG_DIRECTOR_LOGIN` and creates the `control-change/approved` label (Step 4 item 1)
 - [ ] `.github/workflows/ci-build-test.yml`
 - [ ] `.github/workflows/ghcr-publish.yml`
 - [ ] `.github/PULL_REQUEST_TEMPLATE.md`
