@@ -1164,3 +1164,9 @@ work_units:
     title: Make block-inline-suppression fail closed on an unreadable payload (DEF-4 of the end-to-end adoption test) - with jq present an unparseable payload left the text empty and the write was allowed; a shared iaeng_require_object refuses empty, non-object or multi-value input while a readable payload with no text is still allowed; the no-jq fallback gap is stated honestly
     milestone: Precision
     delivers: Adapters/ai-runtimes/claude-code/hooks/lib.sh, Adapters/ai-runtimes/claude-code/hooks/block-inline-suppression.sh, Adapters/ai-runtimes/claude-code/hooks/tests/run.sh, Adapters/ai-runtimes/claude-code/hooks/README.md, Adapters/ai-runtimes/README.md, Adapters/ai-runtimes/claude-code/settings.example.json, .claude/settings.json, Registry/work-units.yml
+
+  - id: WU-IAENG-321
+    employee: Technical Writer
+    title: Fix the documentation defects of the adoption-path acceptance test (issue 181) - Work Unit line enforcement stated as at most one locally and exactly one in CI; the bootstrap handoff instructs CLAUDE.md and SESSION_STATE creation; Step 4 and the checklist name the guard, stack declaration and the guard prerequisites; README makes the Claude Code hook and skill installs required; Adapters README cites ONBOARDING Step 1 item 4; ONBOARDING version refreshed
+    milestone: Precision
+    delivers: Standards/COMMIT_STANDARD.md, Workflows/PROJECT_BOOTSTRAP.md, Workflows/ONBOARDING.md, README.md, Adapters/README.md, Registry/work-units.yml
