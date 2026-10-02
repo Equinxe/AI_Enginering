@@ -810,10 +810,14 @@ expect_output "/tmp/notes.md"
 # back-merge was needed only if a fix landed on the release branch. Workflows/
 # RELEASE.md Step 8 says it is always required (Step 6 leaves a merge commit
 # on main that develop never sees). Extract the shipped heredoc, not a copy.
+publish_closing_text() {
+  sed -n "/^  cat <<.REMAINING.\$/,/^REMAINING\$/p" "$SCRIPTS/release.sh" | tr -s ' \n' '  '
+}
+publish_closing_has() { publish_closing_text | grep -qF -- "$1"; }
 expect 0 "publish closing text: Step 8 back-merge is stated as always required" -- \
-  bash -c 'sed -n "/^  cat <<.REMAINING.\$/,/^REMAINING\$/p" "$1" | tr -s " \n" "  " | grep -F "Back-merge to develop via Pull Request. ALWAYS required, on every release"' _ "$SCRIPTS/release.sh"
+  publish_closing_has "Back-merge to develop via Pull Request. ALWAYS required, on every release"
 expect 1 "publish closing text no longer says the back-merge is conditional" -- \
-  bash -c 'sed -n "/^  cat <<.REMAINING.\$/,/^REMAINING\$/p" "$1" | tr -s " \n" "  " | grep -F "Not needed when the release branch never diverged"' _ "$SCRIPTS/release.sh"
+  publish_closing_has "Not needed when the release branch never diverged"
 
 # Exit 3 again, and it must leave the directory behind: check-review-recorded
 # treats an ABSENT directory as a broken pipeline and an EMPTY one as "read,
