@@ -145,6 +145,8 @@ expect_rc "inline-suppression: an unparseable payload fails closed" 2 "$HOOKS/bl
 expect_rc "inline-suppression: a truncated JSON payload fails closed" 2 "$HOOKS/block-inline-suppression.sh" '{"tool_name":"Write","tool_input":{"file_path":"a.py","content":"x'
 expect_rc "inline-suppression: empty stdin fails closed" 2 "$HOOKS/block-inline-suppression.sh" ''
 expect_rc "inline-suppression: valid JSON that is not an object fails closed" 2 "$HOOKS/block-inline-suppression.sh" '[1,2]'
+# jq judges a stream by its last value; two objects must not pass as one.
+expect_rc "inline-suppression: two concatenated JSON objects fail closed" 2 "$HOOKS/block-inline-suppression.sh" '{"tool_name":"Bash"} {"tool_name":"Write","tool_input":{"file_path":"a.py"}}'
 expect_rc "inline-suppression: a readable payload with no text to check is allowed" 0 "$HOOKS/block-inline-suppression.sh" '{"tool_name":"Write","tool_input":{"file_path":"a.py"}}'
 expect_rc "inline-suppression: an empty object is readable and has nothing to check" 0 "$HOOKS/block-inline-suppression.sh" '{}'
 # The patterns are read from Adapters/scripts/suppression-patterns.tsv, shared
