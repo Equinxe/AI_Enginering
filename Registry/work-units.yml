@@ -1128,3 +1128,9 @@ work_units:
     title: Refuse an agent command that applies the Director-only approval labels control-change/approved and size/approved - a local speed bump in the escape-hatch hook, not a boundary, covering gh pr/issue edit and create, gh api label writes and gh label rename or create
     milestone: Precision
     delivers: Adapters/ai-runtimes/claude-code/hooks/block-escape-hatches.sh, Adapters/ai-runtimes/claude-code/hooks/tests/escape-hatch-cases.tsv, Adapters/ai-runtimes/claude-code/hooks/README.md, Registry/work-units.yml
+
+  - id: WU-IAENG-317
+    employee: DevOps Engineer
+    title: Fix the advisory Review Recorded job failing at actions/checkout (issue 180) - its permissions block omitted contents read so the token could not read the repository; grant it, and guard that every shipped job which checks out and declares permissions grants contents read
+    milestone: Precision
+    delivers: Adapters/github-actions/pr-validation.yml, .github/workflows/pr-validation.yml, Adapters/scripts/tests/run.sh, Registry/work-units.yml
