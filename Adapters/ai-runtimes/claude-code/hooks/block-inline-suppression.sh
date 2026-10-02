@@ -19,6 +19,11 @@
 # shellcheck source=lib.sh
 . "$(dirname "$0")/lib.sh"
 
+# Unreadable payload is refused BEFORE any field is read: an empty TOOL or TEXT
+# below means "nothing to check" and exits 0, which an unparseable payload would
+# otherwise be mistaken for.
+iaeng_require_object
+
 TOOL="$(iaeng_field '.tool_name')"
 case "$TOOL" in ""|Edit|Write|MultiEdit) ;; *) exit 0 ;; esac
 
@@ -105,9 +110,10 @@ if [ -n "$FILE" ]; then
 fi
 
 # Every string the edit would write. With jq: new_string, content, and each
-# MultiEdit edit's new_string. Without jq: the raw payload — the patterns are
-# distinctive enough that matching the whole JSON is a safe over-approximation
-# (it can block, never allow, more than the exact text would).
+# MultiEdit edit's new_string. Without jq: the raw payload, JSON escapes still
+# encoded. That is NOT a safe over-approximation: a directive containing an
+# escaped character (a tab) and the line-anchored rules do not match the encoded
+# form, so this mode can under-block. Install jq (hooks/README.md, Fail closed).
 if iaeng_have_jq; then
   TEXT="$(printf '%s' "$IAENG_INPUT" \
     | jq -r '.tool_input | [.new_string?, .content?, (.edits[]?.new_string?)] | .[] | select(. != null)' 2>/dev/null)"
