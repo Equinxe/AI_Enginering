@@ -1164,3 +1164,8 @@ work_units:
     title: Fix the documentation defects of the adoption-path acceptance test (issue 181) - Work Unit line enforcement stated as at most one locally and exactly one in CI; the bootstrap handoff instructs CLAUDE.md and SESSION_STATE creation; Step 4 and the checklist name the guard, stack declaration and the guard prerequisites; README makes the Claude Code hook and skill installs required; Adapters README cites ONBOARDING Step 1 item 4; ONBOARDING version refreshed
     milestone: Precision
     delivers: Standards/COMMIT_STANDARD.md, Workflows/PROJECT_BOOTSTRAP.md, Workflows/ONBOARDING.md, README.md, Adapters/README.md, Registry/work-units.yml
+  - id: WU-IAENG-322
+    employee: Release Manager
+    title: Fix the closing text of release.sh publish, which said the Step 8 back-merge was conditional where Workflows/RELEASE.md says it is always required
+    milestone: Precision
+    delivers: Adapters/scripts/release.sh, Adapters/scripts/tests/run.sh, Registry/work-units.yml
