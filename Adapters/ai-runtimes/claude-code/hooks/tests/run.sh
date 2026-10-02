@@ -91,8 +91,9 @@ else
 fi
 
 # --- Payload handling, common to every hook ---------------------------------
-# Two properties every hook shares: it fails closed on input it cannot read,
-# and it ignores tool calls that are not its own.
+# Two properties checked here: the guard hooks (block-escape-hatches,
+# block-inline-suppression) fail closed on input they cannot read, and each
+# hook ignores tool calls that are not its own.
 
 echo "== payload handling"
 
