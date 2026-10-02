@@ -49,6 +49,7 @@
 /.github/workflows/pr-validation.yml         linguist-generated=true
 /.github/workflows/framework-validation.yml  linguist-generated=true
 /.github/workflows/data-policy.yml           linguist-generated=true
+/.github/workflows/control-path-guard.yml    linguist-generated=true
 /.github/PULL_REQUEST_TEMPLATE.md            linguist-generated=true
 /.github/ISSUE_TEMPLATE/bug_report.md        linguist-generated=true
 /.github/ISSUE_TEMPLATE/feature_request.md   linguist-generated=true

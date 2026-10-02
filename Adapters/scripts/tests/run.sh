@@ -1824,12 +1824,16 @@ REAL_GIT="$(command -v git)"
 mkdir -p "$WORK/shim-old"
 cat > "$WORK/shim-old/git" <<SHIM
 #!/usr/bin/env bash
-if [ "\$1" = "version" ]; then echo "git version 2.30.0"; exit 0; fi
+if [ "\$1" = "version" ]; then echo "git version 2.39.5"; exit 0; fi
 exec "$REAL_GIT" "\$@"
 SHIM
 chmod +x "$WORK/shim-old/git"
-expect 1 "git older than 2.38 fails closed" -- env PATH="$WORK/shim-old:$PATH" bash "$CHECK_EMP" "$BASE" HEAD
+# 2.39, not anything older: it has merge-tree --write-tree but not
+# --attr-source, so it pins the floor the attribute pin raised to 2.40
+# (SEC-IAENG-313-01).
+expect 1 "git older than 2.40 fails closed" -- env PATH="$WORK/shim-old:$PATH" bash "$CHECK_EMP" "$BASE" HEAD
 expect_output "cannot classify"
+expect_output "2.40"
 
 # Fail closed: a git whose merge-tree errors must not turn into a pass.
 mk_emp_merge_repo mrg-shim
@@ -1838,12 +1842,257 @@ REAL_GIT="$(command -v git)"
 mkdir -p "$WORK/shim"
 cat > "$WORK/shim/git" <<SHIM
 #!/usr/bin/env bash
-if [ "\$1" = "merge-tree" ]; then exit 128; fi
+# Any argument, not just \$1: the classifier calls
+# 'git --attr-source=<tree> merge-tree', so merge-tree is not first.
+for a in "\$@"; do [ "\$a" = "merge-tree" ] && exit 128; done
 exec "$REAL_GIT" "\$@"
 SHIM
 chmod +x "$WORK/shim/git"
 expect 1 "a merge the classifier cannot run on fails closed" -- env PATH="$WORK/shim:$PATH" bash "$CHECK_EMP" "$BASE" HEAD
 expect_output "could not be classified"
+
+# ----------------------- merge attribution: check-work-units.sh ---------------
+
+section "check-work-units.sh — merge attribution (WU-IAENG-313, PT2-03)"
+
+# mk_wu_merge_repo <name> — registry committed, then main and `side` diverge,
+# each with a registered Work Unit trailer. BASE is the registry commit.
+# Leaves the shell on main, ready to merge side.
+mk_wu_merge_repo() {
+  new_repo "$1"
+  write_wu_registry WU-TEST-001 WU-TEST-002
+  git add -A && git commit -q -m "registry"
+  BASE="$(git rev-parse HEAD)"
+  git checkout -qb side
+  echo side > side.txt && git add -A && git commit -q -m "side work
+
+Work Unit: WU-TEST-001"
+  git checkout -q main
+  echo main > main.txt && git add -A && git commit -q -m "main work
+
+Work Unit: WU-TEST-001"
+}
+
+mk_wu_merge_repo wmrg-clean
+git merge -q --no-ff side -m "Merge branch 'side'"
+expect 0 "a clean merge with no Work Unit trailer passes" -- bash "$CHECK_WU" "$BASE" HEAD
+expect_output "merge, no content of its own"
+
+# This is the PT2-03 repro: before WU-IAENG-313 the script ran
+# `git rev-list --no-merges`, never saw the merge, and exited 0 here.
+mk_wu_merge_repo wmrg-authored
+git merge -q --no-commit --no-ff side
+echo extra > extra.txt && git add extra.txt
+git commit -q -m "Merge branch 'side'"
+expect 1 "an authored merge with no Work Unit trailer fails" -- bash "$CHECK_WU" "$BASE" HEAD
+expect_output "Merge "
+expect_output "carries no 'Work Unit: <WU-ID>' trailer"
+
+mk_wu_merge_repo wmrg-authored-ok
+git merge -q --no-commit --no-ff side
+echo extra > extra.txt && git add extra.txt
+git commit -q -m "Merge branch 'side'
+
+Work Unit: WU-TEST-002"
+expect 0 "an authored merge with a registered Work Unit trailer passes" -- bash "$CHECK_WU" "$BASE" HEAD
+
+mk_wu_merge_repo wmrg-authored-unregistered
+git merge -q --no-commit --no-ff side
+echo extra > extra.txt && git add extra.txt
+git commit -q -m "Merge branch 'side'
+
+Work Unit: WU-TEST-999"
+expect 1 "an authored merge naming an unregistered Work Unit fails" -- bash "$CHECK_WU" "$BASE" HEAD
+expect_output "WU-TEST-999"
+
+new_repo wmrg-conflict
+write_wu_registry WU-TEST-001
+echo base > c.txt
+git add -A && git commit -q -m "registry"
+BASE="$(git rev-parse HEAD)"
+git checkout -qb side
+echo side > c.txt && git add -A && git commit -q -m "side edit
+
+Work Unit: WU-TEST-001"
+git checkout -q main
+echo main > c.txt && git add -A && git commit -q -m "main edit
+
+Work Unit: WU-TEST-001"
+git merge --no-commit --no-ff side > /dev/null 2>&1
+echo resolved > c.txt && git add c.txt
+git commit -q -m "Merge branch 'side'"
+expect 1 "a conflict-resolved merge with no Work Unit trailer fails" -- bash "$CHECK_WU" "$BASE" HEAD
+
+mk_wu_merge_repo wmrg-octopus
+git checkout -qb side2 "$BASE"
+echo s2 > side2.txt && git add -A && git commit -q -m "side2 work
+
+Work Unit: WU-TEST-001"
+git checkout -q main
+git merge -q --no-ff side side2 -m "Merge branches 'side', 'side2'" > /dev/null 2>&1
+expect 1 "a clean octopus merge with no Work Unit trailer fails (never classified)" -- bash "$CHECK_WU" "$BASE" HEAD
+
+mk_wu_merge_repo wmrg-ours
+git merge -q -s ours --no-ff side -m "Merge branch 'side'"
+expect 1 "a -s ours merge, no Work Unit trailer, fails" -- bash "$CHECK_WU" "$BASE" HEAD
+
+# Fail closed on a git too old to classify.
+mk_wu_merge_repo wmrg-old-git
+git merge -q --no-ff side -m "Merge branch 'side'"
+expect 1 "git older than 2.40 fails closed (work units)" -- env PATH="$WORK/shim-old:$PATH" bash "$CHECK_WU" "$BASE" HEAD
+expect_output "cannot classify"
+expect_output "2.40"
+
+# Fail closed: a git whose merge-tree errors must not turn into a pass.
+mk_wu_merge_repo wmrg-shim
+git merge -q --no-ff side -m "Merge branch 'side'"
+expect 1 "a merge the classifier cannot run on fails closed (work units)" -- env PATH="$WORK/shim:$PATH" bash "$CHECK_WU" "$BASE" HEAD
+expect_output "could not be classified"
+
+# The grandfather list is a constant inside the script, never a data file
+# (SEC-IAENG-307-01). Fixture shas cannot be predicted, so the mechanism is
+# exercised on a COPY of the scripts whose constant names the fixture merge.
+# The two real grandfathered shas are exercised by running the check over
+# v0.0.13..develop, recorded in the PR.
+mk_wu_merge_repo wmrg-grandfathered
+git merge -q --no-commit --no-ff side
+echo extra > extra.txt && git add extra.txt
+git commit -q -m "Merge branch 'side'"
+GF_SHA="$(git rev-parse HEAD)"
+mkdir -p "$WORK/gf-scripts"
+cp "$CHECK_WU" "$SCRIPTS/merge-classify.sh" "$WORK/gf-scripts/"
+sed -i "s/^readonly GRANDFATHERED_MERGES=\"/readonly GRANDFATHERED_MERGES=\"$GF_SHA /" "$WORK/gf-scripts/check-work-units.sh"
+expect 0 "a grandfathered authored merge passes" -- bash "$WORK/gf-scripts/check-work-units.sh" "$BASE" HEAD
+expect_output "grandfathered"
+expect 1 "the same merge fails without the constant naming it" -- bash "$CHECK_WU" "$BASE" HEAD
+
+# A grandfathered merge is skipped before the any-merge claim validation: its
+# Work Unit line is history, not a claim the check vouches for (d097e2ed, the
+# v0.0.13 back-merge, claims a never-registered WU-IAENG-259).
+mk_wu_merge_repo wmrg-grandfathered-claim
+git merge -q --no-ff side -m "Merge branch 'side'
+
+Work Unit: WU-TEST-999"
+GFC_SHA="$(git rev-parse HEAD)"
+mkdir -p "$WORK/gfc-scripts"
+cp "$CHECK_WU" "$SCRIPTS/merge-classify.sh" "$WORK/gfc-scripts/"
+sed -i "s/^readonly GRANDFATHERED_MERGES=\"/readonly GRANDFATHERED_MERGES=\"$GFC_SHA /" "$WORK/gfc-scripts/check-work-units.sh"
+expect 0 "a grandfathered merge's unregistered Work Unit claim is not judged" -- bash "$WORK/gfc-scripts/check-work-units.sh" "$BASE" HEAD
+expect_output "grandfathered"
+expect 1 "the same claim fails without the constant naming it" -- bash "$CHECK_WU" "$BASE" HEAD
+expect_output "WU-TEST-999"
+
+# The shipped list is exactly these three shas: widening it is a control
+# change that must name itself here.
+GF_SHIPPED="$(sed -n 's/^readonly GRANDFATHERED_MERGES="\(.*\)"$/\1/p' "$CHECK_WU" | tr ' ' '\n' | sort | tr '\n' ' ')"
+expect 0 "check-work-units.sh grandfathers exactly the three known merges" -- \
+  test "$GF_SHIPPED" = "3babf69d9664ddb590acd7381a99fa90d1e40f70 93c850a754a26a050b621d52ac1881645d21be5f d097e2ed66e3e2c45454725664b20abd94b07968 "
+
+# A data file planted in the tree must not exempt a merge.
+mkdir -p Registry ia-engineering/Registry
+echo "$GF_SHA planted by the PR under test" > Registry/merge-attribution-exceptions.txt
+cp Registry/merge-attribution-exceptions.txt ia-engineering/Registry/
+expect 1 "an exceptions file planted in the tree does not exempt a merge (work units)" -- \
+  env IAENG_MERGE_EXCEPTIONS=Registry/merge-attribution-exceptions.txt bash "$CHECK_WU" "$BASE" HEAD
+
+# The classifier is sourced; its absence must fail closed, not pass.
+mkdir -p "$WORK/no-helper"
+cp "$CHECK_WU" "$WORK/no-helper/"
+expect 1 "a missing merge-classify.sh fails closed (work units)" -- bash "$WORK/no-helper/check-work-units.sh" "$BASE" HEAD
+expect_output "merge-classify.sh not found"
+cp "$CHECK_EMP" "$WORK/no-helper/"
+expect 1 "a missing merge-classify.sh fails closed (employee trailers)" -- bash "$WORK/no-helper/check-employee-trailers.sh" "$BASE" HEAD
+expect_output "merge-classify.sh not found"
+
+# SEC-IAENG-313-02: a Work Unit claim present on a merge is validated whatever
+# the classification, as an Employee claim is. A clean merge needs no trailer,
+# but one naming an unregistered Work Unit is a false record in the history.
+mk_wu_merge_repo wmrg-clean-unregistered
+git merge -q --no-ff side -m "Merge branch 'side'
+
+Work Unit: WU-TEST-999"
+expect 1 "a clean merge naming an unregistered Work Unit fails" -- bash "$CHECK_WU" "$BASE" HEAD
+expect_output "WU-TEST-999"
+
+mk_wu_merge_repo wmrg-clean-registered
+git merge -q --no-ff side -m "Merge branch 'side'
+
+Work Unit: WU-TEST-002"
+expect 0 "a clean merge naming a registered Work Unit passes" -- bash "$CHECK_WU" "$BASE" HEAD
+expect_output "WU-TEST-002 (resolved)"
+
+# SEC-IAENG-313-01: the automatic merge must not read merge drivers from the
+# tree under review. With `* merge=union` committed, git resolves the conflict
+# by concatenation; an unpinned merge-tree reproduces that same tree and calls
+# the merge clean. Pinned to the empty tree's attributes, it conflicts, and the
+# merge is authored — as a hand resolution of that shape is.
+mk_union_merge_repo() {
+  new_repo "$1"
+  write_wu_registry WU-TEST-001
+  write_employee_roster "DevOps Engineer"
+  echo '* merge=union' > .gitattributes
+  echo base > c.txt
+  git add -A && git commit -q -m "registry"
+  BASE="$(git rev-parse HEAD)"
+  git checkout -qb side
+  echo side > c.txt && git add -A && git commit -q -m "side edit
+
+Work Unit: WU-TEST-001
+Employee: DevOps Engineer"
+  git checkout -q main
+  echo main > c.txt && git add -A && git commit -q -m "main edit
+
+Work Unit: WU-TEST-001
+Employee: DevOps Engineer"
+  git merge --no-commit --no-ff side > /dev/null 2>&1
+  git add -A
+  git commit -q -m "Merge branch 'side'"
+}
+
+mk_union_merge_repo wmrg-union
+expect 1 "a union-attribute merge is classified authored (work units)" -- bash "$CHECK_WU" "$BASE" HEAD
+expect_output "carries no 'Work Unit: <WU-ID>' trailer"
+expect 1 "a union-attribute merge is classified authored (employee trailers)" -- bash "$CHECK_EMP" "$BASE" HEAD
+expect_output "carries no Employee trailer"
+
+# A range whose only commit is an authored merge: nothing non-merge to check,
+# which the script says, and the merge is still held to the rule. The base is
+# the merged branch's tip, so the merge is the sole commit in the range.
+new_repo wmrg-merge-only-authored
+write_wu_registry WU-TEST-001
+git add -A && git commit -q -m "registry"
+git checkout -qb develop
+echo side > side.txt && git add -A && git commit -q -m "authored work
+
+Work Unit: WU-TEST-001"
+git checkout -q main
+git merge -q --no-commit --no-ff develop
+echo extra > extra.txt && git add extra.txt
+git commit -q -m "Merge develop into main"
+BASE="$(git rev-parse develop)"
+expect 1 "a range of one authored merge and no other commit fails" -- bash "$CHECK_WU" "$BASE" HEAD
+expect_output "No non-merge commits to check."
+expect_output "carries no 'Work Unit: <WU-ID>' trailer"
+
+# CDPATH: with an exported CDPATH, a bare `cd <relative-dir>` resolves through
+# it and PRINTS the directory, which a $(cd ... && pwd) capture then holds
+# twice — the helper is "not found" and a correct check fails. Invoked by a
+# relative path, exactly as a host's job step would.
+mk_wu_merge_repo wmrg-cdpath
+git merge -q --no-ff side -m "Merge branch 'side'"
+mkdir -p tools
+cp "$CHECK_WU" "$SCRIPTS/merge-classify.sh" tools/
+expect 0 "CDPATH=. with a relative invocation still finds the helper (work units)" -- \
+  env CDPATH=. bash tools/check-work-units.sh "$BASE" HEAD
+expect_output "merge, no content of its own"
+
+mk_emp_merge_repo mrg-cdpath
+git merge -q --no-ff side -m "Merge branch 'side'"
+mkdir -p tools
+cp "$CHECK_EMP" "$SCRIPTS/merge-classify.sh" tools/
+expect 0 "CDPATH=. with a relative invocation still finds the helper (employee trailers)" -- \
+  env CDPATH=. bash tools/check-employee-trailers.sh "$BASE" HEAD
+expect_output "merge, no content of its own"
 
 # ------------------------------------------ check-inline-suppression.sh -------
 
@@ -2184,6 +2433,497 @@ expect_output "without a TAB"
 # The allow file is committed knowledge, and .ia-engineering/* is ignored. Without
 # the exception an allow entry would sit on one machine and CI would never see it.
 expect 1 "the allow file is not gitignored (exception in .gitignore)" -- git -C "$SCRIPTS/../.." check-ignore -q .ia-engineering/suppression.allow
+
+section "data-policy-scan.sh — merge-authored content and binary-classified files (WU-IAENG-312)"
+
+DPS="$SCRIPTS/data-policy-scan.sh"
+# Secret-shaped strings are BUILT BY CONCATENATION: the repo's own scanners and
+# hooks refuse the literal shape, and this file is in the diff they scan.
+DP_AWS="$(printf '%s%s' 'AKIA' 'ABCDEFGHIJKLMNOP')"
+DP_SECRET_LINE="aws_access_key_id = $DP_AWS"
+
+# dp_conflict_repo <name> [<.gitattributes line>] — base, then feat and main
+# both rewrite app.conf, then `git merge feat` on main stops with a conflict.
+# BASE is the shared ancestor. The optional attribute line is committed in base.
+dp_conflict_repo() {
+  new_repo "$1"
+  printf 'mode=base\n' > app.conf
+  [ -z "${2:-}" ] || printf '%s\n' "$2" > .gitattributes
+  git add -A && git commit -qm "base"
+  BASE="$(git rev-parse HEAD)"
+  git checkout -qb feat
+  printf 'mode=feat\n' > app.conf
+  git commit -qam "feat edits app.conf"
+  git checkout -q main
+  printf 'mode=main\n' > app.conf
+  git commit -qam "main edits app.conf"
+  git merge feat >/dev/null 2>&1 || true
+}
+
+# PT2-01: the secret is written only in the merge resolution.
+dp_conflict_repo dp-evil-resolution
+printf '%s\n' "$DP_SECRET_LINE" > app.conf
+git add app.conf && git commit -qm "Merge feat (resolved)"
+expect 1 "PT2-01: a secret written in a conflict resolution is refused in --history" -- bash "$DPS" --history "$BASE..HEAD"
+expect_output "app.conf:1"
+expect_output "aws-access-key-id"
+expect_output_absent "$DP_AWS"
+
+dp_conflict_repo dp-ordinary-control
+git merge --abort
+printf '%s\n' "$DP_SECRET_LINE" > app.conf
+git commit -qam "ordinary commit with the same line"
+expect 1 "control: the same line as an ordinary commit is refused" -- bash "$DPS" --history "$BASE..HEAD"
+
+# A merge that adds a NEW file the conflict-free way: `merge --no-commit`, then
+# write into the index before committing.
+new_repo dp-evil-newfile
+BASE="$(git rev-parse HEAD)"
+git checkout -qb feat
+echo f > f.txt && git add -A && git commit -qm "feat"
+git checkout -q main
+echo m > m.txt && git add -A && git commit -qm "main"
+git merge --no-commit --no-ff feat >/dev/null 2>&1
+printf '%s\n' "$DP_SECRET_LINE" > smuggled.conf
+git add smuggled.conf && git commit -qm "Merge feat"
+expect 1 "PT2-01: a line in a file the merge itself adds is refused" -- bash "$DPS" --history "$BASE..HEAD"
+expect_output "smuggled.conf:1"
+
+# A PATH the merge itself adds, whose blob already exists on the excluded side
+# (an empty file: the empty blob exists from the first empty file onwards).
+# The object walk never lists it, and `log --name-only` skips merges unless
+# told how to diff them — so the path was classified by neither source.
+new_repo dp-evil-path-only
+: > placeholder.txt
+git add -A && git commit -qm "an empty file, so the empty blob exists"
+BASE="$(git rev-parse HEAD)"
+git checkout -qb feat
+echo f > f.txt && git add -A && git commit -qm "feat"
+git checkout -q main
+echo m > m.txt && git add -A && git commit -qm "main"
+git merge --no-commit --no-ff feat >/dev/null 2>&1
+: > .env
+git add .env && git commit -qm "Merge feat"
+expect 1 "PT2-01: a refused path the merge itself adds (pre-existing blob) is refused" -- bash "$DPS" --history "$BASE..HEAD"
+expect_output "REFUSED  .env"
+
+# Pre-commit path: a conflicted merge's staged resolution is an ordinary
+# `diff --cached` against HEAD, so it was already scanned. Pinned, not assumed.
+dp_conflict_repo dp-staged-resolution
+printf '%s\n' "$DP_SECRET_LINE" > app.conf
+git add app.conf
+expect 1 "a conflicted merge's staged resolution is refused by --staged" -- bash "$DPS" --staged
+expect_output "app.conf"
+
+# Controls: an evil merge with clean content stays clean, and says what it read.
+dp_conflict_repo dp-clean-resolution
+printf 'mode=resolved\n' > app.conf
+git add app.conf && git commit -qm "Merge feat (resolved)"
+expect 0 "an authored merge with clean content is clean" -- bash "$DPS" --history "$BASE..HEAD"
+expect_output "clean"
+# Denominator: one line from each side's commit plus the one the merge authored.
+expect_output "3 added line(s)"
+
+# Lines the merge merely carries are not re-scanned: an allowed secret-shaped
+# line on the feature side, merged without conflict, stays clean.
+new_repo dp-carried-allowed
+mkdir -p .ia-engineering
+printf 'content:%s\n' 'aws_access_key_id = AKIA[A-Z]{16}' > .ia-engineering/data-policy.allow
+git add -A && git commit -qm "allow file"
+BASE="$(git rev-parse HEAD)"
+git checkout -qb feat
+printf '%s\n' "$DP_SECRET_LINE" > example.conf
+git add -A && git commit -qm "feat adds an allowed example line"
+git checkout -q main
+echo m > m.txt && git add -A && git commit -qm "main"
+git merge -q --no-ff feat -m "Merge feat"
+expect 0 "an allowed line carried in by a clean merge is not refused" -- bash "$DPS" --history "$BASE..HEAD"
+
+# The content allow-list still applies to merge-authored lines.
+dp_conflict_repo dp-evil-allowed
+mkdir -p .ia-engineering
+printf 'content:%s\n' 'aws_access_key_id = AKIA[A-Z]{16}' > .ia-engineering/data-policy.allow
+printf '%s\n' "$DP_SECRET_LINE" > app.conf
+git add -A && git commit -qm "Merge feat (resolved)"
+expect 0 "the content allow file still exempts a merge-authored line" -- bash "$DPS" --history "$BASE..HEAD"
+
+# develop merged into a feature branch: a flagged line develop gained AFTER the
+# branch point arrives through the merge's second parent. It is added relative
+# to the first parent, so first-parent would re-read it; it is present in the
+# second parent, so the dense rule does not. The range excludes develop, where
+# the line was accepted. The first-parent patch is shown to contain the line,
+# so the control discriminates between the two rules rather than passing under
+# both.
+new_repo dp-develop-into-feature
+git checkout -qb develop
+echo d > d.txt && git add -A && git commit -qm "develop before the branch point"
+git checkout -qb feature
+echo x > x.txt && git add -A && git commit -qm "feature work"
+git checkout -q develop
+printf '%s\n' "$DP_SECRET_LINE" > legacy.conf
+git add -A && git commit -qm "develop moves on, with a line accepted there"
+git checkout -q feature
+BASE="$(git rev-parse develop)"
+git merge -q --no-ff develop -m "Merge develop into feature"
+FIRST_PARENT_PATCH="$(git log --diff-merges=first-parent -p --format= "$BASE..HEAD")"
+expect 0 "first-parent WOULD re-read the line develop gained after the branch point" -- grep -qF -- "$DP_AWS" <<< "$FIRST_PARENT_PATCH"
+expect 0 "develop merged into a feature branch does not re-read develop's lines" -- bash "$DPS" --history "$BASE..HEAD"
+expect_output "1 added line(s)"
+
+# A resolution that takes one side verbatim authors nothing: the two sides'
+# lines are the whole denominator.
+dp_conflict_repo dp-pick-one-side
+git checkout -q --theirs app.conf && git add app.conf && git commit -qm "Merge feat (takes feat)"
+expect 0 "a resolution that takes one side verbatim is clean and authors nothing" -- bash "$DPS" --history "$BASE..HEAD"
+expect_output "2 added line(s)"
+
+# A back-merge (every commit a merge) keeps its named exception.
+new_repo dp-backmerge
+git checkout -qb develop
+echo b > b.txt && git add -A && git commit -qm "authored work B"
+git checkout -q main
+git merge -q --no-ff develop -m "Merge develop into main"
+git checkout -q develop
+echo c > c.txt && git add -A && git commit -qm "further work C"
+expect 0 "a back-merge range still passes" -- bash "$DPS" --history "develop..main"
+expect_output "every one a merge"
+
+# PT2-02: a path marked -diff makes git print "Binary files differ".
+new_repo dp-nodiff-attr
+BASE="$(git rev-parse HEAD)"
+printf 'settings.conf -diff\n' > .gitattributes
+printf '%s\n' "$DP_SECRET_LINE" > settings.conf
+git add -A && git commit -qm "add settings"
+expect 1 "PT2-02: a secret in a -diff path is refused in --history" -- bash "$DPS" --history "$BASE..HEAD"
+expect_output "settings.conf:1"
+git reset -q --soft "$BASE"
+git reset -q
+git add -A
+expect 1 "PT2-02: a secret in a -diff path is refused by --staged" -- bash "$DPS" --staged
+expect_output "settings.conf:1"
+
+# A NUL byte makes git's own heuristic call the file binary.
+new_repo dp-nul-binary
+BASE="$(git rev-parse HEAD)"
+{ printf 'head\0tail\n'; printf '%s\n' "$DP_SECRET_LINE"; } > blob.conf
+git add -A && git commit -qm "nul-bearing file"
+expect 1 "PT2-02: a secret in a NUL-bearing file is refused in --history" -- bash "$DPS" --history "$BASE..HEAD"
+
+# A genuinely binary file must not crash the scan or be falsely refused.
+new_repo dp-real-binary
+BASE="$(git rev-parse HEAD)"
+printf '\211PNG\r\n\032\n\0\0\0\rIHDR\0\0\0\1\0\0\0\1\010\6\0\0\0\37\25\304\211\0\0\0\nIDAT\170\234c\0\1\0\0\5\0\1\r\n-\264\0\0\0\0IEND\256B`\202' > pixel.png
+git add -A && git commit -qm "add a png"
+expect 0 "a real PNG is neither refused nor a crash under --text (history)" -- bash "$DPS" --history "$BASE..HEAD"
+expect_output "clean"
+git reset -q --soft "$BASE"
+git reset -q
+git add -A
+expect 0 "a real PNG is neither refused nor a crash under --text (staged)" -- bash "$DPS" --staged
+
+# SEC-176-01: git's own combined diff ignores --text, so a secret resolved into
+# a path marked -diff or binary, or into a NUL-bearing file, printed "Binary
+# files differ" and was never scanned. The merge's own lines are now read from
+# per-parent diffs, which honour --text.
+dp_conflict_repo dp-merge-nodiff-attr 'app.conf -diff'
+printf '%s\n' "$DP_SECRET_LINE" > app.conf
+git add app.conf && git commit -qm "Merge feat (resolved)"
+expect 1 "SEC-176-01: a secret resolved into a -diff path is refused" -- bash "$DPS" --history "$BASE..HEAD"
+expect_output "app.conf:1"
+
+dp_conflict_repo dp-merge-binary-attr 'app.conf binary'
+printf '%s\n' "$DP_SECRET_LINE" > app.conf
+git add app.conf && git commit -qm "Merge feat (resolved)"
+expect 1 "SEC-176-01: a secret resolved into a binary-attributed path is refused" -- bash "$DPS" --history "$BASE..HEAD"
+expect_output "app.conf:1"
+
+dp_conflict_repo dp-merge-nul
+{ printf 'head\0tail\n'; printf '%s\n' "$DP_SECRET_LINE"; } > app.conf
+git add app.conf && git commit -qm "Merge feat (resolved)"
+expect 1 "SEC-176-01: a secret resolved into a NUL-bearing file is refused" -- bash "$DPS" --history "$BASE..HEAD"
+expect_output "app.conf:2"
+
+# SEC-176-02: an added line whose text begins "++ " reads "+++ " in the diff
+# and was taken for a path header — never scanned, and every later line
+# attributed to a path that does not exist. It is also counted.
+new_repo dp-plusplus
+BASE="$(git rev-parse HEAD)"
+printf '++ %s\n' "$DP_SECRET_LINE" > notes.conf
+git add -A && git commit -qm "a line that begins with ++"
+expect 1 "SEC-176-02: an added line beginning with ++ is scanned in --history" -- bash "$DPS" --history "$BASE..HEAD"
+expect_output "notes.conf:1"
+expect_output "1 added line(s)"
+git reset -q --soft "$BASE"
+git reset -q
+git add -A
+expect 1 "SEC-176-02: an added line beginning with ++ is scanned by --staged" -- bash "$DPS" --staged
+expect_output "notes.conf:1"
+
+# SEC-176-03: a symlink replaced by a regular file is a type change (filter
+# T), which ACMR excluded — the staged scan listed "0 path(s)" and read no
+# line. The symlink is written to the index directly, so the case does not
+# depend on the platform supporting symlinks.
+new_repo dp-typechange
+LINK_BLOB="$(printf 'target.txt' | git hash-object -w --stdin)"
+git update-index --add --cacheinfo "120000,$LINK_BLOB,link.conf"
+git commit -qm "a symlink"
+BASE="$(git rev-parse HEAD)"
+printf '%s\n' "$DP_SECRET_LINE" > link.conf
+FILE_BLOB="$(git hash-object -w link.conf)"
+git update-index --add --cacheinfo "100644,$FILE_BLOB,link.conf"
+expect 1 "SEC-176-03: a symlink replaced by a regular file with a secret is refused by --staged" -- bash "$DPS" --staged
+expect_output "link.conf:1"
+git commit -qm "the symlink becomes a file"
+expect 1 "SEC-176-03: the same type change is refused in --history" -- bash "$DPS" --history "$BASE..HEAD"
+expect_output "link.conf:1"
+
+# An octopus merge (three parents) that adds a file of its own.
+new_repo dp-octopus
+BASE="$(git rev-parse HEAD)"
+git checkout -qb a && echo a > a.txt && git add -A && git commit -qm "a"
+git checkout -q main && git checkout -qb b && echo b > b.txt && git add -A && git commit -qm "b"
+git checkout -q main
+git merge --no-commit --no-ff a b >/dev/null 2>&1
+printf '%s\n' "$DP_SECRET_LINE" > oct.conf
+git add oct.conf && git commit -qm "Octopus merge"
+expect 1 "a secret in a file an octopus merge adds is refused" -- bash "$DPS" --history "$BASE..HEAD"
+expect_output "oct.conf:1"
+
+# dp_multihunk_repo <name> — both sides rewrite three separated lines of
+# app.conf, so the resolution has three places to pick a side or write anew.
+dp_multihunk_repo() {
+  new_repo "$1"
+  printf 'a=base\nkeep\nb=base\nkeep2\nc=base\n' > app.conf
+  git add -A && git commit -qm "base"
+  BASE="$(git rev-parse HEAD)"
+  git checkout -qb feat
+  printf 'a=feat\nkeep\nb=feat\nkeep2\nc=feat\n' > app.conf
+  git commit -qam "feat"
+  git checkout -q main
+  printf 'a=main\nkeep\nb=main\nkeep2\nc=main\n' > app.conf
+  git commit -qam "main"
+  git merge feat >/dev/null 2>&1 || true
+}
+
+# Picks main for a, feat for b and c: nothing is the merge's own.
+dp_multihunk_repo dp-multihunk-picks
+printf 'a=main\nkeep\nb=feat\nkeep2\nc=feat\n' > app.conf
+git add app.conf && git commit -qm "Merge feat (picks sides)"
+expect 0 "a multi-hunk resolution that picks a side in every hunk is clean" -- bash "$DPS" --history "$BASE..HEAD"
+expect_output "6 added line(s)"
+
+# Picks main for a, writes a new line for b, feat for c: one line is the
+# merge's own, and it is reported at its line in the result.
+dp_multihunk_repo dp-multihunk-authored
+printf 'a=main\nkeep\n%s\nkeep2\nc=feat\n' "$DP_SECRET_LINE" > app.conf
+git add app.conf && git commit -qm "Merge feat (one new line)"
+expect 1 "a multi-hunk resolution with one new line is refused at that line" -- bash "$DPS" --history "$BASE..HEAD"
+expect_output "app.conf:3"
+expect_output "7 added line(s)"
+
+# ------------- pr-validation.yml — graders cannot be reconfigured by a PR -----
+# WU-IAENG-310. The required checks run inside the PR's own checkout, so a
+# grader that resolves its configuration from that tree can be reconfigured by
+# the change it grades. These are content guards on the workflow (the Adapter
+# and this repository's installed copy), so the hardenings cannot regress
+# silently. They assert INVARIANTS over every code line (comments are stripped
+# first, so a comment cannot satisfy or trip a guard): every shellcheck call
+# carries --norc, every npx call is the pinned, isolated one.
+#
+# Literals containing a dollar sign come from a quoted heredoc rather than a
+# single-quoted string, so shellcheck (which grades this file) sees no
+# expansion to warn about and no suppression directive is needed.
+
+PRV_NPX_LITERAL="$(cat <<'LITERAL'
+(cd "$GRADER_DIR" && npx --yes -q "js-yaml@${JS_YAML_VERSION}"
+LITERAL
+)"
+PRV_TRAP_LITERAL="$(cat <<'LITERAL'
+trap 'rm -rf "$GRADER_DIR"' EXIT
+LITERAL
+)"
+PRV_MKTEMP_LITERAL="$(cat <<'LITERAL'
+GRADER_DIR="$(mktemp -d)"
+LITERAL
+)"
+PRV_CACHE_LITERAL="$(cat <<'LITERAL'
+export NPM_CONFIG_CACHE="$GRADER_DIR/npm-cache"
+LITERAL
+)"
+PRV_LOOP_LITERAL="$(cat <<'LITERAL'
+for f in "${YAML_FILES[@]}"; do
+LITERAL
+)"
+
+# prv_code <file> — the workflow with comment lines and trailing comments removed.
+prv_code() {
+  sed -E -e '/^[[:space:]]*#/d' -e 's/[[:space:]]#.*//' "$1"
+}
+
+# prv_line_of <file> <literal> — line number of the first code line containing it.
+prv_line_of() {
+  prv_code "$1" | grep -nF -m1 -- "$2" | cut -d: -f1
+}
+
+# prv_guard <file> — exit 0 when every grader-isolation invariant holds,
+# otherwise print what is broken and exit 1.
+prv_guard() {
+  local file="$1" bad=0 n line loop_at at sc_calls
+  sc_calls="$(prv_code "$file" | grep -E '(^|[;&|(])[[:space:]]*shellcheck([[:space:]]|$)')"
+  if [ -z "$sc_calls" ]; then
+    echo "no shellcheck invocation found"; bad=1
+  fi
+  while IFS= read -r line; do
+    [ -z "$line" ] && continue
+    case "$line" in
+      *--norc*) ;;
+      *) if ! printf '%s\n' "$line" | grep -Eq '^[[:space:]]*shellcheck --version[[:space:]]*$'; then
+           echo "shellcheck call without --norc: $line"; bad=1
+         fi ;;
+    esac
+  done <<< "$sc_calls"
+  if ! printf '%s\n' "$sc_calls" | grep -q -- '--norc -x'; then
+    echo "the grading shellcheck call is missing"; bad=1
+  fi
+
+  n="$(prv_code "$file" | grep -c 'npx')"
+  if [ "$n" -lt 1 ]; then
+    echo "no npx invocation found"; bad=1
+  fi
+  while IFS= read -r line; do
+    [ -z "$line" ] && continue
+    case "$line" in
+      *"$PRV_NPX_LITERAL"*) ;;
+      *) echo "npx call is not the pinned, isolated one: $line"; bad=1 ;;
+    esac
+  done < <(prv_code "$file" | grep 'npx')
+
+  if ! prv_code "$file" | grep -Eq '^[[:space:]]*JS_YAML_VERSION="[0-9]+\.[0-9]+\.[0-9]+"'; then
+    echo "JS_YAML_VERSION is not an exact x.y.z"; bad=1
+  fi
+  if ! prv_code "$file" | grep -qF -- "$PRV_MKTEMP_LITERAL"; then
+    echo "grader directory is not created with mktemp -d"; bad=1
+  fi
+  if ! prv_code "$file" | grep -qF -- "$PRV_TRAP_LITERAL"; then
+    echo "no trap removing the grader directory"; bad=1
+  fi
+  loop_at="$(prv_line_of "$file" "$PRV_LOOP_LITERAL")"
+  for at in 'export NPM_CONFIG_USERCONFIG=/dev/null' "$PRV_CACHE_LITERAL"; do
+    n="$(prv_line_of "$file" "$at")"
+    if [ -z "$n" ] || [ -z "$loop_at" ] || [ "$n" -ge "$loop_at" ]; then
+      echo "missing, or not before the parse loop: $at"; bad=1
+    fi
+  done
+  return "$bad"
+}
+
+# prv_expect <expected-exit> <description> <file> — like expect, but calls
+# prv_guard directly (shellcheck cannot see a function named only as an
+# argument to expect, and reports it as never invoked).
+prv_expect() {
+  local want="$1" desc="$2" file="$3" got
+  TOTAL=$((TOTAL + 1))
+  LAST_OUTPUT="$(prv_guard "$file" 2>&1)"
+  got=$?
+  if [ "$got" = "$want" ]; then
+    [ -n "$VERBOSE" ] && printf '   ok   %s\n' "$desc"
+    return 0
+  fi
+  printf '   FAIL %s\n' "$desc"
+  printf '        expected exit %s, got %s\n' "$want" "$got"
+  printf '%s\n' "$LAST_OUTPUT" | sed 's/^/        | /'
+  FAILED=$((FAILED + 1))
+  return 1
+}
+
+for PRV in "$SCRIPTS/../github-actions/pr-validation.yml" "$SCRIPTS/../../.github/workflows/pr-validation.yml"; do
+  PRV_NAME="${PRV#"$SCRIPTS"/../}"
+  prv_expect 0 "$PRV_NAME: grader-isolation invariants hold" "$PRV"
+done
+
+# Mutation cases: the same guard, fed a workflow with one hardening undone, must
+# fail. Without these the guard could pass on anything.
+PRV_SRC="$SCRIPTS/../github-actions/pr-validation.yml"
+mkdir -p "$WORK/prv-mut"
+prv_mutant() { # <name> <sed args...>
+  local name="$1"; shift
+  sed -E "$@" "$PRV_SRC" > "$WORK/prv-mut/$name.yml"
+}
+prv_mutant no-norc         -e 's/shellcheck --norc/shellcheck/'
+prv_mutant unpinned-latest -e 's/js-yaml@[$]\{JS_YAML_VERSION\}/js-yaml@latest/'
+prv_mutant unpinned-major  -e 's/^([[:space:]]*JS_YAML_VERSION=")[0-9.]+"/\14"/'
+prv_mutant cd-elsewhere    -e 's/GRADER_DIR" && npx/PWD" \&\& npx/'
+prv_mutant no-userconfig   -e '/export NPM_CONFIG_USERCONFIG/d'
+prv_mutant no-cache        -e '/export NPM_CONFIG_CACHE/d'
+prv_mutant no-trap         -e '/^[[:space:]]*trap /d'
+prv_mutant no-mktemp       -e 's/mktemp -d/pwd/'
+{ cat "$PRV_SRC"; printf '          shellcheck -x extra.sh\n'; } > "$WORK/prv-mut/bare-second-call.yml"
+{ cat "$PRV_SRC"; printf '          npx --yes -q js-yaml extra.yml\n'; } > "$WORK/prv-mut/bare-npx.yml"
+# --norc kept only in a comment: the guard must not be satisfied by it.
+{ sed -E 's/shellcheck --norc/shellcheck/' "$PRV_SRC"; printf '          # shellcheck --norc -x is only mentioned in a comment\n'; } > "$WORK/prv-mut/comment-only.yml"
+for m in no-norc unpinned-latest unpinned-major cd-elsewhere no-userconfig no-cache no-trap no-mktemp bare-second-call bare-npx comment-only; do
+  prv_expect 1 "guard rejects the mutant: $m" "$WORK/prv-mut/$m.yml"
+done
+
+# ------------------------------------- check-control-paths.sh (WU-IAENG-309) --
+
+CHECK_CP="$SCRIPTS/check-control-paths.sh"
+
+# CP_RUN <printf-%b-text-of-the-path-list> [-z]
+CP_RUN=(bash -c "printf '%b' \"\$1\" | bash '$CHECK_CP' \"\${@:2}\"" _)
+
+section "check-control-paths.sh — the pull_request_target guard's path matcher (WU-IAENG-309)"
+
+expect 0 "ordinary source and docs paths are not control paths" -- "${CP_RUN[@]}" 'src/app.c\nREADME.md\ndocs/a.md\n'
+expect_output "none of the 3"
+expect 0 "an empty change list passes" -- "${CP_RUN[@]}" ''
+expect 1 "a workflow file is a control path" -- "${CP_RUN[@]}" 'src/a.c\n.github/workflows/pr-validation.yml\n'
+expect_output "control path touched: .github/workflows/pr-validation.yml"
+expect 1 "the Adapter copy of a workflow is a control path" -- "${CP_RUN[@]}" 'Adapters/github-actions/data-policy.yml\n'
+expect 1 "a git hook is a control path" -- "${CP_RUN[@]}" 'Adapters/git-hooks/commit-msg\n'
+expect 1 "a check script is a control path" -- "${CP_RUN[@]}" 'Adapters/scripts/check-employee-trailers.sh\n'
+expect 1 "a check script test is a control path" -- "${CP_RUN[@]}" 'Adapters/scripts/tests/run.sh\n'
+expect 1 "the suppression pattern file is a control path" -- "${CP_RUN[@]}" 'Adapters/scripts/suppression-patterns.tsv\n'
+expect 1 "a runtime hook at depth is a control path" -- "${CP_RUN[@]}" 'Adapters/ai-runtimes/claude-code/hooks/tests/x.tsv\n'
+expect 0 "a runtime file outside hooks/ is not" -- "${CP_RUN[@]}" 'Adapters/ai-runtimes/claude-code/README.md\n'
+expect 1 ".claude/settings.json is a control path" -- "${CP_RUN[@]}" '.claude/settings.json\n'
+expect 1 "the roster is a control path" -- "${CP_RUN[@]}" 'Registry/employees.yml\n'
+expect 0 "another registry file is not" -- "${CP_RUN[@]}" 'Registry/work-units.yml\n'
+expect 1 "an allow file is a control path" -- "${CP_RUN[@]}" '.ia-engineering/suppression.allow\n'
+expect 1 "the risk map is a control path" -- "${CP_RUN[@]}" '.ia-engineering/risk-map.yml\n'
+expect 1 "the root ignore file is a control path" -- "${CP_RUN[@]}" '.gitignore\n'
+expect 1 "the root attributes file is a control path" -- "${CP_RUN[@]}" '.gitattributes\n'
+expect 1 "an attributes file at depth is a control path" -- "${CP_RUN[@]}" 'vendor/lib/deep/.gitattributes\n'
+expect 1 "docs/CODEOWNERS is a control path" -- "${CP_RUN[@]}" 'docs/CODEOWNERS\n'
+expect 1 "a .shellcheckrc at the root is a control path" -- "${CP_RUN[@]}" '.shellcheckrc\n'
+expect 1 "a .shellcheckrc at depth is a control path" -- "${CP_RUN[@]}" 'Adapters/x/y/.shellcheckrc\n'
+expect 1 "an .npmrc at the root is a control path" -- "${CP_RUN[@]}" '.npmrc\n'
+expect 1 "an .npmrc at depth is a control path" -- "${CP_RUN[@]}" 'tools/web/.npmrc\n'
+expect 1 "the root package.json is a control path" -- "${CP_RUN[@]}" 'package.json\n'
+expect 1 "package-lock.json is a control path" -- "${CP_RUN[@]}" 'package-lock.json\n'
+expect 1 "node_modules content is a control path" -- "${CP_RUN[@]}" 'node_modules/.bin/x\n'
+expect 0 "a nested package.json is not" -- "${CP_RUN[@]}" 'examples/app/package.json\n'
+expect 1 "a runtime settings example is a control path" -- "${CP_RUN[@]}" 'Adapters/ai-runtimes/claude-code/settings.example.json\n'
+expect 1 "a runtime install-hooks.sh is a control path" -- "${CP_RUN[@]}" 'Adapters/ai-runtimes/claude-code/install-hooks.sh\n'
+expect 1 "generate-agents.sh is a control path" -- "${CP_RUN[@]}" 'Adapters/ai-runtimes/generate-agents.sh\n'
+expect 0 ".claude/agents stays out of the list" -- "${CP_RUN[@]}" '.claude/agents/x.md\n.claude/commands/y.md\n'
+expect 1 ".gitmodules is a control path"-- "${CP_RUN[@]}" '.gitmodules\n'
+expect 1 "the ia-engineering gitlink is a control path" -- "${CP_RUN[@]}" 'ia-engineering\n'
+expect 0 "a file merely inside a similarly named directory is not the gitlink" -- "${CP_RUN[@]}" 'docs/ia-engineering\nia-engineering-notes.md\n'
+expect 1 "matching is case-insensitive (fail closed)" -- "${CP_RUN[@]}" '.GitHub/Workflows/x.yml\n'
+expect 1 "a name with a space is matched, not split" -- "${CP_RUN[@]}" 'Adapters/scripts/a b.sh\n'
+expect 1 "a leading-dash name under a control path is matched" -- "${CP_RUN[@]}" 'Adapters/scripts/-rf\n'
+expect 0 "a leading-dash ordinary name is inert" -- "${CP_RUN[@]}" '-rf\n'
+expect 1 "a .. component is refused, not trusted" -- "${CP_RUN[@]}" 'src/../Adapters/scripts/x\n'
+expect 1 "an absolute path is refused" -- "${CP_RUN[@]}" '/etc/passwd\n'
+expect 1 "a ./ component is refused" -- "${CP_RUN[@]}" './src/a.c\n'
+# The NUL-delimited form is what the workflow feeds: a newline inside a name
+# must not split it into a second, control-looking, path.
+expect 0 "a newline inside a name does not fabricate a control path (-z)" -- "${CP_RUN[@]}" 'src/x\n.github/workflows/y\0' -z
+expect_output "none of the 1"
+expect 1 "a newline before a real control path still flags it (-z)" -- "${CP_RUN[@]}" 'a\nb\0.github/workflows/y\0' -z
+expect 1 "one control path among many NUL-delimited names (-z)" -- "${CP_RUN[@]}" 'a b\0-x\0Adapters/git-hooks/pre-push\0c\0' -z
+expect 2 "an unknown option is a usage error" -- "${CP_RUN[@]}" 'a\n' --bogus
 
 # --------------------------------------------------------------- verdict ----
 
