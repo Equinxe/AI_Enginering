@@ -91,8 +91,9 @@ else
 fi
 
 # --- Payload handling, common to every hook ---------------------------------
-# Two properties every hook shares: it fails closed on input it cannot read,
-# and it ignores tool calls that are not its own.
+# Two properties checked here: the guard hooks (block-escape-hatches,
+# block-inline-suppression) fail closed on input they cannot read, and each
+# hook ignores tool calls that are not its own.
 
 echo "== payload handling"
 
@@ -147,6 +148,16 @@ PAY_BIG="$(jq -n --arg f "big.py" --rawfile c "$BIGSUP" '{tool_name:"Write",tool
 rm -f "$BIGSUP"
 expect_rc "inline-suppression: refuses a directive in a >64KB payload" 2 "$HOOKS/block-inline-suppression.sh" "$PAY_BIG"
 expect_rc "inline-suppression: ignores a non-edit tool"     0 "$HOOKS/block-inline-suppression.sh" '{"tool_name":"Bash","tool_input":{"command":"ls"}}'
+# Unreadable is not the same as "nothing to check" (DEF-4). With jq present an
+# unparseable payload left TEXT empty and the hook exited 0, allowing the write.
+expect_rc "inline-suppression: an unparseable payload fails closed" 2 "$HOOKS/block-inline-suppression.sh" 'not json at all'
+expect_rc "inline-suppression: a truncated JSON payload fails closed" 2 "$HOOKS/block-inline-suppression.sh" '{"tool_name":"Write","tool_input":{"file_path":"a.py","content":"x'
+expect_rc "inline-suppression: empty stdin fails closed" 2 "$HOOKS/block-inline-suppression.sh" ''
+expect_rc "inline-suppression: valid JSON that is not an object fails closed" 2 "$HOOKS/block-inline-suppression.sh" '[1,2]'
+# jq judges a stream by its last value; two objects must not pass as one.
+expect_rc "inline-suppression: two concatenated JSON objects fail closed" 2 "$HOOKS/block-inline-suppression.sh" '{"tool_name":"Bash"} {"tool_name":"Write","tool_input":{"file_path":"a.py"}}'
+expect_rc "inline-suppression: a readable payload with no text to check is allowed" 0 "$HOOKS/block-inline-suppression.sh" '{"tool_name":"Write","tool_input":{"file_path":"a.py"}}'
+expect_rc "inline-suppression: an empty object is readable and has nothing to check" 0 "$HOOKS/block-inline-suppression.sh" '{}'
 # The patterns are read from Adapters/scripts/suppression-patterns.tsv, shared
 # with check-inline-suppression.sh. One row from each of two different labels
 # still blocks, so a hook that read only the first row would be caught.

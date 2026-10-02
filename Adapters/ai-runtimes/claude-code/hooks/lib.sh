@@ -50,6 +50,25 @@ iaeng_bool() {
   printf '%s' "$IAENG_INPUT" | sed -n 's/.*"'"$key"'"[[:space:]]*:[[:space:]]*\(true\|false\).*/\1/p'
 }
 
+# iaeng_require_object  — refuses (exit 2) a payload that is not readable as a
+# JSON object. For a hook whose "nothing to check" outcome is ALLOW: iaeng_field
+# prints nothing for an unparseable payload exactly as it does for a valid one
+# that lacks the field, so without this check "could not read" is
+# indistinguishable from "nothing to inspect" and the edit goes through. With
+# jq the payload must be exactly ONE JSON value and that value an object (a
+# stream of two values would otherwise be judged by its last one only); without jq it must at least be
+# non-blank (the sed fallback and the whole-payload match over-approximate).
+iaeng_require_object() {
+  local ok=1
+  if iaeng_have_jq; then
+    printf '%s' "$IAENG_INPUT" | jq -es 'length == 1 and (.[0] | type == "object")' >/dev/null 2>&1 && ok=0
+  else
+    case "$IAENG_INPUT" in *[![:space:]]*) ok=0 ;; esac
+  fi
+  [ "$ok" -eq 0 ] || iaeng_block "cannot read the hook payload as a JSON object — an input that could not be inspected is not allowed" \
+    "Adapters/ai-runtimes/claude-code/hooks/README.md, Design Rules — the hook fails closed rather than allowing what it could not read."
+}
+
 iaeng_block() {
   # $1 = one-line reason, $2 = standard reference
   {
