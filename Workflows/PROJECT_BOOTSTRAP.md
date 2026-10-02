@@ -216,7 +216,7 @@ Each item names what actually performs it. A checklist item whose mechanism is u
 **Performed by a separate, deliberate command:**
 
 - [ ] Branch protection applied (`Adapters/scripts/setup-branch-protection.sh`) — separate because it mutates settings every collaborator sees
-- [ ] `main` + `develop` branches created and pushed
+- [ ] `main` + `develop` branches created and pushed — make the first commit first (`git branch` fails in a repository with no commit), then `git push -u origin main`, `git branch develop`, `git push -u origin develop`. The `pre-push` hook allows creating an absent protected branch; every later change to either goes through a Pull Request
 - [ ] `.github/ISSUE_TEMPLATE/config.yml` `OWNER/REPO` placeholders replaced
 - [ ] AI-runtime integration installed (Step 4 item 4) — `Adapters/ai-runtimes/generate-agents.sh`, and for Claude Code also `Adapters/ai-runtimes/claude-code/install-hooks.sh` + `install-skills.sh` — separate because `.claude/settings.json` is committed content that decides what the model may do
 

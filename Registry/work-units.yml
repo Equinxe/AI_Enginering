@@ -1146,3 +1146,9 @@ work_units:
     title: Close PT2-05 and PT2-06 in the advisory Risk Map check - diff the range from the merge base so a file the base advanced after the fork is not attributed to the change, and require the RISK record to start at column 0 and carry tier=, mitigation= and decided_by= so an indented example no longer satisfies the gate
     milestone: Precision
     delivers: Adapters/scripts/check-risk-map.sh, Adapters/scripts/tests/run.sh, Adapters/README.md, Registry/work-units.yml
+
+  - id: WU-IAENG-315
+    employee: DevOps Engineer
+    title: One pre-push rule for main, develop and release/* (pen-test PT2-08, QA DEF-2/DEF-10) - creating an absent branch allowed (bootstrap first push, RELEASE.md Step 3), any update (fast-forward or force) and any reported deletion refused (RELEASE.md Steps 4 and 10); the mirror-push limit stated and pinned; first behaviour cases for the hook, by its real stdin protocol and by real pushes into throwaway remotes; bootstrap instructions corrected; the last shellcheck disable directive removed
+    milestone: Precision
+    delivers: Adapters/git-hooks/pre-push, Adapters/scripts/tests/run.sh, Adapters/README.md, Adapters/scripts/setup-project-bootstrap.sh, Workflows/PROJECT_BOOTSTRAP.md, Standards/CODE_QUALITY_STANDARD.md, Registry/work-units.yml
