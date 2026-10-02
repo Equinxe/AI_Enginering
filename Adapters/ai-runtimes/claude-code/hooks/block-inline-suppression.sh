@@ -19,6 +19,11 @@
 # shellcheck source=lib.sh
 . "$(dirname "$0")/lib.sh"
 
+# Unreadable payload is refused BEFORE any field is read: an empty TOOL or TEXT
+# below means "nothing to check" and exits 0, which an unparseable payload would
+# otherwise be mistaken for.
+iaeng_require_object
+
 TOOL="$(iaeng_field '.tool_name')"
 case "$TOOL" in ""|Edit|Write|MultiEdit) ;; *) exit 0 ;; esac
 

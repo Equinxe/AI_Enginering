@@ -1128,3 +1128,9 @@ work_units:
     title: Refuse an agent command that applies the Director-only approval labels control-change/approved and size/approved - a local speed bump in the escape-hatch hook, not a boundary, covering gh pr/issue edit and create, gh api label writes and gh label rename or create
     milestone: Precision
     delivers: Adapters/ai-runtimes/claude-code/hooks/block-escape-hatches.sh, Adapters/ai-runtimes/claude-code/hooks/tests/escape-hatch-cases.tsv, Adapters/ai-runtimes/claude-code/hooks/README.md, Registry/work-units.yml
+
+  - id: WU-IAENG-318
+    employee: DevOps Engineer
+    title: Make block-inline-suppression fail closed on an unreadable payload (DEF-4 of the end-to-end adoption test) - with jq present an unparseable payload left the text empty and the write was allowed; a shared iaeng_require_object refuses empty or non-object input while a readable payload with no text is still allowed
+    milestone: Precision
+    delivers: Adapters/ai-runtimes/claude-code/hooks/lib.sh, Adapters/ai-runtimes/claude-code/hooks/block-inline-suppression.sh, Adapters/ai-runtimes/claude-code/hooks/tests/run.sh, Adapters/ai-runtimes/claude-code/hooks/README.md, Registry/work-units.yml

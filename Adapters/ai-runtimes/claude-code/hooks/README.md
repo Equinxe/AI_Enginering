@@ -32,7 +32,7 @@ These hooks make five rules mechanical for the one runtime that currently expose
 
 # Design Rules
 
-**Fail closed.** A hook that cannot read its input — `jq` missing and the fallback extraction finding nothing — blocks with the reason, rather than allowing what it could not inspect. The `lib.sh` helpers read with `jq` when present and with a sed extraction of the flat fields otherwise; the fallback can over-block (it matches the whole payload for suppression patterns), never under-block.
+**Fail closed.** A hook that cannot read its input — `jq` missing and the fallback extraction finding nothing — blocks with the reason, rather than allowing what it could not inspect. A hook whose "nothing to check" outcome is allow (`block-inline-suppression.sh`) calls `iaeng_require_object` first, so a payload that is empty or not a JSON object is refused instead of being read as "no text"; a readable payload with no text to check is still allowed. The `lib.sh` helpers read with `jq` when present and with a sed extraction of the flat fields otherwise; the fallback can over-block (it matches the whole payload for suppression patterns), never under-block.
 
 **Strip before matching.** `block-escape-hatches.sh` removes single-quoted strings, double-quoted strings, and heredoc bodies before applying its patterns. A commit message that *mentions* `--no-verify` is not a use of it, and this framework's own Standards mention every pattern the hook blocks. A sibling kit's first version blocked its own documentation commits for this reason.
 
