@@ -361,7 +361,9 @@ echo
 #    Director, or an authenticated API call — not a file copy.
 echo "--- Remaining Coverage Checklist items (Workflows/PROJECT_BOOTSTRAP.md) ---"
 echo "  Branch protection      ./$(relpath "$(pwd)" "$SCRIPT_DIR")/setup-branch-protection.sh"
-echo "  main + develop created git branch develop && git push -u origin develop"
+echo "  main + develop created make the first commit first (git branch fails with none), then"
+echo "                         git push -u origin main && git branch develop && git push -u origin develop"
+echo "                         (pre-push allows creating them; every later change goes by PR)"
 echo "  README.md              from the Phase A answers (project identity)"
 echo "  .gitignore             stack-appropriate for $STACK"
 echo "  Project Charter        Templates/PROJECT_CHARTER.md, from Phase A"

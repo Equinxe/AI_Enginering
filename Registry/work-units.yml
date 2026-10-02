@@ -1129,6 +1129,30 @@ work_units:
     milestone: Precision
     delivers: Adapters/ai-runtimes/claude-code/hooks/block-escape-hatches.sh, Adapters/ai-runtimes/claude-code/hooks/tests/escape-hatch-cases.tsv, Adapters/ai-runtimes/claude-code/hooks/README.md, Registry/work-units.yml
 
+  - id: WU-IAENG-312
+    employee: DevOps Engineer
+    title: Close PT2-01 and PT2-02 in the required Data Policy check - scan what a merge itself authored (conflict-resolution lines, paths and lines added in the merge commit) via the dense combined diff in --history, and read added lines as text (--text) so a -diff or binary-classified path is no longer skipped as Binary files differ
+    milestone: Precision
+    delivers: Adapters/scripts/data-policy-scan.sh, Adapters/scripts/tests/run.sh, Adapters/README.md, Registry/work-units.yml
+
+  - id: WU-IAENG-313
+    employee: DevOps Engineer
+    title: Close PT2-03 in the required Work Unit Exists check - classify merges with the shared merge-tree classifier so an authored merge must carry a registered Work Unit trailer; extract the classifier into a sourced helper used by both check scripts; historical authored merges grandfathered in a closed in-script constant
+    milestone: Precision
+    delivers: Adapters/scripts/merge-classify.sh, Adapters/scripts/check-work-units.sh, Adapters/scripts/check-employee-trailers.sh, Adapters/scripts/tests/run.sh, Adapters/README.md, Standards/COMMIT_STANDARD.md, Registry/work-units.yml
+
+  - id: WU-IAENG-314
+    employee: DevOps Engineer
+    title: Close PT2-05 and PT2-06 in the advisory Risk Map check - diff the range from the merge base so a file the base advanced after the fork is not attributed to the change, and require the RISK record to start at column 0 and carry tier=, mitigation= and decided_by= so an indented example no longer satisfies the gate
+    milestone: Precision
+    delivers: Adapters/scripts/check-risk-map.sh, Adapters/scripts/tests/run.sh, Adapters/README.md, Registry/work-units.yml
+
+  - id: WU-IAENG-315
+    employee: DevOps Engineer
+    title: One pre-push rule for main, develop and release/* (pen-test PT2-08, QA DEF-2/DEF-10) - creating an absent branch allowed (bootstrap first push, RELEASE.md Step 3), any update (fast-forward or force) and any reported deletion refused (RELEASE.md Steps 4 and 10); the mirror-push limit stated and pinned; first behaviour cases for the hook, by its real stdin protocol and by real pushes into throwaway remotes; bootstrap instructions corrected; the last shellcheck disable directive removed
+    milestone: Precision
+    delivers: Adapters/git-hooks/pre-push, Adapters/scripts/tests/run.sh, Adapters/README.md, Adapters/scripts/setup-project-bootstrap.sh, Workflows/PROJECT_BOOTSTRAP.md, Standards/CODE_QUALITY_STANDARD.md, Registry/work-units.yml
+
   - id: WU-IAENG-319
     employee: DevOps Engineer
     title: Stop the validator reading SIGPIPE as a missing path - the cross-reference check's pipe into grep -q and awk failed intermittently on CI (PR #174, PR #182) because a bash-builtin printf flushes ~4 KB at a time; membership tests over captured variables use has_line or a here-string across the validator, hooks and scripts, and a 100 KB regression case makes the failure deterministic
