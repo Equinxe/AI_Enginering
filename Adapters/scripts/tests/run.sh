@@ -981,7 +981,7 @@ git commit -q -m "map"
 RM_BASE="$(git rev-parse HEAD)"
 echo changed > src/auth/login.js && git commit -qam "touch the auth module"
 expect 1 "a sensitive change with no RISK record fails" -- bash "$CHECK_MAP" --range "$RM_BASE" HEAD .
-expect_output "no RISK: record"
+expect_output "no well-formed RISK: record"
 
 echo more >> src/auth/login.js
 git commit -qam "touch it again, with a record
@@ -1020,6 +1020,110 @@ echo changed > src/auth/login.js
 git commit -q -aF "$WORK/bigmsg.txt"
 expect 0 "a sensitive change with an early RISK record in a >64KB range still passes" -- bash "$CHECK_MAP" --range "$RM_BASE" HEAD .
 expect_output "RISK: record is present"
+
+# PT2-06 — the record must BE a record, not a mention of one. The gate used to
+# accept any line that began with optional whitespace and `RISK:`, so an
+# indented or quoted example satisfied it: the opposite of what
+# check-work-units.sh and check-employee-trailers.sh tell authors, who are told
+# to indent an example so that it does not count.
+risk_project rm-range-record; sound_risk_map
+git commit -q -m "map"
+RM_BASE="$(git rev-parse HEAD)"
+echo changed > src/auth/login.js
+git commit -qam "touch the auth module, quoting the format
+
+The record format is:
+
+    RISK: changes the identity check | tier=High | mitigation=reviewed | decided_by=Director"
+expect 1 "an indented RISK example does not satisfy the gate" -- bash "$CHECK_MAP" --range "$RM_BASE" HEAD .
+expect_output "no well-formed RISK: record"
+
+echo more >> src/auth/login.js
+git commit -qam "touch it again, record without a tier
+
+RISK: changes the identity check | mitigation=reviewed | decided_by=Director"
+expect 1 "a column-0 RISK line with no tier does not satisfy the gate" -- bash "$CHECK_MAP" --range "$RM_BASE" HEAD .
+
+echo more >> src/auth/login.js
+git commit -qam "touch it again, record with an invalid tier
+
+RISK: changes the identity check | tier=Severe | mitigation=reviewed | decided_by=Director"
+expect 1 "a RISK line whose tier is not in the closed list does not satisfy the gate" -- bash "$CHECK_MAP" --range "$RM_BASE" HEAD .
+
+echo more >> src/auth/login.js
+git commit -qam "touch it again, record without a decider
+
+RISK: changes the identity check | tier=High | mitigation=reviewed"
+expect 1 "a RISK line with no decided_by does not satisfy the gate" -- bash "$CHECK_MAP" --range "$RM_BASE" HEAD .
+
+# The field names are whole words with values (Code Reviewer, PR #175). A
+# matcher that looked for the substring `tier=` accepted `notier=low`, and one
+# that let any non-letter end the tier value accepted `tier=High-ish`; a field
+# matched for presence alone accepted `mitigation=` with nothing after it.
+echo more >> src/auth/login.js
+git commit -qam "touch it again, a field name that merely ends in tier=
+
+RISK: changes the identity check | notier=Low | mitigation=reviewed | decided_by=Director"
+expect 1 "notier= is not the tier= field" -- bash "$CHECK_MAP" --range "$RM_BASE" HEAD .
+
+echo more >> src/auth/login.js
+git commit -qam "touch it again, a tier value that only starts with a valid one
+
+RISK: changes the identity check | tier=High-ish | mitigation=reviewed | decided_by=Director"
+expect 1 "tier=High-ish is not a tier in the closed list" -- bash "$CHECK_MAP" --range "$RM_BASE" HEAD .
+
+echo more >> src/auth/login.js
+git commit -qam "touch it again, an empty mitigation
+
+RISK: changes the identity check | tier=High | mitigation= | decided_by=Director"
+expect 1 "an empty mitigation= does not satisfy the gate" -- bash "$CHECK_MAP" --range "$RM_BASE" HEAD .
+
+echo more >> src/auth/login.js
+git commit -qam "touch it again, an empty decider
+
+RISK: changes the identity check | tier=High | mitigation=reviewed | decided_by="
+expect 1 "an empty decided_by= does not satisfy the gate" -- bash "$CHECK_MAP" --range "$RM_BASE" HEAD .
+
+echo more >> src/auth/login.js
+git commit -qam "touch it again, a well-formed record wrapped over two lines
+
+RISK: changes the identity check | tier=High |
+mitigation=reviewed | decided_by=Director"
+expect 0 "a well-formed column-0 RISK record, wrapped, satisfies the gate" -- bash "$CHECK_MAP" --range "$RM_BASE" HEAD .
+expect_output "RISK: record is present"
+
+# PT2-05 — the range is diffed from the merge base. The endpoint diff
+# `git diff <base> <head>` also contains the inverse of whatever the base branch
+# gained after the fork point: a sensitive file the base moved on was
+# attributed to a Pull Request that never touched it.
+risk_project rm-range-forked; sound_risk_map
+git commit -q -m "map"
+RM_MAIN="$(git rev-parse --abbrev-ref HEAD)"
+git switch -q -c feature-docs
+echo changed > docs/guide.md && git commit -qam "documentation only, on the feature branch"
+git switch -q "$RM_MAIN"
+echo advanced > src/auth/login.js && git commit -qam "the base branch moves a sensitive file on, after the fork point"
+expect 0 "a sensitive file the base advanced after the fork is not attributed to the change" -- bash "$CHECK_MAP" --range "$RM_MAIN" feature-docs .
+expect_output "highest change zone: routine"
+
+# ...and a file the change itself touched is still classified.
+git switch -q feature-docs
+echo changed > src/auth/login.js && git commit -qam "the feature branch touches the sensitive file itself"
+expect 1 "a sensitive file the change itself touched is still classified" -- bash "$CHECK_MAP" --range "$RM_MAIN" feature-docs .
+expect_output "Sensitive paths touched: src/auth/login.js"
+
+# ...and the under-report in the other direction: the base makes the SAME edit
+# to the sensitive file after the fork, so the endpoint diff shows no change to
+# it at all and the change set's own sensitive edit went unclassified.
+risk_project rm-range-hidden; sound_risk_map
+git commit -q -m "map"
+RM_MAIN="$(git rev-parse --abbrev-ref HEAD)"
+git switch -q -c feature-auth
+echo same-edit > src/auth/login.js && git commit -qam "the feature branch touches the sensitive file"
+git switch -q "$RM_MAIN"
+echo same-edit > src/auth/login.js && git commit -qam "the base branch lands the identical edit after the fork point"
+expect 1 "a sensitive edit the base has since duplicated is still attributed to the change" -- bash "$CHECK_MAP" --range "$RM_MAIN" feature-auth .
+expect_output "Sensitive paths touched: src/auth/login.js"
 
 expect 2 "an unknown option is a usage error" -- bash "$CHECK_MAP" --nope .
 

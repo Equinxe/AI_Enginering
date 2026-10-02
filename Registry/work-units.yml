@@ -1140,3 +1140,9 @@ work_units:
     title: Close PT2-03 in the required Work Unit Exists check - classify merges with the shared merge-tree classifier so an authored merge must carry a registered Work Unit trailer; extract the classifier into a sourced helper used by both check scripts; historical authored merges grandfathered in a closed in-script constant
     milestone: Precision
     delivers: Adapters/scripts/merge-classify.sh, Adapters/scripts/check-work-units.sh, Adapters/scripts/check-employee-trailers.sh, Adapters/scripts/tests/run.sh, Adapters/README.md, Standards/COMMIT_STANDARD.md, Registry/work-units.yml
+
+  - id: WU-IAENG-314
+    employee: DevOps Engineer
+    title: Close PT2-05 and PT2-06 in the advisory Risk Map check - diff the range from the merge base so a file the base advanced after the fork is not attributed to the change, and require the RISK record to start at column 0 and carry tier=, mitigation= and decided_by= so an indented example no longer satisfies the gate
+    milestone: Precision
+    delivers: Adapters/scripts/check-risk-map.sh, Adapters/scripts/tests/run.sh, Adapters/README.md, Registry/work-units.yml
