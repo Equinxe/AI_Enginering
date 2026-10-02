@@ -188,8 +188,38 @@ fi
 # under-read every earlier lexer version fell to, the variable is refused as
 # a token: unread input is refused, not assumed safe, same contract as the
 # lexer's own LIMIT marker above.
-if check "(^|[[:space:];&|(])GIT_CONFIG_PARAMETERS="; then
-  iaeng_block "GIT_CONFIG_PARAMETERS sets arbitrary git config for every git command in scope, in an encoding this hook cannot verify is safe from stripped command text" \
+#
+# ASSIGNING BUILTINS (WU-IAENG-316, pen-test PT2-07). The `NAME=` token is one way
+# to set a variable; a builtin that takes the NAME as its operand is another, and
+# leaves no `NAME=` in the text: `printf -v`, `read`, `mapfile`/`readarray`,
+# `export`/`readonly`/`declare`/`typeset`/`local`, and the loop/option forms
+# `for NAME in`, `getopts opts NAME`, `${NAME:=…}`. The same set is refused for
+# GIT_CONFIG_KEY_<n>. Only the name as a direct OPERAND of such a builtin, at
+# command position, is refused, so reading the variable (`printenv`, `echo
+# "$VAR"`, `declare -p`), removing it (`unset`) and searching for it (`grep`)
+# stay allowed. Judgement calls, each tested in escape-hatch-cases.tsv:
+#   - the operand list of read/mapfile/readarray/getopts/declare-class builtins
+#     may carry other names and options first (`read -r a GIT_CONFIG_PARAMETERS`,
+#     `export A B GIT_CONFIG_PARAMETERS`): every name there is assigned;
+#   - the declare-class options allowed before the name are the ones that keep it
+#     an assignment (-a -A -g -i -l -r -t -u -x). -p, -f, -F (print/functions)
+#     and -n are not, so `declare -p NAME` is a read and `export -n NAME`, which
+#     only REMOVES the export attribute and sets no value, stays allowed;
+#   - VALUE_<n> and COUNT are not here: written inline they are allowed too, and
+#     the key is what decides the risk. A key set through a builtin is unreadable
+#     by construction, so KEY_<n> is refused.
+# NOT SEEN: the NAME inside quotes (`export "GIT_CONFIG_PARAMETERS"` loses the
+# name to the lexer), a nameref (`declare -n r=GIT_CONFIG_PARAMETERS; r=…`), and
+# a value built indirectly (`eval "$S"`, a script file) — the hook README says so.
+GCN='(GIT_CONFIG_PARAMETERS|GIT_CONFIG_KEY_([0-9]|\$)[^[:space:];&|)=+]*)'
+GCN_END='([[:space:]=+;&|)]|$)'
+GCN_CP='((^|[;&|(`{])|(^|[[:space:]])(then|do|else|elif|if|while|until|builtin|command|time|!)[[:space:]])[[:space:]]*([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+)*'
+GCN_WORDS='([[:space:]]+[^[:space:];&|]+)*'
+GCN_DECL_OPT='([[:space:]]+(--|-[aAgilrtux]+))*([[:space:]]+[A-Za-z_][A-Za-z0-9_]*(=[^[:space:]]*)?)*'
+if check "${GCN_CP}(printf([[:space:]]+-[A-Za-z-]*)*[[:space:]]+-v[[:space:]]*|(read|mapfile|readarray|getopts)${GCN_WORDS}[[:space:]]+|(export|readonly|declare|typeset|local)${GCN_DECL_OPT}[[:space:]]+|(for|select)[[:space:]]+)${GCN}${GCN_END}" \
+   || check '\$\{GIT_CONFIG_PARAMETERS:?=' \
+   || check '(^|[[:space:];&|(])GIT_CONFIG_PARAMETERS\+?='; then
+  iaeng_block "GIT_CONFIG_PARAMETERS (or an assigning builtin naming GIT_CONFIG_KEY_<n>) sets arbitrary git config for every git command in scope, in a form this hook cannot verify is safe from stripped command text" \
     "Standards/GIT_STANDARD.md, Escape Hatches. Set the value some other way and describe why in the commit, or ask a human to run it."
 fi
 # GIT_CONFIG_KEY_<n> (paired with GIT_CONFIG_VALUE_<n>) names one git config
@@ -200,7 +230,7 @@ fi
 # or it contains a `$` (a variable or command substitution, whole or as part
 # of the key). A fully literal, non-hooksPath key such as safe.directory is
 # unaffected.
-if check 'GIT_CONFIG_KEY_[0-9]+=([[:space:];&|]|$|[^[:space:];&|]*\$)'; then
+if check 'GIT_CONFIG_KEY_[0-9]+\+?=([[:space:];&|]|$|[^[:space:];&|]*\$)'; then
   iaeng_block "GIT_CONFIG_KEY_<n> names a git config key this hook cannot read after quote-stripping — refused rather than assumed to be something other than core.hooksPath" \
     "Standards/GIT_STANDARD.md, Escape Hatches. Write the key literally in the command so it can be reviewed, or ask a human to run it."
 fi

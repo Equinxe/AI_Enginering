@@ -1128,3 +1128,9 @@ work_units:
     title: Refuse an agent command that applies the Director-only approval labels control-change/approved and size/approved - a local speed bump in the escape-hatch hook, not a boundary, covering gh pr/issue edit and create, gh api label writes and gh label rename or create
     milestone: Precision
     delivers: Adapters/ai-runtimes/claude-code/hooks/block-escape-hatches.sh, Adapters/ai-runtimes/claude-code/hooks/tests/escape-hatch-cases.tsv, Adapters/ai-runtimes/claude-code/hooks/README.md, Registry/work-units.yml
+
+  - id: WU-IAENG-316
+    employee: DevOps Engineer
+    title: Refuse GIT_CONFIG_PARAMETERS and GIT_CONFIG_KEY_<n> set through an assigning builtin (PT2-07) - printf -v, read, mapfile, readarray, export, readonly, declare, typeset, local, for, getopts and the += and ${NAME:=} forms - when the name is the builtin's operand, while reads, unset, grep, echo, declare -p, export -n and quoted mentions stay allowed; a speed bump, not a boundary
+    milestone: Precision
+    delivers: Adapters/ai-runtimes/claude-code/hooks/block-escape-hatches.sh, Adapters/ai-runtimes/claude-code/hooks/tests/escape-hatch-cases.tsv, Adapters/ai-runtimes/claude-code/hooks/README.md, Registry/work-units.yml

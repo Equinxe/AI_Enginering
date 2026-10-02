@@ -474,3 +474,89 @@ block	gh pr edit 170 --add-label " size/approved,bug"
 block	gh pr edit 170 --add-label "a b" --add-label "c, size/approved"
 block	gh pr edit 170 --body "see docs" --add-label "help wanted,size/approved"
 block	gh pr create --body "x; y" --label "help wanted,control-change/approved"
+# --- GIT_CONFIG_* set through an assigning builtin (WU-IAENG-316, PT2-07): the name is the operand, no NAME= token.
+block	printf -v GIT_CONFIG_PARAMETERS '%s' "'core.hooksPath'='/dev/null'"; git commit -m x
+block	printf -v GIT_CONFIG_PARAMETERS %s "$P"
+block	printf -vGIT_CONFIG_PARAMETERS %s "$P"
+block	printf -- -v GIT_CONFIG_PARAMETERS %s x
+block	read -r GIT_CONFIG_PARAMETERS < /tmp/p
+block	read GIT_CONFIG_PARAMETERS <<< "$P"
+block	read -r a b GIT_CONFIG_PARAMETERS < /tmp/p
+block	read -r -d '' GIT_CONFIG_PARAMETERS < /tmp/p
+block	IFS= read -r GIT_CONFIG_PARAMETERS < /tmp/p
+block	while read -r GIT_CONFIG_PARAMETERS; do :; done < /tmp/p
+block	cat /tmp/p | read -r GIT_CONFIG_PARAMETERS
+block	mapfile -t GIT_CONFIG_PARAMETERS < /tmp/p
+block	readarray -t GIT_CONFIG_PARAMETERS < /tmp/p
+block	declare GIT_CONFIG_PARAMETERS
+block	declare -x GIT_CONFIG_PARAMETERS
+block	declare -g -x GIT_CONFIG_PARAMETERS
+block	typeset -x GIT_CONFIG_PARAMETERS
+block	typeset GIT_CONFIG_PARAMETERS
+block	export GIT_CONFIG_PARAMETERS
+block	export A GIT_CONFIG_PARAMETERS
+block	export A=1 GIT_CONFIG_PARAMETERS
+block	export -- GIT_CONFIG_PARAMETERS
+block	readonly GIT_CONFIG_PARAMETERS
+block	readonly -x GIT_CONFIG_PARAMETERS
+block	local GIT_CONFIG_PARAMETERS
+block	f() { local -x GIT_CONFIG_PARAMETERS; }
+block	true && export GIT_CONFIG_PARAMETERS
+block	builtin export GIT_CONFIG_PARAMETERS
+block	command export GIT_CONFIG_PARAMETERS
+block	if true; then export GIT_CONFIG_PARAMETERS; fi
+block	for GIT_CONFIG_PARAMETERS in a b; do :; done
+block	getopts ab GIT_CONFIG_PARAMETERS
+block	echo ${GIT_CONFIG_PARAMETERS:=x}
+block	echo ${GIT_CONFIG_PARAMETERS=x}
+block	GIT_CONFIG_PARAMETERS+=x git commit -m x
+block	export GIT_CONFIG_PARAMETERS+=x
+block	printf -v GIT_CONFIG_KEY_0 %s "$K"
+block	printf -v GIT_CONFIG_KEY_$i %s "$K"
+block	read -r GIT_CONFIG_KEY_0 < /tmp/k
+block	mapfile -t GIT_CONFIG_KEY_1 < /tmp/k
+block	declare -x GIT_CONFIG_KEY_0
+block	export GIT_CONFIG_KEY_0
+block	export GIT_CONFIG_KEY_$n
+block	readonly GIT_CONFIG_KEY_12
+block	local GIT_CONFIG_KEY_0
+block	GIT_CONFIG_KEY_0+=$K git commit -m x
+allow	printenv GIT_CONFIG_PARAMETERS
+allow	printenv GIT_CONFIG_KEY_0
+allow	unset GIT_CONFIG_PARAMETERS
+allow	unset GIT_CONFIG_KEY_0
+allow	unset -v GIT_CONFIG_PARAMETERS
+allow	grep GIT_CONFIG_PARAMETERS file
+allow	grep -rn GIT_CONFIG_PARAMETERS Standards/
+allow	grep export GIT_CONFIG_PARAMETERS file
+allow	grep read GIT_CONFIG_PARAMETERS file
+allow	grep -n "printf -v" GIT_CONFIG_PARAMETERS
+allow	echo "$GIT_CONFIG_PARAMETERS"
+allow	echo $GIT_CONFIG_PARAMETERS
+allow	echo ${GIT_CONFIG_PARAMETERS}
+allow	echo ${GIT_CONFIG_PARAMETERS:-none}
+allow	read -r X <<< "$GIT_CONFIG_PARAMETERS"
+allow	read -r X <<< $GIT_CONFIG_PARAMETERS
+allow	printf '%s\n' "$GIT_CONFIG_PARAMETERS"
+allow	printf '%s' GIT_CONFIG_PARAMETERS
+allow	declare -p GIT_CONFIG_PARAMETERS
+allow	declare -p -x GIT_CONFIG_PARAMETERS
+allow	typeset -p GIT_CONFIG_PARAMETERS
+allow	export -p GIT_CONFIG_PARAMETERS
+allow	export -n GIT_CONFIG_PARAMETERS
+allow	export -n GIT_CONFIG_KEY_0
+allow	declare -n GIT_CONFIG_PARAMETERS
+allow	export PATH
+allow	export A=1 B=2
+allow	export GIT_CONFIG_GLOBAL
+allow	export GIT_CONFIG_COUNT
+allow	export GIT_CONFIG_VALUE_0
+allow	read -r GIT_CONFIG_VALUE_0 < /tmp/v
+allow	printf -v GIT_CONFIG_COUNT %s 1
+allow	declare -x GIT_CONFIG_NOSYSTEM
+allow	local x=GIT_CONFIG_PARAMETERS
+allow	git commit -m "export GIT_CONFIG_PARAMETERS"
+allow	git commit -m "printf -v GIT_CONFIG_PARAMETERS and read -r GIT_CONFIG_PARAMETERS are refused"
+allow	git commit -m 'declare -x GIT_CONFIG_KEY_0' -m "mapfile GIT_CONFIG_PARAMETERS"
+allow	echo export GIT_CONFIG_PARAMETERS
+allow	sed -i 's/export GIT_CONFIG_PARAMETERS//' notes.md
