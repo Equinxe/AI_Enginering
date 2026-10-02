@@ -2294,13 +2294,18 @@ expect 2 "an unknown option is a usage error" -- "${CP_RUN[@]}" 'a\n' --bogus
 # anywhere. The policy below is Workflows/RELEASE.md's: Step 3 creates and
 # pushes the release branch (allowed); Step 4 lands every fix through a Pull
 # Request targeting it (so any direct update, fast-forward or force, is
-# refused); Step 10 never deletes it (refused).
+# refused); Step 10 never deletes it (refused). DEF-2 (QA adoption test,
+# 2 Oct 2026) extended the creation rule to main and develop: a new project's
+# documented first push of them (Workflows/PROJECT_BOOTSTRAP.md) was refused,
+# and the only way through was a hook bypass. Every update and deletion of
+# them stays refused.
 #
-# Each case feeds the REAL hook git's REAL stdin protocol —
+# Most cases feed the REAL hook git's REAL stdin protocol —
 #   <local ref> <local sha> <remote ref> <remote sha>
 # one line per ref, all-zero sha for a deletion (local) or a creation
 # (remote) — with object names taken from a real throwaway repository. The
-# hook is run directly: nothing here pushes anywhere.
+# last blocks install the hook and push for real, into throwaway bare
+# repositories under $WORK only.
 
 section "git-hooks/pre-push — protected and release branches (WU-IAENG-315)"
 
@@ -2337,8 +2342,12 @@ for pp_branch in main develop; do
     "${PP[@]}" "refs/heads/side $PP_SIDE refs/heads/$pp_branch $PP_NEW"
   expect 1 "deletion of $pp_branch is refused" -- \
     "${PP[@]}" "(delete) $PP_ZERO refs/heads/$pp_branch $PP_NEW"
-  expect 1 "creation of $pp_branch is refused" -- \
-    "${PP[@]}" "refs/heads/work $PP_NEW refs/heads/$pp_branch $PP_ZERO"
+  # DEF-2: a new project's first push of main and develop
+  # (Workflows/PROJECT_BOOTSTRAP.md) creates them, and that must not need a
+  # hook bypass. Creation overwrites nothing; branch protection takes over
+  # once the branch exists.
+  expect 0 "creation of an absent $pp_branch is allowed (bootstrap)" -- \
+    "${PP[@]}" "refs/heads/$pp_branch $PP_NEW refs/heads/$pp_branch $PP_ZERO"
 done
 
 expect 1 "a multi-ref push with develop after an allowed feature ref is refused" -- \
@@ -2427,6 +2436,37 @@ expect 0 "limit: the hook ran for both pushes (2 calls, got $PPM_CALLS)" -- \
   test "$PPM_CALLS" = 2
 expect 0 "limit: only the explicit deletion named release/v1 (1 line, got $PPM_NAMED)" -- \
   test "$PPM_NAMED" = 1
+
+# --- DEF-2, with a REAL push: the bootstrap's first push of main and develop
+# into an empty remote, through the installed hook, then the refusals that
+# must still hold once the branches exist.
+PPB_REMOTE="$WORK/pre-push-bootstrap-remote.git"
+rm -rf "$PPB_REMOTE"
+git init -q --bare "$PPB_REMOTE"
+new_repo pre-push-bootstrap
+cat > .git/hooks/pre-push <<HOOK
+#!/usr/bin/env bash
+exec bash "$PREPUSH" "\$@"
+HOOK
+chmod +x .git/hooks/pre-push
+
+expect 0 "bootstrap: creating main on an empty remote is allowed" -- \
+  git push -q -u "$PPB_REMOTE" main
+git branch develop
+expect 0 "bootstrap: creating develop is allowed" -- \
+  git push -q -u "$PPB_REMOTE" develop
+expect 0 "bootstrap: both branches now exist on the remote" -- \
+  git --git-dir="$PPB_REMOTE" rev-parse -q --verify refs/heads/develop
+echo more > more.txt && git add more.txt && git commit -q -m "more"
+expect 1 "bootstrap: a later update of main is refused" -- \
+  git push -q "$PPB_REMOTE" main
+expect_output "direct push to 'main' is not allowed"
+expect 1 "bootstrap: a later update of develop is refused" -- \
+  git push -q "$PPB_REMOTE" main:develop
+expect 1 "bootstrap: deleting develop is refused" -- \
+  git push -q "$PPB_REMOTE" :refs/heads/develop
+expect 0 "bootstrap: develop survived the refused deletion" -- \
+  git --git-dir="$PPB_REMOTE" rev-parse -q --verify refs/heads/develop
 
 # --------------------------------------------------------------- verdict ----
 
