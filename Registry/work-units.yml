@@ -1147,8 +1147,26 @@ work_units:
     milestone: Precision
     delivers: Adapters/scripts/check-risk-map.sh, Adapters/scripts/tests/run.sh, Adapters/README.md, Registry/work-units.yml
 
+  - id: WU-IAENG-315
+    employee: DevOps Engineer
+    title: One pre-push rule for main, develop and release/* (pen-test PT2-08, QA DEF-2/DEF-10) - creating an absent branch allowed (bootstrap first push, RELEASE.md Step 3), any update (fast-forward or force) and any reported deletion refused (RELEASE.md Steps 4 and 10); the mirror-push limit stated and pinned; first behaviour cases for the hook, by its real stdin protocol and by real pushes into throwaway remotes; bootstrap instructions corrected; the last shellcheck disable directive removed
+    milestone: Precision
+    delivers: Adapters/git-hooks/pre-push, Adapters/scripts/tests/run.sh, Adapters/README.md, Adapters/scripts/setup-project-bootstrap.sh, Workflows/PROJECT_BOOTSTRAP.md, Standards/CODE_QUALITY_STANDARD.md, Registry/work-units.yml
+
+  - id: WU-IAENG-317
+    employee: DevOps Engineer
+    title: Fix the advisory Review Recorded job failing at actions/checkout (issue 180) - its permissions block omitted contents read so the token could not read the repository; grant it, and guard that every shipped job which checks out and declares permissions grants contents read
+    milestone: Precision
+    delivers: Adapters/github-actions/pr-validation.yml, .github/workflows/pr-validation.yml, Adapters/scripts/tests/run.sh, Registry/work-units.yml
+
+  - id: WU-IAENG-321
+    employee: Technical Writer
+    title: Fix the documentation defects of the adoption-path acceptance test (issue 181) - Work Unit line enforcement stated as at most one locally and exactly one in CI; the bootstrap handoff instructs CLAUDE.md and SESSION_STATE creation; Step 4 and the checklist name the guard, stack declaration and the guard prerequisites; README makes the Claude Code hook and skill installs required; Adapters README cites ONBOARDING Step 1 item 4; ONBOARDING version refreshed
+    milestone: Precision
+    delivers: Standards/COMMIT_STANDARD.md, Workflows/PROJECT_BOOTSTRAP.md, Workflows/ONBOARDING.md, README.md, Adapters/README.md, Registry/work-units.yml
+
   - id: WU-IAENG-316
     employee: DevOps Engineer
-    title: Refuse GIT_CONFIG_PARAMETERS and GIT_CONFIG_KEY_<n> set through an assigning builtin (PT2-07) - printf -v, read, mapfile, readarray, export, readonly, declare, typeset, local, for, getopts and the += and ${NAME:=} forms - when the name is the builtin's operand, while reads, unset, grep, echo, declare -p, export -n and quoted mentions stay allowed; a speed bump, not a boundary
+    title: Refuse GIT_CONFIG_PARAMETERS and GIT_CONFIG_KEY_<n> set through an assigning builtin (PT2-07) - printf -v, read, mapfile, readarray, export, readonly, declare, typeset, local, for, getopts and the += and ${NAME:=} forms - when the name is the builtin's operand, while reads, unset, grep, echo, declare -p, export -n and quoted mentions stay allowed; also allow the legacy positional get of core.hooksPath (Refs #181) with every set form still refused; a speed bump, not a boundary
     milestone: Precision
     delivers: Adapters/ai-runtimes/claude-code/hooks/block-escape-hatches.sh, Adapters/ai-runtimes/claude-code/hooks/tests/escape-hatch-cases.tsv, Adapters/ai-runtimes/claude-code/hooks/README.md, Registry/work-units.yml

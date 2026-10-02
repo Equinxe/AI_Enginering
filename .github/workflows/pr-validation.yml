@@ -300,6 +300,7 @@ jobs:
     name: Review Recorded (advisory)
     runs-on: ubuntu-latest
     permissions:
+      contents: read
       issues: read
       pull-requests: read
     steps:
