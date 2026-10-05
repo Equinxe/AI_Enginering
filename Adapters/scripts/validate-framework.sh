@@ -650,8 +650,10 @@ broken=""
 TRACKED_PATHS="$(git ls-files)"
 resolves() {
   local p="${1%/}"
-  printf '%s\n' "$TRACKED_PATHS" | grep -qxF -- "$p" && return 0
-  printf '%s\n' "$TRACKED_PATHS" | awk -v pre="$p/" 'index($0, pre) == 1 { found = 1; exit } END { exit !found }'
+  has_line "$TRACKED_PATHS" "$p" && return 0
+  # Here-string, not a pipe: awk exits at its first hit, and the producer on the
+  # other end of a pipe would take SIGPIPE and fail the pipeline under pipefail.
+  awk -v pre="$p/" 'index($0, pre) == 1 { found = 1; exit } END { exit !found }' <<< "$TRACKED_PATHS"
 }
 
 # The backtick that delimits a quoted path is held in a variable so the grep
@@ -1059,12 +1061,13 @@ section "13. Registry: chains, workflows, Work Units"
 if [ -f Registry/chains.yml ]; then
   bad_actors=""
   actors_checked=0
+  roster_list="$(roster_names)"
   while IFS= read -r actor; do
     actors_checked=$((actors_checked + 1))
     case "$actor" in
       "Main Agent"|"Director"|"Engineer") continue ;;
     esac
-    roster_names | grep -qxF "$actor" || bad_actors="$bad_actors$actor; "
+    has_line "$roster_list" "$actor" || bad_actors="$bad_actors$actor; "
   done < <(grep -E '^ +- employee: ' Registry/chains.yml | sed 's/^ *- employee: //' | tr -d '\015' | sort -u)
   if [ -n "$bad_actors" ]; then
     fail "Registry/chains.yml names non-Employees: $bad_actors" "A chain step dispatches to a real Employee, or to the framework roles Main Agent / Director / Engineer. Core/MAIN_AGENT_CONDUCT.md's Dispatch Discipline is the reason: a step with no named Employee has no accountable owner."
@@ -1173,8 +1176,9 @@ if [ -f Registry/work-units.yml ]; then
   fi
 
   bad_owner=""
+  roster_list="$(roster_names)"
   while IFS= read -r owner; do
-    roster_names | grep -qxF "$owner" || bad_owner="$bad_owner$owner; "
+    has_line "$roster_list" "$owner" || bad_owner="$bad_owner$owner; "
   done < <(grep -E '^    employee: ' Registry/work-units.yml | sed 's/^    employee: //' | tr -d '\015' | sort -u)
   if [ -n "$bad_owner" ]; then
     fail "Registry/work-units.yml credits non-Employees: $bad_owner" "A Work Unit's owner must be a real Employee, matching the 'Employee:' commit trailer the work landed under."
@@ -1594,7 +1598,7 @@ check_front_page_count() {
   fi
   tok="$(printf '%s' "$phrase" | grep -oiE '^[A-Za-z0-9]+')"
   claimed="$(word2num "$tok")"
-  if ! printf '%s' "$claimed" | grep -qE '^[0-9]+$'; then
+  if [[ ! "$claimed" =~ ^[0-9]+$ ]]; then
     fail "README: could not read a number from '$phrase' for the $label count" "The leading token '$tok' is neither digits nor a cardinal one..twenty."
   elif [ "$claimed" -ne "$actual" ]; then
     fail "README says '$phrase' but the framework has $actual $label" "Front-page count drift. Fix README.md to state $actual, or the set changed and the front page did not (Workflows/CODE_REVIEW.md rule 5)."

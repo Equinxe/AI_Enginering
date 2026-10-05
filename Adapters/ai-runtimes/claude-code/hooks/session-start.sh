@@ -42,7 +42,7 @@ if [ -f "$STATE" ]; then
     printf '%s\n' "$NEXT" | sed 's/^/       /'
   fi
   BLOCKED="$(awk '/^## Blocked On/{f=1; next} /^## /{f=0} f && NF' "$STATE" | head -3)"
-  if [ -n "$BLOCKED" ] && ! printf '%s' "$BLOCKED" | grep -qiE '^\[?nothing'; then
+  if [ -n "$BLOCKED" ] && ! grep -qiE '^\[?nothing' <<< "$BLOCKED"; then
     echo "     Blocked on:"
     printf '%s\n' "$BLOCKED" | sed 's/^/       /'
   fi

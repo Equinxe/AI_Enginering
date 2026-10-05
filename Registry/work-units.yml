@@ -1165,11 +1165,18 @@ work_units:
     milestone: Precision
     delivers: Adapters/ai-runtimes/claude-code/hooks/lib.sh, Adapters/ai-runtimes/claude-code/hooks/block-inline-suppression.sh, Adapters/ai-runtimes/claude-code/hooks/tests/run.sh, Adapters/ai-runtimes/claude-code/hooks/README.md, Adapters/ai-runtimes/README.md, Adapters/ai-runtimes/claude-code/settings.example.json, .claude/settings.json, Registry/work-units.yml
 
+  - id: WU-IAENG-319
+    employee: DevOps Engineer
+    title: Stop the validator reading SIGPIPE as a missing path - the cross-reference check's pipe into grep -q and awk failed intermittently on CI (PR #174, PR #182) because a bash-builtin printf flushes ~4 KB at a time; membership tests over captured variables use has_line or a here-string across the validator, hooks and scripts, and a 100 KB regression case makes the failure deterministic
+    milestone: Precision
+    delivers: Adapters/scripts/validate-framework.sh, Adapters/scripts/release.sh, Adapters/scripts/data-policy-scan.sh, Adapters/scripts/check-pr-size.sh, Adapters/git-hooks/commit-msg, Adapters/ai-runtimes/claude-code/hooks/session-start.sh, Adapters/scripts/tests/run.sh, Governance/TROUBLESHOOTING.md, Registry/work-units.yml
+
   - id: WU-IAENG-321
     employee: Technical Writer
     title: Fix the documentation defects of the adoption-path acceptance test (issue 181) - Work Unit line enforcement stated as at most one locally and exactly one in CI; the bootstrap handoff instructs CLAUDE.md and SESSION_STATE creation; Step 4 and the checklist name the guard, stack declaration and the guard prerequisites; README makes the Claude Code hook and skill installs required; Adapters README cites ONBOARDING Step 1 item 4; ONBOARDING version refreshed
     milestone: Precision
     delivers: Standards/COMMIT_STANDARD.md, Workflows/PROJECT_BOOTSTRAP.md, Workflows/ONBOARDING.md, README.md, Adapters/README.md, Registry/work-units.yml
+
   - id: WU-IAENG-322
     employee: Release Manager
     title: Fix the closing text of release.sh publish, which said the Step 8 back-merge was conditional where Workflows/RELEASE.md says it is always required
@@ -1181,3 +1188,9 @@ work_units:
     title: Fix adoption-test defects DEF-1, DEF-12, DEF-13, DEF-14 (issue #181) - the required Work Unit Exists check reads the PROJECT's Registry/work-units.yml and never the framework's, failing with the file to create when absent; the bootstrap writes an empty starter registry; install.sh drops the self-referential bootstrap hint when called from the bootstrap and writes exact-path LF rules for the files hooks and CI parse; install-hooks.sh detects framework-inside-project by -ef identity
     milestone: Precision
     delivers: Adapters/scripts/check-work-units.sh, Adapters/scripts/setup-project-bootstrap.sh, Adapters/scripts/install.sh, Adapters/ai-runtimes/claude-code/install-hooks.sh, Adapters/scripts/tests/run.sh, Registry/work-units.yml
+
+  - id: WU-IAENG-316
+    employee: DevOps Engineer
+    title: Refuse GIT_CONFIG_PARAMETERS and GIT_CONFIG_KEY_<n> set through an assigning builtin (PT2-07) - printf -v, read, mapfile, readarray, export, readonly, declare, typeset, local, for, getopts and the += and ${NAME:=} forms - when the name is the builtin's operand, while reads, unset, grep, echo, declare -p, export -n and quoted mentions stay allowed; also allow the legacy positional get of core.hooksPath (Refs #181) for plain commands only, with every set form and every quote, backslash, backtick, dollar-paren or newline form still refused; a speed bump, not a boundary
+    milestone: Precision
+    delivers: Adapters/ai-runtimes/claude-code/hooks/block-escape-hatches.sh, Adapters/ai-runtimes/claude-code/hooks/tests/escape-hatch-cases.tsv, Adapters/ai-runtimes/claude-code/hooks/tests/run.sh, Adapters/ai-runtimes/claude-code/hooks/README.md, Registry/work-units.yml

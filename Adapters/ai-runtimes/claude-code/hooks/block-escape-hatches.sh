@@ -167,15 +167,50 @@ fi
 # layered under a read, never exempted).
 READ_OPT="(--(global|system|local|worktree|show-origin|show-scope|includes|no-includes|null|name-only)|-z|--(file|blob|type|default)(=|${S}+)[^[:space:]]+)"
 READ_HOOKSPATH="^[[:space:](\`{]*([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*${S}+)*${G}config${S}+(${READ_OPT}${S}+)*(--get(-all|-regexp)?|--list|-l|get|list)${S}+(${READ_OPT}${S}+)*core\.hooksPath"
+# LEGACY POSITIONAL GET (Refs #181). `git config [scope] core.hooksPath` with
+# NOTHING after the key reads the value, as `--get` does. It is exempt on the same
+# terms: the closed option list only, then the key, then end of segment. Any value
+# after the key makes it a set, and --add, --replace-all, --unset, --unset-all and
+# set are not in the list, so they fall through to the block.
+#
+# THE EXEMPTION IS GRANTED ONLY TO A PLAIN COMMAND (SEC-IAENG-316-01, -02). The
+# lexer drops quoted text and the segment split hides what follows a newline, so
+# the stripped text cannot tell a read from a write whose value or key was typed
+# in a form the lexer rewrites: `core.hooksPath ""` (an empty value), `co""re.
+# hooksPath ""` (an empty quote pair splitting the key), and a value on the next
+# line after a backtick. A real legacy read never needs any of those, so when the
+# RAW command contains a quote, a backslash, a backtick, `$(` or a newline the
+# exemption is withheld and the old behaviour (block) applies. A brace or glob
+# character (`{ } , [ ] ? *`) withholds it too (SEC-IAENG-316-06): the lexer
+# prints brace alternatives on separate lines, so `core.hooks{P,}ath` strips to
+# the bare read while bash expands it to a set. Fails closed: a
+# commit message that mentions the key beside a quote, or `x=$(git config
+# core.hooksPath)`, is refused; `--get` and the other keyword reads above are not
+# affected.
+READ_HOOKSPATH_LEGACY="^[[:space:](\`{]*([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*${S}+)*${G}config${S}+(${READ_OPT}${S}+)*core\.hooksPath${S}*\$"
 WRITE_HOOKSPATH_VIA_C="git[^|;&]*(-c${S}+|--config-env(=|${S}+))core\.hooksPath"
+case "$CMD" in
+  *\'*|*\"*|*\\*|*'`'*|*\$\(*|*$'\n'*|*\{*|*\}*|*,*|*\[*|*\]*|*\?*|*\**) LEGACY_OK=0 ;;
+  *) LEGACY_OK=1 ;;
+esac
 HOOKSPATH_WRITE=0
-while IFS= read -r SEG; do
-  grep -qiE -- "git[^|;&]*core\.hooksPath" <<< "$SEG" || continue
-  if ! grep -qiE -- "$READ_HOOKSPATH" <<< "$SEG" \
-     || grep -qiE -- "$WRITE_HOOKSPATH_VIA_C" <<< "$SEG"; then
-    HOOKSPATH_WRITE=1
-  fi
-done < <(printf '%s\n' "$STRIPPED" | tr ';&|' '\n')
+# Gate: a command whose stripped text never contains the key (any case) cannot
+# trip the loop, so skip its forks. Judged on STRIPPED, where a split key is
+# already rejoined; bash 3.2 has no ${var,,}, so the case is folded by the pattern.
+case "$STRIPPED" in
+  *[hH][oO][oO][kK][sS][pP][aA][tT][hH]*)
+    while IFS= read -r SEG; do
+      grep -qiE -- "git[^|;&]*core\.hooksPath" <<< "$SEG" || continue
+      if grep -qiE -- "$READ_HOOKSPATH" <<< "$SEG" \
+         || { [ "$LEGACY_OK" -eq 1 ] && grep -qiE -- "$READ_HOOKSPATH_LEGACY" <<< "$SEG"; }; then
+        :
+      else
+        HOOKSPATH_WRITE=1
+      fi
+      grep -qiE -- "$WRITE_HOOKSPATH_VIA_C" <<< "$SEG" && HOOKSPATH_WRITE=1
+    done < <(printf '%s\n' "$STRIPPED" | tr ';&|' '\n')
+    ;;
+esac
 if [ "$HOOKSPATH_WRITE" -eq 1 ]; then
   iaeng_block "setting core.hooksPath disables every git hook — the same effect as --no-verify, written as configuration" \
     "Standards/GIT_STANDARD.md, Escape Hatches. The sanctioned write of this setting is ./ia-engineering/Adapters/scripts/install.sh, which points it at the framework's hooks."
@@ -188,8 +223,52 @@ fi
 # under-read every earlier lexer version fell to, the variable is refused as
 # a token: unread input is refused, not assumed safe, same contract as the
 # lexer's own LIMIT marker above.
-if check "(^|[[:space:];&|(])GIT_CONFIG_PARAMETERS="; then
-  iaeng_block "GIT_CONFIG_PARAMETERS sets arbitrary git config for every git command in scope, in an encoding this hook cannot verify is safe from stripped command text" \
+#
+# ASSIGNING BUILTINS (WU-IAENG-316, pen-test PT2-07). The `NAME=` token is one way
+# to set a variable; a builtin that takes the NAME as its operand is another, and
+# leaves no `NAME=` in the text: `printf -v`, `read`, `mapfile`/`readarray`,
+# `export`/`readonly`/`declare`/`typeset`/`local`, and the loop/option forms
+# `for NAME in`, `getopts opts NAME`, `${NAME:=…}`. The same set is refused for
+# GIT_CONFIG_KEY_<n>. Only the name as a direct OPERAND of such a builtin, at
+# command position, is refused, so reading the variable (`printenv`, `echo
+# "$VAR"`, `declare -p`), removing it (`unset`) and searching for it (`grep`)
+# stay allowed. Judgement calls, each tested in escape-hatch-cases.tsv:
+#   - the operand list of read/mapfile/readarray/getopts/declare-class builtins
+#     may carry other names and options first (`read -r a GIT_CONFIG_PARAMETERS`,
+#     `export A B GIT_CONFIG_PARAMETERS`): every name there is assigned;
+#   - the declare-class options allowed before the name are the ones that keep it
+#     an assignment (-a -A -g -i -l -r -t -u -x). -p, -f, -F (print/functions)
+#     and -n are not, so `declare -p NAME` is a read and `export -n NAME`, which
+#     only REMOVES the export attribute and sets no value, stays allowed;
+#   - VALUE_<n> and COUNT are not here: written inline they are allowed too, and
+#     the key is what decides the risk. A KEY_<n> given as the BARE operand
+#     (`export GIT_CONFIG_KEY_0`, `read -r GIT_CONFIG_KEY_0`) has a key this
+#     hook cannot read, so it is refused. `export GIT_CONFIG_KEY_0=…` carries
+#     the key in the text and is judged by the literal-key rule below, exactly
+#     as the inline form is: a literal safe.directory passes, `=$K` is refused.
+# NOT SEEN: the NAME inside quotes (`export "GIT_CONFIG_PARAMETERS"` loses the
+# name to the lexer), a nameref (`declare -n r=GIT_CONFIG_PARAMETERS; r=…`), and a
+# value built indirectly (`eval "$S"`, a script file) — the hook README says so.
+#
+# GCN: the variable names; KEY_<n> may be followed by `$var` (an index). GCN_END:
+# what may follow the name for PARAMETERS; GCN_END_K the same for KEY, minus `=`
+# and `+` so a KEY given a value is left to the literal-key rule.
+GCN_END='([[:space:]=+;&|)]|$)'
+GCN_END_K='([[:space:];&|)]|$)'
+GCN="(GIT_CONFIG_PARAMETERS${GCN_END}|GIT_CONFIG_KEY_([0-9]|\\\$)[^[:space:];&|)=+]*${GCN_END_K})"
+# GCN_CP: command position — line start, after a separator or an opening
+# bracket, or after a keyword that introduces a command — then any VAR=x prefixes.
+GCN_CP='((^|[;&|()`{])|(^|[[:space:]])(then|do|else|elif|if|while|until|builtin|command|coproc|time|!)[[:space:]])[[:space:]]*([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+)*'
+# GCN_WORDS: read/mapfile/readarray/getopts assign every word of their operand
+# list, so any words may precede the name; a redirection or separator ends it.
+GCN_WORDS='([[:space:]]+[^[:space:];&|]+)*'
+# GCN_DECL_OPT: export/declare-class options that keep the operand an assignment
+# (-aAgilrtux and their + forms, --), then other names (with or without =value).
+GCN_DECL_OPT='([[:space:]]+(--|[-+][aAgilrtux]+))*([[:space:]]+[A-Za-z_][A-Za-z0-9_]*(=[^[:space:]]*)?)*'
+if check "${GCN_CP}(printf([[:space:]]+-[A-Za-z-]*)*[[:space:]]+-v[[:space:]]*|(read|mapfile|readarray|getopts)${GCN_WORDS}[[:space:]]+|(export|readonly|declare|typeset|local)${GCN_DECL_OPT}[[:space:]]+|(for|select)[[:space:]]+)${GCN}" \
+   || check '\$\{GIT_CONFIG_PARAMETERS:?=' \
+   || check '(^|[[:space:];&|(])GIT_CONFIG_PARAMETERS\+?='; then
+  iaeng_block "GIT_CONFIG_PARAMETERS (or an assigning builtin naming GIT_CONFIG_KEY_<n>) sets arbitrary git config for every git command in scope, in a form this hook cannot verify is safe from stripped command text" \
     "Standards/GIT_STANDARD.md, Escape Hatches. Set the value some other way and describe why in the commit, or ask a human to run it."
 fi
 # GIT_CONFIG_KEY_<n> (paired with GIT_CONFIG_VALUE_<n>) names one git config
@@ -200,7 +279,7 @@ fi
 # or it contains a `$` (a variable or command substitution, whole or as part
 # of the key). A fully literal, non-hooksPath key such as safe.directory is
 # unaffected.
-if check 'GIT_CONFIG_KEY_[0-9]+=([[:space:];&|]|$|[^[:space:];&|]*\$)'; then
+if check 'GIT_CONFIG_KEY_[0-9]+\+?=([[:space:];&|]|$|[^[:space:];&|]*\$)'; then
   iaeng_block "GIT_CONFIG_KEY_<n> names a git config key this hook cannot read after quote-stripping — refused rather than assumed to be something other than core.hooksPath" \
     "Standards/GIT_STANDARD.md, Escape Hatches. Write the key literally in the command so it can be reviewed, or ask a human to run it."
 fi
