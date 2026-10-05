@@ -65,6 +65,20 @@ Read on every session, in this order:
 
 ---
 
+# Main Agent
+
+The Main Agent follows `ia-engineering/Core/MAIN_AGENT_CONDUCT.md`.
+
+Every Work Unit is delegated to the named Employee in `.claude/agents/` and is
+never implemented inline. An `Employee:` trailer names the Employee that
+actually did the work, never the Main Agent's own.
+
+Present the plan to the Director and wait for approval before executing,
+whatever the runtime's effort or orchestration mode (Claude Code's `ultracode`
+dynamic workflows included).
+
+---
+
 # What Constitutes PROOF
 
 [For each output someone will act on, what concretely shows it is CORRECT.
@@ -186,6 +200,7 @@ direction. Move an answered one into the body of this file and delete it here.]
 | What Constitutes PROOF | The difference between "it ran" and "it is right" | Left empty because it is hard — that is the sign it is needed |
 | Active Employees | Dispatch without deliberation | A roster with no triggers; listing all 42 |
 | Standards in Force | Additions, never subtractions | A relaxation recorded here as if it were policy |
+| Main Agent | Dispatch and plan-first rule, loaded every session | Restating `Core/MAIN_AGENT_CONDUCT.md` instead of pointing to it |
 | Director | Names who decides | "The team" |
 | Open Questions | Prevents invented answers | Questions that were answered and never removed |
 

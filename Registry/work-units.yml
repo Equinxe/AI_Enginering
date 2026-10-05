@@ -1194,3 +1194,9 @@ work_units:
     title: Refuse GIT_CONFIG_PARAMETERS and GIT_CONFIG_KEY_<n> set through an assigning builtin (PT2-07) - printf -v, read, mapfile, readarray, export, readonly, declare, typeset, local, for, getopts and the += and ${NAME:=} forms - when the name is the builtin's operand, while reads, unset, grep, echo, declare -p, export -n and quoted mentions stay allowed; also allow the legacy positional get of core.hooksPath (Refs #181) for plain commands only, with every set form and every quote, backslash, backtick, dollar-paren or newline form still refused; a speed bump, not a boundary
     milestone: Precision
     delivers: Adapters/ai-runtimes/claude-code/hooks/block-escape-hatches.sh, Adapters/ai-runtimes/claude-code/hooks/tests/escape-hatch-cases.tsv, Adapters/ai-runtimes/claude-code/hooks/tests/run.sh, Adapters/ai-runtimes/claude-code/hooks/README.md, Registry/work-units.yml
+
+  - id: WU-IAENG-323
+    employee: Prompt Engineer
+    title: Add a short Main Agent section to Templates/PROJECT_CLAUDE.md (follow Core/MAIN_AGENT_CONDUCT.md, delegate every Work Unit to the named Employee and attribute only real work, present the plan and wait for approval whatever the runtime effort or orchestration mode) and a one-line pointer to it in the session-start hook - blindfolded dogfood cycle 4 found adopters' Main Agents implementing inline under a false Employee trailer, and skipping plan approval under ultracode
+    milestone: Precision
+    delivers: Templates/PROJECT_CLAUDE.md, Adapters/ai-runtimes/claude-code/hooks/session-start.sh, Adapters/ai-runtimes/claude-code/hooks/tests/run.sh, Adapters/ai-runtimes/claude-code/hooks/README.md, Registry/work-units.yml

@@ -122,6 +122,9 @@ else
   fi
 fi
 echo "  3. The Employee Brief for the Work Unit, and the Standards it names."
+if [ -n "$ROOT" ] && [ -f "$ROOT/Core/MAIN_AGENT_CONDUCT.md" ]; then
+  echo "  The Main Agent follows $ROOT/Core/MAIN_AGENT_CONDUCT.md: delegate every Work Unit to its named Employee, and present the plan to the Director before executing."
+fi
 echo
 
 if git -C "$BASE" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
