@@ -362,10 +362,13 @@ fi
 WU_REGISTRY_FILE="Registry/work-units.yml"
 if [ -f "$WU_REGISTRY_FILE" ] && ! printf '%s\n' "${PASSTHROUGH[@]+"${PASSTHROUGH[@]}"}" | grep -qx -- '--force'; then
   echo "  ! $WU_REGISTRY_FILE already exists — left untouched (the project's own)." >&2
+  WU_REGISTRY_NOTE="already present, left untouched (the project's own)"
   echo "    Re-run with --force to replace it with the empty starter." >&2
 elif [ "$DRY_RUN" -eq 1 ]; then
+  WU_REGISTRY_NOTE="would be written (dry run)"
   echo "  [dry-run] write $WU_REGISTRY_FILE (starter: empty Work Unit list)"
 else
+  WU_REGISTRY_NOTE="starter written above"
   mkdir -p "$(dirname "$WU_REGISTRY_FILE")"
   cat > "$WU_REGISTRY_FILE" <<'WUREGISTRY'
 # Work Unit Registry — STARTER, written by setup-project-bootstrap.sh
@@ -429,7 +432,7 @@ echo "                         (Workflows/ONBOARDING.md Step 1 item 2)"
 echo "  SESSION_STATE.md       .ia-engineering/SESSION_STATE.md from Templates/SESSION_STATE.md"
 echo "                         (Workflows/ONBOARDING.md Step 1 item 3; gitignored by install.sh)"
 echo "  Roster                 Workflows/ONBOARDING.md Step 4"
-echo "  Work Unit registry     Registry/work-units.yml — starter written above; register each"
+echo "  Work Unit registry     Registry/work-units.yml — $WU_REGISTRY_NOTE; register each"
 echo "                         Work Unit in the commit that performs it"
 echo "  First Work Unit        Workflows/ONBOARDING.md Step 6, Director-approved"
 echo

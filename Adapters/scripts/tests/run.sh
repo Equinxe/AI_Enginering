@@ -3062,6 +3062,39 @@ commit_with "feat: nothing registered yet" "Work Unit: WU-QA-1"
 expect 1 "an empty starter registry reports the unregistered id, not a parsing failure" -- bash "$CONSUMER_WU" "$BASE" HEAD
 expect_output "claims 'WU-QA-1', which is not in"
 
+# SEC-IAENG-320-01: with an empty registry, a bare `Work Unit: ` line (written
+# with --cleanup=verbatim, which keeps the trailing space) used to PASS, because
+# an empty value matched the empty line of an empty registry. An empty or
+# malformed id never resolves.
+BASE="$(git rev-parse HEAD)"
+echo "$RANDOM" > empty-wu.txt && git add -A
+git commit -q --cleanup=verbatim -m "feat: bare trailer
+
+Work Unit: "
+expect 1 "a bare 'Work Unit: ' line fails against an empty registry" -- bash "$CONSUMER_WU" "$BASE" HEAD
+expect_output "is empty or not a Work Unit id"
+
+mk_consumer cons-malformed
+mkdir -p Registry && printf 'work_units:\n  - id: WU-QA-1\n' > Registry/work-units.yml
+git add -A && git commit -q -m "registry"
+BASE="$(git rev-parse HEAD)"
+commit_with "feat: malformed id" "Work Unit: not-an-id"
+expect 1 "a malformed Work Unit id fails" -- bash "$CONSUMER_WU" "$BASE" HEAD
+expect_output "is empty or not a Work Unit id"
+
+# The non-consumer branch: the framework root (cwd == the script's framework)
+# with no registry reports the plain message, not the consumer one.
+new_repo fw-no-registry
+mkdir -p Adapters/scripts
+cp "$CHECK_WU" "$SCRIPTS/merge-classify.sh" Adapters/scripts/
+git add -A && git commit -q -m "no registry"
+BASE="$(git rev-parse HEAD)"
+commit_with "feat: anything" "Work Unit: WU-QA-1"
+expect 1 "the framework root with no registry fails closed" -- bash Adapters/scripts/check-work-units.sh "$BASE" HEAD
+expect_output "Could not locate Registry/work-units.yml"
+expect 1 "IAENG_REGISTRY_WORK_UNITS naming a missing file fails closed" -- \
+  env IAENG_REGISTRY_WORK_UNITS=/nonexistent/devops320.yml bash Adapters/scripts/check-work-units.sh "$BASE" HEAD
+
 # The framework's own behaviour is unchanged: run from the framework root it
 # reads its own registry.
 FW_ROOT_320="$(cd "$SCRIPTS/../.." && pwd)"

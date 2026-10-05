@@ -342,9 +342,9 @@ echo "Line endings"
 # only when this script installs into the framework repository itself, which
 # is where /Adapters/** and /Registry/** actually exist.
 #
-# Beyond /.github/**, an adopting project gets an LF rule for each file that
-# install-hooks.sh, setup-project-bootstrap.sh and `git submodule add` write
-# and that a hook or a CI job parses: under core.autocrlf=true git would
+# Beyond /.github/**, an adopting project gets an LF rule for each file the
+# bootstrap (setup-project-bootstrap.sh, install-hooks.sh) writes, and
+# .gitmodules, and that a hook or a CI job parses: under core.autocrlf=true git would
 # otherwise check them out as CRLF (DEF-13, issue #181). They are EXACT paths,
 # not `* text=auto` or a wildcard over the project: this script has no claim
 # on the rest of the project's files and their line endings are its own.

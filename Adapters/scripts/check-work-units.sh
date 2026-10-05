@@ -51,8 +51,10 @@
 # Registry/work-units.yml relative to the working directory: this repository's
 # own when run from the framework, the PROJECT's when run from a project that
 # imported the framework (as ia-engineering/). The framework's registry is
-# never read on behalf of a project (WU-IAENG-320). A registry it cannot find
-# is a failure, not a pass: a project that
+# never read on behalf of a project (WU-IAENG-320). $IAENG_REGISTRY_WORK_UNITS,
+# when it names an existing file, overrides that consumer rule: it is an
+# explicit choice by the caller, and is read whatever it is. A registry it
+# cannot find is a failure, not a pass: a project that
 # has not adopted the Work Unit registry should remove the check rather than
 # have it report success without checking anything (Adapters/README.md, The
 # Check Convention, rule 1).
@@ -219,6 +221,16 @@ check_commit() {
   while IFS= read -r wu_line; do
     [ -n "$wu_line" ] || continue
     WU="$(printf '%s' "${wu_line#Work Unit: }" | tr -d '\r')"
+    # An empty or malformed claim never resolves. With an empty registry (the
+    # bootstrap's starter) KNOWN is empty, and `grep -qxF ""` matches the
+    # here-string's single empty line, so a bare `Work Unit: ` line passed
+    # (SEC-IAENG-320-01). The shape is Templates/WORK_UNIT.md's
+    # `WU-<project>-<number>`, the same one PR Compliance matches.
+    if ! [[ "$WU" =~ ^WU-[A-Za-z0-9]+-[0-9]+$ ]]; then
+      err "$what $sha has a 'Work Unit:' line whose value '$WU' is empty or not a Work Unit id. The form is WU-<project>-<number> (Templates/WORK_UNIT.md), for example WU-SHOP-042."
+      fail=1
+      continue
+    fi
     # here-string, not `printf | grep -q`: a long-lived project's Work Unit
     # registry can exceed the pipe buffer, and grep -q short-circuiting it would
     # SIGPIPE the producer — pipefail returns that, and a registered Work Unit
