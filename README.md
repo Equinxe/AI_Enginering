@@ -32,7 +32,7 @@ built to files and served by a web server — and it is a different stack from
 looking at `package.json`, which is why the choice is recorded rather than
 guessed.
 
-Using Claude Code as the runtime? Two more, both optional:
+Using Claude Code as the runtime? Two more, both **required for Claude Code** (without them no hook or `/create-project` skill is loaded) and not needed for any other runtime:
 
 ```bash
 ./ia-engineering/Adapters/ai-runtimes/claude-code/install-hooks.sh   # refuse before, not report after
@@ -49,11 +49,14 @@ protection, and the release-branch ruleset:
 On any other forge it changes nothing and prints the equivalent as a checklist
 to apply by hand.
 
-### The step that is not a command
+### The steps that are not commands
 
 Copy `Templates/PROJECT_CLAUDE.md` to your project's `CLAUDE.md` and fill it in.
 It is the contract every session reads first; a project without one starts every
-session with no context and no rules. `Workflows/PROJECT_BOOTSTRAP.md` walks
+session with no context and no rules. Then copy `Templates/SESSION_STATE.md` to
+`.ia-engineering/SESSION_STATE.md`: the project's dated operational state, read
+right after `CLAUDE.md` on every resume, and never committed (the install
+gitignores it). `Workflows/PROJECT_BOOTSTRAP.md` walks
 through the questions behind it — including the one that decides whether your
 project needs a Domain Employee of its own.
 

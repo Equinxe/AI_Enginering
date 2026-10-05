@@ -1141,6 +1141,41 @@ work_units:
     milestone: Precision
     delivers: Adapters/scripts/merge-classify.sh, Adapters/scripts/check-work-units.sh, Adapters/scripts/check-employee-trailers.sh, Adapters/scripts/tests/run.sh, Adapters/README.md, Standards/COMMIT_STANDARD.md, Registry/work-units.yml
 
+  - id: WU-IAENG-314
+    employee: DevOps Engineer
+    title: Close PT2-05 and PT2-06 in the advisory Risk Map check - diff the range from the merge base so a file the base advanced after the fork is not attributed to the change, and require the RISK record to start at column 0 and carry tier=, mitigation= and decided_by= so an indented example no longer satisfies the gate
+    milestone: Precision
+    delivers: Adapters/scripts/check-risk-map.sh, Adapters/scripts/tests/run.sh, Adapters/README.md, Registry/work-units.yml
+
+  - id: WU-IAENG-315
+    employee: DevOps Engineer
+    title: One pre-push rule for main, develop and release/* (pen-test PT2-08, QA DEF-2/DEF-10) - creating an absent branch allowed (bootstrap first push, RELEASE.md Step 3), any update (fast-forward or force) and any reported deletion refused (RELEASE.md Steps 4 and 10); the mirror-push limit stated and pinned; first behaviour cases for the hook, by its real stdin protocol and by real pushes into throwaway remotes; bootstrap instructions corrected; the last shellcheck disable directive removed
+    milestone: Precision
+    delivers: Adapters/git-hooks/pre-push, Adapters/scripts/tests/run.sh, Adapters/README.md, Adapters/scripts/setup-project-bootstrap.sh, Workflows/PROJECT_BOOTSTRAP.md, Standards/CODE_QUALITY_STANDARD.md, Registry/work-units.yml
+
+  - id: WU-IAENG-317
+    employee: DevOps Engineer
+    title: Fix the advisory Review Recorded job failing at actions/checkout (issue 180) - its permissions block omitted contents read so the token could not read the repository; grant it, and guard that every shipped job which checks out and declares permissions grants contents read
+    milestone: Precision
+    delivers: Adapters/github-actions/pr-validation.yml, .github/workflows/pr-validation.yml, Adapters/scripts/tests/run.sh, Registry/work-units.yml
+
+  - id: WU-IAENG-318
+    employee: DevOps Engineer
+    title: Make block-inline-suppression fail closed on an unreadable payload (DEF-4 of the end-to-end adoption test) - with jq present an unparseable payload left the text empty and the write was allowed; a shared iaeng_require_object refuses empty, non-object or multi-value input while a readable payload with no text is still allowed; the no-jq fallback gap is stated honestly
+    milestone: Precision
+    delivers: Adapters/ai-runtimes/claude-code/hooks/lib.sh, Adapters/ai-runtimes/claude-code/hooks/block-inline-suppression.sh, Adapters/ai-runtimes/claude-code/hooks/tests/run.sh, Adapters/ai-runtimes/claude-code/hooks/README.md, Adapters/ai-runtimes/README.md, Adapters/ai-runtimes/claude-code/settings.example.json, .claude/settings.json, Registry/work-units.yml
+
+  - id: WU-IAENG-321
+    employee: Technical Writer
+    title: Fix the documentation defects of the adoption-path acceptance test (issue 181) - Work Unit line enforcement stated as at most one locally and exactly one in CI; the bootstrap handoff instructs CLAUDE.md and SESSION_STATE creation; Step 4 and the checklist name the guard, stack declaration and the guard prerequisites; README makes the Claude Code hook and skill installs required; Adapters README cites ONBOARDING Step 1 item 4; ONBOARDING version refreshed
+    milestone: Precision
+    delivers: Standards/COMMIT_STANDARD.md, Workflows/PROJECT_BOOTSTRAP.md, Workflows/ONBOARDING.md, README.md, Adapters/README.md, Registry/work-units.yml
+  - id: WU-IAENG-322
+    employee: Release Manager
+    title: Fix the closing text of release.sh publish, which said the Step 8 back-merge was conditional where Workflows/RELEASE.md says it is always required
+    milestone: Precision
+    delivers: Adapters/scripts/release.sh, Adapters/scripts/tests/run.sh, Registry/work-units.yml
+
   - id: WU-IAENG-320
     employee: DevOps Engineer
     title: Fix adoption-test defects DEF-1, DEF-12, DEF-13, DEF-14 (issue #181) - the required Work Unit Exists check reads the PROJECT's Registry/work-units.yml and never the framework's, failing with the file to create when absent; the bootstrap writes an empty starter registry; install.sh drops the self-referential bootstrap hint when called from the bootstrap and writes exact-path LF rules for the files hooks and CI parse; install-hooks.sh detects framework-inside-project by -ef identity

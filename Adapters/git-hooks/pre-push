@@ -2,37 +2,106 @@
 # IA Engineering — pre-push hook
 #
 # Mechanically enforces Standards/BRANCH_STANDARD.md: "Do not develop directly
-# on protected branches" / no direct push to main or develop. Changes reach
-# these branches only through a reviewed Pull Request merged on the remote,
-# never through a local `git push` to them directly.
+# on protected branches". The protected branches are main, develop and
+# release/* (BRANCH_STANDARD.md, Protected-branch exception). For every one of
+# them, per ref update git reports:
 #
-# Install in a project that has imported IA Engineering as a submodule:
-#   cp ia-engineering/Adapters/git-hooks/pre-push .git/hooks/pre-push
-#   chmod +x .git/hooks/pre-push
+#   - CREATION (the branch does not exist on the remote yet) is allowed.
+#     Workflows/RELEASE.md Step 3 creates and pushes each release branch, and
+#     Workflows/PROJECT_BOOTSTRAP.md has a new project push its first main and
+#     develop. Creating an absent branch overwrites nothing, and forge branch
+#     protection (Adapters/scripts/setup-branch-protection.sh) can only apply
+#     to a branch once it exists.
+#   - UPDATE of an existing protected branch — fast-forward or force — is
+#     refused. Changes reach main and develop only through a reviewed Pull
+#     Request merged on the remote; a fix reaches a release branch only
+#     through a Pull Request that targets it (Workflows/RELEASE.md Step 4).
+#   - DELETION is refused. main and develop are never deleted, and a release
+#     branch is never deleted (Workflows/RELEASE.md Step 10). Every deletion
+#     git reports to this hook is refused.
 #
-# If a project's protected-branch names differ from main/develop, edit
-# PROTECTED_BRANCHES below to match.
+# A hook sees only what git reports on stdin. `git push --mirror` does not
+# report the deletions it performs implicitly (a branch present on the remote
+# and absent locally): the hook runs, is told nothing about them, and the
+# branch is deleted (observed on git 2.54; pinned in
+# Adapters/scripts/tests/run.sh). That case is covered by the server's
+# deletion rule and by Standards/GIT_STANDARD.md, which forbids `--mirror`
+# outright, not by this hook.
+#
+# This is a LOCAL echo of the server rules in
+# Adapters/scripts/setup-branch-protection.sh (classic protection on
+# main/develop; the release/* ruleset's deletion, non_fast_forward and
+# pull_request rules). It runs only where it is installed, and any push that
+# skips client hooks skips it. The server rules are the control; this hook
+# stops the mistake before it reaches them.
+#
+# Installation: Adapters/scripts/install.sh points `core.hooksPath` at this
+# directory, so git runs this file in place from the framework submodule. Do
+# not copy it into .git/hooks, and do not edit it in place: the submodule is
+# replaced on every framework update. The branch names below are the ones
+# Standards/BRANCH_STANDARD.md prescribes; a project that needs different
+# ones escalates the standard rather than patching the hook.
 
 set -euo pipefail
 
 PROTECTED_BRANCHES=("main" "develop")
+RELEASE_PREFIX="release/"
 
-# Git's pre-push hook contract always passes four fields per ref update; only
-# remote_ref is needed here, but the other three must still be read to consume
-# stdin correctly. Not unused code — an unavoidable part of the hook interface.
-# shellcheck disable=SC2034
-while read -r local_ref local_sha remote_ref remote_sha; do
+# Git writes the all-zero object name as the local sha of a deletion and as
+# the remote sha of a creation. Its length follows the repository's hash
+# (40 for SHA-1, 64 for SHA-256), so match "all zeros" rather than one length.
+is_zero_sha() {
+  case "$1" in
+    *[!0]*|"") return 1 ;;
+    *) return 0 ;;
+  esac
+}
+
+# Git's pre-push hook contract passes four fields per ref update on stdin:
+#   <local ref> <local sha> <remote ref> <remote sha>
+# The local ref is not needed and is read into `_`.
+while read -r _ local_sha remote_ref remote_sha; do
   branch="${remote_ref#refs/heads/}"
 
+  kind=""
   for protected in "${PROTECTED_BRANCHES[@]}"; do
     if [ "$branch" = "$protected" ]; then
-      echo "pre-push: rejected — direct push to '$protected' is not allowed." >&2
-      echo "  Per Standards/BRANCH_STANDARD.md, changes reach '$protected' only" >&2
-      echo "  through a reviewed Pull Request merged on the remote." >&2
-      echo "  Open a feature/fix/hotfix branch and submit a PR instead." >&2
-      exit 1
+      kind="protected"
     fi
   done
+  # Only a branch ref can be a release branch: a tag such as
+  # refs/tags/release/v1 keeps its refs/tags/ prefix and does not match.
+  case "$remote_ref" in
+    "refs/heads/$RELEASE_PREFIX"*) kind="release" ;;
+  esac
+
+  [ -z "$kind" ] && continue
+
+  if ! is_zero_sha "$local_sha" && is_zero_sha "$remote_sha"; then
+    # Creation of an absent protected branch — see the header.
+    continue
+  fi
+
+  if [ "$kind" = "protected" ]; then
+    echo "pre-push: rejected — direct push to '$branch' is not allowed." >&2
+    echo "  Per Standards/BRANCH_STANDARD.md, changes reach '$branch' only" >&2
+    echo "  through a reviewed Pull Request merged on the remote." >&2
+    echo "  Open a feature/fix/hotfix branch and submit a PR instead." >&2
+    exit 1
+  fi
+
+  if is_zero_sha "$local_sha"; then
+    echo "pre-push: rejected — deleting release branch '$branch' is not allowed." >&2
+    echo "  Per Workflows/RELEASE.md Step 10, a release branch is never deleted:" >&2
+    echo "  it is the permanent snapshot of what was released." >&2
+    exit 1
+  fi
+
+  echo "pre-push: rejected — direct push to existing release branch '$branch' is not allowed." >&2
+  echo "  Per Workflows/RELEASE.md Step 4, a fix reaches a release branch only" >&2
+  echo "  through a Pull Request targeting it. A force-push would also rewrite" >&2
+  echo "  the released history. Branch from '$branch' and open a PR instead." >&2
+  exit 1
 done
 
 exit 0
