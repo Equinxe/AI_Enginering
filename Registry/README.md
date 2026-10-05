@@ -80,6 +80,21 @@ The project roster never wins over the framework roster either: a project cannot
 
 ---
 
+# Work Unit `milestone` in a Consuming Project
+
+Each entry in `work-units.yml` carries `id`, `employee`, `title`, `milestone` and `delivers`. In this repository `milestone` is a framework milestone codename (`Precision`, `Automation`). A consuming project has no `VERSION.md` and no framework milestones, so the field means **the project's own release or iteration label**: free text, one line, chosen by the project.
+
+- The adoption Work Unit (the commit that installs the framework and its tooling, `Workflows/PROJECT_BOOTSTRAP.md` Step 4 item 5) uses `milestone: Bootstrap`.
+- Every later Work Unit uses the label of the release or iteration it ships in (`v1.0`, `Sprint 3`, `MVP`).
+
+What the tooling requires of it, exactly:
+
+- `Adapters/scripts/check-work-units.sh` (the required `Work Unit Exists` check) reads only the `  - id: ` lines. It does not read `milestone`, so any value, or a missing field, passes that check.
+- `Adapters/scripts/validate-framework.sh` (the installed Framework Validation check) runs inside the imported framework directory and validates the framework's own registry, never the project's, so it does not read the project's `milestone` either.
+- `Adapters/scripts/release.sh check` is the one consumer. It treats a milestone as released once `CHANGELOG.md` has a section naming it, and confirms every Work Unit registered against the milestone being released has landed. A project that uses it keeps `milestone` spelled exactly as its `CHANGELOG.md` section (or passes `--milestone <name>`); a mismatch fails with "no Work Units registered against milestone".
+
+---
+
 # Consumers
 
 | Consumer | Reads | For |

@@ -15,8 +15,11 @@ replace your stack, your CI, or your tooling — it adds standards, workflows an
 a roster of named Employees on top of them.
 
 ```bash
-# from the root of your project
+# from the root of your project (skip git init if it is already a repository)
+git init -b main
 git submodule add https://github.com/Equinxe/AI_Enginering ia-engineering
+git -C ia-engineering checkout v0.0.13   # pin a release tag: see "Which ref to pin" below
+git add ia-engineering                   # records the pinned commit
 
 # CI checks, git hooks, data-protection rules, PR and issue templates
 ./ia-engineering/Adapters/scripts/setup-project-bootstrap.sh <stack>
@@ -24,6 +27,20 @@ git submodule add https://github.com/Equinxe/AI_Enginering ia-engineering
 # turn the 42 Employee definitions into agents your runtime can dispatch to
 ./ia-engineering/Adapters/ai-runtimes/generate-agents.sh
 ```
+
+**Which ref to pin.** A submodule records one exact commit, and the framework
+promises nothing across versions yet: `VERSION.md` Status is Active Development
+and no backward-compatibility guarantee applies
+(`Governance/VERSIONING_POLICY.md`). So pin a release tag, never a moving
+branch; the latest is `v0.0.13`. A fix that lands on `develop` after a tag
+reaches you only with the next tag. An early adopter who needs one sooner pins
+a specific `develop` commit instead, and moves to the next tag when it is cut.
+Upgrading is a deliberate `git -C ia-engineering checkout <newer tag>` followed
+by `git add ia-engineering`, reviewed like any other change.
+
+If the framework comes from a local directory instead of a URL, `git submodule
+add` fails with `fatal: transport 'file' not allowed`; see
+[`Governance/TROUBLESHOOTING.md`](Governance/TROUBLESHOOTING.md) entry Y.
 
 `<stack>` is one of `node`, `web`, `python`, `go`, `jvm`, `dotnet`, `php`,
 `generic`. **`web` is a static front end** — a site or single-page application
@@ -53,10 +70,15 @@ to apply by hand.
 
 Copy `Templates/PROJECT_CLAUDE.md` to your project's `CLAUDE.md` and fill it in.
 It is the contract every session reads first; a project without one starts every
-session with no context and no rules. Then copy `Templates/SESSION_STATE.md` to
-`.ia-engineering/SESSION_STATE.md`: the project's dated operational state, read
-right after `CLAUDE.md` on every resume, and never committed (the install
-gitignores it). `Workflows/PROJECT_BOOTSTRAP.md` walks
+session with no context and no rules. Make your first commit (the adoption itself: the submodule, the installed
+tooling, `CLAUDE.md`), signed `Employee: DevOps Engineer`
+(`Workflows/PROJECT_BOOTSTRAP.md` Step 4). Then copy `Templates/SESSION_STATE.md`
+to `.ia-engineering/SESSION_STATE.md`: the project's dated operational state,
+read right after `CLAUDE.md` on every resume, and never committed (the install
+gitignores it). Create it **after** that commit, not before: the session-start
+hook compares the file's modification time with the latest commit, so a file
+that predates the first commit is reported as "1 commit(s) behind" on the very
+first session. `Workflows/PROJECT_BOOTSTRAP.md` walks
 through the questions behind it — including the one that decides whether your
 project needs a Domain Employee of its own.
 
