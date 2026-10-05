@@ -363,7 +363,9 @@ pre-push: rejected — direct push to 'develop' is not allowed.
   Open a feature/fix/hotfix branch and submit a PR instead.
 ```
 
-**Cause.** The commit was made while `develop` was checked out. The `pre-push` hook (`Adapters/git-hooks/pre-push`) refuses any update of an existing protected branch, and the server-side branch protection would refuse it too; the commit itself is fine, only its branch is wrong.
+On a `release/*` branch the message differs: `pre-push: rejected — direct push to existing release branch '<name>' is not allowed.` The cause and the remedy are the same.
+
+**Cause.** The commit was made while `develop` was checked out. The `pre-push` hook (`Adapters/git-hooks/pre-push`) refuses any update of an existing protected branch, and the server-side branch protection would refuse it too where it applies (the repository owner's role is exempt in a single-identity setup, per `SECURITY.md`); the commit itself is fine, only its branch is wrong.
 
 **Remedy.** Keep the commit, move the work to a branch where it belongs, and never rewrite anything:
 

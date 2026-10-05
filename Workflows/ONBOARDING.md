@@ -42,7 +42,7 @@ It applies both to new projects starting from scratch and to existing projects a
 **Actor:** Director + Main Agent
 
 1. Add the IA Engineering framework to the project:
-   - As a git submodule, copied reference, or linked documentation directory. As a submodule, pin a release tag, not a branch; `README.md` Getting Started says which and why. A submodule from a local path needs the workaround in `Governance/TROUBLESHOOTING.md` entry Y.
+   - As a git submodule, copied reference, or linked documentation directory. As a submodule, pin a release tag, not a branch; `README.md` Getting Started says which and why. A submodule from a local path needs the workaround in `Governance/TROUBLESHOOTING.md` entry Y. Commit the adoption (the submodule and the installed tooling) once item 4 has run, signed `Employee: DevOps Engineer`, with an adoption Work Unit registered in the same commit (`Workflows/PROJECT_BOOTSTRAP.md` Step 4 item 5); item 3 below is created after that commit.
 2. Create `CLAUDE.md` at the project root from `Templates/PROJECT_CLAUDE.md`, filling every bracketed field from the Project Charter and the Stack Decision ADR:
    - Project identity, objective, and profile
    - **What constitutes PROOF** for each output someone will act on

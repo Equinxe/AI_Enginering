@@ -70,8 +70,8 @@ to apply by hand.
 
 Copy `Templates/PROJECT_CLAUDE.md` to your project's `CLAUDE.md` and fill it in.
 It is the contract every session reads first; a project without one starts every
-session with no context and no rules. Make your first commit (the adoption itself: the submodule, the installed
-tooling, `CLAUDE.md`), signed `Employee: DevOps Engineer`
+session with no context and no rules. Make your first commit (the adoption itself: the submodule and the installed
+tooling; `CLAUDE.md` goes in a later commit), signed `Employee: DevOps Engineer`
 (`Workflows/PROJECT_BOOTSTRAP.md` Step 4). Then copy `Templates/SESSION_STATE.md`
 to `.ia-engineering/SESSION_STATE.md`: the project's dated operational state,
 read right after `CLAUDE.md` on every resume, and never committed (the install

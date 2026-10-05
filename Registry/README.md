@@ -91,7 +91,7 @@ What the tooling requires of it, exactly:
 
 - `Adapters/scripts/check-work-units.sh` (the required `Work Unit Exists` check) reads only the `  - id: ` lines. It does not read `milestone`, so any value, or a missing field, passes that check.
 - `Adapters/scripts/validate-framework.sh` (the installed Framework Validation check) runs inside the imported framework directory and validates the framework's own registry, never the project's, so it does not read the project's `milestone` either.
-- `Adapters/scripts/release.sh check` is the one consumer. It treats a milestone as released once `CHANGELOG.md` has a section naming it, and confirms every Work Unit registered against the milestone being released has landed. A project that uses it keeps `milestone` spelled exactly as its `CHANGELOG.md` section (or passes `--milestone <name>`); a mismatch fails with "no Work Units registered against milestone".
+- `Adapters/scripts/release.sh check` is the one consumer. It treats a milestone as released once `CHANGELOG.md` has a section naming it, and confirms every Work Unit registered against the milestone being released has landed. A project that uses it keeps `milestone` spelled exactly as its `CHANGELOG.md` section (or passes `--milestone <name>`); a mismatch fails with "no Work Units registered against milestone". `Bootstrap` never gets a CHANGELOG section of its own, so once another milestone is unreleased alongside it, `release.sh check` fails with "cannot determine which milestone is being released". Name it in the project's first CHANGELOG heading, for example `## [0.1.0] - Bootstrap & v1.0` (the " & " list form is supported), or pass `--milestone <name>` every time.
 
 ---
 
