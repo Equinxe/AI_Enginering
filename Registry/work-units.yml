@@ -1207,6 +1207,12 @@ work_units:
     milestone: Precision
     delivers: README.md, Workflows/PROJECT_BOOTSTRAP.md, Workflows/ONBOARDING.md, Governance/TROUBLESHOOTING.md, Templates/WORK_UNIT.md, Registry/README.md, Registry/work-units.yml
 
+  - id: WU-IAENG-325
+    employee: DevOps Engineer
+    title: Bootstrap closing report - SESSION_STATE after the first commit; the adoption commit's signer
+    milestone: Precision
+    delivers: Adapters/scripts/setup-project-bootstrap.sh, Registry/work-units.yml
+
   - id: WU-IAENG-327
     employee: DevOps Engineer
     title: Let a project record its tier-to-model mapping in .ia-engineering/tier-map (map= and effort-map=, same syntax as the flags) so generate-agents.sh honours it on every regeneration - precedence per tier flags over the file over the target defaults, a malformed file refused with exit 2, the summary names the mapping source, and --check reports a mapping-only drift as one instead of blaming Employees/; this repository records the Director decision of 5 Oct 2026 (every Employee on Opus 5.5) and tracks the file; the script defaults are unchanged for adopters
