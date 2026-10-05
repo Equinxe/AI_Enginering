@@ -341,7 +341,20 @@ echo "Line endings"
 # framework-only rules are appended only when FRAMEWORK = PROJECT below, i.e.
 # only when this script installs into the framework repository itself, which
 # is where /Adapters/** and /Registry/** actually exist.
-ATTR_RULES="/.github/** text eol=lf"
+#
+# Beyond /.github/**, an adopting project gets an LF rule for each file the
+# bootstrap (setup-project-bootstrap.sh, install-hooks.sh) writes, and
+# .gitmodules, and that a hook or a CI job parses: under core.autocrlf=true git would
+# otherwise check them out as CRLF (DEF-13, issue #181). They are EXACT paths,
+# not `* text=auto` or a wildcard over the project: this script has no claim
+# on the rest of the project's files and their line endings are its own.
+ATTR_RULES="/.github/** text eol=lf
+/.claude/settings.json text eol=lf
+/.ia-engineering/stack text eol=lf
+/.ia-engineering/risk-map.yml text eol=lf
+/Registry/work-units.yml text eol=lf
+/Dockerfile text eol=lf
+/.gitmodules text eol=lf"
 FRAMEWORK_ONLY_ATTR_RULES="/Adapters/** text eol=lf
 /Registry/** text eol=lf
 /.github/** text eol=lf"
@@ -596,8 +609,13 @@ if [ "$FRAMEWORK" != "$PROJECT" ]; then
   echo "Not installed by this script, by design:"
   echo "  Branch protection   ./$HOOKS_REL/Adapters/scripts/setup-branch-protection.sh"
   echo "                      (mutates shared repository settings; run once per repo)"
-  echo "  Stack CI/container  ./$HOOKS_REL/Adapters/scripts/setup-project-bootstrap.sh <stack>"
-  echo "                      (needs the stack decided in Workflows/PROJECT_BOOTSTRAP.md Phase B)"
+  # Suppressed when setup-project-bootstrap.sh is the caller: it is the script
+  # that installs the stack half, and naming it as the thing to run next, while
+  # it is running, sent the reader in a circle (DEF-12, issue #181).
+  if [ -z "${IAENG_FROM_BOOTSTRAP:-}" ]; then
+    echo "  Stack CI/container  ./$HOOKS_REL/Adapters/scripts/setup-project-bootstrap.sh <stack>"
+    echo "                      (needs the stack decided in Workflows/PROJECT_BOOTSTRAP.md Phase B)"
+  fi
   echo "  Runtime hooks       ./$HOOKS_REL/Adapters/ai-runtimes/claude-code/install-hooks.sh"
   echo "  Runtime skills      ./$HOOKS_REL/Adapters/ai-runtimes/claude-code/install-skills.sh"
   echo "                      (writes the COMMITTED .claude/settings.json, which decides what"

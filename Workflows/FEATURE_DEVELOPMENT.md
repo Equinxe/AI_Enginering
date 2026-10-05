@@ -101,7 +101,7 @@ Before this workflow begins:
 **Actor:** Engineer
 
 1. Stage only the files relevant to this Work Unit.
-2. If the Work Unit is not already registered, add it to `Registry/work-units.yml` (id, employee, title, milestone, delivers) in this same commit. The required `Work Unit Exists` CI check resolves every commit's `Work Unit:` trailer against that file and fails the Pull Request if the ID is not registered there — see `Registry/README.md`. For the `milestone` value: the current in-progress milestone is declared in `VERSION.md` ("Next Milestone") — a new Work Unit's `milestone:` uses that name.
+2. If the Work Unit is not already registered, add it to `Registry/work-units.yml` (id, employee, title, milestone, delivers) in this same commit. In a project that imported the framework this is the PROJECT's own registry (the bootstrap writes an empty starter; the check never reads the framework's). The required `Work Unit Exists` CI check resolves every commit's `Work Unit:` trailer against that file and fails the Pull Request if the ID is not registered there — see `Registry/README.md`. For the `milestone` value: the current in-progress milestone is declared in `VERSION.md` ("Next Milestone") — a new Work Unit's `milestone:` uses that name.
 3. Write a commit message following the Commit Standard (Conventional Commits).
 4. One Work Unit = one commit. Do not bundle unrelated changes.
 

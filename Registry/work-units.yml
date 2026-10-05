@@ -1183,6 +1183,12 @@ work_units:
     milestone: Precision
     delivers: Adapters/scripts/release.sh, Adapters/scripts/tests/run.sh, Registry/work-units.yml
 
+  - id: WU-IAENG-320
+    employee: DevOps Engineer
+    title: Fix adoption-test defects DEF-1, DEF-12, DEF-13, DEF-14 (issue #181) - the required Work Unit Exists check reads the PROJECT's Registry/work-units.yml and never the framework's, failing with the file to create when absent; the bootstrap writes an empty starter registry; install.sh drops the self-referential bootstrap hint when called from the bootstrap and writes exact-path LF rules for the files hooks and CI parse; install-hooks.sh detects framework-inside-project by -ef identity
+    milestone: Precision
+    delivers: Adapters/scripts/check-work-units.sh, Adapters/scripts/setup-project-bootstrap.sh, Adapters/scripts/install.sh, Adapters/ai-runtimes/claude-code/install-hooks.sh, Adapters/scripts/tests/run.sh, Registry/work-units.yml
+
   - id: WU-IAENG-316
     employee: DevOps Engineer
     title: Refuse GIT_CONFIG_PARAMETERS and GIT_CONFIG_KEY_<n> set through an assigning builtin (PT2-07) - printf -v, read, mapfile, readarray, export, readonly, declare, typeset, local, for, getopts and the += and ${NAME:=} forms - when the name is the builtin's operand, while reads, unset, grep, echo, declare -p, export -n and quoted mentions stay allowed; also allow the legacy positional get of core.hooksPath (Refs #181) for plain commands only, with every set form and every quote, backslash, backtick, dollar-paren or newline form still refused; a speed bump, not a boundary

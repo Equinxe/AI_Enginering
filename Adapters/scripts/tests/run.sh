@@ -278,7 +278,7 @@ new_repo wu-no-registry
 BASE="$(git rev-parse HEAD)"
 commit_with "feat: anything" "Work Unit: WU-TEST-001"
 expect 1 "an absent registry fails closed" -- bash "$CHECK_WU" "$BASE" HEAD
-expect_output "Could not locate Registry/work-units.yml"
+expect_output "This project has no Work Unit registry"
 
 # A registry that parses to nothing must name the parser, not blame the
 # commits. Reporting every commit unregistered describes the wrong thing —
@@ -3001,6 +3001,198 @@ expect_output "none of the 1"
 expect 1 "a newline before a real control path still flags it (-z)" -- "${CP_RUN[@]}" 'a\nb\0.github/workflows/y\0' -z
 expect 1 "one control path among many NUL-delimited names (-z)" -- "${CP_RUN[@]}" 'a b\0-x\0Adapters/git-hooks/pre-push\0c\0' -z
 expect 2 "an unknown option is a usage error" -- "${CP_RUN[@]}" 'a\n' --bogus
+
+# ------------------------- adopter registry and install (WU-IAENG-320) --------
+#
+# DEF-1/12/13/14 of the 2 Oct 2026 adoption test (issue #181). A consumer
+# project carries the framework under ia-engineering/; the Work Unit Exists
+# check must read the PROJECT's registry and never the framework's.
+
+section "check-work-units.sh — a consumer reads its own registry (WU-IAENG-320, DEF-1)"
+
+# mk_consumer <name> — a project whose ia-engineering/ holds the check and its
+# helper (a copy, not a link, so the case runs where `ln -s` does not), plus a
+# framework registry that lists a framework-only id. Leaves the shell inside it.
+mk_consumer() {
+  new_repo "$1"
+  mkdir -p ia-engineering/Adapters/scripts ia-engineering/Registry
+  cp "$CHECK_WU" "$SCRIPTS/merge-classify.sh" ia-engineering/Adapters/scripts/
+  printf 'work_units:\n  - id: WU-FRAMEWORK-137\n    employee: Release Manager\n    title: framework only\n    milestone: Testing\n' \
+    > ia-engineering/Registry/work-units.yml
+}
+CONSUMER_WU="ia-engineering/Adapters/scripts/check-work-units.sh"
+
+mk_consumer cons-own
+write_wu_registry WU-QA-1 WU-QA-2
+git add -A && git commit -q -m "registry
+
+Work Unit: WU-QA-1"
+BASE="$(git rev-parse HEAD)"
+commit_with "feat: the project's own Work Unit" "Work Unit: WU-QA-2"
+expect 0 "a consumer commit claiming a Work Unit in the PROJECT registry passes" -- bash "$CONSUMER_WU" "$BASE" HEAD
+expect_output "(resolved)"
+
+mk_consumer cons-fw-only
+write_wu_registry WU-QA-1
+git add -A && git commit -q -m "registry
+
+Work Unit: WU-QA-1"
+BASE="$(git rev-parse HEAD)"
+commit_with "feat: claims a framework-only id" "Work Unit: WU-FRAMEWORK-137"
+expect 1 "a consumer commit claiming a framework-only id fails" -- bash "$CONSUMER_WU" "$BASE" HEAD
+expect_output "WU-FRAMEWORK-137"
+
+mk_consumer cons-no-registry
+git add -A && git commit -q -m "no project registry"
+BASE="$(git rev-parse HEAD)"
+commit_with "feat: claims a framework id with no project registry" "Work Unit: WU-FRAMEWORK-137"
+expect 1 "a consumer with no project registry fails, never falling back to the framework's" -- bash "$CONSUMER_WU" "$BASE" HEAD
+expect_output "This project has no Work Unit registry"
+expect_output "Registry/work-units.yml"
+
+# The starter the bootstrap writes is an EMPTY list. It must not read as a
+# parsing failure: the commit that registers the first Work Unit adds an entry
+# in the same change, and a commit that registers nothing fails for the true
+# reason, an unregistered id.
+mk_consumer cons-empty
+mkdir -p Registry && printf 'work_units:\n' > Registry/work-units.yml
+git add -A && git commit -q -m "starter registry"
+BASE="$(git rev-parse HEAD)"
+commit_with "feat: nothing registered yet" "Work Unit: WU-QA-1"
+expect 1 "an empty starter registry reports the unregistered id, not a parsing failure" -- bash "$CONSUMER_WU" "$BASE" HEAD
+expect_output "claims 'WU-QA-1', which is not in"
+
+# SEC-IAENG-320-01: with an empty registry, a bare `Work Unit: ` line (written
+# with --cleanup=verbatim, which keeps the trailing space) used to PASS, because
+# an empty value matched the empty line of an empty registry. An empty or
+# malformed id never resolves.
+BASE="$(git rev-parse HEAD)"
+echo "$RANDOM" > empty-wu.txt && git add -A
+git commit -q --cleanup=verbatim -m "feat: bare trailer
+
+Work Unit: "
+expect 1 "a bare 'Work Unit: ' line fails against an empty registry" -- bash "$CONSUMER_WU" "$BASE" HEAD
+expect_output "is empty or not a Work Unit id"
+
+mk_consumer cons-malformed
+mkdir -p Registry && printf 'work_units:\n  - id: WU-QA-1\n' > Registry/work-units.yml
+git add -A && git commit -q -m "registry"
+BASE="$(git rev-parse HEAD)"
+commit_with "feat: malformed id" "Work Unit: not-an-id"
+expect 1 "a malformed Work Unit id fails" -- bash "$CONSUMER_WU" "$BASE" HEAD
+expect_output "is empty or not a Work Unit id"
+
+# The non-consumer branch: the framework root (cwd == the script's framework)
+# with no registry reports the plain message, not the consumer one.
+new_repo fw-no-registry
+mkdir -p Adapters/scripts
+cp "$CHECK_WU" "$SCRIPTS/merge-classify.sh" Adapters/scripts/
+git add -A && git commit -q -m "no registry"
+BASE="$(git rev-parse HEAD)"
+commit_with "feat: anything" "Work Unit: WU-QA-1"
+expect 1 "the framework root with no registry fails closed" -- bash Adapters/scripts/check-work-units.sh "$BASE" HEAD
+expect_output "Could not locate Registry/work-units.yml"
+expect 1 "IAENG_REGISTRY_WORK_UNITS naming a missing file fails closed" -- \
+  env IAENG_REGISTRY_WORK_UNITS=/nonexistent/devops320.yml bash Adapters/scripts/check-work-units.sh "$BASE" HEAD
+
+# The framework's own behaviour is unchanged: run from the framework root it
+# reads its own registry.
+FW_ROOT_320="$(cd "$SCRIPTS/../.." && pwd)"
+TOTAL=$((TOTAL + 1))
+FW_OUT_320="$(cd "$FW_ROOT_320" && bash "$CHECK_WU" HEAD HEAD 2>&1)"
+if grep -qxF "Registry: Registry/work-units.yml" <<< "$FW_OUT_320"; then
+  [ -n "$VERBOSE" ] && printf '   ok   the framework run from its own root reads its own registry\n'
+else
+  printf '   FAIL the framework run from its own root did not read Registry/work-units.yml\n'
+  FAILED=$((FAILED + 1))
+fi
+
+section "setup-project-bootstrap.sh / install.sh — registry, LF rules, summary (WU-IAENG-320)"
+
+new_repo boot-320
+if ln -s "$FRAMEWORK_ROOT" ia-engineering 2>/dev/null; then
+  BOOT_OUT="$(bash ./ia-engineering/Adapters/scripts/setup-project-bootstrap.sh generic 2>&1)"
+
+  TOTAL=$((TOTAL + 1))
+  if [ -f Registry/work-units.yml ] && grep -qxF 'work_units:' Registry/work-units.yml \
+     && ! grep -qE '^  - id: ' Registry/work-units.yml; then
+    [ -n "$VERBOSE" ] && printf '   ok   the bootstrap wrote an empty starter Registry/work-units.yml\n'
+  else
+    printf '   FAIL the bootstrap did not write an empty starter Registry/work-units.yml\n'
+    FAILED=$((FAILED + 1))
+  fi
+
+  for rule in '/.claude/settings.json' '/.ia-engineering/stack' '/.ia-engineering/risk-map.yml' \
+              '/Registry/work-units.yml' '/Dockerfile' '/.gitmodules'; do
+    TOTAL=$((TOTAL + 1))
+    if grep -qxF "$rule text eol=lf" .gitattributes 2>/dev/null; then
+      [ -n "$VERBOSE" ] && printf '   ok   .gitattributes carries an LF rule for %s\n' "$rule"
+    else
+      printf '   FAIL .gitattributes has no LF rule for %s\n' "$rule"
+      FAILED=$((FAILED + 1))
+    fi
+  done
+
+  TOTAL=$((TOTAL + 1))
+  if grep -qE '^\* |text=auto' .gitattributes 2>/dev/null; then
+    printf '   FAIL .gitattributes carries a project-wide rule; the rules must be exact paths\n'
+    FAILED=$((FAILED + 1))
+  else
+    [ -n "$VERBOSE" ] && printf '   ok   .gitattributes has no project-wide eol rule\n'
+  fi
+
+  TOTAL=$((TOTAL + 1))
+  if printf '%s' "$BOOT_OUT" | grep -qF "setup-project-bootstrap.sh <stack>"; then
+    printf '   FAIL install.sh told the reader to run the bootstrap script while it was running\n'
+    FAILED=$((FAILED + 1))
+  else
+    [ -n "$VERBOSE" ] && printf '   ok   the summary does not point back at the running bootstrap\n'
+  fi
+
+  # Run on its own, install.sh still names the bootstrap as the next step.
+  new_repo inst-320
+  ln -s "$FRAMEWORK_ROOT" ia-engineering 2>/dev/null
+  expect 0 "install.sh run on its own succeeds" -- bash ./ia-engineering/Adapters/scripts/install.sh
+  expect_output "setup-project-bootstrap.sh <stack>"
+else
+  skip 9 "bootstrap registry/LF/summary: ln -s failed on this platform (no admin rights / Developer Mode off) -- not a fix defect."
+fi
+
+section "install-hooks.sh — framework-inside-project by identity, not spelling (WU-IAENG-320, DEF-14)"
+
+new_repo hooks-320
+if ln -s "$FRAMEWORK_ROOT" ia-engineering 2>/dev/null; then
+  HOOKS_320="$PWD/ia-engineering/Adapters/ai-runtimes/claude-code/install-hooks.sh"
+  expect 0 "install-hooks.sh finds the framework inside the project" -- bash "$HOOKS_320" --print
+  expect_output 'ia-engineering/Adapters'
+
+  # The project reached through a symlink: its logical path is spelled
+  # differently from the one the framework was located by.
+  PROJ_REAL="$PWD"
+  PROJ_LINK="$WORK/hooks-320-link"
+  rm -rf "$PROJ_LINK"
+  if ln -s "$PROJ_REAL" "$PROJ_LINK" 2>/dev/null && [ -L "$PROJ_LINK" ]; then
+    cd "$PROJ_LINK" || exit 1
+    expect 0 "install-hooks.sh accepts the project reached through a symlinked path" -- bash "$HOOKS_320" --print
+    cd "$PROJ_REAL" || exit 1
+  fi
+
+  # A differently-cased spelling of the same directory (Windows, macOS): only
+  # meaningful where the filesystem folds case, and a no-op where it does not.
+  ALT_CASE="$(dirname "$PROJ_REAL")/$(basename "$PROJ_REAL" | tr '[:lower:]' '[:upper:]')"
+  if [ "$ALT_CASE" != "$PROJ_REAL" ] && [ -d "$ALT_CASE" ] && [ "$ALT_CASE" -ef "$PROJ_REAL" ]; then
+    cd "$ALT_CASE" || exit 1
+    expect 0 "install-hooks.sh accepts a differently-cased spelling of the project path" -- bash "$HOOKS_320" --print
+    cd "$PROJ_REAL" || exit 1
+  fi
+
+  # Not inside the project is still refused.
+  new_repo hooks-320-outside
+  expect 1 "install-hooks.sh still refuses a framework that is not inside the project" -- bash "$HOOKS_320" --print
+  expect_output "is not inside the project"
+else
+  skip 2 "install-hooks.sh inside-project detection: ln -s failed on this platform (no admin rights / Developer Mode off) -- not a fix defect."
+fi
 
 # ------------------- validate-framework.sh short-circuit safety (WU-IAENG-319) --
 #

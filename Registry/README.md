@@ -28,7 +28,7 @@ Concretely, per file:
 | `employees.yml` | `Employees/*/*.md` (name, category, Default Complexity Tier) | A single parseable roster, replacing the same list duplicated in six places |
 | `chains.yml` | `Core/AGENT_CHAINS.md` | Chain sequences and Director gates as ordered data |
 | `workflows.yml` | `Workflows/*.md` | Step numbers, actors, and mandatory gates as ordered data |
-| `work-units.yml` | The Work Units executed in this repository **from WU-IAENG-137 onward** — earlier ones are deliberately absent and unrecoverable; see that file's header | Existence — so a commit's `Work Unit:` trailer can be checked against reality, not only against a regex |
+| `work-units.yml` | The Work Units executed in the repository that holds it: this one for the framework's file; a consuming project keeps its OWN `Registry/work-units.yml` (the bootstrap writes an empty starter) and the check never reads the framework's on its behalf. The framework's file lists the Work Units executed in this repository **from WU-IAENG-137 onward** — earlier ones are deliberately absent and unrecoverable; see that file's header | Existence — so a commit's `Work Unit:` trailer can be checked against reality, not only against a regex |
 
 ---
 
@@ -85,7 +85,7 @@ The project roster never wins over the framework roster either: a project cannot
 | Consumer | Reads | For |
 |---|---|---|
 | `Adapters/git-hooks/commit-msg` | `employees.yml`, project roster | Validating the `Employee:` trailer against the real roster, extended by the project's Domain Employees |
-| `Adapters/github-actions/pr-validation.yml` | `employees.yml`, project roster, `work-units.yml` | Server-side trailer re-validation; Work Unit existence |
+| `Adapters/github-actions/pr-validation.yml` | `employees.yml` (the framework's roster, by design), project roster, and `work-units.yml` — the PROJECT's own in a consuming project, never the framework's | Server-side trailer re-validation; Work Unit existence |
 | `Adapters/scripts/validate-framework.sh` | all four | Drift detection across every derived location |
 | `Adapters/ai-runtimes/generate-agents.sh` | `employees.yml`, project roster | Generating runtime agent definitions from Employee definitions, framework and Domain alike |
 | `Adapters/scripts/release.sh` | `work-units.yml` | Listing the Work Units a release contains |

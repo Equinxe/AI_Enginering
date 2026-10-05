@@ -32,6 +32,10 @@
 #   Adapters/github-actions/ci-build-test.yml -> .github/workflows/
 #   Adapters/github-actions/ghcr-publish.yml  -> .github/workflows/
 #   Adapters/dockerfiles/<stack>.Dockerfile   -> ./Dockerfile
+#   .ia-engineering/stack, .ia-engineering/risk-map.yml  (starters)
+#   Registry/work-units.yml                   (starter, empty: the project's own
+#                                              Work Unit registry, read by the
+#                                              required Work Unit Exists check)
 #
 # Still not installed here, deliberately: branch protection. It mutates shared
 # repository settings through the GitHub API and needs an authenticated `gh`;
@@ -177,7 +181,7 @@ echo
 # A hook problem should not stop the Dockerfile being installed.
 echo "--- Host-agnostic Adapters (install.sh) ---"
 INSTALL_RC=0
-"$SCRIPT_DIR/install.sh" ${PASSTHROUGH[@]+"${PASSTHROUGH[@]}"} || INSTALL_RC=$?
+IAENG_FROM_BOOTSTRAP=1 "$SCRIPT_DIR/install.sh" ${PASSTHROUGH[@]+"${PASSTHROUGH[@]}"} || INSTALL_RC=$?
 echo
 
 # 2. Stack-dependent CI and container publishing.
@@ -340,6 +344,57 @@ RISKMAP
   echo "  + $RISK_MAP_FILE (starter — installed files only; the check will name what remains)"
 fi
 
+# A STARTER WORK UNIT REGISTRY, BECAUSE THE REQUIRED `Work Unit Exists` CHECK
+# READS THE PROJECT'S AND NEVER THE FRAMEWORK'S.
+#
+# check-work-units.sh used to fall back to ia-engineering/Registry/work-units.yml
+# when the project had none, which failed the adopter's first Pull Request and
+# let a commit claiming a framework Work Unit pass (DEF-1, issue #181). It now
+# fails with the file to create instead, so this script creates it.
+#
+# The location is Registry/work-units.yml at the project root: it is the path
+# Workflows/FEATURE_DEVELOPMENT.md Step 4 already tells every project to
+# register Work Units in, and the path the check reads, so no new convention is
+# introduced. The list is EMPTY, not seeded with an example: an example ID would
+# be a registered Work Unit that nobody performed, which is the false pass this
+# file exists to prevent. A bare `work_units:` key (not `[]`) so entries can be
+# appended beneath it as valid YAML.
+WU_REGISTRY_FILE="Registry/work-units.yml"
+if [ -f "$WU_REGISTRY_FILE" ] && ! printf '%s\n' "${PASSTHROUGH[@]+"${PASSTHROUGH[@]}"}" | grep -qx -- '--force'; then
+  echo "  ! $WU_REGISTRY_FILE already exists — left untouched (the project's own)." >&2
+  WU_REGISTRY_NOTE="already present, left untouched (the project's own)"
+  echo "    Re-run with --force to replace it with the empty starter." >&2
+elif [ "$DRY_RUN" -eq 1 ]; then
+  WU_REGISTRY_NOTE="would be written (dry run)"
+  echo "  [dry-run] write $WU_REGISTRY_FILE (starter: empty Work Unit list)"
+else
+  WU_REGISTRY_NOTE="starter written above"
+  mkdir -p "$(dirname "$WU_REGISTRY_FILE")"
+  cat > "$WU_REGISTRY_FILE" <<'WUREGISTRY'
+# Work Unit Registry — STARTER, written by setup-project-bootstrap.sh
+#
+# The Work Units executed in THIS project. The required `Work Unit Exists` check
+# resolves each commit's `Work Unit:` trailer against this file, and never
+# against the framework's own Registry/work-units.yml.
+#
+# Register a Work Unit in the SAME commit that performs it, one entry per Work
+# Unit, appended below the `work_units:` line:
+#
+#   - id: WU-<PROJECT>-001
+#     employee: <an Employee name from the roster>
+#     title: <what the Work Unit does>
+#     milestone: <milestone or release label>
+#     delivers: <paths this Work Unit changes>
+#
+# PARSING CONTRACT — read this before reformatting. Consumers read these lines
+# with grep and sed: keep `  - id: <WU-ID>` as each entry's first line, two
+# leading spaces, unquoted. IDs follow Templates/WORK_UNIT.md.
+
+work_units:
+WUREGISTRY
+  echo "  + $WU_REGISTRY_FILE (starter — empty; register each Work Unit in the commit that performs it)"
+fi
+
 DOCKERFILE_SRC="$ADAPTERS_DIR/dockerfiles/$STACK.Dockerfile"
 if [ ! -f "$DOCKERFILE_SRC" ]; then
   echo "Error: no starter Dockerfile for stack '$STACK' at $DOCKERFILE_SRC" >&2
@@ -372,7 +427,13 @@ echo "                         Workflows/ARCHITECTURE_DECISION.md"
 echo "  Risk Map               .ia-engineering/risk-map.yml — the starter covers the installed"
 echo "                         files only; map your own zones and account for all eight"
 echo "                         categories (Templates/RISK_MAP.md), then run check-risk-map.sh"
-echo "  CLAUDE.md + roster     Workflows/ONBOARDING.md Step 4"
+echo "  CLAUDE.md              from Templates/PROJECT_CLAUDE.md, before Onboarding Step 4"
+echo "                         (Workflows/ONBOARDING.md Step 1 item 2)"
+echo "  SESSION_STATE.md       .ia-engineering/SESSION_STATE.md from Templates/SESSION_STATE.md"
+echo "                         (Workflows/ONBOARDING.md Step 1 item 3; gitignored by install.sh)"
+echo "  Roster                 Workflows/ONBOARDING.md Step 4"
+echo "  Work Unit registry     Registry/work-units.yml — $WU_REGISTRY_NOTE; register each"
+echo "                         Work Unit in the commit that performs it"
 echo "  First Work Unit        Workflows/ONBOARDING.md Step 6, Director-approved"
 echo
 

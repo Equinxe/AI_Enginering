@@ -48,9 +48,13 @@
 # so — a back-merge carries no authored commits to attribute.
 #
 # The registry is searched at $IAENG_REGISTRY_WORK_UNITS, then
-# Registry/work-units.yml, then ia-engineering/Registry/work-units.yml, so the
-# script works both in this repository and in a project that imported it as a
-# submodule. A registry it cannot find is a failure, not a pass: a project that
+# Registry/work-units.yml relative to the working directory: this repository's
+# own when run from the framework, the PROJECT's when run from a project that
+# imported the framework (as ia-engineering/). The framework's registry is
+# never read on behalf of a project (WU-IAENG-320). $IAENG_REGISTRY_WORK_UNITS,
+# when it names an existing file, overrides that consumer rule: it is an
+# explicit choice by the caller, and is read whatever it is. A registry it
+# cannot find is a failure, not a pass: a project that
 # has not adopted the Work Unit registry should remove the check rather than
 # have it report success without checking anything (Adapters/README.md, The
 # Check Convention, rule 1).
@@ -99,11 +103,29 @@ fi
 BASE_REF="$1"
 HEAD_REF="$2"
 
+# Whose registry is read. The Work Units a project executes are the PROJECT's;
+# the framework's Registry/work-units.yml lists the framework's own. They are
+# different sets, and reading the framework's from a consumer is wrong both
+# ways (DEF-1 of the 2 Oct 2026 adoption test, issue #181): the adopter's own
+# first Work Unit is "not found", and a commit claiming a framework id such as
+# WU-IAENG-137 resolves although the project never performed it.
+#
+# So the framework's copy is never a candidate. In the framework repository
+# the working directory IS the framework, and Registry/work-units.yml there is
+# its own; in a consumer it is the project's file, at the same relative path.
+# Whether this is a consumer is decided by identity (-ef: device and inode),
+# not by comparing path spellings, for the reason install.sh gives.
+FRAMEWORK_ROOT="$(CDPATH='' cd -- "$SCRIPT_DIR/../.." && pwd)"
+if [ "$FRAMEWORK_ROOT" -ef . ]; then
+  CONSUMER=0
+else
+  CONSUMER=1
+fi
+
 REGISTRY=""
 for candidate in \
   "${IAENG_REGISTRY_WORK_UNITS:-}" \
-  "Registry/work-units.yml" \
-  "ia-engineering/Registry/work-units.yml"
+  "Registry/work-units.yml"
 do
   if [ -n "$candidate" ] && [ -f "$candidate" ]; then
     REGISTRY="$candidate"
@@ -112,7 +134,11 @@ do
 done
 
 if [ -z "$REGISTRY" ]; then
-  err "Could not locate Registry/work-units.yml (looked at \$IAENG_REGISTRY_WORK_UNITS, Registry/, ia-engineering/Registry/). A project that has not adopted the Work Unit registry should remove this check rather than have it pass without checking anything."
+  if [ "$CONSUMER" -eq 1 ]; then
+    err "This project has no Work Unit registry. Create Registry/work-units.yml at the project root (setup-project-bootstrap.sh writes a starter) and register each Work Unit in the commit that performs it. The framework's own ia-engineering/Registry/work-units.yml is deliberately NOT read: it lists the framework's Work Units, not this project's. A project that does not want the check should remove it rather than have it pass without checking anything."
+  else
+    err "Could not locate Registry/work-units.yml (looked at \$IAENG_REGISTRY_WORK_UNITS and Registry/). A project that has not adopted the Work Unit registry should remove this check rather than have it pass without checking anything."
+  fi
   exit 1
 fi
 
@@ -125,7 +151,14 @@ echo "Registered Work Units: $KNOWN_COUNT"
 # A registry that parses to nothing is a parsing failure, not an empty project.
 # Every commit would then fail with an unhelpful message about an unregistered
 # ID, when the real fault is the field shape the parser expects.
-if [ "$KNOWN_COUNT" -eq 0 ]; then
+#
+# The exception is a registry that declares an empty list (`work_units: []` or
+# a bare `work_units:` key, as the bootstrap's starter does): that is a project
+# which has registered nothing yet, and every commit then fails with the true
+# reason, that its Work Unit is unregistered.
+if [ "$KNOWN_COUNT" -eq 0 ] \
+   && { ! grep -qE '^work_units:[[:space:]]*(\[\])?[[:space:]]*$' "$REGISTRY" \
+        || grep -qE '^[[:space:]]*-[[:space:]]*id:' "$REGISTRY"; }; then
   err "$REGISTRY yielded no Work Unit IDs. The parsing contract is a line of the exact form '  - id: <WU-ID>' (two spaces, dash, space). Failing rather than reporting every commit unregistered, which would describe the parser and not the commits."
   exit 1
 fi
@@ -188,6 +221,16 @@ check_commit() {
   while IFS= read -r wu_line; do
     [ -n "$wu_line" ] || continue
     WU="$(printf '%s' "${wu_line#Work Unit: }" | tr -d '\r')"
+    # An empty or malformed claim never resolves. With an empty registry (the
+    # bootstrap's starter) KNOWN is empty, and `grep -qxF ""` matches the
+    # here-string's single empty line, so a bare `Work Unit: ` line passed
+    # (SEC-IAENG-320-01). The shape is Templates/WORK_UNIT.md's
+    # `WU-<project>-<number>`, the same one PR Compliance matches.
+    if ! [[ "$WU" =~ ^WU-[A-Za-z0-9]+-[0-9]+$ ]]; then
+      err "$what $sha has a 'Work Unit:' line whose value '$WU' is empty or not a Work Unit id. The form is WU-<project>-<number> (Templates/WORK_UNIT.md), for example WU-SHOP-042."
+      fail=1
+      continue
+    fi
     # here-string, not `printf | grep -q`: a long-lived project's Work Unit
     # registry can exceed the pipe buffer, and grep -q short-circuiting it would
     # SIGPIPE the producer — pipefail returns that, and a registered Work Unit
