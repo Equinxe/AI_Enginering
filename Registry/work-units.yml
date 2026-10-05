@@ -1203,6 +1203,6 @@ work_units:
 
   - id: WU-IAENG-325
     employee: DevOps Engineer
-    title: Bootstrap closing report: SESSION_STATE after the first commit; the adoption commit's signer
+    title: Bootstrap closing report - SESSION_STATE after the first commit; the adoption commit's signer
     milestone: Precision
     delivers: Adapters/scripts/setup-project-bootstrap.sh, Registry/work-units.yml
