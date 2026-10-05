@@ -49,6 +49,7 @@ It applies both to new projects starting from scratch and to existing projects a
    - Technology stack
    - Active standards, and any project rule that is stricter
    - Active Employees — framework and Domain — with concrete dispatch triggers
+   - The Main Agent rule — delegate every Work Unit to the named Employee, plan first — as the template's short pointer to `Core/MAIN_AGENT_CONDUCT.md`, not restated
    - Working method, and which enforcement is installed
    - Director identity
    - Open questions
