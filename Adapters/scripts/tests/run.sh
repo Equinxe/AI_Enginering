@@ -3484,6 +3484,13 @@ commit_with "feat: after the tag" "Work Unit: WU-TEST-001" "" \
   "Employee: DevOps Engineer" "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
 commit_with "feat: observability" "Work Unit: WU-TEST-002" "" \
   "Employee: Observability Engineer" "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+# Trailer-looking lines in the BODY are not attribution (F3): only the final
+# trailer block counts, and the model is the runtime co-author's, not the
+# first co-author's.
+commit_with "feat: real trailers only" "Employee: Scrum Master" \
+  "Co-Authored-By: OBS326 Human <human@example.invalid>" "" "Work Unit: WU-TEST-002" "" \
+  "Employee: Observability Engineer" "Co-Authored-By: OBS326 Human <human@example.invalid>" \
+  "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 USAGE_REPO="$PWD"
 
 # The transcript: msg_A is written twice (one line per content block, as the
@@ -3514,8 +3521,11 @@ expect_output "Employees: 4 on roster, 2 never used"
 expect 0 "dashboard: the page exists" -- test -s "$UPAGE"
 # Aggregates, read from the page's embedded data block (field order is fixed
 # by the script's jq, so a literal match is exact).
-expect 0 "dashboard: Observability Engineer has 1 dispatch, 1 commit in range, 1 all time, 1 Work Unit" -- \
-  grep -qF '"name":"Observability Engineer","roster":"framework","dispatches":1,"commits_range":1,"commits_all":1,"work_units":1' "$UPAGE"
+expect 0 "dashboard: Observability Engineer has 1 dispatch, 2 commits in range, 2 all time, 1 Work Unit" -- \
+  grep -qF '"name":"Observability Engineer","roster":"framework","dispatches":1,"commits_range":2,"commits_all":2,"work_units":1' "$UPAGE"
+expect 0 "dashboard: the model is the runtime co-author's, not the first co-author's" -- \
+  grep -qF '{"model":"Claude Opus 5.5","commits_all":2,"commits_range":2}' "$UPAGE"
+expect 1 "dashboard: a non-runtime co-author's name is not shown as a model" -- grep -qF 'OBS326 Human' "$UPAGE"
 expect 0 "dashboard: DevOps Engineer has 1 commit since v1 and 2 all time" -- \
   grep -qF '"name":"DevOps Engineer","roster":"framework","dispatches":1,"commits_range":1,"commits_all":2,"work_units":1' "$UPAGE"
 expect 0 "dashboard: an Employee with no activity is marked never used" -- \
@@ -3544,6 +3554,63 @@ expect 0 "dashboard: --prices computes a cost per model" -- \
   bash "$DASH" --project-dir "$USAGE_REPO" --out "$UPAGE" --transcripts-dir "$UT" --prices "$WORK/usage-prices.tsv"
 expect 0 "dashboard: the cost is input+output+cache write+cache read at the stated prices" -- \
   grep -qF ">\$4245<" "$UPAGE"
+
+# F1/F2/F6 (PR #196 review): a model writes subagent_type, model and
+# agentType itself, so prose or a credential can arrive in any of them. Each
+# leak below is shaped like ordinary text: with a space, longer than 64
+# characters, credential-shaped, or a timestamp that is not a date. None may
+# reach the page. The same fixture checks named-teammate attribution: a
+# subagent's agentType is the dispatch NAME, resolved through the dispatch to
+# its type, or through toolUseId when the meta carries one.
+UT2="$WORK/usage-transcripts-leak"
+rm -rf "$UT2"
+mkdir -p "$UT2/s2/subagents"
+cat > "$UT2/s2.jsonl" <<'JSONL'
+{"type":"assistant","timestamp":"TSLEAKXYZW-not-a-date","message":{"id":"msg_L1","model":"OBS326-LEAK model with spaces","content":[{"type":"tool_use","id":"toolu_L1","name":"Agent","input":{"subagent_type":"OBS326-LEAK the database password is hunter2","model":"OBS326-LEAK opus please"}}],"usage":{"input_tokens":"OBS326-LEAK-COUNT","output_tokens":1,"cache_creation_input_tokens":null,"cache_read_input_tokens":0}}}
+{"type":"assistant","timestamp":"2026-10-03T08:00:00Z","message":{"id":"msg_L2","model":"OBS326LEAKLONGxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx","content":[{"type":"tool_use","id":"toolu_L2","name":"Agent","input":{"subagent_type":"OBS326LEAKLONGxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx","model":"OBS326LEAKLONGxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"}}],"usage":{"input_tokens":1,"output_tokens":1,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}
+{"type":"assistant","timestamp":"2026-10-03T08:01:00Z","message":{"id":"msg_L3","model":"claude-test-1","content":[{"type":"tool_use","id":"toolu_L3","name":"Agent","input":{"subagent_type":"AKIAOBS326LEAKZZ","model":"sonnet"}},{"type":"tool_use","id":"toolu_T1","name":"Agent","input":{"subagent_type":"devops-engineer","name":"lexer-attack"}},{"type":"tool_use","id":"toolu_T2","name":"Agent","input":{"subagent_type":"security-engineer","name":"OBS326-LEAK name with space"}}],"usage":{"input_tokens":1,"output_tokens":1,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}
+JSONL
+printf '%s\n' '{"type":"assistant","timestamp":"2026-10-03T08:02:00Z","message":{"id":"msg_T1","model":"claude-test-1","content":[],"usage":{"input_tokens":3,"output_tokens":3,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}' > "$UT2/s2/subagents/agent-t.jsonl"
+printf '%s\n' '{"agentType":"lexer-attack"}' > "$UT2/s2/subagents/agent-t.meta.json"
+printf '%s\n' '{"type":"assistant","timestamp":"2026-10-03T08:03:00Z","message":{"id":"msg_T2","model":"claude-test-1","content":[],"usage":{"input_tokens":4,"output_tokens":4,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}' > "$UT2/s2/subagents/agent-u.jsonl"
+printf '%s\n' '{"agentType":"OBS326-LEAK meta with space","toolUseId":"toolu_T2"}' > "$UT2/s2/subagents/agent-u.meta.json"
+printf '%s\n' '{"type":"assistant","timestamp":"2026-10-03T08:04:00Z","message":{"id":"msg_T3","model":"claude-test-1","content":[],"usage":{"input_tokens":5,"output_tokens":5,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}' > "$UT2/s2/subagents/agent-v.jsonl"
+printf '%s\n' '{"agentType":"OBS326LEAKLONGxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"}' > "$UT2/s2/subagents/agent-v.meta.json"
+
+expect 0 "collector: malformed values are aggregated without a jq error" -- \
+  bash "$COLLECT" --transcripts-dir "$UT2"
+expect 1 "collector: nothing went to jq's error output" -- grep -qF 'jq:' <<< "$LAST_OUTPUT"
+UPAGE2="$WORK/usage-out/leak.html"
+expect 0 "dashboard: builds from the malformed transcript" -- \
+  bash "$DASH" --project-dir "$USAGE_REPO" --out "$UPAGE2" --transcripts-dir "$UT2"
+expect 1 "dashboard privacy: no value with a space reaches the page (subagent_type, model, name, agentType)" -- \
+  grep -qF 'OBS326-LEAK' "$UPAGE2"
+expect 1 "dashboard privacy: no value longer than 64 characters reaches the page" -- \
+  grep -qF 'OBS326LEAKLONG' "$UPAGE2"
+expect 1 "dashboard privacy: a credential-shaped agent type is redacted" -- grep -qF 'AKIAOBS326' "$UPAGE2"
+expect 0 "dashboard privacy: the redacted bucket is shown instead" -- grep -qF '(redacted)' "$UPAGE2"
+expect 0 "dashboard privacy: the unrecognised bucket is shown instead" -- grep -qF '(unrecognised)' "$UPAGE2"
+expect 1 "dashboard privacy: a timestamp that is not a date does not reach the page" -- grep -qF 'TSLEAKXYZW' "$UPAGE2"
+expect 0 "dashboard: a timestamp that is not a date counts under 'unknown'" -- grep -qF '"day":"unknown"' "$UPAGE2"
+expect 0 "dashboard: a teammate's tokens go to its dispatch's type, not its name" -- \
+  grep -qF '"agent":"devops-engineer"' "$UPAGE2"
+expect 1 "dashboard: the teammate name itself is not used as the agent" -- grep -qF '"agent":"lexer-attack"' "$UPAGE2"
+expect 0 "dashboard: a subagent is attributed through its toolUseId" -- \
+  grep -qF '"agent":"security-engineer"' "$UPAGE2"
+
+# The default lookup: <config>/projects/<slug>, the slug being the project's
+# native absolute path with every non-alphanumeric character turned to '-'.
+USAGE_NATIVE="$(cd "$USAGE_REPO" && pwd -P)"
+if command -v cygpath >/dev/null 2>&1; then USAGE_NATIVE="$(cygpath -w "$USAGE_NATIVE")"; fi
+USAGE_SLUG="$(printf '%s' "$USAGE_NATIVE" | sed 's/[^A-Za-z0-9]/-/g')"
+rm -rf "$WORK/usage-slug-config"
+mkdir -p "$WORK/usage-slug-config/projects/$USAGE_SLUG"
+cp -R "$UT/." "$WORK/usage-slug-config/projects/$USAGE_SLUG/"
+expect 0 "dashboard: finds the transcripts by the project's slug without --transcripts-dir" -- \
+  env CLAUDE_CONFIG_DIR="$WORK/usage-slug-config" bash "$DASH" --project-dir "$USAGE_REPO" --out "$UPAGE"
+expect_output "source found: Claude Code transcripts"
+expect 0 "dashboard: the slug-found transcripts carry the same dispatch" -- \
+  grep -qF '"name":"Observability Engineer","roster":"framework","dispatches":1' "$UPAGE"
 
 mkdir -p "$WORK/usage-empty-config"
 expect 0 "dashboard: builds without any transcript" -- \

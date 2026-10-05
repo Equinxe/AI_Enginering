@@ -25,22 +25,36 @@
 #
 #   assistant lines      message.id, message.model, the message.usage token
 #                        counts, and the DATE (UTC) of the timestamp
-#   tool_use blocks      named Agent or Task: the block id, input.subagent_type
-#                        and input.model — never input.prompt, never
-#                        input.description
-#   subagent .meta.json  agentType
+#   tool_use blocks      named Agent or Task: the block id, input.subagent_type,
+#                        input.model and input.name — never input.prompt,
+#                        never input.description
+#   subagent .meta.json  agentType and toolUseId
 #
-# Every string it emits (model, agent type) is reduced to the characters
-# [A-Za-z0-9:._@/ -], so a free-text value cannot carry arbitrary content into
-# the output even if a future transcript put some in those fields.
+# Restricting the CHARACTERS of those fields is not enough: a model writes
+# subagent_type and model itself, and "the password is hunter2" is made of
+# ordinary characters. So every emitted string is SHAPE-validated instead
+# (PR #196 review, F1):
+#
+#   agent type, dispatch name   ^[A-Za-z0-9][A-Za-z0-9:._@/-]{0,63}$
+#   model                       the same, plus [ ] (the "[1m]" suffix)
+#   day                         ^[0-9]{4}-[0-9]{2}-[0-9]{2}$, else "unknown"
+#   token counts                numbers only, else 0
+#
+# One token, no space, at most 64 characters. Anything else is counted under
+# the fixed bucket "(unrecognised)", and a value of the right shape that
+# matches a credential pattern (the data-policy scanner's families, with
+# lower length floors) under "(redacted)". The value itself is never printed.
 #
 # HOW IT STAYS STREAMING
 #
 # A long session's transcript is tens of megabytes; a project's directory can
-# be hundreds. jq reads each file line by line (-R with `fromjson?`, so a
-# truncated last line written while a session is live is skipped instead of
-# aborting the file), emits one short TSV record per relevant line, and awk
-# aggregates. No transcript is held in memory. The one piece of state that
+# be hundreds. Only lines carrying `"type":"assistant"` can hold usage or a
+# dispatch, so one awk pass drops every other line before jq sees it — most
+# of a transcript's bytes are tool results. One jq then reads line by line (-R with
+# `fromjson?`, so a truncated last line written while a session is live is
+# skipped instead of aborting the file), emits one short TSV record per
+# relevant line, and awk aggregates. No transcript is held in memory. The one
+# piece of state that
 # grows with input is awk's set of seen message ids, and it is required:
 # Claude Code writes one line per content block and repeats the same message,
 # with the same usage, on each, so summing lines would count a message's
@@ -58,7 +72,11 @@
 # runtime worktrees (.claude/worktrees/<name>) are stored under
 # <slug>--claude-worktrees-<name> and are included. Main-session files are
 # <dir>/<session>.jsonl; subagent files are <dir>/<session>/subagents/*.jsonl,
-# each with a sibling .meta.json naming its agent type.
+# each with a sibling .meta.json. Its agentType is the agent TYPE for a plain
+# dispatch but the dispatch's NAME for a named teammate ("lexer-attack"), so
+# a subagent file is attributed through its toolUseId to the dispatch that
+# spawned it, then through a dispatch name, and only then to agentType as
+# written.
 #
 # USAGE
 #
@@ -153,66 +171,123 @@ fi
 
 # --- Extract -----------------------------------------------------------------
 
-# One record per relevant line: `C` is an API call's usage, `D` a dispatch.
-# Held in a quoted heredoc: it is a jq program, and `$agent`, `$m` and `$u`
-# are jq variables, not shell ones.
-JQ_EXTRACT="$(cat <<'JQ'
-def clean: tostring | gsub("[^A-Za-z0-9:._@/ -]"; "?");
-fromjson? | select(type == "object") |
-(
-  select(.type == "assistant" and (.message.id? | type) == "string"
-         and (.message.usage? | type) == "object"
-         and .message.model? != "<synthetic>")
-  | .message as $m | $m.usage as $u
-  | ["C", ($m.id | clean), ((.timestamp // "") | tostring | .[0:10]),
-     ($m.model // "unknown" | clean), $agent,
-     ($u.input_tokens // 0), ($u.output_tokens // 0),
-     ($u.cache_creation_input_tokens // 0), ($u.cache_read_input_tokens // 0)]
-  | @tsv
-),
-(
-  select(.type == "assistant") | .message.content? | arrays | .[]
-  | select(type == "object" and .type == "tool_use"
-           and (.name == "Agent" or .name == "Task"))
-  | ["D", (.id // "" | clean),
-     (.input.subagent_type // "general-purpose" | clean),
-     (.input.model // "inherit" | clean)]
-  | @tsv
-)
+echo "usage-collect: reading ${#FILES[@]} transcript file(s)..." >&2
+
+# The two fixed labels a file can carry before resolution. Written once, so
+# the bucket the page shows and the bucket awk resolves cannot drift (F7).
+MAIN_LABEL="main session"
+UNKNOWN_SUBAGENT="subagent (type unknown)"
+
+# Credential families, after the data-policy scanner's SECRET_PATTERNS
+# (Adapters/scripts/data-policy-scan.sh) with lower length floors, since a
+# shape-valid value is at most 64 characters. Only ever matched, never printed.
+SECRET_RE='AKIA[0-9A-Z]{12,}|gh[pousr]_[A-Za-z0-9]{16,}|xox[baprs]-|sk_(live|test)_|sk-ant-|sk-[A-Za-z0-9]{20,}|BEGIN.*PRIVATE'
+
+# The shared shape filters (F1, F2, F6). `$secret` is a jq variable.
+JQ_SHAPES="$(cat <<'JQ'
+def redact: if test($secret) then "(redacted)" else . end;
+def agent_shape: if type == "string" and test("^[A-Za-z0-9][A-Za-z0-9:._@/-]{0,63}$") then redact else "(unrecognised)" end;
+def model_shape: if type == "string" and test("^[A-Za-z0-9][A-Za-z0-9:._@/\\[\\]-]{0,63}$") then redact else "(unrecognised)" end;
+def id_shape: if type == "string" and test("^[A-Za-z0-9_-]{1,128}$") then . else "" end;
+def day_shape: if type == "string" and (.[0:10] | test("^[0-9]{4}-[0-9]{2}-[0-9]{2}$")) then .[0:10] else "unknown" end;
+def count: (numbers | select(. >= 0) | floor) // 0;
 JQ
 )"
 
-JQ_META='.agentType // "subagent (type unknown)" | tostring | gsub("[^A-Za-z0-9:._@/ -]"; "?")'
+# ONE jq process reads every file. Spawning a native jq (and a grep) per file
+# cost about 0.25 s each on Windows, which across a few hundred transcripts
+# and their .meta.json files was most of the run time; the parsing itself is
+# a few seconds. So awk prefilters every transcript in one pass and writes a
+# marker line before each file's lines — "\036M" for a main session, or
+# "\036S <meta-json>" for a subagent — and jq carries the current file's
+# label through a `foreach`.
+#
+# One record per relevant line: `C` is an API call's usage, `D` a dispatch.
+# Held in a quoted heredoc: it is a jq program, and `$agent`, `$toolu`, `$m`,
+# `$u` and `$l` are jq variables, not shell ones.
+JQ_EXTRACT="$JQ_SHAPES
+$(cat <<'JQ'
+def meta_label:
+  (.[3:] | fromjson? // {}) as $mj
+  | if ($mj | type) != "object" then {agent: $unknown, toolu: ""}
+    else {agent: (if $mj.agentType == null then $unknown else ($mj.agentType | agent_shape) end),
+          toolu: ($mj.toolUseId | id_shape)} end;
+def extract($agent; $toolu):
+fromjson? | select(type == "object" and .type == "assistant") |
+(
+  select((.message.usage? | type) == "object" and .message.model? != "<synthetic>")
+  | .message as $m | $m.usage as $u | ($m.id | id_shape) as $id
+  | select($id != "")
+  | ["C", $id, (.timestamp | day_shape), ($m.model // "unknown" | model_shape), $agent, $toolu,
+     ($u.input_tokens | count), ($u.output_tokens | count),
+     ($u.cache_creation_input_tokens | count), ($u.cache_read_input_tokens | count)]
+  | @tsv
+),
+(
+  .message.content? | arrays | .[]
+  | select(type == "object" and .type == "tool_use"
+           and (.name == "Agent" or .name == "Task"))
+  | ["D", (.id | id_shape),
+     (.input.subagent_type // "general-purpose" | agent_shape),
+     (.input.model // "inherit" | model_shape),
+     (if .input.name == null then "" else (.input.name | agent_shape) end)]
+  | @tsv
+);
+foreach inputs as $l ({agent: $main, toolu: "", line: null};
+  if $l == "\u001eM" then {agent: $main, toolu: "", line: null}
+  elif ($l | startswith("\u001eS ")) then ($l | meta_label) + {line: null}
+  else .line = $l end;
+  select(.line != null) | .agent as $a | .toolu as $t | .line | extract($a; $t))
+JQ
+)"
+
+# path <TAB> meta-json, one line per subagent file, read with bash builtins
+# only (no process per file). A missing .meta.json is "{}": the unknown bucket.
+METAMAP="$(mktemp "${TMPDIR:-/tmp}/obs326-meta.XXXXXX")" || { err "cannot create a temporary file"; exit 1; }
+trap 'rm -f "$METAMAP"' EXIT
+for f in "${FILES[@]}"; do
+  case "$f" in
+    */subagents/*)
+      meta="${f%.jsonl}.meta.json"
+      mj="{}"
+      if [ -f "$meta" ]; then
+        IFS= read -r -d '' mj < "$meta" || true
+        mj="${mj//$'\r'/ }"; mj="${mj//$'\n'/ }"; mj="${mj//$'\t'/ }"
+      fi
+      printf '%s\t%s\n' "$f" "$mj" >> "$METAMAP"
+      ;;
+  esac
+done
 
 extract() {
-  local f agent meta
-  for f in "${FILES[@]}"; do
-    agent="main session"
-    case "$f" in
-      */subagents/*)
-        meta="${f%.jsonl}.meta.json"
-        agent="subagent (type unknown)"
-        if [ -f "$meta" ]; then
-          agent="$(jq -r "$JQ_META" < "$meta" 2>/dev/null || echo "subagent (type unknown)")"
-        fi
-        ;;
-    esac
-    # stdin, not a path argument: a native jq on Windows would otherwise need
-    # the MSYS path translated, and a redirect needs nothing.
-    jq -R -r --arg agent "$agent" "$JQ_EXTRACT" < "$f"
-  done
+  # The awk prefilter keeps only lines that can hold usage or a dispatch.
+  # File names reach it as arguments and the map through the environment
+  # (not -v, which would process backslashes in a Windows path).
+  F_META="$METAMAP" awk '
+    BEGIN { mapf = ENVIRON["F_META"] }
+    FILENAME == mapf { i = index($0, "\t"); meta[substr($0, 1, i - 1)] = substr($0, i + 1); next }
+    FNR == 1 { if (FILENAME in meta) print "\036S " meta[FILENAME]; else print "\036M" }
+    /"type": ?"assistant"/ { print }
+  ' "$METAMAP" "${FILES[@]}" \
+    | jq -n -R -r --arg main "$MAIN_LABEL" --arg unknown "$UNKNOWN_SUBAGENT" \
+        --arg secret "$SECRET_RE" "$JQ_EXTRACT"
 }
 
 # --- Aggregate -----------------------------------------------------------------
 
+# C: id day model agent toolu input output cache_creation cache_read
+# D: tool-id subagent_type model name
+# A subagent file's label is resolved at the end, once every dispatch is
+# known: its spawning tool_use id first, then a dispatch name, then as written.
 extract | awk -F '\t' -v OFS='\t' -v ndirs="${#DIRS[@]}" -v nfiles="${#FILES[@]}" '
+  { sub(/\r$/, "") }
   $1 == "C" {
     id = $2
     if (!(id in seen)) {
       seen[id] = 1; order[++n] = id
-      day[id] = $3; model[id] = $4; agent[id] = $5
+      day[id] = $3; model[id] = $4; agent[id] = $5; toolu[id] = $6
     }
-    for (i = 6; i <= 9; i++) {
+    for (i = 7; i <= 10; i++) {
       v = $i + 0
       if (v > val[id, i]) val[id, i] = v
     }
@@ -223,20 +298,25 @@ extract | awk -F '\t' -v OFS='\t' -v ndirs="${#DIRS[@]}" -v nfiles="${#FILES[@]}
     if (key in dseen) next
     dseen[key] = 1; nd++
     dcount[$3 OFS $4]++
+    if ($2 != "") dtype[$2] = $3
+    if ($5 != "" && $5 != "(unrecognised)" && $5 != "(redacted)") byname[$5] = $3
     next
   }
   END {
     for (k = 1; k <= n; k++) {
       id = order[k]
-      g = day[id] OFS model[id] OFS agent[id]
+      a = agent[id]
+      if (toolu[id] != "" && (toolu[id] in dtype)) a = dtype[toolu[id]]
+      else if (a in byname) a = byname[a]
+      g = day[id] OFS model[id] OFS a
       if (!(g in calls)) gorder[++ng] = g
       calls[g]++
-      for (i = 6; i <= 9; i++) sum[g, i] += val[id, i]
+      for (i = 7; i <= 10; i++) sum[g, i] += val[id, i]
     }
     print "source", ndirs, nfiles, n + 0, nd + 0
     for (k = 1; k <= ng; k++) {
       g = gorder[k]
-      print "call", g, sum[g, 6] + 0, sum[g, 7] + 0, sum[g, 8] + 0, sum[g, 9] + 0, calls[g]
+      print "call", g, sum[g, 7] + 0, sum[g, 8] + 0, sum[g, 9] + 0, sum[g, 10] + 0, calls[g]
     }
     for (d in dcount) print "dispatch", d, dcount[d]
   }

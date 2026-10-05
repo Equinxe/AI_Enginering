@@ -20,10 +20,11 @@
 #
 # WHAT IT READS
 #
-#   git (runtime-agnostic)   per commit: the `Employee:`, `Work Unit:` and
-#                            `Co-Authored-By:` trailers, and the numstat line
-#                            counts — never the rest of the message, never a
-#                            diff. Non-merge commits only.
+#   git (runtime-agnostic)   per commit: the `Employee:` and `Co-Authored-By:`
+#                            trailers as git parses them, the column-0
+#                            `Work Unit:` line, and the numstat line counts,
+#                            each value shape-checked — never the rest of the
+#                            message, never a diff. Non-merge commits only.
 #   Registry/employees.yml   the framework roster, plus the project roster
 #                            (.ia-engineering/Registry/employees.yml) unioned
 #                            in exactly as check-employee-trailers.sh does
@@ -175,7 +176,12 @@ if ! ROSTER="$(first_file "${IAENG_REGISTRY:-}" "$PROJECT/Registry/employees.yml
   err "Could not locate Registry/employees.yml (looked at \$IAENG_REGISTRY, the project's Registry/ and ia-engineering/Registry/, and $FRAMEWORK_DIR/Registry/). Without the roster, never-used Employees cannot be shown."
   exit 1
 fi
-grep -E '^  - name: ' "$ROSTER" | sed 's/^  - name: //' | tr -d '\r' | sed 's/$/\tframework/' > "$ROSTER_TSV"
+# Tabs are written by awk, never by a sed replacement: `\t` in sed's
+# replacement is a GNU extension, and BSD sed (macOS) writes a literal `t`,
+# which would join every name to its source and show the whole roster as
+# never used.
+grep -E '^  - name: ' "$ROSTER" | sed 's/^  - name: //' | tr -d '\r' \
+  | awk -v src=framework '{ print $0 "\t" src }' > "$ROSTER_TSV"
 if [ ! -s "$ROSTER_TSV" ]; then
   err "$ROSTER yielded no Employee names (parsing contract: '  - name: <Name>')."
   exit 1
@@ -194,7 +200,8 @@ elif [ -f "$PROJECT/.ia-engineering/Registry/employees.yml" ]; then
 fi
 if [ -n "$PROJECT_ROSTER" ]; then
   before="$(grep -c . "$ROSTER_TSV")"
-  grep -E '^  - name: ' "$PROJECT_ROSTER" | sed 's/^  - name: //' | tr -d '\r' | sed 's/$/\tproject/' >> "$ROSTER_TSV"
+  grep -E '^  - name: ' "$PROJECT_ROSTER" | sed 's/^  - name: //' | tr -d '\r' \
+    | awk -v src=project '{ print $0 "\t" src }' >> "$ROSTER_TSV"
   source_line "Project roster" found "$(show_path "$PROJECT_ROSTER") ($(( $(grep -c . "$ROSTER_TSV") - before )) Domain Employees)"
 else
   source_line "Project roster" missing "no .ia-engineering/Registry/employees.yml (no Domain Employees)"
@@ -259,45 +266,81 @@ else
   fi
 fi
 
+# Employee and Co-Authored-By are read as REAL trailers, parsed by git from
+# the message's trailer block (PR #196 review, F3): a line that merely looks
+# like one in the body is not attribution, and nothing else of the body is
+# read. `Work Unit:` cannot be a git trailer (its key has a space;
+# Standards/COMMIT_STANDARD.md, Trailers), so it is read as check-work-units.sh
+# reads it — a column-0 line — and kept only when it is a Work Unit ID.
+TRAILERS="$TMPD/trailers.txt"
 BODIES="$TMPD/bodies.txt"
 NUMSTAT="$TMPD/numstat.txt"
-if ! git -C "$PROJECT" log --no-merges --format='%x1e%H%n%B' > "$BODIES" \
+if ! git -C "$PROJECT" log --no-merges \
+    --format='%x1e%H%x1f%(trailers:key=Employee,valueonly,unfold,separator=%x1d)%x1f%(trailers:key=Co-authored-by,valueonly,unfold,separator=%x1d)' > "$TRAILERS" \
+  || ! git -C "$PROJECT" log --no-merges --format='%x1e%H%n%B' > "$BODIES" \
   || ! git -C "$PROJECT" log --no-merges --format='%x1e%H' --numstat > "$NUMSTAT"; then
   err "git log failed in $PROJECT."
   exit 1
 fi
 
 # sha <TAB> in-range <TAB> employee <TAB> work-unit <TAB> model <TAB> added <TAB> deleted
-# Only the three trailer lines are taken from each message; the rest of the
-# body is read past and never written anywhere.
+# Every emitted value is shape-checked: an Employee or model name is one short
+# name ([A-Za-z0-9 ._()/-], at most 64 characters, no `@`), a Work Unit is
+# ^WU-[A-Z0-9]+-[0-9]+$. Absent is "(no trailer)", malformed "(unrecognised)".
+# The model is the name of the co-author whose address is the runtime's
+# <noreply@anthropic.com>, not whichever co-author came first.
+# The four file names reach awk through the environment, not -v: -v
+# processes backslash escapes, and a Windows TMPDIR (C:\Users\...) would be
+# mangled so that no FILENAME ever matched and every commit vanished.
 COMMITS_TSV="$TMPD/commits.tsv"
-{
-  sed 's/^/R\t/' "$INRANGE"
-  sed 's/^/N\t/' "$NUMSTAT"
-  sed 's/^/B\t/' "$BODIES"
-} | tr -d '\r' | awk -F '\t' -v OFS='\t' '
-  function flush() {
-    if (sha == "") return
-    print sha, (sha in inr ? 1 : 0), (emp == "" ? "(none)" : emp), (wu == "" ? "(none)" : wu),
-          (model == "" ? "(none)" : model), add[sha] + 0, del[sha] + 0
-    sha = ""
+F_INR="$INRANGE" F_NUM="$NUMSTAT" F_TR="$TRAILERS" F_BODY="$BODIES" awk -v OFS='\t' '
+  BEGIN { f_inr = ENVIRON["F_INR"]; f_num = ENVIRON["F_NUM"]; f_tr = ENVIRON["F_TR"]; f_body = ENVIRON["F_BODY"] }
+  function shaped(v,   ok) {
+    sub(/^[ \t]+/, "", v); sub(/[ \t]+$/, "", v)
+    if (v == "") return "(no trailer)"
+    ok = (v ~ /^[A-Za-z0-9][-A-Za-z0-9 ._()\/]*$/ && length(v) <= 64 && index(v, "@") == 0)
+    return ok ? v : "(unrecognised)"
   }
-  $1 == "R" { inr[$2] = 1; next }
-  $1 == "N" {
-    if (substr($2, 1, 1) == "\036") { cur = substr($2, 2); next }
-    if ($2 ~ /^[0-9]+$/) add[cur] += $2
-    if ($3 ~ /^[0-9]+$/) del[cur] += $3
+  { sub(/\r$/, "") }
+  FILENAME == f_inr { inr[$0] = 1; next }
+  FILENAME == f_num {
+    if (substr($0, 1, 1) == "\036") { cur = substr($0, 2); next }
+    split($0, ns, "\t")
+    if (ns[1] ~ /^[0-9]+$/) add[cur] += ns[1]
+    if (ns[2] ~ /^[0-9]+$/) del[cur] += ns[2]
     next
   }
-  $1 == "B" {
-    line = substr($0, 3)
-    if (substr(line, 1, 1) == "\036") { flush(); sha = substr(line, 2); emp = wu = model = ""; next }
-    if (emp == "" && line ~ /^Employee: /) emp = substr(line, 11)
-    else if (wu == "" && line ~ /^Work Unit: /) wu = substr(line, 12)
-    else if (model == "" && tolower(line) ~ /^co-authored-by: /) { model = substr(line, 17); sub(/ *<.*$/, "", model) }
+  FILENAME == f_tr {
+    if (substr($0, 1, 1) != "\036") next
+    n = split(substr($0, 2), tf, "\037")
+    sha = tf[1]; order[++nc] = sha
+    split(tf[2], emps, "\035"); emp[sha] = shaped(emps[1])
+    model[sha] = "(no trailer)"
+    m = split(tf[3], coauth, "\035")
+    for (i = 1; i <= m; i++) {
+      if (index(coauth[i], "<noreply@anthropic.com>") > 0) {
+        v = coauth[i]; sub(/[ \t]*<.*$/, "", v); model[sha] = shaped(v); break
+      }
+    }
+    next
   }
-  END { flush() }
-' > "$COMMITS_TSV"
+  FILENAME == f_body {
+    if (substr($0, 1, 1) == "\036") { bsha = substr($0, 2); next }
+    if (!(bsha in wu) && $0 ~ /^Work Unit: /) {
+      v = substr($0, 12); sub(/[ \t]+$/, "", v)
+      wu[bsha] = (v ~ /^WU-[A-Z0-9]+-[0-9]+$/) ? v : "(unrecognised)"
+    }
+  }
+  END {
+    for (k = 1; k <= nc; k++) {
+      s = order[k]
+      print s, (s in inr ? 1 : 0), emp[s], ((s in wu) ? wu[s] : "(no trailer)"), model[s], add[s] + 0, del[s] + 0
+    }
+  }
+' "$INRANGE" "$NUMSTAT" "$TRAILERS" "$BODIES" > "$COMMITS_TSV" || {
+  err "reading the commit trailers failed (awk). A page built on it would show every Employee as never used; no page was written."
+  exit 1
+}
 source_line "Git history" found "$(grep -c . "$COMMITS_TSV") non-merge commits; range: $RANGE_LABEL"
 
 # --- AI-runtime transcripts -------------------------------------------------------------
@@ -307,6 +350,7 @@ USAGE_TSV="$TMPD/usage.tsv"
 if [ -f "$COLLECTOR" ]; then
   collect_args=(--project-dir "$PROJECT")
   [ -n "$TRANSCRIPTS_DIR" ] && collect_args+=(--transcripts-dir "$TRANSCRIPTS_DIR")
+  note "reading Claude Code transcripts (a large project can take a minute)..."
   bash "$COLLECTOR" "${collect_args[@]}" > "$USAGE_TSV" 2> "$TMPD/collect.err"
   rc=$?
   case "$rc" in
@@ -394,7 +438,7 @@ def tally(f): reduce .[] as $x ({}; .[$x | f] += 1);
 | ($disp | map(select(.type as $t | $rosterSlugs | index($t) | not))
    | group_by(.type) | map({type: .[0].type, dispatches: (map(.n) | add)}) | sort_by(-.dispatches, .type)) as $otherAgents
 | ($disp | sort_by(.type, .model)) as $dispModels
-| ($c | map(select(.emp != "(none)" and (.emp as $e | $rosterNames | index($e) | not)))
+| ($c | map(select(.emp != "(no trailer)" and (.emp as $e | $rosterNames | index($e) | not)))
    | group_by(.emp) | map({name: .[0].emp, commits: length}) | sort_by(-.commits)) as $unrostered
 | ($c | group_by(.model) | map({model: .[0].model, commits_all: length, commits_range: (map(select(.inr)) | length)})
    | sort_by(-.commits_all)) as $commitModels
@@ -421,7 +465,7 @@ def tally(f): reduce .[] as $x ({}; .[$x | f] += 1);
   calls_by_model: ($calls | group_by(.model) | map(.[0].model as $m | sums + {model: $m} | .cost = cost($m)) | sort_by(-.calls)),
   tokens_by_day: ($calls | group_by(.day) | map(sums + {day: .[0].day}) | sort_by(.day) | reverse),
   tokens_by_agent: ($calls | group_by(.agent) | map(sums + {agent: .[0].agent}) | sort_by(-.total)),
-  work_units: ($c | map(select(.wu != "(none)")) | group_by(.wu)
+  work_units: ($c | map(select(.wu | startswith("WU-"))) | group_by(.wu)
                | map(.[0].wu as $id | {id: $id,
                      employee: (($wuRows | map(select(.[0] == $id)) | .[0][1]) // .[0].emp),
                      commits: length, commits_range: (map(select(.inr)) | length),
@@ -584,6 +628,7 @@ footer{margin-top:48px;padding-top:12px;border-top:1px solid var(--rule)}
 + "<li><strong>Quality.</strong> A dispatch or a commit is activity, not value. A rarely used Employee may be exactly as rare as its work; a frequently used one may be over-dispatched.</li>"
 + "<li><strong>Chain fidelity.</strong> Usage is per Employee, not per chain run: the page cannot show that a chain ran end to end, only which of its Employees work at all.</li>"
 + "<li><strong>Coverage of transcripts.</strong> Only the runtime transcripts still on this machine are counted; the runtime prunes old sessions, and other machines and other runtimes are not seen. Commit counts come from git and are complete for the history present.</li>"
++ "<li><strong>Attribution of older commits.</strong> Employee and model are read from the git trailer block only. A commit whose trailers git cannot parse as a block (older commits that put a non-trailer line among them) counts as \"(no trailer)\"; a value that is not a plain name or Work Unit ID counts as \"(unrecognised)\", and a transcript value shaped like a credential as \"(redacted)\".</li>"
 + "<li><strong>Content.</strong> By design the page holds no prompt, reply, message body or file content - aggregates only (Standards/DATA_PROTECTION_STANDARD.md).</li>"
 + "</ul><p class=\"muted\">Roster and chain changes remain Director decisions; this page informs them.</p></footer></main>"
 + "<script type=\"application/json\" id=\"usage-data\">" + ($d | tojson | gsub("<"; "\\u003c")) + "</script>"
@@ -617,7 +662,10 @@ if [ -n "$OPEN" ]; then
     "$IAENG_USAGE_OPENER" "$OUT"
   else
     case "$(uname -s 2>/dev/null)" in
-      MINGW*|MSYS*|CYGWIN*) cmd.exe //c start "" "$(cygpath -w "$OUT")" ;;
+      # explorer.exe, not `cmd /c start`: cmd would interpret & | ^ %VAR% in
+      # the path (PR #196 review, F4). explorer exits 1 even on success, so
+      # its status says nothing and is not reported.
+      MINGW*|MSYS*|CYGWIN*) explorer.exe "$(cygpath -w "$OUT")"; true ;;
       Darwin) open "$OUT" ;;
       *) xdg-open "$OUT" >/dev/null 2>&1 ;;
     esac
