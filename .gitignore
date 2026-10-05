@@ -50,3 +50,9 @@ local_test_data/
 # accept, each with a reason. Ignored, an entry would sit on one machine and CI
 # would never see it.
 !.ia-engineering/suppression.allow
+#
+# ...and the tier-map (Adapters/ai-runtimes/generate-agents.sh): the project's
+# tier-to-model decision. Core/CAPABILITY_TIERS.md calls that mapping project
+# context; ignored, it would be one machine's decision, and every other clone's
+# regeneration would silently revert to the generator's defaults.
+!.ia-engineering/tier-map

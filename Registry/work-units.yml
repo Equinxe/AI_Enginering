@@ -1206,3 +1206,9 @@ work_units:
     title: Fix the documentation frictions of blindfolded dogfood cycle 4 (README-only adoption) - git init and the ref to pin in Getting Started, TROUBLESHOOTING entries Y (local-path submodule) and Z (committed on develop), SESSION_STATE created after the first commit, the DevOps Engineer signs the adoption commit, the meaning of the Work Unit milestone field in a consuming project, and the bootstrap .gitattributes wording
     milestone: Precision
     delivers: README.md, Workflows/PROJECT_BOOTSTRAP.md, Workflows/ONBOARDING.md, Governance/TROUBLESHOOTING.md, Templates/WORK_UNIT.md, Registry/README.md, Registry/work-units.yml
+
+  - id: WU-IAENG-327
+    employee: DevOps Engineer
+    title: Let a project record its tier-to-model mapping in .ia-engineering/tier-map (map= and effort-map=, same syntax as the flags) so generate-agents.sh honours it on every regeneration - precedence per tier flags over the file over the target defaults, a malformed file refused with exit 2, the summary names the mapping source, and --check reports a mapping-only drift as one instead of blaming Employees/; this repository records the Director decision of 5 Oct 2026 (every Employee on Opus 5.5) and tracks the file; the script defaults are unchanged for adopters
+    milestone: Precision
+    delivers: Adapters/ai-runtimes/generate-agents.sh, Adapters/ai-runtimes/README.md, Adapters/scripts/tests/run.sh, .gitignore, .ia-engineering/tier-map, Registry/work-units.yml

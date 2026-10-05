@@ -1617,6 +1617,132 @@ else
   FAILED=$((FAILED + 1))
 fi
 
+section "generate-agents.sh — the project's own tier-map (WU-IAENG-327)"
+
+# Before WU-IAENG-327 a project's mapping lived only in --map: the documented
+# command, run without it, reverted every Employee to the target defaults, and
+# --check blamed Employees/ for what was a mapping difference. The first case
+# below is the one that failed on develop: the file was not read at all.
+
+# fm_line <file> <key> — the value of one frontmatter key, or empty.
+fm_line() { frontmatter "$1" | sed -n "s/^$2: //p"; }
+
+write_tier_map() {
+  mkdir -p "$1/.ia-engineering"
+  printf '%s\n' "# test tier-map" "$2" "$3" > "$1/.ia-engineering/tier-map"
+}
+
+D="$(project ga-tiermap-honoured)"
+write_tier_map "$D" "map=strategic=s-model,standard=e-model,lightweight=l-model,frontier=f-model" \
+  "effort-map=strategic=max,standard=low,lightweight=,frontier="
+expect 0 "a project tier-map is read by a plain generation" -- bash "$GEN" --project "$D"
+expect_output "mapping: file ("
+TOTAL=$((TOTAL + 1))
+if [ "$(fm_line "$D/.claude/agents/devops-engineer.md" model)" = "e-model" ] \
+  && [ "$(fm_line "$D/.claude/agents/devops-engineer.md" effort)" = "low" ] \
+  && [ "$(fm_line "$D/.claude/agents/software-architect.md" model)" = "s-model" ] \
+  && [ "$(fm_line "$D/.claude/agents/software-architect.md" effort)" = "max" ]; then
+  [ -n "$VERBOSE" ] && printf '   ok   the tier-map models and efforts are written into the agents\n'
+else
+  printf '   FAIL the tier-map was not honoured (DevOps Engineer: %s/%s, Software Architect: %s/%s)\n' \
+    "$(fm_line "$D/.claude/agents/devops-engineer.md" model)" "$(fm_line "$D/.claude/agents/devops-engineer.md" effort)" \
+    "$(fm_line "$D/.claude/agents/software-architect.md" model)" "$(fm_line "$D/.claude/agents/software-architect.md" effort)"
+  FAILED=$((FAILED + 1))
+fi
+# Frontier stays override-only even when the file names it.
+TOTAL=$((TOTAL + 1))
+if grep -rlF "model: f-model" "$D/.claude/agents" >/dev/null 2>&1; then
+  printf '   FAIL the tier-map frontier= value was written as an Employee model:\n'
+  FAILED=$((FAILED + 1))
+else
+  [ -n "$VERBOSE" ] && printf '   ok   the tier-map frontier= value is never an Employee model:\n'
+fi
+expect 0 "--check honours the tier-map: a tree generated from it is current" -- \
+  bash "$GEN" --project "$D" --check
+
+# A CRLF checkout of the file must read the same as an LF one.
+D="$(project ga-tiermap-crlf)"
+mkdir -p "$D/.ia-engineering"
+printf 'map=standard=crlf-model\r\neffort-map=standard=medium\r\n' > "$D/.ia-engineering/tier-map"
+bash "$GEN" --project "$D" >/dev/null 2>&1
+TOTAL=$((TOTAL + 1))
+if [ "$(fm_line "$D/.claude/agents/devops-engineer.md" model)" = "crlf-model" ] \
+  && [ "$(fm_line "$D/.claude/agents/devops-engineer.md" effort)" = "medium" ]; then
+  [ -n "$VERBOSE" ] && printf '   ok   a CRLF tier-map is honoured\n'
+else
+  printf '   FAIL a CRLF tier-map was not honoured\n'
+  FAILED=$((FAILED + 1))
+fi
+
+# Flags win, per tier: --map standard= overrides that tier only, the file
+# still supplies strategic.
+D="$(project ga-tiermap-flags)"
+write_tier_map "$D" "map=strategic=file-strategic,standard=file-standard" "effort-map=standard=low"
+expect 0 "flags override the tier-map" -- \
+  bash "$GEN" --project "$D" --map standard=flag-standard --effort-map standard=high
+expect_output "mapping: flags (over "
+TOTAL=$((TOTAL + 1))
+if [ "$(fm_line "$D/.claude/agents/devops-engineer.md" model)" = "flag-standard" ] \
+  && [ "$(fm_line "$D/.claude/agents/devops-engineer.md" effort)" = "high" ] \
+  && [ "$(fm_line "$D/.claude/agents/software-architect.md" model)" = "file-strategic" ]; then
+  [ -n "$VERBOSE" ] && printf '   ok   flags win per tier; the file still supplies the tiers no flag names\n'
+else
+  printf '   FAIL flag/file precedence is wrong (standard: %s, strategic: %s)\n' \
+    "$(fm_line "$D/.claude/agents/devops-engineer.md" model)" "$(fm_line "$D/.claude/agents/software-architect.md" model)"
+  FAILED=$((FAILED + 1))
+fi
+
+# Absent file: the target defaults, said so.
+D="$(project ga-tiermap-absent)"
+expect 0 "no tier-map: the target defaults apply" -- bash "$GEN" --project "$D"
+expect_output "mapping: defaults"
+TOTAL=$((TOTAL + 1))
+if [ "$(fm_line "$D/.claude/agents/devops-engineer.md" model)" = "sonnet" ] \
+  && [ "$(fm_line "$D/.claude/agents/software-architect.md" model)" = "opus" ]; then
+  [ -n "$VERBOSE" ] && printf '   ok   without a tier-map the defaults (opus/sonnet) are written\n'
+else
+  printf '   FAIL without a tier-map the defaults were not written\n'
+  FAILED=$((FAILED + 1))
+fi
+
+# A malformed file is refused with exit 2, never half-read.
+D="$(project ga-tiermap-malformed)"
+write_tier_map "$D" "model=standard=x" ""
+expect 2 "an unknown tier-map key is refused" -- bash "$GEN" --project "$D" --dry-run
+expect_output "line 2 is not understood: 'model=standard=x'"
+write_tier_map "$D" "map=standard=x" "just some words"
+expect 2 "a tier-map line with no key= is refused" -- bash "$GEN" --project "$D" --dry-run
+expect_output "line 3 is not understood"
+write_tier_map "$D" "map=bogus=x" ""
+expect 2 "an unknown tier inside map= is refused" -- bash "$GEN" --project "$D" --dry-run
+expect_output "Unrecognised map= in"
+write_tier_map "$D" "effort-map=standard=turbo" ""
+expect 2 "an invalid effort inside effort-map= is refused" -- bash "$GEN" --project "$D" --dry-run
+expect_output "Accepted: low, medium, high, xhigh, max"
+write_tier_map "$D" "map=standard=a" "map=standard=b"
+expect 2 "a tier-map key given twice is refused" -- bash "$GEN" --project "$D" --dry-run
+expect_output "'map=' is given twice"
+
+# --check: a mapping difference is named as one, not blamed on Employees/.
+D="$(project ga-tiermap-check-drift)"
+bash "$GEN" --project "$D" >/dev/null 2>&1
+write_tier_map "$D" "map=standard=other-model" ""
+expect 1 "--check reports drift after the tier-map changes" -- bash "$GEN" --project "$D" --check
+expect_output "differ in the tier mapping only"
+expect_output "(mapping only: on disk sonnet, resolved other-model)"
+TOTAL=$((TOTAL + 1))
+if grep -qF "out of date with Employees/" <<< "$LAST_OUTPUT"; then
+  printf '   FAIL --check blamed Employees/ for a mapping-only drift\n'
+  FAILED=$((FAILED + 1))
+else
+  [ -n "$VERBOSE" ] && printf '   ok   --check does not blame Employees/ for a mapping-only drift\n'
+fi
+# ...and a real content drift is still reported as one.
+printf 'hand edit\n' >> "$D/.claude/agents/backend-engineer.md"
+expect 1 "--check still reports a content drift as out of date with Employees/" -- \
+  bash "$GEN" --project "$D" --check
+expect_output "1 out of date with Employees/ or the roster, or missing."
+
 # ------------------------------------------------- git-hooks/commit-msg -----
 #
 # WU-IAENG-304 added `perf` as an accepted Conventional Commits type but
