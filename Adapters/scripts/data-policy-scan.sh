@@ -138,7 +138,7 @@ fi
 allowed_path() {
   local p="$1" re
   for re in ${PATH_ALLOW[@]+"${PATH_ALLOW[@]}"}; do
-    if printf '%s\n' "$p" | grep -qE -- "$re"; then return 0; fi
+    if grep -qE -- "$re" <<< "$p"; then return 0; fi
   done
   return 1
 }
@@ -146,7 +146,7 @@ allowed_path() {
 allowed_content() {
   local l="$1" re
   for re in ${CONTENT_ALLOW[@]+"${CONTENT_ALLOW[@]}"}; do
-    if printf '%s\n' "$l" | grep -qE -- "$re"; then return 0; fi
+    if grep -qE -- "$re" <<< "$l"; then return 0; fi
   done
   return 1
 }
@@ -192,7 +192,7 @@ classify_path() {
     printf 'key material format (.%s)\n' "$ext"; return 0 ;;
   esac
   case " $TEXT_DATA_EXTENSIONS " in *" $ext "*)
-    if printf '%s\n' "$lower" | grep -qE -- "$EVOCATIVE_NAMES"; then
+    if grep -qE -- "$EVOCATIVE_NAMES" <<< "$lower"; then
       printf 'text data (.%s) with a name that reads like a real export — rename with SYNTHETIC_ if it is synthetic, move to %s/ if it is not\n' "$ext" "$LOCAL_DATA_DIR"; return 0
     fi ;;
   esac
@@ -289,7 +289,7 @@ merge_authored_lines() {
 name_of_pattern() {
   local l="$1" entry
   for entry in "${SECRET_PATTERNS[@]}"; do
-    if printf '%s\n' "$l" | grep -qE -- "${entry#*|}"; then printf '%s' "${entry%%|*}"; return 0; fi
+    if grep -qE -- "${entry#*|}" <<< "$l"; then printf '%s' "${entry%%|*}"; return 0; fi
   done
   printf 'secret'
 }

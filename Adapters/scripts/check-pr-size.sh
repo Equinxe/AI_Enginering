@@ -165,7 +165,7 @@ if [ "$TOTAL" -le "$LIMIT" ]; then
   exit 0
 fi
 
-if printf '%s\n' "$LABELS" | tr ',' '\n' | grep -qxF 'size/approved'; then
+if grep -qxF 'size/approved' <<< "${LABELS//,/$'\n'}"; then
   note "$TOTAL lines exceed the $LIMIT-line review limit, and the Director has applied 'size/approved'. Passing on that decision — it is recorded by the label's audit trail."
   exit 0
 fi

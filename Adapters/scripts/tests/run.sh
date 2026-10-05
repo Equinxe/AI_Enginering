@@ -140,7 +140,7 @@ expect_output() {
   # an option otherwise, and the assertion fails with a grep usage error
   # instead of comparing anything. That is TROUBLESHOOTING entry T, met here
   # by a test asserting on the output "  <sha> -> DevOps Engineer".
-  if printf '%s' "$LAST_OUTPUT" | grep -qF -- "$1"; then
+  if grep -qF -- "$1" <<< "$LAST_OUTPUT"; then
     [ -n "$VERBOSE" ] && printf '   ok   output contains: %s\n' "$1"
     return 0
   fi
@@ -1147,7 +1147,7 @@ section "setup-project-bootstrap.sh — the stack it records"
 D="$(project bs-dry)"
 TOTAL=$((TOTAL + 1))
 OUT="$(cd "$D" && bash "$SCRIPTS/setup-project-bootstrap.sh" go --dry-run 2>&1)"
-if printf '%s' "$OUT" | grep -qF -- "[dry-run] write .ia-engineering/stack containing 'go'"; then
+if grep -qF -- "[dry-run] write .ia-engineering/stack containing 'go'" <<< "$OUT"; then
   [ -n "$VERBOSE" ] && printf '   ok   the bootstrap says it will record the stack\n'
 else
   printf '   FAIL the bootstrap did not announce writing the stack declaration\n'
@@ -1166,7 +1166,7 @@ fi
 # The starter Risk Map is announced under --dry-run and, like everything else
 # in a dry run, not written.
 TOTAL=$((TOTAL + 1))
-if printf '%s' "$OUT" | grep -qF -- "[dry-run] write .ia-engineering/risk-map.yml"; then
+if grep -qF -- "[dry-run] write .ia-engineering/risk-map.yml" <<< "$OUT"; then
   [ -n "$VERBOSE" ] && printf '   ok   the bootstrap announces the starter Risk Map\n'
 else
   printf '   FAIL the bootstrap did not announce the starter Risk Map\n'
@@ -1208,7 +1208,7 @@ expect 1 "the starter is honestly incomplete: unaccounted categories are named" 
   bash "$SCRIPTS/check-risk-map.sh" .
 expect_output "neither mapped to a path nor declared absent"
 TOTAL=$((TOTAL + 1))
-if printf '%s' "$LAST_OUTPUT" | grep -qE "matches no tracked file|match no zone"; then
+if grep -qE "matches no tracked file|match no zone" <<< "$LAST_OUTPUT"; then
   printf '   FAIL the starter map ships a dead entry or an unclassified file\n'
   printf '%s\n' "$LAST_OUTPUT" | grep -E "matches no tracked file|match no zone" | sed 's/^/        | /'
   FAILED=$((FAILED + 1))
@@ -1224,7 +1224,7 @@ fi
 # pipe to break.
 TOTAL=$((TOTAL + 1))
 EXPLAIN_OUT="$(bash "$SCRIPTS/check-risk-map.sh" --explain . 2>/dev/null)"
-if printf '%s\n' "$EXPLAIN_OUT" | grep -qE '^Dockerfile sensitive$'; then
+if grep -qE '^Dockerfile sensitive$' <<< "$EXPLAIN_OUT"; then
   [ -n "$VERBOSE" ] && printf '   ok   the starter classifies the installed Dockerfile as sensitive\n'
 else
   printf '   FAIL the starter did not classify Dockerfile as sensitive\n'; FAILED=$((FAILED + 1))
@@ -1342,7 +1342,7 @@ if ln -s "$FRAMEWORK_ROOT" ia-engineering 2>/dev/null; then
   OUT="$(bash ./ia-engineering/Adapters/scripts/setup-project-bootstrap.sh generic --dry-run 2>&1)"
 
   TOTAL=$((TOTAL + 1))
-  if printf '%s' "$OUT" | grep -qF -- "./ia-engineering/Adapters/scripts/setup-branch-protection.sh"; then
+  if grep -qF -- "./ia-engineering/Adapters/scripts/setup-branch-protection.sh" <<< "$OUT"; then
     [ -n "$VERBOSE" ] && printf '   ok   the branch-protection hint stays under the link name\n'
   else
     printf '   FAIL the branch-protection hint did not stay under the link name\n'
@@ -1351,7 +1351,7 @@ if ln -s "$FRAMEWORK_ROOT" ia-engineering 2>/dev/null; then
   fi
 
   TOTAL=$((TOTAL + 1))
-  if printf '%s' "$OUT" | grep -qE -- '\.\./[^ ]*Adapters/scripts/setup-branch-protection\.sh'; then
+  if grep -qE -- '\.\./[^ ]*Adapters/scripts/setup-branch-protection\.sh' <<< "$OUT"; then
     printf '   FAIL the branch-protection hint resolved through the link to a physical path\n'
     printf '%s\n' "$OUT" | grep -i "branch protection" | sed 's/^/        | /'
     FAILED=$((FAILED + 1))
@@ -1389,7 +1389,7 @@ section "generate-agents.sh — Frontier key, per-tier effort (WU-IAENG-293)"
 D="$(project ga-frontier-default)"
 TOTAL=$((TOTAL + 1))
 OUT="$(bash "$GEN" --project "$D" --dry-run 2>&1)"
-if printf '%s' "$OUT" | grep -qF -- "Frontier via Tier Override, Director approval each time -> fable"; then
+if grep -qF -- "Frontier via Tier Override, Director approval each time -> fable" <<< "$OUT"; then
   [ -n "$VERBOSE" ] && printf '   ok   Frontier defaults to fable in the printed tiers summary\n'
 else
   printf '   FAIL the tiers summary does not show Frontier -> fable\n'
@@ -1412,7 +1412,7 @@ fi
 D="$(project ga-frontier-map)"
 TOTAL=$((TOTAL + 1))
 OUT="$(bash "$GEN" --project "$D" --dry-run --map "frontier=my-frontier-model" 2>&1)"
-if printf '%s' "$OUT" | grep -qF -- "Frontier via Tier Override, Director approval each time -> my-frontier-model"; then
+if grep -qF -- "Frontier via Tier Override, Director approval each time -> my-frontier-model" <<< "$OUT"; then
   [ -n "$VERBOSE" ] && printf '   ok   --map frontier=X overrides the printed mapping\n'
 else
   printf '   FAIL --map frontier=X did not change the printed mapping\n'
@@ -1426,7 +1426,7 @@ fi
 D="$(project ga-effort-default)"
 bash "$GEN" --project "$D" >/dev/null 2>&1
 TOTAL=$((TOTAL + 1))
-if frontmatter "$D/.claude/agents/software-architect.md" | grep -qx "effort: high"; then
+if grep -qx "effort: high" <<< "$(frontmatter "$D/.claude/agents/software-architect.md")"; then
   [ -n "$VERBOSE" ] && printf '   ok   Strategic Judgment (Software Architect) emits effort: high\n'
 else
   printf '   FAIL Software Architect frontmatter has no effort: high\n'
@@ -1434,7 +1434,7 @@ else
 fi
 
 TOTAL=$((TOTAL + 1))
-if frontmatter "$D/.claude/agents/devops-engineer.md" | grep -q "^effort:"; then
+if grep -q "^effort:" <<< "$(frontmatter "$D/.claude/agents/devops-engineer.md")"; then
   printf '   FAIL Standard Execution (DevOps Engineer) must inherit — no effort: field\n'
   FAILED=$((FAILED + 1))
 else
@@ -1445,14 +1445,14 @@ fi
 D="$(project ga-effort-map)"
 bash "$GEN" --project "$D" --effort-map "standard=medium,strategic=xhigh" >/dev/null 2>&1
 TOTAL=$((TOTAL + 1))
-if frontmatter "$D/.claude/agents/devops-engineer.md" | grep -qx "effort: medium"; then
+if grep -qx "effort: medium" <<< "$(frontmatter "$D/.claude/agents/devops-engineer.md")"; then
   [ -n "$VERBOSE" ] && printf '   ok   --effort-map standard=medium is honoured\n'
 else
   printf '   FAIL --effort-map standard=medium was not applied to a Standard Execution Employee\n'
   FAILED=$((FAILED + 1))
 fi
 TOTAL=$((TOTAL + 1))
-if frontmatter "$D/.claude/agents/software-architect.md" | grep -qx "effort: xhigh"; then
+if grep -qx "effort: xhigh" <<< "$(frontmatter "$D/.claude/agents/software-architect.md")"; then
   [ -n "$VERBOSE" ] && printf '   ok   --effort-map strategic=xhigh is honoured\n'
 else
   printf '   FAIL --effort-map strategic=xhigh was not applied to a Strategic Judgment Employee\n'
@@ -1477,7 +1477,7 @@ expect_output "Unrecognised --effort-map entry: strategic"
 D="$(project ga-effort-empty)"
 bash "$GEN" --project "$D" --effort-map "strategic=" >/dev/null 2>&1
 TOTAL=$((TOTAL + 1))
-if frontmatter "$D/.claude/agents/software-architect.md" | grep -q "^effort:"; then
+if grep -q "^effort:" <<< "$(frontmatter "$D/.claude/agents/software-architect.md")"; then
   printf '   FAIL --effort-map strategic= (empty) must clear the effort: field\n'
   FAILED=$((FAILED + 1))
 else
@@ -2125,7 +2125,7 @@ TAB="$(printf '\t')"
 # expect_output_absent <string> — the mirror of expect_output.
 expect_output_absent() {
   TOTAL=$((TOTAL + 1))
-  if printf '%s' "$LAST_OUTPUT" | grep -qF -- "$1"; then
+  if grep -qF -- "$1" <<< "$LAST_OUTPUT"; then
     printf '   FAIL output unexpectedly contains: %s\n' "$1"
     printf '%s\n' "$LAST_OUTPUT" | sed 's/^/        | /'
     FAILED=$((FAILED + 1))
@@ -2787,12 +2787,12 @@ prv_guard() {
     [ -z "$line" ] && continue
     case "$line" in
       *--norc*) ;;
-      *) if ! printf '%s\n' "$line" | grep -Eq '^[[:space:]]*shellcheck --version[[:space:]]*$'; then
+      *) if ! grep -Eq '^[[:space:]]*shellcheck --version[[:space:]]*$' <<< "$line"; then
            echo "shellcheck call without --norc: $line"; bad=1
          fi ;;
     esac
   done <<< "$sc_calls"
-  if ! printf '%s\n' "$sc_calls" | grep -q -- '--norc -x'; then
+  if ! grep -q -- '--norc -x' <<< "$sc_calls"; then
     echo "the grading shellcheck call is missing"; bad=1
   fi
 
@@ -2808,13 +2808,13 @@ prv_guard() {
     esac
   done < <(prv_code "$file" | grep 'npx')
 
-  if ! prv_code "$file" | grep -Eq '^[[:space:]]*JS_YAML_VERSION="[0-9]+\.[0-9]+\.[0-9]+"'; then
+  if ! grep -Eq '^[[:space:]]*JS_YAML_VERSION="[0-9]+\.[0-9]+\.[0-9]+"' <<< "$(prv_code "$file")"; then
     echo "JS_YAML_VERSION is not an exact x.y.z"; bad=1
   fi
-  if ! prv_code "$file" | grep -qF -- "$PRV_MKTEMP_LITERAL"; then
+  if ! grep -qF -- "$PRV_MKTEMP_LITERAL" <<< "$(prv_code "$file")"; then
     echo "grader directory is not created with mktemp -d"; bad=1
   fi
-  if ! prv_code "$file" | grep -qF -- "$PRV_TRAP_LITERAL"; then
+  if ! grep -qF -- "$PRV_TRAP_LITERAL" <<< "$(prv_code "$file")"; then
     echo "no trap removing the grader directory"; bad=1
   fi
   loop_at="$(prv_line_of "$file" "$PRV_LOOP_LITERAL")"
@@ -3001,6 +3001,56 @@ expect_output "none of the 1"
 expect 1 "a newline before a real control path still flags it (-z)" -- "${CP_RUN[@]}" 'a\nb\0.github/workflows/y\0' -z
 expect 1 "one control path among many NUL-delimited names (-z)" -- "${CP_RUN[@]}" 'a b\0-x\0Adapters/git-hooks/pre-push\0c\0' -z
 expect 2 "an unknown option is a usage error" -- "${CP_RUN[@]}" 'a\n' --bogus
+
+# ------------------- validate-framework.sh short-circuit safety (WU-IAENG-319) --
+#
+# Section 9 of the validator answered "does this path exist" with
+# `printf '%s\n' "$TRACKED_PATHS" | grep -qxF -- "$p"` under pipefail. grep -q
+# leaves at its first match; the bash-builtin printf writes through a ~4 KB
+# buffer, so a list past that takes SIGPIPE on its second write and the pipeline
+# reports failure for a path that IS tracked. It flaked twice on CI
+# (PR #174, PR #182: "documents reference paths that do not exist"). A list this
+# size makes it deterministic, which a 6.7 KB list on a fast runner is not.
+
+section "validate-framework.sh — resolves() does not read SIGPIPE as a miss (WU-IAENG-319)"
+
+VF="$SCRIPTS/validate-framework.sh"
+RES_HARNESS="$WORK/resolves-harness.sh"
+{
+  echo 'set -uo pipefail'
+  sed -n '/^has_line() {/,/^}/p' "$VF"
+  sed -n '/^resolves() {/,/^}/p' "$VF"
+  cat <<'HARNESS'
+{
+  echo "Adapters/git-hooks/pre-push"
+  echo "dirfirst/leaf.md"
+  i=0
+  while [ "$i" -lt 6000 ]; do echo "Core/filler-$i.md"; i=$((i + 1)); done
+} > "$WORK_LIST"
+TRACKED_PATHS="$(cat "$WORK_LIST")"
+n=0
+while [ "$n" -lt 50 ]; do
+  resolves "Adapters/git-hooks/pre-push" || { echo "file ref missed on iteration $n"; exit 1; }
+  resolves "dirfirst/" || { echo "directory ref missed on iteration $n"; exit 1; }
+  n=$((n + 1))
+done
+resolves "Adapters/git-hooks/absent" && { echo "an absent path resolved"; exit 1; }
+exit 0
+HARNESS
+} > "$RES_HARNESS"
+expect 0 "resolves() finds a tracked file and directory in a 100 KB list, 50 times" -- env WORK_LIST="$WORK/resolves-list.txt" bash "$RES_HARNESS"
+
+# No `printf ... | grep -q` / `echo ... | grep -q` may come back into the
+# validator: every membership test over a captured variable uses has_line or a
+# here-string. Comment lines are exempt - they explain the bug.
+SIGPIPE_HITS="$(grep -nE "(printf|echo) .*\| *grep -[a-zA-Z]*q" "$VF" | grep -vE '^[0-9]+:[[:space:]]*#' || true)"
+if [ -z "$SIGPIPE_HITS" ]; then
+  TOTAL=$((TOTAL + 1))
+  [ -n "$VERBOSE" ] && printf '   ok   validate-framework.sh has no printf/echo piped into grep -q\n'
+else
+  TOTAL=$((TOTAL + 1)); FAILED=$((FAILED + 1))
+  printf '   FAIL validate-framework.sh pipes a variable into grep -q (SIGPIPE under pipefail):\n%s\n' "$SIGPIPE_HITS"
+fi
 
 # ------------------------------------------------- git-hooks/pre-push -------
 #
