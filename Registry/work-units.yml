@@ -1201,6 +1201,12 @@ work_units:
     milestone: Precision
     delivers: Templates/PROJECT_CLAUDE.md, Adapters/ai-runtimes/claude-code/hooks/session-start.sh, Adapters/ai-runtimes/claude-code/hooks/tests/run.sh, Adapters/ai-runtimes/claude-code/hooks/README.md, Registry/work-units.yml
 
+  - id: WU-IAENG-324
+    employee: Technical Writer
+    title: Fix the documentation frictions of blindfolded dogfood cycle 4 (README-only adoption) - git init and the ref to pin in Getting Started, TROUBLESHOOTING entries Y (local-path submodule) and Z (committed on develop), SESSION_STATE created after the first commit, the DevOps Engineer signs the adoption commit, the meaning of the Work Unit milestone field in a consuming project, and the bootstrap .gitattributes wording
+    milestone: Precision
+    delivers: README.md, Workflows/PROJECT_BOOTSTRAP.md, Workflows/ONBOARDING.md, Governance/TROUBLESHOOTING.md, Templates/WORK_UNIT.md, Registry/README.md, Registry/work-units.yml
+
   - id: WU-IAENG-325
     employee: DevOps Engineer
     title: Bootstrap closing report - SESSION_STATE after the first commit; the adoption commit's signer
