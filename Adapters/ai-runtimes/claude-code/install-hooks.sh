@@ -37,11 +37,32 @@ EXAMPLE="$HERE/settings.example.json"
 # Framework root relative to the project: the directory three levels above
 # this script (Adapters/ai-runtimes/claude-code), made relative to $PROJECT.
 FW_ABS="$(cd "$HERE/../../.." && pwd)"
-case "$FW_ABS" in
-  "$PROJECT") ROOT="." ;;
-  "$PROJECT"/*) ROOT="${FW_ABS#"$PROJECT"/}" ;;
-  *) echo "install-hooks.sh: the framework ($FW_ABS) is not inside the project ($PROJECT); run from the project root" >&2; exit 1 ;;
-esac
+# THE RELATION IS ESTABLISHED BY WALKING, NOT BY COMPARING SPELLINGS.
+# A string-prefix test asks whether one path is written like another, which is
+# not whether one directory contains the other: on Windows the same directory
+# is "C:/x" and "/c/x", and may differ in letter case, so a correct layout was
+# refused (DEF-14, issue #181). Adapters/scripts/install.sh documents the
+# failure at length and uses this technique: walk up from the framework and ask
+# `-ef` (same device and inode) at each step, accumulating the relative path
+# from the real components.
+ROOT=""
+_probe="$FW_ABS"
+_rel=""
+while :; do
+  if [ "$_probe" -ef "$PROJECT" ]; then
+    ROOT="${_rel:-.}"
+    break
+  fi
+  _parent="$(dirname "$_probe")"
+  [ "$_parent" = "$_probe" ] && break
+  _rel="$(basename "$_probe")${_rel:+/$_rel}"
+  _probe="$_parent"
+done
+unset _probe _rel _parent
+if [ -z "$ROOT" ]; then
+  echo "install-hooks.sh: the framework ($FW_ABS) is not inside the project ($PROJECT); run from the project root" >&2
+  exit 1
+fi
 
 # The hook scripts must be executable for the Bash invocation to be moot and
 # for a direct invocation to work; check, do not assume.
