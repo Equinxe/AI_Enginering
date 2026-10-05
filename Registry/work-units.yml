@@ -1200,3 +1200,9 @@ work_units:
     title: Add a short Main Agent section to Templates/PROJECT_CLAUDE.md (follow Core/MAIN_AGENT_CONDUCT.md, delegate every Work Unit to the named Employee and attribute only real work, present the plan and wait for approval whatever the runtime effort or orchestration mode) and a one-line pointer to it in the session-start hook - blindfolded dogfood cycle 4 found adopters' Main Agents implementing inline under a false Employee trailer, and skipping plan approval under ultracode
     milestone: Precision
     delivers: Templates/PROJECT_CLAUDE.md, Adapters/ai-runtimes/claude-code/hooks/session-start.sh, Adapters/ai-runtimes/claude-code/hooks/tests/run.sh, Adapters/ai-runtimes/claude-code/hooks/README.md, Registry/work-units.yml
+
+  - id: WU-IAENG-326
+    employee: Observability Engineer
+    title: Add a local usage dashboard for roster and chain tuning - usage-dashboard.sh builds one self-contained HTML page (no network, gitignored) from git trailers, the rosters, the chain and Work Unit registries, and a Claude Code collector that stream-parses the project's transcripts into dispatches, models and tokens per day, deduplicated by message id; never-used Employees and unexercised chain steps are marked; aggregates only, pinned by a privacy test
+    milestone: Precision
+    delivers: Adapters/scripts/usage-dashboard.sh, Adapters/ai-runtimes/claude-code/usage-collect.sh, Adapters/scripts/tests/run.sh, Adapters/scripts/install.sh, .gitignore, Adapters/README.md, Governance/DISPATCH_IN_PRACTICE.md, Registry/work-units.yml

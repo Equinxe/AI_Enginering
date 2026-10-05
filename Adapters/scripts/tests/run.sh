@@ -1293,6 +1293,14 @@ if ln -s "$FRAMEWORK_ROOT" ia-engineering 2>/dev/null; then
   fi
 
   TOTAL=$((TOTAL + 1))
+  if grep -qxF ".ia-engineering/usage/" .gitignore 2>/dev/null; then
+    [ -n "$VERBOSE" ] && printf '   ok   adopter .gitignore ignores .ia-engineering/usage/ (usage-dashboard.sh output)\n'
+  else
+    printf '   FAIL adopter .gitignore does not ignore .ia-engineering/usage/\n'
+    FAILED=$((FAILED + 1))
+  fi
+
+  TOTAL=$((TOTAL + 1))
   if [ -f .gitattributes ] && grep -qF '/Adapters/**' .gitattributes; then
     printf '   FAIL adopter .gitattributes carries the framework-only /Adapters/** rule\n'
     FAILED=$((FAILED + 1))
@@ -3426,6 +3434,148 @@ expect 1 "bootstrap: deleting develop is refused" -- \
   git push -q "$PPB_REMOTE" :refs/heads/develop
 expect 0 "bootstrap: develop survived the refused deletion" -- \
   git --git-dir="$PPB_REMOTE" rev-parse -q --verify refs/heads/develop
+
+# ------------------------------------------------- usage-dashboard.sh -------
+# WU-IAENG-326. A fixture repository with trailers and a synthetic transcript
+# directory: the page must carry the aggregates, and must NOT carry any of the
+# content the sources hold — every free-text field in the fixtures contains an
+# OBS326-SENTINEL marker, and no marker may reach the page.
+
+DASH="$SCRIPTS/usage-dashboard.sh"
+COLLECT="$SCRIPTS/../ai-runtimes/claude-code/usage-collect.sh"
+
+section "usage-dashboard.sh"
+
+new_repo usage-basic
+write_employee_roster "DevOps Engineer" "Observability Engineer" "Backend Engineer" "Scrum Master"
+cat > Registry/chains.yml <<'CHAINS'
+chains:
+
+  - name: Test Chain
+    workflow: Workflows/TEST.md
+    steps:
+      - employee: DevOps Engineer
+        produces: something
+      - gate: Director
+        when: Always
+        blocks: Delivery
+      - employee: Scrum Master
+        when: Something rare happens
+        produces: something else
+      - employee: Engineer
+        produces: the implementation
+CHAINS
+cat > Registry/work-units.yml <<'WUS'
+work_units:
+  - id: WU-TEST-001
+    employee: DevOps Engineer
+    title: OBS326-SENTINEL-WU-TITLE
+    milestone: Testing
+  - id: WU-TEST-002
+    employee: Observability Engineer
+    title: another
+    milestone: Testing
+WUS
+git add -A && git commit -q -m "registries"
+commit_with "feat: before the tag" "OBS326-SENTINEL-COMMIT-BODY" "" "Work Unit: WU-TEST-001" "" \
+  "Employee: DevOps Engineer" "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
+git tag v1
+commit_with "feat: after the tag" "Work Unit: WU-TEST-001" "" \
+  "Employee: DevOps Engineer" "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
+commit_with "feat: observability" "Work Unit: WU-TEST-002" "" \
+  "Employee: Observability Engineer" "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+USAGE_REPO="$PWD"
+
+# The transcript: msg_A is written twice (one line per content block, as the
+# runtime does) and must count once; the last two lines are a truncated write
+# and a non-object, which must be skipped without losing the file.
+UT="$WORK/usage-transcripts"
+rm -rf "$UT"
+mkdir -p "$UT/s1/subagents"
+cat > "$UT/s1.jsonl" <<'JSONL'
+{"type":"user","timestamp":"2026-10-01T09:59:00Z","message":{"role":"user","content":"OBS326-SENTINEL-PROMPT"}}
+{"type":"assistant","timestamp":"2026-10-01T10:00:00Z","message":{"id":"msg_A","model":"claude-test-1","content":[{"type":"text","text":"OBS326-SENTINEL-REPLY"}],"usage":{"input_tokens":100,"output_tokens":50,"cache_creation_input_tokens":10,"cache_read_input_tokens":1000}}}
+{"type":"assistant","timestamp":"2026-10-01T10:00:01Z","message":{"id":"msg_A","model":"claude-test-1","content":[{"type":"tool_use","id":"toolu_1","name":"Agent","input":{"subagent_type":"observability-engineer","model":"opus","description":"OBS326-SENTINEL-DESC","prompt":"OBS326-SENTINEL-DISPATCH-PROMPT"}}],"usage":{"input_tokens":100,"output_tokens":50,"cache_creation_input_tokens":10,"cache_read_input_tokens":1000}}}
+{"type":"user","timestamp":"2026-10-01T10:00:02Z","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_1","content":"OBS326-SENTINEL-TOOL-RESULT"}]}}
+{"type":"assistant","timestamp":"2026-10-02T08:00:00Z","message":{"id":"msg_B","model":"claude-test-2","content":[{"type":"tool_use","id":"toolu_2","name":"Agent","input":{"subagent_type":"devops-engineer","prompt":"OBS326-SENTINEL-SECOND-PROMPT"}}],"usage":{"input_tokens":1,"output_tokens":2,"cache_creation_input_tokens":3,"cache_read_input_tokens":4}}}
+{"type":"assistant","message":{"id":"msg_TRUNC
+42
+JSONL
+cat > "$UT/s1/subagents/agent-x.jsonl" <<'JSONL'
+{"type":"assistant","isSidechain":true,"timestamp":"2026-10-02T08:00:05Z","message":{"id":"msg_C","model":"claude-test-1","content":[{"type":"text","text":"OBS326-SENTINEL-SUBAGENT-REPLY"},{"type":"tool_use","id":"toolu_3","name":"Agent","input":{"subagent_type":"general-purpose","prompt":"OBS326-SENTINEL-NESTED"}}],"usage":{"input_tokens":5,"output_tokens":5,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}
+JSONL
+printf '%s\n' '{"agentType":"observability-engineer","description":"OBS326-SENTINEL-META"}' > "$UT/s1/subagents/agent-x.meta.json"
+
+UPAGE="$WORK/usage-out/dashboard.html"
+expect 0 "dashboard: builds the page from git and a transcript directory" -- \
+  bash "$DASH" --project-dir "$USAGE_REPO" --out "$UPAGE" --transcripts-dir "$UT"
+expect_output "source found: Claude Code transcripts"
+expect_output "Employees: 4 on roster, 2 never used"
+expect 0 "dashboard: the page exists" -- test -s "$UPAGE"
+# Aggregates, read from the page's embedded data block (field order is fixed
+# by the script's jq, so a literal match is exact).
+expect 0 "dashboard: Observability Engineer has 1 dispatch, 1 commit in range, 1 all time, 1 Work Unit" -- \
+  grep -qF '"name":"Observability Engineer","roster":"framework","dispatches":1,"commits_range":1,"commits_all":1,"work_units":1' "$UPAGE"
+expect 0 "dashboard: DevOps Engineer has 1 commit since v1 and 2 all time" -- \
+  grep -qF '"name":"DevOps Engineer","roster":"framework","dispatches":1,"commits_range":1,"commits_all":2,"work_units":1' "$UPAGE"
+expect 0 "dashboard: an Employee with no activity is marked never used" -- \
+  grep -qF '"name":"Scrum Master","roster":"framework","dispatches":0,"commits_range":0,"commits_all":0,"work_units":0,"activity":0,"status":"never"' "$UPAGE"
+expect 0 "dashboard: never-used is labelled in text, not by colour alone" -- grep -qF 'NEVER USED' "$UPAGE"
+expect 0 "dashboard: a message written on two lines is counted once (input 106, not 206)" -- \
+  grep -qF '"tokens":{"calls":3,"input":106,"output":57,"cw":13,"cr":1004,"total":1180' "$UPAGE"
+expect 0 "dashboard: a non-Employee agent type is listed apart" -- \
+  grep -qF '"other_agents":[{"type":"general-purpose","dispatches":1}]' "$UPAGE"
+expect 0 "dashboard: chain coverage counts the unexercised steps" -- \
+  grep -qF 'Test Chain - 1 of 3 Employee steps exercised' "$UPAGE"
+expect 0 "dashboard: commits per model come from Co-Authored-By" -- \
+  grep -qF '{"model":"Claude Sonnet 5.5","commits_all":2,"commits_range":1}' "$UPAGE"
+expect 0 "dashboard: subagent tokens are attributed to the agent type from .meta.json" -- \
+  grep -qF '"agent":"observability-engineer"' "$UPAGE"
+expect 0 "dashboard: the range is the latest tag" -- grep -qF 'since v1' "$UPAGE"
+expect 0 "dashboard: no cost without prices, and the page says so" -- grep -qF 'No cost is shown' "$UPAGE"
+# Privacy: nothing written as content in any source reaches the page.
+expect 1 "dashboard privacy: no prompt, reply, tool, commit-body or registry text in the page" -- \
+  grep -qF 'OBS326-SENTINEL' "$UPAGE"
+expect 1 "dashboard privacy: no co-author e-mail address in the page" -- grep -qF 'noreply@' "$UPAGE"
+expect 1 "dashboard: self-contained, no URL to fetch anything from" -- grep -qE 'https?://' "$UPAGE"
+
+printf 'claude-test-1\t1000000\t2000000\t3000000\t4000000\n' > "$WORK/usage-prices.tsv"
+expect 0 "dashboard: --prices computes a cost per model" -- \
+  bash "$DASH" --project-dir "$USAGE_REPO" --out "$UPAGE" --transcripts-dir "$UT" --prices "$WORK/usage-prices.tsv"
+expect 0 "dashboard: the cost is input+output+cache write+cache read at the stated prices" -- \
+  grep -qF ">\$4245<" "$UPAGE"
+
+mkdir -p "$WORK/usage-empty-config"
+expect 0 "dashboard: builds without any transcript" -- \
+  env CLAUDE_CONFIG_DIR="$WORK/usage-empty-config" bash "$DASH" --project-dir "$USAGE_REPO"
+expect_output "source missing: Claude Code transcripts"
+expect 0 "dashboard: the default output is .ia-engineering/usage/dashboard.html" -- \
+  test -s "$USAGE_REPO/.ia-engineering/usage/dashboard.html"
+
+cat > "$WORK/usage-opener.sh" <<OPENER
+#!/usr/bin/env bash
+printf '%s\n' "\$1" > "$WORK/usage-opened.txt"
+OPENER
+chmod +x "$WORK/usage-opener.sh"
+rm -f "$WORK/usage-opened.txt"
+expect 0 "dashboard: --open hands the page to the opener" -- \
+  env CLAUDE_CONFIG_DIR="$WORK/usage-empty-config" IAENG_USAGE_OPENER="$WORK/usage-opener.sh" \
+  bash "$DASH" --project-dir "$USAGE_REPO" --out "$UPAGE" --open
+expect 0 "dashboard: the opener received the page path" -- grep -qF 'dashboard.html' "$WORK/usage-opened.txt"
+
+mkdir -p "$WORK/usage-not-a-repo"
+expect 1 "dashboard: outside a git work tree it fails" -- \
+  env GIT_CEILING_DIRECTORIES="$WORK" bash "$DASH" --project-dir "$WORK/usage-not-a-repo"
+expect_output "is not inside a git work tree"
+expect 1 "dashboard: a --since that is not a commit fails" -- \
+  bash "$DASH" --project-dir "$USAGE_REPO" --out "$UPAGE" --since no-such-ref
+expect 2 "dashboard: an unknown argument is a usage error" -- bash "$DASH" --bogus
+
+mkdir -p "$WORK/usage-empty-transcripts"
+expect 3 "collector: an empty transcript directory is 'none found' (3), not an error" -- \
+  bash "$COLLECT" --transcripts-dir "$WORK/usage-empty-transcripts"
+expect 1 "collector: an explicit transcript directory that does not exist is an error" -- \
+  bash "$COLLECT" --transcripts-dir "$WORK/usage-no-such-dir"
 
 # --------------------------------------------------------------- verdict ----
 
