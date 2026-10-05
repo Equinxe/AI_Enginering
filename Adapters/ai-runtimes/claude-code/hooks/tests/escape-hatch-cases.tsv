@@ -577,6 +577,9 @@ block	git config core.hooksPath `echo /dev/null`
 block	git config core.hooksPath $(echo /dev/null)
 block	git config core.hooksPath \
 block	echo `git config core.hooksPath`
+block	git config core.hooks{P,}ath
+block	git config --global core.hooks{P,}ath
+block	git config co{r,}e.hooksPath
 block	echo "git config --local core.hooksPath"; git config --local core.hooksPath
 allow	git config --local core.hooksPath ; echo done
 allow	git config --local core.hooksPath && git config --local core.hooksPath

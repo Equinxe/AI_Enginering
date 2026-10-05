@@ -180,14 +180,17 @@ READ_HOOKSPATH="^[[:space:](\`{]*([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*${S}+)*${G
 # hooksPath ""` (an empty quote pair splitting the key), and a value on the next
 # line after a backtick. A real legacy read never needs any of those, so when the
 # RAW command contains a quote, a backslash, a backtick, `$(` or a newline the
-# exemption is withheld and the old behaviour (block) applies. Fails closed: a
+# exemption is withheld and the old behaviour (block) applies. A brace or glob
+# character (`{ } , [ ] ? *`) withholds it too (SEC-IAENG-316-06): the lexer
+# prints brace alternatives on separate lines, so `core.hooks{P,}ath` strips to
+# the bare read while bash expands it to a set. Fails closed: a
 # commit message that mentions the key beside a quote, or `x=$(git config
 # core.hooksPath)`, is refused; `--get` and the other keyword reads above are not
 # affected.
 READ_HOOKSPATH_LEGACY="^[[:space:](\`{]*([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*${S}+)*${G}config${S}+(${READ_OPT}${S}+)*core\.hooksPath${S}*\$"
 WRITE_HOOKSPATH_VIA_C="git[^|;&]*(-c${S}+|--config-env(=|${S}+))core\.hooksPath"
 case "$CMD" in
-  *\'*|*\"*|*\\*|*'`'*|*\$\(*|*$'\n'*) LEGACY_OK=0 ;;
+  *\'*|*\"*|*\\*|*'`'*|*\$\(*|*$'\n'*|*\{*|*\}*|*,*|*\[*|*\]*|*\?*|*\**) LEGACY_OK=0 ;;
   *) LEGACY_OK=1 ;;
 esac
 HOOKSPATH_WRITE=0
