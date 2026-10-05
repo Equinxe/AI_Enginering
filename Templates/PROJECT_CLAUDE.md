@@ -75,7 +75,7 @@ actually did the work, never the Main Agent's own.
 
 Present the plan to the Director and wait for approval before executing,
 whatever the runtime's effort or orchestration mode (Claude Code's `ultracode`
-dynamic workflows included), unless the Director explicitly says to proceed.
+dynamic workflows included).
 
 ---
 

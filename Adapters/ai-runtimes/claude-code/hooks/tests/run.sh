@@ -515,6 +515,9 @@ ss_run "$CLAUDETEMPLATE" "$SESSTART" ''
 ss_check_has  "session-start: MAIN_AGENT_CONDUCT.md found — points the Main Agent at it" yes "The Main Agent follows $CLAUDETEMPLATE/Core/MAIN_AGENT_CONDUCT.md: delegate every Work Unit to its named Employee"
 ss_run "$CLAUDEPRESENT" "$SESSTART" ''
 ss_check_has  "session-start: framework root not found — no Main Agent pointer" no "The Main Agent follows"
+rm -f "$CLAUDETEMPLATE/Core/MAIN_AGENT_CONDUCT.md"
+ss_run "$CLAUDETEMPLATE" "$SESSTART" ''
+ss_check_has  "session-start: root found but MAIN_AGENT_CONDUCT.md absent — no Main Agent pointer" no "The Main Agent follows"
 
 rm -rf "$SSBASE"
 
