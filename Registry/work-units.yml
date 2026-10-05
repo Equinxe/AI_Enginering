@@ -1153,8 +1153,31 @@ work_units:
     milestone: Precision
     delivers: Adapters/git-hooks/pre-push, Adapters/scripts/tests/run.sh, Adapters/README.md, Adapters/scripts/setup-project-bootstrap.sh, Workflows/PROJECT_BOOTSTRAP.md, Standards/CODE_QUALITY_STANDARD.md, Registry/work-units.yml
 
+  - id: WU-IAENG-317
+    employee: DevOps Engineer
+    title: Fix the advisory Review Recorded job failing at actions/checkout (issue 180) - its permissions block omitted contents read so the token could not read the repository; grant it, and guard that every shipped job which checks out and declares permissions grants contents read
+    milestone: Precision
+    delivers: Adapters/github-actions/pr-validation.yml, .github/workflows/pr-validation.yml, Adapters/scripts/tests/run.sh, Registry/work-units.yml
+
+  - id: WU-IAENG-318
+    employee: DevOps Engineer
+    title: Make block-inline-suppression fail closed on an unreadable payload (DEF-4 of the end-to-end adoption test) - with jq present an unparseable payload left the text empty and the write was allowed; a shared iaeng_require_object refuses empty, non-object or multi-value input while a readable payload with no text is still allowed; the no-jq fallback gap is stated honestly
+    milestone: Precision
+    delivers: Adapters/ai-runtimes/claude-code/hooks/lib.sh, Adapters/ai-runtimes/claude-code/hooks/block-inline-suppression.sh, Adapters/ai-runtimes/claude-code/hooks/tests/run.sh, Adapters/ai-runtimes/claude-code/hooks/README.md, Adapters/ai-runtimes/README.md, Adapters/ai-runtimes/claude-code/settings.example.json, .claude/settings.json, Registry/work-units.yml
+
   - id: WU-IAENG-319
     employee: DevOps Engineer
     title: Stop the validator reading SIGPIPE as a missing path - the cross-reference check's pipe into grep -q and awk failed intermittently on CI (PR #174, PR #182) because a bash-builtin printf flushes ~4 KB at a time; membership tests over captured variables use has_line or a here-string across the validator, hooks and scripts, and a 100 KB regression case makes the failure deterministic
     milestone: Precision
     delivers: Adapters/scripts/validate-framework.sh, Adapters/scripts/release.sh, Adapters/scripts/data-policy-scan.sh, Adapters/scripts/check-pr-size.sh, Adapters/git-hooks/commit-msg, Adapters/ai-runtimes/claude-code/hooks/session-start.sh, Adapters/scripts/tests/run.sh, Governance/TROUBLESHOOTING.md, Registry/work-units.yml
+
+  - id: WU-IAENG-321
+    employee: Technical Writer
+    title: Fix the documentation defects of the adoption-path acceptance test (issue 181) - Work Unit line enforcement stated as at most one locally and exactly one in CI; the bootstrap handoff instructs CLAUDE.md and SESSION_STATE creation; Step 4 and the checklist name the guard, stack declaration and the guard prerequisites; README makes the Claude Code hook and skill installs required; Adapters README cites ONBOARDING Step 1 item 4; ONBOARDING version refreshed
+    milestone: Precision
+    delivers: Standards/COMMIT_STANDARD.md, Workflows/PROJECT_BOOTSTRAP.md, Workflows/ONBOARDING.md, README.md, Adapters/README.md, Registry/work-units.yml
+  - id: WU-IAENG-322
+    employee: Release Manager
+    title: Fix the closing text of release.sh publish, which said the Step 8 back-merge was conditional where Workflows/RELEASE.md says it is always required
+    milestone: Precision
+    delivers: Adapters/scripts/release.sh, Adapters/scripts/tests/run.sh, Registry/work-units.yml
