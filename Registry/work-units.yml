@@ -1227,6 +1227,6 @@ work_units:
 
   - id: WU-IAENG-333
     employee: Engineering Manager
-    title: Sharpen the role boundaries in Core/EMPLOYEE_SELECTION.md (Director approved in principle 6 Oct 2026) - 75% of the credited commits since v0.0.13 went to the DevOps Engineer and Technical Writer; triggers and Miscasting Risks now route documentation-validation guards, rule-setting, tooling-repository platform work, open-PR branch upkeep, tier mapping, the review of Employee and Core conduct changes, token and context cost, seams, dashboards, milestone scope and usability studies to their owners
+    title: Sharpen the role boundaries in Core/EMPLOYEE_SELECTION.md (Director approved in principle 6 Oct 2026) - 92 of the 120 trailer-attributed commits since v0.0.13 went to the DevOps Engineer or Technical Writer; triggers and Miscasting Risks now route documentation-system work and template structure, project conventions and Standard clauses, developer-tooling platform work (git hooks stay DevOps), open-PR branch upkeep, tier mapping, AI-runtime token and context cost, host/forge/runtime adapters, dashboards, milestone scope and usability studies to their owners, and require a Prompt Engineer review for every Employees/ or Core/*.md change
     milestone: Precision
     delivers: Core/EMPLOYEE_SELECTION.md, Registry/work-units.yml

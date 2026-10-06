@@ -15,8 +15,6 @@ A roster-utilization audit on 2026-07-23 found that **96% of all credited commit
 
 This is the same bug class already found and fixed twice this session for other vague triggers: the ADR trigger list (fixed in v0.0.7.5, cross-referenced from `Core/ORCHESTRATION.md` Step 2) and the "security-sensitive or high-risk" QA trigger (fixed in WU-IAENG-123, cross-referenced from `Core/AGENT_CHAINS.md`'s Review Chain). A rule that *sounds* right — "pick the most appropriate Employee" — gives the Main Agent nothing concrete to check itself against, so it silently defaults to convenience. This document is the concrete check.
 
-A second check on 2026-10-06 found the shape again: of the 127 credited commits from v0.0.13 to `develop`, 95 (75%) went to the DevOps Engineer and the Technical Writer, whose triggers were broad enough to absorb neighboring roles' work. The boundaries added that day sharpen those triggers.
-
 ---
 
 # The Anti-Pattern to Guard Against
@@ -59,12 +57,12 @@ They compose: use this document to identify the best-fit Employee; if that Emplo
 - **Product Manager** — Dispatch when the question is *what to build and in what order*: backlog prioritization, translating business objectives into requirements with acceptance criteria, defining release or milestone scope (the Release Manager then executes the release), or accepting/rejecting delivered features against acceptance criteria.
 - **Release Manager** — Dispatch when preparing, validating, or delivering a release: release checklist, version bump coordination, release-branch management, changelog coordination, and driving the release to the Director-approval gate. **Not** a catch-all for any git or documentation task that happens near a release.
 - **Scrum Master** — Dispatch for process facilitation: sprint planning, standups, reviews, retrospectives, impediment removal, and protecting the team from mid-sprint scope change. This is process, not people management and not technical decisions.
-- **Technical Lead** — Dispatch for cross-cutting *technical consistency and convention* work: translating architecture into implementation guidance, pre-PR technical review, defining or changing a convention, rule, or Standard clause, resolving technical inconsistencies across the codebase. See **Miscasting Risks** for the boundaries with the Software Architect and the Technical Writer.
+- **Technical Lead** — Dispatch for cross-cutting *technical consistency and convention* work: translating architecture into implementation guidance, pre-PR technical review, defining or changing a project convention or a clause of a Standard (`Standards/`), resolving technical inconsistencies across the codebase. Changing roles, chains, or orchestration in `Core/` is not a convention: see Prompt Engineer vs. Software Architect. See **Miscasting Risks** for the boundaries with the Software Architect and the Technical Writer.
 
 ## Architecture
 
 - **Software Architect** — Dispatch for system-level architecture: defining the technical structure, selecting technology stacks, establishing architectural patterns, and producing ADRs for significant decisions. The owner of *what the architecture is*.
-- **Solution Architect** — Dispatch when the work is about *how systems connect*: integration design across internal/external systems, communication protocols, third-party service evaluation, and integration contracts — including a host, forge, or AI-runtime seam. Cross-system, where Software Architect is intra-system.
+- **Solution Architect** — Dispatch when the work is about *how systems connect*: integration design across internal/external systems, communication protocols, third-party service evaluation, and integration contracts, including the adapter to a host, forge, or AI runtime. Cross-system, where Software Architect is intra-system.
 - **Data Architect** — Dispatch when the work is about *how data is structured and stored*: data models, schema design, storage-technology selection, data flow patterns, retention/deletion policies, and data contracts for cross-system exchange.
 
 ## Development
@@ -76,7 +74,7 @@ They compose: use this document to identify the best-fit Employee; if that Emplo
 - **Cross-Platform Engineer** — Dispatch when one shared codebase must target both iOS and Android (React Native, Flutter, etc.) with platform-appropriate behavior.
 - **Database Engineer** — Dispatch to *implement* the data model the Data Architect defined: schemas, migrations, query optimization, indexes, constraints. Implementation, not data-model definition.
 - **Event-Driven Engineer** — Dispatch for asynchronous/message-based implementation: producers, consumers, event schemas, brokers, dead-letter queues, delivery guarantees.
-- **Integration Engineer** — Dispatch to *implement* integrations the Solution Architect designed: external API clients, auth, resilience (timeouts, retries, circuit breakers), against integration contracts — host, forge, and runtime seams included.
+- **Integration Engineer** — Dispatch to *implement* integrations the Solution Architect designed: external API clients, auth, resilience (timeouts, retries, circuit breakers), against integration contracts, including the adapter to a host, forge, or AI runtime.
 
 ## DevOps
 
@@ -84,8 +82,8 @@ They compose: use this document to identify the best-fit Employee; if that Emplo
 - **Cloud Engineer** — Dispatch for designing and provisioning cloud infrastructure (compute, storage, networking, managed services) and cloud cost/security posture, aligned with the architecture. See **Miscasting Risks** for the boundary with the Infrastructure as Code Engineer.
 - **Infrastructure as Code Engineer** (IaC Engineer) — Dispatch when infrastructure must be *defined as versioned, reviewable code* (Terraform, Pulumi, Ansible): modules, plans/dry-runs, state management.
 - **GitOps Engineer** — Dispatch when git is the *declared source of truth for deployed infrastructure/application state*: GitOps operators (ArgoCD, Flux), drift detection/reconciliation, environment-promotion workflows. See **Miscasting Risks** for the boundary with DevOps/Release Manager.
-- **Platform Engineer** — Dispatch to build the internal developer platform whose customer is the engineering team: container orchestration, standardized environments, service templates, developer self-service tooling — on a tooling or framework repository, its installer, bootstrap, agent generator, and session hooks. See **Miscasting Risks** for the boundary with the DevOps Engineer.
-- **Observability Engineer** — Dispatch for logging, metrics, and distributed tracing instrumentation; dashboards of operational and usage signals; and actionable alerting with runbooks. See **Miscasting Risks** for the boundaries with the SRE Engineer and the Analytics Engineer.
+- **Platform Engineer** — Dispatch to build the internal developer platform whose customer is the engineering team: container orchestration, standardized environments, service templates, developer self-service tooling, including a developer-tooling repository's installer and generators. See **Miscasting Risks** for the boundary with the DevOps Engineer.
+- **Observability Engineer** — Dispatch for logging, metrics, and distributed tracing instrumentation; dashboards of the signals a running system and its tooling emit, runtime usage and token counts included; and actionable alerting with runbooks. See **Miscasting Risks** for the boundaries with the SRE Engineer and the Analytics Engineer.
 - **SRE Engineer** — Dispatch for production reliability: SLO/SLI definition, incident response and post-mortems, error-budget management, disaster-recovery/failover design.
 
 ## Quality
@@ -93,29 +91,29 @@ They compose: use this document to identify the best-fit Employee; if that Emplo
 - **QA Engineer** — Dispatch to define and execute the testing strategy: functional/regression/acceptance testing, accessibility conformance verification (WCAG 2.2 AA for web content, or the applicable platform accessibility guidance for native iOS/Android), defect tracking, and quality sign-off against acceptance criteria.
 - **Test Automation Engineer** — Dispatch to *build the automated test infrastructure* (frameworks, CI integration, flaky-test remediation, coverage), where QA defines *what* to test and this Employee builds the systems that test it.
 - **Security Engineer** — Dispatch for anything touching secrets, authentication, authorization, tokens, cryptography, PII, threat modeling, vulnerability review, or infrastructure with production access. See **Miscasting Risks** — this is the single most commonly under-dispatched Employee.
-- **Performance Engineer** — Dispatch for load/stress/endurance testing, bottleneck analysis, performance baselines, and performance-regression gates — including runtime, token, and context cost (`Core/CONTEXT_BUDGET.md`). Rewriting one prompt to cost less stays the Prompt Engineer's.
+- **Performance Engineer** — Dispatch for load/stress/endurance testing, bottleneck analysis, performance baselines, and performance-regression gates, including AI-runtime token and context cost (`Core/CONTEXT_BUDGET.md`). Cloud spend stays the Cloud Engineer's; rewriting one prompt to cost less stays the Prompt Engineer's.
 
 ## Data
 
 - **Data Engineer** — Dispatch to build data pipelines (ETL/ELT), ingestion, transformation, and data-quality validation at scale.
-- **Analytics Engineer** — Dispatch for the semantic/transformation layer between raw data and analytical consumers (SQL/dbt models, tested and documented analytical datasets and metrics models, dashboards built on them). See **Miscasting Risks** for the boundary with the Observability Engineer.
+- **Analytics Engineer** — Dispatch for the semantic/transformation layer between raw data and analytical consumers (SQL/dbt models, tested and documented analytical datasets and metrics models, product-usage metrics included, and dashboards built on them). See **Miscasting Risks** for the boundary with the Observability Engineer.
 - **Data Scientist** — Dispatch to define *what to learn from data*: problem formulation, exploratory analysis, experiment design, statistical validation, and ML success criteria.
 - **ML Engineer** — Dispatch to build ML training pipelines, dataset versioning, model packaging, and model integration — bridging research and production.
 - **MLOps Engineer** — Dispatch to deploy, monitor, and maintain models in production: registries, deployment pipelines, drift detection, retraining automation, rollback.
 
 ## Documentation
 
-- **Technical Writer** — Dispatch to produce *documentation content* aimed at a reader: API references, guides, runbooks, changelogs, release notes, READMEs. **Content only** — see **Miscasting Risks** for the frequent error of routing compliance, business-requirements, design, rule-setting, or documentation-validation work here.
-- **Documentation Engineer** — Dispatch to build the documentation *system*: tooling, doc-as-code pipelines, information architecture, templates, and CI integration, including the guards that validate documentation. The platform, not the prose.
+- **Technical Writer** — Dispatch to produce *documentation content* aimed at a reader: API references, guides, runbooks, changelogs, release notes, READMEs. **Content only** — see **Miscasting Risks** for the frequent error of routing compliance, business-requirements, design, convention-setting, or documentation-system work here.
+- **Documentation Engineer** — Dispatch to build the documentation *system*: tooling, doc-as-code pipelines, information architecture, template structure, CI integration, and the guards that validate documentation. That is not the Test Automation Engineer's work (tests of code) or the Technical Writer's (the prose). What a template requires its user to state is a rule, so it is the Technical Lead's. The platform, not the prose.
 
 ## Specialized
 
 - **Business Analyst** — Dispatch to elicit and specify *business/functional requirements*: stakeholder analysis, functional specifications, use cases, acceptance criteria, requirements traceability. See **Miscasting Risks**.
 - **Code Reviewer** — Dispatch to review a Pull Request for correctness, logic, tests, standards, and security awareness, and to render an approve/request-changes decision. Never self-reviews the author's own work. See **Miscasting Risks** for the boundary with the Technical Lead.
-- **UX/UI Designer** — Dispatch for user research, user flows, wireframes, high-fidelity design, design systems, and accessibility (WCAG) — before UI code is written; and the protocol and verdict of a usability study, such as a blindfolded dogfood run (the QA Engineer owns acceptance).
+- **UX/UI Designer** — Dispatch for user research, user flows, wireframes, high-fidelity design, design systems, and accessibility (WCAG) — before UI code is written; and the protocol and verdict of a usability study, for example a run by a simulated newcomer with no prior knowledge of the project; the QA Engineer owns acceptance.
 - **API Engineer** — Dispatch when the API *contract itself* is the deliverable: API design, schema/versioning strategy, contract-first design, and API lifecycle/deprecation, distinct from a Backend Engineer merely implementing an endpoint.
-- **AI Engineer** — Dispatch to build AI-powered features: model selection — including which concrete model each capability tier maps to (changing an Employee's tier stays the Director's) — integration layers, evaluation pipelines, and AI observability. See **Miscasting Risks** for the AI/ML cluster boundary with the ML Engineer, MLOps Engineer, Prompt Engineer, and Data Scientist.
-- **Prompt Engineer** — Dispatch when the deliverable is *itself a prompt or AI-instruction artifact*: prompt design, evaluation, guardrails, and versioned prompt libraries. See **Miscasting Risks** for the genuinely debatable AI-instruction-content case, and the review every such change gets.
+- **AI Engineer** — Dispatch to build AI-powered features: model selection (including which concrete model each capability tier maps to; changing an Employee's tier stays the Director's), integration layers, evaluation pipelines, and AI observability. See **Miscasting Risks** for the AI/ML cluster boundary with the ML Engineer, MLOps Engineer, Prompt Engineer, and Data Scientist.
+- **Prompt Engineer** — Dispatch when the deliverable is *itself a prompt or AI-instruction artifact*: prompt design, evaluation, guardrails, and versioned prompt libraries. A change to an Employee definition (`Employees/`) or to any `Core/*.md` document gets a Prompt Engineer review before merge, in addition to the Code Reviewer's. See **Miscasting Risks** for the genuinely debatable AI-instruction-content case.
 - **Compliance Engineer** — Dispatch for regulatory/legal/contractual obligations: translating GDPR, SOC 2, ISO 27001, HIPAA, PCI-DSS, etc. into engineering controls, gap analysis, and audit evidence, and open-source licence obligations of dependencies a Work Unit adds or updates. See **Miscasting Risks**.
 - **Penetration Tester** — Dispatch for authorized offensive security testing within a Director-authorized scope: simulated attacks, CVSS-rated findings, and remediation verification — including adversarial passes on the framework's own controls (hooks, required checks, trailers) and on AI Employee behaviour. Distinct from the Security Engineer's defensive review role. See **Miscasting Risks**.
 
@@ -133,13 +131,9 @@ If the content's *purpose* is to satisfy a regulatory, legal, or contractual obl
 
 If the content *is* a business or requirements artifact — functional specifications, acceptance criteria, use cases, backlog definitions, requirements traceability — the owner is the **Business Analyst** (for eliciting and specifying requirements) or the **Product Manager** (for prioritization, scope, and what-to-build decisions). It is not a Technical Writer task merely because the output is written text. The 2026-07-23 audit found a document whose own RACI table named the Business Analyst and Product Manager as content co-owners, yet the Technical Writer wrote it alone. Authorship must match the content's substance, not its surface form.
 
-## Documentation Engineer vs. Test Automation Engineer / Technical Writer
-
-A guard that validates documentation, a template, or the information structure documents are built on is the **Documentation Engineer**'s: "Build automated documentation generation and validation pipelines" (`Employees/Documentation/DOCUMENTATION_ENGINEER.md`). The Test Automation Engineer builds the tests of the code; the Technical Writer writes the prose inside the structure.
-
 ## Technical Lead vs. Technical Writer
 
-Defining or changing a convention, a rule, or a Standard clause is the **Technical Lead**'s; the Technical Writer, who "must never … Make technical or architectural decisions", edits the wording once the rule is set. Writing style, tone, and vocabulary stay the Technical Writer's. A change to what a Standard requires still needs the Director (`Governance/CONTRIBUTING.md`, Section 1).
+Defining or changing a project convention or a Standard clause, meaning what it requires, is the **Technical Lead**'s; the Technical Writer, who "must never … Make technical or architectural decisions", then edits its wording. Writing style, tone, and vocabulary stay the Technical Writer's. A change to what a Standard requires still needs the Director (`Governance/CONTRIBUTING.md`, Section 1).
 
 ## Security Engineer vs. DevOps Engineer
 
@@ -200,7 +194,7 @@ Neither claim is wrong, so this document does not assert a hard winner. Instead,
 - If the Work Unit is about **what the role/structure/decision-flow should be** (defining a new Employee's Mission and Authority, changing how orchestration works), the architectural aspect dominates → lean **Software Architect**.
 - If the Work Unit is about **how the instruction performs as a prompt** (does the wording produce the intended model behavior, is it robust to adversarial or ambiguous inputs, is it evaluated and versioned as a prompt), the prompt aspect dominates → lean **Prompt Engineer**.
 - When both aspects are substantial and inseparable, treat it as a collaboration (two Work Units or an explicitly shared one) and, if the split is genuinely unclear, **escalate to the Director** rather than forcing a false-certain assignment.
-- Whichever aspect leads, a change to an Employee definition or a Core conduct document gets a **Prompt Engineer** review before merge. Authorship is the open question; that review is not.
+- Whichever aspect leads, the change still gets the **Prompt Engineer** review its trigger requires. Who authors it is the open question; whether it gets that review is not.
 
 The point is not to resolve the ambiguity by fiat, but to give the Main Agent a way to *reason* about it — and to prevent the ambiguity from silently collapsing into "whoever is already active," which is the anti-pattern this whole document exists to stop.
 
@@ -212,7 +206,7 @@ Both work on infrastructure and both name each other as collaborators, which can
 
 Their Missions read almost the same sentence twice: the DevOps Engineer "builds and maintains the pipelines, automation, and tooling that enable Employees to deliver software reliably and consistently"; the Platform Engineer "builds and maintains the internal developer platform that enables Employees to build, test, and deploy software efficiently and consistently" (`Employees/DevOps/DEVOPS_ENGINEER.md`, `Employees/DevOps/PLATFORM_ENGINEER.md`). The boundary is *pipeline* vs. *substrate*: the **DevOps Engineer** owns the CI/CD pipeline that moves a change through build, test, and deploy — "Design, implement, and maintain CI/CD pipelines", "Implement deployment strategies: blue-green, canary, rolling updates" — and takes "Infrastructure specifications from the Cloud Engineer and Platform Engineer" as an Input, escalating to the Cloud Engineer or Platform Engineer when "A pipeline requires infrastructure changes" (`Employees/DevOps/DEVOPS_ENGINEER.md`). The **Platform Engineer** owns the internal developer platform engineers consume — the orchestration substrate, standardized environments, templates, and shared or self-service tooling: "Manage container orchestration platforms (Kubernetes, etc.)", "Define and maintain platform standards: container images, service templates, environment configurations" — and its "customer is the engineering team itself" (`Employees/DevOps/PLATFORM_ENGINEER.md`), taking "Application requirements from Backend, Frontend, and DevOps Engineers" as an Input. If the work is *moving code through the pipeline*, it is DevOps; if the work is *the orchestration substrate, standardized environments, templates, or self-service tooling the pipeline and services build against*, it is Platform.
 
-On a tooling or framework repository, the tooling is the platform: the installer, the bootstrap, the agent generator, and the session hooks are **Platform**; the CI jobs and pipelines that check them are **DevOps**.
+On a repository whose product is developer tooling, the tooling is the platform. Its installer, bootstrap, agent generator, and AI-runtime session hooks (Claude Code session hooks here) are **Platform**; its CI jobs, pipelines, and git hooks (pre-commit, commit-msg, pre-push) are **DevOps**. Inside the agent generator, route by what changes: the tier-to-model mapping is the **AI Engineer**'s; the adapter contract with an AI runtime, meaning what the runtime expects to read, is designed by the **Solution Architect** and implemented by the **Integration Engineer**; the generator's own mechanics are Platform.
 
 ## Observability Engineer vs. SRE Engineer
 
@@ -224,7 +218,7 @@ If the work is instrumenting a service so its behavior can be seen — logs, met
 
 ## Analytics Engineer vs. Observability Engineer
 
-Both build dashboards. A dashboard of operational or usage signals — what the system, its runtime, and its users are doing — is the **Observability Engineer**'s; an analytical dataset or metrics model, and a dashboard built on it to answer a business question, is the **Analytics Engineer**'s. Route by the data, not the dashboard.
+Both build dashboards; route by the data. Signals a system or its tooling emit about its own operation go to the **Observability Engineer**. A modeled dataset answering a business or product question, adoption and funnels included, goes to the **Analytics Engineer**.
 
 ## GitOps Engineer vs. DevOps Engineer / Release Manager
 
@@ -234,7 +228,7 @@ Note the boundary carefully: this document is about **what kind of work routes t
 
 ## Authoring Employee vs. DevOps Engineer — branch upkeep on an open Pull Request
 
-Merging `develop` into an open Pull Request's branch, resolving its conflicts, and re-pushing belong to **that Pull Request's authoring Employee**, not the DevOps Engineer: the branch carries its artifact, and committing and pushing its own artifact is already its own (`Core/MAIN_AGENT_CONDUCT.md`, Git Execution via Named Employee, rule 1).
+Merging `develop` into an open Pull Request's branch, resolving its conflicts, and re-pushing belong to **that Pull Request's authoring Employee**, re-dispatched if its run has ended, not to the DevOps Engineer. The branch carries its artifact, and committing and pushing its own artifact is already its own (`Core/MAIN_AGENT_CONDUCT.md`, Git Execution via Named Employee, *Which Employee owns git execution*, item 1). A conflict-resolving merge carries that Employee's `Employee:` trailer and Work Unit.
 
 ---
 
