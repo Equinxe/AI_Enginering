@@ -37,6 +37,11 @@ The table above was counted by hand, once. `Adapters/scripts/usage-dashboard.sh`
 Adapters/scripts/usage-dashboard.sh --project-dir <project> [--open]
 ```
 
+Two ways to build and open it in one step:
+
+- **Windows** — `Adapters\scripts\usage-dashboard.cmd`, from PowerShell, cmd, or a double-click in Explorer. It runs the script with `--open` through Git for Windows' own `bash.exe`; typing `bash` in PowerShell reaches WSL instead (`Governance/TROUBLESHOOTING.md` entry AA). From an adopter's `ia-engineering` submodule it measures the adopting project.
+- **macOS, Linux, Git Bash** — `Adapters/scripts/usage-dashboard.sh --open`.
+
 It writes one self-contained page (default `.ia-engineering/usage/dashboard.html`, gitignored) showing, per Employee on the roster, its dispatches from the AI runtime's local transcripts, its commits from `Employee:` trailers, and its registered Work Units — with the Employees that have none marked **NEVER USED** — and, per Agent Chain, which steps' Employees are never exercised. It also shows the models doing the work and the tokens per day. Aggregates only: no prompt, reply or file content reaches the page (`Standards/DATA_PROTECTION_STANDARD.md`).
 
 The decisions it informs, and the first question each one raises:

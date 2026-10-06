@@ -2812,6 +2812,17 @@ git reset -q --soft "$BASE"
 git reset -q
 git add -A
 expect 0 "a real PNG is neither refused nor a crash under --text (staged)" -- bash "$DPS" --staged
+# WU-IAENG-328: the diff of a NUL-bearing file went through a command
+# substitution that printed bash's "ignored null byte in input" warning. The
+# NULs are now deleted first: same text scanned, no warning.
+DP_NUL_OUT="$LAST_OUTPUT"
+expect 1 "a staged binary prints no 'ignored null byte' warning" -- \
+  grep -qF "null byte" <<< "$DP_NUL_OUT"
+git commit -qm "add a png"
+expect 0 "a binary in --history is clean too" -- bash "$DPS" --history "$BASE..HEAD"
+DP_NUL_OUT="$LAST_OUTPUT"
+expect 1 "a binary in --history prints no 'ignored null byte' warning" -- \
+  grep -qF "null byte" <<< "$DP_NUL_OUT"
 
 # SEC-176-01: git's own combined diff ignores --text, so a secret resolved into
 # a path marked -diff or binary, or into a NUL-bearing file, printed "Binary
@@ -2834,6 +2845,10 @@ dp_conflict_repo dp-merge-nul
 git add app.conf && git commit -qm "Merge feat (resolved)"
 expect 1 "SEC-176-01: a secret resolved into a NUL-bearing file is refused" -- bash "$DPS" --history "$BASE..HEAD"
 expect_output "app.conf:2"
+# WU-IAENG-328: the merge-authored path is quiet about the NUL byte too.
+DP_NUL_OUT="$LAST_OUTPUT"
+expect 1 "a NUL-bearing merge resolution prints no 'ignored null byte' warning" -- \
+  grep -qF "null byte" <<< "$DP_NUL_OUT"
 
 # SEC-176-02: an added line whose text begins "++ " reads "+++ " in the diff
 # and was taken for a path header — never scanned, and every later line
@@ -3609,6 +3624,112 @@ expect 1 "bootstrap: deleting develop is refused" -- \
 expect 0 "bootstrap: develop survived the refused deletion" -- \
   git --git-dir="$PPB_REMOTE" rev-parse -q --verify refs/heads/develop
 
+# --- SEC-IAENG-179-02 (issue #181): a case variant of a protected name. ---
+# On a case-insensitive filesystem with packed refs, the remote holds no
+# loose refs/heads/main, so `git push origin x:refs/heads/Main` is reported to
+# the hook as a creation, and the loose file the remote writes is the one it
+# then resolves as `main`. The hook allowed it as a creation; it now refuses
+# every case variant of main, develop and release/ outright. Exact names keep
+# the behaviour pinned above.
+section "git-hooks/pre-push — case variants of protected names (WU-IAENG-328, SEC-IAENG-179-02)"
+
+cd "$WORK/pre-push" || exit 1
+for pp_variant in Main MAIN DEVELOP Develop Release/v1 RELEASE/v9.9.9; do
+  expect 1 "creating refs/heads/$pp_variant is refused (case variant)" -- \
+    "${PP[@]}" "refs/heads/x $PP_NEW refs/heads/$pp_variant $PP_ZERO"
+  expect_output "differs from the protected branch name"
+done
+expect 1 "updating refs/heads/Main is refused (case variant)" -- \
+  "${PP[@]}" "refs/heads/x $PP_NEW refs/heads/Main $PP_OLD"
+expect 1 "deleting refs/heads/DEVELOP is refused (case variant)" -- \
+  "${PP[@]}" "(delete) $PP_ZERO refs/heads/DEVELOP $PP_NEW"
+expect 1 "a case variant after an allowed feature ref is refused" -- \
+  "${PP[@]}" "refs/heads/feature/x $PP_NEW refs/heads/feature/x $PP_OLD" \
+     "refs/heads/x $PP_NEW refs/heads/Main $PP_ZERO"
+expect 0 "exact main is still created (bootstrap)" -- \
+  "${PP[@]}" "refs/heads/main $PP_NEW refs/heads/main $PP_ZERO"
+expect 0 "exact release/v1 is still created (RELEASE.md Step 3)" -- \
+  "${PP[@]}" "refs/heads/release/v1 $PP_NEW refs/heads/release/v1 $PP_ZERO"
+expect 0 "a name merely containing a protected word (feature/Main-menu) is allowed" -- \
+  "${PP[@]}" "refs/heads/feature/Main-menu $PP_NEW refs/heads/feature/Main-menu $PP_ZERO"
+expect 0 "a tag refs/tags/Main is not a branch and is allowed" -- \
+  "${PP[@]}" "refs/tags/Main $PP_NEW refs/tags/Main $PP_ZERO"
+
+# SEC-IAENG-199-01: the ref directories are on the same case-insensitive
+# filesystem, so a variant in the refs/heads/ part lands on the protected
+# branch just the same. The whole remote ref is folded, not the branch alone.
+for pp_variant in refs/Heads/main refs/HEADS/develop refs/Heads/release/v1 REFS/heads/main; do
+  expect 1 "creating $pp_variant is refused (case variant of the ref path)" -- \
+    "${PP[@]}" "refs/heads/x $PP_NEW $pp_variant $PP_ZERO"
+  expect_output "'$pp_variant' differs from the protected branch name"
+done
+# Review of PR #199, M1: refs/heads/release/V1 carries the EXACT release/
+# prefix, so it classified as a release branch and took the creation
+# exception; on a packed case-insensitive remote it moved the existing
+# release/v1. A ref under a protected name must be all-lowercase.
+for pp_variant in refs/heads/release/V1 refs/heads/release/v1.0.0-RC1 refs/heads/release/v9.9.9-RC1; do
+  expect 1 "creating $pp_variant is refused (upper case after the exact release/ prefix)" -- \
+    "${PP[@]}" "refs/heads/x $PP_NEW $pp_variant $PP_ZERO"
+  expect_output "'$pp_variant' differs from the protected branch name"
+done
+expect 1 "updating refs/heads/release/V1 is refused" -- \
+  "${PP[@]}" "refs/heads/x $PP_NEW refs/heads/release/V1 $PP_OLD"
+expect 0 "an all-lowercase release/v9.9.9-rc1 is still created" -- \
+  "${PP[@]}" "refs/heads/release/v9.9.9-rc1 $PP_NEW refs/heads/release/v9.9.9-rc1 $PP_ZERO"
+expect 0 "an upper-case feature branch (feature/ABC-1) is unaffected" -- \
+  "${PP[@]}" "refs/heads/feature/ABC-1 $PP_NEW refs/heads/feature/ABC-1 $PP_ZERO"
+expect 0 "a tag spelled refs/Tags/main is not a branch ref and is allowed" -- \
+  "${PP[@]}" "refs/tags/main $PP_NEW refs/Tags/main $PP_ZERO"
+
+# SEC-IAENG-199-02: the fold must not follow the locale. Under a Turkish
+# locale `tr '[:upper:]' '[:lower:]'` may fold I to dotless i, and MAIN then
+# no longer reads as main. Where tr_TR.UTF-8 is not generated the C locale is
+# used and the case still has to pass.
+for pp_variant in MAIN DEVELOP RELEASE/v1; do
+  expect 1 "under LC_ALL=tr_TR.UTF-8, refs/heads/$pp_variant is still refused" -- \
+    env LC_ALL=tr_TR.UTF-8 "${PP[@]}" "refs/heads/x $PP_NEW refs/heads/$pp_variant $PP_ZERO"
+  expect_output "differs from the protected branch name"
+done
+
+# The same case with a REAL push into a bare remote whose refs are packed.
+# Control first: with no hook installed git itself accepts the push as a
+# new branch, so the hook is the only client-side line. Then, through the
+# installed hook, the push is refused and the remote's main is untouched.
+PPC_CONTROL="$WORK/pre-push-case-control.git"
+PPC_REMOTE="$WORK/pre-push-case-remote.git"
+rm -rf "$PPC_CONTROL" "$PPC_REMOTE"
+git init -q --bare "$PPC_CONTROL"
+git init -q --bare "$PPC_REMOTE"
+new_repo pre-push-case
+git branch develop
+git branch release/v1
+git push -q "$PPC_CONTROL" main develop release/v1
+git push -q "$PPC_REMOTE" main develop release/v1
+git --git-dir="$PPC_CONTROL" pack-refs --all
+git --git-dir="$PPC_REMOTE" pack-refs --all
+PPC_MAIN="$(git rev-parse HEAD)"
+echo case > case.txt && git add case.txt && git commit -q -m "case"
+expect 0 "control: without the hook, git accepts HEAD:refs/heads/Main into a packed remote" -- \
+  git push -q "$PPC_CONTROL" HEAD:refs/heads/Main
+cat > .git/hooks/pre-push <<HOOK
+#!/usr/bin/env bash
+exec bash "$PREPUSH" "\$@"
+HOOK
+chmod +x .git/hooks/pre-push
+expect 1 "real push: HEAD:refs/heads/Main into a packed remote is refused" -- \
+  git push -q "$PPC_REMOTE" HEAD:refs/heads/Main
+expect_output "'refs/heads/Main' differs from the protected branch name 'main' only by case"
+# SEC-IAENG-199-01, real pushes: a variant in the ref path itself.
+for ppc_ref in refs/Heads/main refs/HEADS/develop refs/Heads/release/v1 refs/heads/release/V1; do
+  expect 1 "real push: HEAD:$ppc_ref into a packed remote is refused" -- \
+    git push -q "$PPC_REMOTE" "HEAD:$ppc_ref"
+  expect_output "'$ppc_ref' differs from the protected branch name"
+done
+for ppc_branch in main develop release/v1; do
+  expect 0 "real push: the remote's $ppc_branch still points at its original commit" -- \
+    test "$(git --git-dir="$PPC_REMOTE" rev-parse "refs/heads/$ppc_branch")" = "$PPC_MAIN"
+done
+
 # ------------------------------------------------- usage-dashboard.sh -------
 # WU-IAENG-326. A fixture repository with trailers and a synthetic transcript
 # directory: the page must carry the aggregates, and must NOT carry any of the
@@ -4211,6 +4332,62 @@ expect 3 "collector: an empty transcript directory is 'none found' (3), not an e
   bash "$COLLECT" --transcripts-dir "$WORK/usage-empty-transcripts"
 expect 1 "collector: an explicit transcript directory that does not exist is an error" -- \
   bash "$COLLECT" --transcripts-dir "$WORK/usage-no-such-dir"
+
+# ------------------------------------------------- usage-dashboard.cmd ------
+# WU-IAENG-329. The Windows launcher cannot be run on the Linux CI runner, so
+# its contract is pinned statically: it exists, it is CRLF where cmd.exe reads
+# it (the attribute, and the bytes actually checked out), it runs the script
+# with --open, and it never runs the PATH's `bash` — in PowerShell and cmd that
+# is WSL's System32\bash.exe, the defect this launcher exists to avoid
+# (Governance/TROUBLESHOOTING.md, entry AA).
+
+LAUNCHER="$SCRIPTS/usage-dashboard.cmd"
+section "usage-dashboard.cmd"
+
+expect 0 "launcher: usage-dashboard.cmd exists" -- test -f "$LAUNCHER"
+expect 0 "launcher: .gitattributes checks it out CRLF" -- \
+  grep -qx 'Adapters/scripts/usage-dashboard.cmd: eol: crlf' \
+    <<< "$(git -C "$SCRIPTS/../.." check-attr eol -- Adapters/scripts/usage-dashboard.cmd)"
+# Counted in bytes with tr, not with a grep for a trailing CR: while this test
+# was written, such a grep inside a function counted every line of an LF file
+# as CR-terminated under Git for Windows, so the assertion passed on the very
+# file it exists to reject. As many CR as LF bytes, and the file ends in CR LF,
+# so its last line is terminated too. Computed inline, not in a function: a
+# function reached only through `expect` is reported unreachable by shellcheck
+# (SC2317), as the pre-push feeder above explains.
+L_CR="$(tr -cd '\r' < "$LAUNCHER" 2>/dev/null | wc -c | tr -d ' ')"
+L_LF="$(tr -cd '\n' < "$LAUNCHER" 2>/dev/null | wc -c | tr -d ' ')"
+L_END="$(tail -c 2 "$LAUNCHER" 2>/dev/null | od -An -c | tr -d ' ')"
+expect 0 "launcher: every line of the checked-out file ends in CRLF ($L_CR CR, $L_LF LF)" -- \
+  test "$L_LF" -gt 0 -a "$L_CR" = "$L_LF" -a "$L_END" = '\r\n'
+expect 0 "launcher: it runs usage-dashboard.sh --open, passing arguments through" -- \
+  grep -qF 'usage-dashboard.sh" --open %*' "$LAUNCHER"
+expect 0 "launcher: it runs Git for Windows' own bin\\bash.exe" -- \
+  grep -qF '"%IAENG_GITROOT%\bin\bash.exe"' "$LAUNCHER"
+# Outside rem comments and echoed messages, `bash` may appear only as the
+# resolved bin\bash.exe.
+L_CODE="$(tr -d '\r' < "$LAUNCHER" 2>/dev/null \
+  | grep -viE '^[[:space:]]*(@?rem|::|echo)([[:space:]]|$)')"
+expect 1 "launcher: no bare bash (PATH lookup reaches WSL in PowerShell and cmd)" -- \
+  grep -iE '(^|[^\\a-z_.-])bash(\.exe)?([^a-z_.-]|$)' <<< "$L_CODE"
+
+# The two defects of PR #200's review, pinned so they cannot return.
+# M1: after a cd, %~dp0 re-resolves against the new directory when the file
+# was invoked by a relative path, so it is captured before the first cd and
+# never read after it.
+expect 0 "launcher: the script directory is captured into IAENG_HERE" -- \
+  grep -qxF 'set "IAENG_HERE=%~dp0"' <<< "$L_CODE"
+L_DP0_AFTER_CD="$(awk '/^cd /{cd=1} cd && /%~dp0/' <<< "$L_CODE")"
+expect 0 "launcher: %~dp0 is not read after the first cd" -- \
+  test -z "$L_DP0_AFTER_CD"
+# M2: a path expanded with %VAR% inside a for set or an if block is parsed
+# as batch syntax, so a ")" in it (C:\Program Files (x86)\Git) is a syntax
+# error. The for /f command must not open with '"" (which leaves the paths
+# unquoted), and cmdcmdline must not be tokenised by a plain for.
+expect 1 "launcher: no for /f command opens with '\"\" (unquoted paths)" -- \
+  grep -F "in ('\"\"" <<< "$L_CODE"
+expect 1 "launcher: cmdcmdline is not expanded in a for set" -- \
+  grep -F '(%cmdcmdline%)' <<< "$L_CODE"
 
 # --------------------------------------------------------------- verdict ----
 

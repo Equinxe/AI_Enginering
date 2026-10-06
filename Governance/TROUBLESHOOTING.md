@@ -380,6 +380,18 @@ Do **not** use `git reset --hard origin/develop` or `git push --force`: both are
 
 ---
 
+## AA. `bash` in PowerShell is WSL, not Git Bash
+
+**Symptom.** A framework script that works from Git Bash fails from PowerShell or cmd: `bash Adapters/scripts/usage-dashboard.sh` stops with `execvpe(/bin/bash) failed`, and typing `.\Adapters\scripts\usage-dashboard.sh` opens the file in an editor instead of running it.
+
+**Cause.** Outside Git Bash, `bash` resolves to `C:\Windows\System32\bash.exe`, the WSL launcher, which needs a Linux distribution and does not see Git for Windows. Windows runs a `.sh` file by its file association, not by its shebang.
+
+**Remedy.** Run the script from Git Bash, or call Git for Windows' bash by its full path: `& "$env:ProgramFiles\Git\bin\bash.exe" Adapters/scripts/usage-dashboard.sh --open`. For the usage dashboard, `Adapters\scripts\usage-dashboard.cmd` does this for you.
+
+**Prevention.** A script the Director runs by hand on Windows gets a `.cmd` launcher that resolves Git for Windows' `bin\bash.exe` itself and never runs the PATH's `bash`; `Adapters/scripts/tests/run.sh` pins this for `usage-dashboard.cmd`.
+
+---
+
 # Adding an Entry
 
 1. The Work Unit that fixes the incident adds the entry — same commit, or the fix is not complete (`Governance/CONTRIBUTING.md`, Section 7).
