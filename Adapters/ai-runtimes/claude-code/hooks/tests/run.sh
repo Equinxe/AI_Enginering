@@ -133,6 +133,31 @@ NL_D=$'git config --local core.hooksPath\ngit log'
 for NL_CMD in "$NL_A" "$NL_B" "$NL_C" "$NL_D"; do
   expect_rc "hooksPath: a newline withholds the legacy get" 2 "$HOOKS/block-escape-hatches.sh" "$(jq -n --arg c "$NL_CMD" '{tool_name:"Bash",tool_input:{command:$c}}')"
 done
+# A legacy read refused only because the raw command has a quote (the documented
+# fail-closed trade-off) is still refused, but the message names the read to run
+# instead; a real set gets no such hint (WU-IAENG-328, NEW-3).
+# expect_hint <label> <command> <1 = hint expected | 0 = hint absent>
+expect_hint() {
+  local label="$1" cmd="$2" want="$3" out rc has=0
+  TOTAL=$((TOTAL + 1))
+  out="$(jq -n --arg c "$cmd" '{tool_name:"Bash",tool_input:{command:$c}}' \
+    | bash "$HOOKS/block-escape-hatches.sh" 2>&1 >/dev/null)"
+  rc=$?
+  grep -qF -- 'if this is a read, run `git config --get core.hooksPath`' <<< "$out" && has=1
+  if [ "$rc" -eq 2 ] && [ "$has" -eq "$want" ]; then
+    [ "$VERBOSE" -eq 1 ] && printf '   ok    %s\n' "$label"
+  else
+    FAILED=$((FAILED + 1))
+    printf '   FAIL  %s: exit %s, hint present=%s (want exit 2, hint=%s)\n' "$label" "$rc" "$has" "$want"
+    printf '%s\n' "$out" | sed 's/^/         | /'
+  fi
+}
+expect_hint "hooksPath: a quoted-command legacy read is refused with the --get hint" \
+  'cd "/x" && git config core.hooksPath && ls' 1
+expect_hint "hooksPath: a real set is refused without the read hint" \
+  'git config core.hooksPath /dev/null' 0
+expect_hint "hooksPath: a real set beside a quote is refused without the read hint" \
+  'cd "/x" && git config --local core.hooksPath /dev/null' 0
 expect_rc "inline-suppression: refuses a directive in code" 2 "$HOOKS/block-inline-suppression.sh" "$PAY_CODE"
 expect_rc "inline-suppression: allows it in documentation"  0 "$HOOKS/block-inline-suppression.sh" "$PAY_DOC"
 

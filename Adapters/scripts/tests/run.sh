@@ -2630,6 +2630,17 @@ git reset -q --soft "$BASE"
 git reset -q
 git add -A
 expect 0 "a real PNG is neither refused nor a crash under --text (staged)" -- bash "$DPS" --staged
+# WU-IAENG-328: the diff of a NUL-bearing file went through a command
+# substitution that printed bash's "ignored null byte in input" warning. The
+# NULs are now deleted first: same text scanned, no warning.
+DP_NUL_OUT="$LAST_OUTPUT"
+expect 1 "a staged binary prints no 'ignored null byte' warning" -- \
+  grep -qF "null byte" <<< "$DP_NUL_OUT"
+git commit -qm "add a png"
+expect 0 "a binary in --history is clean too" -- bash "$DPS" --history "$BASE..HEAD"
+DP_NUL_OUT="$LAST_OUTPUT"
+expect 1 "a binary in --history prints no 'ignored null byte' warning" -- \
+  grep -qF "null byte" <<< "$DP_NUL_OUT"
 
 # SEC-176-01: git's own combined diff ignores --text, so a secret resolved into
 # a path marked -diff or binary, or into a NUL-bearing file, printed "Binary
@@ -3426,6 +3437,67 @@ expect 1 "bootstrap: deleting develop is refused" -- \
   git push -q "$PPB_REMOTE" :refs/heads/develop
 expect 0 "bootstrap: develop survived the refused deletion" -- \
   git --git-dir="$PPB_REMOTE" rev-parse -q --verify refs/heads/develop
+
+# --- SEC-IAENG-179-02 (issue #181): a case variant of a protected name. ---
+# On a case-insensitive filesystem with packed refs, the remote holds no
+# loose refs/heads/main, so `git push origin x:refs/heads/Main` is reported to
+# the hook as a creation, and the loose file the remote writes is the one it
+# then resolves as `main`. The hook allowed it as a creation; it now refuses
+# every case variant of main, develop and release/ outright. Exact names keep
+# the behaviour pinned above.
+section "git-hooks/pre-push — case variants of protected names (WU-IAENG-328, SEC-IAENG-179-02)"
+
+cd "$WORK/pre-push" || exit 1
+for pp_variant in Main MAIN DEVELOP Develop Release/v1 RELEASE/v9.9.9; do
+  expect 1 "creating refs/heads/$pp_variant is refused (case variant)" -- \
+    "${PP[@]}" "refs/heads/x $PP_NEW refs/heads/$pp_variant $PP_ZERO"
+  expect_output "differs from the protected branch name"
+done
+expect 1 "updating refs/heads/Main is refused (case variant)" -- \
+  "${PP[@]}" "refs/heads/x $PP_NEW refs/heads/Main $PP_OLD"
+expect 1 "deleting refs/heads/DEVELOP is refused (case variant)" -- \
+  "${PP[@]}" "(delete) $PP_ZERO refs/heads/DEVELOP $PP_NEW"
+expect 1 "a case variant after an allowed feature ref is refused" -- \
+  "${PP[@]}" "refs/heads/feature/x $PP_NEW refs/heads/feature/x $PP_OLD" \
+     "refs/heads/x $PP_NEW refs/heads/Main $PP_ZERO"
+expect 0 "exact main is still created (bootstrap)" -- \
+  "${PP[@]}" "refs/heads/main $PP_NEW refs/heads/main $PP_ZERO"
+expect 0 "exact release/v1 is still created (RELEASE.md Step 3)" -- \
+  "${PP[@]}" "refs/heads/release/v1 $PP_NEW refs/heads/release/v1 $PP_ZERO"
+expect 0 "a name merely containing a protected word (feature/Main-menu) is allowed" -- \
+  "${PP[@]}" "refs/heads/feature/Main-menu $PP_NEW refs/heads/feature/Main-menu $PP_ZERO"
+expect 0 "a tag refs/tags/Main is not a branch and is allowed" -- \
+  "${PP[@]}" "refs/tags/Main $PP_NEW refs/tags/Main $PP_ZERO"
+
+# The same case with a REAL push into a bare remote whose refs are packed.
+# Control first: with no hook installed git itself accepts the push as a
+# new branch, so the hook is the only client-side line. Then, through the
+# installed hook, the push is refused and the remote's main is untouched.
+PPC_CONTROL="$WORK/pre-push-case-control.git"
+PPC_REMOTE="$WORK/pre-push-case-remote.git"
+rm -rf "$PPC_CONTROL" "$PPC_REMOTE"
+git init -q --bare "$PPC_CONTROL"
+git init -q --bare "$PPC_REMOTE"
+new_repo pre-push-case
+git branch develop
+git push -q "$PPC_CONTROL" main develop
+git push -q "$PPC_REMOTE" main develop
+git --git-dir="$PPC_CONTROL" pack-refs --all
+git --git-dir="$PPC_REMOTE" pack-refs --all
+PPC_MAIN="$(git rev-parse HEAD)"
+echo case > case.txt && git add case.txt && git commit -q -m "case"
+expect 0 "control: without the hook, git accepts HEAD:refs/heads/Main into a packed remote" -- \
+  git push -q "$PPC_CONTROL" HEAD:refs/heads/Main
+cat > .git/hooks/pre-push <<HOOK
+#!/usr/bin/env bash
+exec bash "$PREPUSH" "\$@"
+HOOK
+chmod +x .git/hooks/pre-push
+expect 1 "real push: HEAD:refs/heads/Main into a packed remote is refused" -- \
+  git push -q "$PPC_REMOTE" HEAD:refs/heads/Main
+expect_output "'Main' differs from the protected branch name 'main' only by case"
+expect 0 "real push: the remote's main still points at its original commit" -- \
+  test "$(git --git-dir="$PPC_REMOTE" rev-parse main)" = "$PPC_MAIN"
 
 # --------------------------------------------------------------- verdict ----
 

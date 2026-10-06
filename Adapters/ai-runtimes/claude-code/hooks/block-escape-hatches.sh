@@ -194,6 +194,11 @@ case "$CMD" in
   *) LEGACY_OK=1 ;;
 esac
 HOOKSPATH_WRITE=0
+# A refused segment that is shaped like the legacy read (nothing after the key)
+# and was refused only because LEGACY_OK withheld the exemption. The refusal
+# stands; the message gains the unambiguous read to run instead (WU-IAENG-328,
+# NEW-3), since "setting core.hooksPath" misdescribes what was typed.
+HOOKSPATH_READ_HINT=0
 # Gate: a command whose stripped text never contains the key (any case) cannot
 # trip the loop, so skip its forks. Judged on STRIPPED, where a split key is
 # already rejoined; bash 3.2 has no ${var,,}, so the case is folded by the pattern.
@@ -206,13 +211,18 @@ case "$STRIPPED" in
         :
       else
         HOOKSPATH_WRITE=1
+        grep -qiE -- "$READ_HOOKSPATH_LEGACY" <<< "$SEG" && HOOKSPATH_READ_HINT=1
       fi
       grep -qiE -- "$WRITE_HOOKSPATH_VIA_C" <<< "$SEG" && HOOKSPATH_WRITE=1
     done < <(printf '%s\n' "$STRIPPED" | tr ';&|' '\n')
     ;;
 esac
 if [ "$HOOKSPATH_WRITE" -eq 1 ]; then
-  iaeng_block "setting core.hooksPath disables every git hook — the same effect as --no-verify, written as configuration" \
+  HOOKSPATH_REASON="setting core.hooksPath disables every git hook — the same effect as --no-verify, written as configuration"
+  if [ "$HOOKSPATH_READ_HINT" -eq 1 ]; then
+    HOOKSPATH_REASON="$HOOKSPATH_REASON; if this is a read, run \`git config --get core.hooksPath\`"
+  fi
+  iaeng_block "$HOOKSPATH_REASON" \
     "Standards/GIT_STANDARD.md, Escape Hatches. The sanctioned write of this setting is ./ia-engineering/Adapters/scripts/install.sh, which points it at the framework's hooks."
 fi
 # GIT_CONFIG_PARAMETERS encodes an arbitrary number of git config pairs —

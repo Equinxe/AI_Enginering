@@ -1212,3 +1212,9 @@ work_units:
     title: Bootstrap closing report - SESSION_STATE after the first commit; the adoption commit's signer
     milestone: Precision
     delivers: Adapters/scripts/setup-project-bootstrap.sh, Registry/work-units.yml
+
+  - id: WU-IAENG-328
+    employee: DevOps Engineer
+    title: Close the FINAL QA Lows - pre-push refuses case variants of protected branch names (SEC-IAENG-179-02), the core.hooksPath legacy-read refusal names the --get read, bootstrap and onboarding branch and adoption-commit wording, and data-policy-scan no longer warns on NUL bytes
+    milestone: Precision
+    delivers: Adapters/git-hooks/pre-push, Adapters/ai-runtimes/claude-code/hooks/block-escape-hatches.sh, Adapters/ai-runtimes/claude-code/hooks/tests/run.sh, Adapters/scripts/data-policy-scan.sh, Adapters/scripts/tests/run.sh, Workflows/PROJECT_BOOTSTRAP.md, Workflows/ONBOARDING.md, Registry/work-units.yml

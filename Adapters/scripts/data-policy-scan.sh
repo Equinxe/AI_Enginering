@@ -339,7 +339,10 @@ case "$MODE" in
     # --text: see the history branch below. A file git classifies as binary
     # (a NUL byte, or -diff / binary in .gitattributes) prints "Binary files
     # differ" and no lines, so a secret added to it would never be scanned.
-    DIFF="$(git -c core.quotePath=false diff --cached --text -U0 --no-color --no-ext-diff --no-textconv --diff-filter=ACMRT)"
+    # tr -d '\0': a command substitution drops NUL bytes anyway and bash warns
+    # "ignored null byte in input" each time it does. Deleting them first is the
+    # same text with no warning; pipefail still reports a git failure.
+    DIFF="$(git -c core.quotePath=false diff --cached --text -U0 --no-color --no-ext-diff --no-textconv --diff-filter=ACMRT | tr -d '\0')"
     ADDED_LINES="$(printf '%s\n' "$DIFF" | added_lines)"
     scan_content < <(printf '%s\n' "$ADDED_LINES" | match_secret_lines)
     LINES_SCANNED="$(count_lines "$ADDED_LINES")"
@@ -397,7 +400,8 @@ case "$MODE" in
     # a secret shape — the same trade the suppression check makes.
     # --no-textconv and --no-ext-diff stay: a configured converter or external
     # driver must not rewrite the bytes being scanned.
-    DIFF="$(git -c core.quotePath=false log -p --text -U0 --no-color --no-ext-diff --no-textconv --format= "$ARG")"
+    # tr -d '\0': same as the staged branch — no "ignored null byte" warning.
+    DIFF="$(git -c core.quotePath=false log -p --text -U0 --no-color --no-ext-diff --no-textconv --format= "$ARG" | tr -d '\0')"
     ADDED_LINES="$(printf '%s\n' "$DIFF" | added_lines)"
     scan_content < <(printf '%s\n' "$ADDED_LINES" | match_secret_lines)
 

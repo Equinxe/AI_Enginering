@@ -19,6 +19,10 @@
 #   - DELETION is refused. main and develop are never deleted, and a release
 #     branch is never deleted (Workflows/RELEASE.md Step 10). Every deletion
 #     git reports to this hook is refused.
+#   - A CASE VARIANT of a protected name (refs/heads/Main, DEVELOP,
+#     Release/v1) is refused outright, with no creation exception: on a
+#     case-insensitive remote with packed refs it overwrites the protected
+#     branch while git reports it as a creation (SEC-IAENG-179-02).
 #
 # A hook sees only what git reports on stdin. `git push --mirror` does not
 # report the deletions it performs implicitly (a branch present on the remote
@@ -75,7 +79,35 @@ while read -r _ local_sha remote_ref remote_sha; do
     "refs/heads/$RELEASE_PREFIX"*) kind="release" ;;
   esac
 
-  [ -z "$kind" ] && continue
+  # A CASE VARIANT of a protected name (Main, DEVELOP, Release/v1) is refused
+  # outright, creation included. On a remote whose filesystem is
+  # case-insensitive and whose refs are packed, git sees no existing
+  # refs/heads/Main, reports a creation, and the loose ref it writes is the
+  # file the remote then resolves as `main` (SEC-IAENG-179-02, issue #181).
+  # No workflow ever needs such a name, so there is no creation exception.
+  # Lowercased with tr: bash 3.2 has no ${v,,}.
+  if [ -z "$kind" ]; then
+    case "$remote_ref" in
+      refs/heads/*)
+        lower="$(printf '%s' "$branch" | tr '[:upper:]' '[:lower:]')"
+        variant_of=""
+        for protected in "${PROTECTED_BRANCHES[@]}"; do
+          [ "$lower" = "$protected" ] && variant_of="$protected"
+        done
+        case "$lower" in
+          "$RELEASE_PREFIX"*) variant_of="$RELEASE_PREFIX*" ;;
+        esac
+        if [ -n "$variant_of" ]; then
+          echo "pre-push: rejected — '$branch' differs from the protected branch name '$variant_of' only by case." >&2
+          echo "  On a case-insensitive remote it can overwrite the protected branch itself." >&2
+          echo "  Per Standards/BRANCH_STANDARD.md, use the exact lowercase name through a" >&2
+          echo "  Pull Request, or choose a branch name that is not a protected name." >&2
+          exit 1
+        fi
+        ;;
+    esac
+    continue
+  fi
 
   if ! is_zero_sha "$local_sha" && is_zero_sha "$remote_sha"; then
     # Creation of an absent protected branch — see the header.
