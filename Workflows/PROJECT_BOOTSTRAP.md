@@ -124,7 +124,7 @@ With the stack decided, generate the baseline repository content:
 1. `README.md`, reflecting the project identity captured in the Phase A answers.
 2. `.gitignore`, appropriate to the chosen stack.
 3. `.gitattributes` for the project's own files, if it needs rules of its own. Do not hand-write the LF rules for the control files (the hooks, CI and the files they parse): `Adapters/scripts/setup-project-bootstrap.sh` appends them in Step 4, as exact-path rules, and leaves the project's own rules untouched.
-4. `main` and `develop` branches created.
+4. `main` and `develop` branches — not created here: no commit exists yet. They are created and pushed after the adoption commit (Step 4 item 5), as the Coverage Checklist item "`main` + `develop` branches created and pushed" says.
 
 **Output:** Baseline repository scaffolded.
 
