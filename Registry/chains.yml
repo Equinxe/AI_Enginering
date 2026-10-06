@@ -105,9 +105,7 @@ chains:
         produces: Pull Request approved, or changes requested
       - employee: QA Engineer
         produces: QA sign-off
-        when: >-
-          Always in this chain. Distinct from the Review Chain, where QA is
-          inserted only against the security-sensitive trigger list.
+        when: When the Pull Request changes executable behaviour (code, scripts, hooks, CI workflows, tooling)
       - gate: Director
         when: Always
         blocks: Promotion to the Release Chain

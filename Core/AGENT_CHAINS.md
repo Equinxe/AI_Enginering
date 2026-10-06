@@ -74,7 +74,7 @@ Code Reviewer
       ↓
   [PR approved]
       ↓
-QA Engineer
+QA Engineer  (when the Pull Request changes executable behaviour — Workflows/FEATURE_DEVELOPMENT.md Step 8)
       ↓
   [QA sign-off]
       ↓
@@ -83,7 +83,7 @@ Main Agent → Director
   [Approval → Release Chain]
 ```
 
-**Director gates:** After Architecture review (if ADR required), after QA sign-off.
+**Director gates:** After Architecture review (if ADR required), after QA sign-off (when one is required).
 
 **Decomposition:** The Main Agent's own planning, not a dispatch (see Work Unit Decomposition, above). Its plan is the one Orchestration Step 3 presents to the Director before any Engineer is dispatched.
 
