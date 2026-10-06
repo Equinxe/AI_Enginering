@@ -3864,6 +3864,148 @@ expect 0 "dashboard: --open on Windows hands a comma-free path to explorer.exe (
   bash "$DASH" --project-dir "$USAGE_REPO" --out "$UPAGE" --open
 expect 0 "dashboard: explorer.exe received the page path" -- grep -qF 'dashboard.html' "$WSTUB/explorer-called.txt"
 
+# WU-IAENG-330 — the runtime's own override of the slug is honoured.
+TAB=$'\t'
+cat > "$WORK/usage-opener330.sh" <<OPENER
+#!/usr/bin/env bash
+printf '%s\n' "\$1" >> "$WORK/usage-opened330.txt"
+OPENER
+chmod +x "$WORK/usage-opener330.sh"
+rm -rf "$WORK/usage-named-config"
+mkdir -p "$WORK/usage-named-config/projects/obs330-named"
+cp -R "$UT/." "$WORK/usage-named-config/projects/obs330-named/"
+expect 0 "collector: CLAUDE_CODE_PROJECT_DIR_NAME names the transcript directory" -- \
+  env CLAUDE_CONFIG_DIR="$WORK/usage-named-config" CLAUDE_CODE_PROJECT_DIR_NAME=obs330-named \
+  bash "$COLLECT" --project-dir "$USAGE_REPO"
+expect_output "dispatch${TAB}observability-engineer${TAB}opus${TAB}1"
+
+# WU-IAENG-330 — incremental reading. A cached run re-reads only what grew,
+# from the last complete line; the result must equal a from-scratch read at
+# every step. A line still being written (no newline) is not counted until it
+# is complete, and is then counted once.
+UTI="$WORK/usage-transcripts-incr"
+UCACHE="$WORK/usage-collect-cache"
+rm -rf "$UTI" "$UCACHE"
+mkdir -p "$UTI"
+cp "$UT/s1.jsonl" "$UTI/s1.jsonl"
+usage_line() {
+  printf '{"type":"assistant","timestamp":"2026-10-06T09:00:00Z","message":{"id":"%s","model":"claude-test-1","content":[],"usage":{"input_tokens":%s,"output_tokens":1,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}' "$1" "$2"
+}
+# usage_source <cache-args...> — the collector's `source` line.
+usage_source() { bash "$COLLECT" --transcripts-dir "$UTI" "$@" 2>/dev/null | head -n 1; }
+expect 0 "collector cache: a first cached run equals an uncached one" -- \
+  test "$(usage_source --cache-dir "$UCACHE")" = "$(usage_source)"
+{ usage_line msg_G1 7; printf '\n'; } >> "$UTI/s1.jsonl"
+expect 0 "collector cache: a grown file adds its new message (2 calls -> 3)" -- \
+  test "$(usage_source --cache-dir "$UCACHE")" = "source${TAB}1${TAB}1${TAB}3${TAB}2"
+usage_line msg_P1 9 | head -c 60 >> "$UTI/s1.jsonl"
+expect 0 "collector cache: a line still being written is not counted yet" -- \
+  test "$(usage_source --cache-dir "$UCACHE")" = "source${TAB}1${TAB}1${TAB}3${TAB}2"
+{ usage_line msg_P1 9 | tail -c +61; printf '\n'; } >> "$UTI/s1.jsonl"
+expect 0 "collector cache: once complete, it is counted once (3 -> 4)" -- \
+  test "$(usage_source --cache-dir "$UCACHE")" = "source${TAB}1${TAB}1${TAB}4${TAB}2"
+expect 0 "collector cache: the incremental result equals a from-scratch read" -- \
+  test "$(bash "$COLLECT" --transcripts-dir "$UTI" --cache-dir "$UCACHE" 2>/dev/null | sort)" \
+     = "$(bash "$COLLECT" --transcripts-dir "$UTI" 2>/dev/null | sort)"
+mkdir -p "$UTI/s9"
+{ usage_line msg_N1 1; printf '\n'; } > "$UTI/s9.jsonl"
+expect 0 "collector cache: a new file is read (4 -> 5 calls, 2 files)" -- \
+  test "$(usage_source --cache-dir "$UCACHE")" = "source${TAB}1${TAB}2${TAB}5${TAB}2"
+rm -f "$UTI/s9.jsonl"
+expect 0 "collector cache: a deleted file's records are dropped (5 -> 4)" -- \
+  test "$(usage_source --cache-dir "$UCACHE")" = "source${TAB}1${TAB}1${TAB}4${TAB}2"
+{ usage_line msg_S1 1; printf '\n'; } > "$UTI/s1.jsonl"
+expect 0 "collector cache: a file that shrank is read again from the start (1 call)" -- \
+  test "$(usage_source --cache-dir "$UCACHE")" = "source${TAB}1${TAB}1${TAB}1${TAB}0"
+
+# WU-IAENG-330 — live mode. Bounded by IAENG_USAGE_WATCH_MAX_CYCLES, with a
+# 1 s sleep standing in for the interval.
+expect 2 "dashboard --watch: an interval under 10 s is refused" -- \
+  bash "$DASH" --project-dir "$USAGE_REPO" --watch 5
+expect_output "at least 10 seconds"
+UWPAGE="$WORK/usage-out/watch.html"
+rm -f "$WORK/usage-opened330.txt"
+expect 0 "dashboard --watch: two cycles, then a clean stop" -- \
+  env IAENG_USAGE_WATCH_MAX_CYCLES=2 IAENG_USAGE_WATCH_SLEEP=1 IAENG_USAGE_OPENER="$WORK/usage-opener330.sh" \
+  bash "$DASH" --project-dir "$USAGE_REPO" --out "$UWPAGE" --transcripts-dir "$UT" --open --watch
+expect_output "rebuilt in"
+expect_output "no change in HEAD or the transcripts; page kept"
+expect 0 "dashboard --watch: the page reloads itself every 10 s (the default)" -- \
+  grep -qF '<meta http-equiv="refresh" content="10">' "$UWPAGE"
+expect 0 "dashboard --watch: the header says when it was last updated" -- grep -qF 'last updated' "$UWPAGE"
+expect 0 "dashboard --watch: --open opened the page once" -- \
+  test "$(grep -c . "$WORK/usage-opened330.txt")" = 1
+expect 0 "dashboard --watch: the live page carries the same aggregates" -- \
+  grep -qF '"name":"Observability Engineer","roster":"framework","dispatches":1' "$UWPAGE"
+expect 1 "dashboard: a page built without --watch has no reload directive" -- \
+  grep -qF 'http-equiv="refresh"' "$UPAGE"
+expect 0 "dashboard --watch 30 --open: an explicit interval before another flag" -- \
+  env IAENG_USAGE_WATCH_MAX_CYCLES=1 IAENG_USAGE_OPENER="$WORK/usage-opener330.sh" \
+  bash "$DASH" --project-dir "$USAGE_REPO" --out "$UWPAGE" --transcripts-dir "$UT" --watch 30 --open
+expect 0 "dashboard --watch 30: the page reloads every 30 s" -- \
+  grep -qF '<meta http-equiv="refresh" content="30">' "$UWPAGE"
+
+# WU-IAENG-330 — per project. A throwaway adopter with the framework as a
+# submodule at ia-engineering/: the page reads the PROJECT's history, the
+# framework roster plus the project roster, only the transcripts of the
+# project's own slug, and is written under the project. The framework's own
+# commits and the transcripts of the framework's path are not counted.
+FWREPO="$WORK/usage-framework"
+rm -rf "$FWREPO"
+mkdir -p "$FWREPO/Adapters/scripts" "$FWREPO/Adapters/ai-runtimes/claude-code" "$FWREPO/Registry"
+cp "$DASH" "$FWREPO/Adapters/scripts/"
+cp "$COLLECT" "$FWREPO/Adapters/ai-runtimes/claude-code/"
+(
+  cd "$FWREPO" || exit 1
+  git init -q -b main .
+  git config user.email test@example.invalid
+  git config user.name "Test Runner"
+  git config commit.gpgsign false
+  git config core.autocrlf false
+  ROSTER_TARGET=Registry/employees.yml write_employee_roster "DevOps Engineer" "Observability Engineer"
+  git add -A
+  git commit -q -m "framework work
+
+Employee: DevOps Engineer"
+)
+new_repo usage-adopter
+ADOPTER="$PWD"
+git -c protocol.file.allow=always submodule add -q "$FWREPO" ia-engineering >/dev/null 2>&1
+git commit -q -m "adopt the framework"
+ROSTER_TARGET=.ia-engineering/Registry/employees.yml write_employee_roster "Domain Expert"
+ACFG="$WORK/usage-adopter-config"
+rm -rf "$ACFG"
+mkdir -p "$ACFG"
+expect 0 "adopter: the dashboard runs from the project root through the submodule path" -- \
+  env CLAUDE_CONFIG_DIR="$ACFG" bash ia-engineering/Adapters/scripts/usage-dashboard.sh
+expect 0 "adopter: the page is written under the project" -- test -s "$ADOPTER/.ia-engineering/usage/dashboard.html"
+expect 1 "adopter: nothing is written under the framework" -- test -e "$ADOPTER/ia-engineering/.ia-engineering/usage/dashboard.html"
+APAGE="$ADOPTER/.ia-engineering/usage/dashboard.html"
+expect 0 "adopter: the project roster is unioned in" -- grep -qF '"name":"Domain Expert","roster":"project"' "$APAGE"
+expect 0 "adopter: a new project starts at zero - every Employee never used" -- \
+  grep -qF '"totals":{"roster":3,"never":3,"rare":0,"dispatches":0' "$APAGE"
+expect 0 "adopter: the framework's own commits are not the project's" -- \
+  grep -qF '"name":"DevOps Engineer","roster":"framework","dispatches":0,"commits_range":0,"commits_all":0' "$APAGE"
+# Transcripts: one under the project's slug, one under the framework
+# submodule's path — only the first is the project's.
+ANATIVE="$(cd "$ADOPTER" && pwd -P)"
+FNATIVE="$(cd "$ADOPTER/ia-engineering" && pwd -P)"
+if command -v cygpath >/dev/null 2>&1; then ANATIVE="$(cygpath -w "$ANATIVE")"; FNATIVE="$(cygpath -w "$FNATIVE")"; fi
+ASLUG="$(printf '%s' "$ANATIVE" | sed 's/[^A-Za-z0-9]/-/g')"
+FSLUG="$(printf '%s' "$FNATIVE" | sed 's/[^A-Za-z0-9]/-/g')"
+mkdir -p "$ACFG/projects/$ASLUG" "$ACFG/projects/$FSLUG"
+printf '%s\n' '{"type":"assistant","timestamp":"2026-10-06T10:00:00Z","message":{"id":"msg_AD1","model":"claude-test-1","content":[{"type":"tool_use","id":"toolu_AD1","name":"Agent","input":{"subagent_type":"observability-engineer"}}],"usage":{"input_tokens":1,"output_tokens":1,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}' > "$ACFG/projects/$ASLUG/s.jsonl"
+printf '%s\n' '{"type":"assistant","timestamp":"2026-10-06T10:00:00Z","message":{"id":"msg_FW1","model":"claude-test-1","content":[{"type":"tool_use","id":"toolu_FW1","name":"Agent","input":{"subagent_type":"devops-engineer"}}],"usage":{"input_tokens":1,"output_tokens":1,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}' > "$ACFG/projects/$FSLUG/s.jsonl"
+commit_with "feat: first real work" "Work Unit: WU-AD-001" "" "Employee: Observability Engineer"
+expect 0 "adopter: run from INSIDE the submodule, the project is still the one measured" -- \
+  env CLAUDE_CONFIG_DIR="$ACFG" bash -c 'cd ia-engineering && bash Adapters/scripts/usage-dashboard.sh'
+expect_output "the project that includes this framework"
+expect 0 "adopter: the project's own dispatch and commit are counted" -- \
+  grep -qF '"name":"Observability Engineer","roster":"framework","dispatches":1,"commits_range":1,"commits_all":1' "$APAGE"
+expect 0 "adopter: the framework path's transcripts are not the project's" -- \
+  grep -qF '"name":"DevOps Engineer","roster":"framework","dispatches":0' "$APAGE"
+cd "$WORK" || exit 1
+
 mkdir -p "$WORK/usage-empty-config"
 expect 0 "dashboard: builds without any transcript" -- \
   env CLAUDE_CONFIG_DIR="$WORK/usage-empty-config" bash "$DASH" --project-dir "$USAGE_REPO"
