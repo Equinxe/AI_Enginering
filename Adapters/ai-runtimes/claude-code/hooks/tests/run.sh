@@ -143,7 +143,7 @@ expect_hint() {
   out="$(jq -n --arg c "$cmd" '{tool_name:"Bash",tool_input:{command:$c}}' \
     | bash "$HOOKS/block-escape-hatches.sh" 2>&1 >/dev/null)"
   rc=$?
-  grep -qF -- 'if this is a read, run `git config --get core.hooksPath`' <<< "$out" && has=1
+  grep -qF -- "if this is a read, run \`git config --get core.hooksPath\`" <<< "$out" && has=1
   if [ "$rc" -eq 2 ] && [ "$has" -eq "$want" ]; then
     [ "$VERBOSE" -eq 1 ] && printf '   ok    %s\n' "$label"
   else
