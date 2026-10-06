@@ -270,6 +270,27 @@ if [ ! -d "$OUT_DIR" ] && ! mkdir -p "$OUT_DIR"; then
   err "cannot create $OUT_DIR."
   exit 1
 fi
+# An output folder that other users can write to, without the sticky bit,
+# lets them rename or replace what lands there — the page included. That is
+# refused, once per plain build or watch start (a watch's own builds inherit
+# the check). Group-writable is only warned about: with Debian and Ubuntu's
+# default umask 002 every user folder is writable by the user's own private
+# group, and refusing it would refuse ordinary use. Windows has no such mode
+# bits to read (PR #204 security re-check, R3).
+case "${OSTYPE:-}" in
+  msys*|cygwin*|win*) ;;
+  *)
+    if [ -z "$REFRESH" ]; then
+      if [ -n "$(find "$OUT_DIR" -maxdepth 0 -perm -0002 ! -perm -1000 2>/dev/null)" ]; then
+        err "$OUT_DIR is writable by other users and has no sticky bit; refusing to write the page there. Use a private --out."
+        exit 1
+      fi
+      if [ -n "$(find "$OUT_DIR" -maxdepth 0 -perm -0020 ! -perm -1000 2>/dev/null)" ]; then
+        note "warning: $OUT_DIR is group-writable without the sticky bit; anyone in its group could replace the page."
+      fi
+    fi
+    ;;
+esac
 
 if [ -n "$PRICES" ] && [ ! -f "$PRICES" ]; then
   err "--prices '$PRICES' does not exist."
@@ -401,7 +422,7 @@ show_path() {
 # A git value matching a credential family counts as "(redacted)" before any
 # shape check — the same expression as usage-collect.sh's SECRET_RE, kept
 # equal by a test in tests/run.sh rather than by memory.
-SECRET_RE='AKIA[0-9A-Z]{12,}|ASIA[0-9A-Z]{12,}|gh[pousr]_[A-Za-z0-9]{16,}|xox[baprs]-|xapp-|sk_(live|test)_|rk_(live|test)_|sk-ant-|sk-[A-Za-z0-9]{20,}|AIza[0-9A-Za-z_-]{20,}|eyJ[A-Za-z0-9_-]+\.|hf_[A-Za-z0-9]{20,}|glpat-|npm_[A-Za-z0-9]{20,}|BEGIN.*PRIVATE|[A-Za-z0-9]{24,}'
+SECRET_RE='AKIA[0-9A-Z]{12}|ASIA[0-9A-Z]{12}|gh[pousr]_[A-Za-z0-9]{16}|xox[baprs]-|xapp-|sk_(live|test)_|rk_(live|test)_|sk-ant-|sk-[A-Za-z0-9]{20}|AIza[0-9A-Za-z_-]{20}|eyJ[A-Za-z0-9_-]+\.|hf_[A-Za-z0-9]{20}|glpat-|npm_[A-Za-z0-9]{20}|BEGIN.*PRIVATE|[A-Za-z0-9]{24}'
 
 # Everything read from git and the registries: the rosters, the chains, the
 # Work Unit registry, and the per-commit trailers.

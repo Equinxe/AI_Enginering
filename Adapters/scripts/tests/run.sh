@@ -4361,6 +4361,43 @@ expect 0 "R2-sec: a run over a cache holding a digit-prefixed record line" -- \
   bash "$COLLECT" --transcripts-dir "$UTP" --cache-dir "$UCP"
 expect 1 "R2-sec: no file was written outside rec/" -- test -e "$UCP/v1/ESCAPED.tsv"
 
+# Security re-check: under mawk 1.3.4 an open-ended {24,} matched every
+# name, so every name came out (redacted). Both scripts run here with `awk`
+# being mawk where it is installed (Debian/Ubuntu, CI), the default awk
+# otherwise; ordinary names must survive, a credential must not.
+UAWK="$WORK/usage-awk-bin"
+mkdir -p "$UAWK"
+if command -v mawk >/dev/null 2>&1; then
+  cat > "$UAWK/awk" <<'SHIM'
+#!/usr/bin/env bash
+exec mawk "$@"
+SHIM
+  chmod +x "$UAWK/awk"
+fi
+expect 0 "mawk: the dashboard builds with the platform's awk" -- \
+  env PATH="$UAWK:$PATH" bash "$DASH" --project-dir "$USAGE_REPO" --out "$WORK/usage-out/mawk.html" --transcripts-dir "$UT"
+expect 0 "mawk: ordinary Employee names and dispatches survive" -- \
+  grep -qF '"name":"Observability Engineer","roster":"framework","dispatches":1' "$WORK/usage-out/mawk.html"
+expect 1 "mawk: no ordinary model is taken for a credential" -- grep -qF '"model":"(redacted)"' "$WORK/usage-out/mawk.html"
+expect 0 "mawk: a credential-shaped trailer is still redacted" -- \
+  env PATH="$UAWK:$PATH" CLAUDE_CONFIG_DIR="$WORK/usage-empty-config" bash "$DASH" --project-dir "$WORK/usage-git" --out "$WORK/usage-out/mawk-git.html"
+expect 0 "mawk: the credential counts as (redacted)" -- grep -qF '{"name":"(redacted)","commits":1}' "$WORK/usage-out/mawk-git.html"
+
+# Security re-check R3: an output folder other users can write to, without
+# the sticky bit, is refused; with it, accepted. Windows has no mode bits:
+# there the build proceeds.
+U3="$WORK/usage-out-shared"
+rm -rf "$U3"
+mkdir -p "$U3"
+chmod 0777 "$U3"
+U3WANT=1
+case "${OSTYPE:-}" in msys*|cygwin*|win*) U3WANT=0 ;; esac
+expect "$U3WANT" "R3: a world-writable output folder without the sticky bit is refused (not on Windows)" -- \
+  env CLAUDE_CONFIG_DIR="$WORK/usage-empty-config" bash "$DASH" --project-dir "$USAGE_REPO" --out "$U3/page.html"
+chmod 1777 "$U3"
+expect 0 "R3: with the sticky bit it is accepted" -- \
+  env CLAUDE_CONFIG_DIR="$WORK/usage-empty-config" bash "$DASH" --project-dir "$USAGE_REPO" --out "$U3/page.html"
+
 mkdir -p "$WORK/usage-empty-config"
 expect 0 "dashboard: builds without any transcript" -- \
   env CLAUDE_CONFIG_DIR="$WORK/usage-empty-config" bash "$DASH" --project-dir "$USAGE_REPO"

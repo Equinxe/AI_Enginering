@@ -511,7 +511,10 @@ UNKNOWN_SUBAGENT="subagent (type unknown)"
 # run in a real model id is the 8-digit date of claude-haiku-4-5-20251001.
 # Only ever matched, never printed. usage-dashboard.sh applies the same
 # expression to git trailer values; tests/run.sh asserts the two are equal.
-SECRET_RE='AKIA[0-9A-Z]{12,}|ASIA[0-9A-Z]{12,}|gh[pousr]_[A-Za-z0-9]{16,}|xox[baprs]-|xapp-|sk_(live|test)_|rk_(live|test)_|sk-ant-|sk-[A-Za-z0-9]{20,}|AIza[0-9A-Za-z_-]{20,}|eyJ[A-Za-z0-9_-]+\.|hf_[A-Za-z0-9]{20,}|glpat-|npm_[A-Za-z0-9]{20,}|BEGIN.*PRIVATE|[A-Za-z0-9]{24,}'
+# Counts are exact ({24}, not {24,}): for an unanchored match the two are
+# the same, and mawk 1.3.4 — the default awk on Debian and Ubuntu — matches
+# EVERYTHING with an open-ended interval, which redacted every name.
+SECRET_RE='AKIA[0-9A-Z]{12}|ASIA[0-9A-Z]{12}|gh[pousr]_[A-Za-z0-9]{16}|xox[baprs]-|xapp-|sk_(live|test)_|rk_(live|test)_|sk-ant-|sk-[A-Za-z0-9]{20}|AIza[0-9A-Za-z_-]{20}|eyJ[A-Za-z0-9_-]+\.|hf_[A-Za-z0-9]{20}|glpat-|npm_[A-Za-z0-9]{20}|BEGIN.*PRIVATE|[A-Za-z0-9]{24}'
 
 # The shared shape filters (F1, F2, F6). `$secret` is a jq variable. The
 # credential test runs BEFORE the shape test, so a token with a character the
