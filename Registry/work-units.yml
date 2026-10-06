@@ -1225,6 +1225,18 @@ work_units:
     milestone: Precision
     delivers: Adapters/ai-runtimes/generate-agents.sh, Adapters/ai-runtimes/README.md, Adapters/scripts/tests/run.sh, .gitignore, .ia-engineering/tier-map, .ia-engineering/risk-map.yml, Registry/work-units.yml
 
+  - id: WU-IAENG-328
+    employee: DevOps Engineer
+    title: Close the FINAL QA Lows - pre-push refuses case variants of protected branch names (SEC-IAENG-179-02), the core.hooksPath legacy-read refusal names the --get read, bootstrap and onboarding branch and adoption-commit wording, and data-policy-scan no longer warns on NUL bytes
+    milestone: Precision
+    delivers: Adapters/git-hooks/pre-push, Adapters/ai-runtimes/claude-code/hooks/block-escape-hatches.sh, Adapters/ai-runtimes/claude-code/hooks/tests/run.sh, Adapters/scripts/data-policy-scan.sh, Adapters/scripts/tests/run.sh, Workflows/PROJECT_BOOTSTRAP.md, Workflows/ONBOARDING.md, Registry/work-units.yml
+
+  - id: WU-IAENG-329
+    employee: DevOps Engineer
+    title: Add a Windows launcher for the usage dashboard - usage-dashboard.cmd opens the page in one command from PowerShell, cmd or a double-click, running usage-dashboard.sh --open through Git for Windows' own bash.exe and never the PATH's bash (WSL there); from an adopter's submodule it measures the adopting project; CRLF pinned by .gitattributes; TROUBLESHOOTING entry AA
+    milestone: Precision
+    delivers: Adapters/scripts/usage-dashboard.cmd, .gitattributes, Adapters/scripts/tests/run.sh, Adapters/README.md, Governance/DISPATCH_IN_PRACTICE.md, Governance/TROUBLESHOOTING.md, Registry/work-units.yml
+
   - id: WU-IAENG-333
     employee: Engineering Manager
     title: Sharpen the role boundaries in Core/EMPLOYEE_SELECTION.md (Director approved in principle 6 Oct 2026) - 92 of the 120 trailer-attributed commits since v0.0.13 went to the DevOps Engineer or Technical Writer; triggers and Miscasting Risks now route documentation-system work and template structure, project conventions and Standard clauses, developer-tooling platform work (git hooks stay DevOps), open-PR branch upkeep, tier mapping, AI-runtime token and context cost, host/forge/runtime adapters, dashboards, milestone scope and usability studies to their owners, and require a Prompt Engineer review for every Employees/ or Core/*.md change
