@@ -69,21 +69,19 @@ workflows:
         step: Code review, via Workflows/CODE_REVIEW.md
       - n: 7
         actor: QA Engineer
-        step: QA validation against acceptance criteria
-        note: >-
-          Runs when the Pull Request changes executable behaviour (code,
-          scripts, hooks, CI workflows, tooling); skipped for a change to
-          documentation or Core, Standards, Governance or Template prose only
-          (Director, 6 Oct 2026; see step 8).
+        step: >-
+          QA validation against acceptance criteria — runs when the Pull
+          Request changes executable behaviour, as Workflows/FEATURE_DEVELOPMENT.md
+          Step 7 defines it (when unclear, it does); skipped otherwise
+          (Director, 6 Oct 2026)
       - n: 8
         actor: Engineering Manager
-        step: Merge into develop
-        note: >-
-          The document names the Engineering Manager or Technical Lead. The
-          Main Agent may also execute this merge, and delete the merged
-          branch, under the Director's standing exception and only on its
-          conditions (Core/MAIN_AGENT_CONDUCT.md, Git Execution via Named
-          Employee).
+        step: >-
+          Merge into develop — the document names the Engineering Manager or
+          Technical Lead; the Main Agent may also execute this merge, and
+          delete the merged branch, under the Director's standing exception
+          and only on its conditions (Core/MAIN_AGENT_CONDUCT.md, Git
+          Execution via Named Employee)
     gates: []
     gate_note: >-
       No Director gate inside this workflow. The Feature Chain places the

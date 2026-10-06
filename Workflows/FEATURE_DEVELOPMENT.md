@@ -21,6 +21,7 @@ It governs every engineer involved in feature development and ensures that every
 
 | Actor | Role in this workflow |
 |---|---|
+| Main Agent | May execute the Step 8 merge itself under the Director's standing exception, only on its conditions (`Core/MAIN_AGENT_CONDUCT.md`, Git Execution via Named Employee) |
 | Engineering Manager | Decomposes the feature into Work Units, assigns to engineers |
 | Business Analyst | Documents acceptance criteria before the workflow begins |
 | Software Architect | Reviews architecture impact, approves ADR if needed |
@@ -134,7 +135,7 @@ Follow the **Code Review Workflow**.
 
 **Output:** Pull Request approved or changes requested.
 
-**Handoff to:** Step 7 (if approved and the Pull Request changes executable behaviour), Step 8 (if approved and it does not), or back to Step 3 (if changes requested).
+**Handoff to:** Step 7 (if approved and the Pull Request changes executable behaviour, as Step 7 defines it), Step 8 (if approved and it does not), or back to Step 3 (if changes requested).
 
 ---
 
@@ -142,7 +143,9 @@ Follow the **Code Review Workflow**.
 
 **Actor:** QA Engineer
 
-This step runs when the Pull Request changes executable behaviour — code, scripts, hooks, CI workflows, tooling. It is skipped for a change to documentation, or Core, Standards, Governance or Template prose only; see Step 8 for the approvals that apply there.
+This step runs when the Pull Request changes executable behaviour, and is skipped when it does not. Step 8 lists the approvals that apply either way.
+
+A Pull Request **changes executable behaviour** when it changes anything a program runs or parses to decide what it does: code, scripts, hooks, CI workflows, tooling, generator inputs (such as `.ia-engineering/tier-map`), or the structure of a `Registry/` file. Prose in any directory (Core, Standards, Governance, Workflows, Templates, Employees, Examples, documentation), and new or edited `Registry/` entries that keep the file's existing structure, do not. When unclear, it changes executable behaviour: QA runs.
 
 1. Pull the feature branch.
 2. Validate the implementation against the acceptance criteria defined in the Work Unit.
@@ -159,12 +162,13 @@ This step runs when the Pull Request changes executable behaviour — code, scri
 
 ## Step 8 — Merge
 
-**Actor:** Engineering Manager or Technical Lead — or the Main Agent itself, under the Director's standing exception and only on its conditions, which add the approvals items 1–2 do not list (`Core/MAIN_AGENT_CONDUCT.md`, Git Execution via Named Employee)
+**Actor:** Engineering Manager or Technical Lead — or the Main Agent itself, under the Director's standing exception and only on its conditions, which add to items 1–3 (`Core/MAIN_AGENT_CONDUCT.md`, Git Execution via Named Employee)
 
 1. Confirm PR is approved by Code Reviewer.
-2. Confirm QA sign-off is documented when the Pull Request changes executable behaviour — code, scripts, hooks, CI workflows, tooling. A Pull Request that changes only documentation, or Core, Standards, Governance or Template prose, needs none; there the Code Reviewer's approval, the Prompt Engineer's review where a rule requires one, and the Director's content approval for any `Core/*.md` change apply.
-3. Merge the Pull Request into `develop`.
-4. Delete the feature branch after merge.
+2. When the Pull Request changes executable behaviour (Step 7), confirm the QA sign-off is documented. A Pull Request that does not change executable behaviour needs none.
+3. Whatever the Pull Request changes, confirm every other approval a rule requires: the Prompt Engineer's review where a rule requires one, and the Director's content approval for any `Core/*.md` change (`Governance/CONTRIBUTING.md` §4).
+4. Merge the Pull Request into `develop`.
+5. Delete the feature branch after merge.
 
 **Output:** Feature merged into `develop`.
 
@@ -174,7 +178,7 @@ This step runs when the Pull Request changes executable behaviour — code, scri
 
 # Trivial / Mechanical Changes (Express Path)
 
-For a typo, a one-line fix, or a doc tweak, this workflow does not change. Every participant and every gate above still applies: Business Analyst (Prerequisites), Architect impact review (Prerequisites), Code Reviewer (Step 6), QA Validation (Step 7) when the change alters executable behaviour, and the Director delivery gate at the end of the Feature Chain (`Core/AGENT_CHAINS.md`). A doc tweak alters none, so it needs no QA Validation — that is Step 7's own condition, not a relaxation made here. No participant is dropped, no gate is skipped, and no step here is made conditional by this section.
+For a typo, a one-line fix, or a doc tweak, this workflow does not change. Every participant and every gate above still applies: Business Analyst (Prerequisites), Architect impact review (Prerequisites), Code Reviewer (Step 6), QA Validation (Step 7) when the Pull Request changes executable behaviour as Step 7 defines it, and the Director delivery gate at the end of the Feature Chain (`Core/AGENT_CHAINS.md`). A doc tweak changes none, so it needs no QA Validation — that is Step 7's own condition, not a relaxation made here. No participant is dropped, no gate is skipped, and no step here is made conditional by this section.
 
 What changes is execution capability, not workflow shape. A Work Unit that is genuinely mechanical — bounded, unambiguous, with no tradeoff to weigh — is dispatched at the **Lightweight Execution** tier (`Core/CAPABILITY_TIERS.md`, Tier Override) for its entire path through this workflow, rather than the Standard Execution tier most Work Units default to. Each step becomes a fast confirmation instead of a full pass: the Architect's impact review is a quick triviality check rather than a design review; Code Review is a quick correctness pass; QA Validation (Step 7), where it runs, is a quick pass/fail of the change against its acceptance criteria rather than a full test-plan execution. The genuinely conditional steps already in this workflow — Compliance Engineer and Security Engineer (Actors, above) and the ADR (Prerequisites, above) — are untouched by this section and still trigger only against their own existing criteria.
 
