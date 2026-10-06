@@ -3612,6 +3612,84 @@ expect_output "source found: Claude Code transcripts"
 expect 0 "dashboard: the slug-found transcripts carry the same dispatch" -- \
   grep -qF '"name":"Observability Engineer","roster":"framework","dispatches":1' "$UPAGE"
 
+# R1 (PR #196 security re-review): one dispatch per credential family, each
+# as a subagent_type. All nine must count under (redacted) — including the
+# ones whose `_` the shape alone would only have called unrecognised — and
+# none may reach the page. The values are deliberately short of the real
+# formats' lengths, so no secret scanner mistakes the fixture for a key.
+UT3="$WORK/usage-transcripts-secret"
+rm -rf "$UT3"
+mkdir -p "$UT3"
+{
+  i=0
+  for v in AIzaOBS326aaaaaaaaaaaaaaaa eyJOBS326abc.def hf_OBS326aaaaaaaaaaaaaaaa glpat-OBS326aaaa \
+           npm_OBS326aaaaaaaaaaaaaaaa xapp-OBS326-1-aaaa ASIAOBS326ZZZZZZ rk_live_OBS326aaaa \
+           OBS326aaaaaaaaaaaaaaaaaaaaaaaaaa; do
+    i=$((i + 1))
+    printf '{"type":"assistant","timestamp":"2026-10-04T08:00:00Z","message":{"id":"msg_S%s","model":"claude-test-1","content":[{"type":"tool_use","id":"toolu_S%s","name":"Agent","input":{"subagent_type":"%s"}}],"usage":{"input_tokens":1,"output_tokens":1,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}\n' "$i" "$i" "$v"
+  done
+} > "$UT3/s3.jsonl"
+UPAGE3="$WORK/usage-out/secret.html"
+expect 0 "dashboard: builds from credential-shaped agent types" -- \
+  bash "$DASH" --project-dir "$USAGE_REPO" --out "$UPAGE3" --transcripts-dir "$UT3"
+expect 0 "dashboard privacy: all nine credential families count as (redacted)" -- \
+  grep -qF '{"type":"(redacted)","model":"inherit","n":9}' "$UPAGE3"
+expect 1 "dashboard privacy: no credential-shaped value reaches the page" -- grep -qF 'OBS326' "$UPAGE3"
+
+# The collector and the dashboard carry the same expression, by design in two
+# places (the git half must not depend on the runtime half being present).
+expect 0 "dashboard and collector redact with the same SECRET_RE" -- \
+  test "$(grep '^SECRET_RE=' "$DASH")" = "$(grep '^SECRET_RE=' "$COLLECT")"
+
+# R2 and HTML injection: git trailer values pass the same credential check,
+# and a trailer that is markup is a value of the wrong shape, never markup.
+new_repo usage-git
+write_employee_roster "DevOps Engineer"
+git add -A && git commit -q -m "roster"
+commit_with "feat: a secret as a name" "Employee: AIzaOBS326aaaaaaaaaaaaaaaa"
+commit_with "feat: markup as a name" "Employee: </script><img src=x onerror=alert(1)>"
+UPAGE4="$WORK/usage-out/git.html"
+mkdir -p "$WORK/usage-empty-config"
+expect 0 "dashboard: builds from hostile trailer values" -- \
+  env CLAUDE_CONFIG_DIR="$WORK/usage-empty-config" bash "$DASH" --project-dir "$PWD" --out "$UPAGE4"
+expect 0 "dashboard privacy: a credential-shaped Employee trailer counts as (redacted)" -- \
+  grep -qF '{"name":"(redacted)","commits":1}' "$UPAGE4"
+expect 1 "dashboard privacy: the credential-shaped trailer value is absent" -- grep -qF 'OBS326' "$UPAGE4"
+expect 0 "dashboard: a markup trailer counts as (unrecognised)" -- \
+  grep -qF '{"name":"(unrecognised)","commits":1}' "$UPAGE4"
+expect 1 "dashboard: the markup trailer does not reach the page as markup" -- grep -qF '<img src=x' "$UPAGE4"
+expect 1 "dashboard: nor as an event handler" -- grep -qF 'onerror=alert' "$UPAGE4"
+
+# R3: on Windows, --open goes through explorer.exe, which reads a comma as a
+# switch separator; a path with one is refused. uname, cygpath and
+# explorer.exe are stubbed so the Windows branch runs on any host.
+WSTUB="$WORK/usage-winstub"
+rm -rf "$WSTUB"
+mkdir -p "$WSTUB"
+cat > "$WSTUB/uname" <<'STUB'
+#!/usr/bin/env bash
+echo MINGW64_NT-10.0
+STUB
+cat > "$WSTUB/cygpath" <<'STUB'
+#!/usr/bin/env bash
+printf '%s\n' "${@: -1}"
+STUB
+cat > "$WSTUB/explorer.exe" <<STUB
+#!/usr/bin/env bash
+printf '%s\n' "\$1" > "$WSTUB/explorer-called.txt"
+exit 1
+STUB
+chmod +x "$WSTUB/uname" "$WSTUB/cygpath" "$WSTUB/explorer.exe"
+expect 1 "dashboard: --open on Windows refuses a path with a comma" -- \
+  env PATH="$WSTUB:$PATH" CLAUDE_CONFIG_DIR="$WORK/usage-empty-config" \
+  bash "$DASH" --project-dir "$USAGE_REPO" --out "$WORK/usage-out/a,b.html" --open
+expect_output "contains a comma"
+expect 1 "dashboard: explorer.exe was not called for the comma path" -- test -f "$WSTUB/explorer-called.txt"
+expect 0 "dashboard: --open on Windows hands a comma-free path to explorer.exe (its exit 1 ignored)" -- \
+  env PATH="$WSTUB:$PATH" CLAUDE_CONFIG_DIR="$WORK/usage-empty-config" \
+  bash "$DASH" --project-dir "$USAGE_REPO" --out "$UPAGE" --open
+expect 0 "dashboard: explorer.exe received the page path" -- grep -qF 'dashboard.html' "$WSTUB/explorer-called.txt"
+
 mkdir -p "$WORK/usage-empty-config"
 expect 0 "dashboard: builds without any transcript" -- \
   env CLAUDE_CONFIG_DIR="$WORK/usage-empty-config" bash "$DASH" --project-dir "$USAGE_REPO"

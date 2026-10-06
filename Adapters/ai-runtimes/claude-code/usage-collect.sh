@@ -40,22 +40,24 @@
 #   day                         ^[0-9]{4}-[0-9]{2}-[0-9]{2}$, else "unknown"
 #   token counts                numbers only, else 0
 #
-# One token, no space, at most 64 characters. Anything else is counted under
-# the fixed bucket "(unrecognised)", and a value of the right shape that
-# matches a credential pattern (the data-policy scanner's families, with
-# lower length floors) under "(redacted)". The value itself is never printed.
+# One token, no space, at most 64 characters. A value that matches a
+# credential pattern is counted under "(redacted)" whatever its shape — the
+# data-policy scanner's families with lower length floors, more token
+# families, and any unbroken alphanumeric run of 24 or more characters, which
+# no model id or agent name has. Any other value outside the shape is counted
+# under "(unrecognised)". The value itself is never printed.
 #
 # HOW IT STAYS STREAMING
 #
 # A long session's transcript is tens of megabytes; a project's directory can
 # be hundreds. Only lines carrying `"type":"assistant"` can hold usage or a
 # dispatch, so one awk pass drops every other line before jq sees it — most
-# of a transcript's bytes are tool results. One jq then reads line by line (-R with
-# `fromjson?`, so a truncated last line written while a session is live is
-# skipped instead of aborting the file), emits one short TSV record per
-# relevant line, and awk aggregates. No transcript is held in memory. The one
-# piece of state that
-# grows with input is awk's set of seen message ids, and it is required:
+# of a transcript's bytes are tool results. One jq then reads line by line
+# (-R with `fromjson?`, so a truncated last line written while a session is
+# live is skipped instead of aborting the file), emits one short TSV record
+# per relevant line, and awk aggregates. No transcript is held in memory.
+# The one piece of state that grows with input is awk's set of seen message
+# ids, and it is required:
 # Claude Code writes one line per content block and repeats the same message,
 # with the same usage, on each, so summing lines would count a message's
 # tokens once per block. Per id the maximum of each counter is kept, since a
@@ -180,14 +182,21 @@ UNKNOWN_SUBAGENT="subagent (type unknown)"
 
 # Credential families, after the data-policy scanner's SECRET_PATTERNS
 # (Adapters/scripts/data-policy-scan.sh) with lower length floors, since a
-# shape-valid value is at most 64 characters. Only ever matched, never printed.
-SECRET_RE='AKIA[0-9A-Z]{12,}|gh[pousr]_[A-Za-z0-9]{16,}|xox[baprs]-|sk_(live|test)_|sk-ant-|sk-[A-Za-z0-9]{20,}|BEGIN.*PRIVATE'
+# shape-valid value is at most 64 characters, plus further token families and
+# a generic rule: any unbroken alphanumeric run of 24+ characters. The longest
+# run in a real model id is the 8-digit date of claude-haiku-4-5-20251001.
+# Only ever matched, never printed. usage-dashboard.sh applies the same
+# expression to git trailer values; tests/run.sh asserts the two are equal.
+SECRET_RE='AKIA[0-9A-Z]{12,}|ASIA[0-9A-Z]{12,}|gh[pousr]_[A-Za-z0-9]{16,}|xox[baprs]-|xapp-|sk_(live|test)_|rk_(live|test)_|sk-ant-|sk-[A-Za-z0-9]{20,}|AIza[0-9A-Za-z_-]{20,}|eyJ[A-Za-z0-9_-]+\.|hf_[A-Za-z0-9]{20,}|glpat-|npm_[A-Za-z0-9]{20,}|BEGIN.*PRIVATE|[A-Za-z0-9]{24,}'
 
-# The shared shape filters (F1, F2, F6). `$secret` is a jq variable.
+# The shared shape filters (F1, F2, F6). `$secret` is a jq variable. The
+# credential test runs BEFORE the shape test, so a token with a character the
+# shape refuses (hf_..., npm_...) still reports as redacted, not unrecognised.
 JQ_SHAPES="$(cat <<'JQ'
-def redact: if test($secret) then "(redacted)" else . end;
-def agent_shape: if type == "string" and test("^[A-Za-z0-9][A-Za-z0-9:._@/-]{0,63}$") then redact else "(unrecognised)" end;
-def model_shape: if type == "string" and test("^[A-Za-z0-9][A-Za-z0-9:._@/\\[\\]-]{0,63}$") then redact else "(unrecognised)" end;
+def agent_shape: if type != "string" then "(unrecognised)" elif test($secret) then "(redacted)"
+                 elif test("^[A-Za-z0-9][A-Za-z0-9:._@/-]{0,63}$") then . else "(unrecognised)" end;
+def model_shape: if type != "string" then "(unrecognised)" elif test($secret) then "(redacted)"
+                 elif test("^[A-Za-z0-9][A-Za-z0-9:._@/\\[\\]-]{0,63}$") then . else "(unrecognised)" end;
 def id_shape: if type == "string" and test("^[A-Za-z0-9_-]{1,128}$") then . else "" end;
 def day_shape: if type == "string" and (.[0:10] | test("^[0-9]{4}-[0-9]{2}-[0-9]{2}$")) then .[0:10] else "unknown" end;
 def count: (numbers | select(. >= 0) | floor) // 0;

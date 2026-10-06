@@ -292,12 +292,17 @@ fi
 # The four file names reach awk through the environment, not -v: -v
 # processes backslash escapes, and a Windows TMPDIR (C:\Users\...) would be
 # mangled so that no FILENAME ever matched and every commit vanished.
+# A value matching a credential family counts as "(redacted)" before any
+# shape check — the same expression as usage-collect.sh's SECRET_RE, kept
+# equal by a test in tests/run.sh rather than by memory.
+SECRET_RE='AKIA[0-9A-Z]{12,}|ASIA[0-9A-Z]{12,}|gh[pousr]_[A-Za-z0-9]{16,}|xox[baprs]-|xapp-|sk_(live|test)_|rk_(live|test)_|sk-ant-|sk-[A-Za-z0-9]{20,}|AIza[0-9A-Za-z_-]{20,}|eyJ[A-Za-z0-9_-]+\.|hf_[A-Za-z0-9]{20,}|glpat-|npm_[A-Za-z0-9]{20,}|BEGIN.*PRIVATE|[A-Za-z0-9]{24,}'
 COMMITS_TSV="$TMPD/commits.tsv"
-F_INR="$INRANGE" F_NUM="$NUMSTAT" F_TR="$TRAILERS" F_BODY="$BODIES" awk -v OFS='\t' '
-  BEGIN { f_inr = ENVIRON["F_INR"]; f_num = ENVIRON["F_NUM"]; f_tr = ENVIRON["F_TR"]; f_body = ENVIRON["F_BODY"] }
+F_INR="$INRANGE" F_NUM="$NUMSTAT" F_TR="$TRAILERS" F_BODY="$BODIES" F_SECRET="$SECRET_RE" awk -v OFS='\t' '
+  BEGIN { f_inr = ENVIRON["F_INR"]; f_num = ENVIRON["F_NUM"]; f_tr = ENVIRON["F_TR"]; f_body = ENVIRON["F_BODY"]; secret = ENVIRON["F_SECRET"] }
   function shaped(v,   ok) {
     sub(/^[ \t]+/, "", v); sub(/[ \t]+$/, "", v)
     if (v == "") return "(no trailer)"
+    if (v ~ secret) return "(redacted)"
     ok = (v ~ /^[A-Za-z0-9][-A-Za-z0-9 ._()\/]*$/ && length(v) <= 64 && index(v, "@") == 0)
     return ok ? v : "(unrecognised)"
   }
@@ -665,7 +670,15 @@ if [ -n "$OPEN" ]; then
       # explorer.exe, not `cmd /c start`: cmd would interpret & | ^ %VAR% in
       # the path (PR #196 review, F4). explorer exits 1 even on success, so
       # its status says nothing and is not reported.
-      MINGW*|MSYS*|CYGWIN*) explorer.exe "$(cygpath -w "$OUT")"; true ;;
+      MINGW*|MSYS*|CYGWIN*)
+        # explorer.exe reads a comma as a switch separator, so a path with
+        # one would open something else, or nothing. Refused, not guessed.
+        case "$OUT" in
+          *,*)
+            err "--open: the path contains a comma, which explorer.exe would read as a switch separator. The page is written at $OUT; open it yourself, or pass an --out without a comma."
+            exit 1 ;;
+        esac
+        explorer.exe "$(cygpath -w "$OUT")"; true ;;
       Darwin) open "$OUT" ;;
       *) xdg-open "$OUT" >/dev/null 2>&1 ;;
     esac
