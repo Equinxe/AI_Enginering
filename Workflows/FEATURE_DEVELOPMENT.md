@@ -13,7 +13,7 @@ It governs every engineer involved in feature development and ensures that every
 # Trigger
 
 - Director or Product Manager requests a new feature.
-- A Work Unit is created and assigned to the Engineering Manager.
+- The Main Agent plans a feature (`Core/ORCHESTRATION.md` Step 3).
 
 ---
 
@@ -21,11 +21,11 @@ It governs every engineer involved in feature development and ensures that every
 
 | Actor | Role in this workflow |
 |---|---|
-| Main Agent | May execute the Step 8 merge itself under the Director's standing exception, only on its conditions (`Core/MAIN_AGENT_CONDUCT.md`, Git Execution via Named Employee) |
-| Engineering Manager | Decomposes the feature into Work Units, assigns to engineers |
+| Main Agent | Decomposes the feature into Work Units and chooses each one's Employee (Step 1) — its own Orchestration Step 3, not a dispatch; may execute the Step 8 merge itself under the Director's standing exception, only on its conditions (`Core/MAIN_AGENT_CONDUCT.md`, Git Execution via Named Employee) |
+| Engineering Manager | Decomposes the feature instead of the Main Agent only when it is multi-pole work — work the Director has mandated under `Workflows/AUTONOMOUS_DELIVERY.md`; resolves the escalations below; may merge (Step 8) |
 | Business Analyst | Documents acceptance criteria before the workflow begins |
 | Software Architect | Reviews architecture impact, approves ADR if needed |
-| Backend / Frontend / iOS / Android / Cross-Platform Engineer | Implements the assigned Work Unit |
+| Engineer | The implementing Employee chosen per `Core/EMPLOYEE_SELECTION.md` — most often a Development Employee, not only one (`Core/AGENT_CHAINS.md`, The Engineer Step). Implements the assigned Work Unit |
 | Code Reviewer | Reviews the Pull Request |
 | QA Engineer | Validates the implementation against acceptance criteria |
 | Technical Lead | Resolves technical blockers, bridges architect and engineers |
@@ -48,7 +48,7 @@ Before this workflow begins:
 
 ## Step 1 — Work Unit Definition
 
-**Actor:** Engineering Manager
+**Actor:** Main Agent (`Core/ORCHESTRATION.md` Step 3)
 
 1. Receive the feature request with acceptance criteria.
 2. Decompose the feature into atomic Work Units (one independently reviewable engineering task each).
@@ -60,11 +60,13 @@ Before this workflow begins:
    - Definition of Done
    - Standards applicable
    - Expected commit message
-4. Assign each Work Unit to the appropriate engineer.
+4. Choose each Work Unit's implementing Employee per `Core/EMPLOYEE_SELECTION.md`.
 
-**Output:** Work Units assigned to engineers.
+**Output:** Work Units defined, each with its Employee.
 
-**Handoff to:** Step 2 (each engineer works their assigned Work Unit independently).
+**Handoff to:** Step 2 (each Employee works their assigned Work Unit independently).
+
+This step is the Main Agent's own planning, not a dispatch, and its plan is the one `Core/ORCHESTRATION.md` Step 3 presents to the Director before anything is dispatched. When the feature is multi-pole work — the Director has mandated it under `Workflows/AUTONOMOUS_DELIVERY.md`, which the Main Agent never decides alone — the Main Agent dispatches the Engineering Manager to define the Work Units instead, and the run continues under that Workflow (`Core/AGENT_CHAINS.md`, Work Unit Decomposition).
 
 ---
 
@@ -231,7 +233,7 @@ The two entries are deliberately parallel. `Workflows/CODE_REVIEW.md` treats the
 
 Owner: IA Engineering
 
-Version: 0.0.10
+Version: 0.0.11
 
 Status: Draft
 

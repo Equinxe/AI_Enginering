@@ -50,8 +50,10 @@ workflows:
     step_count: 8
     steps:
       - n: 1
-        actor: Engineering Manager
-        step: Work Unit definition
+        actor: Main Agent
+        step: >-
+          Work Unit definition, per Core/ORCHESTRATION.md Step 3 — the
+          Engineering Manager only for multi-pole work
       - n: 2
         actor: Engineer
         step: Branch creation
@@ -339,7 +341,7 @@ workflows:
         actor: Main Agent
         step: Initialize the git workflow
       - n: 6
-        actor: Engineering Manager
+        actor: Main Agent
         step: Create the first Work Unit
         gate: true
       - n: 7

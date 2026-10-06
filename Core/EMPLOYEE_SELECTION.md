@@ -53,7 +53,7 @@ They compose: use this document to identify the best-fit Employee; if that Emplo
 
 ## Management
 
-- **Engineering Manager** — Dispatch when an objective must be decomposed into Work Units, assigned across Employees, and tracked to completion; when delivery coordination or unblocking across multiple Employees is needed. This is the orchestration-and-decomposition role, not an implementation role. See **Miscasting Risks** for the boundary with the Scrum Master.
+- **Engineering Manager** — Dispatch to define the Work Units of multi-pole work: work the Director has mandated under `Workflows/AUTONOMOUS_DELIVERY.md`. Any other decomposition is the Main Agent's own Orchestration Step 3, not a dispatch (`Core/AGENT_CHAINS.md`, Work Unit Decomposition). Dispatch also when delivery coordination or unblocking across multiple Employees is needed, and at the steps a chain or Workflow names it for. This is a coordination-and-decomposition role, not an implementation role. See **Miscasting Risks** for the boundary with the Scrum Master.
 - **Product Manager** — Dispatch when the question is *what to build and in what order*: backlog prioritization, translating business objectives into requirements with acceptance criteria, defining release scope, or accepting/rejecting delivered features against acceptance criteria.
 - **Release Manager** — Dispatch when preparing, validating, or delivering a release: release checklist, version bump coordination, release-branch management, changelog coordination, and driving the release to the Director-approval gate. **Not** a catch-all for any git or documentation task that happens near a release.
 - **Scrum Master** — Dispatch for process facilitation: sprint planning, standups, reviews, retrospectives, impediment removal, and protecting the team from mid-sprint scope change. This is process, not people management and not technical decisions.
@@ -174,7 +174,7 @@ Both review technical work, and both use the word "review" in their Mission, but
 
 ## Engineering Manager vs. Scrum Master
 
-Both coordinate the team, and both can look like "the person who tells Employees what to do," but only one has that authority. The **Engineering Manager** decomposes objectives into Work Units and assigns them — "Decompose objectives into Work Units", "Assign Work Units to the appropriate Employees", with the Authority to "Assign and reassign Work Units" — and "enables implementation" by owning delivery outcomes (`Employees/Management/ENGINEERING_MANAGER.md`). The **Scrum Master** "manages the process," not the people or the technical assignment (`Employees/Management/SCRUM_MASTER.md`): it facilitates ceremonies — "Facilitate Scrum ceremonies: Sprint Planning, Daily Standup, Sprint Review, Sprint Retrospective" — and removes impediments, but must never "Assign technical implementation to specific Employees" or "Make technical or architectural decisions". If the work is deciding *what* Work Unit exists and *who* does it, it is the Engineering Manager; if the work is facilitating the *ceremony* through which that work is planned, tracked, and reflected on — or removing a process impediment — it is the Scrum Master. A Scrum Master that starts assigning Work Units, or an Engineering Manager that starts running standups instead of unblocking them, has drifted into the other's role.
+Both coordinate the team, and both can look like "the person who tells Employees what to do," but only one has that authority. The **Engineering Manager** decomposes objectives into Work Units and assigns them — "Decompose objectives into Work Units", "Assign Work Units to the appropriate Employees", with the Authority to "Assign and reassign Work Units" — and "enables implementation" by owning delivery outcomes (`Employees/Management/ENGINEERING_MANAGER.md`). The **Scrum Master** "manages the process," not the people or the technical assignment (`Employees/Management/SCRUM_MASTER.md`): it facilitates ceremonies — "Facilitate Scrum ceremonies: Sprint Planning, Daily Standup, Sprint Review, Sprint Retrospective" — and removes impediments, but must never "Assign technical implementation to specific Employees" or "Make technical or architectural decisions". If the work is deciding *what* Work Unit exists and *who* does it **in multi-pole work**, it is the Engineering Manager; everywhere else that decision is the Main Agent's own Orchestration Step 3 and neither Employee is dispatched for it (`Core/AGENT_CHAINS.md`, Work Unit Decomposition). If the work is facilitating the *ceremony* through which that work is planned, tracked, and reflected on — or removing a process impediment — it is the Scrum Master. A Scrum Master that starts assigning Work Units, or an Engineering Manager that starts running standups instead of unblocking them, has drifted into the other's role.
 
 ## Prompt Engineer vs. Software Architect — an open question
 
@@ -221,7 +221,7 @@ Note the boundary carefully: this document is about **what kind of work routes t
 
 Owner: IA Engineering
 
-Version: 0.0.4
+Version: 0.0.5
 
 Status: Draft
 
