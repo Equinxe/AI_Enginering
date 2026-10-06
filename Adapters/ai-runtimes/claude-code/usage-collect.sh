@@ -699,7 +699,11 @@ store_and_aggregate() {
       }
     }
     { sub(/\r$/, "") }
-    /^[0-9]/ {
+    # Only a NEW record — read from stdin, prefixed with an all-digits idx —
+    # is filed under rec/<idx>.tsv. A cached record file is a real path, never
+    # "-" or "", so a line in it that starts with digits is only counted (or
+    # dropped), never used to name a file (PR #204 security re-check, R2).
+    (FILENAME == "-" || FILENAME == "") && /^[0-9]+\t/ {
       i = index($0, "\t"); fid = substr($0, 1, i - 1); rest = substr($0, i + 1)
       if (fid != cur) { if (cur != "") close(out); cur = fid; out = recd "/" fid ".tsv" }
       print rest >> out

@@ -4310,6 +4310,56 @@ expect 0 "F6: the page is written although its first temporary name is taken" --
   env CLAUDE_CONFIG_DIR="$WORK/usage-empty-config" bash "$WORK/usage-f6-planter.sh" "$F6DIR" "$DASH" "$USAGE_REPO"
 expect 0 "F6: the planted file is untouched" -- test "$(cat "$F6DIR"/.page.html.*.tmp 2>/dev/null)" = decoy
 expect 0 "F6: the page itself was written" -- grep -qF 'usage-data' "$F6DIR/page.html"
+expect 0 "F6: no private page directory is left behind" -- \
+  test -z "$(find "$F6DIR" -mindepth 1 -maxdepth 1 -name '.usage-dashboard.*' 2>/dev/null)"
+
+# Security re-check R1 — noclobber refuses regular files only: a FIFO at a
+# predictable name would have received the page or blocked the build. The
+# page is now rendered inside a private mktemp directory, so nothing planted
+# in the output folder is opened. Bounded by timeout: a hang is a failure.
+F7DIR="$WORK/usage-out-fifo"
+rm -rf "$F7DIR"
+mkdir -p "$F7DIR"
+cat > "$WORK/usage-fifo-planter.sh" <<'PLANT'
+#!/usr/bin/env bash
+mkfifo "$1/.page.html.$$.tmp"
+exec bash "$2" --project-dir "$3" --out "$1/page.html"
+PLANT
+expect 0 "R1-sec: a FIFO planted at a predictable name neither receives the page nor blocks the build" -- \
+  env CLAUDE_CONFIG_DIR="$WORK/usage-empty-config" timeout 300 bash "$WORK/usage-fifo-planter.sh" "$F7DIR" "$DASH" "$USAGE_REPO"
+expect 0 "R1-sec: the page was written" -- grep -qF 'usage-data' "$F7DIR/page.html"
+
+# Code re-check R1 — a native Windows --out path (C:\...\x.html) is used as
+# given; on POSIX hosts the same test passes the POSIX path.
+UNATIVE_OUT="$WORK/usage-out/native-out/dash.html"
+UNATIVE_ARG="$UNATIVE_OUT"
+if command -v cygpath >/dev/null 2>&1; then UNATIVE_ARG="$(cygpath -w "$UNATIVE_OUT")"; fi
+expect 0 "R1: --out given as a native path builds the page there" -- \
+  env CLAUDE_CONFIG_DIR="$WORK/usage-empty-config" bash "$DASH" --project-dir "$USAGE_REPO" --out "$UNATIVE_ARG"
+expect 0 "R1: the page is at that path" -- grep -qF 'usage-data' "$UNATIVE_OUT"
+rm -f "$UNATIVE_OUT"
+expect 0 "R1: the same under --watch" -- \
+  env CLAUDE_CONFIG_DIR="$WORK/usage-empty-config" IAENG_USAGE_WATCH_MAX_CYCLES=1 \
+  bash "$DASH" --project-dir "$USAGE_REPO" --out "$UNATIVE_ARG" --watch
+expect 0 "R1: the watch page is at that path, with its reload directive" -- \
+  grep -qF 'http-equiv="refresh"' "$UNATIVE_OUT"
+expect 0 "R1: the watch removed its private page directory" -- \
+  test -z "$(find "$WORK/usage-out/native-out" -mindepth 1 -maxdepth 1 -name '.usage-dashboard.*' 2>/dev/null)"
+
+# Code re-check suggestion — a leading zero is named as the reason.
+expect 2 "--watch 010 says why it is refused" -- \
+  env CLAUDE_CONFIG_DIR="$WORK/usage-empty-config" bash "$DASH" --project-dir "$USAGE_REPO" --watch 010
+expect_output "without a leading zero"
+
+# Security re-check R2 — a cached record line that starts with digits is not
+# a store instruction: only new records from stdin are filed under rec/.
+mkdir -p "$UCP/v1/rec/1"
+for r in "$UCP"/v1/rec/*.tsv; do
+  printf '1/../../ESCAPED\tC\tmsg_ESC\t2026-10-06\tclaude-test-1\tmain session\t\t1\t1\t0\t0\n' >> "$r"
+done
+expect 0 "R2-sec: a run over a cache holding a digit-prefixed record line" -- \
+  bash "$COLLECT" --transcripts-dir "$UTP" --cache-dir "$UCP"
+expect 1 "R2-sec: no file was written outside rec/" -- test -e "$UCP/v1/ESCAPED.tsv"
 
 mkdir -p "$WORK/usage-empty-config"
 expect 0 "dashboard: builds without any transcript" -- \

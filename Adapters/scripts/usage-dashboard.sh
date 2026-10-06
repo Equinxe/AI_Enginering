@@ -164,7 +164,12 @@ while [ "$#" -gt 0 ]; do
       # after --watch is parsed as the next argument, and refused if it is
       # not one (PR #204 review, F4; code review m2).
       WATCH=10
-      if [ "$#" -ge 2 ] && [[ "$2" =~ ^[1-9][0-9]{0,5}$ ]]; then WATCH=$((10#$2)); shift; fi
+      if [ "$#" -ge 2 ] && [[ "$2" =~ ^[1-9][0-9]{0,5}$ ]]; then
+        WATCH=$((10#$2)); shift
+      elif [ "$#" -ge 2 ] && [[ "$2" =~ ^0[0-9]+$ ]]; then
+        err "--watch $2: write the interval without a leading zero (bash would read $2 as an octal number)."
+        exit 2
+      fi
       shift ;;
     --project-dir|--out|--since|--transcripts-dir|--prices)
       if [ "$#" -lt 2 ]; then err "$1 needs a value"; usage; exit 2; fi
@@ -251,6 +256,20 @@ now_hms() {
 }
 
 OUT="${OUT:-$PROJECT/.ia-engineering/usage/dashboard.html}"
+# A native Windows path (C:\...\dash.html, as typed in PowerShell or passed
+# through the launcher) has no "/", so the directory part would never split
+# off: slashes, which Git Bash accepts, first (PR #204 code re-check, R1).
+OUT="${OUT//\\//}"
+# Parameter expansion and a test, not dirname and an unconditional mkdir:
+# under --watch these run every cycle, and each process counts.
+case "$OUT" in
+  */*) OUT_DIR="${OUT%/*}" ;;
+  *) OUT_DIR="." ;;
+esac
+if [ ! -d "$OUT_DIR" ] && ! mkdir -p "$OUT_DIR"; then
+  err "cannot create $OUT_DIR."
+  exit 1
+fi
 
 if [ -n "$PRICES" ] && [ ! -f "$PRICES" ]; then
   err "--prices '$PRICES' does not exist."
@@ -270,6 +289,8 @@ fi
 # IAENG_USAGE_WATCH_SLEEP replaces the interval actually slept.
 SELF="$SCRIPT_DIR/${SCRIPT_SRC##*/}"
 WATCH_STATE=""
+PAGE_DIR=""
+PAGE_DIR_OWN=""
 
 watch_loop() {
   local cycle=0 start fp last_fp="" opened="" rc nap interval
@@ -282,7 +303,11 @@ watch_loop() {
   fi
   interval="${IAENG_USAGE_WATCH_SLEEP:-$WATCH}"
   WATCH_STATE="$(mktemp -d "${TMPDIR:-/tmp}/obs330-watch.XXXXXX")" || { err "cannot create a temporary directory"; return 1; }
-  trap 'rm -rf "$WATCH_STATE"' EXIT
+  trap 'rm -rf "$WATCH_STATE" ${PAGE_DIR:+"$PAGE_DIR"}' EXIT
+  # The private directory every build renders its page into, created once
+  # here, beside the page, and reused by each cycle's build.
+  PAGE_DIR="$(mktemp -d "$OUT_DIR/.usage-dashboard.XXXXXX")" || { err "cannot create a private directory in $OUT_DIR"; return 1; }
+  export IAENG_USAGE_PAGEDIR="$PAGE_DIR"
   trap 'note "stopped; the page keeps its last update."; exit 0' INT TERM
   # The transcript directories are resolved once, here, and handed to every
   # build (usage-collect.sh, IAENG_USAGE_TRANSCRIPT_DIRS). None found yet: each
@@ -343,10 +368,10 @@ if [ -n "${IAENG_USAGE_CACHE:-}" ]; then
     err "cannot create $TMPD"
     exit 1
   fi
-  trap 'rm -f ${PAGE_TMP:+"$PAGE_TMP"}' EXIT
+  trap 'rm -f ${PAGE_TMP:+"$PAGE_TMP"}; rm -rf ${PAGE_DIR_OWN:+"$PAGE_DIR_OWN"}' EXIT
 else
   TMPD="$(mktemp -d "${TMPDIR:-/tmp}/obs326-usage.XXXXXX")" || { err "cannot create a temporary directory"; exit 1; }
-  trap 'rm -rf "$TMPD" ${PAGE_TMP:+"$PAGE_TMP"}' EXIT
+  trap 'rm -rf "$TMPD" ${PAGE_DIR_OWN:+"$PAGE_DIR_OWN"}' EXIT
 fi
 
 # Sources, for the page header: name <TAB> found|missing|error <TAB> detail.
@@ -928,43 +953,31 @@ footer{margin-top:48px;padding-top:12px;border-top:1px solid var(--rule)}
 JQ
 )"
 
-# Parameter expansion and a test, not dirname and an unconditional mkdir:
-# under --watch these run every cycle, and each process counts.
-case "$OUT" in
-  */*) OUT_DIR="${OUT%/*}" ;;
-  *) OUT_DIR="." ;;
-esac
-if [ ! -d "$OUT_DIR" ] && ! mkdir -p "$OUT_DIR"; then
-  err "cannot create $OUT_DIR."
-  exit 1
+# The page is rendered into a PRIVATE directory in the output folder, made
+# by mktemp -d (0700, a name nobody can predict), then renamed over the
+# destination: a rename within one filesystem is atomic, so a browser
+# reloading under --watch reads the old page or the new one, never half of
+# one. Nothing in a shared output folder is ever opened for writing, so a
+# planted file, symlink or FIFO cannot receive the page or block the build
+# (PR #204 review F6; re-check R1-sec — noclobber refuses regular files
+# only). Under --watch the loop made the directory once and passes it down;
+# it is used only if it is a real directory of this user's, directly in the
+# output folder. Otherwise this build makes its own and removes it on exit.
+PAGE_DIR="${IAENG_USAGE_PAGEDIR:-}"
+if [ -z "$PAGE_DIR" ] || [ "${PAGE_DIR%/*}" != "$OUT_DIR" ] || [ -L "$PAGE_DIR" ] \
+    || [ ! -d "$PAGE_DIR" ] || [ ! -O "$PAGE_DIR" ]; then
+  PAGE_DIR="$(mktemp -d "$OUT_DIR/.usage-dashboard.XXXXXX")" || { err "cannot create a private directory in $OUT_DIR. No page was written."; exit 1; }
+  PAGE_DIR_OWN="$PAGE_DIR"
 fi
-# Written beside the destination and renamed over it: a rename within one
-# directory is atomic, so a browser reloading under --watch reads either the
-# old page or the new one, never half of one. A temporary file elsewhere
-# (another filesystem) would make the move a copy.
-PAGE_TMP="$OUT_DIR/.${OUT##*/}.$$.tmp"
+PAGE_TMP="$PAGE_DIR/page.html.tmp"
 if [ -n "$REFRESH" ]; then
   render() { jq -n -r "${BUILD_ARGS[@]}" --arg refresh "$REFRESH" "($JQ_BUILD) | ($JQ_RENDER)"; }
 else
   render() { jq -r --arg refresh "" "$JQ_RENDER" < "$DATA"; }
 fi
-# The temporary page is created exclusively (noclobber opens with O_EXCL):
-# a file or symlink already at that name — planted in a shared output
-# directory, say — is never written through. One other name is tried before
-# giving up (PR #204 review, F6). set -C in this shell, not a subshell: a
-# subshell is a fork per cycle under --watch.
-set -C
-if ! render > "$PAGE_TMP" 2>/dev/null; then
-  PAGE_TMP="$OUT_DIR/.${OUT##*/}.$$.$RANDOM.tmp"
-  if ! render > "$PAGE_TMP"; then
-    set +C
-    PAGE_TMP=""
-    err "cannot create a temporary page in $OUT_DIR (a file already holds the name, or rendering failed). No page was written."
-    exit 1
-  fi
-fi
-set +C
-if [ ! -s "$PAGE_TMP" ]; then
+# A render that fails leaves no orphan behind: the partial page is removed
+# here, and the private directory with it on exit.
+if ! render > "$PAGE_TMP" || [ ! -s "$PAGE_TMP" ]; then
   rm -f "$PAGE_TMP"
   err "rendering the page failed (jq). No page was written."
   exit 1
