@@ -46,9 +46,11 @@
 #
 #   usage-dashboard.sh [--project-dir DIR] [--out FILE] [--since REF]
 #                      [--transcripts-dir DIR] [--prices FILE] [--open]
+#                      [--watch [SECONDS]]
 #
 #   --project-dir      the project's git work tree (default: the one containing
-#                      the current directory)
+#                      the current directory; run from inside a framework
+#                      submodule, the project that includes it)
 #   --out              output file (default: <project>/.ia-engineering/usage/dashboard.html)
 #   --since            start of the "range" columns (default: the latest v* tag
 #                      reachable from HEAD; all-time columns are always shown)
@@ -58,29 +60,91 @@
 #                      Without it the page shows no cost, and says so.
 #   --open             open the page in the default browser afterwards
 #                      ($IAENG_USAGE_OPENER, when set, is used as the opener)
+#   --watch [SECONDS]  live mode: rebuild the page every SECONDS (default 10,
+#                      minimum 10) until Ctrl-C; the page reloads itself at the
+#                      same interval and shows when it was last updated. With
+#                      --open, the browser is opened once, after the first
+#                      build. See "Live mode" below.
+#
+# PER PROJECT
+#
+# Everything is the project's own: its git history, the framework roster plus
+# its project roster, its Registry/, the transcripts of ITS path's slug only,
+# and its own .ia-engineering/usage/ for output. A new project therefore
+# starts at zero. Two caveats, both about the transcripts: a project re-created
+# at the SAME path inherits that path's earlier transcripts (pass
+# --transcripts-dir, or remove the old directory under the runtime's
+# projects/), and the runtime deletes transcripts older than its retention
+# period (Claude Code: cleanupPeriodDays, 30 days by default), so token and
+# dispatch history is a rolling window while the git columns are permanent.
 #
 # Requires bash, git, awk and jq — the framework's existing dependencies.
 #
-# Exit 0 when the page was written, 1 when it could not be (not a git work
-# tree, a dependency or the roster missing, a bad --since ref, a write
-# failure), 2 on a usage error.
+# Exit 0 when the page was written (with --watch: when stopped), 1 when it
+# could not be (not a git work tree, a dependency or the roster missing, a bad
+# --since ref, a write failure, a first --watch build that failed), 2 on a
+# usage error.
 
 set -uo pipefail
 
 err() { printf 'usage-dashboard: ERROR: %s\n' "$1" >&2; }
 note() { printf 'usage-dashboard: %s\n' "$1" >&2; }
 
+# open_page <file> — hand the page to the default browser. Returns 1 only
+# when the path is refused; a browser that cannot be started is a note.
+open_page() {
+  local page="$1"
+  if [ -n "${IAENG_USAGE_OPENER:-}" ]; then
+    "$IAENG_USAGE_OPENER" "$page" || note "could not open a browser; open $page yourself."
+    return 0
+  fi
+  case "$(uname -s 2>/dev/null)" in
+    # explorer.exe, not `cmd /c start`: cmd would interpret & | ^ %VAR% in
+    # the path (PR #196 review, F4). explorer exits 1 even on success, so
+    # its status says nothing and is not reported.
+    MINGW*|MSYS*|CYGWIN*)
+      # explorer.exe reads a comma as a switch separator, so a path with
+      # one would open something else, or nothing. Refused, not guessed.
+      case "$page" in
+        *,*)
+          err "--open: the path contains a comma, which explorer.exe would read as a switch separator. The page is written at $page; open it yourself, or pass an --out without a comma."
+          return 1 ;;
+      esac
+      explorer.exe "$(cygpath -w "$page")"; true ;;
+    Darwin) open "$page" || note "could not open a browser; open $page yourself." ;;
+    *) xdg-open "$page" >/dev/null 2>&1 || note "could not open a browser; open $page yourself." ;;
+  esac
+  return 0
+}
+
 usage() {
   cat >&2 <<'USAGE'
 Usage: usage-dashboard.sh [--project-dir DIR] [--out FILE] [--since REF]
                           [--transcripts-dir DIR] [--prices FILE] [--open]
+                          [--watch [SECONDS]]
   Builds a self-contained HTML usage dashboard (Employees, chains, models,
   tokens, Work Units) for a project. Aggregates only; no network.
+  --watch keeps it live: rebuilt every SECONDS (default and minimum 10).
 USAGE
 }
 
-SCRIPT_DIR="$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-FRAMEWORK_DIR="$(CDPATH='' cd -- "$SCRIPT_DIR/../.." && pwd)"
+# Resolved with builtins — cd in this shell and back — not $(cd ... && pwd):
+# under --watch every cycle starts this script again, and on Windows each
+# command substitution is a fork that costs a quarter of a second and more.
+START_PWD="$PWD"
+# The Windows launcher (usage-dashboard.cmd) passes this script as a native
+# path, C:\...\usage-dashboard.sh: backslashes become slashes first, which
+# Git Bash accepts, or the directory part would never be split off.
+SCRIPT_SRC="${BASH_SOURCE[0]//\\//}"
+case "$SCRIPT_SRC" in
+  */*) SCRIPT_DIR="${SCRIPT_SRC%/*}" ;;
+  *) SCRIPT_DIR="." ;;
+esac
+CDPATH='' cd -- "$SCRIPT_DIR" || { printf 'usage-dashboard: ERROR: cannot enter %s\n' "$SCRIPT_DIR" >&2; exit 1; }
+SCRIPT_DIR="$PWD"
+CDPATH='' cd -- "$SCRIPT_DIR/../.." || { printf 'usage-dashboard: ERROR: cannot find the framework root\n' >&2; exit 1; }
+FRAMEWORK_DIR="$PWD"
+CDPATH='' cd -- "$START_PWD" || exit 1
 COLLECTOR="$FRAMEWORK_DIR/Adapters/ai-runtimes/claude-code/usage-collect.sh"
 
 PROJECT_ARG=""
@@ -89,8 +153,24 @@ SINCE=""
 TRANSCRIPTS_DIR=""
 PRICES=""
 OPEN=""
+WATCH=""
 while [ "$#" -gt 0 ]; do
   case "$1" in
+    --watch)
+      # The interval is optional, so `--open --watch` and `--watch --open`
+      # both work — the Windows launcher passes its arguments after --open.
+      # Only a plain decimal of at most six digits is an interval: no leading
+      # zero (bash reads 010 as octal), nothing that overflows. Anything else
+      # after --watch is parsed as the next argument, and refused if it is
+      # not one (PR #204 review, F4; code review m2).
+      WATCH=10
+      if [ "$#" -ge 2 ] && [[ "$2" =~ ^[1-9][0-9]{0,5}$ ]]; then
+        WATCH=$((10#$2)); shift
+      elif [ "$#" -ge 2 ] && [[ "$2" =~ ^0[0-9]+$ ]]; then
+        err "--watch $2: write the interval without a leading zero (bash would read $2 as an octal number)."
+        exit 2
+      fi
+      shift ;;
     --project-dir|--out|--since|--transcripts-dir|--prices)
       if [ "$#" -lt 2 ]; then err "$1 needs a value"; usage; exit 2; fi
       case "$1" in
@@ -107,6 +187,24 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 
+if [ -n "$WATCH" ] && { [ "$WATCH" -lt 10 ] || [ "$WATCH" -gt 86400 ]; }; then
+  err "--watch $WATCH: the interval is 10 to 86400 seconds."
+  exit 2
+fi
+
+# Set only for a build started by --watch: the page then carries the reload
+# directive and the "last updated" line. Anything but a plain decimal is
+# ignored. The two test knobs of the watch loop are numbers or nothing:
+# they used to reach bash arithmetic, which evaluates what it is given
+# (PR #204 review, F4 and F5).
+REFRESH="${IAENG_USAGE_REFRESH:-}"
+[[ "$REFRESH" =~ ^[1-9][0-9]{0,5}$ ]] || REFRESH=""
+[[ "${IAENG_USAGE_WATCH_SLEEP:-}" =~ ^[0-9]{1,6}$ ]] || IAENG_USAGE_WATCH_SLEEP=""
+[[ "${IAENG_USAGE_WATCH_MAX_CYCLES:-}" =~ ^[1-9][0-9]{0,5}$ ]] || IAENG_USAGE_WATCH_MAX_CYCLES=""
+
+# The page, the git cache and the build files are this user's alone.
+umask 077
+
 for dep in git awk jq; do
   if ! command -v "$dep" >/dev/null 2>&1; then
     err "$dep is required and was not found on PATH."
@@ -121,24 +219,183 @@ if [ ! -d "$START_DIR" ]; then
   err "--project-dir '$START_DIR' does not exist."
   exit 1
 fi
-if ! PROJECT="$(git -C "$START_DIR" rev-parse --show-toplevel 2>/dev/null)"; then
+# One git call for both the work tree and its HEAD. Without commits, git
+# still prints the work tree and then the literal "HEAD", and fails; outside
+# a work tree it prints nothing.
+GITINFO="$(git -C "$START_DIR" rev-parse --show-toplevel HEAD 2>/dev/null)"
+PROJECT="${GITINFO%%$'\n'*}"
+HEAD_SHA=""
+case "$GITINFO" in *$'\n'*) HEAD_SHA="${GITINFO#*$'\n'}" ;; esac
+if [ -z "$PROJECT" ]; then
   err "'$START_DIR' is not inside a git work tree. The dashboard reads Employee and Work Unit trailers from git history; there is nothing to measure without one. Pass --project-dir <your project>."
   exit 1
 fi
-if ! git -C "$PROJECT" rev-parse -q --verify HEAD >/dev/null; then
+# Run from inside the framework when the framework is a submodule of a
+# project (cd ia-engineering && Adapters/scripts/usage-dashboard.sh), the work
+# tree found is the framework's own, and the page would measure the framework
+# on the project's behalf. Without an explicit --project-dir, the project
+# that includes the framework is the one measured.
+if [ -z "$PROJECT_ARG" ] && [ "$PROJECT" -ef "$FRAMEWORK_DIR" ]; then
+  SUPER="$(git -C "$PROJECT" rev-parse --show-superproject-working-tree 2>/dev/null || true)"
+  if [ -n "$SUPER" ]; then
+    note "measuring $SUPER, the project that includes this framework (pass --project-dir to measure the framework itself)."
+    PROJECT="$SUPER"
+    HEAD_SHA="$(git -C "$PROJECT" rev-parse -q --verify HEAD 2>/dev/null || true)"
+  fi
+fi
+
+if ! [[ "$HEAD_SHA" =~ ^[0-9a-f]{40,64}$ ]]; then
   err "$PROJECT has no commits yet; there is no history to measure."
   exit 1
 fi
 
+# HH:MM:SS for the watch log, from the printf builtin where bash has it
+# (4.2+), from date(1) where it does not (macOS's bash 3.2).
+now_hms() {
+  printf -v NOW '%(%H:%M:%S)T' -1 2>/dev/null || NOW="$(date '+%H:%M:%S')"
+}
+
 OUT="${OUT:-$PROJECT/.ia-engineering/usage/dashboard.html}"
+# A native Windows path (C:\...\dash.html, as typed in PowerShell or passed
+# through the launcher) has no "/", so the directory part would never split
+# off: slashes, which Git Bash accepts, first (PR #204 code re-check, R1).
+OUT="${OUT//\\//}"
+# Parameter expansion and a test, not dirname and an unconditional mkdir:
+# under --watch these run every cycle, and each process counts.
+case "$OUT" in
+  */*) OUT_DIR="${OUT%/*}" ;;
+  *) OUT_DIR="." ;;
+esac
+if [ ! -d "$OUT_DIR" ] && ! mkdir -p "$OUT_DIR"; then
+  err "cannot create $OUT_DIR."
+  exit 1
+fi
+# An output folder that other users can write to, without the sticky bit,
+# lets them rename or replace what lands there — the page included. That is
+# refused, once per plain build or watch start (a watch's own builds inherit
+# the check). Group-writable is only warned about: with Debian and Ubuntu's
+# default umask 002 every user folder is writable by the user's own private
+# group, and refusing it would refuse ordinary use. Windows has no such mode
+# bits to read (PR #204 security re-check, R3).
+case "${OSTYPE:-}" in
+  msys*|cygwin*|win*) ;;
+  *)
+    # "$OUT_DIR/." so that find inspects the folder itself, not a symlink
+    # that leads to it (a link's own mode reads 0777): portable to BSD find.
+    if [ -z "$REFRESH" ]; then
+      if [ -n "$(find "$OUT_DIR/." -maxdepth 0 -perm -0002 ! -perm -1000 2>/dev/null)" ]; then
+        err "$OUT_DIR is writable by other users and has no sticky bit; refusing to write the page there. Use a private --out."
+        exit 1
+      fi
+      if [ -n "$(find "$OUT_DIR/." -maxdepth 0 -perm -0020 ! -perm -1000 2>/dev/null)" ]; then
+        note "warning: $OUT_DIR is group-writable without the sticky bit; anyone in its group could replace the page."
+      fi
+    fi
+    ;;
+esac
 
 if [ -n "$PRICES" ] && [ ! -f "$PRICES" ]; then
   err "--prices '$PRICES' does not exist."
   exit 1
 fi
 
-TMPD="$(mktemp -d "${TMPDIR:-/tmp}/obs326-usage.XXXXXX")" || { err "cannot create a temporary directory"; exit 1; }
-trap 'rm -rf "$TMPD"' EXIT
+# --- Live mode -------------------------------------------------------------------
+# --watch rebuilds the page every N seconds until interrupted. Each build is a
+# child run of this script, so a build that fails leaves the page as it was
+# and the loop going; only a failing FIRST build stops it, since that is a
+# configuration fault rather than a passing one. A cycle starts only after
+# the previous one has finished, and is skipped when neither HEAD nor any
+# transcript's size changed. The builds share a cache (IAENG_USAGE_CACHE): the
+# git half is computed once per HEAD, and only the transcripts that grew are
+# read, from where the previous build stopped (usage-collect.sh). For tests,
+# IAENG_USAGE_WATCH_MAX_CYCLES stops after that many cycles and
+# IAENG_USAGE_WATCH_SLEEP replaces the interval actually slept.
+SELF="$SCRIPT_DIR/${SCRIPT_SRC##*/}"
+WATCH_STATE=""
+PAGE_DIR=""
+PAGE_DIR_OWN=""
+
+watch_loop() {
+  local cycle=0 start fp last_fp="" opened="" rc nap interval
+  local child_args=(--project-dir "$PROJECT" --out "$OUT") list_args=(--project-dir "$PROJECT")
+  [ -n "$SINCE" ] && child_args+=(--since "$SINCE")
+  [ -n "$PRICES" ] && child_args+=(--prices "$PRICES")
+  if [ -n "$TRANSCRIPTS_DIR" ]; then
+    child_args+=(--transcripts-dir "$TRANSCRIPTS_DIR")
+    list_args=(--transcripts-dir "$TRANSCRIPTS_DIR")
+  fi
+  interval="${IAENG_USAGE_WATCH_SLEEP:-$WATCH}"
+  WATCH_STATE="$(mktemp -d "${TMPDIR:-/tmp}/obs330-watch.XXXXXX")" || { err "cannot create a temporary directory"; return 1; }
+  trap 'rm -rf "$WATCH_STATE" ${PAGE_DIR:+"$PAGE_DIR"}' EXIT
+  # The private directory every build renders its page into, created once
+  # here, beside the page, and reused by each cycle's build.
+  PAGE_DIR="$(mktemp -d "$OUT_DIR/.usage-dashboard.XXXXXX")" || { err "cannot create a private directory in $OUT_DIR"; return 1; }
+  export IAENG_USAGE_PAGEDIR="$PAGE_DIR"
+  trap 'note "stopped; the page keeps its last update."; exit 0' INT TERM
+  # The transcript directories are resolved once, here, and handed to every
+  # build (usage-collect.sh, IAENG_USAGE_TRANSCRIPT_DIRS). None found yet: each
+  # cycle looks again, so a first session started after the watch is seen.
+  if [ -f "$COLLECTOR" ] && [ -z "$TRANSCRIPTS_DIR" ]; then
+    IAENG_USAGE_TRANSCRIPT_DIRS="$(bash "$COLLECTOR" --project-dir "$PROJECT" --dirs 2>/dev/null || true)"
+    [ -z "$IAENG_USAGE_TRANSCRIPT_DIRS" ] || export IAENG_USAGE_TRANSCRIPT_DIRS
+  fi
+  note "watching $PROJECT every $WATCH s; the page reloads itself. Ctrl-C to stop."
+  while :; do
+    cycle=$((cycle + 1))
+    start=$SECONDS
+    fp="$(git -C "$PROJECT" rev-parse HEAD 2>/dev/null)"
+    if [ -f "$COLLECTOR" ]; then
+      fp="$fp
+$(bash "$COLLECTOR" "${list_args[@]}" --list 2>/dev/null)"
+    fi
+    if [ "$fp" = "$last_fp" ]; then
+      now_hms
+      note "$NOW no change in HEAD or the transcripts; page kept ($((SECONDS - start)) s)"
+    elif IAENG_USAGE_CACHE="$WATCH_STATE/cache" IAENG_USAGE_REFRESH="$WATCH" \
+        bash "$SELF" "${child_args[@]}" > /dev/null 2> "$WATCH_STATE/build.err"; then
+      last_fp="$fp"
+      now_hms
+      note "$NOW rebuilt in $((SECONDS - start)) s: $OUT"
+      if [ -n "$OPEN" ] && [ -z "$opened" ]; then
+        opened=1
+        open_page "$OUT" || return 1
+      fi
+    else
+      rc=$?
+      now_hms
+      note "$NOW rebuild failed (exit $rc); the page keeps its last update:"
+      sed 's/^/    /' "$WATCH_STATE/build.err" >&2
+      [ "$cycle" -gt 1 ] || return 1
+    fi
+    if [ -n "${IAENG_USAGE_WATCH_MAX_CYCLES:-}" ] && [ "$cycle" -ge "$IAENG_USAGE_WATCH_MAX_CYCLES" ]; then
+      return 0
+    fi
+    nap=$((10#$interval - (SECONDS - start)))
+    [ "$nap" -ge 1 ] || nap=1
+    sleep "$nap"
+  done
+}
+
+if [ -n "$WATCH" ]; then
+  watch_loop
+  exit $?
+fi
+
+# A build started by --watch works in a fixed directory inside the watch's
+# cache, overwritten each cycle and removed with it: no mktemp and no rm per
+# cycle. Any other build uses a temporary directory of its own.
+PAGE_TMP=""
+if [ -n "${IAENG_USAGE_CACHE:-}" ]; then
+  TMPD="$IAENG_USAGE_CACHE/build"
+  if [ ! -d "$TMPD" ] && ! mkdir -p "$TMPD"; then
+    err "cannot create $TMPD"
+    exit 1
+  fi
+  trap 'rm -f ${PAGE_TMP:+"$PAGE_TMP"}; rm -rf ${PAGE_DIR_OWN:+"$PAGE_DIR_OWN"}' EXIT
+else
+  TMPD="$(mktemp -d "${TMPDIR:-/tmp}/obs326-usage.XXXXXX")" || { err "cannot create a temporary directory"; exit 1; }
+  trap 'rm -rf "$TMPD" ${PAGE_DIR_OWN:+"$PAGE_DIR_OWN"}' EXIT
+fi
 
 # Sources, for the page header: name <TAB> found|missing|error <TAB> detail.
 SOURCES="$TMPD/sources.tsv"
@@ -164,189 +421,235 @@ show_path() {
   esac
 }
 
-# --- Rosters ---------------------------------------------------------------------
-# The same resolution as check-employee-trailers.sh, with the framework this
-# script belongs to as the last candidate: a project that vendors the
-# framework under ia-engineering/ finds it there, and a run from anywhere else
-# still has the roster the script shipped with.
-
-ROSTER_TSV="$TMPD/roster.tsv"
-if ! ROSTER="$(first_file "${IAENG_REGISTRY:-}" "$PROJECT/Registry/employees.yml" \
-    "$PROJECT/ia-engineering/Registry/employees.yml" "$FRAMEWORK_DIR/Registry/employees.yml")"; then
-  err "Could not locate Registry/employees.yml (looked at \$IAENG_REGISTRY, the project's Registry/ and ia-engineering/Registry/, and $FRAMEWORK_DIR/Registry/). Without the roster, never-used Employees cannot be shown."
-  exit 1
-fi
-# Tabs are written by awk, never by a sed replacement: `\t` in sed's
-# replacement is a GNU extension, and BSD sed (macOS) writes a literal `t`,
-# which would join every name to its source and show the whole roster as
-# never used.
-grep -E '^  - name: ' "$ROSTER" | sed 's/^  - name: //' | tr -d '\r' \
-  | awk -v src=framework '{ print $0 "\t" src }' > "$ROSTER_TSV"
-if [ ! -s "$ROSTER_TSV" ]; then
-  err "$ROSTER yielded no Employee names (parsing contract: '  - name: <Name>')."
-  exit 1
-fi
-source_line "Employee roster" found "$(show_path "$ROSTER") ($(grep -c . "$ROSTER_TSV") Employees)"
-
-PROJECT_ROSTER=""
-if [ -n "${IAENG_PROJECT_ROSTER:-}" ]; then
-  if [ ! -f "$IAENG_PROJECT_ROSTER" ]; then
-    err "IAENG_PROJECT_ROSTER is set to '$IAENG_PROJECT_ROSTER' but no such file exists; fix the path or unset it."
-    exit 1
-  fi
-  PROJECT_ROSTER="$IAENG_PROJECT_ROSTER"
-elif [ -f "$PROJECT/.ia-engineering/Registry/employees.yml" ]; then
-  PROJECT_ROSTER="$PROJECT/.ia-engineering/Registry/employees.yml"
-fi
-if [ -n "$PROJECT_ROSTER" ]; then
-  before="$(grep -c . "$ROSTER_TSV")"
-  grep -E '^  - name: ' "$PROJECT_ROSTER" | sed 's/^  - name: //' | tr -d '\r' \
-    | awk -v src=project '{ print $0 "\t" src }' >> "$ROSTER_TSV"
-  source_line "Project roster" found "$(show_path "$PROJECT_ROSTER") ($(( $(grep -c . "$ROSTER_TSV") - before )) Domain Employees)"
-else
-  source_line "Project roster" missing "no .ia-engineering/Registry/employees.yml (no Domain Employees)"
-fi
-
-# --- Chains ----------------------------------------------------------------------
-# chain <TAB> employee|gate <TAB> name <TAB> always|conditional, in file order.
-# A step is conditional when it carries a `when:` other than `Always`.
-
-CHAINS_TSV="$TMPD/chains.tsv"
-: > "$CHAINS_TSV"
-if CHAINS="$(first_file "$PROJECT/Registry/chains.yml" "$PROJECT/ia-engineering/Registry/chains.yml" \
-    "$FRAMEWORK_DIR/Registry/chains.yml")"; then
-  tr -d '\r' < "$CHAINS" | awk -v OFS='\t' '
-    function flush() { if (kind != "") print chain, kind, name, cond; kind = "" }
-    /^  - name: /         { flush(); chain = substr($0, 11); next }
-    /^      - employee: / { flush(); kind = "employee"; name = substr($0, 19); cond = "always"; next }
-    /^      - gate: /     { flush(); kind = "gate"; name = substr($0, 15); cond = "always"; next }
-    /^        when: /     { if (kind != "" && substr($0, 15) != "Always") cond = "conditional"; next }
-    END { flush() }
-  ' > "$CHAINS_TSV"
-  source_line "Agent Chains" found "$(show_path "$CHAINS") ($(cut -f1 "$CHAINS_TSV" | sort -u | grep -c .) chains)"
-else
-  source_line "Agent Chains" missing "no Registry/chains.yml"
-fi
-
-# --- Work Unit registry ------------------------------------------------------------
-
-WUS_TSV="$TMPD/wus.tsv"
-: > "$WUS_TSV"
-if WUS="$(first_file "${IAENG_REGISTRY_WORK_UNITS:-}" "$PROJECT/Registry/work-units.yml")"; then
-  tr -d '\r' < "$WUS" | awk -v OFS='\t' '
-    /^  - id: /       { id = substr($0, 9); next }
-    /^    employee: / { if (id != "") { print id, substr($0, 15); id = "" } }
-  ' > "$WUS_TSV"
-  source_line "Work Unit registry" found "$(show_path "$WUS") ($(grep -c . "$WUS_TSV") Work Units)"
-else
-  source_line "Work Unit registry" missing "no Registry/work-units.yml in the project"
-fi
-
-# --- Git history ---------------------------------------------------------------------
-
-if [ -z "$SINCE" ]; then
-  SINCE="$(git -C "$PROJECT" describe --tags --abbrev=0 --match 'v*' HEAD 2>/dev/null || true)"
-fi
-INRANGE="$TMPD/inrange.txt"
-if [ -n "$SINCE" ]; then
-  if ! git -C "$PROJECT" rev-parse -q --verify "$SINCE^{commit}" >/dev/null; then
-    err "--since '$SINCE' is not a commit in $PROJECT."
-    exit 1
-  fi
-  RANGE_LABEL="since $SINCE"
-  if ! git -C "$PROJECT" rev-list --no-merges "$SINCE..HEAD" > "$INRANGE"; then
-    err "git rev-list failed over $SINCE..HEAD."
-    exit 1
-  fi
-else
-  RANGE_LABEL="all time (no release tag)"
-  if ! git -C "$PROJECT" rev-list --no-merges HEAD > "$INRANGE"; then
-    err "git rev-list failed."
-    exit 1
-  fi
-fi
-
-# Employee and Co-Authored-By are read as REAL trailers, parsed by git from
-# the message's trailer block (PR #196 review, F3): a line that merely looks
-# like one in the body is not attribution, and nothing else of the body is
-# read. `Work Unit:` cannot be a git trailer (its key has a space;
-# Standards/COMMIT_STANDARD.md, Trailers), so it is read as check-work-units.sh
-# reads it — a column-0 line — and kept only when it is a Work Unit ID.
-TRAILERS="$TMPD/trailers.txt"
-BODIES="$TMPD/bodies.txt"
-NUMSTAT="$TMPD/numstat.txt"
-if ! git -C "$PROJECT" log --no-merges \
-    --format='%x1e%H%x1f%(trailers:key=Employee,valueonly,unfold,separator=%x1d)%x1f%(trailers:key=Co-authored-by,valueonly,unfold,separator=%x1d)' > "$TRAILERS" \
-  || ! git -C "$PROJECT" log --no-merges --format='%x1e%H%n%B' > "$BODIES" \
-  || ! git -C "$PROJECT" log --no-merges --format='%x1e%H' --numstat > "$NUMSTAT"; then
-  err "git log failed in $PROJECT."
-  exit 1
-fi
-
-# sha <TAB> in-range <TAB> employee <TAB> work-unit <TAB> model <TAB> added <TAB> deleted
-# Every emitted value is shape-checked: an Employee or model name is one short
-# name ([A-Za-z0-9 ._()/-], at most 64 characters, no `@`), a Work Unit is
-# ^WU-[A-Z0-9]+-[0-9]+$. Absent is "(no trailer)", malformed "(unrecognised)".
-# The model is the name of the co-author whose address is the runtime's
-# <noreply@anthropic.com>, not whichever co-author came first.
-# The four file names reach awk through the environment, not -v: -v
-# processes backslash escapes, and a Windows TMPDIR (C:\Users\...) would be
-# mangled so that no FILENAME ever matched and every commit vanished.
-# A value matching a credential family counts as "(redacted)" before any
+# A git value matching a credential family counts as "(redacted)" before any
 # shape check — the same expression as usage-collect.sh's SECRET_RE, kept
 # equal by a test in tests/run.sh rather than by memory.
-SECRET_RE='AKIA[0-9A-Z]{12,}|ASIA[0-9A-Z]{12,}|gh[pousr]_[A-Za-z0-9]{16,}|xox[baprs]-|xapp-|sk_(live|test)_|rk_(live|test)_|sk-ant-|sk-[A-Za-z0-9]{20,}|AIza[0-9A-Za-z_-]{20,}|eyJ[A-Za-z0-9_-]+\.|hf_[A-Za-z0-9]{20,}|glpat-|npm_[A-Za-z0-9]{20,}|BEGIN.*PRIVATE|[A-Za-z0-9]{24,}'
-COMMITS_TSV="$TMPD/commits.tsv"
-F_INR="$INRANGE" F_NUM="$NUMSTAT" F_TR="$TRAILERS" F_BODY="$BODIES" F_SECRET="$SECRET_RE" awk -v OFS='\t' '
-  BEGIN { f_inr = ENVIRON["F_INR"]; f_num = ENVIRON["F_NUM"]; f_tr = ENVIRON["F_TR"]; f_body = ENVIRON["F_BODY"]; secret = ENVIRON["F_SECRET"] }
-  function shaped(v,   ok) {
-    sub(/^[ \t]+/, "", v); sub(/[ \t]+$/, "", v)
-    if (v == "") return "(no trailer)"
-    if (v ~ secret) return "(redacted)"
-    ok = (v ~ /^[A-Za-z0-9][-A-Za-z0-9 ._()\/]*$/ && length(v) <= 64 && index(v, "@") == 0)
-    return ok ? v : "(unrecognised)"
-  }
-  { sub(/\r$/, "") }
-  FILENAME == f_inr { inr[$0] = 1; next }
-  FILENAME == f_num {
-    if (substr($0, 1, 1) == "\036") { cur = substr($0, 2); next }
-    split($0, ns, "\t")
-    if (ns[1] ~ /^[0-9]+$/) add[cur] += ns[1]
-    if (ns[2] ~ /^[0-9]+$/) del[cur] += ns[2]
-    next
-  }
-  FILENAME == f_tr {
-    if (substr($0, 1, 1) != "\036") next
-    n = split(substr($0, 2), tf, "\037")
-    sha = tf[1]; order[++nc] = sha
-    split(tf[2], emps, "\035"); emp[sha] = shaped(emps[1])
-    model[sha] = "(no trailer)"
-    m = split(tf[3], coauth, "\035")
-    for (i = 1; i <= m; i++) {
-      if (index(coauth[i], "<noreply@anthropic.com>") > 0) {
-        v = coauth[i]; sub(/[ \t]*<.*$/, "", v); model[sha] = shaped(v); break
+SECRET_RE='AKIA[0-9A-Z]{12}|ASIA[0-9A-Z]{12}|gh[pousr]_[A-Za-z0-9]{16}|xox[baprs]-|xapp-|sk_(live|test)_|rk_(live|test)_|sk-ant-|sk-[A-Za-z0-9]{20}|AIza[0-9A-Za-z_-]{20}|eyJ[A-Za-z0-9_-]+\.|hf_[A-Za-z0-9]{20}|glpat-|npm_[A-Za-z0-9]{20}|BEGIN.*PRIVATE|[A-Za-z0-9]{24}'
+
+# Everything read from git and the registries: the rosters, the chains, the
+# Work Unit registry, and the per-commit trailers.
+collect_git_side() {
+  # --- Rosters ---------------------------------------------------------------------
+  # The same resolution as check-employee-trailers.sh, with the framework this
+  # script belongs to as the last candidate: a project that vendors the
+  # framework under ia-engineering/ finds it there, and a run from anywhere else
+  # still has the roster the script shipped with.
+
+  ROSTER_TSV="$TMPD/roster.tsv"
+  if ! ROSTER="$(first_file "${IAENG_REGISTRY:-}" "$PROJECT/Registry/employees.yml" \
+      "$PROJECT/ia-engineering/Registry/employees.yml" "$FRAMEWORK_DIR/Registry/employees.yml")"; then
+    err "Could not locate Registry/employees.yml (looked at \$IAENG_REGISTRY, the project's Registry/ and ia-engineering/Registry/, and $FRAMEWORK_DIR/Registry/). Without the roster, never-used Employees cannot be shown."
+    exit 1
+  fi
+  # Tabs are written by awk, never by a sed replacement: `\t` in sed's
+  # replacement is a GNU extension, and BSD sed (macOS) writes a literal `t`,
+  # which would join every name to its source and show the whole roster as
+  # never used.
+  grep -E '^  - name: ' "$ROSTER" | sed 's/^  - name: //' | tr -d '\r' \
+    | awk -v src=framework '{ print $0 "\t" src }' > "$ROSTER_TSV"
+  if [ ! -s "$ROSTER_TSV" ]; then
+    err "$ROSTER yielded no Employee names (parsing contract: '  - name: <Name>')."
+    exit 1
+  fi
+  source_line "Employee roster" found "$(show_path "$ROSTER") ($(grep -c . "$ROSTER_TSV") Employees)"
+
+  PROJECT_ROSTER=""
+  if [ -n "${IAENG_PROJECT_ROSTER:-}" ]; then
+    if [ ! -f "$IAENG_PROJECT_ROSTER" ]; then
+      err "IAENG_PROJECT_ROSTER is set to '$IAENG_PROJECT_ROSTER' but no such file exists; fix the path or unset it."
+      exit 1
+    fi
+    PROJECT_ROSTER="$IAENG_PROJECT_ROSTER"
+  elif [ -f "$PROJECT/.ia-engineering/Registry/employees.yml" ]; then
+    PROJECT_ROSTER="$PROJECT/.ia-engineering/Registry/employees.yml"
+  fi
+  if [ -n "$PROJECT_ROSTER" ]; then
+    before="$(grep -c . "$ROSTER_TSV")"
+    grep -E '^  - name: ' "$PROJECT_ROSTER" | sed 's/^  - name: //' | tr -d '\r' \
+      | awk -v src=project '{ print $0 "\t" src }' >> "$ROSTER_TSV"
+    source_line "Project roster" found "$(show_path "$PROJECT_ROSTER") ($(( $(grep -c . "$ROSTER_TSV") - before )) Domain Employees)"
+  else
+    source_line "Project roster" missing "no .ia-engineering/Registry/employees.yml (no Domain Employees)"
+  fi
+
+  # --- Chains ----------------------------------------------------------------------
+  # chain <TAB> employee|gate <TAB> name <TAB> always|conditional, in file order.
+  # A step is conditional when it carries a `when:` other than `Always`.
+
+  CHAINS_TSV="$TMPD/chains.tsv"
+  : > "$CHAINS_TSV"
+  if CHAINS="$(first_file "$PROJECT/Registry/chains.yml" "$PROJECT/ia-engineering/Registry/chains.yml" \
+      "$FRAMEWORK_DIR/Registry/chains.yml")"; then
+    tr -d '\r' < "$CHAINS" | awk -v OFS='\t' '
+      function flush() { if (kind != "") print chain, kind, name, cond; kind = "" }
+      /^  - name: /         { flush(); chain = substr($0, 11); next }
+      /^      - employee: / { flush(); kind = "employee"; name = substr($0, 19); cond = "always"; next }
+      /^      - gate: /     { flush(); kind = "gate"; name = substr($0, 15); cond = "always"; next }
+      /^        when: /     { if (kind != "" && substr($0, 15) != "Always") cond = "conditional"; next }
+      END { flush() }
+    ' > "$CHAINS_TSV"
+    source_line "Agent Chains" found "$(show_path "$CHAINS") ($(cut -f1 "$CHAINS_TSV" | sort -u | grep -c .) chains)"
+  else
+    source_line "Agent Chains" missing "no Registry/chains.yml"
+  fi
+
+  # --- Work Unit registry ------------------------------------------------------------
+
+  WUS_TSV="$TMPD/wus.tsv"
+  : > "$WUS_TSV"
+  if WUS="$(first_file "${IAENG_REGISTRY_WORK_UNITS:-}" "$PROJECT/Registry/work-units.yml")"; then
+    tr -d '\r' < "$WUS" | awk -v OFS='\t' '
+      /^  - id: /       { id = substr($0, 9); next }
+      /^    employee: / { if (id != "") { print id, substr($0, 15); id = "" } }
+    ' > "$WUS_TSV"
+    source_line "Work Unit registry" found "$(show_path "$WUS") ($(grep -c . "$WUS_TSV") Work Units)"
+  else
+    source_line "Work Unit registry" missing "no Registry/work-units.yml in the project"
+  fi
+
+  # --- Git history ---------------------------------------------------------------------
+
+  if [ -z "$SINCE" ]; then
+    SINCE="$(git -C "$PROJECT" describe --tags --abbrev=0 --match 'v*' HEAD 2>/dev/null || true)"
+  fi
+  INRANGE="$TMPD/inrange.txt"
+  if [ -n "$SINCE" ]; then
+    if ! git -C "$PROJECT" rev-parse -q --verify "$SINCE^{commit}" >/dev/null; then
+      err "--since '$SINCE' is not a commit in $PROJECT."
+      exit 1
+    fi
+    RANGE_LABEL="since $SINCE"
+    if ! git -C "$PROJECT" rev-list --no-merges "$SINCE..HEAD" > "$INRANGE"; then
+      err "git rev-list failed over $SINCE..HEAD."
+      exit 1
+    fi
+  else
+    RANGE_LABEL="all time (no release tag)"
+    if ! git -C "$PROJECT" rev-list --no-merges HEAD > "$INRANGE"; then
+      err "git rev-list failed."
+      exit 1
+    fi
+  fi
+
+  # Employee and Co-Authored-By are read as REAL trailers, parsed by git from
+  # the message's trailer block (PR #196 review, F3): a line that merely looks
+  # like one in the body is not attribution, and nothing else of the body is
+  # read. `Work Unit:` cannot be a git trailer (its key has a space;
+  # Standards/COMMIT_STANDARD.md, Trailers), so it is read as check-work-units.sh
+  # reads it — a column-0 line — and kept only when it is a Work Unit ID.
+  TRAILERS="$TMPD/trailers.txt"
+  BODIES="$TMPD/bodies.txt"
+  NUMSTAT="$TMPD/numstat.txt"
+  if ! git -C "$PROJECT" log --no-merges \
+      --format='%x1e%H%x1f%(trailers:key=Employee,valueonly,unfold,separator=%x1d)%x1f%(trailers:key=Co-authored-by,valueonly,unfold,separator=%x1d)' > "$TRAILERS" \
+    || ! git -C "$PROJECT" log --no-merges --format='%x1e%H%n%B' > "$BODIES" \
+    || ! git -C "$PROJECT" log --no-merges --format='%x1e%H' --numstat > "$NUMSTAT"; then
+    err "git log failed in $PROJECT."
+    exit 1
+  fi
+
+  # sha <TAB> in-range <TAB> employee <TAB> work-unit <TAB> model <TAB> added <TAB> deleted
+  # Every emitted value is shape-checked: an Employee or model name is one short
+  # name ([A-Za-z0-9 ._()/-], at most 64 characters, no `@`), a Work Unit is
+  # ^WU-[A-Z0-9]+-[0-9]+$. Absent is "(no trailer)", malformed "(unrecognised)".
+  # The model is the name of the co-author whose address is the runtime's
+  # <noreply@anthropic.com>, not whichever co-author came first.
+  # The four file names reach awk through the environment, not -v: -v
+  # processes backslash escapes, and a Windows TMPDIR (C:\Users\...) would be
+  # mangled so that no FILENAME ever matched and every commit vanished.
+  # A value matching a credential family counts as "(redacted)" before any
+  # shape check: SECRET_RE, defined above this function.
+  COMMITS_TSV="$TMPD/commits.tsv"
+  F_INR="$INRANGE" F_NUM="$NUMSTAT" F_TR="$TRAILERS" F_BODY="$BODIES" F_SECRET="$SECRET_RE" awk -v OFS='\t' '
+    BEGIN { f_inr = ENVIRON["F_INR"]; f_num = ENVIRON["F_NUM"]; f_tr = ENVIRON["F_TR"]; f_body = ENVIRON["F_BODY"]; secret = ENVIRON["F_SECRET"] }
+    function shaped(v,   ok) {
+      sub(/^[ \t]+/, "", v); sub(/[ \t]+$/, "", v)
+      if (v == "") return "(no trailer)"
+      if (v ~ secret) return "(redacted)"
+      ok = (v ~ /^[A-Za-z0-9][-A-Za-z0-9 ._()\/]*$/ && length(v) <= 64 && index(v, "@") == 0)
+      return ok ? v : "(unrecognised)"
+    }
+    { sub(/\r$/, "") }
+    FILENAME == f_inr { inr[$0] = 1; next }
+    FILENAME == f_num {
+      if (substr($0, 1, 1) == "\036") { cur = substr($0, 2); next }
+      split($0, ns, "\t")
+      if (ns[1] ~ /^[0-9]+$/) add[cur] += ns[1]
+      if (ns[2] ~ /^[0-9]+$/) del[cur] += ns[2]
+      next
+    }
+    FILENAME == f_tr {
+      if (substr($0, 1, 1) != "\036") next
+      n = split(substr($0, 2), tf, "\037")
+      sha = tf[1]; order[++nc] = sha
+      split(tf[2], emps, "\035"); emp[sha] = shaped(emps[1])
+      model[sha] = "(no trailer)"
+      m = split(tf[3], coauth, "\035")
+      for (i = 1; i <= m; i++) {
+        if (index(coauth[i], "<noreply@anthropic.com>") > 0) {
+          v = coauth[i]; sub(/[ \t]*<.*$/, "", v); model[sha] = shaped(v); break
+        }
+      }
+      next
+    }
+    FILENAME == f_body {
+      if (substr($0, 1, 1) == "\036") { bsha = substr($0, 2); next }
+      if (!(bsha in wu) && $0 ~ /^Work Unit: /) {
+        v = substr($0, 12); sub(/[ \t]+$/, "", v)
+        wu[bsha] = (v ~ /^WU-[A-Z0-9]+-[0-9]+$/) ? v : "(unrecognised)"
       }
     }
-    next
-  }
-  FILENAME == f_body {
-    if (substr($0, 1, 1) == "\036") { bsha = substr($0, 2); next }
-    if (!(bsha in wu) && $0 ~ /^Work Unit: /) {
-      v = substr($0, 12); sub(/[ \t]+$/, "", v)
-      wu[bsha] = (v ~ /^WU-[A-Z0-9]+-[0-9]+$/) ? v : "(unrecognised)"
+    END {
+      for (k = 1; k <= nc; k++) {
+        s = order[k]
+        print s, (s in inr ? 1 : 0), emp[s], ((s in wu) ? wu[s] : "(no trailer)"), model[s], add[s] + 0, del[s] + 0
+      }
     }
+  ' "$INRANGE" "$NUMSTAT" "$TRAILERS" "$BODIES" > "$COMMITS_TSV" || {
+    err "reading the commit trailers failed (awk). A page built on it would show every Employee as never used; no page was written."
+    exit 1
   }
-  END {
-    for (k = 1; k <= nc; k++) {
-      s = order[k]
-      print s, (s in inr ? 1 : 0), emp[s], ((s in wu) ? wu[s] : "(no trailer)"), model[s], add[s] + 0, del[s] + 0
-    }
-  }
-' "$INRANGE" "$NUMSTAT" "$TRAILERS" "$BODIES" > "$COMMITS_TSV" || {
-  err "reading the commit trailers failed (awk). A page built on it would show every Employee as never used; no page was written."
-  exit 1
+  source_line "Git history" found "$(grep -c . "$COMMITS_TSV") non-merge commits; range: $RANGE_LABEL"
+  printf '%s' "$RANGE_LABEL" > "$TMPD/range.txt"
 }
-source_line "Git history" found "$(grep -c . "$COMMITS_TSV") non-merge commits; range: $RANGE_LABEL"
+
+# The git half is the same for as long as HEAD is: under --watch it is
+# computed once per HEAD and reused from the cache (IAENG_USAGE_CACHE, set by
+# the watch loop for the builds it starts). The key also carries what changes
+# its meaning without a commit — the --since argument and the registry
+# overrides. An edit to a registry file that is not yet committed shows on the
+# next commit, or when --watch is restarted.
+ROSTER_TSV="$TMPD/roster.tsv"
+CHAINS_TSV="$TMPD/chains.tsv"
+WUS_TSV="$TMPD/wus.tsv"
+COMMITS_TSV="$TMPD/commits.tsv"
+GIT_CACHE="${IAENG_USAGE_CACHE:+$IAENG_USAGE_CACHE/git}"
+GIT_KEY=""
+CACHED_KEY=""
+if [ -n "$GIT_CACHE" ]; then
+  GIT_KEY="$HEAD_SHA|${SINCE}|${IAENG_REGISTRY:-}|${IAENG_PROJECT_ROSTER:-}|${IAENG_REGISTRY_WORK_UNITS:-}"
+  [ -f "$GIT_CACHE/key" ] && IFS= read -r CACHED_KEY < "$GIT_CACHE/key"
+fi
+if [ -n "$GIT_CACHE" ] && [ "$GIT_KEY" = "$CACHED_KEY" ]; then
+  # A hit is read in place — no copy, which would be one more process per
+  # cycle — except the sources list, which this build appends to: that is
+  # copied line by line with builtins.
+  ROSTER_TSV="$GIT_CACHE/roster.tsv"
+  CHAINS_TSV="$GIT_CACHE/chains.tsv"
+  WUS_TSV="$GIT_CACHE/wus.tsv"
+  COMMITS_TSV="$GIT_CACHE/commits.tsv"
+  IFS= read -r RANGE_LABEL < "$GIT_CACHE/range.txt" || true
+  # A cached label is one of the two shapes this script writes, or neither.
+  [[ "$RANGE_LABEL" =~ ^(since\ [A-Za-z0-9._/-]{1,100}|all\ time\ \(no\ release\ tag\))$ ]] \
+    || RANGE_LABEL="all time (cached label unreadable)"
+  while IFS= read -r sline; do printf '%s\n' "$sline"; done < "$GIT_CACHE/sources.tsv" > "$SOURCES"
+else
+  collect_git_side
+  if [ -n "$GIT_CACHE" ] && mkdir -p "$GIT_CACHE" \
+      && cp "$ROSTER_TSV" "$CHAINS_TSV" "$WUS_TSV" "$COMMITS_TSV" "$SOURCES" "$TMPD/range.txt" "$GIT_CACHE"/; then
+    printf '%s\n' "$GIT_KEY" > "$GIT_CACHE/key"
+  fi
+fi
 
 # --- AI-runtime transcripts -------------------------------------------------------------
 
@@ -355,16 +658,26 @@ USAGE_TSV="$TMPD/usage.tsv"
 if [ -f "$COLLECTOR" ]; then
   collect_args=(--project-dir "$PROJECT")
   [ -n "$TRANSCRIPTS_DIR" ] && collect_args+=(--transcripts-dir "$TRANSCRIPTS_DIR")
+  [ -n "${IAENG_USAGE_CACHE:-}" ] && collect_args+=(--cache-dir "$IAENG_USAGE_CACHE/transcripts")
   note "reading Claude Code transcripts (a large project can take a minute)..."
   bash "$COLLECTOR" "${collect_args[@]}" > "$USAGE_TSV" 2> "$TMPD/collect.err"
   rc=$?
   case "$rc" in
     0)
-      read -r _ ndirs nfiles ncalls ndisp < <(grep -m1 '^source' "$USAGE_TSV")
-      source_line "Claude Code transcripts" found "$nfiles files in $ndirs director$( [ "$ndirs" = 1 ] && echo y || echo ies); $ncalls API calls, $ndisp dispatches" ;;
+      # The collector prints its `source` line first; read it with a builtin.
+      read -r _ ndirs nfiles ncalls ndisp < "$USAGE_TSV"
+      dsuffix="ies"; [ "$ndirs" = 1 ] && dsuffix="y"
+      source_line "Claude Code transcripts" found "$nfiles files in $ndirs director$dsuffix; $ncalls API calls, $ndisp dispatches" ;;
     3)
       : > "$USAGE_TSV"
       source_line "Claude Code transcripts" missing "none found for this project" ;;
+    4)
+      # Several transcript directories could be this project's, and the
+      # collector refused to guess (code review M1). Nothing is counted
+      # rather than another project's usage.
+      : > "$USAGE_TSV"
+      note "transcripts are AMBIGUOUS for this project; none are counted. Pass --transcripts-dir, or set CLAUDE_CODE_PROJECT_DIR_NAME with CLAUDE_CONFIG_DIR."
+      source_line "Claude Code transcripts" ambiguous "several directories could be this project's (its path is longer than the runtime keeps); none counted. Pass --transcripts-dir, or set CLAUDE_CODE_PROJECT_DIR_NAME with CLAUDE_CONFIG_DIR" ;;
     *)
       : > "$USAGE_TSV"
       note "the Claude Code collector failed (exit $rc); the page is built without transcript data: $(head -c 300 "$TMPD/collect.err")"
@@ -395,9 +708,18 @@ def rows($s): $s | split("\n") | map(select(length > 0) | split("\t"));
 def slug: ascii_downcase | gsub("/"; " ") | gsub("[^a-z0-9]+"; "-") | ltrimstr("-") | rtrimstr("-");
 def clip: tostring | if length > 80 then .[0:77] + "..." else . end;
 def tally(f): reduce .[] as $x ({}; .[$x | f] += 1);
+# Under --watch the commit rows may come from the cache: they pass the same
+# shapes again rather than being trusted (PR #204 review, F3).
+def bucket: . == "(no trailer)" or . == "(unrecognised)" or . == "(redacted)";
+def gitname: if type != "string" then "(unrecognised)" elif bucket then .
+             elif test("^[A-Za-z0-9][A-Za-z0-9 ._()/-]{0,63}$") | not then "(unrecognised)"
+             elif test($secret) then "(redacted)" else . end;
+def gitwu: if type == "string" and (bucket or test("^WU-[A-Z0-9]+-[0-9]+$")) then . else "(unrecognised)" end;
+def count: if type == "string" and test("^[0-9]{1,12}$") then tonumber else 0 end;
 
-(rows($commits) | map({sha: .[0], inr: (.[1] == "1"), emp: (.[2] | clip), wu: (.[3] | clip),
-                       model: (.[4] | clip), add: (.[5] | tonumber), del: (.[6] | tonumber)})) as $c
+(rows($commits) | map(select(length == 7)
+                      | {sha: .[0], inr: (.[1] == "1"), emp: (.[2] | gitname), wu: (.[3] | gitwu),
+                         model: (.[4] | gitname), add: (.[5] | count), del: (.[6] | count)})) as $c
 | (rows($usage)) as $u
 | ($u | map(select(.[0] == "dispatch") | {type: .[1], model: .[2], n: (.[3] | tonumber)})) as $disp
 | ($u | map(select(.[0] == "call") | {day: .[1], model: .[2], agent: .[3],
@@ -489,14 +811,20 @@ def tally(f): reduce .[] as $x ({}; .[$x | f] += 1);
 JQ
 )"
 
+# Local time with its UTC offset, so "last updated" reads as the reader's
+# clock. The printf builtin where bash has it (4.2+); date(1) otherwise.
+printf -v GENERATED '%(%Y-%m-%d %H:%M:%S %z)T' -1 2>/dev/null \
+  || GENERATED="$(date '+%Y-%m-%d %H:%M:%S %z')"
+
+BUILD_ARGS=(--rawfile commits "$COMMITS_TSV" --rawfile usage "$USAGE_TSV" --rawfile wus "$WUS_TSV"
+  --rawfile roster "$ROSTER_TSV" --rawfile chains "$CHAINS_TSV" --rawfile sources "$SOURCES"
+  --rawfile prices "$PRICES_TSV" --arg engineers "$ENGINEERS"
+  --arg generated "$GENERATED" --arg project "${PROJECT##*/}" --arg range_label "$RANGE_LABEL"
+  --arg secret "$SECRET_RE")
 DATA="$TMPD/data.json"
-if ! jq -n \
-    --rawfile commits "$COMMITS_TSV" --rawfile usage "$USAGE_TSV" --rawfile wus "$WUS_TSV" \
-    --rawfile roster "$ROSTER_TSV" --rawfile chains "$CHAINS_TSV" --rawfile sources "$SOURCES" \
-    --rawfile prices "$PRICES_TSV" --arg engineers "$ENGINEERS" \
-    --arg generated "$(date -u '+%Y-%m-%d %H:%M UTC')" --arg project "$(basename -- "$PROJECT")" \
-    --arg range_label "$RANGE_LABEL" \
-    "$JQ_BUILD" > "$DATA"; then
+# A --watch build renders straight from the aggregate in the same jq process
+# (below); a plain build keeps the aggregate, which also prints the summary.
+if [ -z "$REFRESH" ] && ! jq -n "${BUILD_ARGS[@]}" "$JQ_BUILD" > "$DATA"; then
   err "aggregating the collected data failed (jq). No page was written."
   exit 1
 fi
@@ -545,6 +873,10 @@ def badge: if . == "never" then {h: "<span class=\"badge never\">NEVER USED</spa
 | "<!DOCTYPE html>\n<html lang=\"en\"><head><meta charset=\"utf-8\">"
 + "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
 + "<meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:\">"
+# Only under --watch: the page reloads itself from disk every N seconds. A
+# meta refresh is navigation, which no CSP directive governs, so
+# default-src 'none' does not block it; and it needs no script.
++ (if $refresh != "" then "<meta http-equiv=\"refresh\" content=\"\($refresh)\">" else "" end)
 + "<title>Usage dashboard - \($d.project | e)</title><style>
 :root{color-scheme:light;--surface:#fcfcfb;--panel:#f3f2ef;--text:#0b0b0b;--text2:#52514e;--rule:#d6d4cf;--bar:#2a78d6;--never-bg:#fde7e7;--never-fg:#8a1414;--rare-bg:#fff3d6;--rare-fg:#6b4a00;--used-fg:#1f5a1f;--focus:#2a78d6}
 @media (prefers-color-scheme: dark){:root{color-scheme:dark;--surface:#1a1a19;--panel:#242422;--text:#ffffff;--text2:#c3c2b7;--rule:#45443f;--bar:#3987e5;--never-bg:#4a1c1c;--never-fg:#ffd2d2;--rare-bg:#3d3214;--rare-fg:#ffe7a8;--used-fg:#b9e6b9;--focus:#86b6ef}}
@@ -558,10 +890,12 @@ th[aria-sort=ascending] button::after{content:' \\2191'}th[aria-sort=descending]
 tr.never td{background:var(--never-bg)}tr.rare td{background:var(--rare-bg)}.badge{font-size:.8rem;font-weight:650;padding:1px 6px;border-radius:4px;white-space:nowrap}.badge.never{color:var(--never-fg);border:1px solid currentColor}.badge.rare{color:var(--rare-fg);border:1px solid currentColor}.badge.used{color:var(--used-fg)}
 figure{margin:12px 0 20px}figcaption{font-weight:600;margin-bottom:4px}svg{width:100%;max-width:900px;height:auto;display:block}svg .lbl{font-size:13px;fill:var(--text)}svg .val{font-size:12px;fill:var(--text2)}svg .bar{fill:var(--bar)}
 .src{list-style:none;padding:0}.src li{margin:2px 0}.st{display:inline-block;min-width:70px;font-weight:650}.st.found{color:var(--used-fg)}.st.missing{color:var(--text2)}.st.error{color:var(--never-fg)}.empty{color:var(--text2);font-style:italic}
+.live{border-left:4px solid var(--bar);background:var(--panel);padding:6px 10px;border-radius:4px}
 footer{margin-top:48px;padding-top:12px;border-top:1px solid var(--rule)}
 @media (forced-colors: active){svg .bar{fill:CanvasText}tr.never td,tr.rare td{background:Canvas}}
 </style></head><body><main>"
 + "<header><h1>Usage dashboard: \($d.project | e)</h1>"
++ (if $refresh != "" then "<p class=\"live\"><strong>Live:</strong> last updated \($d.generated | e) - refreshes every \($refresh) s while the --watch command runs. Stop the command and the page stays at its last update.</p>" else "" end)
 + "<p class=\"muted\">Generated \($d.generated | e). Range columns: <strong>\($d.range | e)</strong>; all-time columns cover the whole history. Transcript data covers whatever the runtime has retained.</p>"
 + "<h2 id=\"sources\">Data sources</h2><ul class=\"src\">"
 + ($d.sources | map("<li><span class=\"st \(.status | e)\">\(.status | e)</span> <strong>\(.name | e)</strong> - \(.detail | e)</li>") | join(""))
@@ -642,47 +976,51 @@ footer{margin-top:48px;padding-top:12px;border-top:1px solid var(--rule)}
 JQ
 )"
 
-OUT_DIR="$(dirname -- "$OUT")"
-if ! mkdir -p "$OUT_DIR"; then
-  err "cannot create $OUT_DIR."
-  exit 1
+# The page is rendered into a PRIVATE directory in the output folder, made
+# by mktemp -d (0700, a name nobody can predict), then renamed over the
+# destination: a rename within one filesystem is atomic, so a browser
+# reloading under --watch reads the old page or the new one, never half of
+# one. Nothing in a shared output folder is ever opened for writing, so a
+# planted file, symlink or FIFO cannot receive the page or block the build
+# (PR #204 review F6; re-check R1-sec — noclobber refuses regular files
+# only). Under --watch the loop made the directory once and passes it down;
+# it is used only if it is a real directory of this user's, directly in the
+# output folder. Otherwise this build makes its own and removes it on exit.
+PAGE_DIR="${IAENG_USAGE_PAGEDIR:-}"
+if [ -z "$PAGE_DIR" ] || [ "${PAGE_DIR%/*}" != "$OUT_DIR" ] || [ -L "$PAGE_DIR" ] \
+    || [ ! -d "$PAGE_DIR" ] || [ ! -O "$PAGE_DIR" ]; then
+  PAGE_DIR="$(mktemp -d "$OUT_DIR/.usage-dashboard.XXXXXX")" || { err "cannot create a private directory in $OUT_DIR. No page was written."; exit 1; }
+  PAGE_DIR_OWN="$PAGE_DIR"
 fi
-if ! jq -r "$JQ_RENDER" < "$DATA" > "$TMPD/page.html"; then
+PAGE_TMP="$PAGE_DIR/page.html.tmp"
+if [ -n "$REFRESH" ]; then
+  render() { jq -n -r "${BUILD_ARGS[@]}" --arg refresh "$REFRESH" "($JQ_BUILD) | ($JQ_RENDER)"; }
+else
+  render() { jq -r --arg refresh "" "$JQ_RENDER" < "$DATA"; }
+fi
+# A render that fails leaves no orphan behind: the partial page is removed
+# here, and the private directory with it on exit.
+if ! render > "$PAGE_TMP" || [ ! -s "$PAGE_TMP" ]; then
+  rm -f "$PAGE_TMP"
   err "rendering the page failed (jq). No page was written."
   exit 1
 fi
-if ! mv -f "$TMPD/page.html" "$OUT"; then
+if ! mv -f "$PAGE_TMP" "$OUT"; then
+  rm -f "$PAGE_TMP"
   err "cannot write $OUT."
   exit 1
 fi
 
 echo "Usage dashboard written: $OUT"
-jq -r '"  Employees: \(.totals.roster) on roster, \(.totals.never) never used, \(.totals.rare) rarely used",
+# Under --watch nobody reads this summary (the loop prints its own line), so
+# the process that prints it is not spent.
+[ -n "$REFRESH" ] || jq -r '"  Employees: \(.totals.roster) on roster, \(.totals.never) never used, \(.totals.rare) rarely used",
        "  Dispatches: \(.totals.dispatches); commits: \(.totals.commits_range) (\(.range)), \(.totals.commits_all) all time",
        "  API calls: \(.totals.tokens.calls); tokens: \(.totals.tokens.total); cache-read share: \(.totals.tokens.cache_read_share * 1000 | round / 10)%",
        (.sources[] | "  source \(.status): \(.name)")' < "$DATA"
 
 if [ -n "$OPEN" ]; then
-  if [ -n "${IAENG_USAGE_OPENER:-}" ]; then
-    "$IAENG_USAGE_OPENER" "$OUT"
-  else
-    case "$(uname -s 2>/dev/null)" in
-      # explorer.exe, not `cmd /c start`: cmd would interpret & | ^ %VAR% in
-      # the path (PR #196 review, F4). explorer exits 1 even on success, so
-      # its status says nothing and is not reported.
-      MINGW*|MSYS*|CYGWIN*)
-        # explorer.exe reads a comma as a switch separator, so a path with
-        # one would open something else, or nothing. Refused, not guessed.
-        case "$OUT" in
-          *,*)
-            err "--open: the path contains a comma, which explorer.exe would read as a switch separator. The page is written at $OUT; open it yourself, or pass an --out without a comma."
-            exit 1 ;;
-        esac
-        explorer.exe "$(cygpath -w "$OUT")"; true ;;
-      Darwin) open "$OUT" ;;
-      *) xdg-open "$OUT" >/dev/null 2>&1 ;;
-    esac
-  fi || note "could not open a browser; open $OUT yourself."
+  open_page "$OUT" || exit 1
 fi
 
 exit 0
