@@ -1715,10 +1715,12 @@ expect 2 "a tier-map line with no key= is refused" -- bash "$GEN" --project "$D"
 expect_output "line 3 is not understood"
 write_tier_map "$D" "map=bogus=x" ""
 expect 2 "an unknown tier inside map= is refused" -- bash "$GEN" --project "$D" --dry-run
-expect_output "Unrecognised map= in"
-write_tier_map "$D" "effort-map=standard=turbo" ""
+# The value errors name the line too, not only the file (review finding m1).
+expect_output "/.ia-engineering/tier-map line 2) entry: bogus=x"
+write_tier_map "$D" "map=standard=a" "effort-map=standard=turbo"
 expect 2 "an invalid effort inside effort-map= is refused" -- bash "$GEN" --project "$D" --dry-run
 expect_output "Accepted: low, medium, high, xhigh, max"
+expect_output "/.ia-engineering/tier-map line 3) value in 'standard=turbo'"
 write_tier_map "$D" "map=standard=a" "map=standard=b"
 expect 2 "a tier-map key given twice is refused" -- bash "$GEN" --project "$D" --dry-run
 expect_output "'map=' is given twice"
@@ -1729,7 +1731,7 @@ bash "$GEN" --project "$D" >/dev/null 2>&1
 write_tier_map "$D" "map=standard=other-model" ""
 expect 1 "--check reports drift after the tier-map changes" -- bash "$GEN" --project "$D" --check
 expect_output "differ in the tier mapping only"
-expect_output "(mapping only: on disk sonnet, resolved other-model)"
+expect_output "(mapping only: on disk sonnet, effort: inherit; resolved other-model, effort: inherit)"
 TOTAL=$((TOTAL + 1))
 if grep -qF "out of date with Employees/" <<< "$LAST_OUTPUT"; then
   printf '   FAIL --check blamed Employees/ for a mapping-only drift\n'
@@ -1742,6 +1744,52 @@ printf 'hand edit\n' >> "$D/.claude/agents/backend-engineer.md"
 expect 1 "--check still reports a content drift as out of date with Employees/" -- \
   bash "$GEN" --project "$D" --check
 expect_output "1 out of date with Employees/ or the roster, or missing."
+
+# An effort-only drift shows the effort on both sides; with the model alone it
+# printed the same model twice and no difference (review finding M1, part 2).
+D="$(project ga-tiermap-effort-drift)"
+bash "$GEN" --project "$D" >/dev/null 2>&1
+write_tier_map "$D" "effort-map=standard=low" ""
+expect 1 "--check reports an effort-only drift" -- bash "$GEN" --project "$D" --check
+expect_output "(mapping only: on disk sonnet, effort: inherit; resolved sonnet, effort: low)"
+
+# A ROSTER tier change is not a mapping change, even when the mapping gives
+# both tiers the same model and effort (review finding M1). Reproduced with a
+# Domain Employee, the only roster a test can edit: Standard Execution, then
+# Strategic Judgment, under a tier-map mapping both tiers identically.
+D="$(project ga-tiermap-roster-tier)"
+mkdir -p "$D/CustomEmployees" "$D/.ia-engineering/Registry"
+printf '%s\n' "# Mission" "" "The Tier Employee tests tiers." > "$D/CustomEmployees/TIER_EMPLOYEE.md"
+write_tier_map "$D" "map=strategic=same-model,standard=same-model" "effort-map=strategic=,standard="
+printf '%s\n' "employees:" "  - name: Tier Employee" "    file: CustomEmployees/TIER_EMPLOYEE.md" \
+  "    category: Testing" "    tier: Standard Execution" > "$D/.ia-engineering/Registry/employees.yml"
+bash "$GEN" --project "$D" >/dev/null 2>&1
+printf '%s\n' "employees:" "  - name: Tier Employee" "    file: CustomEmployees/TIER_EMPLOYEE.md" \
+  "    category: Testing" "    tier: Strategic Judgment" > "$D/.ia-engineering/Registry/employees.yml"
+expect 1 "--check reports a roster tier change" -- bash "$GEN" --project "$D" --check
+expect_output "1 out of date with Employees/ or the roster, or missing."
+TOTAL=$((TOTAL + 1))
+if grep -qF "mapping only" <<< "$LAST_OUTPUT"; then
+  printf '   FAIL a roster tier change was reported as a mapping-only drift\n'
+  printf '%s\n' "$LAST_OUTPUT" | sed 's/^/        | /'
+  FAILED=$((FAILED + 1))
+else
+  [ -n "$VERBOSE" ] && printf '   ok   a roster tier change is not reported as mapping only\n'
+fi
+
+# A UTF-8 BOM on line 1 (Windows PowerShell 5.1 writes one) is not part of the
+# first key (review finding m2).
+D="$(project ga-tiermap-bom)"
+mkdir -p "$D/.ia-engineering"
+printf '\xef\xbb\xbfmap=standard=bom-model\n' > "$D/.ia-engineering/tier-map"
+expect 0 "a tier-map starting with a UTF-8 BOM is read" -- bash "$GEN" --project "$D"
+TOTAL=$((TOTAL + 1))
+if [ "$(fm_line "$D/.claude/agents/devops-engineer.md" model)" = "bom-model" ]; then
+  [ -n "$VERBOSE" ] && printf '   ok   a BOM-prefixed first line is honoured\n'
+else
+  printf '   FAIL a BOM-prefixed first line was not honoured\n'
+  FAILED=$((FAILED + 1))
+fi
 
 # ------------------------------------------------- git-hooks/commit-msg -----
 #

@@ -79,7 +79,8 @@ effort-map=strategic=high,standard=,lightweight=,frontier=
 - **Precedence, per tier: flags > the file > the target's defaults.** A flag naming one tier overrides that tier only; the file still supplies the others.
 - **Refused, not skipped**: an unknown key, a line with no `key=`, a key given twice, an unknown tier, or an invalid effort level exits 2 with the file and line. A half-read mapping is a mapping nobody chose.
 - **Reported**: the summary prints `mapping: file (<path>)`, `mapping: defaults (...)`, or `mapping: flags (...)`.
-- **`--check` resolves the mapping the same way**, and a file that differs only in its `model:`/`effort:` lines is reported as a mapping difference ("differ in the tier mapping only ... on disk X, resolved Y"), not as an Employee definition out of date.
+- **`--check` resolves the mapping the same way**, and a file that differs only in its `model:`/`effort:` lines and the model half of its header `Tier:` line is reported as a mapping difference ("mapping only: on disk X, effort: E; resolved Y, effort: F"), not as an Employee definition out of date. The tier *name* is still compared: a roster tier change is reported as out of date even when the mapping gives both tiers the same model.
+- A UTF-8 byte order mark at the start of the file (Windows PowerShell 5.1 writes one) is ignored.
 - **Frontier stays override-only.** A `frontier=` value in the file is printed in the `tiers:` summary like the flag's, and is never written into any agent's `model:`.
 
 Commit it. This repository tracks its own through a `!.ia-engineering/tier-map` exception in `.gitignore` (it ignores the rest of `.ia-engineering/`); an adopting project needs nothing, because `install.sh` ignores only `.ia-engineering/SESSION_STATE.md` there. The defaults in the script are not changed by any project's file — they remain what every other adopter gets.

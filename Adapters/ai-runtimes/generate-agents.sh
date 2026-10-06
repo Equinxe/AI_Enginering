@@ -265,6 +265,8 @@ PROJECT="$(cd "$PROJECT" && pwd)"
 TIER_MAP_FILE="$PROJECT/.ia-engineering/tier-map"
 FILE_MAP=""
 FILE_EFFORT_MAP=""
+FILE_MAP_LINE=""
+FILE_EFFORT_MAP_LINE=""
 HAVE_TIER_MAP_FILE=0
 
 if [ -f "$TIER_MAP_FILE" ]; then
@@ -274,6 +276,11 @@ if [ -f "$TIER_MAP_FILE" ]; then
   lineno=0
   while IFS= read -r line || [ -n "$line" ]; do
     lineno=$((lineno + 1))
+    # A UTF-8 byte order mark on line 1 (Windows PowerShell 5.1's Out-File and
+    # Set-Content -Encoding utf8 both write one) would otherwise turn a valid
+    # first line into "<BOM>map=..." and fail as "not understood" while the
+    # message shows nothing visibly wrong. Byte-wise under LC_ALL=C.
+    [ "$lineno" -eq 1 ] && line="${line#$'\xef\xbb\xbf'}"
     # A CRLF checkout must not turn "high" into "high\r" and fail validation
     # with a message that shows nothing wrong.
     line="${line%$'\r'}"
@@ -288,13 +295,13 @@ if [ -f "$TIER_MAP_FILE" ]; then
           echo "generate-agents.sh: $TIER_MAP_FILE line $lineno: 'map=' is given twice." >&2
           exit 2
         fi
-        seen_map=1; FILE_MAP="${line#map=}" ;;
+        seen_map=1; FILE_MAP="${line#map=}"; FILE_MAP_LINE="$lineno" ;;
       effort-map=*)
         if [ "$seen_effort" -eq 1 ]; then
           echo "generate-agents.sh: $TIER_MAP_FILE line $lineno: 'effort-map=' is given twice." >&2
           exit 2
         fi
-        seen_effort=1; FILE_EFFORT_MAP="${line#effort-map=}" ;;
+        seen_effort=1; FILE_EFFORT_MAP="${line#effort-map=}"; FILE_EFFORT_MAP_LINE="$lineno" ;;
       *)
         echo "generate-agents.sh: $TIER_MAP_FILE line $lineno is not understood: '$line'" >&2
         echo "  Accepted: 'map=<spec>' and 'effort-map=<spec>' (same syntax as --map and" >&2
@@ -317,7 +324,8 @@ is_valid_effort() {
 }
 
 # apply_map <spec> <label> — label names the source in an error message:
-# "--map" for the flag, "map= in <file>" for the project file.
+# "--map" for the flag, "map= (<file> line N)" for the project file, so an
+# error inside a value points at the line the same way a malformed line does.
 apply_map() {
   local spec="$1" label="$2" pair
   for pair in ${spec//,/ }; do
@@ -361,8 +369,8 @@ apply_effort_map() {
 }
 
 # File first, flags second: the order IS the precedence.
-[ -n "$FILE_MAP" ]            && apply_map        "$FILE_MAP"            "map= in $TIER_MAP_FILE"
-[ -n "$FILE_EFFORT_MAP" ]     && apply_effort_map "$FILE_EFFORT_MAP"     "effort-map= in $TIER_MAP_FILE"
+[ -n "$FILE_MAP" ]            && apply_map        "$FILE_MAP"            "map= ($TIER_MAP_FILE line $FILE_MAP_LINE)"
+[ -n "$FILE_EFFORT_MAP" ]     && apply_effort_map "$FILE_EFFORT_MAP"     "effort-map= ($TIER_MAP_FILE line $FILE_EFFORT_MAP_LINE)"
 [ -n "$MAP_OVERRIDE" ]        && apply_map        "$MAP_OVERRIDE"        "--map"
 [ -n "$EFFORT_MAP_OVERRIDE" ] && apply_effort_map "$EFFORT_MAP_OVERRIDE" "--effort-map"
 
@@ -591,15 +599,22 @@ DIFFERENT=0
 # without_mapping below). Lets --check say which of the two causes it found.
 MAPPING_DRIFT=0
 
-# Prints a generated agent file with the lines the MAPPING decides removed:
-# `model:` and `effort:` inside the frontmatter, and the header's `Tier:` line.
-# Two files equal under this filter differ in mapping only — their Employee
-# definition, roster, and template are the same.
+# Prints a generated agent file with what the MAPPING decides removed:
+# `model:` and `effort:` inside the frontmatter, and the " -> <model>..." tail
+# of the header's `Tier:` line. Two files equal under this filter differ in
+# mapping only — their Employee definition, roster, and template are the same.
+#
+# The tier NAME on the `Tier:` line is kept, deliberately. It is the only
+# place a generated file records which tier the roster gave the Employee, so
+# dropping the whole line made a roster tier change (Standard Execution to
+# Strategic Judgment, under a mapping that gives both the same model) read as
+# "mapping only" — the one drift this filter exists to tell apart from a
+# roster or definition change. Code Reviewer finding M1 on PR #197.
 without_mapping() {
   awk '
     /^---$/ && fm < 2 { fm++; print; next }
     fm == 1 && (/^model: / || /^effort: /) { next }
-    /^  Tier:      / { next }
+    /^  Tier:      / { sub(/ -> .*$/, ""); print; next }
     { print }
   ' "$1"
 }
@@ -786,9 +801,12 @@ FOOTER
       # sending the reader to Employees/ for a drift that is not there.
       DIFFERENT=$((DIFFERENT + 1))
       MAPPING_DRIFT=$((MAPPING_DRIFT + 1))
-      local disk_model
+      # Both halves of the mapping, on both sides: an effort-only drift would
+      # otherwise print the same model twice and show no difference at all.
+      local disk_model disk_effort
       disk_model="$(awk '/^---$/{n++; next} n==1 && /^model: /{sub(/^model: /, ""); print; exit}' "$dest")"
-      echo "  differs: $dest (mapping only: on disk $disk_model, resolved $model$effort_note)"
+      disk_effort="$(awk '/^---$/{n++; next} n==1 && /^effort: /{sub(/^effort: /, ""); print; exit}' "$dest")"
+      echo "  differs: $dest (mapping only: on disk $disk_model, effort: ${disk_effort:-inherit}; resolved $model, effort: ${effort:-inherit})"
     else
       DIFFERENT=$((DIFFERENT + 1))
       echo "  differs: $dest"
