@@ -3896,6 +3896,62 @@ expect 3 "collector: an empty transcript directory is 'none found' (3), not an e
 expect 1 "collector: an explicit transcript directory that does not exist is an error" -- \
   bash "$COLLECT" --transcripts-dir "$WORK/usage-no-such-dir"
 
+# ------------------------------------------------- usage-dashboard.cmd ------
+# WU-IAENG-329. The Windows launcher cannot be run on the Linux CI runner, so
+# its contract is pinned statically: it exists, it is CRLF where cmd.exe reads
+# it (the attribute, and the bytes actually checked out), it runs the script
+# with --open, and it never runs the PATH's `bash` — in PowerShell and cmd that
+# is WSL's System32\bash.exe, the defect this launcher exists to avoid
+# (Governance/TROUBLESHOOTING.md, entry AA).
+
+LAUNCHER="$SCRIPTS/usage-dashboard.cmd"
+section "usage-dashboard.cmd"
+
+expect 0 "launcher: usage-dashboard.cmd exists" -- test -f "$LAUNCHER"
+expect 0 "launcher: .gitattributes checks it out CRLF" -- \
+  grep -qx 'Adapters/scripts/usage-dashboard.cmd: eol: crlf' \
+    <<< "$(git -C "$SCRIPTS/../.." check-attr eol -- Adapters/scripts/usage-dashboard.cmd)"
+# Counted in bytes with tr, not with a grep for a trailing CR: while this test
+# was written, such a grep inside a function counted every line of an LF file
+# as CR-terminated under Git for Windows, so the assertion passed on the very
+# file it exists to reject. As many CR as LF bytes, and the file ends in CR LF,
+# so its last line is terminated too. Computed inline, not in a function: a
+# function reached only through `expect` is reported unreachable by shellcheck
+# (SC2317), as the pre-push feeder above explains.
+L_CR="$(tr -cd '\r' < "$LAUNCHER" 2>/dev/null | wc -c | tr -d ' ')"
+L_LF="$(tr -cd '\n' < "$LAUNCHER" 2>/dev/null | wc -c | tr -d ' ')"
+L_END="$(tail -c 2 "$LAUNCHER" 2>/dev/null | od -An -c | tr -d ' ')"
+expect 0 "launcher: every line of the checked-out file ends in CRLF ($L_CR CR, $L_LF LF)" -- \
+  test "$L_LF" -gt 0 -a "$L_CR" = "$L_LF" -a "$L_END" = '\r\n'
+expect 0 "launcher: it runs usage-dashboard.sh --open, passing arguments through" -- \
+  grep -qF 'usage-dashboard.sh" --open %*' "$LAUNCHER"
+expect 0 "launcher: it runs Git for Windows' own bin\\bash.exe" -- \
+  grep -qF '"%IAENG_GITROOT%\bin\bash.exe"' "$LAUNCHER"
+# Outside rem comments and echoed messages, `bash` may appear only as the
+# resolved bin\bash.exe.
+L_CODE="$(tr -d '\r' < "$LAUNCHER" 2>/dev/null \
+  | grep -viE '^[[:space:]]*(@?rem|::|echo)([[:space:]]|$)')"
+expect 1 "launcher: no bare bash (PATH lookup reaches WSL in PowerShell and cmd)" -- \
+  grep -iE '(^|[^\\a-z_.-])bash(\.exe)?([^a-z_.-]|$)' <<< "$L_CODE"
+
+# The two defects of PR #200's review, pinned so they cannot return.
+# M1: after a cd, %~dp0 re-resolves against the new directory when the file
+# was invoked by a relative path, so it is captured before the first cd and
+# never read after it.
+expect 0 "launcher: the script directory is captured into IAENG_HERE" -- \
+  grep -qxF 'set "IAENG_HERE=%~dp0"' <<< "$L_CODE"
+L_DP0_AFTER_CD="$(awk '/^cd /{cd=1} cd && /%~dp0/' <<< "$L_CODE")"
+expect 0 "launcher: %~dp0 is not read after the first cd" -- \
+  test -z "$L_DP0_AFTER_CD"
+# M2: a path expanded with %VAR% inside a for set or an if block is parsed
+# as batch syntax, so a ")" in it (C:\Program Files (x86)\Git) is a syntax
+# error. The for /f command must not open with '"" (which leaves the paths
+# unquoted), and cmdcmdline must not be tokenised by a plain for.
+expect 1 "launcher: no for /f command opens with '\"\" (unquoted paths)" -- \
+  grep -F "in ('\"\"" <<< "$L_CODE"
+expect 1 "launcher: cmdcmdline is not expanded in a for set" -- \
+  grep -F '(%cmdcmdline%)' <<< "$L_CODE"
+
 # --------------------------------------------------------------- verdict ----
 
 cd "$HERE" || exit 1

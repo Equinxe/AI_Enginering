@@ -1225,6 +1225,12 @@ work_units:
     milestone: Precision
     delivers: Adapters/ai-runtimes/generate-agents.sh, Adapters/ai-runtimes/README.md, Adapters/scripts/tests/run.sh, .gitignore, .ia-engineering/tier-map, .ia-engineering/risk-map.yml, Registry/work-units.yml
 
+  - id: WU-IAENG-329
+    employee: DevOps Engineer
+    title: Add a Windows launcher for the usage dashboard - usage-dashboard.cmd opens the page in one command from PowerShell, cmd or a double-click, running usage-dashboard.sh --open through Git for Windows' own bash.exe and never the PATH's bash (WSL there); from an adopter's submodule it measures the adopting project; CRLF pinned by .gitattributes; TROUBLESHOOTING entry AA
+    milestone: Precision
+    delivers: Adapters/scripts/usage-dashboard.cmd, .gitattributes, Adapters/scripts/tests/run.sh, Adapters/README.md, Governance/DISPATCH_IN_PRACTICE.md, Governance/TROUBLESHOOTING.md, Registry/work-units.yml
+
   - id: WU-IAENG-331
     employee: Technical Lead
     title: Make role absorption visible at dispatch time and record two practice conventions from the 6 Oct 2026 Engineering Manager check-up - the Employee Brief quotes the Core/EMPLOYEE_SELECTION.md trigger line it relies on and names the closest Miscasting pair rejected; Governance/DISPATCH_IN_PRACTICE.md states the only two cases where a non-Employee agent is acceptable (a naive-user test subject owned by the UX/UI Designer and QA Engineer, a vendor-documentation lookup owned by the AI Engineer) and replaces its stale hand count with the usage dashboard's headline; Core/MAIN_AGENT_CONDUCT.md records the Director's standing exception of 1 Oct 2026 letting the Main Agent execute the Step 8 merge of a Pull Request into develop and delete its merged branch once every required approval is on the current head and the required checks are green there, pinned to that head, never into main or a release branch, never a back-merge, tag, release or conflict resolution; Workflows/FEATURE_DEVELOPMENT.md Step 8 and Registry/workflows.yml name the Main Agent as a permitted executor of that merge
