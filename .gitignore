@@ -19,6 +19,12 @@
 # `git status` surfaced it untracked before this line existed.
 .claude/worktrees/
 
+# The page Adapters/scripts/usage-dashboard.sh writes by default: derived from
+# git and this machine's runtime transcripts, regenerable, and local. Already
+# covered by `.ia-engineering/*` below; stated by name because install.sh
+# appends the same line to an adopting project, and the two should read alike.
+.ia-engineering/usage/
+
 # Standards/DATA_PROTECTION_STANDARD.md — real data lives only in the local
 # data directory, secrets only in the environment, operational state is never
 # committed. Adapters/git-hooks/pre-commit and data-policy.yml refuse the same
@@ -50,3 +56,9 @@ local_test_data/
 # accept, each with a reason. Ignored, an entry would sit on one machine and CI
 # would never see it.
 !.ia-engineering/suppression.allow
+#
+# ...and the tier-map (Adapters/ai-runtimes/generate-agents.sh): the project's
+# tier-to-model decision. Core/CAPABILITY_TIERS.md calls that mapping project
+# context; ignored, it would be one machine's decision, and every other clone's
+# regeneration would silently revert to the generator's defaults.
+!.ia-engineering/tier-map

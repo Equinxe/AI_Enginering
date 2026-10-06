@@ -1,0 +1,21 @@
+# IA Engineering — this project's tier-to-model mapping
+#
+# Read by Adapters/ai-runtimes/generate-agents.sh on every regeneration, so the
+# plain documented command honours it. Same syntax as --map / --effort-map;
+# precedence, per tier: flags > this file > the target's defaults
+# (Adapters/ai-runtimes/README.md, A project's own mapping). The defaults in
+# the script are unchanged — they remain what an adopting project gets until
+# it records its own choice here.
+#
+# Recorded 5 Oct 2026. Director decision, 5 Oct 2026: every Employee of this
+# repository runs on Opus 5.5 — Strategic Judgment and Standard Execution alike,
+# and Lightweight Execution when a Work Unit is overridden down to it.
+# Strategic Judgment keeps effort high (Director decision, 25 Sep 2026); the
+# other tiers inherit the runtime's default effort.
+#
+# Frontier is NOT a default and this file does not make it one: no generated
+# agent is ever written with the frontier= model. Running a Work Unit at
+# Frontier remains a per-use Tier Override that the Director approves each
+# time (Core/CAPABILITY_TIERS.md, Frontier Override).
+map=strategic=claude-opus-5-5,standard=claude-opus-5-5,lightweight=claude-opus-5-5,frontier=fable
+effort-map=strategic=high,standard=,lightweight=,frontier=

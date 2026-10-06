@@ -51,7 +51,7 @@ For this runtime, that mapping is Lightweight Execution → Haiku, Standard Exec
 
 Frontier is never a default. No Employee's Default Complexity Tier is ever Frontier (`Core/CAPABILITY_TIERS.md`), so `generate-agents.sh` never writes `fable` into any generated agent's `model:` field — the `frontier=` key exists only so the script's printed `tiers:` summary gives the Main Agent a value to pass as a per-dispatch **Tier Override** (`Core/CAPABILITY_TIERS.md`, Frontier Override) when a Work Unit already at Strategic Judgment is escalated, with Director approval, each time. Fable costs roughly **2.5× Opus** ($10 / $50 per million input/output tokens against Opus's $4 / $20 — [platform.claude.com/docs/en/about-claude/models/overview](https://platform.claude.com/docs/en/about-claude/models/overview)), which is the cost the Frontier Override paragraph above is deliberately not a default path to.
 
-The mapping lives in the target definition and in `--map`. It never appears in `Core/`.
+The mapping lives in the target definition, in the project's `.ia-engineering/tier-map`, and in `--map`. It never appears in `Core/`.
 
 ## Adding a runtime
 
@@ -63,7 +63,29 @@ Add a case branch to `generate-agents.sh` and a default output convention. The E
 ./Adapters/ai-runtimes/generate-agents.sh --map strategic=opus,standard=sonnet,lightweight=haiku,frontier=fable
 ```
 
-A project that has decided its own tier-to-capability mapping supplies it here rather than editing the script.
+A one-off override goes here. A project that has *decided* its own tier-to-capability mapping records it in the project instead (next section) rather than editing the script or relying on everyone typing the flag.
+
+## A project's own mapping: `.ia-engineering/tier-map`
+
+`Core/CAPABILITY_TIERS.md` makes the tier-to-model mapping project context. A flag is not a place to keep project context: the documented command, run without `--map`, reverted every Employee to the target defaults, and `--check` run the same way reported every agent stale and blamed `Employees/` for it. So `generate-agents.sh` reads an optional file, `<project>/.ia-engineering/tier-map`, on every run:
+
+```
+# why this mapping, and who decided it
+map=strategic=claude-opus-5-5,standard=claude-opus-5-5,lightweight=claude-opus-5-5,frontier=fable
+effort-map=strategic=high,standard=,lightweight=,frontier=
+```
+
+- **Two keys**, `map=` and `effort-map=`, each with exactly the syntax of the flag of the same name. Either may be omitted. Blank lines and `#` comments are ignored; CRLF line endings are tolerated.
+- **Precedence, per tier: flags > the file > the target's defaults.** A flag naming one tier overrides that tier only; the file still supplies the others.
+- **Refused, not skipped**: an unknown key, a line with no `key=`, a key given twice, an unknown tier, or an invalid effort level exits 2 with the file and line. A half-read mapping is a mapping nobody chose.
+- **Reported**: the summary prints `mapping: file (<path>)`, `mapping: defaults (...)`, or `mapping: flags (...)`.
+- **`--check` resolves the mapping the same way**, and a file that differs only in its `model:`/`effort:` lines and the model half of its header `Tier:` line is reported as a mapping difference ("mapping only: on disk X, effort: E; resolved Y, effort: F"), not as an Employee definition out of date. The tier *name* is still compared: a roster tier change is reported as out of date even when the mapping gives both tiers the same model.
+- A UTF-8 byte order mark at the start of the file (Windows PowerShell 5.1 writes one) is ignored.
+- **Frontier stays override-only.** A `frontier=` value in the file is printed in the `tiers:` summary like the flag's, and is never written into any agent's `model:`.
+
+Commit it. This repository tracks its own through a `!.ia-engineering/tier-map` exception in `.gitignore` (it ignores the rest of `.ia-engineering/`); an adopting project needs nothing, because `install.sh` ignores only `.ia-engineering/SESSION_STATE.md` there. The defaults in the script are not changed by any project's file — they remain what every other adopter gets.
+
+This repository's own file records the Director's decision of 5 Oct 2026: every Employee runs on Opus 5.5, Strategic Judgment at high effort.
 
 ## Per-tier effort
 

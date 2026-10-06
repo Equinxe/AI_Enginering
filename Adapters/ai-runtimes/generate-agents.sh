@@ -36,7 +36,7 @@
 # CAPABILITY_TIERS.md says exactly this: a project's own CLAUDE.md "may map
 # these tiers to concrete models for its chosen AI runtime ... That mapping is
 # project context, not part of this framework document." The mapping lives here
-# and in --map, never in Core/.
+# and in --map or the project's .ia-engineering/tier-map, never in Core/.
 #
 # Adding a runtime means adding a target below. The Employee definitions, the
 # roster, and the tiers do not change.
@@ -78,8 +78,20 @@
 #                     validated against the runtime's accepted effort levels.
 #   --dry-run         report what would be written, write nothing
 #   --check           exit non-zero if any generated file would differ from
-#                     what is on disk. For CI.
+#                     what is on disk. For CI. Resolves the mapping the same
+#                     way as a generation, and says so when a file differs in
+#                     its mapping only rather than in its Employee definition.
 #   --help
+#
+# A PROJECT'S OWN MAPPING: <project>/.ia-engineering/tier-map, optional, holds
+# the --map and --effort-map values a project has decided on, so the plain
+# command honours them on every regeneration:
+#
+#   map=strategic=X,standard=Y,lightweight=Z,frontier=W
+#   effort-map=strategic=high,standard=,lightweight=,frontier=
+#
+# Precedence, per tier: flags > that file > the target's defaults. The summary
+# prints which one applied ("mapping: flags|file|defaults ...").
 #
 # WHERE THE AGENTS ARE WRITTEN, and why it is not the framework directory:
 #
@@ -216,16 +228,88 @@ case "$TARGET" in
     ;;
 esac
 
-if [ -n "$MAP_OVERRIDE" ]; then
-  for pair in ${MAP_OVERRIDE//,/ }; do
-    case "$pair" in
-      strategic=*)   MAP_STRATEGIC="${pair#strategic=}" ;;
-      standard=*)    MAP_STANDARD="${pair#standard=}" ;;
-      lightweight=*) MAP_LIGHTWEIGHT="${pair#lightweight=}" ;;
-      frontier=*)    MAP_FRONTIER="${pair#frontier=}" ;;
-      *) echo "Unrecognised --map entry: $pair" >&2; exit 2 ;;
+# --- Project -----------------------------------------------------------------
+# Resolved before the mapping, because the project can record its own mapping
+# (.ia-engineering/tier-map, below) and the file is looked for under it.
+
+PROJECT="${PROJECT:-$INVOCATION_DIR}"
+if [ ! -d "$PROJECT" ]; then
+  echo "generate-agents.sh: --project '$PROJECT' is not a directory." >&2
+  exit 2
+fi
+PROJECT="$(cd "$PROJECT" && pwd)"
+
+# --- Tier mapping: target defaults < project file < flags --------------------
+#
+# Core/CAPABILITY_TIERS.md: the tier-to-model mapping is PROJECT context. Until
+# WU-IAENG-327 the only place a project could state it was the --map flag, so
+# it lived in whoever remembered to type it: the documented command, run
+# without the flag, silently reverted every Employee to the target defaults,
+# and --check run the same way reported every agent stale and blamed
+# Employees/ for a drift that was really a different mapping.
+#
+# <project>/.ia-engineering/tier-map records the choice where a clone inherits
+# it. Two keys, same syntax as the flags, one per line:
+#
+#   map=strategic=X,standard=Y,lightweight=Z,frontier=W
+#   effort-map=strategic=high,standard=,lightweight=,frontier=
+#
+# Blank lines and lines starting with # are ignored. Anything else — an
+# unknown key, a line with no "=", a key given twice — is refused with exit 2,
+# never skipped: a mapping file that is half-read is a mapping nobody chose.
+#
+# Precedence is per tier, layered: the target's defaults, then the file, then
+# --map / --effort-map. A flag naming one tier overrides that tier only, the
+# same way it always overrode the defaults one tier at a time.
+
+TIER_MAP_FILE="$PROJECT/.ia-engineering/tier-map"
+FILE_MAP=""
+FILE_EFFORT_MAP=""
+FILE_MAP_LINE=""
+FILE_EFFORT_MAP_LINE=""
+HAVE_TIER_MAP_FILE=0
+
+if [ -f "$TIER_MAP_FILE" ]; then
+  HAVE_TIER_MAP_FILE=1
+  seen_map=0
+  seen_effort=0
+  lineno=0
+  while IFS= read -r line || [ -n "$line" ]; do
+    lineno=$((lineno + 1))
+    # A UTF-8 byte order mark on line 1 (Windows PowerShell 5.1's Out-File and
+    # Set-Content -Encoding utf8 both write one) would otherwise turn a valid
+    # first line into "<BOM>map=..." and fail as "not understood" while the
+    # message shows nothing visibly wrong. Byte-wise under LC_ALL=C.
+    [ "$lineno" -eq 1 ] && line="${line#$'\xef\xbb\xbf'}"
+    # A CRLF checkout must not turn "high" into "high\r" and fail validation
+    # with a message that shows nothing wrong.
+    line="${line%$'\r'}"
+    # Surrounding whitespace is insignificant; inner whitespace is not allowed
+    # (the flag syntax has none), and is caught by validation below.
+    line="${line#"${line%%[![:space:]]*}"}"
+    line="${line%"${line##*[![:space:]]}"}"
+    case "$line" in
+      ""|"#"*) continue ;;
+      map=*)
+        if [ "$seen_map" -eq 1 ]; then
+          echo "generate-agents.sh: $TIER_MAP_FILE line $lineno: 'map=' is given twice." >&2
+          exit 2
+        fi
+        seen_map=1; FILE_MAP="${line#map=}"; FILE_MAP_LINE="$lineno" ;;
+      effort-map=*)
+        if [ "$seen_effort" -eq 1 ]; then
+          echo "generate-agents.sh: $TIER_MAP_FILE line $lineno: 'effort-map=' is given twice." >&2
+          exit 2
+        fi
+        seen_effort=1; FILE_EFFORT_MAP="${line#effort-map=}"; FILE_EFFORT_MAP_LINE="$lineno" ;;
+      *)
+        echo "generate-agents.sh: $TIER_MAP_FILE line $lineno is not understood: '$line'" >&2
+        echo "  Accepted: 'map=<spec>' and 'effort-map=<spec>' (same syntax as --map and" >&2
+        echo "  --effort-map), blank lines, and lines starting with #." >&2
+        exit 2
+        ;;
     esac
-  done
+  done < "$TIER_MAP_FILE"
 fi
 
 # Accepted effort levels, verified against this runtime's own documentation
@@ -239,22 +323,39 @@ is_valid_effort() {
   esac
 }
 
-if [ -n "$EFFORT_MAP_OVERRIDE" ]; then
-  for pair in ${EFFORT_MAP_OVERRIDE//,/ }; do
-    # Pattern-matched like --map above, not split-then-validated: a pattern
-    # requires the literal "key=", so a bare "strategic" (no "=") falls
-    # straight to the catch-all "Unrecognised" error instead of being read as
-    # key="strategic" value="strategic" and rejected two lines later with the
-    # less clear "Invalid --effort-map value" message.
+# apply_map <spec> <label> — label names the source in an error message:
+# "--map" for the flag, "map= (<file> line N)" for the project file, so an
+# error inside a value points at the line the same way a malformed line does.
+apply_map() {
+  local spec="$1" label="$2" pair
+  for pair in ${spec//,/ }; do
+    case "$pair" in
+      strategic=*)   MAP_STRATEGIC="${pair#strategic=}" ;;
+      standard=*)    MAP_STANDARD="${pair#standard=}" ;;
+      lightweight=*) MAP_LIGHTWEIGHT="${pair#lightweight=}" ;;
+      frontier=*)    MAP_FRONTIER="${pair#frontier=}" ;;
+      *) echo "Unrecognised $label entry: $pair" >&2; exit 2 ;;
+    esac
+  done
+}
+
+apply_effort_map() {
+  local spec="$1" label="$2" pair key value
+  for pair in ${spec//,/ }; do
+    # Pattern-matched like apply_map above, not split-then-validated: a
+    # pattern requires the literal "key=", so a bare "strategic" (no "=")
+    # falls straight to the catch-all "Unrecognised" error instead of being
+    # read as key="strategic" value="strategic" and rejected two lines later
+    # with the less clear "Invalid ... value" message.
     case "$pair" in
       strategic=*)   key=strategic;   value="${pair#strategic=}" ;;
       standard=*)    key=standard;    value="${pair#standard=}" ;;
       lightweight=*) key=lightweight; value="${pair#lightweight=}" ;;
       frontier=*)    key=frontier;    value="${pair#frontier=}" ;;
-      *) echo "Unrecognised --effort-map entry: $pair" >&2; exit 2 ;;
+      *) echo "Unrecognised $label entry: $pair" >&2; exit 2 ;;
     esac
     if ! is_valid_effort "$value"; then
-      echo "Invalid --effort-map value in '$pair': '$value'" >&2
+      echo "Invalid $label value in '$pair': '$value'" >&2
       echo "  Accepted: low, medium, high, xhigh, max, or empty (inherit)." >&2
       exit 2
     fi
@@ -265,16 +366,29 @@ if [ -n "$EFFORT_MAP_OVERRIDE" ]; then
       frontier)    EFFORT_FRONTIER="$value" ;;
     esac
   done
+}
+
+# File first, flags second: the order IS the precedence.
+[ -n "$FILE_MAP" ]            && apply_map        "$FILE_MAP"            "map= ($TIER_MAP_FILE line $FILE_MAP_LINE)"
+[ -n "$FILE_EFFORT_MAP" ]     && apply_effort_map "$FILE_EFFORT_MAP"     "effort-map= ($TIER_MAP_FILE line $FILE_EFFORT_MAP_LINE)"
+[ -n "$MAP_OVERRIDE" ]        && apply_map        "$MAP_OVERRIDE"        "--map"
+[ -n "$EFFORT_MAP_OVERRIDE" ] && apply_effort_map "$EFFORT_MAP_OVERRIDE" "--effort-map"
+
+# One word first, so a log or a test can read the source without parsing the
+# detail after it.
+if [ -n "$MAP_OVERRIDE$EFFORT_MAP_OVERRIDE" ]; then
+  if [ "$HAVE_TIER_MAP_FILE" -eq 1 ]; then
+    MAPPING_SOURCE="flags (over $TIER_MAP_FILE, per tier)"
+  else
+    MAPPING_SOURCE="flags (over the $TARGET defaults, per tier)"
+  fi
+elif [ "$HAVE_TIER_MAP_FILE" -eq 1 ]; then
+  MAPPING_SOURCE="file ($TIER_MAP_FILE)"
+else
+  MAPPING_SOURCE="defaults (target $TARGET; no .ia-engineering/tier-map in the project)"
 fi
 
-# --- Project, output, and rosters ------------------------------------------
-
-PROJECT="${PROJECT:-$INVOCATION_DIR}"
-if [ ! -d "$PROJECT" ]; then
-  echo "generate-agents.sh: --project '$PROJECT' is not a directory." >&2
-  exit 2
-fi
-PROJECT="$(cd "$PROJECT" && pwd)"
+# --- Output and rosters ------------------------------------------------------
 
 # Relative --out is the adopter's project path, not a path inside the
 # framework. Absolute --out is taken as given.
@@ -481,6 +595,29 @@ slugify() {
 WRITTEN=0
 UNCHANGED=0
 DIFFERENT=0
+# The subset of DIFFERENT whose only difference is the tier mapping (see
+# without_mapping below). Lets --check say which of the two causes it found.
+MAPPING_DRIFT=0
+
+# Prints a generated agent file with what the MAPPING decides removed:
+# `model:` and `effort:` inside the frontmatter, and the " -> <model>..." tail
+# of the header's `Tier:` line. Two files equal under this filter differ in
+# mapping only — their Employee definition, roster, and template are the same.
+#
+# The tier NAME on the `Tier:` line is kept, deliberately. It is the only
+# place a generated file records which tier the roster gave the Employee, so
+# dropping the whole line made a roster tier change (Standard Execution to
+# Strategic Judgment, under a mapping that gives both the same model) read as
+# "mapping only" — the one drift this filter exists to tell apart from a
+# roster or definition change. Code Reviewer finding M1 on PR #197.
+without_mapping() {
+  awk '
+    /^---$/ && fm < 2 { fm++; print; next }
+    fm == 1 && (/^model: / || /^effort: /) { next }
+    /^  Tier:      / { sub(/ -> .*$/, ""); print; next }
+    { print }
+  ' "$1"
+}
 
 generate_claude_code() {
   local name="$1" file="$2" category="$3" tier="$4" from_roster="$5" source_label="$6"
@@ -658,6 +795,18 @@ FOOTER
   if [ "$CHECK" -eq 1 ]; then
     if [ -f "$dest" ] && diff -q "$tmp" "$dest" > /dev/null 2>&1; then
       UNCHANGED=$((UNCHANGED + 1))
+    elif [ -f "$dest" ] && diff -q <(without_mapping "$tmp") <(without_mapping "$dest") > /dev/null 2>&1; then
+      # Same content once the mapping lines are set aside: the Employee
+      # definition did not change, the mapping did. Said so, rather than
+      # sending the reader to Employees/ for a drift that is not there.
+      DIFFERENT=$((DIFFERENT + 1))
+      MAPPING_DRIFT=$((MAPPING_DRIFT + 1))
+      # Both halves of the mapping, on both sides: an effort-only drift would
+      # otherwise print the same model twice and show no difference at all.
+      local disk_model disk_effort
+      disk_model="$(awk '/^---$/{n++; next} n==1 && /^model: /{sub(/^model: /, ""); print; exit}' "$dest")"
+      disk_effort="$(awk '/^---$/{n++; next} n==1 && /^effort: /{sub(/^effort: /, ""); print; exit}' "$dest")"
+      echo "  differs: $dest (mapping only: on disk $disk_model, effort: ${disk_effort:-inherit}; resolved $model, effort: ${effort:-inherit})"
     else
       DIFFERENT=$((DIFFERENT + 1))
       echo "  differs: $dest"
@@ -700,6 +849,7 @@ if [ -n "$PROJECT_ROSTER" ]; then
 else
   echo "  project roster: none (no .ia-engineering/Registry/employees.yml under the project — no Domain Employees)"
 fi
+echo "  mapping: $MAPPING_SOURCE"
 echo "  tiers:   Strategic Judgment -> $MAP_STRATEGIC (effort: ${EFFORT_STRATEGIC:-inherit}), Standard Execution -> $MAP_STANDARD (effort: ${EFFORT_STANDARD:-inherit})"
 echo "           Lightweight via Tier Override -> $MAP_LIGHTWEIGHT (effort: ${EFFORT_LIGHTWEIGHT:-inherit})"
 echo "           Frontier via Tier Override, Director approval each time -> $MAP_FRONTIER (effort: ${EFFORT_FRONTIER:-inherit})"
@@ -773,7 +923,17 @@ echo
 if [ "$CHECK" -eq 1 ]; then
   echo "Result: $UNCHANGED current, $DIFFERENT stale or missing"
   if [ "$DIFFERENT" -gt 0 ]; then
-    echo "  Generated agents are out of date with Employees/. Regenerate:"
+    if [ "$MAPPING_DRIFT" -gt 0 ]; then
+      echo "  $MAPPING_DRIFT differ in the tier mapping only (model/effort), not in their"
+      echo "  Employee definition: they were generated with a different mapping than the"
+      echo "  one resolved now (mapping: $MAPPING_SOURCE)."
+      echo "  Either regenerate with the resolved mapping, or record the mapping they were"
+      echo "  generated with in .ia-engineering/tier-map (Adapters/ai-runtimes/README.md)."
+    fi
+    if [ "$DIFFERENT" -gt "$MAPPING_DRIFT" ]; then
+      echo "  $((DIFFERENT - MAPPING_DRIFT)) out of date with Employees/ or the roster, or missing."
+    fi
+    echo "  Regenerate:"
     echo "    ./Adapters/ai-runtimes/generate-agents.sh --target $TARGET"
     exit 1
   fi
