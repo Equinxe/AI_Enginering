@@ -1224,3 +1224,9 @@ work_units:
     title: Let a project record its tier-to-model mapping in .ia-engineering/tier-map (map= and effort-map=, same syntax as the flags) so generate-agents.sh honours it on every regeneration - precedence per tier flags over the file over the target defaults, a malformed file refused with exit 2, the summary names the mapping source, and --check reports a mapping-only drift as one instead of blaming Employees/; this repository records the Director decision of 5 Oct 2026 (every Employee on Opus 5.5) and tracks the file; the script defaults are unchanged for adopters
     milestone: Precision
     delivers: Adapters/ai-runtimes/generate-agents.sh, Adapters/ai-runtimes/README.md, Adapters/scripts/tests/run.sh, .gitignore, .ia-engineering/tier-map, .ia-engineering/risk-map.yml, Registry/work-units.yml
+
+  - id: WU-IAENG-331
+    employee: Technical Lead
+    title: Make role absorption visible at dispatch time and record two practice conventions from the 6 Oct 2026 Engineering Manager check-up - the Employee Brief quotes the Core/EMPLOYEE_SELECTION.md trigger line it relies on and names the closest Miscasting pair rejected; Governance/DISPATCH_IN_PRACTICE.md states the only two cases where a non-Employee agent is acceptable (a naive-user test subject owned by the UX/UI Designer and QA Engineer, a vendor-documentation lookup owned by the AI Engineer) and replaces its stale hand count with the usage dashboard's headline; Core/MAIN_AGENT_CONDUCT.md records the Director's standing exception of 1 Oct 2026 letting the Main Agent execute the merge of an approved Pull Request into develop, never into main, never a release or a tag
+    milestone: Precision
+    delivers: Templates/EMPLOYEE_BRIEF.md, Governance/DISPATCH_IN_PRACTICE.md, Core/MAIN_AGENT_CONDUCT.md, Registry/work-units.yml

@@ -253,6 +253,8 @@ This rule has no size or convenience exception:
 
 **A git mutation performed by the Main Agent is a git mutation with no accountable Employee.** Like a self-authored file or a self-directed reading, it produces repository state with no traceable Standards Applied and no verifiable Definition of Done behind it. It must be re-dispatched correctly to the responsible Employee, not relabeled after the fact.
 
+**The one exception is the Director's own, standing since 1 October 2026: merging an approved Pull Request into `develop`.** When the Pull Request carries the reviews `Workflows/FEATURE_DEVELOPMENT.md` Step 8 requires and every required check is green, the Main Agent may execute that merge itself, pinned to the head commit the reviews and checks saw (`--match-head-commit`); it never merges into `main`, never cuts a release, never applies a tag, and every other mutation in this section is still dispatched.
+
 ---
 
 # Communication Rules
@@ -318,7 +320,7 @@ A successful execution is one where:
 
 # Document Metadata
 
-Version: 0.0.6
+Version: 0.0.7
 
 Status: Stable
 
