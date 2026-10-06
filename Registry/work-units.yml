@@ -1237,6 +1237,12 @@ work_units:
     milestone: Precision
     delivers: Adapters/scripts/usage-dashboard.cmd, .gitattributes, Adapters/scripts/tests/run.sh, Adapters/README.md, Governance/DISPATCH_IN_PRACTICE.md, Governance/TROUBLESHOOTING.md, Registry/work-units.yml
 
+  - id: WU-IAENG-330
+    employee: Observability Engineer
+    title: Make the usage dashboard live and per project - --watch [SECONDS] (default and minimum 10) rebuilds the page until Ctrl-C, the page reloads itself and shows its last update, a cycle is skipped when neither HEAD nor any transcript changed, the git half is cached per HEAD and the collector re-reads only grown transcripts from their last complete line through a per-file record cache; run from inside a framework submodule the dashboard measures the including project; the runtime's CLAUDE_CODE_PROJECT_DIR_NAME is honoured; the per-project behaviour, the same-path caveat and the transcript retention window are documented
+    milestone: Precision
+    delivers: Adapters/scripts/usage-dashboard.sh, Adapters/ai-runtimes/claude-code/usage-collect.sh, Adapters/scripts/tests/run.sh, Adapters/README.md, Governance/DISPATCH_IN_PRACTICE.md, Registry/work-units.yml
+
   - id: WU-IAENG-331
     employee: Technical Lead
     title: Make role absorption visible at dispatch time and record two practice conventions from the 6 Oct 2026 Engineering Manager check-up - the Employee Brief quotes the Core/EMPLOYEE_SELECTION.md trigger line it relies on and names the closest Miscasting pair rejected; Governance/DISPATCH_IN_PRACTICE.md states the only two cases where a non-Employee agent is acceptable (a naive-user test subject owned by the UX/UI Designer and QA Engineer, a vendor-documentation lookup owned by the AI Engineer) and replaces its stale hand count with the usage dashboard's headline; Core/MAIN_AGENT_CONDUCT.md records the Director's standing exception of 1 Oct 2026 letting the Main Agent execute the Step 8 merge of a Pull Request into develop and delete its merged branch once every required approval is on the current head and the required checks are green there, pinned to that head, never into main or a release branch, never a back-merge, tag, release or conflict resolution; Workflows/FEATURE_DEVELOPMENT.md Step 8 and Registry/workflows.yml name the Main Agent as a permitted executor of that merge, and Step 8 requires QA sign-off only when the Pull Request changes executable behaviour (Director, 6 Oct 2026)
