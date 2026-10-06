@@ -3722,6 +3722,49 @@ expect 3 "collector: an empty transcript directory is 'none found' (3), not an e
 expect 1 "collector: an explicit transcript directory that does not exist is an error" -- \
   bash "$COLLECT" --transcripts-dir "$WORK/usage-no-such-dir"
 
+# ------------------------------------------------- usage-dashboard.cmd ------
+# WU-IAENG-329. The Windows launcher cannot be run on the Linux CI runner, so
+# its contract is pinned statically: it exists, it is CRLF where cmd.exe reads
+# it (the attribute, and the bytes actually checked out), it runs the script
+# with --open, and it never runs the PATH's `bash` — in PowerShell and cmd that
+# is WSL's System32\bash.exe, the defect this launcher exists to avoid
+# (Governance/TROUBLESHOOTING.md, entry AA).
+
+LAUNCHER="$SCRIPTS/usage-dashboard.cmd"
+section "usage-dashboard.cmd"
+
+expect 0 "launcher: usage-dashboard.cmd exists" -- test -f "$LAUNCHER"
+expect 0 "launcher: .gitattributes checks it out CRLF" -- \
+  grep -qx 'Adapters/scripts/usage-dashboard.cmd: eol: crlf' \
+    <<< "$(git -C "$SCRIPTS/../.." check-attr eol -- Adapters/scripts/usage-dashboard.cmd)"
+# Counted in bytes with tr, not with a grep for a trailing CR: while this test
+# was written, such a grep inside a function counted every line of an LF file
+# as CR-terminated under Git for Windows, so the assertion passed on the very
+# file it exists to reject. As many CR as LF bytes, and the file ends in CR LF,
+# so its last line is terminated too.
+crlf_every_line() {
+  local cr lf
+  [ -s "$1" ] || return 1
+  cr="$(tr -cd '\r' < "$1" | wc -c | tr -d ' ')"
+  lf="$(tr -cd '\n' < "$1" | wc -c | tr -d ' ')"
+  [ "$cr" = "$lf" ] && [ "$(tail -c 2 "$1" | od -An -c | tr -d ' ')" = '\r\n' ]
+}
+expect 0 "launcher: every line of the checked-out file ends in CRLF" -- \
+  crlf_every_line "$LAUNCHER"
+expect 0 "launcher: it runs usage-dashboard.sh --open, passing arguments through" -- \
+  grep -qF 'usage-dashboard.sh" --open %*' "$LAUNCHER"
+expect 0 "launcher: it runs Git for Windows' own bin\\bash.exe" -- \
+  grep -qF '"%IAENG_GITROOT%\bin\bash.exe"' "$LAUNCHER"
+# Outside rem comments and echoed messages, `bash` may appear only as the
+# resolved bin\bash.exe.
+bare_bash_lines() {
+  tr -d '\r' < "$1" \
+    | grep -viE '^[[:space:]]*(@?rem|::|echo)([[:space:]]|$)' \
+    | grep -iE '(^|[^\\a-z_.-])bash(\.exe)?([^a-z_.-]|$)'
+}
+expect 1 "launcher: no bare bash (PATH lookup reaches WSL in PowerShell and cmd)" -- \
+  bare_bash_lines "$LAUNCHER"
+
 # --------------------------------------------------------------- verdict ----
 
 cd "$HERE" || exit 1
