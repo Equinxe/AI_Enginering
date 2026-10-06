@@ -23,7 +23,10 @@
 #     refs/HEADS/DEVELOP, refs/heads/Release/v1) is refused outright, with no
 #     creation exception: on a case-insensitive remote with packed refs it
 #     overwrites the protected branch while git reports it as a creation
-#     (SEC-IAENG-179-02, SEC-IAENG-199-01). The fold is locale-independent
+#     (SEC-IAENG-179-02, SEC-IAENG-199-01). That includes a name under the
+#     exact release/ prefix with an upper-case letter after it
+#     (refs/heads/release/V1 lands on release/v1): a ref under a protected
+#     name must be all-lowercase. The fold is locale-independent
 #     (SEC-IAENG-199-02).
 #
 # A hook sees only what git reports on stdin. `git push --mirror` does not
@@ -97,8 +100,15 @@ while read -r _ local_sha remote_ref remote_sha; do
   # Folded with LC_ALL=C and explicit A-Z ranges: bash 3.2 has no ${v,,}, and
   # `tr '[:upper:]' '[:lower:]'` follows the locale — under a Turkish locale
   # I folds to dotless i and MAIN no longer reads as main (SEC-IAENG-199-02).
-  if [ -z "$kind" ]; then
-    lower_ref="$(printf '%s' "$remote_ref" | LC_ALL=C tr 'ABCDEFGHIJKLMNOPQRSTUVWXYZ' 'abcdefghijklmnopqrstuvwxyz')"
+  #
+  # RUN FOR EVERY REF, the exact release prefix included (review of PR #199,
+  # M1). refs/heads/release/V1 carries the exact prefix, so it classified as a
+  # release branch and took the creation exception — and on a packed
+  # case-insensitive remote it overwrote the existing release/v1. A ref under
+  # a protected name in any case must be spelled all-lowercase: release branch
+  # names are lowercase (Workflows/RELEASE.md), so the rule costs no workflow.
+  lower_ref="$(printf '%s' "$remote_ref" | LC_ALL=C tr 'ABCDEFGHIJKLMNOPQRSTUVWXYZ' 'abcdefghijklmnopqrstuvwxyz')"
+  if [ "$lower_ref" != "$remote_ref" ]; then
     variant_of=""
     for protected in "${PROTECTED_BRANCHES[@]}"; do
       [ "$lower_ref" = "refs/heads/$protected" ] && variant_of="$protected"
@@ -108,13 +118,15 @@ while read -r _ local_sha remote_ref remote_sha; do
     esac
     if [ -n "$variant_of" ]; then
       echo "pre-push: rejected — '$remote_ref' differs from the protected branch name '$variant_of' only by case." >&2
+      echo "  A ref under a protected name must be spelled all-lowercase." >&2
       echo "  On a case-insensitive remote it can overwrite the protected branch itself." >&2
       echo "  Per Standards/BRANCH_STANDARD.md, use the exact lowercase name through a" >&2
       echo "  Pull Request, or choose a branch name that is not a protected name." >&2
       exit 1
     fi
-    continue
   fi
+
+  [ -z "$kind" ] && continue
 
   if ! is_zero_sha "$local_sha" && is_zero_sha "$remote_sha"; then
     # Creation of an absent protected branch — see the header.

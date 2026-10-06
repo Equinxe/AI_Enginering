@@ -3663,6 +3663,21 @@ for pp_variant in refs/Heads/main refs/HEADS/develop refs/Heads/release/v1 REFS/
     "${PP[@]}" "refs/heads/x $PP_NEW $pp_variant $PP_ZERO"
   expect_output "'$pp_variant' differs from the protected branch name"
 done
+# Review of PR #199, M1: refs/heads/release/V1 carries the EXACT release/
+# prefix, so it classified as a release branch and took the creation
+# exception; on a packed case-insensitive remote it moved the existing
+# release/v1. A ref under a protected name must be all-lowercase.
+for pp_variant in refs/heads/release/V1 refs/heads/release/v1.0.0-RC1 refs/heads/release/v9.9.9-RC1; do
+  expect 1 "creating $pp_variant is refused (upper case after the exact release/ prefix)" -- \
+    "${PP[@]}" "refs/heads/x $PP_NEW $pp_variant $PP_ZERO"
+  expect_output "'$pp_variant' differs from the protected branch name"
+done
+expect 1 "updating refs/heads/release/V1 is refused" -- \
+  "${PP[@]}" "refs/heads/x $PP_NEW refs/heads/release/V1 $PP_OLD"
+expect 0 "an all-lowercase release/v9.9.9-rc1 is still created" -- \
+  "${PP[@]}" "refs/heads/release/v9.9.9-rc1 $PP_NEW refs/heads/release/v9.9.9-rc1 $PP_ZERO"
+expect 0 "an upper-case feature branch (feature/ABC-1) is unaffected" -- \
+  "${PP[@]}" "refs/heads/feature/ABC-1 $PP_NEW refs/heads/feature/ABC-1 $PP_ZERO"
 expect 0 "a tag spelled refs/Tags/main is not a branch ref and is allowed" -- \
   "${PP[@]}" "refs/tags/main $PP_NEW refs/Tags/main $PP_ZERO"
 
@@ -3705,7 +3720,7 @@ expect 1 "real push: HEAD:refs/heads/Main into a packed remote is refused" -- \
   git push -q "$PPC_REMOTE" HEAD:refs/heads/Main
 expect_output "'refs/heads/Main' differs from the protected branch name 'main' only by case"
 # SEC-IAENG-199-01, real pushes: a variant in the ref path itself.
-for ppc_ref in refs/Heads/main refs/HEADS/develop refs/Heads/release/v1; do
+for ppc_ref in refs/Heads/main refs/HEADS/develop refs/Heads/release/v1 refs/heads/release/V1; do
   expect 1 "real push: HEAD:$ppc_ref into a packed remote is refused" -- \
     git push -q "$PPC_REMOTE" "HEAD:$ppc_ref"
   expect_output "'$ppc_ref' differs from the protected branch name"

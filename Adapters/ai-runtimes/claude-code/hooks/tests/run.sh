@@ -158,6 +158,10 @@ expect_hint "hooksPath: a real set is refused without the read hint" \
   'git config core.hooksPath /dev/null' 0
 expect_hint "hooksPath: a real set beside a quote is refused without the read hint" \
   'cd "/x" && git config --local core.hooksPath /dev/null' 0
+expect_hint "hooksPath: a legacy read beside a real set gets no read hint (one message, whole command)" \
+  'cd "/x" && git config core.hooksPath && git config core.hooksPath /dev/null' 0
+expect_hint "hooksPath: a legacy read beside a -c write gets no read hint" \
+  'cd "/x" && git config core.hooksPath; git -c core.hooksPath=/dev/null commit' 0
 expect_rc "inline-suppression: refuses a directive in code" 2 "$HOOKS/block-inline-suppression.sh" "$PAY_CODE"
 expect_rc "inline-suppression: allows it in documentation"  0 "$HOOKS/block-inline-suppression.sh" "$PAY_DOC"
 

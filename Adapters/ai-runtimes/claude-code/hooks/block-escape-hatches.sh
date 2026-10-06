@@ -197,8 +197,12 @@ HOOKSPATH_WRITE=0
 # A refused segment that is shaped like the legacy read (nothing after the key)
 # and was refused only because LEGACY_OK withheld the exemption. The refusal
 # stands; the message gains the unambiguous read to run instead (WU-IAENG-328,
-# NEW-3), since "setting core.hooksPath" misdescribes what was typed.
+# NEW-3), since "setting core.hooksPath" misdescribes what was typed. The
+# hint is printed only when NO refused segment is a real write: one message
+# covers the whole command, so a read beside a set must not suggest the
+# command was only a read.
 HOOKSPATH_READ_HINT=0
+HOOKSPATH_REAL_WRITE=0
 # Gate: a command whose stripped text never contains the key (any case) cannot
 # trip the loop, so skip its forks. Judged on STRIPPED, where a split key is
 # already rejoined; bash 3.2 has no ${var,,}, so the case is folded by the pattern.
@@ -211,15 +215,22 @@ case "$STRIPPED" in
         :
       else
         HOOKSPATH_WRITE=1
-        grep -qiE -- "$READ_HOOKSPATH_LEGACY" <<< "$SEG" && HOOKSPATH_READ_HINT=1
+        if grep -qiE -- "$READ_HOOKSPATH_LEGACY" <<< "$SEG"; then
+          HOOKSPATH_READ_HINT=1
+        else
+          HOOKSPATH_REAL_WRITE=1
+        fi
       fi
-      grep -qiE -- "$WRITE_HOOKSPATH_VIA_C" <<< "$SEG" && HOOKSPATH_WRITE=1
+      if grep -qiE -- "$WRITE_HOOKSPATH_VIA_C" <<< "$SEG"; then
+        HOOKSPATH_WRITE=1
+        HOOKSPATH_REAL_WRITE=1
+      fi
     done < <(printf '%s\n' "$STRIPPED" | tr ';&|' '\n')
     ;;
 esac
 if [ "$HOOKSPATH_WRITE" -eq 1 ]; then
   HOOKSPATH_REASON="setting core.hooksPath disables every git hook — the same effect as --no-verify, written as configuration"
-  if [ "$HOOKSPATH_READ_HINT" -eq 1 ]; then
+  if [ "$HOOKSPATH_READ_HINT" -eq 1 ] && [ "$HOOKSPATH_REAL_WRITE" -eq 0 ]; then
     HOOKSPATH_REASON="$HOOKSPATH_REASON; if this is a read, run \`git config --get core.hooksPath\`"
   fi
   iaeng_block "$HOOKSPATH_REASON" \
