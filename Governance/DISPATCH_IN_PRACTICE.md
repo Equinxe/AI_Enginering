@@ -29,6 +29,29 @@ What it does settle: **dispatching an Employee is not, by itself, how Employee d
 
 ---
 
+# Measuring Usage
+
+The table above was counted by hand, once. `Adapters/scripts/usage-dashboard.sh` counts it on demand, for this repository or any project that adopted the framework:
+
+```bash
+Adapters/scripts/usage-dashboard.sh --project-dir <project> [--open]
+```
+
+It writes one self-contained page (default `.ia-engineering/usage/dashboard.html`, gitignored) showing, per Employee on the roster, its dispatches from the AI runtime's local transcripts, its commits from `Employee:` trailers, and its registered Work Units — with the Employees that have none marked **NEVER USED** — and, per Agent Chain, which steps' Employees are never exercised. It also shows the models doing the work and the tokens per day. Aggregates only: no prompt, reply or file content reaches the page (`Standards/DATA_PROTECTION_STANDARD.md`).
+
+The decisions it informs, and the first question each one raises:
+
+| What the page shows | First question | Whose decision |
+|---|---|---|
+| An Employee **never used** | Is its trigger in `Core/EMPLOYEE_SELECTION.md` reachable from the work this project does? A trigger that never fires is a trigger to fix; work the project never has is a role it may not need | Trigger fix: an ordinary Work Unit. Removing, merging or adding an Employee: **the Director** (`Governance/DEPRECATION_POLICY.md`) |
+| A chain step **never exercised** | Was the chain run at all (no production, no Incident Chain), or did the Main Agent route around the step? The second is a Dispatch Discipline finding, not a roster one | Reworking a chain: **the Director** — `Core/AGENT_CHAINS.md` is a governed document |
+| A dispatched agent type that is **not an Employee** | Was that work done without an accountable Employee (`Core/MAIN_AGENT_CONDUCT.md`, Dispatch Discipline)? | The Main Agent's own conduct; when it repeats, an Issue |
+| A requested model out of line with the Employee's tier | Does the brief's model match `Core/CAPABILITY_TIERS.md`? | Main Agent; changing a tier is a Director decision |
+
+**The page informs; it decides nothing.** Zero use is evidence to examine, not a verdict: a rarely used Employee may be exactly as rare as its work. Roster and chain changes remain Director decisions, presented with the page's numbers as the evidence — the same rule as every other change to the framework's structure. The page's own footer lists what it cannot tell you: cost without configured prices, time saved, quality, and whether a chain ran end to end.
+
+---
+
 # What practice added to the protocol
 
 Five things that are true in use and are not obvious from reading `Core/ORCHESTRATION.md`.

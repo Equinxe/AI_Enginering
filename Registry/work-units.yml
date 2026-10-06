@@ -1212,3 +1212,9 @@ work_units:
     title: Bootstrap closing report - SESSION_STATE after the first commit; the adoption commit's signer
     milestone: Precision
     delivers: Adapters/scripts/setup-project-bootstrap.sh, Registry/work-units.yml
+
+  - id: WU-IAENG-326
+    employee: Observability Engineer
+    title: Add a local usage dashboard for roster and chain tuning - usage-dashboard.sh builds one self-contained HTML page (no network, gitignored) from git trailers, the rosters, the chain and Work Unit registries, and a Claude Code collector that stream-parses the project's transcripts into dispatches, models and tokens per day, deduplicated by message id; never-used Employees and unexercised chain steps are marked; aggregates only, pinned by a privacy test
+    milestone: Precision
+    delivers: Adapters/scripts/usage-dashboard.sh, Adapters/ai-runtimes/claude-code/usage-collect.sh, Adapters/scripts/tests/run.sh, Adapters/scripts/install.sh, .gitignore, Adapters/README.md, Governance/DISPATCH_IN_PRACTICE.md, Registry/work-units.yml

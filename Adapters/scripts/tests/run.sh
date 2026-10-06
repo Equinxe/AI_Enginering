@@ -1293,6 +1293,14 @@ if ln -s "$FRAMEWORK_ROOT" ia-engineering 2>/dev/null; then
   fi
 
   TOTAL=$((TOTAL + 1))
+  if grep -qxF ".ia-engineering/usage/" .gitignore 2>/dev/null; then
+    [ -n "$VERBOSE" ] && printf '   ok   adopter .gitignore ignores .ia-engineering/usage/ (usage-dashboard.sh output)\n'
+  else
+    printf '   FAIL adopter .gitignore does not ignore .ia-engineering/usage/\n'
+    FAILED=$((FAILED + 1))
+  fi
+
+  TOTAL=$((TOTAL + 1))
   if [ -f .gitattributes ] && grep -qF '/Adapters/**' .gitattributes; then
     printf '   FAIL adopter .gitattributes carries the framework-only /Adapters/** rule\n'
     FAILED=$((FAILED + 1))
@@ -3426,6 +3434,293 @@ expect 1 "bootstrap: deleting develop is refused" -- \
   git push -q "$PPB_REMOTE" :refs/heads/develop
 expect 0 "bootstrap: develop survived the refused deletion" -- \
   git --git-dir="$PPB_REMOTE" rev-parse -q --verify refs/heads/develop
+
+# ------------------------------------------------- usage-dashboard.sh -------
+# WU-IAENG-326. A fixture repository with trailers and a synthetic transcript
+# directory: the page must carry the aggregates, and must NOT carry any of the
+# content the sources hold — every free-text field in the fixtures contains an
+# OBS326-SENTINEL marker, and no marker may reach the page.
+
+DASH="$SCRIPTS/usage-dashboard.sh"
+COLLECT="$SCRIPTS/../ai-runtimes/claude-code/usage-collect.sh"
+
+section "usage-dashboard.sh"
+
+new_repo usage-basic
+write_employee_roster "DevOps Engineer" "Observability Engineer" "Backend Engineer" "Scrum Master"
+cat > Registry/chains.yml <<'CHAINS'
+chains:
+
+  - name: Test Chain
+    workflow: Workflows/TEST.md
+    steps:
+      - employee: DevOps Engineer
+        produces: something
+      - gate: Director
+        when: Always
+        blocks: Delivery
+      - employee: Scrum Master
+        when: Something rare happens
+        produces: something else
+      - employee: Engineer
+        produces: the implementation
+CHAINS
+cat > Registry/work-units.yml <<'WUS'
+work_units:
+  - id: WU-TEST-001
+    employee: DevOps Engineer
+    title: OBS326-SENTINEL-WU-TITLE
+    milestone: Testing
+  - id: WU-TEST-002
+    employee: Observability Engineer
+    title: another
+    milestone: Testing
+WUS
+git add -A && git commit -q -m "registries"
+commit_with "feat: before the tag" "OBS326-SENTINEL-COMMIT-BODY" "" "Work Unit: WU-TEST-001" "" \
+  "Employee: DevOps Engineer" "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
+git tag v1
+commit_with "feat: after the tag" "Work Unit: WU-TEST-001" "" \
+  "Employee: DevOps Engineer" "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
+commit_with "feat: observability" "Work Unit: WU-TEST-002" "" \
+  "Employee: Observability Engineer" "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+# Trailer-looking lines in the BODY are not attribution (F3): only the final
+# trailer block counts, and the model is the runtime co-author's, not the
+# first co-author's.
+commit_with "feat: real trailers only" "Employee: Scrum Master" \
+  "Co-Authored-By: OBS326 Human <human@example.invalid>" "" "Work Unit: WU-TEST-002" "" \
+  "Employee: Observability Engineer" "Co-Authored-By: OBS326 Human <human@example.invalid>" \
+  "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+USAGE_REPO="$PWD"
+
+# The transcript: msg_A is written twice (one line per content block, as the
+# runtime does) and must count once; the last two lines are a truncated write
+# and a non-object, which must be skipped without losing the file.
+UT="$WORK/usage-transcripts"
+rm -rf "$UT"
+mkdir -p "$UT/s1/subagents"
+cat > "$UT/s1.jsonl" <<'JSONL'
+{"type":"user","timestamp":"2026-10-01T09:59:00Z","message":{"role":"user","content":"OBS326-SENTINEL-PROMPT"}}
+{"type":"assistant","timestamp":"2026-10-01T10:00:00Z","message":{"id":"msg_A","model":"claude-test-1","content":[{"type":"text","text":"OBS326-SENTINEL-REPLY"}],"usage":{"input_tokens":100,"output_tokens":50,"cache_creation_input_tokens":10,"cache_read_input_tokens":1000}}}
+{"type":"assistant","timestamp":"2026-10-01T10:00:01Z","message":{"id":"msg_A","model":"claude-test-1","content":[{"type":"tool_use","id":"toolu_1","name":"Agent","input":{"subagent_type":"observability-engineer","model":"opus","description":"OBS326-SENTINEL-DESC","prompt":"OBS326-SENTINEL-DISPATCH-PROMPT"}}],"usage":{"input_tokens":100,"output_tokens":50,"cache_creation_input_tokens":10,"cache_read_input_tokens":1000}}}
+{"type":"user","timestamp":"2026-10-01T10:00:02Z","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_1","content":"OBS326-SENTINEL-TOOL-RESULT"}]}}
+{"type":"assistant","timestamp":"2026-10-02T08:00:00Z","message":{"id":"msg_B","model":"claude-test-2","content":[{"type":"tool_use","id":"toolu_2","name":"Agent","input":{"subagent_type":"devops-engineer","prompt":"OBS326-SENTINEL-SECOND-PROMPT"}}],"usage":{"input_tokens":1,"output_tokens":2,"cache_creation_input_tokens":3,"cache_read_input_tokens":4}}}
+{"type":"assistant","message":{"id":"msg_TRUNC
+42
+JSONL
+cat > "$UT/s1/subagents/agent-x.jsonl" <<'JSONL'
+{"type":"assistant","isSidechain":true,"timestamp":"2026-10-02T08:00:05Z","message":{"id":"msg_C","model":"claude-test-1","content":[{"type":"text","text":"OBS326-SENTINEL-SUBAGENT-REPLY"},{"type":"tool_use","id":"toolu_3","name":"Agent","input":{"subagent_type":"general-purpose","prompt":"OBS326-SENTINEL-NESTED"}}],"usage":{"input_tokens":5,"output_tokens":5,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}
+JSONL
+printf '%s\n' '{"agentType":"observability-engineer","description":"OBS326-SENTINEL-META"}' > "$UT/s1/subagents/agent-x.meta.json"
+
+UPAGE="$WORK/usage-out/dashboard.html"
+expect 0 "dashboard: builds the page from git and a transcript directory" -- \
+  bash "$DASH" --project-dir "$USAGE_REPO" --out "$UPAGE" --transcripts-dir "$UT"
+expect_output "source found: Claude Code transcripts"
+expect_output "Employees: 4 on roster, 2 never used"
+expect 0 "dashboard: the page exists" -- test -s "$UPAGE"
+# Aggregates, read from the page's embedded data block (field order is fixed
+# by the script's jq, so a literal match is exact).
+expect 0 "dashboard: Observability Engineer has 1 dispatch, 2 commits in range, 2 all time, 1 Work Unit" -- \
+  grep -qF '"name":"Observability Engineer","roster":"framework","dispatches":1,"commits_range":2,"commits_all":2,"work_units":1' "$UPAGE"
+expect 0 "dashboard: the model is the runtime co-author's, not the first co-author's" -- \
+  grep -qF '{"model":"Claude Opus 5.5","commits_all":2,"commits_range":2}' "$UPAGE"
+expect 1 "dashboard: a non-runtime co-author's name is not shown as a model" -- grep -qF 'OBS326 Human' "$UPAGE"
+expect 0 "dashboard: DevOps Engineer has 1 commit since v1 and 2 all time" -- \
+  grep -qF '"name":"DevOps Engineer","roster":"framework","dispatches":1,"commits_range":1,"commits_all":2,"work_units":1' "$UPAGE"
+expect 0 "dashboard: an Employee with no activity is marked never used" -- \
+  grep -qF '"name":"Scrum Master","roster":"framework","dispatches":0,"commits_range":0,"commits_all":0,"work_units":0,"activity":0,"status":"never"' "$UPAGE"
+expect 0 "dashboard: never-used is labelled in text, not by colour alone" -- grep -qF 'NEVER USED' "$UPAGE"
+expect 0 "dashboard: a message written on two lines is counted once (input 106, not 206)" -- \
+  grep -qF '"tokens":{"calls":3,"input":106,"output":57,"cw":13,"cr":1004,"total":1180' "$UPAGE"
+expect 0 "dashboard: a non-Employee agent type is listed apart" -- \
+  grep -qF '"other_agents":[{"type":"general-purpose","dispatches":1}]' "$UPAGE"
+expect 0 "dashboard: chain coverage counts the unexercised steps" -- \
+  grep -qF 'Test Chain - 1 of 3 Employee steps exercised' "$UPAGE"
+expect 0 "dashboard: commits per model come from Co-Authored-By" -- \
+  grep -qF '{"model":"Claude Sonnet 5.5","commits_all":2,"commits_range":1}' "$UPAGE"
+expect 0 "dashboard: subagent tokens are attributed to the agent type from .meta.json" -- \
+  grep -qF '"agent":"observability-engineer"' "$UPAGE"
+expect 0 "dashboard: the range is the latest tag" -- grep -qF 'since v1' "$UPAGE"
+expect 0 "dashboard: no cost without prices, and the page says so" -- grep -qF 'No cost is shown' "$UPAGE"
+# Privacy: nothing written as content in any source reaches the page.
+expect 1 "dashboard privacy: no prompt, reply, tool, commit-body or registry text in the page" -- \
+  grep -qF 'OBS326-SENTINEL' "$UPAGE"
+expect 1 "dashboard privacy: no co-author e-mail address in the page" -- grep -qF 'noreply@' "$UPAGE"
+expect 1 "dashboard: self-contained, no URL to fetch anything from" -- grep -qE 'https?://' "$UPAGE"
+
+printf 'claude-test-1\t1000000\t2000000\t3000000\t4000000\n' > "$WORK/usage-prices.tsv"
+expect 0 "dashboard: --prices computes a cost per model" -- \
+  bash "$DASH" --project-dir "$USAGE_REPO" --out "$UPAGE" --transcripts-dir "$UT" --prices "$WORK/usage-prices.tsv"
+expect 0 "dashboard: the cost is input+output+cache write+cache read at the stated prices" -- \
+  grep -qF ">\$4245<" "$UPAGE"
+
+# F1/F2/F6 (PR #196 review): a model writes subagent_type, model and
+# agentType itself, so prose or a credential can arrive in any of them. Each
+# leak below is shaped like ordinary text: with a space, longer than 64
+# characters, credential-shaped, or a timestamp that is not a date. None may
+# reach the page. The same fixture checks named-teammate attribution: a
+# subagent's agentType is the dispatch NAME, resolved through the dispatch to
+# its type, or through toolUseId when the meta carries one.
+UT2="$WORK/usage-transcripts-leak"
+rm -rf "$UT2"
+mkdir -p "$UT2/s2/subagents"
+cat > "$UT2/s2.jsonl" <<'JSONL'
+{"type":"assistant","timestamp":"TSLEAKXYZW-not-a-date","message":{"id":"msg_L1","model":"OBS326-LEAK model with spaces","content":[{"type":"tool_use","id":"toolu_L1","name":"Agent","input":{"subagent_type":"OBS326-LEAK the database password is hunter2","model":"OBS326-LEAK opus please"}}],"usage":{"input_tokens":"OBS326-LEAK-COUNT","output_tokens":1,"cache_creation_input_tokens":null,"cache_read_input_tokens":0}}}
+{"type":"assistant","timestamp":"2026-10-03T08:00:00Z","message":{"id":"msg_L2","model":"OBS326LEAKLONGxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx","content":[{"type":"tool_use","id":"toolu_L2","name":"Agent","input":{"subagent_type":"OBS326LEAKLONGxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx","model":"OBS326LEAKLONGxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"}}],"usage":{"input_tokens":1,"output_tokens":1,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}
+{"type":"assistant","timestamp":"2026-10-03T08:01:00Z","message":{"id":"msg_L3","model":"claude-test-1","content":[{"type":"tool_use","id":"toolu_L3","name":"Agent","input":{"subagent_type":"AKIAOBS326LEAKZZ","model":"sonnet"}},{"type":"tool_use","id":"toolu_T1","name":"Agent","input":{"subagent_type":"devops-engineer","name":"lexer-attack"}},{"type":"tool_use","id":"toolu_T2","name":"Agent","input":{"subagent_type":"security-engineer","name":"OBS326-LEAK name with space"}}],"usage":{"input_tokens":1,"output_tokens":1,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}
+JSONL
+printf '%s\n' '{"type":"assistant","timestamp":"2026-10-03T08:02:00Z","message":{"id":"msg_T1","model":"claude-test-1","content":[],"usage":{"input_tokens":3,"output_tokens":3,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}' > "$UT2/s2/subagents/agent-t.jsonl"
+printf '%s\n' '{"agentType":"lexer-attack"}' > "$UT2/s2/subagents/agent-t.meta.json"
+printf '%s\n' '{"type":"assistant","timestamp":"2026-10-03T08:03:00Z","message":{"id":"msg_T2","model":"claude-test-1","content":[],"usage":{"input_tokens":4,"output_tokens":4,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}' > "$UT2/s2/subagents/agent-u.jsonl"
+printf '%s\n' '{"agentType":"OBS326-LEAK meta with space","toolUseId":"toolu_T2"}' > "$UT2/s2/subagents/agent-u.meta.json"
+printf '%s\n' '{"type":"assistant","timestamp":"2026-10-03T08:04:00Z","message":{"id":"msg_T3","model":"claude-test-1","content":[],"usage":{"input_tokens":5,"output_tokens":5,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}' > "$UT2/s2/subagents/agent-v.jsonl"
+printf '%s\n' '{"agentType":"OBS326LEAKLONGxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"}' > "$UT2/s2/subagents/agent-v.meta.json"
+
+expect 0 "collector: malformed values are aggregated without a jq error" -- \
+  bash "$COLLECT" --transcripts-dir "$UT2"
+expect 1 "collector: nothing went to jq's error output" -- grep -qF 'jq:' <<< "$LAST_OUTPUT"
+UPAGE2="$WORK/usage-out/leak.html"
+expect 0 "dashboard: builds from the malformed transcript" -- \
+  bash "$DASH" --project-dir "$USAGE_REPO" --out "$UPAGE2" --transcripts-dir "$UT2"
+expect 1 "dashboard privacy: no value with a space reaches the page (subagent_type, model, name, agentType)" -- \
+  grep -qF 'OBS326-LEAK' "$UPAGE2"
+expect 1 "dashboard privacy: no value longer than 64 characters reaches the page" -- \
+  grep -qF 'OBS326LEAKLONG' "$UPAGE2"
+expect 1 "dashboard privacy: a credential-shaped agent type is redacted" -- grep -qF 'AKIAOBS326' "$UPAGE2"
+expect 0 "dashboard privacy: the redacted bucket is shown instead" -- grep -qF '(redacted)' "$UPAGE2"
+expect 0 "dashboard privacy: the unrecognised bucket is shown instead" -- grep -qF '(unrecognised)' "$UPAGE2"
+expect 1 "dashboard privacy: a timestamp that is not a date does not reach the page" -- grep -qF 'TSLEAKXYZW' "$UPAGE2"
+expect 0 "dashboard: a timestamp that is not a date counts under 'unknown'" -- grep -qF '"day":"unknown"' "$UPAGE2"
+expect 0 "dashboard: a teammate's tokens go to its dispatch's type, not its name" -- \
+  grep -qF '"agent":"devops-engineer"' "$UPAGE2"
+expect 1 "dashboard: the teammate name itself is not used as the agent" -- grep -qF '"agent":"lexer-attack"' "$UPAGE2"
+expect 0 "dashboard: a subagent is attributed through its toolUseId" -- \
+  grep -qF '"agent":"security-engineer"' "$UPAGE2"
+
+# The default lookup: <config>/projects/<slug>, the slug being the project's
+# native absolute path with every non-alphanumeric character turned to '-'.
+USAGE_NATIVE="$(cd "$USAGE_REPO" && pwd -P)"
+if command -v cygpath >/dev/null 2>&1; then USAGE_NATIVE="$(cygpath -w "$USAGE_NATIVE")"; fi
+USAGE_SLUG="$(printf '%s' "$USAGE_NATIVE" | sed 's/[^A-Za-z0-9]/-/g')"
+rm -rf "$WORK/usage-slug-config"
+mkdir -p "$WORK/usage-slug-config/projects/$USAGE_SLUG"
+cp -R "$UT/." "$WORK/usage-slug-config/projects/$USAGE_SLUG/"
+expect 0 "dashboard: finds the transcripts by the project's slug without --transcripts-dir" -- \
+  env CLAUDE_CONFIG_DIR="$WORK/usage-slug-config" bash "$DASH" --project-dir "$USAGE_REPO" --out "$UPAGE"
+expect_output "source found: Claude Code transcripts"
+expect 0 "dashboard: the slug-found transcripts carry the same dispatch" -- \
+  grep -qF '"name":"Observability Engineer","roster":"framework","dispatches":1' "$UPAGE"
+
+# R1 (PR #196 security re-review): one dispatch per credential family, each
+# as a subagent_type. All nine must count under (redacted) — including the
+# ones whose `_` the shape alone would only have called unrecognised — and
+# none may reach the page. The values are deliberately short of the real
+# formats' lengths, so no secret scanner mistakes the fixture for a key.
+UT3="$WORK/usage-transcripts-secret"
+rm -rf "$UT3"
+mkdir -p "$UT3"
+{
+  i=0
+  for v in AIzaOBS326aaaaaaaaaaaaaaaa eyJOBS326abc.def hf_OBS326aaaaaaaaaaaaaaaa glpat-OBS326aaaa \
+           npm_OBS326aaaaaaaaaaaaaaaa xapp-OBS326-1-aaaa ASIAOBS326ZZZZZZ rk_live_OBS326aaaa \
+           OBS326aaaaaaaaaaaaaaaaaaaaaaaaaa; do
+    i=$((i + 1))
+    printf '{"type":"assistant","timestamp":"2026-10-04T08:00:00Z","message":{"id":"msg_S%s","model":"claude-test-1","content":[{"type":"tool_use","id":"toolu_S%s","name":"Agent","input":{"subagent_type":"%s"}}],"usage":{"input_tokens":1,"output_tokens":1,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}\n' "$i" "$i" "$v"
+  done
+} > "$UT3/s3.jsonl"
+UPAGE3="$WORK/usage-out/secret.html"
+expect 0 "dashboard: builds from credential-shaped agent types" -- \
+  bash "$DASH" --project-dir "$USAGE_REPO" --out "$UPAGE3" --transcripts-dir "$UT3"
+expect 0 "dashboard privacy: all nine credential families count as (redacted)" -- \
+  grep -qF '{"type":"(redacted)","model":"inherit","n":9}' "$UPAGE3"
+expect 1 "dashboard privacy: no credential-shaped value reaches the page" -- grep -qF 'OBS326' "$UPAGE3"
+
+# The collector and the dashboard carry the same expression, by design in two
+# places (the git half must not depend on the runtime half being present).
+expect 0 "dashboard and collector redact with the same SECRET_RE" -- \
+  test "$(grep '^SECRET_RE=' "$DASH")" = "$(grep '^SECRET_RE=' "$COLLECT")"
+
+# R2 and HTML injection: git trailer values pass the same credential check,
+# and a trailer that is markup is a value of the wrong shape, never markup.
+new_repo usage-git
+write_employee_roster "DevOps Engineer"
+git add -A && git commit -q -m "roster"
+commit_with "feat: a secret as a name" "Employee: AIzaOBS326aaaaaaaaaaaaaaaa"
+commit_with "feat: markup as a name" "Employee: </script><img src=x onerror=alert(1)>"
+UPAGE4="$WORK/usage-out/git.html"
+mkdir -p "$WORK/usage-empty-config"
+expect 0 "dashboard: builds from hostile trailer values" -- \
+  env CLAUDE_CONFIG_DIR="$WORK/usage-empty-config" bash "$DASH" --project-dir "$PWD" --out "$UPAGE4"
+expect 0 "dashboard privacy: a credential-shaped Employee trailer counts as (redacted)" -- \
+  grep -qF '{"name":"(redacted)","commits":1}' "$UPAGE4"
+expect 1 "dashboard privacy: the credential-shaped trailer value is absent" -- grep -qF 'OBS326' "$UPAGE4"
+expect 0 "dashboard: a markup trailer counts as (unrecognised)" -- \
+  grep -qF '{"name":"(unrecognised)","commits":1}' "$UPAGE4"
+expect 1 "dashboard: the markup trailer does not reach the page as markup" -- grep -qF '<img src=x' "$UPAGE4"
+expect 1 "dashboard: nor as an event handler" -- grep -qF 'onerror=alert' "$UPAGE4"
+
+# R3: on Windows, --open goes through explorer.exe, which reads a comma as a
+# switch separator; a path with one is refused. uname, cygpath and
+# explorer.exe are stubbed so the Windows branch runs on any host.
+WSTUB="$WORK/usage-winstub"
+rm -rf "$WSTUB"
+mkdir -p "$WSTUB"
+cat > "$WSTUB/uname" <<'STUB'
+#!/usr/bin/env bash
+echo MINGW64_NT-10.0
+STUB
+cat > "$WSTUB/cygpath" <<'STUB'
+#!/usr/bin/env bash
+printf '%s\n' "${@: -1}"
+STUB
+cat > "$WSTUB/explorer.exe" <<STUB
+#!/usr/bin/env bash
+printf '%s\n' "\$1" > "$WSTUB/explorer-called.txt"
+exit 1
+STUB
+chmod +x "$WSTUB/uname" "$WSTUB/cygpath" "$WSTUB/explorer.exe"
+expect 1 "dashboard: --open on Windows refuses a path with a comma" -- \
+  env PATH="$WSTUB:$PATH" CLAUDE_CONFIG_DIR="$WORK/usage-empty-config" \
+  bash "$DASH" --project-dir "$USAGE_REPO" --out "$WORK/usage-out/a,b.html" --open
+expect_output "contains a comma"
+expect 1 "dashboard: explorer.exe was not called for the comma path" -- test -f "$WSTUB/explorer-called.txt"
+expect 0 "dashboard: --open on Windows hands a comma-free path to explorer.exe (its exit 1 ignored)" -- \
+  env PATH="$WSTUB:$PATH" CLAUDE_CONFIG_DIR="$WORK/usage-empty-config" \
+  bash "$DASH" --project-dir "$USAGE_REPO" --out "$UPAGE" --open
+expect 0 "dashboard: explorer.exe received the page path" -- grep -qF 'dashboard.html' "$WSTUB/explorer-called.txt"
+
+mkdir -p "$WORK/usage-empty-config"
+expect 0 "dashboard: builds without any transcript" -- \
+  env CLAUDE_CONFIG_DIR="$WORK/usage-empty-config" bash "$DASH" --project-dir "$USAGE_REPO"
+expect_output "source missing: Claude Code transcripts"
+expect 0 "dashboard: the default output is .ia-engineering/usage/dashboard.html" -- \
+  test -s "$USAGE_REPO/.ia-engineering/usage/dashboard.html"
+
+cat > "$WORK/usage-opener.sh" <<OPENER
+#!/usr/bin/env bash
+printf '%s\n' "\$1" > "$WORK/usage-opened.txt"
+OPENER
+chmod +x "$WORK/usage-opener.sh"
+rm -f "$WORK/usage-opened.txt"
+expect 0 "dashboard: --open hands the page to the opener" -- \
+  env CLAUDE_CONFIG_DIR="$WORK/usage-empty-config" IAENG_USAGE_OPENER="$WORK/usage-opener.sh" \
+  bash "$DASH" --project-dir "$USAGE_REPO" --out "$UPAGE" --open
+expect 0 "dashboard: the opener received the page path" -- grep -qF 'dashboard.html' "$WORK/usage-opened.txt"
+
+mkdir -p "$WORK/usage-not-a-repo"
+expect 1 "dashboard: outside a git work tree it fails" -- \
+  env GIT_CEILING_DIRECTORIES="$WORK" bash "$DASH" --project-dir "$WORK/usage-not-a-repo"
+expect_output "is not inside a git work tree"
+expect 1 "dashboard: a --since that is not a commit fails" -- \
+  bash "$DASH" --project-dir "$USAGE_REPO" --out "$UPAGE" --since no-such-ref
+expect 2 "dashboard: an unknown argument is a usage error" -- bash "$DASH" --bogus
+
+mkdir -p "$WORK/usage-empty-transcripts"
+expect 3 "collector: an empty transcript directory is 'none found' (3), not an error" -- \
+  bash "$COLLECT" --transcripts-dir "$WORK/usage-empty-transcripts"
+expect 1 "collector: an explicit transcript directory that does not exist is an error" -- \
+  bash "$COLLECT" --transcripts-dir "$WORK/usage-no-such-dir"
 
 # --------------------------------------------------------------- verdict ----
 
