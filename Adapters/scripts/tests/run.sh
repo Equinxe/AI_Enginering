@@ -4073,6 +4073,18 @@ expect 1 "launcher: no for /f command opens with '\"\" (unquoted paths)" -- \
 expect 1 "launcher: cmdcmdline is not expanded in a for set" -- \
   grep -F '(%cmdcmdline%)' <<< "$L_CODE"
 
+# WU-IAENG-338, issue #210: `call` doubles every caret, inside quotes too,
+# and expands %NAME% a second time, so a "^" in the adopting project's path
+# made rev-parse fail and the dashboard silently measured the framework. The
+# superproject lookup runs without `call`: its child command starts with the
+# bare word cd (cmd /c strips the quotes of a command starting with one), and
+# git runs in IAENG_ROOT. Verified on Windows with "^", "(x) & y" and
+# "(x86)" paths; the Linux runner can only pin the text.
+expect 1 "launcher: no call anywhere (it doubles carets and re-expands %NAME%)" -- \
+  grep -iE '(^|[^a-z_])call[[:space:]]' <<< "$L_CODE"
+expect 0 "launcher: the superproject lookup starts with cd /d into IAENG_ROOT, then runs git" -- \
+  grep -qF "in ('cd /d \"%%IAENG_ROOT%%\" ^&^& \"%%IAENG_GITROOT%%\\bin\\git.exe\" rev-parse --show-superproject-working-tree 2^>nul')" <<< "$L_CODE"
+
 # --------------------------------------------------------------- verdict ----
 
 cd "$HERE" || exit 1

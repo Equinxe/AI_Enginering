@@ -1236,3 +1236,9 @@ work_units:
     title: Add a Windows launcher for the usage dashboard - usage-dashboard.cmd opens the page in one command from PowerShell, cmd or a double-click, running usage-dashboard.sh --open through Git for Windows' own bash.exe and never the PATH's bash (WSL there); from an adopter's submodule it measures the adopting project; CRLF pinned by .gitattributes; TROUBLESHOOTING entry AA
     milestone: Precision
     delivers: Adapters/scripts/usage-dashboard.cmd, .gitattributes, Adapters/scripts/tests/run.sh, Adapters/README.md, Governance/DISPATCH_IN_PRACTICE.md, Governance/TROUBLESHOOTING.md, Registry/work-units.yml
+
+  - id: WU-IAENG-338
+    employee: DevOps Engineer
+    title: Make the usage-dashboard.cmd superproject lookup safe for a caret in the adopting project's path - the for /f child command starts with cd /d into IAENG_ROOT instead of call, which doubled carets and re-expanded %NAME%, so a "^" made rev-parse fail and the framework was measured instead (issue #210); pinned statically, verified on Windows
+    milestone: Precision
+    delivers: Adapters/scripts/usage-dashboard.cmd, Adapters/scripts/tests/run.sh, Registry/work-units.yml
