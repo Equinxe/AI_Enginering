@@ -3667,11 +3667,32 @@ done
 # prefix, so it classified as a release branch and took the creation
 # exception; on a packed case-insensitive remote it moved the existing
 # release/v1. A ref under a protected name must be all-lowercase.
-for pp_variant in refs/heads/release/V1 refs/heads/release/v1.0.0-RC1 refs/heads/release/v9.9.9-RC1; do
+# Issue #211 (WU-IAENG-339): the refusal names the lowercased branch the
+# user probably meant, not only the release/* pattern.
+for pp_pair in "refs/heads/release/V1 release/v1" \
+               "refs/heads/release/v1.0.0-RC1 release/v1.0.0-rc1" \
+               "refs/heads/release/v9.9.9-RC1 release/v9.9.9-rc1"; do
+  pp_variant="${pp_pair% *}"
+  pp_meant="${pp_pair#* }"
   expect 1 "creating $pp_variant is refused (upper case after the exact release/ prefix)" -- \
     "${PP[@]}" "refs/heads/x $PP_NEW $pp_variant $PP_ZERO"
-  expect_output "'$pp_variant' differs from the protected branch name"
+  expect_output "'$pp_variant' differs from the protected branch name '$pp_meant' ('release/*') only by case. Did you mean '$pp_meant'?"
 done
+# Every other spelling of a release variant names its lowercased branch too:
+# a variant in the ref path, and in the release/ prefix itself.
+for pp_pair in "refs/Heads/release/v1 release/v1" \
+               "refs/heads/Release/v1 release/v1" \
+               "refs/heads/RELEASE/v9.9.9 release/v9.9.9"; do
+  pp_variant="${pp_pair% *}"
+  pp_meant="${pp_pair#* }"
+  expect 1 "creating $pp_variant is refused and names '$pp_meant'" -- \
+    "${PP[@]}" "refs/heads/x $PP_NEW $pp_variant $PP_ZERO"
+  expect_output "Did you mean '$pp_meant'?"
+done
+# main and develop keep naming the protected branch itself.
+expect 1 "creating refs/heads/DEVELOP is refused and names 'develop'" -- \
+  "${PP[@]}" "refs/heads/x $PP_NEW refs/heads/DEVELOP $PP_ZERO"
+expect_output "'refs/heads/DEVELOP' differs from the protected branch name 'develop' only by case."
 expect 1 "updating refs/heads/release/V1 is refused" -- \
   "${PP[@]}" "refs/heads/x $PP_NEW refs/heads/release/V1 $PP_OLD"
 expect 0 "an all-lowercase release/v9.9.9-rc1 is still created" -- \
@@ -3725,6 +3746,7 @@ for ppc_ref in refs/Heads/main refs/HEADS/develop refs/Heads/release/v1 refs/hea
     git push -q "$PPC_REMOTE" "HEAD:$ppc_ref"
   expect_output "'$ppc_ref' differs from the protected branch name"
 done
+expect_output "Did you mean 'release/v1'?"
 for ppc_branch in main develop release/v1; do
   expect 0 "real push: the remote's $ppc_branch still points at its original commit" -- \
     test "$(git --git-dir="$PPC_REMOTE" rev-parse "refs/heads/$ppc_branch")" = "$PPC_MAIN"
