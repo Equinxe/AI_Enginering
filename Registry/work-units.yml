@@ -1239,6 +1239,6 @@ work_units:
 
   - id: WU-IAENG-337
     employee: Technical Writer
-    title: Make the SESSION_STATE adoption instruction produce a readable state file - README and PROJECT_BOOTSTRAP say to copy only the fenced block under the template's Template heading, never the whole file, and to give its _Last updated line an absolute date in the form session-start.sh parses; the template marks that block as the part to copy
+    title: Make the SESSION_STATE adoption instruction produce a readable state file - the README says to copy only the fenced block under the template's Template heading, never the whole file, and to give its _Last updated line an absolute date in the form session-start.sh parses; the template marks that block as the part to copy, so every other pointer to it resolves without being edited
     milestone: Precision
-    delivers: README.md, Templates/SESSION_STATE.md, Workflows/PROJECT_BOOTSTRAP.md, Registry/work-units.yml
+    delivers: README.md, Templates/SESSION_STATE.md, Registry/work-units.yml
