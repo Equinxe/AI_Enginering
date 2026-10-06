@@ -463,14 +463,20 @@ echo
 # scratch state, not specific to this framework — any Claude Code project
 # that uses isolated subagents gets the same untracked directory.
 #
+# .ia-engineering/usage/ is where usage-dashboard.sh writes its page by
+# default. The page is regenerable from git and the local runtime
+# transcripts, and it describes how ONE machine's sessions used the
+# project — local, derived, and no business of the repository.
+#
 # Appended rather than written, so a project's own .gitignore rules survive,
 # and skipped for the framework repository itself: its own .gitignore already
-# carries both rules and is reported as-is, the same pattern as Data
+# carries these rules and is reported as-is, the same pattern as Data
 # protection above.
 
 echo "Generated and runtime artifacts"
 ARTIFACT_IGNORE_RULES=".claude/agents/
-.claude/worktrees/"
+.claude/worktrees/
+.ia-engineering/usage/"
 
 MISSING_ARTIFACT_IGNORES=""
 while IFS= read -r rule; do
@@ -492,7 +498,8 @@ else
     echo "# Adapters/scripts/install.sh). .claude/agents/ is generate-agents.sh's"
     echo "# derived output, regenerable with --check (Adapters/ai-runtimes/README.md)."
     echo "# .claude/worktrees/ is this runtime's own per-session scratch state for"
-    echo "# isolated subagents."
+    echo "# isolated subagents. .ia-engineering/usage/ is usage-dashboard.sh's"
+    echo "# locally generated page."
     printf '%s' "$MISSING_ARTIFACT_IGNORES"
   } >> .gitignore
   did ".gitignore (appended $(printf '%s' "$MISSING_ARTIFACT_IGNORES" | grep -c .) generated/runtime-artifact rule(s))"

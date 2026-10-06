@@ -19,6 +19,12 @@
 # `git status` surfaced it untracked before this line existed.
 .claude/worktrees/
 
+# The page Adapters/scripts/usage-dashboard.sh writes by default: derived from
+# git and this machine's runtime transcripts, regenerable, and local. Already
+# covered by `.ia-engineering/*` below; stated by name because install.sh
+# appends the same line to an adopting project, and the two should read alike.
+.ia-engineering/usage/
+
 # Standards/DATA_PROTECTION_STANDARD.md — real data lives only in the local
 # data directory, secrets only in the environment, operational state is never
 # committed. Adapters/git-hooks/pre-commit and data-policy.yml refuse the same
