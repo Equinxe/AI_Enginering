@@ -132,8 +132,12 @@ USAGE
 # under --watch every cycle starts this script again, and on Windows each
 # command substitution is a fork that costs a quarter of a second and more.
 START_PWD="$PWD"
-case "${BASH_SOURCE[0]}" in
-  */*) SCRIPT_DIR="${BASH_SOURCE[0]%/*}" ;;
+# The Windows launcher (usage-dashboard.cmd) passes this script as a native
+# path, C:\...\usage-dashboard.sh: backslashes become slashes first, which
+# Git Bash accepts, or the directory part would never be split off.
+SCRIPT_SRC="${BASH_SOURCE[0]//\\//}"
+case "$SCRIPT_SRC" in
+  */*) SCRIPT_DIR="${SCRIPT_SRC%/*}" ;;
   *) SCRIPT_DIR="." ;;
 esac
 CDPATH='' cd -- "$SCRIPT_DIR" || { printf 'usage-dashboard: ERROR: cannot enter %s\n' "$SCRIPT_DIR" >&2; exit 1; }
@@ -264,7 +268,7 @@ fi
 # read, from where the previous build stopped (usage-collect.sh). For tests,
 # IAENG_USAGE_WATCH_MAX_CYCLES stops after that many cycles and
 # IAENG_USAGE_WATCH_SLEEP replaces the interval actually slept.
-SELF="$SCRIPT_DIR/${BASH_SOURCE[0]##*/}"
+SELF="$SCRIPT_DIR/${SCRIPT_SRC##*/}"
 WATCH_STATE=""
 
 watch_loop() {

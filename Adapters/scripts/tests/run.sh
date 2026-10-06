@@ -4285,6 +4285,16 @@ expect 1 "F5: the sleep knob ran no command" -- test -e "$WORK/PWNED_SLEEP"
 expect 0 "F4: the watch's temporary directory is removed when it stops" -- \
   test -z "$(find "$WTMP" -mindepth 1 -maxdepth 1 -name 'obs330-watch.*' 2>/dev/null)"
 
+# The Windows launcher passes the script as a native path (C:\...\x.sh); a
+# --watch build re-runs the script by that path, so it must resolve. Found
+# by running usage-dashboard.cmd --watch for real (WU-IAENG-330).
+UDASH_NATIVE="$DASH"
+if command -v cygpath >/dev/null 2>&1; then UDASH_NATIVE="$(cygpath -w "$DASH")"; fi
+expect 0 "watch: started by the script's native path, the rebuild finds the script" -- \
+  env CLAUDE_CONFIG_DIR="$WORK/usage-empty-config" IAENG_USAGE_WATCH_MAX_CYCLES=1 \
+  bash "$UDASH_NATIVE" --project-dir "$USAGE_REPO" --out "$WORK/usage-out/native.html" --watch
+expect_output "rebuilt in"
+
 # F6 — a file already at the temporary page's name is never written through.
 F6DIR="$WORK/usage-out-f6"
 rm -rf "$F6DIR"
