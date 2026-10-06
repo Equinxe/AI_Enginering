@@ -3934,6 +3934,24 @@ L_CODE="$(tr -d '\r' < "$LAUNCHER" 2>/dev/null \
 expect 1 "launcher: no bare bash (PATH lookup reaches WSL in PowerShell and cmd)" -- \
   grep -iE '(^|[^\\a-z_.-])bash(\.exe)?([^a-z_.-]|$)' <<< "$L_CODE"
 
+# The two defects of PR #200's review, pinned so they cannot return.
+# M1: after a cd, %~dp0 re-resolves against the new directory when the file
+# was invoked by a relative path, so it is captured before the first cd and
+# never read after it.
+expect 0 "launcher: the script directory is captured into IAENG_HERE" -- \
+  grep -qxF 'set "IAENG_HERE=%~dp0"' <<< "$L_CODE"
+L_DP0_AFTER_CD="$(awk '/^cd /{cd=1} cd && /%~dp0/' <<< "$L_CODE")"
+expect 0 "launcher: %~dp0 is not read after the first cd" -- \
+  test -z "$L_DP0_AFTER_CD"
+# M2: a path expanded with %VAR% inside a for set or an if block is parsed
+# as batch syntax, so a ")" in it (C:\Program Files (x86)\Git) is a syntax
+# error. The for /f command must not open with '"" (which leaves the paths
+# unquoted), and cmdcmdline must not be tokenised by a plain for.
+expect 1 "launcher: no for /f command opens with '\"\" (unquoted paths)" -- \
+  grep -F "in ('\"\"" <<< "$L_CODE"
+expect 1 "launcher: cmdcmdline is not expanded in a for set" -- \
+  grep -F '(%cmdcmdline%)' <<< "$L_CODE"
+
 # --------------------------------------------------------------- verdict ----
 
 cd "$HERE" || exit 1
