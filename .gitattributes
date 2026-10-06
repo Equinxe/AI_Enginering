@@ -5,6 +5,14 @@
 # checkout platform or user's core.autocrlf setting.
 /Adapters/** text eol=lf
 
+# The one exception under Adapters/: a Windows batch file. cmd.exe misreads
+# labels and multi-line blocks in an LF batch file, so the usage-dashboard
+# launcher is checked out CRLF on every platform; this later, more specific
+# rule overrides the one above. An adopter runs it from its ia-engineering
+# submodule, and a submodule is governed by its own repository's
+# .gitattributes — this file — so install.sh appends nothing for it.
+/Adapters/scripts/usage-dashboard.cmd text eol=crlf
+
 # Registry/ is parsed by those same shell consumers with grep and sed (see
 # Registry/README.md's parsing contract). A CRLF checkout would leave a
 # trailing carriage return on every extracted Employee name, so `grep -qxF`
