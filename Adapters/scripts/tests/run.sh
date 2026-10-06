@@ -3915,29 +3915,24 @@ expect 0 "launcher: .gitattributes checks it out CRLF" -- \
 # was written, such a grep inside a function counted every line of an LF file
 # as CR-terminated under Git for Windows, so the assertion passed on the very
 # file it exists to reject. As many CR as LF bytes, and the file ends in CR LF,
-# so its last line is terminated too.
-crlf_every_line() {
-  local cr lf
-  [ -s "$1" ] || return 1
-  cr="$(tr -cd '\r' < "$1" | wc -c | tr -d ' ')"
-  lf="$(tr -cd '\n' < "$1" | wc -c | tr -d ' ')"
-  [ "$cr" = "$lf" ] && [ "$(tail -c 2 "$1" | od -An -c | tr -d ' ')" = '\r\n' ]
-}
-expect 0 "launcher: every line of the checked-out file ends in CRLF" -- \
-  crlf_every_line "$LAUNCHER"
+# so its last line is terminated too. Computed inline, not in a function: a
+# function reached only through `expect` is reported unreachable by shellcheck
+# (SC2317), as the pre-push feeder above explains.
+L_CR="$(tr -cd '\r' < "$LAUNCHER" 2>/dev/null | wc -c | tr -d ' ')"
+L_LF="$(tr -cd '\n' < "$LAUNCHER" 2>/dev/null | wc -c | tr -d ' ')"
+L_END="$(tail -c 2 "$LAUNCHER" 2>/dev/null | od -An -c | tr -d ' ')"
+expect 0 "launcher: every line of the checked-out file ends in CRLF ($L_CR CR, $L_LF LF)" -- \
+  test "$L_LF" -gt 0 -a "$L_CR" = "$L_LF" -a "$L_END" = '\r\n'
 expect 0 "launcher: it runs usage-dashboard.sh --open, passing arguments through" -- \
   grep -qF 'usage-dashboard.sh" --open %*' "$LAUNCHER"
 expect 0 "launcher: it runs Git for Windows' own bin\\bash.exe" -- \
   grep -qF '"%IAENG_GITROOT%\bin\bash.exe"' "$LAUNCHER"
 # Outside rem comments and echoed messages, `bash` may appear only as the
 # resolved bin\bash.exe.
-bare_bash_lines() {
-  tr -d '\r' < "$1" \
-    | grep -viE '^[[:space:]]*(@?rem|::|echo)([[:space:]]|$)' \
-    | grep -iE '(^|[^\\a-z_.-])bash(\.exe)?([^a-z_.-]|$)'
-}
+L_CODE="$(tr -d '\r' < "$LAUNCHER" 2>/dev/null \
+  | grep -viE '^[[:space:]]*(@?rem|::|echo)([[:space:]]|$)')"
 expect 1 "launcher: no bare bash (PATH lookup reaches WSL in PowerShell and cmd)" -- \
-  bare_bash_lines "$LAUNCHER"
+  grep -iE '(^|[^\\a-z_.-])bash(\.exe)?([^a-z_.-]|$)' <<< "$L_CODE"
 
 # --------------------------------------------------------------- verdict ----
 
