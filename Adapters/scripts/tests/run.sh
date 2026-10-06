@@ -4397,6 +4397,14 @@ expect "$U3WANT" "R3: a world-writable output folder without the sticky bit is r
 chmod 1777 "$U3"
 expect 0 "R3: with the sticky bit it is accepted" -- \
   env CLAUDE_CONFIG_DIR="$WORK/usage-empty-config" bash "$DASH" --project-dir "$USAGE_REPO" --out "$U3/page.html"
+# A private folder reached through a symlink is judged by the folder, not by
+# the link, whose own mode reads 0777 on Linux (code review suggestion).
+rm -rf "$WORK/usage-out-private" "$WORK/usage-out-link"
+mkdir -p "$WORK/usage-out-private"
+chmod 0700 "$WORK/usage-out-private"
+ln -s "$WORK/usage-out-private" "$WORK/usage-out-link"
+expect 0 "R3: a private folder reached through a symlink is accepted" -- \
+  env CLAUDE_CONFIG_DIR="$WORK/usage-empty-config" bash "$DASH" --project-dir "$USAGE_REPO" --out "$WORK/usage-out-link/page.html"
 
 mkdir -p "$WORK/usage-empty-config"
 expect 0 "dashboard: builds without any transcript" -- \

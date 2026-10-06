@@ -280,12 +280,14 @@ fi
 case "${OSTYPE:-}" in
   msys*|cygwin*|win*) ;;
   *)
+    # "$OUT_DIR/." so that find inspects the folder itself, not a symlink
+    # that leads to it (a link's own mode reads 0777): portable to BSD find.
     if [ -z "$REFRESH" ]; then
-      if [ -n "$(find "$OUT_DIR" -maxdepth 0 -perm -0002 ! -perm -1000 2>/dev/null)" ]; then
+      if [ -n "$(find "$OUT_DIR/." -maxdepth 0 -perm -0002 ! -perm -1000 2>/dev/null)" ]; then
         err "$OUT_DIR is writable by other users and has no sticky bit; refusing to write the page there. Use a private --out."
         exit 1
       fi
-      if [ -n "$(find "$OUT_DIR" -maxdepth 0 -perm -0020 ! -perm -1000 2>/dev/null)" ]; then
+      if [ -n "$(find "$OUT_DIR/." -maxdepth 0 -perm -0020 ! -perm -1000 2>/dev/null)" ]; then
         note "warning: $OUT_DIR is group-writable without the sticky bit; anyone in its group could replace the page."
       fi
     fi
