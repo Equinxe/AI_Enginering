@@ -1218,3 +1218,9 @@ work_units:
     title: Add a local usage dashboard for roster and chain tuning - usage-dashboard.sh builds one self-contained HTML page (no network, gitignored) from git trailers, the rosters, the chain and Work Unit registries, and a Claude Code collector that stream-parses the project's transcripts into dispatches, models and tokens per day, deduplicated by message id; never-used Employees and unexercised chain steps are marked; aggregates only, pinned by a privacy test
     milestone: Precision
     delivers: Adapters/scripts/usage-dashboard.sh, Adapters/ai-runtimes/claude-code/usage-collect.sh, Adapters/scripts/tests/run.sh, Adapters/scripts/install.sh, .gitignore, Adapters/README.md, Governance/DISPATCH_IN_PRACTICE.md, Registry/work-units.yml
+
+  - id: WU-IAENG-327
+    employee: DevOps Engineer
+    title: Let a project record its tier-to-model mapping in .ia-engineering/tier-map (map= and effort-map=, same syntax as the flags) so generate-agents.sh honours it on every regeneration - precedence per tier flags over the file over the target defaults, a malformed file refused with exit 2, the summary names the mapping source, and --check reports a mapping-only drift as one instead of blaming Employees/; this repository records the Director decision of 5 Oct 2026 (every Employee on Opus 5.5) and tracks the file; the script defaults are unchanged for adopters
+    milestone: Precision
+    delivers: Adapters/ai-runtimes/generate-agents.sh, Adapters/ai-runtimes/README.md, Adapters/scripts/tests/run.sh, .gitignore, .ia-engineering/tier-map, .ia-engineering/risk-map.yml, Registry/work-units.yml
