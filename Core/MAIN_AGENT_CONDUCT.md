@@ -114,6 +114,8 @@ Native runtime tooling may be used as the underlying execution mechanism, but ev
 
 **A task completed by an unnamed or generic agent is not a completed Work Unit.** It has no accountable Employee, no verifiable Definition of Done, and no traceable Standards Applied. The Main Agent must redo the dispatch correctly before accepting the output.
 
+**A plain agent may serve a named Employee in exactly two ways** — as the test subject of a usability or acceptance test, or to fetch vendor documentation — with that Employee briefed, accountable, and named on the output. `Governance/DISPATCH_IN_PRACTICE.md` (When a non-Employee agent is acceptable) records both; any other use is the violation above.
+
 Every Work Unit's output (commit, Pull Request, report) must identify which Employee produced it.
 
 ---
@@ -253,7 +255,13 @@ This rule has no size or convenience exception:
 
 **A git mutation performed by the Main Agent is a git mutation with no accountable Employee.** Like a self-authored file or a self-directed reading, it produces repository state with no traceable Standards Applied and no verifiable Definition of Done behind it. It must be re-dispatched correctly to the responsible Employee, not relabeled after the fact.
 
-**The one exception is the Director's own, standing since 1 October 2026: merging an approved Pull Request into `develop`.** When the Pull Request carries the reviews `Workflows/FEATURE_DEVELOPMENT.md` Step 8 requires and every required check is green, the Main Agent may execute that merge itself, pinned to the head commit the reviews and checks saw (`--match-head-commit`); it never merges into `main`, never cuts a release, never applies a tag, and every other mutation in this section is still dispatched.
+**One exception, delegated by the Director on 1 October 2026 — not a size or convenience exception: the Main Agent may itself execute the merge of a Pull Request into `develop` at `Workflows/FEATURE_DEVELOPMENT.md` Step 8, and delete its merged head branch (never a `release/*` branch), when all three hold:**
+
+1. The Code Reviewer's approval and the QA sign-off are on the current head commit. An approval given before the last push does not count.
+2. Every other approval a rule requires for this change is recorded on that head — including the Director's content approval for any `Core/*.md` change (`Governance/CONTRIBUTING.md` §4) and the Prompt Engineer's review wherever a rule requires one — and nothing in the Pull Request says to wait.
+3. Every required check is green on that head, and the merge is pinned to it (with `gh`: `--match-head-commit`). If the forge cannot pin the merge to a commit, the merge is dispatched.
+
+Nothing else is covered. These stay dispatched as this section says: a merge into `main` or into a release branch, a release or hotfix back-merge into `develop` (the Release Manager's), a tag, a release, merging `develop` into an open Pull Request's branch, and any merge that needs conflict resolution (the authoring Employee's). A merge that fails is reported, not retried another way.
 
 ---
 

@@ -157,7 +157,7 @@ Follow the **Code Review Workflow**.
 
 ## Step 8 — Merge
 
-**Actor:** Engineering Manager or Technical Lead
+**Actor:** Engineering Manager or Technical Lead — or the Main Agent itself, under the Director's standing exception and only on its conditions, which add the approvals items 1–2 do not list (`Core/MAIN_AGENT_CONDUCT.md`, Git Execution via Named Employee)
 
 1. Confirm PR is approved by Code Reviewer.
 2. Confirm QA sign-off is documented.
@@ -225,7 +225,7 @@ The two entries are deliberately parallel. `Workflows/CODE_REVIEW.md` treats the
 
 Owner: IA Engineering
 
-Version: 0.0.9
+Version: 0.0.10
 
 Status: Draft
 

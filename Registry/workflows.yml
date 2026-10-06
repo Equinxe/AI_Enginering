@@ -73,6 +73,12 @@ workflows:
       - n: 8
         actor: Engineering Manager
         step: Merge into develop
+        note: >-
+          The document names the Engineering Manager or Technical Lead. The
+          Main Agent may also execute this merge, and delete the merged
+          branch, under the Director's standing exception and only on its
+          conditions (Core/MAIN_AGENT_CONDUCT.md, Git Execution via Named
+          Employee).
     gates: []
     gate_note: >-
       No Director gate inside this workflow. The Feature Chain places the

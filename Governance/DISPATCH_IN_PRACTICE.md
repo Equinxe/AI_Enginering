@@ -14,7 +14,7 @@ It is deliberately short. This corpus is checked by sixteen mechanical sections 
 
 # What the numbers say
 
-The numbers are counted by `Adapters/scripts/usage-dashboard.sh` (see Measuring Usage, below), not by hand. A figure written here is a dated snapshot; the script is the source, and a reader who needs the current number runs it. Its headline on 6 October 2026, after 431 commits:
+The numbers are counted by `Adapters/scripts/usage-dashboard.sh` (see Measuring Usage, below), not by hand. A figure written here is a dated snapshot; the script is the source, and a reader who needs the current number runs it. Its headline on 6 October 2026, after 431 non-merge commits:
 
 | | |
 |---|---|
@@ -58,9 +58,9 @@ The decisions it informs, and the first question each one raises:
 Dispatch Discipline (`Core/MAIN_AGENT_CONDUCT.md`) admits no generic agent doing a Work Unit. Practice found exactly two cases where a plain agent is the right instrument, and in both a named Employee owns the work and the agent does not:
 
 1. **A simulated naive user in a usability or acceptance test.** The plain agent is the **test subject**: it is given only what a real newcomer would have, so that what it fails to find is a finding. An Employee would bring the framework's knowledge with it and invalidate the test. The protocol and the verdict belong to the **UX/UI Designer**; acceptance against the Work Unit's criteria belongs to the **QA Engineer**. The subject's transcript is evidence those Employees read, never a deliverable.
-2. **A vendor-documentation lookup** — what a runtime, SDK or API actually does, read from its publisher's documentation. The **AI Engineer** owns the question and the conclusion drawn from the answer; the lookup agent only fetches.
+2. **A vendor-documentation lookup** — what a runtime, SDK or API actually does, read from its publisher's documentation. The Employee whose Work Unit needs the answer owns the question and the conclusion; for an AI model, AI provider or AI runtime question with no such Work Unit, that is the **AI Engineer**. The lookup agent only fetches.
 
-In both, the brief names the owning Employee, and the commit, report and verdict carry that Employee's name. **Anything else is a Dispatch Discipline violation** — including a plain agent used because it was quicker to start, or a runtime's own reviewer standing in for the Code Reviewer.
+In both, the owning Employee's brief names the plain agent it uses, and the commit, report and verdict carry that Employee's name. The test subject's own prompt names no Employee and carries nothing a real newcomer would not have. **Anything else is a Dispatch Discipline violation** — including a plain agent used because it was quicker to start, or a runtime's own reviewer standing in for the Code Reviewer.
 
 ---
 
