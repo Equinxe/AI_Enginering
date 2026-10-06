@@ -23,7 +23,7 @@ So: `.ia-engineering/SESSION_STATE.md` is in `.gitignore` from the project's fir
 ## Reading order on resume
 
 1. `CLAUDE.md` — the contract.
-2. `.ia-engineering/SESSION_STATE.md` — where things actually stand. Read **before any other action**, not only when in doubt. If it does not exist, create it from this template before doing anything else.
+2. `.ia-engineering/SESSION_STATE.md` — where things actually stand. Read **before any other action**, not only when in doubt. If it does not exist, create it from the fenced block under **Template** below before doing anything else.
 3. Only then, the task.
 
 ## Cadence
@@ -62,6 +62,8 @@ A handoff that skips any item is not a handoff — it is a session ending and ho
 ---
 
 # Template
+
+**Copy only the contents of the fenced block below** into `.ia-engineering/SESSION_STATE.md`, from the `<!--` line to the last line before the closing fence. Never copy this whole file. The sections above explain how to keep the state file and are not part of it. A whole-file copy leaves the session-start hook reading the placeholder `_Last updated:` line inside the fence and reporting "no parsable date". Then replace the placeholders. At minimum, the `_Last updated:` line takes today's absolute date as day, English month name, year (`6 October 2026`), which is the form `session-start.sh` parses.
 
 ```markdown
 <!--
