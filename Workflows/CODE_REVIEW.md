@@ -24,6 +24,7 @@ It ensures every change is reviewed systematically, that feedback is actionable,
 | Engineer (author) | Responds to review comments and makes requested changes |
 | Security Engineer | Reviews security findings escalated by the Code Reviewer |
 | Compliance Engineer | Reviews compliance findings escalated by the Code Reviewer (regulated data handling, retention/deletion logic, cross-border data transfer) |
+| Prompt Engineer | Reviews every change to an Employee definition (`Employees/`) or to any `Core/*.md` document, in addition to the Code Reviewer (`Core/EMPLOYEE_SELECTION.md`, Prompt Engineer trigger) |
 | Software Architect | Reviews architectural concerns escalated by the Code Reviewer |
 | Engineering Manager | Resolves blockers when review cycles exceed two rounds |
 | QA Engineer | Validates the change after approval when it is security-sensitive or high-risk (see "Security-Sensitive or High-Risk Changes") |
@@ -98,7 +99,9 @@ If a security issue is found: escalate immediately to the Security Engineer. Do 
 
 If compliance-relevant content is found: escalate immediately to the Compliance Engineer, the same way a security issue escalates to the Security Engineer. Do not wait for the full review to complete.
 
-**Output:** Security assessment. Escalation opened if needed (Security Engineer and/or Compliance Engineer).
+If the change touches an Employee definition (`Employees/`) or any `Core/*.md` document: request the Prompt Engineer's review, whether or not a finding exists. It is required before merge, in addition to this review (`Core/EMPLOYEE_SELECTION.md`, Prompt Engineer trigger).
+
+**Output:** Security assessment. Escalation opened if needed (Security Engineer and/or Compliance Engineer). Prompt Engineer review requested if `Employees/` or `Core/*.md` changed.
 
 ---
 
@@ -243,6 +246,7 @@ This workflow is complete when:
 - The PR has a documented approval from the Code Reviewer.
 - All critical and major issues are resolved.
 - Security escalations are resolved or formally accepted by the Security Engineer and Director.
+- A change to `Employees/` or any `Core/*.md` document has the Prompt Engineer's review (Step 4).
 
 ---
 
@@ -270,7 +274,7 @@ This workflow is complete when:
 
 Owner: IA Engineering
 
-Version: 0.0.6
+Version: 0.0.7
 
 Status: Draft
 
