@@ -117,7 +117,7 @@ workflows:
       - Missing or insufficient tests block approval (Step 3)
       - A security finding escalates to the Security Engineer immediately, without waiting for the review to finish (Step 4)
       - Compliance-relevant content escalates to the Compliance Engineer on the same terms (Step 4)
-      - A change to Employees/ or any Core/*.md document needs the Prompt Engineer's review before merge, in addition to the Code Reviewer's (Step 4; Core/EMPLOYEE_SELECTION.md, Prompt Engineer trigger)
+      - A change to Employees/ or any Core/*.md document (including a deletion or rename) needs the Prompt Engineer's approval before merge, in addition to the Code Reviewer's, covering the text the head carries; the Prompt Engineer's own review of a change it authored does not count, and the Director names the second reviewer (Step 4; Core/EMPLOYEE_SELECTION.md, Prompt Engineer trigger)
       - A security-sensitive or High/Critical-risk PR is reviewed through separate lens passes with cross-debate (Multi-Lens Review)
       - Every open finding is re-anchored or given a disposition before re-review; none is dropped because its line moved (Step 9)
 
