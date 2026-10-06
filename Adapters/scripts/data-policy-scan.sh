@@ -277,8 +277,11 @@ merge_authored_lines() {
     while IFS= read -r -d '' path; do
       [ -n "$path" ] || continue
       for p in $parents; do
+        # tr -d '\0': the caller's command substitution would drop these NULs
+        # anyway, with bash's "ignored null byte" warning. Deleting them here
+        # leaves line numbers and the per-parent comparison unchanged.
         git -c core.quotePath=false diff --text -U0 --no-color --no-ext-diff --no-textconv "$p" "$sha" -- ":(literal)$path" \
-          | added_lines
+          | tr -d '\0' | added_lines
       done | awk -F'\t' -v np="$np" -v path="$path" '
           { k = $0; sub(/^[^\t]*\t/, "", k); c[k]++; if (c[k] == np) print path "\t" k }
         '
@@ -339,7 +342,12 @@ case "$MODE" in
     # --text: see the history branch below. A file git classifies as binary
     # (a NUL byte, or -diff / binary in .gitattributes) prints "Binary files
     # differ" and no lines, so a secret added to it would never be scanned.
-    DIFF="$(git -c core.quotePath=false diff --cached --text -U0 --no-color --no-ext-diff --no-textconv --diff-filter=ACMRT)"
+    # tr -d '\0': a command substitution drops NUL bytes anyway and bash warns
+    # "ignored null byte in input" each time it does. Deleting them first is the
+    # same text with no warning. The pipeline's exit status is not checked
+    # here, with or without tr, so this changes nothing about how a git
+    # failure is handled.
+    DIFF="$(git -c core.quotePath=false diff --cached --text -U0 --no-color --no-ext-diff --no-textconv --diff-filter=ACMRT | tr -d '\0')"
     ADDED_LINES="$(printf '%s\n' "$DIFF" | added_lines)"
     scan_content < <(printf '%s\n' "$ADDED_LINES" | match_secret_lines)
     LINES_SCANNED="$(count_lines "$ADDED_LINES")"
@@ -397,7 +405,8 @@ case "$MODE" in
     # a secret shape — the same trade the suppression check makes.
     # --no-textconv and --no-ext-diff stay: a configured converter or external
     # driver must not rewrite the bytes being scanned.
-    DIFF="$(git -c core.quotePath=false log -p --text -U0 --no-color --no-ext-diff --no-textconv --format= "$ARG")"
+    # tr -d '\0': same as the staged branch — no "ignored null byte" warning.
+    DIFF="$(git -c core.quotePath=false log -p --text -U0 --no-color --no-ext-diff --no-textconv --format= "$ARG" | tr -d '\0')"
     ADDED_LINES="$(printf '%s\n' "$DIFF" | added_lines)"
     scan_content < <(printf '%s\n' "$ADDED_LINES" | match_secret_lines)
 
