@@ -134,13 +134,15 @@ Follow the **Code Review Workflow**.
 
 **Output:** Pull Request approved or changes requested.
 
-**Handoff to:** Step 7 (if approved) or back to Step 3 (if changes requested).
+**Handoff to:** Step 7 (if approved and the Pull Request changes executable behaviour), Step 8 (if approved and it does not), or back to Step 3 (if changes requested).
 
 ---
 
 ## Step 7 — QA Validation
 
 **Actor:** QA Engineer
+
+This step runs when the Pull Request changes executable behaviour — code, scripts, hooks, CI workflows, tooling. It is skipped for a change to documentation, or Core, Standards, Governance or Template prose only; see Step 8 for the approvals that apply there.
 
 1. Pull the feature branch.
 2. Validate the implementation against the acceptance criteria defined in the Work Unit.
@@ -172,11 +174,11 @@ Follow the **Code Review Workflow**.
 
 # Trivial / Mechanical Changes (Express Path)
 
-For a typo, a one-line fix, or a doc tweak, this workflow does not change. Every participant and every gate above still applies: Business Analyst (Prerequisites), Architect impact review (Prerequisites), Code Reviewer (Step 6), QA Validation (Step 7), and the Director delivery gate at the end of the Feature Chain (`Core/AGENT_CHAINS.md`). No participant is dropped, no gate is skipped, and no step here is made conditional by this section.
+For a typo, a one-line fix, or a doc tweak, this workflow does not change. Every participant and every gate above still applies: Business Analyst (Prerequisites), Architect impact review (Prerequisites), Code Reviewer (Step 6), QA Validation (Step 7) when the change alters executable behaviour, and the Director delivery gate at the end of the Feature Chain (`Core/AGENT_CHAINS.md`). A doc tweak alters none, so it needs no QA Validation — that is Step 7's own condition, not a relaxation made here. No participant is dropped, no gate is skipped, and no step here is made conditional by this section.
 
-What changes is execution capability, not workflow shape. A Work Unit that is genuinely mechanical — bounded, unambiguous, with no tradeoff to weigh — is dispatched at the **Lightweight Execution** tier (`Core/CAPABILITY_TIERS.md`, Tier Override) for its entire path through this workflow, rather than the Standard Execution tier most Work Units default to. Each step becomes a fast confirmation instead of a full pass: the Architect's impact review is a quick triviality check rather than a design review; Code Review is a quick correctness pass; QA Validation (Step 7) is a quick pass/fail of the change against its acceptance criteria rather than a full test-plan execution. The genuinely conditional steps already in this workflow — Compliance Engineer and Security Engineer (Actors, above) and the ADR (Prerequisites, above) — are untouched by this section and still trigger only against their own existing criteria.
+What changes is execution capability, not workflow shape. A Work Unit that is genuinely mechanical — bounded, unambiguous, with no tradeoff to weigh — is dispatched at the **Lightweight Execution** tier (`Core/CAPABILITY_TIERS.md`, Tier Override) for its entire path through this workflow, rather than the Standard Execution tier most Work Units default to. Each step becomes a fast confirmation instead of a full pass: the Architect's impact review is a quick triviality check rather than a design review; Code Review is a quick correctness pass; QA Validation (Step 7), where it runs, is a quick pass/fail of the change against its acceptance criteria rather than a full test-plan execution. The genuinely conditional steps already in this workflow — Compliance Engineer and Security Engineer (Actors, above) and the ADR (Prerequisites, above) — are untouched by this section and still trigger only against their own existing criteria.
 
-Code Review and QA Validation are not on `Core/CAPABILITY_TIERS.md`'s sign-off/gate floor (a Director delivery gate, a release approval, a merge approval to main), so the Director's 23 Sep decision runs them at Lightweight here — except that guardrail 1 still applies in full: a change in a Sensitive change zone or carrying a Medium-or-higher RISK runs Code Review and QA at Standard Execution.
+Code Review and QA Validation are not on `Core/CAPABILITY_TIERS.md`'s sign-off/gate floor (a Director delivery gate, a release approval, a merge approval to main), so the Director's 23 Sep decision runs them at Lightweight here — except that guardrail 1 still applies in full: a change in a Sensitive change zone or carrying a Medium-or-higher RISK runs Code Review and QA, where it runs, at Standard Execution.
 
 It is still a Work Unit in the full sense: the Commit Standard, Work Unit registration (`Registry/work-units.yml`, Step 4), and every required CI check still apply, and Exit Criteria below still governs completion. **Less load, not fewer controls: this is lighter execution of every step, not fewer steps.**
 
@@ -189,7 +191,7 @@ It is still a Work Unit in the full sense: the Commit Standard, Work Unit regist
 This workflow is complete when:
 
 - The Pull Request is merged into `develop`.
-- All acceptance criteria are verified by the QA Engineer.
+- All acceptance criteria are verified by the QA Engineer, when the Pull Request changes executable behaviour (Step 7).
 - The feature branch is deleted.
 - The Work Unit is marked as complete.
 
