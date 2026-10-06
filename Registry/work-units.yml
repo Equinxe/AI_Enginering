@@ -1224,3 +1224,9 @@ work_units:
     title: Let a project record its tier-to-model mapping in .ia-engineering/tier-map (map= and effort-map=, same syntax as the flags) so generate-agents.sh honours it on every regeneration - precedence per tier flags over the file over the target defaults, a malformed file refused with exit 2, the summary names the mapping source, and --check reports a mapping-only drift as one instead of blaming Employees/; this repository records the Director decision of 5 Oct 2026 (every Employee on Opus 5.5) and tracks the file; the script defaults are unchanged for adopters
     milestone: Precision
     delivers: Adapters/ai-runtimes/generate-agents.sh, Adapters/ai-runtimes/README.md, Adapters/scripts/tests/run.sh, .gitignore, .ia-engineering/tier-map, .ia-engineering/risk-map.yml, Registry/work-units.yml
+
+  - id: WU-IAENG-334
+    employee: Software Architect
+    title: Align Core/AGENT_CHAINS.md and Registry/chains.yml step for step (the Review Chain diagram gains the Compliance and Security Engineer steps, the Architecture Chain diagram the Security Engineer step, the Feature Chain diagram its ADR gate), make Work Unit decomposition the Main Agent's own Orchestration Step 3 with the Engineering Manager dispatched for it only on multi-pole work (the Workflows/AUTONOMOUS_DELIVERY.md trigger), and define the Engineer step as the implementing Employee chosen per Core/EMPLOYEE_SELECTION.md - Director decisions of 6 Oct 2026
+    milestone: Precision
+    delivers: Core/AGENT_CHAINS.md, Core/EMPLOYEE_SELECTION.md, Registry/chains.yml, Registry/workflows.yml, Workflows/FEATURE_DEVELOPMENT.md, Workflows/ONBOARDING.md, Workflows/AUTONOMOUS_DELIVERY.md, Templates/WORK_UNIT.md, Examples/FEATURE_CHAIN_EXAMPLE.md, Examples/ARCHITECTURE_CHAIN_EXAMPLE.md, Registry/work-units.yml

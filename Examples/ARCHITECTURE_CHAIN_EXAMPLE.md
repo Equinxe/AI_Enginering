@@ -82,7 +82,7 @@ Confirms the background job infrastructure needed for Option 2 already exists in
 
 # Step 6 — Handoff to Feature Chain
 
-**Engineering Manager** decomposes the accepted ADR into Work Units:
+**Main Agent** decomposes the accepted ADR into Work Units — its own Orchestration Step 3, presented to the Director as the plan. The work is one queue, not multi-pole work, so the Engineering Manager is not dispatched (`Core/AGENT_CHAINS.md`, Work Unit Decomposition):
 - WU-TASKFLOW-020: Add `task_series` table and model.
 - WU-TASKFLOW-021: Add background job to generate instances.
 - WU-TASKFLOW-022: Update notifications service query to exclude series metadata.

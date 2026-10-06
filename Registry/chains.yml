@@ -44,13 +44,21 @@
 # THE `Engineer` PLACEHOLDER
 #
 # Core/AGENT_CHAINS.md writes "Engineer" and "Engineer(s)" where the specific
-# Employee depends on the work: Backend, Frontend, iOS, Android,
-# Cross-Platform, Database, Event-Driven, or Integration Engineer. That is
-# deliberate, and this file preserves it as the literal role `Engineer` rather
-# than guessing. It is resolved at dispatch time against
-# Core/EMPLOYEE_SELECTION.md's triggers, and the validator accepts it, along
-# with `Main Agent` and `Director`, as a framework role rather than a roster
-# entry.
+# Employee depends on the work, and defines it in its "The Engineer Step"
+# section: the implementing Employee of the Work Unit, chosen per
+# Core/EMPLOYEE_SELECTION.md. Most often that is one of the Development
+# Employees — Backend, Frontend, iOS, Android, Cross-Platform, Database,
+# Event-Driven, or Integration Engineer — but it is not limited to them: a
+# pipeline Work Unit resolves to the DevOps Engineer, a documentation one to
+# the Technical Writer. That is deliberate, and this file preserves it as the
+# literal role `Engineer` rather than guessing. It is resolved when the Work
+# Unit is planned, against Core/EMPLOYEE_SELECTION.md's triggers, and the
+# validator accepts it, along with `Main Agent` and `Director`, as a framework
+# role rather than a roster entry.
+#
+# `Main Agent` as a step's employee marks work the Main Agent does itself
+# rather than dispatches — Work Unit decomposition, its Orchestration Step 3.
+# `gate: Director` records the "Main Agent → Director" lines of the diagrams.
 #
 # PARSING CONTRACT — read this before reformatting.
 # Consumers read these lines with grep and sed:
@@ -78,8 +86,12 @@ chains:
       - gate: Director
         when: An ADR is required
         blocks: Implementation
-      - employee: Engineering Manager
-        produces: Work Unit decomposition and assignments
+      - employee: Main Agent
+        produces: Work Unit decomposition and the plan, per Core/ORCHESTRATION.md Step 3
+        note: >-
+          The Main Agent's own planning, not a dispatch. For multi-pole work —
+          the trigger of Workflows/AUTONOMOUS_DELIVERY.md — the Main Agent
+          dispatches the Engineering Manager to define the Work Units instead.
       - employee: Engineer
         produces: Implementation with tests
         parallel: true
@@ -242,9 +254,15 @@ chains:
           Workflows/ARCHITECTURE_DECISION.md Step 5 — no ADR reaches Accepted
           without Director approval, and implementation begins only from an
           Accepted ADR.
-      - employee: Engineering Manager
+      - employee: Main Agent
         when: The ADR is Accepted
-        produces: Work Unit decomposition, handing off to the Feature Chain
+        produces: >-
+          Work Unit decomposition per Core/ORCHESTRATION.md Step 3, handing off
+          to the Feature Chain
+        note: >-
+          The Main Agent's own planning, not a dispatch. For multi-pole work —
+          the trigger of Workflows/AUTONOMOUS_DELIVERY.md — the Main Agent
+          dispatches the Engineering Manager to define the Work Units instead.
 
 # Chains not named above are composed per Core/AGENT_CHAINS.md's "Composing
 # Custom Chains": the Main Agent identifies the Employees and sequence, presents

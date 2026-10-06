@@ -27,6 +27,7 @@ This workflow is **not** triggered by size alone. A large body of work whose Wor
 | Director | Issues the mandate with its budget and stop conditions (Step 1); receives every `High`/`Critical` escalation; accepts or rejects the consolidated delivery (Step 6) |
 | Conductor | A Main Agent session that does not implement and does not run a queue of its own. It decomposes, briefs poles, receives their reports and escalations, runs the integration pass, and reports to the Director |
 | Pole | A Main Agent session running `Core/ORCHESTRATION.md` end to end on one Pole Brief, on its own branch, dispatching Employees exactly as any Main Agent does |
+| Engineering Manager | Defines the mandate's Work Units before this workflow begins (Prerequisites) — the one case where decomposition is dispatched rather than done by the Main Agent (`Core/AGENT_CHAINS.md`, Work Unit Decomposition) |
 | Employees | Dispatched by poles, per `Core/EMPLOYEE_SELECTION.md`; unchanged in every respect |
 | Code Reviewer, QA Engineer | Review and validate the integrated result in Step 5, per `Workflows/CODE_REVIEW.md` — not each pole's branch in isolation |
 
@@ -38,7 +39,7 @@ The conductor and each pole are the **same kind of thing** — a Main Agent boun
 
 Before this workflow begins:
 
-- The mandate's Work Units are defined (`Templates/WORK_UNIT.md`) and registered.
+- The mandate's Work Units are defined (`Templates/WORK_UNIT.md`) and registered — by the Engineering Manager, whom the Main Agent dispatches for this decomposition because the work is multi-pole (`Core/AGENT_CHAINS.md`, Work Unit Decomposition).
 - The Work Units partition into groups with **disjoint write scope**. If two groups must write the same file, they are one group.
 - The repository's controls are installed and required: hooks via `Adapters/scripts/install.sh`, the blocking checks via `Adapters/scripts/setup-branch-protection.sh`. A federation on an unprotected repository multiplies the ways to bypass a control that does not exist.
 - `.ia-engineering/SESSION_STATE.md` exists and is current — poles resume from it.

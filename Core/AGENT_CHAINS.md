@@ -25,6 +25,24 @@ When no chain matches exactly, the Main Agent composes a custom sequence using t
 
 ---
 
+# The Engineer Step
+
+Where a chain below writes **Engineer** or **Engineer(s)**, it names a step, not an Employee: the implementing Employee of the Work Unit, chosen by the Main Agent per `Core/EMPLOYEE_SELECTION.md` when it plans that Work Unit (`Core/ORCHESTRATION.md` Step 3), and named in its Employee Brief.
+
+That Employee is most often one of the Development Employees — Backend, Frontend, iOS, Android, Cross-Platform, Database, Event-Driven, or Integration Engineer — but the step is not limited to them. A Work Unit whose deliverable is a CI/CD pipeline is the DevOps Engineer's, a Terraform module the Infrastructure as Code Engineer's, a guide or runbook the Technical Writer's: whichever Employee's dispatch trigger the Work Unit meets. In the Review Chain, the Engineer is the author of the Pull Request under review.
+
+"Engineer" is never dispatched as such. A brief, a commit, or a report that names "Engineer" names no accountable Employee, which is the defect `Core/MAIN_AGENT_CONDUCT.md`'s Dispatch Discipline forbids.
+
+---
+
+# Work Unit Decomposition
+
+Decomposing an objective into Work Units is the Main Agent's own Orchestration Step 3 (`Core/ORCHESTRATION.md`): it defines each Work Unit, chooses its Employee, and presents the plan to the Director before anything is dispatched. Where a chain below shows a decomposition step, that step is the Main Agent's, not a dispatch.
+
+The one exception is **multi-pole work** — work that meets the trigger of `Workflows/AUTONOMOUS_DELIVERY.md`: it decomposes into two or more independent Work Unit queues with disjoint write scope. There the Main Agent dispatches the **Engineering Manager** to define the mandate's Work Units, and the run continues under that Workflow, whose conductor partitions them into poles. No count of Work Units is a trigger on its own — that Workflow is explicitly "not triggered by size alone" — so a long queue whose Work Units share write scope stays with the Main Agent.
+
+---
+
 # Feature Chain
 
 **Trigger:** Director or Product Manager requests a new feature.
@@ -40,9 +58,13 @@ Software Architect
       ↓
   [Architecture review — ADR if needed]
       ↓
-Engineering Manager
+Main Agent → Director  (if an ADR is required)
       ↓
-  [Work Unit decomposition — assignments]
+  [ADR decision — implementation blocked until Accepted]
+      ↓
+Main Agent  (Engineering Manager if multi-pole work)
+      ↓
+  [Work Unit decomposition — Orchestration Step 3]
       ↓
 Engineer(s)        ← parallel if Work Units are independent
       ↓
@@ -63,6 +85,8 @@ Main Agent → Director
 
 **Director gates:** After Architecture review (if ADR required), after QA sign-off.
 
+**Decomposition:** The Main Agent's own planning, not a dispatch (see Work Unit Decomposition, above). Its plan is the one Orchestration Step 3 presents to the Director before any Engineer is dispatched.
+
 **Parallel dispatch allowed:** Between independent Engineer Work Units only.
 
 ---
@@ -82,6 +106,14 @@ Code Reviewer
   │                                               │
   └── Changes requested → Engineer → resubmit ──┘
       ↓
+Security Engineer  (if the Code Reviewer flags a security concern)
+      ↓
+  [Security assessment]
+      ↓
+Compliance Engineer  (if compliance-relevant content is found)
+      ↓
+  [Compliance assessment]
+      ↓
 QA Engineer  (if feature is security-sensitive or high-risk)
       ↓
   [QA validation]
@@ -91,7 +123,7 @@ Main Agent → Director
 
 **"Security-sensitive or high-risk" is not optional judgment:** Whether the QA Engineer step is inserted must be checked against the concrete trigger list in `Workflows/CODE_REVIEW.md`, not decided by informal impression. That list includes, among others: authentication or authorization logic, handling of credentials/secrets/keys, processing of PII or other regulated data, payment processing, cryptography usage, public-facing API surface changes, untrusted input at a trust boundary, and infrastructure/deployment configuration with production access. If any trigger is met, the QA Engineer validates the change before delivery to the Director.
 
-**Security escalation:** If the Code Reviewer flags a security concern, the Security Engineer is inserted before QA.
+**Security and compliance escalation:** If the Code Reviewer flags a security concern, the Security Engineer is inserted before QA. If the Code Reviewer finds compliance-relevant content — regulated data handling, retention or deletion logic, or cross-border data transfer — the Compliance Engineer is inserted before QA in the same way (`Workflows/CODE_REVIEW.md`, Step 4). Both escalations are opened the moment the finding is made, without waiting for the review to complete; the diagram draws them after the review loop only because both come before QA.
 
 ---
 
@@ -227,6 +259,10 @@ Solution Architect  (if cross-system impact)
       ↓
   [Cross-system impact review]
       ↓
+Security Engineer  (if security architecture change)
+      ↓
+  [Security implications assessment]
+      ↓
 Technical Lead
       ↓
   [Implementation feasibility review]
@@ -235,12 +271,14 @@ Main Agent → Director
       ↓
   [Director decision — ADR status: Accepted or Rejected]
       ↓
-Engineering Manager  (if Accepted)
+Main Agent  (if Accepted; Engineering Manager if multi-pole work)
       ↓
-  [Work Unit decomposition → Feature Chain]
+  [Work Unit decomposition — Orchestration Step 3 → Feature Chain]
 ```
 
 **Director gate:** ADR decision is mandatory. Work never begins on an Accepted ADR without Director approval.
+
+**Decomposition:** The Main Agent decomposes the Accepted ADR into Work Units as its own Orchestration Step 3 and hands them to the Feature Chain; the Engineering Manager does it only for multi-pole work (see Work Unit Decomposition, above).
 
 ---
 
