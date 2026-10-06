@@ -166,7 +166,7 @@ A Pull Request **changes executable behaviour** when it changes anything a progr
 
 1. Confirm PR is approved by Code Reviewer.
 2. When the Pull Request changes executable behaviour (Step 7), confirm the QA sign-off is documented. A Pull Request that does not change executable behaviour needs none.
-3. Whatever the Pull Request changes, confirm every other approval a rule requires: the Prompt Engineer's review where a rule requires one, and the Director's content approval for any `Core/*.md` change (`Governance/CONTRIBUTING.md` §4).
+3. Whatever the Pull Request changes, confirm every other approval a rule requires: the Prompt Engineer's approval where a rule requires one, and the Director's content approval for any `Core/*.md` change (`Governance/CONTRIBUTING.md` §4), given directly by the Director as `Core/MAIN_AGENT_CONDUCT.md` (Git Execution via Named Employee) defines.
 4. Merge the Pull Request into `develop`.
 5. Delete the feature branch after merge.
 
