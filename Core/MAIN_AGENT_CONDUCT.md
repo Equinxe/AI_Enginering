@@ -257,7 +257,7 @@ This rule has no size or convenience exception:
 
 **One exception, delegated by the Director on 1 October 2026 — not a size or convenience exception: the Main Agent may itself execute the merge of a Pull Request into `develop` at `Workflows/FEATURE_DEVELOPMENT.md` Step 8, and delete its merged head branch (never a `release/*` branch), when all three hold:**
 
-1. The Code Reviewer's approval and the QA sign-off are on the current head commit. An approval given before the last push does not count.
+1. The Code Reviewer's approval, and the QA sign-off where Step 8 requires one, are on the current head commit. An approval given before the last push does not count.
 2. Every other approval a rule requires for this change is recorded on that head — including the Director's content approval for any `Core/*.md` change (`Governance/CONTRIBUTING.md` §4) and the Prompt Engineer's review wherever a rule requires one — and nothing in the Pull Request says to wait.
 3. Every required check is green on that head, and the merge is pinned to it (with `gh`: `--match-head-commit`). If the forge cannot pin the merge to a commit, the merge is dispatched.
 

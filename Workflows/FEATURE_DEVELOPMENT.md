@@ -160,7 +160,7 @@ Follow the **Code Review Workflow**.
 **Actor:** Engineering Manager or Technical Lead — or the Main Agent itself, under the Director's standing exception and only on its conditions, which add the approvals items 1–2 do not list (`Core/MAIN_AGENT_CONDUCT.md`, Git Execution via Named Employee)
 
 1. Confirm PR is approved by Code Reviewer.
-2. Confirm QA sign-off is documented.
+2. Confirm QA sign-off is documented when the Pull Request changes executable behaviour — code, scripts, hooks, CI workflows, tooling. A Pull Request that changes only documentation, or Core, Standards, Governance or Template prose, needs none; there the Code Reviewer's approval, the Prompt Engineer's review where a rule requires one, and the Director's content approval for any `Core/*.md` change apply.
 3. Merge the Pull Request into `develop`.
 4. Delete the feature branch after merge.
 
