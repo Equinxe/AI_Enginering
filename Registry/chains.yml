@@ -105,7 +105,7 @@ chains:
         produces: Pull Request approved, or changes requested
       - employee: QA Engineer
         produces: QA sign-off
-        when: When the Pull Request changes executable behaviour (code, scripts, hooks, CI workflows, tooling)
+        when: When the Pull Request changes executable behaviour (Workflows/FEATURE_DEVELOPMENT.md Step 7)
       - gate: Director
         when: Always
         blocks: Promotion to the Release Chain
