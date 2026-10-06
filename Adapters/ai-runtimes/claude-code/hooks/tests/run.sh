@@ -548,6 +548,51 @@ rm -f "$CLAUDETEMPLATE/Core/MAIN_AGENT_CONDUCT.md"
 ss_run "$CLAUDETEMPLATE" "$SESSTART" ''
 ss_check_has  "session-start: root found but MAIN_AGENT_CONDUCT.md absent — no Main Agent pointer" no "The Main Agent follows"
 
+# --- Tier map in force (WU-IAENG-336, issue #212) ------------------------
+# A Main Agent applying a Lightweight Tier Override in a project whose
+# tier-map gave every tier claude-opus-5-5 dispatched with "sonnet": nothing
+# the session read named the Lightweight model. The hook now prints the map
+# the generator resolves. These fixtures are throwaway projects pointed at the
+# REAL framework (IAENG_FRAMEWORK), so the real generate-agents.sh resolves.
+FRAMEWORK="$(cd "$HOOKS/../../../.." && pwd)"
+export IAENG_FRAMEWORK="$FRAMEWORK"
+
+TM_SAME="$(ss_repo tiermap-same)"
+printf '%s\n' 'map=strategic=claude-opus-5-5,standard=claude-opus-5-5,lightweight=claude-opus-5-5,frontier=fable' \
+  'effort-map=strategic=high,standard=,lightweight=,frontier=' > "$TM_SAME/.ia-engineering/tier-map"
+ss_run "$TM_SAME" "$SESSTART" ''
+ss_check_rc   "session-start: tier-map present — exits 0" 0
+ss_check_has  "session-start: tier-map present — prints the map in force and its source" yes "Tier map in force — mapping: file ("
+ss_check_has  "session-start: tier-map present — names the Lightweight model of the map" yes "lightweight=claude-opus-5-5,"
+ss_check_has  "session-start: tier-map present — states the override rule" yes "never on a model or alias of the Main Agent's own choosing"
+ss_check_has  "session-start: every tier on one model — says an override passes no model" yes "all map to claude-opus-5-5: an override between them changes no model — dispatch without a model parameter."
+
+TM_DEFAULTS="$(ss_repo tiermap-defaults)"
+ss_run "$TM_DEFAULTS" "$SESSTART" ''
+ss_check_has  "session-start: no tier-map — prints the target defaults, said so" yes "Tier map in force — mapping: defaults (target claude-code"
+ss_check_has  "session-start: no tier-map — names the default Lightweight model" yes "lightweight=haiku,"
+ss_check_has  "session-start: tiers on different models — no same-model line" no "an override between them changes no model"
+
+TM_PARTIAL="$(ss_repo tiermap-partial)"
+printf '%s\n' 'map=strategic=big,standard=mid,lightweight=mid,frontier=top' > "$TM_PARTIAL/.ia-engineering/tier-map"
+ss_run "$TM_PARTIAL" "$SESSTART" ''
+ss_check_has  "session-start: lightweight equal to standard only — no same-model line" no "an override between them changes no model"
+ss_check_has  "session-start: lightweight equal to standard only — map printed" yes "map=strategic=big,standard=mid,lightweight=mid,frontier=top"
+
+TM_BAD="$(ss_repo tiermap-malformed)"
+printf '%s\n' 'map=bogus=x' > "$TM_BAD/.ia-engineering/tier-map"
+ss_run "$TM_BAD" "$SESSTART" ''
+ss_check_rc   "session-start: malformed tier-map — still exits 0 (never blocks)" 0
+ss_check_has  "session-start: malformed tier-map — reports it, not silent" yes "WARNING: the tier map could not be resolved — "
+ss_check_has  "session-start: malformed tier-map — names the generator's reason" yes "entry: bogus=x"
+ss_check_has  "session-start: malformed tier-map — tells the Main Agent not to pick a model" yes "ask the Director rather than pick one"
+ss_check_has  "session-start: malformed tier-map — prints no map in force" no "Tier map in force"
+
+unset IAENG_FRAMEWORK
+ss_run "$CLAUDEPRESENT" "$SESSTART" ''
+ss_check_has  "session-start: framework root not found — no tier map line" no "Tier map in force"
+ss_check_has  "session-start: framework root not found — no tier map warning" no "the tier map could not be resolved"
+
 rm -rf "$SSBASE"
 
 # --- Verdict ----------------------------------------------------------------
