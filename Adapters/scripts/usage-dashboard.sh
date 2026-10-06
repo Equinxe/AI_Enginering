@@ -155,8 +155,12 @@ while [ "$#" -gt 0 ]; do
     --watch)
       # The interval is optional, so `--open --watch` and `--watch --open`
       # both work — the Windows launcher passes its arguments after --open.
+      # Only a plain decimal of at most six digits is an interval: no leading
+      # zero (bash reads 010 as octal), nothing that overflows. Anything else
+      # after --watch is parsed as the next argument, and refused if it is
+      # not one (PR #204 review, F4; code review m2).
       WATCH=10
-      if [ "$#" -ge 2 ] && [[ "$2" =~ ^[0-9]+$ ]]; then WATCH="$2"; shift; fi
+      if [ "$#" -ge 2 ] && [[ "$2" =~ ^[1-9][0-9]{0,5}$ ]]; then WATCH=$((10#$2)); shift; fi
       shift ;;
     --project-dir|--out|--since|--transcripts-dir|--prices)
       if [ "$#" -lt 2 ]; then err "$1 needs a value"; usage; exit 2; fi
@@ -174,15 +178,23 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 
-if [ -n "$WATCH" ] && [ "$WATCH" -lt 10 ]; then
-  err "--watch $WATCH: the interval is at least 10 seconds."
+if [ -n "$WATCH" ] && { [ "$WATCH" -lt 10 ] || [ "$WATCH" -gt 86400 ]; }; then
+  err "--watch $WATCH: the interval is 10 to 86400 seconds."
   exit 2
 fi
 
 # Set only for a build started by --watch: the page then carries the reload
-# directive and the "last updated" line. Anything but digits is ignored.
+# directive and the "last updated" line. Anything but a plain decimal is
+# ignored. The two test knobs of the watch loop are numbers or nothing:
+# they used to reach bash arithmetic, which evaluates what it is given
+# (PR #204 review, F4 and F5).
 REFRESH="${IAENG_USAGE_REFRESH:-}"
-[[ "$REFRESH" =~ ^[0-9]+$ ]] || REFRESH=""
+[[ "$REFRESH" =~ ^[1-9][0-9]{0,5}$ ]] || REFRESH=""
+[[ "${IAENG_USAGE_WATCH_SLEEP:-}" =~ ^[0-9]{1,6}$ ]] || IAENG_USAGE_WATCH_SLEEP=""
+[[ "${IAENG_USAGE_WATCH_MAX_CYCLES:-}" =~ ^[1-9][0-9]{0,5}$ ]] || IAENG_USAGE_WATCH_MAX_CYCLES=""
+
+# The page, the git cache and the build files are this user's alone.
+umask 077
 
 for dep in git awk jq; do
   if ! command -v "$dep" >/dev/null 2>&1; then
@@ -306,7 +318,7 @@ $(bash "$COLLECTOR" "${list_args[@]}" --list 2>/dev/null)"
     if [ -n "${IAENG_USAGE_WATCH_MAX_CYCLES:-}" ] && [ "$cycle" -ge "$IAENG_USAGE_WATCH_MAX_CYCLES" ]; then
       return 0
     fi
-    nap=$((interval - (SECONDS - start)))
+    nap=$((10#$interval - (SECONDS - start)))
     [ "$nap" -ge 1 ] || nap=1
     sleep "$nap"
   done
@@ -575,6 +587,9 @@ if [ -n "$GIT_CACHE" ] && [ "$GIT_KEY" = "$CACHED_KEY" ]; then
   WUS_TSV="$GIT_CACHE/wus.tsv"
   COMMITS_TSV="$GIT_CACHE/commits.tsv"
   IFS= read -r RANGE_LABEL < "$GIT_CACHE/range.txt" || true
+  # A cached label is one of the two shapes this script writes, or neither.
+  [[ "$RANGE_LABEL" =~ ^(since\ [A-Za-z0-9._/-]{1,100}|all\ time\ \(no\ release\ tag\))$ ]] \
+    || RANGE_LABEL="all time (cached label unreadable)"
   while IFS= read -r sline; do printf '%s\n' "$sline"; done < "$GIT_CACHE/sources.tsv" > "$SOURCES"
 else
   collect_git_side
@@ -604,6 +619,13 @@ if [ -f "$COLLECTOR" ]; then
     3)
       : > "$USAGE_TSV"
       source_line "Claude Code transcripts" missing "none found for this project" ;;
+    4)
+      # Several transcript directories could be this project's, and the
+      # collector refused to guess (code review M1). Nothing is counted
+      # rather than another project's usage.
+      : > "$USAGE_TSV"
+      note "transcripts are AMBIGUOUS for this project; none are counted. Pass --transcripts-dir, or set CLAUDE_CODE_PROJECT_DIR_NAME with CLAUDE_CONFIG_DIR."
+      source_line "Claude Code transcripts" ambiguous "several directories could be this project's (its path is longer than the runtime keeps); none counted. Pass --transcripts-dir, or set CLAUDE_CODE_PROJECT_DIR_NAME with CLAUDE_CONFIG_DIR" ;;
     *)
       : > "$USAGE_TSV"
       note "the Claude Code collector failed (exit $rc); the page is built without transcript data: $(head -c 300 "$TMPD/collect.err")"
@@ -634,9 +656,18 @@ def rows($s): $s | split("\n") | map(select(length > 0) | split("\t"));
 def slug: ascii_downcase | gsub("/"; " ") | gsub("[^a-z0-9]+"; "-") | ltrimstr("-") | rtrimstr("-");
 def clip: tostring | if length > 80 then .[0:77] + "..." else . end;
 def tally(f): reduce .[] as $x ({}; .[$x | f] += 1);
+# Under --watch the commit rows may come from the cache: they pass the same
+# shapes again rather than being trusted (PR #204 review, F3).
+def bucket: . == "(no trailer)" or . == "(unrecognised)" or . == "(redacted)";
+def gitname: if type != "string" then "(unrecognised)" elif bucket then .
+             elif test("^[A-Za-z0-9][A-Za-z0-9 ._()/-]{0,63}$") | not then "(unrecognised)"
+             elif test($secret) then "(redacted)" else . end;
+def gitwu: if type == "string" and (bucket or test("^WU-[A-Z0-9]+-[0-9]+$")) then . else "(unrecognised)" end;
+def count: if type == "string" and test("^[0-9]{1,12}$") then tonumber else 0 end;
 
-(rows($commits) | map({sha: .[0], inr: (.[1] == "1"), emp: (.[2] | clip), wu: (.[3] | clip),
-                       model: (.[4] | clip), add: (.[5] | tonumber), del: (.[6] | tonumber)})) as $c
+(rows($commits) | map(select(length == 7)
+                      | {sha: .[0], inr: (.[1] == "1"), emp: (.[2] | gitname), wu: (.[3] | gitwu),
+                         model: (.[4] | gitname), add: (.[5] | count), del: (.[6] | count)})) as $c
 | (rows($usage)) as $u
 | ($u | map(select(.[0] == "dispatch") | {type: .[1], model: .[2], n: (.[3] | tonumber)})) as $disp
 | ($u | map(select(.[0] == "call") | {day: .[1], model: .[2], agent: .[3],
@@ -736,7 +767,8 @@ printf -v GENERATED '%(%Y-%m-%d %H:%M:%S %z)T' -1 2>/dev/null \
 BUILD_ARGS=(--rawfile commits "$COMMITS_TSV" --rawfile usage "$USAGE_TSV" --rawfile wus "$WUS_TSV"
   --rawfile roster "$ROSTER_TSV" --rawfile chains "$CHAINS_TSV" --rawfile sources "$SOURCES"
   --rawfile prices "$PRICES_TSV" --arg engineers "$ENGINEERS"
-  --arg generated "$GENERATED" --arg project "${PROJECT##*/}" --arg range_label "$RANGE_LABEL")
+  --arg generated "$GENERATED" --arg project "${PROJECT##*/}" --arg range_label "$RANGE_LABEL"
+  --arg secret "$SECRET_RE")
 DATA="$TMPD/data.json"
 # A --watch build renders straight from the aggregate in the same jq process
 # (below); a plain build keeps the aggregate, which also prints the summary.
@@ -912,7 +944,23 @@ if [ -n "$REFRESH" ]; then
 else
   render() { jq -r --arg refresh "" "$JQ_RENDER" < "$DATA"; }
 fi
-if ! render > "$PAGE_TMP"; then
+# The temporary page is created exclusively (noclobber opens with O_EXCL):
+# a file or symlink already at that name — planted in a shared output
+# directory, say — is never written through. One other name is tried before
+# giving up (PR #204 review, F6). set -C in this shell, not a subshell: a
+# subshell is a fork per cycle under --watch.
+set -C
+if ! render > "$PAGE_TMP" 2>/dev/null; then
+  PAGE_TMP="$OUT_DIR/.${OUT##*/}.$$.$RANDOM.tmp"
+  if ! render > "$PAGE_TMP"; then
+    set +C
+    PAGE_TMP=""
+    err "cannot create a temporary page in $OUT_DIR (a file already holds the name, or rendering failed). No page was written."
+    exit 1
+  fi
+fi
+set +C
+if [ ! -s "$PAGE_TMP" ]; then
   rm -f "$PAGE_TMP"
   err "rendering the page failed (jq). No page was written."
   exit 1

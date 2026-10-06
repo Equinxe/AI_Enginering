@@ -3922,7 +3922,7 @@ expect 0 "collector cache: a file that shrank is read again from the start (1 ca
 # 1 s sleep standing in for the interval.
 expect 2 "dashboard --watch: an interval under 10 s is refused" -- \
   bash "$DASH" --project-dir "$USAGE_REPO" --watch 5
-expect_output "at least 10 seconds"
+expect_output "the interval is 10 to 86400 seconds"
 UWPAGE="$WORK/usage-out/watch.html"
 rm -f "$WORK/usage-opened330.txt"
 expect 0 "dashboard --watch: two cycles, then a clean stop" -- \
@@ -4005,6 +4005,180 @@ expect 0 "adopter: the project's own dispatch and commit are counted" -- \
 expect 0 "adopter: the framework path's transcripts are not the project's" -- \
   grep -qF '"name":"DevOps Engineer","roster":"framework","dispatches":0' "$APAGE"
 cd "$WORK" || exit 1
+
+# ---- PR #204 review regressions (Security Engineer F1-F9, Code Reviewer M1/m1/m2)
+
+# F1 — a .meta.json's free-text description never reaches the cache.
+UTM="$WORK/usage-transcripts-meta"
+UCM="$WORK/usage-cache-meta"
+rm -rf "$UTM" "$UCM"
+mkdir -p "$UTM/s/subagents"
+cp "$UT/s1.jsonl" "$UTM/s.jsonl"
+printf '%s\n' '{"type":"assistant","timestamp":"2026-10-06T08:00:00Z","message":{"id":"msg_M1","model":"claude-test-1","content":[],"usage":{"input_tokens":1,"output_tokens":1,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}' > "$UTM/s/subagents/agent-m.jsonl"
+printf '%s\n' '{"agentType":"devops-engineer","description":"OBS330-DESC-SENTINEL rotate the prod key","toolUseId":"toolu_M1"}' > "$UTM/s/subagents/agent-m.meta.json"
+expect 0 "F1: a cached run over a subagent with a described dispatch" -- \
+  bash "$COLLECT" --transcripts-dir "$UTM" --cache-dir "$UCM"
+expect 1 "F1: no .meta.json description text anywhere in the cache" -- grep -rqF 'OBS330-DESC-SENTINEL' "$UCM"
+expect 1 "F1: no per-run work files are left in the cache" -- test -e "$UCM/v1/work"
+expect 0 "F1: the subagent is still labelled from agentType" -- \
+  bash "$COLLECT" --transcripts-dir "$UTM"
+expect_output "${TAB}devops-engineer${TAB}"
+
+# F2 + M1 — a slug longer than the runtime keeps. IAENG_USAGE_SLUG_MAX
+# stands in for 200, so two sibling paths share the kept prefix.
+new_repo usage-long-alpha
+LALPHA="$PWD"
+mkdir -p "$WORK/usage-long-beta"
+lnative() { local p; p="$(cd "$1" && pwd -P)"; if command -v cygpath >/dev/null 2>&1; then p="$(cygpath -w "$p")"; fi; printf '%s' "$p"; }
+LA="$(lnative "$LALPHA")"
+LB="$(lnative "$WORK/usage-long-beta")"
+LCOMMON="$(lnative "$WORK")"
+LPREFIX="${LCOMMON//[^A-Za-z0-9]/-}-usage-long-"
+LMAX="${#LPREFIX}"
+case "$LA" in *\\*) LSEP="\\" ;; *) LSEP="/" ;; esac
+jsonpath() { local p="$1"; printf '%s' "${p//\\/\\\\}"; }
+long_dir() {  # long_dir <suffix> <cwd-or-empty> <msg-id> <input>
+  local d="$WORK/usage-long-config/projects/${LPREFIX}-$1"
+  mkdir -p "$d"
+  if [ -n "$2" ]; then
+    printf '{"type":"user","cwd":"%s","sessionId":"s-%s"}\n' "$(jsonpath "$2")" "$1" > "$d/s.jsonl"
+  else
+    printf '{"type":"user","sessionId":"s-%s"}\n' "$1" > "$d/s.jsonl"
+  fi
+  printf '{"type":"assistant","timestamp":"2026-10-06T08:00:00Z","message":{"id":"%s","model":"claude-test-1","content":[],"usage":{"input_tokens":%s,"output_tokens":1,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}\n' "$3" "$4" >> "$d/s.jsonl"
+}
+rm -rf "$WORK/usage-long-config"
+long_dir hashA "$LA" msg_LA 11
+long_dir hashB "$LB" msg_LB 22
+long_dir hashW "$LA${LSEP}.claude${LSEP}worktrees${LSEP}w1" msg_LW 33
+expect 0 "F2: a sibling sharing the kept prefix is skipped, the project and its worktree kept" -- \
+  env CLAUDE_CONFIG_DIR="$WORK/usage-long-config" IAENG_USAGE_SLUG_MAX="$LMAX" \
+  bash "$COLLECT" --project-dir "$LALPHA"
+expect_output "source${TAB}2${TAB}2${TAB}2${TAB}0"
+expect_output "recorded in another project"
+long_dir hashU "" msg_LU 44
+expect 4 "M1: a candidate whose owner cannot be read makes the source ambiguous (exit 4)" -- \
+  env CLAUDE_CONFIG_DIR="$WORK/usage-long-config" IAENG_USAGE_SLUG_MAX="$LMAX" \
+  bash "$COLLECT" --project-dir "$LALPHA"
+expect_output "AMBIGUOUS"
+LPAGE="$WORK/usage-out/long.html"
+expect 0 "M1: the dashboard still builds, and says the transcripts are ambiguous" -- \
+  env CLAUDE_CONFIG_DIR="$WORK/usage-long-config" IAENG_USAGE_SLUG_MAX="$LMAX" \
+  bash "$DASH" --project-dir "$LALPHA" --out "$LPAGE"
+expect 0 "M1: the page names the source ambiguous" -- grep -qF '"status":"ambiguous"' "$LPAGE"
+expect 0 "M1: no transcript usage is counted for an ambiguous source" -- grep -qF '"have_transcripts":false' "$LPAGE"
+rm -rf "$WORK/usage-long-config/projects/${LPREFIX}-hashU"
+long_dir hashA2 "$LA" msg_LA2 55
+expect 4 "M1: two directories both recorded in the project root are ambiguous too" -- \
+  env CLAUDE_CONFIG_DIR="$WORK/usage-long-config" IAENG_USAGE_SLUG_MAX="$LMAX" \
+  bash "$COLLECT" --project-dir "$LALPHA"
+cd "$WORK" || exit 1
+
+# F3 — a poisoned index or record is not trusted: no command runs, no file
+# outside rec/ is touched, a cached value is shaped again.
+UTP="$WORK/usage-transcripts-poison"
+UCP="$WORK/usage-cache-poison"
+rm -rf "$UTP" "$UCP" "$WORK/PWNED_ARITH"
+mkdir -p "$UTP"
+cp "$UT/s1.jsonl" "$UTP/s1.jsonl"
+expect 0 "F3: a first cached run" -- bash "$COLLECT" --transcripts-dir "$UTP" --cache-dir "$UCP"
+printf 'victim\n' > "$UCP/victim.tsv"
+{
+  printf '%s\t1\t0\t1\tx\t%s\n' '../../victim' "$UTP/s1.jsonl"
+  printf '7\t1\t%s\t1\tx\t%s\n' "PATH[\$(touch $WORK/PWNED_ARITH)0]" "$UTP/s1.jsonl"
+} > "$UCP/v1/index.tsv"
+printf '%s\n' '{"type":"assistant","timestamp":"2026-10-06T09:00:00Z","message":{"id":"msg_P2","model":"claude-test-1","content":[],"usage":{"input_tokens":5,"output_tokens":1,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}' >> "$UTP/s1.jsonl"
+expect 0 "F3: a run over a poisoned index succeeds" -- bash "$COLLECT" --transcripts-dir "$UTP" --cache-dir "$UCP"
+expect 1 "F3: an offset written as an arithmetic expression ran no command" -- test -e "$WORK/PWNED_ARITH"
+expect 0 "F3: an idx written as a path did not touch a file outside rec/" -- grep -qxF victim "$UCP/victim.tsv"
+expect 0 "F3: the poisoned index lines were ignored and the file read whole (3 calls)" -- \
+  test "$(bash "$COLLECT" --transcripts-dir "$UTP" --cache-dir "$UCP" 2>/dev/null | head -n 1)" = "source${TAB}1${TAB}1${TAB}3${TAB}2"
+for r in "$UCP"/v1/rec/*.tsv; do
+  printf 'C\tmsg_POISON\t2026-10-06\tthe password is hunter2\tmain session\t\t1\t1\t0\t0\n' >> "$r"
+done
+expect 0 "F3: a run over a poisoned record" -- bash "$COLLECT" --transcripts-dir "$UTP" --cache-dir "$UCP"
+expect_output "(unrecognised)"
+expect 1 "F3: a cached value is shaped again, not passed through" -- grep -qF 'hunter2' <<< "$LAST_OUTPUT"
+
+# m1 — a same-size rewrite and a replaced (rotated) file are read again.
+UTR="$WORK/usage-transcripts-rotate"
+UCR="$WORK/usage-cache-rotate"
+rm -rf "$UTR" "$UCR"
+mkdir -p "$UTR"
+rot_line() { printf '{"type":"assistant","sessionId":"%s","timestamp":"2026-10-06T09:00:00Z","message":{"id":"%s","model":"claude-test-1","content":[],"usage":{"input_tokens":%s,"output_tokens":1,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}\n' "$1" "$2" "$3"; }
+rot_line sessA msg_R1 7 > "$UTR/s.jsonl"
+expect 0 "m1: a first cached run" -- bash "$COLLECT" --transcripts-dir "$UTR" --cache-dir "$UCR"
+rot_line sessA msg_R1 9 > "$UTR/s.jsonl"
+touch -d '2030-01-01 00:00:00' "$UTR/s.jsonl"
+expect 0 "m1: a same-size rewrite with a new mtime is read again (input 9, not 7)" -- \
+  test "$(bash "$COLLECT" --transcripts-dir "$UTR" --cache-dir "$UCR" 2>/dev/null | sort)" = "$(bash "$COLLECT" --transcripts-dir "$UTR" 2>/dev/null | sort)"
+{ rot_line sessB msg_R2 1000; rot_line sessB msg_R3 7; } > "$UTR/s.jsonl"
+expect 0 "m1: a replaced file that grew is read from the start, not from the old offset" -- \
+  test "$(bash "$COLLECT" --transcripts-dir "$UTR" --cache-dir "$UCR" 2>/dev/null | sort)" = "$(bash "$COLLECT" --transcripts-dir "$UTR" 2>/dev/null | sort)"
+
+# F8 — a file name with a newline is skipped with a warning; the rest counts.
+UT8="$WORK/usage-transcripts-newline"
+rm -rf "$UT8"
+mkdir -p "$UT8"
+cp "$UT/s1.jsonl" "$UT8/s1.jsonl"
+cp "$UT/s1.jsonl" "$UT8/n${NL:=$'\n'}l.jsonl"
+expect 0 "F8: a transcript named with a newline does not stop the others" -- \
+  bash "$COLLECT" --transcripts-dir "$UT8"
+expect_output "WARNING: skipped 1 transcript file(s)"
+expect_output "source${TAB}1${TAB}1${TAB}2${TAB}2"
+
+# F9 — a raw transcript line cannot pose as a file marker.
+UT9="$WORK/usage-transcripts-marker"
+rm -rf "$UT9"
+mkdir -p "$UT9"
+cp "$UT/s1.jsonl" "$UT9/s1.jsonl"
+printf '\036S 999 {"agentType":"x"} {"type":"assistant","message":{"id":"msg_F9","model":"claude-test-1","usage":{"input_tokens":1}}}\n' >> "$UT9/s1.jsonl"
+expect 0 "F9: a forged marker line is dropped, not obeyed" -- bash "$COLLECT" --transcripts-dir "$UT9"
+expect_output "source${TAB}1${TAB}1${TAB}2${TAB}2"
+
+# F7 — the slug override is honoured only as the runtime honours it.
+mkdir -p "$WORK/usage-home7/.claude/projects/obs330-named"
+cp -R "$UT/." "$WORK/usage-home7/.claude/projects/obs330-named/"
+expect 3 "F7: without CLAUDE_CONFIG_DIR the override is ignored, as the runtime ignores it" -- \
+  env -u CLAUDE_CONFIG_DIR HOME="$WORK/usage-home7" CLAUDE_CODE_PROJECT_DIR_NAME=obs330-named \
+  bash "$COLLECT" --project-dir "$USAGE_REPO"
+expect 3 "F7: an override that is not a plain name is ignored" -- \
+  env CLAUDE_CONFIG_DIR="$WORK/usage-named-config" CLAUDE_CODE_PROJECT_DIR_NAME='../usage-named-config/projects/obs330-named' \
+  bash "$COLLECT" --project-dir "$USAGE_REPO"
+
+# F4 / m2 — the interval is a plain decimal within bounds, or refused.
+mkdir -p "$WORK/usage-empty-config"
+for bad in 018 010 18446744073709551615 86401 9; do
+  expect 2 "F4: --watch $bad is refused, never a silent one-shot build" -- \
+    env CLAUDE_CONFIG_DIR="$WORK/usage-empty-config" bash "$DASH" --project-dir "$USAGE_REPO" --watch "$bad"
+done
+WTMP="$WORK/usage-watch-tmp"
+rm -rf "$WTMP"
+mkdir -p "$WTMP"
+# F5 — the sleep knob is a number or nothing; this one would run a command.
+expect 0 "F5: a watch run with an arithmetic-expression sleep knob" -- \
+  env TMPDIR="$WTMP" CLAUDE_CONFIG_DIR="$WORK/usage-empty-config" IAENG_USAGE_WATCH_MAX_CYCLES=2 \
+  IAENG_USAGE_WATCH_SLEEP="SECONDS[\$(touch $WORK/PWNED_SLEEP)0]*0+1" \
+  bash "$DASH" --project-dir "$USAGE_REPO" --out "$WORK/usage-out/f5.html" --watch
+expect 1 "F5: the sleep knob ran no command" -- test -e "$WORK/PWNED_SLEEP"
+expect 0 "F4: the watch's temporary directory is removed when it stops" -- \
+  test -z "$(find "$WTMP" -mindepth 1 -maxdepth 1 -name 'obs330-watch.*' 2>/dev/null)"
+
+# F6 — a file already at the temporary page's name is never written through.
+F6DIR="$WORK/usage-out-f6"
+rm -rf "$F6DIR"
+mkdir -p "$F6DIR"
+# The planter takes the dashboard's PID by exec'ing it, so it knows the
+# temporary name the dashboard will try first.
+cat > "$WORK/usage-f6-planter.sh" <<'PLANT'
+#!/usr/bin/env bash
+printf decoy > "$1/.page.html.$$.tmp"
+exec bash "$2" --project-dir "$3" --out "$1/page.html"
+PLANT
+expect 0 "F6: the page is written although its first temporary name is taken" -- \
+  env CLAUDE_CONFIG_DIR="$WORK/usage-empty-config" bash "$WORK/usage-f6-planter.sh" "$F6DIR" "$DASH" "$USAGE_REPO"
+expect 0 "F6: the planted file is untouched" -- test "$(cat "$F6DIR"/.page.html.*.tmp 2>/dev/null)" = decoy
+expect 0 "F6: the page itself was written" -- grep -qF 'usage-data' "$F6DIR/page.html"
 
 mkdir -p "$WORK/usage-empty-config"
 expect 0 "dashboard: builds without any transcript" -- \
