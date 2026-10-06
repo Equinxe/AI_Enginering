@@ -2663,6 +2663,10 @@ dp_conflict_repo dp-merge-nul
 git add app.conf && git commit -qm "Merge feat (resolved)"
 expect 1 "SEC-176-01: a secret resolved into a NUL-bearing file is refused" -- bash "$DPS" --history "$BASE..HEAD"
 expect_output "app.conf:2"
+# WU-IAENG-328: the merge-authored path is quiet about the NUL byte too.
+DP_NUL_OUT="$LAST_OUTPUT"
+expect 1 "a NUL-bearing merge resolution prints no 'ignored null byte' warning" -- \
+  grep -qF "null byte" <<< "$DP_NUL_OUT"
 
 # SEC-176-02: an added line whose text begins "++ " reads "+++ " in the diff
 # and was taken for a path header — never scanned, and every later line
@@ -3469,6 +3473,27 @@ expect 0 "a name merely containing a protected word (feature/Main-menu) is allow
 expect 0 "a tag refs/tags/Main is not a branch and is allowed" -- \
   "${PP[@]}" "refs/tags/Main $PP_NEW refs/tags/Main $PP_ZERO"
 
+# SEC-IAENG-199-01: the ref directories are on the same case-insensitive
+# filesystem, so a variant in the refs/heads/ part lands on the protected
+# branch just the same. The whole remote ref is folded, not the branch alone.
+for pp_variant in refs/Heads/main refs/HEADS/develop refs/Heads/release/v1 REFS/heads/main; do
+  expect 1 "creating $pp_variant is refused (case variant of the ref path)" -- \
+    "${PP[@]}" "refs/heads/x $PP_NEW $pp_variant $PP_ZERO"
+  expect_output "'$pp_variant' differs from the protected branch name"
+done
+expect 0 "a tag spelled refs/Tags/main is not a branch ref and is allowed" -- \
+  "${PP[@]}" "refs/tags/main $PP_NEW refs/Tags/main $PP_ZERO"
+
+# SEC-IAENG-199-02: the fold must not follow the locale. Under a Turkish
+# locale `tr '[:upper:]' '[:lower:]'` may fold I to dotless i, and MAIN then
+# no longer reads as main. Where tr_TR.UTF-8 is not generated the C locale is
+# used and the case still has to pass.
+for pp_variant in MAIN DEVELOP RELEASE/v1; do
+  expect 1 "under LC_ALL=tr_TR.UTF-8, refs/heads/$pp_variant is still refused" -- \
+    env LC_ALL=tr_TR.UTF-8 "${PP[@]}" "refs/heads/x $PP_NEW refs/heads/$pp_variant $PP_ZERO"
+  expect_output "differs from the protected branch name"
+done
+
 # The same case with a REAL push into a bare remote whose refs are packed.
 # Control first: with no hook installed git itself accepts the push as a
 # new branch, so the hook is the only client-side line. Then, through the
@@ -3480,8 +3505,9 @@ git init -q --bare "$PPC_CONTROL"
 git init -q --bare "$PPC_REMOTE"
 new_repo pre-push-case
 git branch develop
-git push -q "$PPC_CONTROL" main develop
-git push -q "$PPC_REMOTE" main develop
+git branch release/v1
+git push -q "$PPC_CONTROL" main develop release/v1
+git push -q "$PPC_REMOTE" main develop release/v1
 git --git-dir="$PPC_CONTROL" pack-refs --all
 git --git-dir="$PPC_REMOTE" pack-refs --all
 PPC_MAIN="$(git rev-parse HEAD)"
@@ -3495,9 +3521,17 @@ HOOK
 chmod +x .git/hooks/pre-push
 expect 1 "real push: HEAD:refs/heads/Main into a packed remote is refused" -- \
   git push -q "$PPC_REMOTE" HEAD:refs/heads/Main
-expect_output "'Main' differs from the protected branch name 'main' only by case"
-expect 0 "real push: the remote's main still points at its original commit" -- \
-  test "$(git --git-dir="$PPC_REMOTE" rev-parse main)" = "$PPC_MAIN"
+expect_output "'refs/heads/Main' differs from the protected branch name 'main' only by case"
+# SEC-IAENG-199-01, real pushes: a variant in the ref path itself.
+for ppc_ref in refs/Heads/main refs/HEADS/develop refs/Heads/release/v1; do
+  expect 1 "real push: HEAD:$ppc_ref into a packed remote is refused" -- \
+    git push -q "$PPC_REMOTE" "HEAD:$ppc_ref"
+  expect_output "'$ppc_ref' differs from the protected branch name"
+done
+for ppc_branch in main develop release/v1; do
+  expect 0 "real push: the remote's $ppc_branch still points at its original commit" -- \
+    test "$(git --git-dir="$PPC_REMOTE" rev-parse "refs/heads/$ppc_branch")" = "$PPC_MAIN"
+done
 
 # --------------------------------------------------------------- verdict ----
 
