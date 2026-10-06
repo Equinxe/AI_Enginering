@@ -39,7 +39,7 @@ That Employee is most often one of the Development Employees — Backend, Fronte
 
 Decomposing an objective into Work Units is the Main Agent's own Orchestration Step 3 (`Core/ORCHESTRATION.md`): it defines each Work Unit, chooses its Employee, and presents the plan to the Director before anything is dispatched. Where a chain below shows a decomposition step, that step is the Main Agent's, not a dispatch.
 
-The one exception is **multi-pole work** — work that meets the trigger of `Workflows/AUTONOMOUS_DELIVERY.md`: it decomposes into two or more independent Work Unit queues with disjoint write scope. There the Main Agent dispatches the **Engineering Manager** to define the mandate's Work Units, and the run continues under that Workflow, whose conductor partitions them into poles. No count of Work Units is a trigger on its own — that Workflow is explicitly "not triggered by size alone" — so a long queue whose Work Units share write scope stays with the Main Agent.
+The one exception is **multi-pole work**: work the Director has mandated under `Workflows/AUTONOMOUS_DELIVERY.md` (its Trigger) — two or more independent Work Unit queues with disjoint write scope, under a bounded budget. There the Main Agent dispatches the **Engineering Manager** to define the mandate's Work Units, and the run continues under that Workflow, whose conductor partitions them into poles. The Main Agent never decides alone that work is multi-pole: until the Director's mandate exists, decomposition is its own Step 3. Size is never the trigger either — a long queue whose Work Units share write scope stays with the Main Agent.
 
 ---
 
@@ -110,7 +110,7 @@ Security Engineer  (if the Code Reviewer flags a security concern)
       ↓
   [Security assessment]
       ↓
-Compliance Engineer  (if compliance-relevant content is found)
+Compliance Engineer  (if the Code Reviewer finds compliance-relevant content)
       ↓
   [Compliance assessment]
       ↓
@@ -320,7 +320,7 @@ The Registry records the six chains this document names. Chains composed ad hoc 
 
 Owner: IA Engineering
 
-Version: 0.0.9
+Version: 0.0.10
 
 Status: Draft
 

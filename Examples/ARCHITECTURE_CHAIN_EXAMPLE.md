@@ -103,7 +103,7 @@ Each proceeds through the **Feature Chain** independently.
 
 Owner: IA Engineering
 
-Version: 0.0.7
+Version: 0.0.8
 
 Status: Draft
 

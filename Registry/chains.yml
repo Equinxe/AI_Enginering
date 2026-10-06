@@ -90,8 +90,9 @@ chains:
         produces: Work Unit decomposition and the plan, per Core/ORCHESTRATION.md Step 3
         note: >-
           The Main Agent's own planning, not a dispatch. For multi-pole work —
-          the trigger of Workflows/AUTONOMOUS_DELIVERY.md — the Main Agent
-          dispatches the Engineering Manager to define the Work Units instead.
+          work the Director has mandated under Workflows/AUTONOMOUS_DELIVERY.md,
+          never the Main Agent's own estimate — the Main Agent dispatches the
+          Engineering Manager to define the Work Units instead.
       - employee: Engineer
         produces: Implementation with tests
         parallel: true
@@ -261,8 +262,9 @@ chains:
           to the Feature Chain
         note: >-
           The Main Agent's own planning, not a dispatch. For multi-pole work —
-          the trigger of Workflows/AUTONOMOUS_DELIVERY.md — the Main Agent
-          dispatches the Engineering Manager to define the Work Units instead.
+          work the Director has mandated under Workflows/AUTONOMOUS_DELIVERY.md,
+          never the Main Agent's own estimate — the Main Agent dispatches the
+          Engineering Manager to define the Work Units instead.
 
 # Chains not named above are composed per Core/AGENT_CHAINS.md's "Composing
 # Custom Chains": the Main Agent identifies the Employees and sequence, presents

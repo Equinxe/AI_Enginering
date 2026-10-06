@@ -137,7 +137,7 @@ The `milestone` field of a registry entry names the release or iteration the Wor
 
 Owner: IA Engineering
 
-Version: 0.0.6
+Version: 0.0.7
 
 Status: Draft
 
