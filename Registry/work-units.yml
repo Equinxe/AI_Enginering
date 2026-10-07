@@ -1273,6 +1273,12 @@ work_units:
     milestone: Precision
     delivers: README.md, Templates/SESSION_STATE.md, Registry/work-units.yml
 
+  - id: WU-IAENG-338
+    employee: DevOps Engineer
+    title: Make the usage-dashboard.cmd superproject lookup safe for a caret in the adopting project's path - the for /f child command starts with cd /d into IAENG_ROOT instead of call, which doubled carets and re-expanded %NAME%, so a "^" made rev-parse fail and the framework was measured instead (issue #210); pinned statically, verified on Windows
+    milestone: Precision
+    delivers: Adapters/scripts/usage-dashboard.cmd, Adapters/scripts/tests/run.sh, Registry/work-units.yml
+
   - id: WU-IAENG-340
     employee: Technical Lead
     title: Put the Prompt Engineer review of every Employees/ or Core/*.md change into Workflows/CODE_REVIEW.md (Actors, Step 4, Exit Criteria) and the Code Review blocking conditions in Registry/workflows.yml, citing the Prompt Engineer trigger in Core/EMPLOYEE_SELECTION.md - the condition #203 adds lived only in that routing document, which no review or merge-readiness check reads
