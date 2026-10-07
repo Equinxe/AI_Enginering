@@ -1260,3 +1260,9 @@ work_units:
     title: Make the SESSION_STATE adoption instruction produce a readable state file - the README says to copy only the fenced block under the template's Template heading, never the whole file, and to give its _Last updated line an absolute date in the form session-start.sh parses; the template marks that block as the part to copy, so every other pointer to it resolves without being edited
     milestone: Precision
     delivers: README.md, Templates/SESSION_STATE.md, Registry/work-units.yml
+
+  - id: WU-IAENG-343
+    employee: Technical Lead
+    title: Let approvals survive an update merge of develop into a Pull Request whose own changes did not move - Core/MAIN_AGENT_CONDUCT.md condition 1 of the develop-merge exception carries the Code Reviewer, QA and Prompt Engineer approvals over a push that only merges develop into the branch when the Pull Request's own changes, fingerprinted with git diff -U0 against the merge base minus hunk headers and index lines, are identical line for line on both heads; the Main Agent records the check on the Pull Request in one comment, checks must be green on the new head, any other push or any changed line needs a fresh review, and the Director's Core approval rule is unchanged; Workflows/FEATURE_DEVELOPMENT.md Step 8 points to it (Director, 7 Oct 2026)
+    milestone: Precision
+    delivers: Core/MAIN_AGENT_CONDUCT.md, Workflows/FEATURE_DEVELOPMENT.md, Registry/work-units.yml

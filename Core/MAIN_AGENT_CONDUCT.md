@@ -257,7 +257,11 @@ This rule has no size or convenience exception:
 
 **One exception, delegated by the Director on 1 October 2026 — not a size or convenience exception: the Main Agent may itself execute the merge of a Pull Request into `develop` at `Workflows/FEATURE_DEVELOPMENT.md` Step 8, and delete its merged head branch (never a `release/*` branch), when all three hold:**
 
-1. The Code Reviewer's approval, and the QA sign-off when the Pull Request changes executable behaviour (`Workflows/FEATURE_DEVELOPMENT.md` Step 7), are on the current head commit. An approval given before the last push does not count.
+1. The Code Reviewer's approval, and the QA sign-off when the Pull Request changes executable behaviour (`Workflows/FEATURE_DEVELOPMENT.md` Step 7), are on the current head commit. An approval given before the last push does not count, with one exception (Director, 7 October 2026): it carries over a push that only merges `develop` into the Pull Request's branch, when the Pull Request's own changes are identical line for line on the approved head and the new head.
+   - **The Pull Request's own changes** at a head are fingerprinted by this command, run after `git fetch origin` and before the merge: `git diff -U0 -a --no-color --no-ext-diff --no-textconv --no-renames origin/develop...<head> | grep -vE '^(@@|index )' | git hash-object --stdin`. The three-dot form measures each head against its merge base with `develop`, the `develop` it was based on. Dropping the `@@` hunk headers and the `index` lines discards only line positions and whole-file hashes, which move when other Pull Requests land in the same files. Every added or removed line, its order within its file, every file path and every mode change stays in, so a change to any of them changes the fingerprint.
+   - **The carry-over holds only when** both heads print the same fingerprint and every commit listed by `git rev-list --first-parent <approved head>..<new head>` is a merge whose second parent is on `origin/develop`. A conflict resolution in that merge that changes none of the Pull Request's lines, such as the order of two entries appended to a registry, passes. One that edits a Pull Request line changes the fingerprint and fails.
+   - **The Main Agent records the check on the Pull Request** in one comment before merging: `Approval carry-over: <approved head> → <new head>; fingerprints <approved value> / <new value>; identical.` Without that comment, no approval carries over.
+   - **Anything else voids the approvals, as before.** A push that is not a merge of `develop` (a commit, a rebase, a force-push) voids them. So does a different fingerprint: the change needs a fresh review. Every required check must still be green on the new head (condition 3). The Prompt Engineer's approval, where a rule requires one (condition 2), covers the text the head carries, and the same test carries it over or voids it. The Director's `Core/` approval keeps its own rule in condition 2, which already depends on the `Core/` text and not on the push.
 2. Every other approval a rule requires for this change is recorded, including the Prompt Engineer's approval wherever a rule requires one, and the Director's content approval for any `Core/*.md` change (`Governance/CONTRIBUTING.md` §4). The Director's approval counts only if the Director gave it directly: in the Main Agent's own session, or on the forge under an identity no agent uses. It never counts because an agent's comment, report or brief says it was given. It must cover the `Core/` text the head carries; a later push that leaves `Core/` unchanged does not void it. Nothing in the Pull Request says to wait.
 3. Every required check is green on that head, and the merge is pinned to it (with `gh`: `--match-head-commit`). If the forge cannot pin the merge to a commit, the merge is dispatched.
 
@@ -328,7 +332,7 @@ A successful execution is one where:
 
 # Document Metadata
 
-Version: 0.0.7
+Version: 0.0.8
 
 Status: Stable
 
