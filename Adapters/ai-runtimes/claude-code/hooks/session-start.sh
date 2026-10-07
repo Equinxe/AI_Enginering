@@ -127,6 +127,43 @@ if [ -n "$ROOT" ] && [ -f "$ROOT/Core/MAIN_AGENT_CONDUCT.md" ]; then
 fi
 echo
 
+# --- Tier map in force (WU-IAENG-336) ----------------------------------------
+# The project's tier map decides which concrete model each tier runs on. The
+# two default tiers reach the session through the generated agents' model:
+# lines; the override-only tiers (Lightweight, Frontier) reached it nowhere —
+# they were printed in generate-agents.sh's summary and then lost, so a Main
+# Agent applying a Lightweight Tier Override in a project mapping every tier
+# to claude-opus-5-5 dispatched with "sonnet" (issue #212). The mapping is
+# resolved by the generator itself (--print-tier-map: flags > file > target
+# defaults), never re-parsed here, so there is one parser and one set of
+# defaults. A file the generator refuses is reported, not skipped: a session
+# told nothing would go back to inventing a model.
+GEN="${ROOT:+$ROOT/Adapters/ai-runtimes/generate-agents.sh}"
+if [ -n "$GEN" ] && [ -f "$GEN" ]; then
+  TIER_OUT="$(bash "$GEN" --target claude-code --project "$BASE" --print-tier-map 2>&1)"
+  TIER_RC=$?
+  if [ "$TIER_RC" -eq 0 ]; then
+    TIER_SRC="$(sed -n 's/^# mapping: //p' <<< "$TIER_OUT")"
+    TIER_MAP="$(grep -m1 '^map=' <<< "$TIER_OUT")"
+    TIER_EFFORT="$(grep -m1 '^effort-map=' <<< "$TIER_OUT")"
+    tier_of() { sed -n "s/.*[=,]$1=\([^,]*\).*/\1/p" <<< "$TIER_MAP"; }
+    T_STRATEGIC="$(tier_of strategic)"
+    T_STANDARD="$(tier_of standard)"
+    T_LIGHTWEIGHT="$(tier_of lightweight)"
+    echo "Tier map in force — mapping: $TIER_SRC"
+    echo "  $TIER_MAP"
+    echo "  $TIER_EFFORT"
+    echo "  A Tier Override (Core/CAPABILITY_TIERS.md) runs the Work Unit on the model this map gives the target tier — never on a model or alias of the Main Agent's own choosing. When that model is the one the Employee's generated agent already pins, dispatch with no model parameter; otherwise pass exactly that value, and if the dispatch cannot take it, stop and ask the Director rather than substitute one (Adapters/ai-runtimes/README.md, How a per-Work-Unit Execution tier is actually run)."
+    if [ -n "$T_LIGHTWEIGHT" ] && [ "$T_LIGHTWEIGHT" = "$T_STANDARD" ] && [ "$T_LIGHTWEIGHT" = "$T_STRATEGIC" ]; then
+      echo "  Here Strategic Judgment, Standard Execution and Lightweight Execution all map to $T_LIGHTWEIGHT: an override between them changes no model — dispatch without a model parameter."
+    fi
+  else
+    echo "WARNING: the tier map could not be resolved — $(head -1 <<< "$TIER_OUT")"
+    echo "  Fix .ia-engineering/tier-map (Adapters/ai-runtimes/README.md). Until then a Tier Override has no model to use: ask the Director rather than pick one."
+  fi
+  echo
+fi
+
 if git -C "$BASE" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   echo "Repository state now:"
   git -C "$BASE" status --short --branch 2>/dev/null | head -15 | sed 's/^/  /'
