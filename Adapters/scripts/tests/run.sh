@@ -4007,6 +4007,427 @@ expect 0 "dashboard: --open on Windows hands a comma-free path to explorer.exe (
   bash "$DASH" --project-dir "$USAGE_REPO" --out "$UPAGE" --open
 expect 0 "dashboard: explorer.exe received the page path" -- grep -qF 'dashboard.html' "$WSTUB/explorer-called.txt"
 
+# WU-IAENG-330 — the runtime's own override of the slug is honoured.
+TAB=$'\t'
+cat > "$WORK/usage-opener330.sh" <<OPENER
+#!/usr/bin/env bash
+printf '%s\n' "\$1" >> "$WORK/usage-opened330.txt"
+OPENER
+chmod +x "$WORK/usage-opener330.sh"
+rm -rf "$WORK/usage-named-config"
+mkdir -p "$WORK/usage-named-config/projects/obs330-named"
+cp -R "$UT/." "$WORK/usage-named-config/projects/obs330-named/"
+expect 0 "collector: CLAUDE_CODE_PROJECT_DIR_NAME names the transcript directory" -- \
+  env CLAUDE_CONFIG_DIR="$WORK/usage-named-config" CLAUDE_CODE_PROJECT_DIR_NAME=obs330-named \
+  bash "$COLLECT" --project-dir "$USAGE_REPO"
+expect_output "dispatch${TAB}observability-engineer${TAB}opus${TAB}1"
+
+# WU-IAENG-330 — incremental reading. A cached run re-reads only what grew,
+# from the last complete line; the result must equal a from-scratch read at
+# every step. A line still being written (no newline) is not counted until it
+# is complete, and is then counted once.
+UTI="$WORK/usage-transcripts-incr"
+UCACHE="$WORK/usage-collect-cache"
+rm -rf "$UTI" "$UCACHE"
+mkdir -p "$UTI"
+cp "$UT/s1.jsonl" "$UTI/s1.jsonl"
+usage_line() {
+  printf '{"type":"assistant","timestamp":"2026-10-06T09:00:00Z","message":{"id":"%s","model":"claude-test-1","content":[],"usage":{"input_tokens":%s,"output_tokens":1,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}' "$1" "$2"
+}
+# usage_source <cache-args...> — the collector's `source` line.
+usage_source() { bash "$COLLECT" --transcripts-dir "$UTI" "$@" 2>/dev/null | head -n 1; }
+expect 0 "collector cache: a first cached run equals an uncached one" -- \
+  test "$(usage_source --cache-dir "$UCACHE")" = "$(usage_source)"
+{ usage_line msg_G1 7; printf '\n'; } >> "$UTI/s1.jsonl"
+expect 0 "collector cache: a grown file adds its new message (2 calls -> 3)" -- \
+  test "$(usage_source --cache-dir "$UCACHE")" = "source${TAB}1${TAB}1${TAB}3${TAB}2"
+usage_line msg_P1 9 | head -c 60 >> "$UTI/s1.jsonl"
+expect 0 "collector cache: a line still being written is not counted yet" -- \
+  test "$(usage_source --cache-dir "$UCACHE")" = "source${TAB}1${TAB}1${TAB}3${TAB}2"
+{ usage_line msg_P1 9 | tail -c +61; printf '\n'; } >> "$UTI/s1.jsonl"
+expect 0 "collector cache: once complete, it is counted once (3 -> 4)" -- \
+  test "$(usage_source --cache-dir "$UCACHE")" = "source${TAB}1${TAB}1${TAB}4${TAB}2"
+expect 0 "collector cache: the incremental result equals a from-scratch read" -- \
+  test "$(bash "$COLLECT" --transcripts-dir "$UTI" --cache-dir "$UCACHE" 2>/dev/null | sort)" \
+     = "$(bash "$COLLECT" --transcripts-dir "$UTI" 2>/dev/null | sort)"
+mkdir -p "$UTI/s9"
+{ usage_line msg_N1 1; printf '\n'; } > "$UTI/s9.jsonl"
+expect 0 "collector cache: a new file is read (4 -> 5 calls, 2 files)" -- \
+  test "$(usage_source --cache-dir "$UCACHE")" = "source${TAB}1${TAB}2${TAB}5${TAB}2"
+rm -f "$UTI/s9.jsonl"
+expect 0 "collector cache: a deleted file's records are dropped (5 -> 4)" -- \
+  test "$(usage_source --cache-dir "$UCACHE")" = "source${TAB}1${TAB}1${TAB}4${TAB}2"
+{ usage_line msg_S1 1; printf '\n'; } > "$UTI/s1.jsonl"
+expect 0 "collector cache: a file that shrank is read again from the start (1 call)" -- \
+  test "$(usage_source --cache-dir "$UCACHE")" = "source${TAB}1${TAB}1${TAB}1${TAB}0"
+
+# WU-IAENG-330 — live mode. Bounded by IAENG_USAGE_WATCH_MAX_CYCLES, with a
+# 1 s sleep standing in for the interval.
+expect 2 "dashboard --watch: an interval under 10 s is refused" -- \
+  bash "$DASH" --project-dir "$USAGE_REPO" --watch 5
+expect_output "the interval is 10 to 86400 seconds"
+UWPAGE="$WORK/usage-out/watch.html"
+rm -f "$WORK/usage-opened330.txt"
+expect 0 "dashboard --watch: two cycles, then a clean stop" -- \
+  env IAENG_USAGE_WATCH_MAX_CYCLES=2 IAENG_USAGE_WATCH_SLEEP=1 IAENG_USAGE_OPENER="$WORK/usage-opener330.sh" \
+  bash "$DASH" --project-dir "$USAGE_REPO" --out "$UWPAGE" --transcripts-dir "$UT" --open --watch
+expect_output "rebuilt in"
+expect_output "no change in HEAD or the transcripts; page kept"
+expect 0 "dashboard --watch: the page reloads itself every 10 s (the default)" -- \
+  grep -qF '<meta http-equiv="refresh" content="10">' "$UWPAGE"
+expect 0 "dashboard --watch: the header says when it was last updated" -- grep -qF 'last updated' "$UWPAGE"
+expect 0 "dashboard --watch: --open opened the page once" -- \
+  test "$(grep -c . "$WORK/usage-opened330.txt")" = 1
+expect 0 "dashboard --watch: the live page carries the same aggregates" -- \
+  grep -qF '"name":"Observability Engineer","roster":"framework","dispatches":1' "$UWPAGE"
+expect 1 "dashboard: a page built without --watch has no reload directive" -- \
+  grep -qF 'http-equiv="refresh"' "$UPAGE"
+expect 0 "dashboard --watch 30 --open: an explicit interval before another flag" -- \
+  env IAENG_USAGE_WATCH_MAX_CYCLES=1 IAENG_USAGE_OPENER="$WORK/usage-opener330.sh" \
+  bash "$DASH" --project-dir "$USAGE_REPO" --out "$UWPAGE" --transcripts-dir "$UT" --watch 30 --open
+expect 0 "dashboard --watch 30: the page reloads every 30 s" -- \
+  grep -qF '<meta http-equiv="refresh" content="30">' "$UWPAGE"
+
+# WU-IAENG-330 — per project. A throwaway adopter with the framework as a
+# submodule at ia-engineering/: the page reads the PROJECT's history, the
+# framework roster plus the project roster, only the transcripts of the
+# project's own slug, and is written under the project. The framework's own
+# commits and the transcripts of the framework's path are not counted.
+FWREPO="$WORK/usage-framework"
+rm -rf "$FWREPO"
+mkdir -p "$FWREPO/Adapters/scripts" "$FWREPO/Adapters/ai-runtimes/claude-code" "$FWREPO/Registry"
+cp "$DASH" "$FWREPO/Adapters/scripts/"
+cp "$COLLECT" "$FWREPO/Adapters/ai-runtimes/claude-code/"
+(
+  cd "$FWREPO" || exit 1
+  git init -q -b main .
+  git config user.email test@example.invalid
+  git config user.name "Test Runner"
+  git config commit.gpgsign false
+  git config core.autocrlf false
+  ROSTER_TARGET=Registry/employees.yml write_employee_roster "DevOps Engineer" "Observability Engineer"
+  git add -A
+  git commit -q -m "framework work
+
+Employee: DevOps Engineer"
+)
+new_repo usage-adopter
+ADOPTER="$PWD"
+git -c protocol.file.allow=always submodule add -q "$FWREPO" ia-engineering >/dev/null 2>&1
+git commit -q -m "adopt the framework"
+ROSTER_TARGET=.ia-engineering/Registry/employees.yml write_employee_roster "Domain Expert"
+ACFG="$WORK/usage-adopter-config"
+rm -rf "$ACFG"
+mkdir -p "$ACFG"
+expect 0 "adopter: the dashboard runs from the project root through the submodule path" -- \
+  env CLAUDE_CONFIG_DIR="$ACFG" bash ia-engineering/Adapters/scripts/usage-dashboard.sh
+expect 0 "adopter: the page is written under the project" -- test -s "$ADOPTER/.ia-engineering/usage/dashboard.html"
+expect 1 "adopter: nothing is written under the framework" -- test -e "$ADOPTER/ia-engineering/.ia-engineering/usage/dashboard.html"
+APAGE="$ADOPTER/.ia-engineering/usage/dashboard.html"
+expect 0 "adopter: the project roster is unioned in" -- grep -qF '"name":"Domain Expert","roster":"project"' "$APAGE"
+expect 0 "adopter: a new project starts at zero - every Employee never used" -- \
+  grep -qF '"totals":{"roster":3,"never":3,"rare":0,"dispatches":0' "$APAGE"
+expect 0 "adopter: the framework's own commits are not the project's" -- \
+  grep -qF '"name":"DevOps Engineer","roster":"framework","dispatches":0,"commits_range":0,"commits_all":0' "$APAGE"
+# Transcripts: one under the project's slug, one under the framework
+# submodule's path — only the first is the project's.
+ANATIVE="$(cd "$ADOPTER" && pwd -P)"
+FNATIVE="$(cd "$ADOPTER/ia-engineering" && pwd -P)"
+if command -v cygpath >/dev/null 2>&1; then ANATIVE="$(cygpath -w "$ANATIVE")"; FNATIVE="$(cygpath -w "$FNATIVE")"; fi
+ASLUG="$(printf '%s' "$ANATIVE" | sed 's/[^A-Za-z0-9]/-/g')"
+FSLUG="$(printf '%s' "$FNATIVE" | sed 's/[^A-Za-z0-9]/-/g')"
+mkdir -p "$ACFG/projects/$ASLUG" "$ACFG/projects/$FSLUG"
+printf '%s\n' '{"type":"assistant","timestamp":"2026-10-06T10:00:00Z","message":{"id":"msg_AD1","model":"claude-test-1","content":[{"type":"tool_use","id":"toolu_AD1","name":"Agent","input":{"subagent_type":"observability-engineer"}}],"usage":{"input_tokens":1,"output_tokens":1,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}' > "$ACFG/projects/$ASLUG/s.jsonl"
+printf '%s\n' '{"type":"assistant","timestamp":"2026-10-06T10:00:00Z","message":{"id":"msg_FW1","model":"claude-test-1","content":[{"type":"tool_use","id":"toolu_FW1","name":"Agent","input":{"subagent_type":"devops-engineer"}}],"usage":{"input_tokens":1,"output_tokens":1,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}' > "$ACFG/projects/$FSLUG/s.jsonl"
+commit_with "feat: first real work" "Work Unit: WU-AD-001" "" "Employee: Observability Engineer"
+expect 0 "adopter: run from INSIDE the submodule, the project is still the one measured" -- \
+  env CLAUDE_CONFIG_DIR="$ACFG" bash -c 'cd ia-engineering && bash Adapters/scripts/usage-dashboard.sh'
+expect_output "the project that includes this framework"
+expect 0 "adopter: the project's own dispatch and commit are counted" -- \
+  grep -qF '"name":"Observability Engineer","roster":"framework","dispatches":1,"commits_range":1,"commits_all":1' "$APAGE"
+expect 0 "adopter: the framework path's transcripts are not the project's" -- \
+  grep -qF '"name":"DevOps Engineer","roster":"framework","dispatches":0' "$APAGE"
+cd "$WORK" || exit 1
+
+# ---- PR #204 review regressions (Security Engineer F1-F9, Code Reviewer M1/m1/m2)
+
+# F1 — a .meta.json's free-text description never reaches the cache.
+UTM="$WORK/usage-transcripts-meta"
+UCM="$WORK/usage-cache-meta"
+rm -rf "$UTM" "$UCM"
+mkdir -p "$UTM/s/subagents"
+cp "$UT/s1.jsonl" "$UTM/s.jsonl"
+printf '%s\n' '{"type":"assistant","timestamp":"2026-10-06T08:00:00Z","message":{"id":"msg_M1","model":"claude-test-1","content":[],"usage":{"input_tokens":1,"output_tokens":1,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}' > "$UTM/s/subagents/agent-m.jsonl"
+printf '%s\n' '{"agentType":"devops-engineer","description":"OBS330-DESC-SENTINEL rotate the prod key","toolUseId":"toolu_M1"}' > "$UTM/s/subagents/agent-m.meta.json"
+expect 0 "F1: a cached run over a subagent with a described dispatch" -- \
+  bash "$COLLECT" --transcripts-dir "$UTM" --cache-dir "$UCM"
+expect 1 "F1: no .meta.json description text anywhere in the cache" -- grep -rqF 'OBS330-DESC-SENTINEL' "$UCM"
+expect 1 "F1: no per-run work files are left in the cache" -- test -e "$UCM/v1/work"
+expect 0 "F1: the subagent is still labelled from agentType" -- \
+  bash "$COLLECT" --transcripts-dir "$UTM"
+expect_output "${TAB}devops-engineer${TAB}"
+
+# F2 + M1 — a slug longer than the runtime keeps. IAENG_USAGE_SLUG_MAX
+# stands in for 200, so two sibling paths share the kept prefix.
+new_repo usage-long-alpha
+LALPHA="$PWD"
+mkdir -p "$WORK/usage-long-beta"
+lnative() { local p; p="$(cd "$1" && pwd -P)"; if command -v cygpath >/dev/null 2>&1; then p="$(cygpath -w "$p")"; fi; printf '%s' "$p"; }
+LA="$(lnative "$LALPHA")"
+LB="$(lnative "$WORK/usage-long-beta")"
+LCOMMON="$(lnative "$WORK")"
+LPREFIX="${LCOMMON//[^A-Za-z0-9]/-}-usage-long-"
+LMAX="${#LPREFIX}"
+case "$LA" in *\\*) LSEP="\\" ;; *) LSEP="/" ;; esac
+jsonpath() { local p="$1"; printf '%s' "${p//\\/\\\\}"; }
+long_dir() {  # long_dir <suffix> <cwd-or-empty> <msg-id> <input>
+  local d="$WORK/usage-long-config/projects/${LPREFIX}-$1"
+  mkdir -p "$d"
+  if [ -n "$2" ]; then
+    printf '{"type":"user","cwd":"%s","sessionId":"s-%s"}\n' "$(jsonpath "$2")" "$1" > "$d/s.jsonl"
+  else
+    printf '{"type":"user","sessionId":"s-%s"}\n' "$1" > "$d/s.jsonl"
+  fi
+  printf '{"type":"assistant","timestamp":"2026-10-06T08:00:00Z","message":{"id":"%s","model":"claude-test-1","content":[],"usage":{"input_tokens":%s,"output_tokens":1,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}\n' "$3" "$4" >> "$d/s.jsonl"
+}
+rm -rf "$WORK/usage-long-config"
+long_dir hashA "$LA" msg_LA 11
+long_dir hashB "$LB" msg_LB 22
+long_dir hashW "$LA${LSEP}.claude${LSEP}worktrees${LSEP}w1" msg_LW 33
+expect 0 "F2: a sibling sharing the kept prefix is skipped, the project and its worktree kept" -- \
+  env CLAUDE_CONFIG_DIR="$WORK/usage-long-config" IAENG_USAGE_SLUG_MAX="$LMAX" \
+  bash "$COLLECT" --project-dir "$LALPHA"
+expect_output "source${TAB}2${TAB}2${TAB}2${TAB}0"
+expect_output "recorded in another project"
+long_dir hashU "" msg_LU 44
+expect 4 "M1: a candidate whose owner cannot be read makes the source ambiguous (exit 4)" -- \
+  env CLAUDE_CONFIG_DIR="$WORK/usage-long-config" IAENG_USAGE_SLUG_MAX="$LMAX" \
+  bash "$COLLECT" --project-dir "$LALPHA"
+expect_output "AMBIGUOUS"
+LPAGE="$WORK/usage-out/long.html"
+expect 0 "M1: the dashboard still builds, and says the transcripts are ambiguous" -- \
+  env CLAUDE_CONFIG_DIR="$WORK/usage-long-config" IAENG_USAGE_SLUG_MAX="$LMAX" \
+  bash "$DASH" --project-dir "$LALPHA" --out "$LPAGE"
+expect 0 "M1: the page names the source ambiguous" -- grep -qF '"status":"ambiguous"' "$LPAGE"
+expect 0 "M1: no transcript usage is counted for an ambiguous source" -- grep -qF '"have_transcripts":false' "$LPAGE"
+rm -rf "$WORK/usage-long-config/projects/${LPREFIX}-hashU"
+long_dir hashA2 "$LA" msg_LA2 55
+expect 4 "M1: two directories both recorded in the project root are ambiguous too" -- \
+  env CLAUDE_CONFIG_DIR="$WORK/usage-long-config" IAENG_USAGE_SLUG_MAX="$LMAX" \
+  bash "$COLLECT" --project-dir "$LALPHA"
+cd "$WORK" || exit 1
+
+# F3 — a poisoned index or record is not trusted: no command runs, no file
+# outside rec/ is touched, a cached value is shaped again.
+UTP="$WORK/usage-transcripts-poison"
+UCP="$WORK/usage-cache-poison"
+rm -rf "$UTP" "$UCP" "$WORK/PWNED_ARITH"
+mkdir -p "$UTP"
+cp "$UT/s1.jsonl" "$UTP/s1.jsonl"
+expect 0 "F3: a first cached run" -- bash "$COLLECT" --transcripts-dir "$UTP" --cache-dir "$UCP"
+printf 'victim\n' > "$UCP/victim.tsv"
+{
+  printf '%s\t1\t0\t1\tx\t%s\n' '../../victim' "$UTP/s1.jsonl"
+  printf '7\t1\t%s\t1\tx\t%s\n' "PATH[\$(touch $WORK/PWNED_ARITH)0]" "$UTP/s1.jsonl"
+} > "$UCP/v1/index.tsv"
+printf '%s\n' '{"type":"assistant","timestamp":"2026-10-06T09:00:00Z","message":{"id":"msg_P2","model":"claude-test-1","content":[],"usage":{"input_tokens":5,"output_tokens":1,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}' >> "$UTP/s1.jsonl"
+expect 0 "F3: a run over a poisoned index succeeds" -- bash "$COLLECT" --transcripts-dir "$UTP" --cache-dir "$UCP"
+expect 1 "F3: an offset written as an arithmetic expression ran no command" -- test -e "$WORK/PWNED_ARITH"
+expect 0 "F3: an idx written as a path did not touch a file outside rec/" -- grep -qxF victim "$UCP/victim.tsv"
+expect 0 "F3: the poisoned index lines were ignored and the file read whole (3 calls)" -- \
+  test "$(bash "$COLLECT" --transcripts-dir "$UTP" --cache-dir "$UCP" 2>/dev/null | head -n 1)" = "source${TAB}1${TAB}1${TAB}3${TAB}2"
+for r in "$UCP"/v1/rec/*.tsv; do
+  printf 'C\tmsg_POISON\t2026-10-06\tthe password is hunter2\tmain session\t\t1\t1\t0\t0\n' >> "$r"
+done
+expect 0 "F3: a run over a poisoned record" -- bash "$COLLECT" --transcripts-dir "$UTP" --cache-dir "$UCP"
+expect_output "(unrecognised)"
+expect 1 "F3: a cached value is shaped again, not passed through" -- grep -qF 'hunter2' <<< "$LAST_OUTPUT"
+
+# m1 — a same-size rewrite and a replaced (rotated) file are read again.
+UTR="$WORK/usage-transcripts-rotate"
+UCR="$WORK/usage-cache-rotate"
+rm -rf "$UTR" "$UCR"
+mkdir -p "$UTR"
+rot_line() { printf '{"type":"assistant","sessionId":"%s","timestamp":"2026-10-06T09:00:00Z","message":{"id":"%s","model":"claude-test-1","content":[],"usage":{"input_tokens":%s,"output_tokens":1,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}\n' "$1" "$2" "$3"; }
+rot_line sessA msg_R1 7 > "$UTR/s.jsonl"
+expect 0 "m1: a first cached run" -- bash "$COLLECT" --transcripts-dir "$UTR" --cache-dir "$UCR"
+rot_line sessA msg_R1 9 > "$UTR/s.jsonl"
+touch -d '2030-01-01 00:00:00' "$UTR/s.jsonl"
+expect 0 "m1: a same-size rewrite with a new mtime is read again (input 9, not 7)" -- \
+  test "$(bash "$COLLECT" --transcripts-dir "$UTR" --cache-dir "$UCR" 2>/dev/null | sort)" = "$(bash "$COLLECT" --transcripts-dir "$UTR" 2>/dev/null | sort)"
+{ rot_line sessB msg_R2 1000; rot_line sessB msg_R3 7; } > "$UTR/s.jsonl"
+expect 0 "m1: a replaced file that grew is read from the start, not from the old offset" -- \
+  test "$(bash "$COLLECT" --transcripts-dir "$UTR" --cache-dir "$UCR" 2>/dev/null | sort)" = "$(bash "$COLLECT" --transcripts-dir "$UTR" 2>/dev/null | sort)"
+
+# F8 — a file name with a newline is skipped with a warning; the rest counts.
+UT8="$WORK/usage-transcripts-newline"
+rm -rf "$UT8"
+mkdir -p "$UT8"
+cp "$UT/s1.jsonl" "$UT8/s1.jsonl"
+cp "$UT/s1.jsonl" "$UT8/n${NL:=$'\n'}l.jsonl"
+expect 0 "F8: a transcript named with a newline does not stop the others" -- \
+  bash "$COLLECT" --transcripts-dir "$UT8"
+expect_output "WARNING: skipped 1 transcript file(s)"
+expect_output "source${TAB}1${TAB}1${TAB}2${TAB}2"
+
+# F9 — a raw transcript line cannot pose as a file marker.
+UT9="$WORK/usage-transcripts-marker"
+rm -rf "$UT9"
+mkdir -p "$UT9"
+cp "$UT/s1.jsonl" "$UT9/s1.jsonl"
+printf '\036S 999 {"agentType":"x"} {"type":"assistant","message":{"id":"msg_F9","model":"claude-test-1","usage":{"input_tokens":1}}}\n' >> "$UT9/s1.jsonl"
+expect 0 "F9: a forged marker line is dropped, not obeyed" -- bash "$COLLECT" --transcripts-dir "$UT9"
+expect_output "source${TAB}1${TAB}1${TAB}2${TAB}2"
+
+# F7 — the slug override is honoured only as the runtime honours it.
+mkdir -p "$WORK/usage-home7/.claude/projects/obs330-named"
+cp -R "$UT/." "$WORK/usage-home7/.claude/projects/obs330-named/"
+expect 3 "F7: without CLAUDE_CONFIG_DIR the override is ignored, as the runtime ignores it" -- \
+  env -u CLAUDE_CONFIG_DIR HOME="$WORK/usage-home7" CLAUDE_CODE_PROJECT_DIR_NAME=obs330-named \
+  bash "$COLLECT" --project-dir "$USAGE_REPO"
+expect 3 "F7: an override that is not a plain name is ignored" -- \
+  env CLAUDE_CONFIG_DIR="$WORK/usage-named-config" CLAUDE_CODE_PROJECT_DIR_NAME='../usage-named-config/projects/obs330-named' \
+  bash "$COLLECT" --project-dir "$USAGE_REPO"
+
+# F4 / m2 — the interval is a plain decimal within bounds, or refused.
+mkdir -p "$WORK/usage-empty-config"
+for bad in 018 010 18446744073709551615 86401 9; do
+  expect 2 "F4: --watch $bad is refused, never a silent one-shot build" -- \
+    env CLAUDE_CONFIG_DIR="$WORK/usage-empty-config" bash "$DASH" --project-dir "$USAGE_REPO" --watch "$bad"
+done
+WTMP="$WORK/usage-watch-tmp"
+rm -rf "$WTMP"
+mkdir -p "$WTMP"
+# F5 — the sleep knob is a number or nothing; this one would run a command.
+expect 0 "F5: a watch run with an arithmetic-expression sleep knob" -- \
+  env TMPDIR="$WTMP" CLAUDE_CONFIG_DIR="$WORK/usage-empty-config" IAENG_USAGE_WATCH_MAX_CYCLES=2 \
+  IAENG_USAGE_WATCH_SLEEP="SECONDS[\$(touch $WORK/PWNED_SLEEP)0]*0+1" \
+  bash "$DASH" --project-dir "$USAGE_REPO" --out "$WORK/usage-out/f5.html" --watch
+expect 1 "F5: the sleep knob ran no command" -- test -e "$WORK/PWNED_SLEEP"
+expect 0 "F4: the watch's temporary directory is removed when it stops" -- \
+  test -z "$(find "$WTMP" -mindepth 1 -maxdepth 1 -name 'obs330-watch.*' 2>/dev/null)"
+
+# The Windows launcher passes the script as a native path (C:\...\x.sh); a
+# --watch build re-runs the script by that path, so it must resolve. Found
+# by running usage-dashboard.cmd --watch for real (WU-IAENG-330).
+UDASH_NATIVE="$DASH"
+if command -v cygpath >/dev/null 2>&1; then UDASH_NATIVE="$(cygpath -w "$DASH")"; fi
+expect 0 "watch: started by the script's native path, the rebuild finds the script" -- \
+  env CLAUDE_CONFIG_DIR="$WORK/usage-empty-config" IAENG_USAGE_WATCH_MAX_CYCLES=1 \
+  bash "$UDASH_NATIVE" --project-dir "$USAGE_REPO" --out "$WORK/usage-out/native.html" --watch
+expect_output "rebuilt in"
+
+# F6 — a file already at the temporary page's name is never written through.
+F6DIR="$WORK/usage-out-f6"
+rm -rf "$F6DIR"
+mkdir -p "$F6DIR"
+# The planter takes the dashboard's PID by exec'ing it, so it knows the
+# temporary name the dashboard will try first.
+cat > "$WORK/usage-f6-planter.sh" <<'PLANT'
+#!/usr/bin/env bash
+printf decoy > "$1/.page.html.$$.tmp"
+exec bash "$2" --project-dir "$3" --out "$1/page.html"
+PLANT
+expect 0 "F6: the page is written although its first temporary name is taken" -- \
+  env CLAUDE_CONFIG_DIR="$WORK/usage-empty-config" bash "$WORK/usage-f6-planter.sh" "$F6DIR" "$DASH" "$USAGE_REPO"
+expect 0 "F6: the planted file is untouched" -- test "$(cat "$F6DIR"/.page.html.*.tmp 2>/dev/null)" = decoy
+expect 0 "F6: the page itself was written" -- grep -qF 'usage-data' "$F6DIR/page.html"
+expect 0 "F6: no private page directory is left behind" -- \
+  test -z "$(find "$F6DIR" -mindepth 1 -maxdepth 1 -name '.usage-dashboard.*' 2>/dev/null)"
+
+# Security re-check R1 — noclobber refuses regular files only: a FIFO at a
+# predictable name would have received the page or blocked the build. The
+# page is now rendered inside a private mktemp directory, so nothing planted
+# in the output folder is opened. Bounded by timeout: a hang is a failure.
+F7DIR="$WORK/usage-out-fifo"
+rm -rf "$F7DIR"
+mkdir -p "$F7DIR"
+cat > "$WORK/usage-fifo-planter.sh" <<'PLANT'
+#!/usr/bin/env bash
+mkfifo "$1/.page.html.$$.tmp"
+exec bash "$2" --project-dir "$3" --out "$1/page.html"
+PLANT
+expect 0 "R1-sec: a FIFO planted at a predictable name neither receives the page nor blocks the build" -- \
+  env CLAUDE_CONFIG_DIR="$WORK/usage-empty-config" timeout 300 bash "$WORK/usage-fifo-planter.sh" "$F7DIR" "$DASH" "$USAGE_REPO"
+expect 0 "R1-sec: the page was written" -- grep -qF 'usage-data' "$F7DIR/page.html"
+
+# Code re-check R1 — a native Windows --out path (C:\...\x.html) is used as
+# given; on POSIX hosts the same test passes the POSIX path.
+UNATIVE_OUT="$WORK/usage-out/native-out/dash.html"
+UNATIVE_ARG="$UNATIVE_OUT"
+if command -v cygpath >/dev/null 2>&1; then UNATIVE_ARG="$(cygpath -w "$UNATIVE_OUT")"; fi
+expect 0 "R1: --out given as a native path builds the page there" -- \
+  env CLAUDE_CONFIG_DIR="$WORK/usage-empty-config" bash "$DASH" --project-dir "$USAGE_REPO" --out "$UNATIVE_ARG"
+expect 0 "R1: the page is at that path" -- grep -qF 'usage-data' "$UNATIVE_OUT"
+rm -f "$UNATIVE_OUT"
+expect 0 "R1: the same under --watch" -- \
+  env CLAUDE_CONFIG_DIR="$WORK/usage-empty-config" IAENG_USAGE_WATCH_MAX_CYCLES=1 \
+  bash "$DASH" --project-dir "$USAGE_REPO" --out "$UNATIVE_ARG" --watch
+expect 0 "R1: the watch page is at that path, with its reload directive" -- \
+  grep -qF 'http-equiv="refresh"' "$UNATIVE_OUT"
+expect 0 "R1: the watch removed its private page directory" -- \
+  test -z "$(find "$WORK/usage-out/native-out" -mindepth 1 -maxdepth 1 -name '.usage-dashboard.*' 2>/dev/null)"
+
+# Code re-check suggestion — a leading zero is named as the reason.
+expect 2 "--watch 010 says why it is refused" -- \
+  env CLAUDE_CONFIG_DIR="$WORK/usage-empty-config" bash "$DASH" --project-dir "$USAGE_REPO" --watch 010
+expect_output "without a leading zero"
+
+# Security re-check R2 — a cached record line that starts with digits is not
+# a store instruction: only new records from stdin are filed under rec/.
+mkdir -p "$UCP/v1/rec/1"
+for r in "$UCP"/v1/rec/*.tsv; do
+  printf '1/../../ESCAPED\tC\tmsg_ESC\t2026-10-06\tclaude-test-1\tmain session\t\t1\t1\t0\t0\n' >> "$r"
+done
+expect 0 "R2-sec: a run over a cache holding a digit-prefixed record line" -- \
+  bash "$COLLECT" --transcripts-dir "$UTP" --cache-dir "$UCP"
+expect 1 "R2-sec: no file was written outside rec/" -- test -e "$UCP/v1/ESCAPED.tsv"
+
+# Security re-check: under mawk 1.3.4 an open-ended {24,} matched every
+# name, so every name came out (redacted). Both scripts run here with `awk`
+# being mawk where it is installed (Debian/Ubuntu, CI), the default awk
+# otherwise; ordinary names must survive, a credential must not.
+UAWK="$WORK/usage-awk-bin"
+mkdir -p "$UAWK"
+if command -v mawk >/dev/null 2>&1; then
+  cat > "$UAWK/awk" <<'SHIM'
+#!/usr/bin/env bash
+exec mawk "$@"
+SHIM
+  chmod +x "$UAWK/awk"
+fi
+expect 0 "mawk: the dashboard builds with the platform's awk" -- \
+  env PATH="$UAWK:$PATH" bash "$DASH" --project-dir "$USAGE_REPO" --out "$WORK/usage-out/mawk.html" --transcripts-dir "$UT"
+expect 0 "mawk: ordinary Employee names and dispatches survive" -- \
+  grep -qF '"name":"Observability Engineer","roster":"framework","dispatches":1' "$WORK/usage-out/mawk.html"
+expect 1 "mawk: no ordinary model is taken for a credential" -- grep -qF '"model":"(redacted)"' "$WORK/usage-out/mawk.html"
+expect 0 "mawk: a credential-shaped trailer is still redacted" -- \
+  env PATH="$UAWK:$PATH" CLAUDE_CONFIG_DIR="$WORK/usage-empty-config" bash "$DASH" --project-dir "$WORK/usage-git" --out "$WORK/usage-out/mawk-git.html"
+expect 0 "mawk: the credential counts as (redacted)" -- grep -qF '{"name":"(redacted)","commits":1}' "$WORK/usage-out/mawk-git.html"
+
+# Security re-check R3: an output folder other users can write to, without
+# the sticky bit, is refused; with it, accepted. Windows has no mode bits:
+# there the build proceeds.
+U3="$WORK/usage-out-shared"
+rm -rf "$U3"
+mkdir -p "$U3"
+chmod 0777 "$U3"
+U3WANT=1
+case "${OSTYPE:-}" in msys*|cygwin*|win*) U3WANT=0 ;; esac
+expect "$U3WANT" "R3: a world-writable output folder without the sticky bit is refused (not on Windows)" -- \
+  env CLAUDE_CONFIG_DIR="$WORK/usage-empty-config" bash "$DASH" --project-dir "$USAGE_REPO" --out "$U3/page.html"
+chmod 1777 "$U3"
+expect 0 "R3: with the sticky bit it is accepted" -- \
+  env CLAUDE_CONFIG_DIR="$WORK/usage-empty-config" bash "$DASH" --project-dir "$USAGE_REPO" --out "$U3/page.html"
+# A private folder reached through a symlink is judged by the folder, not by
+# the link, whose own mode reads 0777 on Linux (code review suggestion).
+rm -rf "$WORK/usage-out-private" "$WORK/usage-out-link"
+mkdir -p "$WORK/usage-out-private"
+chmod 0700 "$WORK/usage-out-private"
+ln -s "$WORK/usage-out-private" "$WORK/usage-out-link"
+expect 0 "R3: a private folder reached through a symlink is accepted" -- \
+  env CLAUDE_CONFIG_DIR="$WORK/usage-empty-config" bash "$DASH" --project-dir "$USAGE_REPO" --out "$WORK/usage-out-link/page.html"
+
 mkdir -p "$WORK/usage-empty-config"
 expect 0 "dashboard: builds without any transcript" -- \
   env CLAUDE_CONFIG_DIR="$WORK/usage-empty-config" bash "$DASH" --project-dir "$USAGE_REPO"
