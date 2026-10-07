@@ -81,6 +81,18 @@
 #                     what is on disk. For CI. Resolves the mapping the same
 #                     way as a generation, and says so when a file differs in
 #                     its mapping only rather than in its Employee definition.
+#   --print-tier-map  resolve the tier mapping exactly as a generation would
+#                     (flags > the project's file > the target's defaults),
+#                     print it, and stop: nothing is generated, written or
+#                     checked. Three lines, themselves a valid tier-map file:
+#                       # mapping: <flags|file|defaults ...>
+#                       map=strategic=X,standard=Y,lightweight=Z,frontier=W
+#                       effort-map=strategic=E,standard=,lightweight=,frontier=
+#                     Refused together with --check or --dry-run, which it
+#                     would otherwise silently not perform. It is how a
+#                     session reads the mapping a Tier Override must use
+#                     (claude-code/hooks/session-start.sh) instead of
+#                     inferring one.
 #   --help
 #
 # A PROJECT'S OWN MAPPING: <project>/.ia-engineering/tier-map, optional, holds
@@ -135,6 +147,7 @@ MAP_OVERRIDE=""
 EFFORT_MAP_OVERRIDE=""
 DRY_RUN=0
 CHECK=0
+PRINT_TIER_MAP=0
 
 # Each value-taking flag asserts it HAS a value before shifting past it.
 #
@@ -174,10 +187,17 @@ while [ "$#" -gt 0 ]; do
     --effort-map) need_value --effort-map "$#"; EFFORT_MAP_OVERRIDE="$2"; shift 2 ;;
     --dry-run) DRY_RUN=1; shift ;;
     --check)   CHECK=1; shift ;;
+    --print-tier-map) PRINT_TIER_MAP=1; shift ;;
     --help|-h) sed -n '2,$p' "$0" | awk '/^#/{print; next} /^$/{print; next} {exit}'; exit 0 ;;
     *) echo "Unknown argument: $1 (try --help)" >&2; exit 2 ;;
   esac
 done
+
+if [ "$PRINT_TIER_MAP" -eq 1 ] && [ "$CHECK$DRY_RUN" != "00" ]; then
+  echo "Argument error: --print-tier-map only prints the resolved mapping; it does not" >&2
+  echo "  generate, so it cannot be combined with --check or --dry-run. Run them separately." >&2
+  exit 2
+fi
 
 # --- Targets ---------------------------------------------------------------
 # One case block per runtime. A new runtime adds a branch here and nothing
@@ -386,6 +406,25 @@ elif [ "$HAVE_TIER_MAP_FILE" -eq 1 ]; then
   MAPPING_SOURCE="file ($TIER_MAP_FILE)"
 else
   MAPPING_SOURCE="defaults (target $TARGET; no .ia-engineering/tier-map in the project)"
+fi
+
+# --print-tier-map: the resolved mapping, and nothing else (WU-IAENG-336).
+#
+# Before this, the Lightweight and Frontier values existed only in the tiers:
+# summary of a generation run, which no session reads. A Main Agent applying
+# a Tier Override therefore had no concrete model to pass and invented one: in
+# an adopting project whose tier-map gave every tier claude-opus-5-5, it
+# dispatched a Lightweight override with "sonnet" (issue #212). The session
+# now asks this script for the mapping instead of a second parser re-reading
+# the file, so the defaults, the file and the precedence stay in one place.
+#
+# The output is a valid tier-map file (the source line is a comment), which is
+# what lets a test feed it back in and get the same mapping out.
+if [ "$PRINT_TIER_MAP" -eq 1 ]; then
+  echo "# mapping: $MAPPING_SOURCE"
+  echo "map=strategic=$MAP_STRATEGIC,standard=$MAP_STANDARD,lightweight=$MAP_LIGHTWEIGHT,frontier=$MAP_FRONTIER"
+  echo "effort-map=strategic=$EFFORT_STRATEGIC,standard=$EFFORT_STANDARD,lightweight=$EFFORT_LIGHTWEIGHT,frontier=$EFFORT_FRONTIER"
+  exit 0
 fi
 
 # --- Output and rosters ------------------------------------------------------
