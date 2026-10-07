@@ -50,8 +50,10 @@ workflows:
     step_count: 8
     steps:
       - n: 1
-        actor: Engineering Manager
-        step: Work Unit definition
+        actor: Main Agent
+        step: >-
+          Work Unit definition, per Core/ORCHESTRATION.md Step 3 — the
+          Engineering Manager only for multi-pole work
       - n: 2
         actor: Engineer
         step: Branch creation
@@ -69,10 +71,19 @@ workflows:
         step: Code review, via Workflows/CODE_REVIEW.md
       - n: 7
         actor: QA Engineer
-        step: QA validation against acceptance criteria
+        step: >-
+          QA validation against acceptance criteria — runs when the Pull
+          Request changes executable behaviour, as Workflows/FEATURE_DEVELOPMENT.md
+          Step 7 defines it (when unclear, it does); skipped otherwise
+          (Director, 6 Oct 2026)
       - n: 8
         actor: Engineering Manager
-        step: Merge into develop
+        step: >-
+          Merge into develop — the document names the Engineering Manager or
+          Technical Lead; the Main Agent may also execute this merge, and
+          delete the merged branch, under the Director's standing exception
+          and only on its conditions (Core/MAIN_AGENT_CONDUCT.md, Git
+          Execution via Named Employee)
     gates: []
     gate_note: >-
       No Director gate inside this workflow. The Feature Chain places the
@@ -331,7 +342,7 @@ workflows:
         actor: Main Agent
         step: Initialize the git workflow
       - n: 6
-        actor: Engineering Manager
+        actor: Main Agent
         step: Create the first Work Unit
         gate: true
       - n: 7
