@@ -38,7 +38,7 @@ Chains encode institutional knowledge about who does what, in what order, for re
 
 The Main Agent session that coordinates several other Main Agent sessions — Poles — through one Director mandate, in `Workflows/AUTONOMOUS_DELIVERY.md`.
 
-A Conductor is not a new role and holds no new authority: it decomposes the mandate, briefs each Pole, receives their reports and escalations, runs the integration pass, and reports to the Director. Like any Main Agent, it does not implement, and it never decides what the Director must decide.
+A Conductor is not a new role and holds no new authority: it partitions the mandate's defined Work Units into Poles, briefs each Pole, receives their reports and escalations, runs the integration pass, and reports to the Director. Like any Main Agent, it does not implement, and it never decides what the Director must decide.
 
 ---
 
@@ -256,7 +256,7 @@ A sequence of coordinated work units executed to achieve an engineering objectiv
 
 # Document Metadata
 
-Version: 0.0.4
+Version: 0.0.5
 
 Status: Stable
 

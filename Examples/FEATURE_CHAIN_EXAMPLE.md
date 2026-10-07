@@ -26,7 +26,7 @@ Extracted:
 # Step 2 — Analyze (Main Agent)
 
 - **Chain selected:** Feature Chain
-- **Employees required:** Business Analyst → Software Architect → Engineering Manager → Backend Engineer → Code Reviewer → QA Engineer
+- **Employees required:** Business Analyst → Software Architect → Backend Engineer → Code Reviewer → QA Engineer. The chain's decomposition step is the Main Agent's own Step 3, below — not a dispatch (`Core/AGENT_CHAINS.md`, Work Unit Decomposition).
 - **Workflow:** `Workflows/FEATURE_DEVELOPMENT.md`
 - **ADR required?** No — no architectural change, existing REST pattern applies.
 - **Director pre-approval required?** Only for the Work Unit plan (Step 3).
@@ -169,7 +169,7 @@ Chain-level check:
 
 Owner: IA Engineering
 
-Version: 0.0.7
+Version: 0.0.8
 
 Status: Draft
 
