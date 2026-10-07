@@ -18,6 +18,8 @@ This is the Context Engine in practice: the Main Agent filters, structures, and 
 ## Employee Brief — [WU-ID]
 
 **To:** [Employee name — e.g., Backend Engineer]
+**Selected by:** "[the rule this dispatch relies on, quoted verbatim, with its source: a `Core/EMPLOYEE_SELECTION.md` trigger line, or the `Core/AGENT_CHAINS.md` or Workflow step that names this Employee]"
+**Rejected:** [the closest Miscasting Risks pair considered — e.g., Code Reviewer vs. Technical Lead — and in one clause why the other Employee does not fit; if no pair names this Employee, the nearest Employee considered and why. Never "none".]
 **From:** Main Agent
 **Work Unit:** [WU-ID]
 **Date:** [YYYY-MM-DD]
@@ -143,6 +145,8 @@ If you encounter a blocker, escalate immediately — do not guess:
 Example: `feat(auth): add POST /auth/login with JWT response`
 ```
 
+**Selected by** and **Rejected** make the choice of Employee reviewable before any work starts. A quoted rule that describes another Employee's work, or a pair rejected for convenience rather than fit, is role absorption (`Core/MAIN_AGENT_CONDUCT.md`, Employee Selection) — visible in the brief instead of discovered in the commit.
+
 A brief never prescribes which model authors the commit. If the runtime adds an optional attribution trailer, it names whichever model actually ran — see `Standards/COMMIT_STANDARD.md`, Runtime attribution trailer.
 
 ---
@@ -180,7 +184,7 @@ A brief that is too long is as harmful as one that is too short. The Main Agent'
 
 Owner: IA Engineering
 
-Version: 0.0.7
+Version: 0.0.8
 
 Status: Draft
 
