@@ -1272,3 +1272,9 @@ work_units:
     title: Make the SESSION_STATE adoption instruction produce a readable state file - the README says to copy only the fenced block under the template's Template heading, never the whole file, and to give its _Last updated line an absolute date in the form session-start.sh parses; the template marks that block as the part to copy, so every other pointer to it resolves without being edited
     milestone: Precision
     delivers: README.md, Templates/SESSION_STATE.md, Registry/work-units.yml
+
+  - id: WU-IAENG-340
+    employee: Technical Lead
+    title: Put the Prompt Engineer review of every Employees/ or Core/*.md change into Workflows/CODE_REVIEW.md (Actors, Step 4, Exit Criteria) and the Code Review blocking conditions in Registry/workflows.yml, citing the Prompt Engineer trigger in Core/EMPLOYEE_SELECTION.md - the condition #203 adds lived only in that routing document, which no review or merge-readiness check reads
+    milestone: Precision
+    delivers: Workflows/CODE_REVIEW.md, Registry/workflows.yml, Registry/work-units.yml
