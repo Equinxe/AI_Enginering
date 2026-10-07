@@ -129,13 +129,13 @@ For existing projects:
 
 ## Step 6 — Create first Work Unit
 
-**Actor:** Engineering Manager → Director
+**Actor:** Main Agent → Director
 
-1. Engineering Manager proposes the first Work Unit based on the project brief.
+1. The Main Agent proposes the first Work Unit based on the project brief — its own Orchestration Step 3 (`Core/ORCHESTRATION.md`), not a dispatch (`Core/AGENT_CHAINS.md`, Work Unit Decomposition).
 2. Director reviews and approves.
-3. Work Unit is assigned to the appropriate engineer.
+3. The Work Unit is dispatched to the implementing Employee chosen per `Core/EMPLOYEE_SELECTION.md`.
 
-This step confirms the framework is operational: the full loop from Director → Main Agent → Engineering Manager → Engineer is active.
+This step confirms the framework is operational: the full loop from Director → Main Agent → Employee is active.
 
 **Output:** First Work Unit created and approved by Director.
 
@@ -206,7 +206,7 @@ This workflow is complete when:
 
 Owner: IA Engineering
 
-Version: 0.0.14
+Version: 0.0.15
 
 Status: Draft
 

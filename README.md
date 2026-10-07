@@ -72,8 +72,14 @@ Copy `Templates/PROJECT_CLAUDE.md` to your project's `CLAUDE.md` and fill it in.
 It is the contract every session reads first; a project without one starts every
 session with no context and no rules. Make your first commit (the adoption itself: the submodule and the installed
 tooling; `CLAUDE.md` goes in a later commit), signed `Employee: DevOps Engineer`
-(`Workflows/PROJECT_BOOTSTRAP.md` Step 4). Then copy `Templates/SESSION_STATE.md`
-to `.ia-engineering/SESSION_STATE.md`: the project's dated operational state,
+(`Workflows/PROJECT_BOOTSTRAP.md` Step 4). Then create
+`.ia-engineering/SESSION_STATE.md` from the fenced block under **Template** in
+`Templates/SESSION_STATE.md`: the block's contents only, not the whole file,
+whose other sections explain how to keep the state file and are not part of
+it. Fill in the placeholders, and at least the `_Last updated:` line with
+today's absolute date in the form `6 October 2026` (day, English month name,
+year). The session-start hook reads the date from that line and reports a
+placeholder as unparsable. This file is the project's dated operational state,
 read right after `CLAUDE.md` on every resume, and never committed (the install
 gitignores it). Create it **after** that commit, not before: the session-start
 hook compares the file's modification time with the latest commit, so a file
