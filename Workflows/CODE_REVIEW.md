@@ -99,7 +99,7 @@ If a security issue is found: escalate immediately to the Security Engineer. Do 
 
 If compliance-relevant content is found: escalate immediately to the Compliance Engineer, the same way a security issue escalates to the Security Engineer. Do not wait for the full review to complete.
 
-If the Pull Request makes a change to an Employee definition (`Employees/`) or to any `Core/*.md` document (including a deletion or rename): request the Prompt Engineer's review, whether or not a finding exists. The Prompt Engineer's **approval** is required before merge, in addition to this review, and must cover the `Employees/` and `Core/*.md` text the head carries. A later push that changes that text needs it again. If the Prompt Engineer authored the change, its own review does not count: escalate to the Director, who names the second reviewer (`Core/EMPLOYEE_SELECTION.md`, Prompt Engineer trigger).
+If the Pull Request makes a change to an Employee definition (`Employees/`) or to any `Core/*.md` document (including a deletion or rename): request the Prompt Engineer's review, whether or not a finding exists. The Prompt Engineer's **approval** is required before merge, in addition to this review, and must cover the `Employees/` and `Core/*.md` text the head carries. A later push that changes that text needs it again; a merge of `develop` into the branch keeps it only as condition 1 of `Core/MAIN_AGENT_CONDUCT.md` (Git Execution via Named Employee) allows. If the Prompt Engineer authored the change, its own review does not count: escalate to the Director, who names the second reviewer (`Core/EMPLOYEE_SELECTION.md`, Prompt Engineer trigger).
 
 **Output:** Security assessment. Escalation opened if needed (Security Engineer and/or Compliance Engineer). Prompt Engineer review requested for a change to `Employees/` or any `Core/*.md` document (including a deletion or rename).
 
@@ -246,7 +246,7 @@ This workflow is complete when:
 - The PR has a documented approval from the Code Reviewer.
 - All critical and major issues are resolved.
 - Security escalations are resolved or formally accepted by the Security Engineer and Director.
-- A change to `Employees/` or any `Core/*.md` document (including a deletion or rename) has the Prompt Engineer's approval on the `Employees/` and `Core/*.md` text the head carries, or, when the Prompt Engineer authored it, the approval of the reviewer the Director named (Step 4).
+- A change to `Employees/` or any `Core/*.md` document (including a deletion or rename) has the Prompt Engineer's approval on the `Employees/` and `Core/*.md` text the head carries, or, when the Prompt Engineer authored it, the approval of the reviewer the Director named (Step 4). A later push that changes that text needs it again; a merge of `develop` into the branch keeps it only as condition 1 of `Core/MAIN_AGENT_CONDUCT.md` (Git Execution via Named Employee) allows.
 
 ---
 
@@ -274,7 +274,7 @@ This workflow is complete when:
 
 Owner: IA Engineering
 
-Version: 0.0.7
+Version: 0.0.8
 
 Status: Draft
 
