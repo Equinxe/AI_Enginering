@@ -1249,6 +1249,12 @@ work_units:
     milestone: Precision
     delivers: Templates/EMPLOYEE_BRIEF.md, Governance/DISPATCH_IN_PRACTICE.md, Core/MAIN_AGENT_CONDUCT.md, Workflows/FEATURE_DEVELOPMENT.md, Registry/workflows.yml, Registry/work-units.yml
 
+  - id: WU-IAENG-333
+    employee: Engineering Manager
+    title: Sharpen the role boundaries in Core/EMPLOYEE_SELECTION.md (Director approved in principle 6 Oct 2026) - 92 of the 120 trailer-attributed commits since v0.0.13 went to the DevOps Engineer or Technical Writer; triggers and Miscasting Risks now route documentation-system work and template structure, project conventions and Standard clauses, developer-tooling platform work (git hooks stay DevOps), open-PR branch upkeep, tier mapping, AI-runtime token and context cost, host/forge/runtime adapters, dashboards, milestone scope and usability studies to their owners, and require a Prompt Engineer review for every Employees/ or Core/*.md change
+    milestone: Precision
+    delivers: Core/EMPLOYEE_SELECTION.md, Registry/work-units.yml
+
   - id: WU-IAENG-334
     employee: Software Architect
     title: Align Core/AGENT_CHAINS.md and Registry/chains.yml step for step (the Review Chain diagram gains the Compliance and Security Engineer steps, the Architecture Chain diagram the Security Engineer step, the Feature Chain diagram its ADR gate), make Work Unit decomposition the Main Agent's own Orchestration Step 3 with the Engineering Manager dispatched for it only on multi-pole work (work the Director has mandated under Workflows/AUTONOMOUS_DELIVERY.md), and define the Engineer step as the implementing Employee chosen per Core/EMPLOYEE_SELECTION.md - Director decisions of 6 Oct 2026
@@ -1260,6 +1266,12 @@ work_units:
     title: Make the SESSION_STATE adoption instruction produce a readable state file - the README says to copy only the fenced block under the template's Template heading, never the whole file, and to give its _Last updated line an absolute date in the form session-start.sh parses; the template marks that block as the part to copy, so every other pointer to it resolves without being edited
     milestone: Precision
     delivers: README.md, Templates/SESSION_STATE.md, Registry/work-units.yml
+
+  - id: WU-IAENG-340
+    employee: Technical Lead
+    title: Put the Prompt Engineer review of every Employees/ or Core/*.md change into Workflows/CODE_REVIEW.md (Actors, Step 4, Exit Criteria) and the Code Review blocking conditions in Registry/workflows.yml, citing the Prompt Engineer trigger in Core/EMPLOYEE_SELECTION.md - the condition #203 adds lived only in that routing document, which no review or merge-readiness check reads
+    milestone: Precision
+    delivers: Workflows/CODE_REVIEW.md, Registry/workflows.yml, Registry/work-units.yml
 
   - id: WU-IAENG-341
     employee: Observability Engineer
