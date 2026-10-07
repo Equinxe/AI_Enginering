@@ -1813,11 +1813,15 @@ section "22. Chain diagrams match Registry/chains.yml step for step"
 #   └── <cond> → <Employee> → resubmit ──┘
 #                                  review loop              loops_to: <Employee>, on
 #                                                           the step before the box
-#   box line with no arrow ("Approved"), or only box rules  not a step
+#   ┌── Approved ──┐, │   │, └───┘  branch label, box rules  not a step
 #
 # A step line may end in "(...)", a condition, and in "← parallel ...", which
 # the Registry records as parallel: true. Anything else is refused as
-# unrecognised rather than skipped (rule 1).
+# unrecognised rather than skipped (rule 1). That includes a box line with no
+# "→" whose text is anything but empty (box rules only) or the one branch label
+# the diagrams use, "Approved" - a named allow-list (rule 2), because a step
+# drawn in a box, or a branch typed with "->" or "⟶", would otherwise go
+# unchecked. It includes an output line that opens "[" and never closes "]".
 #
 # WHAT IS COMPARED at each position: the kind (gate or employee), the name,
 # whether the step is conditional, whether it is parallel, and its loop
@@ -1826,20 +1830,26 @@ section "22. Chain diagrams match Registry/chains.yml step for step"
 # writes "when: Always" on an unconditional gate, so that value counts as no
 # condition.
 #
-# ONE NAMED EXCEPTION (rule 2). A parenthesised clause "<Employee> if
-# multi-pole work" names who does the step under a Director's multi-pole
-# mandate (Core/AGENT_CHAINS.md, Work Unit Decomposition). It names another
-# actor; it does not make the step conditional, and the Registry records it in
-# a note:, not a when:. Every other parenthesised clause is a condition,
-# including "(P1/P2 mandatory notification)", which the Registry records as
-# "when: Severity is P1 or P2".
+# ONE NAMED EXCEPTION (rule 2). The parenthesised clause "Engineering Manager
+# if multi-pole work", exactly, names who does the step under a Director's
+# multi-pole mandate (Core/AGENT_CHAINS.md, Work Unit Decomposition). It names
+# another actor; it does not make the step conditional, and the Registry
+# records it in a note:, not a when:. Clauses are split on ";", so in the
+# Architecture Chain's "(if Accepted; Engineering Manager if multi-pole work)"
+# the "if Accepted" clause is still a condition. The exception is that name and
+# nothing else: "(Only if multi-pole work)" is a condition, and so is any clause
+# that merely ends the same way. Every other parenthesised clause is a
+# condition, including "(P1/P2 mandatory notification)", which the Registry
+# records as "when: Severity is P1 or P2".
 #
 # WHAT IS READ FROM chains.yml, at the fixed indentation its header's parsing
 # contract requires: "  - name:" opens a chain; "      - employee:" or
-# "      - gate:" opens a step, and any other "      - " line is refused; the
-# step keys read are "        when:", "        parallel:" and
-# "        loops_to:". Folded continuation lines sit deeper and are never read
-# as keys.
+# "      - gate:" opens a step; the step keys read are "        when:",
+# "        parallel:" and "        loops_to:". Refused rather than skipped: any
+# other "      - " line, and a "- employee:" or "- gate:" line at any other
+# indentation. The content of a block scalar (a key ending in ">-", ">", "|"
+# and the like) is text, whatever it looks like: it is skipped while its lines
+# are blank or deeper than the key that opened it, exactly as YAML reads it.
 #
 # CRLF is stripped explicitly. Git for Windows' awk drops the carriage return
 # on read, but an awk elsewhere keeps it, which would end every heading, name
@@ -1905,12 +1915,24 @@ chain_diagram_drift() {
       gsub(/↓/, "", x)
       gsub(/[ \t]/, "", x)
       if (x == "") return
-      if (substr(t, 1, 1) == "[") return
+      if (substr(t, 1, 1) == "[") {
+        if (substr(t, length(t)) == "]") return
+        unreadable(ARGV[2], dchain ": unrecognised output line \"" t "\"")
+        return
+      }
       if (index(t, "┌") == 1 || index(t, "│") == 1 || index(t, "└") == 1) {
         inner = t
         gsub(/┌|┐|└|┘|│|─/, "", inner)
-        n = split(trim(inner), seg, "→")
-        if (n <= 1) return
+        inner = trim(inner)
+        if (index(inner, "→") == 0) {
+          # Named allow-list (rule 2): box rules only, or the one branch label
+          # the diagrams use. Anything else in a box is a line this grammar
+          # does not read: a step drawn in a box, or a branch typed with "->".
+          if (inner == "" || inner == "Approved") return
+          unreadable(ARGV[2], dchain ": unrecognised box line \"" t "\"")
+          return
+        }
+        n = split(inner, seg, "→")
         for (i = 1; i <= n; i++) seg[i] = trim(seg[i])
         if (n == 2 && seg[1] != "" && seg[2] != "") {
           add_step("d", dchain, "employee", seg[2], 1, 0)
@@ -1947,7 +1969,9 @@ chain_diagram_drift() {
         ncl = split(paren, cl, ";")
         for (i = 1; i <= ncl; i++) {
           c = trim(cl[i])
-          if (c != "" && c !~ /^[A-Z][A-Za-z ]* if multi-pole work$/) cond = 1
+          # The one named exception, compared for equality: a pattern would
+          # also exempt "Only if multi-pole work", a real condition.
+          if (c != "" && c != "Engineering Manager if multi-pole work") cond = 1
         }
       }
       n = split(t, seg, "→")
@@ -1969,9 +1993,23 @@ chain_diagram_drift() {
       add_step("d", dchain, kind, name, cond, par)
     }
 
+    BEGIN { block = -1 }
+
     # Registry/chains.yml, the first operand.
     FILENAME == ARGV[1] {
       gsub(/\015/, "")
+      # The content of a block scalar is text, whatever it looks like. It runs
+      # while lines are blank or deeper than the key that opened it.
+      if (block >= 0) {
+        if ($0 ~ /^[ \t]*$/) next
+        match($0, /^ */)
+        if (RLENGTH > block) next
+        block = -1
+      }
+      if ($0 ~ /^ *[A-Za-z_]+:[ \t]*[>|][-+0-9]*[ \t]*$/) {
+        match($0, /^ */)
+        block = RLENGTH
+      }
       v = $0
       if (sub(/^  - name: /, "", v)) {
         rchain = trim(v)
@@ -1997,6 +2035,10 @@ chain_diagram_drift() {
       }
       if ($0 ~ /^      - /) {
         unreadable(ARGV[1], "a step that opens with neither employee: nor gate: \"" trim($0) "\"")
+        next
+      }
+      if ($0 ~ /^[ \t]*-[ \t]*(employee|gate):/) {
+        unreadable(ARGV[1], "a step at the wrong indentation (the parsing contract puts it at six spaces) \"" trim($0) "\"")
         next
       }
       if (!rcur) next

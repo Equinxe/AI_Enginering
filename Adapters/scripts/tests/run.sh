@@ -3526,7 +3526,8 @@ chain_drift_case "the #201 drift (Review Chain diagram without its Security and 
 # arrows inside, a conditional gate, the multi-pole clause alone and beside a
 # condition, Engineer(s) with its parallel marker, the review loop, a branch
 # box, "(P1/P2 ...)" as a condition, "when: Always", a folded "when: >-", and
-# folded text that looks like keys.
+# block-scalar text that looks like keys and steps, one at the very indentation
+# of a step.
 cat > "$CHAIN_FIX/base.md" <<'EOF'
 # Agent Chains
 
@@ -3616,6 +3617,8 @@ chains:
 
   - name: Beta Chain
     document: Core/AGENT_CHAINS.md
+    trigger: >-
+      - employee: Folded trigger text at the step indentation, not a step
     steps:
       - employee: SRE Engineer
       - employee: Engineering Manager
@@ -3687,6 +3690,77 @@ chain_drift_case "the review loop dropped from the diagram" "$CHAIN_FIX/loop-dro
   "draws \"employee: Code Reviewer\"" \
   "records \"employee: Code Reviewer (loops to Engineer)\""
 
+# --- What the first version let pass with exit 0 (review of PR #229). Each
+# case is one of the reviewer's falsifiers, rebuilt on the fixture pair.
+#
+# F1, F2, F3: a box line with no "→" was skipped whatever it said. Only box
+# rules and the label "Approved" are now accepted; anything else is refused.
+# chain_insert_box <target> <box line> — base.md with that box line, a closing
+# rule and a connector inserted before the Beta Chain's QA Engineer step.
+chain_insert_box() {
+  printf '%s\n' "$2" "  └─────────────────────────┘" "      ↓" > "$CHAIN_FIX/insert.txt"
+  awk 'NR == FNR { add = add $0 "\n"; next }
+       $0 == "QA Engineer  (if the change is high-risk)" { printf "%s", add }
+       { print }' "$CHAIN_FIX/insert.txt" "$CHAIN_FIX/base.md" > "$1"
+}
+chain_insert_box "$CHAIN_FIX/box-step.md" "  ┌── Compliance Engineer ──┐"
+chain_drift_case "a step drawn as a box, with no arrow (F1)" "$CHAIN_FIX/box-step.md" "$CHAIN_FIX/base.yml" \
+  "Beta Chain: unrecognised box line \"┌── Compliance Engineer ──┐\""
+chain_insert_box "$CHAIN_FIX/box-step-condition.md" "  ┌── Compliance Engineer  (if personal data is exposed) ──┐"
+chain_drift_case "a step drawn as a box with its condition, with no arrow (F1)" "$CHAIN_FIX/box-step-condition.md" "$CHAIN_FIX/base.yml" \
+  "Beta Chain: unrecognised box line \"┌── Compliance Engineer  (if personal data is exposed) ──┐\""
+awk '/^  │ +│$/ { print "  │   Compliance Engineer   │"; next } { print }' \
+  "$CHAIN_FIX/base.md" > "$CHAIN_FIX/box-interior.md"
+chain_drift_case "a step written inside the review box (F2)" "$CHAIN_FIX/box-interior.md" "$CHAIN_FIX/base.yml" \
+  "Alpha Chain: unrecognised box line \"│   Compliance Engineer   │\""
+chain_insert_box "$CHAIN_FIX/box-ascii-arrow.md" "  ┌── Data breach? -> Compliance Engineer ──┐"
+chain_drift_case "a branch box typed with -> (F3)" "$CHAIN_FIX/box-ascii-arrow.md" "$CHAIN_FIX/base.yml" \
+  "Beta Chain: unrecognised box line \"┌── Data breach? -> Compliance Engineer ──┐\""
+chain_insert_box "$CHAIN_FIX/box-long-arrow.md" "  ┌── Data breach? ⟶ Compliance Engineer ──┐"
+chain_drift_case "a branch box typed with ⟶ (F3)" "$CHAIN_FIX/box-long-arrow.md" "$CHAIN_FIX/base.yml" \
+  "Beta Chain: unrecognised box line \"┌── Data breach? ⟶ Compliance Engineer ──┐\""
+
+# F4, F4d: the multi-pole exception matched any clause ending in "if multi-pole
+# work". It is now that one clause, by name; anything else is a condition.
+awk '$0 == "Engineering Manager" { print "Engineering Manager  (Only if multi-pole work)"; next } { print }' \
+  "$CHAIN_FIX/base.md" > "$CHAIN_FIX/only-if-multi-pole.md"
+chain_drift_case "(Only if multi-pole work) read as no condition (F4)" "$CHAIN_FIX/only-if-multi-pole.md" "$CHAIN_FIX/base.yml" \
+  "Beta Chain, step 2: $CHAIN_FIX/only-if-multi-pole.md:" \
+  "draws \"employee: Engineering Manager (conditional)\"" \
+  "records \"employee: Engineering Manager\""
+awk '$0 == "Engineering Manager" { print "Engineering Manager  (Skipped if multi-pole work)"; next } { print }' \
+  "$CHAIN_FIX/base.md" > "$CHAIN_FIX/skipped-if-multi-pole.md"
+chain_drift_case "(Skipped if multi-pole work) read as no condition (F4)" "$CHAIN_FIX/skipped-if-multi-pole.md" "$CHAIN_FIX/base.yml" \
+  "Beta Chain, step 2:" \
+  "draws \"employee: Engineering Manager (conditional)\""
+awk '$0 != "        when: The ADR is Accepted"' "$CHAIN_FIX/base.yml" > "$CHAIN_FIX/accepted-dropped.yml"
+awk '$0 == "Main Agent  (if Accepted; Engineering Manager if multi-pole work)" {
+       print "Main Agent  (If Accepted And Engineering Manager if multi-pole work)"; next }
+     { print }' "$CHAIN_FIX/base.md" > "$CHAIN_FIX/fused-clause.md"
+chain_drift_case "a condition fused with the multi-pole clause, its when: gone (F4d)" "$CHAIN_FIX/fused-clause.md" "$CHAIN_FIX/accepted-dropped.yml" \
+  "Alpha Chain, step 6: $CHAIN_FIX/fused-clause.md:" \
+  "draws \"employee: Main Agent (conditional)\"" \
+  "records \"employee: Main Agent\""
+chain_drift_case "the when: beside the multi-pole clause dropped from the Registry" "$CHAIN_FIX/base.md" "$CHAIN_FIX/accepted-dropped.yml" \
+  "Alpha Chain, step 6:" \
+  "draws \"employee: Main Agent (conditional)\""
+
+# Finding 3: a Registry step at the wrong indentation was ignored, not refused.
+awk '{ print } $0 == "        produces: Specification" { print "    - employee: Technical Writer" }' \
+  "$CHAIN_FIX/base.yml" > "$CHAIN_FIX/step-at-four.yml"
+chain_drift_case "a Registry step indented four spaces" "$CHAIN_FIX/base.md" "$CHAIN_FIX/step-at-four.yml" \
+  "a step at the wrong indentation (the parsing contract puts it at six spaces) \"- employee: Technical Writer\""
+awk '{ print } $0 == "        produces: Specification" { print "        - employee: Technical Writer" }' \
+  "$CHAIN_FIX/base.yml" > "$CHAIN_FIX/step-at-eight.yml"
+chain_drift_case "a Registry step indented eight spaces" "$CHAIN_FIX/base.md" "$CHAIN_FIX/step-at-eight.yml" \
+  "a step at the wrong indentation (the parsing contract puts it at six spaces) \"- employee: Technical Writer\""
+
+# The same class as F1: an output line that opens "[" and never closes it.
+awk '$0 == "  [Approval → Release Chain]" { print "  [Approval → Release Chain"; next } { print }' \
+  "$CHAIN_FIX/base.md" > "$CHAIN_FIX/unclosed-output.md"
+chain_drift_case "an output line that never closes its bracket" "$CHAIN_FIX/unclosed-output.md" "$CHAIN_FIX/base.yml" \
+  "Alpha Chain: unrecognised output line \"[Approval → Release Chain\""
+
 # --- Rule 1: what cannot be compared fails. It is never skipped.
 awk '/^# / { beta = ($0 == "# Beta Chain") } !(beta && /^```/)' \
   "$CHAIN_FIX/base.md" > "$CHAIN_FIX/no-diagram.md"
@@ -3697,6 +3771,39 @@ printf '\n  - name: Gamma Chain\n    steps:\n      - employee: Technical Lead\n'
   | cat "$CHAIN_FIX/base.yml" - > "$CHAIN_FIX/extra-chain.yml"
 chain_drift_case "a Registry chain the document does not draw" "$CHAIN_FIX/base.md" "$CHAIN_FIX/extra-chain.yml" \
   "Gamma Chain: $CHAIN_FIX/extra-chain.yml records it, but $CHAIN_FIX/base.md has no \"# Gamma Chain\" section"
+
+{
+  cat "$CHAIN_FIX/base.md"
+  cat <<'EOF'
+
+# Gamma Chain
+
+```
+Technical Lead
+```
+EOF
+} > "$CHAIN_FIX/document-only.md"
+chain_drift_case "a chain the document draws and the Registry lacks" "$CHAIN_FIX/document-only.md" "$CHAIN_FIX/base.yml" \
+  "Gamma Chain: $CHAIN_FIX/document-only.md draws it, but $CHAIN_FIX/base.yml has no entry for it"
+
+printf '\n  - name: Beta Chain\n    steps:\n      - employee: SRE Engineer\n' \
+  | cat "$CHAIN_FIX/base.yml" - > "$CHAIN_FIX/recorded-twice.yml"
+chain_drift_case "a chain the Registry records twice" "$CHAIN_FIX/base.md" "$CHAIN_FIX/recorded-twice.yml" \
+  "chain \"Beta Chain\" is recorded twice"
+
+{
+  cat "$CHAIN_FIX/base.md"
+  cat <<'EOF'
+
+# Beta Chain
+
+```
+SRE Engineer
+```
+EOF
+} > "$CHAIN_FIX/two-sections.md"
+chain_drift_case "a chain the document draws in two sections" "$CHAIN_FIX/two-sections.md" "$CHAIN_FIX/base.yml" \
+  "chain \"Beta Chain\" has two sections"
 
 awk '$0 == "SRE Engineer" { print "SRE Engineer → QA Engineer"; next } { print }' \
   "$CHAIN_FIX/base.md" > "$CHAIN_FIX/unreadable.md"
