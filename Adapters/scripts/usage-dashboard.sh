@@ -122,11 +122,12 @@
 #     in every case, a bad argument included: a hook must never fail. Starts
 #     no refresh while one runs or within SECONDS of the last one's start
 #     (default 60, 10 to 86400). The refresh is the --refresh below, detached:
-#     setsid where it exists, nohup elsewhere, with stdin, stdout and stderr
-#     all redirected, so it holds none of the caller's pipes (Windows Git Bash
+#     setsid where it exists, nohup elsewhere, under nice -n 10 except on
+#     Windows (see spawn_worker), with stdin, stdout and stderr all
+#     redirected, so it holds none of the caller's pipes (Windows Git Bash
 #     has no setsid; redirecting the three is what releases a native caller's
 #     pipes there, measured). It logs to .ia-engineering/usage/refresh.log,
-#     moved to refresh.log.1 once past 64 KiB.
+#     moved to refresh.log.1 past 64 KiB.
 #   --refresh [--min-interval SECONDS] [build options]
 #     The same refresh in the foreground. Skipped when one runs, within
 #     SECONDS of the last one's start, or — cheaply, with no build — when the
@@ -378,20 +379,26 @@ lock_live() {
 # the whole refresh (measured from Node and PowerShell on Windows Git Bash,
 # which has no setsid). setsid, where it exists, also puts the refresh out of
 # the caller's session, so a signal to the hook's process group misses it.
+# nice -n 10 keeps the refresh behind the user's own work where the scheduler
+# shares by weight (Linux, macOS). Not on Windows: there any nice of 5 or
+# more is the below-normal priority class, which a busy machine starves.
+# Measured there: a fixed CPU loop ran 4 to 5 times slower under nice, and a
+# refresh of a tiny project took 510 s instead of 13 s — a page that is
+# never fresh.
 spawn_worker() {
-  local a=(--refresh --min-interval "$MIN_INTERVAL")
+  local a=(--refresh --min-interval "$MIN_INTERVAL") run=(nohup)
   [ -n "$2" ] && a+=(--project-dir "$2")
   [ -n "$3" ] && a+=(--out "$3")
   [ -n "$SINCE" ] && a+=(--since "$SINCE")
   [ -n "$TRANSCRIPTS_DIR" ] && a+=(--transcripts-dir "$TRANSCRIPTS_DIR")
   [ -n "$PRICES" ] && a+=(--prices "$PRICES")
-  if command -v setsid >/dev/null 2>&1; then
-    IAENG_USAGE_WORKER="$1" IAENG_USAGE_REFRESH="" IAENG_USAGE_PAGEDIR="" IAENG_USAGE_WORKDIR="" \
-      setsid bash "$SELF" "${a[@]}" </dev/null >/dev/null 2>&1 &
-  else
-    IAENG_USAGE_WORKER="$1" IAENG_USAGE_REFRESH="" IAENG_USAGE_PAGEDIR="" IAENG_USAGE_WORKDIR="" \
-      nohup bash "$SELF" "${a[@]}" </dev/null >/dev/null 2>&1 &
-  fi
+  command -v setsid >/dev/null 2>&1 && run=(setsid)
+  case "${OSTYPE:-}" in
+    msys*|cygwin*|win*) ;;
+    *) command -v nice >/dev/null 2>&1 && run+=(nice -n 10) ;;
+  esac
+  IAENG_USAGE_WORKER="$1" IAENG_USAGE_REFRESH="" IAENG_USAGE_PAGEDIR="" IAENG_USAGE_WORKDIR="" \
+    "${run[@]}" bash "$SELF" "${a[@]}" </dev/null >/dev/null 2>&1 &
   disown 2>/dev/null || true
 }
 
