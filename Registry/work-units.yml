@@ -1260,3 +1260,9 @@ work_units:
     title: Make the SESSION_STATE adoption instruction produce a readable state file - the README says to copy only the fenced block under the template's Template heading, never the whole file, and to give its _Last updated line an absolute date in the form session-start.sh parses; the template marks that block as the part to copy, so every other pointer to it resolves without being edited
     milestone: Precision
     delivers: README.md, Templates/SESSION_STATE.md, Registry/work-units.yml
+
+  - id: WU-IAENG-341
+    employee: Observability Engineer
+    title: Keep the usage dashboard fresh with no rebuild to wait for (Director, 7 Oct 2026) - a persistent cache under .ia-engineering/usage/cache/ (0700, shape-checked values only, refused with a fallback when it is a link or junction, not the user's, in a folder others can rename in, or not ignored by git; held under a lock with stale-lock recovery) keeps the git half per HEAD and the transcript records across runs and watches; a fingerprint beside the page (HEAD, arguments, transcript sizes and mtimes, plus newer registries, tags or scripts) lets --open open a current page at once; --refresh, --refresh-in-background (one line, exit 0, detached without setsid on Windows Git Bash, debounced by --min-interval, single instance, bounded refresh.log) and --open --no-wait are the CLI contract for the Claude Code Stop hook and /dashboard command of WU-IAENG-342
+    milestone: Precision
+    delivers: Adapters/scripts/usage-dashboard.sh, Adapters/ai-runtimes/claude-code/usage-collect.sh, Adapters/scripts/tests/run.sh, Adapters/README.md, Governance/DISPATCH_IN_PRACTICE.md, Registry/work-units.yml

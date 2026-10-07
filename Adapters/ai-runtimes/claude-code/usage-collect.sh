@@ -107,10 +107,15 @@
 # USAGE
 #
 #   usage-collect.sh (--project-dir DIR | --transcripts-dir DIR)
-#                    [--cache-dir DIR] [--list | --dirs]
+#                    [--cache-dir DIR] [--listing-out FILE] [--list | --dirs]
 #
 # --transcripts-dir replaces the slug resolution with an explicit directory.
-# --cache-dir keeps the per-file records between runs (see above).
+# --cache-dir keeps the per-file records between runs (see above). A cache
+#   older than this script is read again from the start: what a new version
+#   extracts is never mixed with what an old one stored.
+# --listing-out also writes the listing this run works from — what --list
+#   would print — to FILE: usage-dashboard.sh keeps it as the fingerprint of
+#   the page it builds, without listing the transcripts a second time.
 # --list prints "<size> <TAB> <path>" for every transcript and exits: a cheap
 #   fingerprint for a caller deciding whether anything changed.
 # --dirs prints the transcript directories found, one per line, and exits.
@@ -147,13 +152,14 @@ NL=$'\n'
 umask 077
 
 usage() {
-  echo "Usage: $0 (--project-dir DIR | --transcripts-dir DIR) [--cache-dir DIR] [--list]" >&2
+  echo "Usage: $0 (--project-dir DIR | --transcripts-dir DIR) [--cache-dir DIR] [--listing-out FILE] [--list | --dirs]" >&2
   echo "  Prints aggregate Claude Code usage (tokens, models, dispatches) for a project." >&2
 }
 
 PROJECT_DIR=""
 TRANSCRIPTS_DIR=""
 CACHE_DIR=""
+LISTING_OUT=""
 LIST_ONLY=""
 DIRS_ONLY=""
 while [ "$#" -gt 0 ]; do
@@ -161,6 +167,7 @@ while [ "$#" -gt 0 ]; do
     --project-dir) [ "$#" -ge 2 ] || { usage; exit 2; }; PROJECT_DIR="$2"; shift 2 ;;
     --transcripts-dir) [ "$#" -ge 2 ] || { usage; exit 2; }; TRANSCRIPTS_DIR="$2"; shift 2 ;;
     --cache-dir) [ "$#" -ge 2 ] || { usage; exit 2; }; CACHE_DIR="$2"; shift 2 ;;
+    --listing-out) [ "$#" -ge 2 ] || { usage; exit 2; }; LISTING_OUT="$2"; shift 2 ;;
     --list) LIST_ONLY=1; shift ;;
     --dirs) DIRS_ONLY=1; shift ;;
     -h|--help) usage; exit 0 ;;
@@ -313,6 +320,8 @@ if [ -z "$LISTING" ]; then
     -o -type f -name '*.jsonl' -exec stat -f '%z%t%m%t%N' {} + 2>/dev/null)"
 fi
 
+[ -z "$LISTING_OUT" ] || [ -z "$LISTING" ] || printf '%s' "$LISTING" > "$LISTING_OUT"
+
 if [ -z "$LISTING" ]; then
   echo "usage-collect: $LOOKED exists but holds no .jsonl transcript." >&2
   exit 3
@@ -341,6 +350,13 @@ else
 fi
 REC="$CACHE/rec"
 INDEX="$CACHE/index.tsv"
+# A cache this script's current version did not write is read again from the
+# start (the index is rewritten on every successful run, so it is older than
+# the script only when the script changed since).
+if [ -n "$CACHE_DIR" ] && [ -f "$INDEX" ] && [ "${BASH_SOURCE[0]//\\//}" -nt "$INDEX" ]; then
+  rm -rf "$REC"
+  : > "$INDEX"
+fi
 if [ ! -d "$REC" ] && ! mkdir -p "$REC"; then
   err "cannot create the cache directory $CACHE."
   exit 1
