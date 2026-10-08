@@ -3518,6 +3518,382 @@ else
   printf '   FAIL validate-framework.sh pipes a variable into grep -q (SIGPIPE under pipefail):\n%s\n' "$SIGPIPE_HITS"
 fi
 
+# ------ validate-framework.sh chain diagrams vs the Registry (WU-IAENG-335) --
+#
+# Core/AGENT_CHAINS.md draws each chain and Registry/chains.yml records it as
+# data. Nothing compared their steps. Three diagrams lost four steps that the
+# Registry still held: the Review Chain its Security and Compliance Engineers,
+# the Architecture Chain its Security Engineer, the Feature Chain its ADR gate.
+# Every check passed until a manual check-up found them (WU-IAENG-334, PR #201).
+# Section 22 of the validator now compares the two step for step.
+#
+# These cases run the REAL chain_diagram_drift, extracted from the validator in
+# the same way as resolves() above. They run it on the real files, as LF and as
+# CRLF; on the #201 drift put back into the real document; and on a fixture
+# pair that carries every construct of the grammar, mutated one drift at a
+# time. The fixture pair is written here rather than derived from the real
+# files, so rewording a diagram breaks only the cases that read the real files.
+#
+# CRLF: Git for Windows' awk drops a carriage return on read, so on a Windows
+# run the CRLF cases pass with or without the strip. They prove the strip on
+# the Linux runner, where awk keeps the CR.
+
+section "validate-framework.sh — chain diagrams match Registry/chains.yml step for step (WU-IAENG-335)"
+
+CHAIN_HARNESS="$WORK/chain-diagram-harness.sh"
+{
+  echo 'set -uo pipefail'
+  sed -n '/^chain_diagram_drift() {/,/^}/p' "$VF"
+  cat <<'HARNESS'
+chain_diagram_drift "$1" "$2"
+HARNESS
+} > "$CHAIN_HARNESS"
+CHAIN_ROOT="$(cd "$SCRIPTS/../.." && pwd)"
+CHAIN_FIX="$WORK/chain-diagrams"
+CHAIN_TAB=$'\t'
+mkdir -p "$CHAIN_FIX"
+
+expect 0 "chain diagrams: chain_diagram_drift is extracted from the validator" -- \
+  grep -q '^chain_diagram_drift() {' "$CHAIN_HARNESS"
+
+# chain_drift_case <what> <document> <registry> <expected output...>
+# The pair must FAIL, and its output must contain every expected string.
+chain_drift_case() {
+  local what="$1" doc="$2" reg="$3" want
+  shift 3
+  expect 1 "chain diagrams: $what fails" -- bash "$CHAIN_HARNESS" "$doc" "$reg"
+  for want in "$@"; do
+    expect_output "$want"
+  done
+}
+
+# --- The real files.
+expect 0 "chain diagrams: the real Core/AGENT_CHAINS.md and Registry/chains.yml agree step for step" -- \
+  bash "$CHAIN_HARNESS" "$CHAIN_ROOT/Core/AGENT_CHAINS.md" "$CHAIN_ROOT/Registry/chains.yml"
+for chain_name in Feature Review Architecture; do
+  expect_output "ok${CHAIN_TAB}$chain_name Chain: diagram and Registry agree step for step"
+done
+
+tr -d '\r' < "$CHAIN_ROOT/Core/AGENT_CHAINS.md" > "$CHAIN_FIX/real.md"
+tr -d '\r' < "$CHAIN_ROOT/Registry/chains.yml" > "$CHAIN_FIX/real.yml"
+awk '{ printf "%s\r\n", $0 }' "$CHAIN_FIX/real.md" > "$CHAIN_FIX/real-crlf.md"
+awk '{ printf "%s\r\n", $0 }' "$CHAIN_FIX/real.yml" > "$CHAIN_FIX/real-crlf.yml"
+CHAIN_CR="$(tr -cd '\r' < "$CHAIN_FIX/real-crlf.md" | wc -c | tr -d ' ')"
+CHAIN_LF="$(tr -cd '\n' < "$CHAIN_FIX/real-crlf.md" | wc -c | tr -d ' ')"
+expect 0 "chain diagrams: the CRLF copy ends every line in CRLF ($CHAIN_CR CR, $CHAIN_LF LF)" -- \
+  test "$CHAIN_LF" -gt 0 -a "$CHAIN_CR" = "$CHAIN_LF"
+expect 0 "chain diagrams: the real files agree checked out CRLF" -- \
+  bash "$CHAIN_HARNESS" "$CHAIN_FIX/real-crlf.md" "$CHAIN_FIX/real-crlf.yml"
+expect 0 "chain diagrams: the real files agree checked out LF" -- \
+  bash "$CHAIN_HARNESS" "$CHAIN_FIX/real.md" "$CHAIN_FIX/real.yml"
+
+# The #201 drift, put back: the Review Chain diagram without its Security
+# Engineer and Compliance Engineer steps, against the Registry that kept them.
+awk '/^# / { review = ($0 == "# Review Chain") }
+     review && /^(Security|Compliance) Engineer  \(/ { next }
+     { print }' "$CHAIN_FIX/real.md" > "$CHAIN_FIX/real-201.md"
+expect 1 "chain diagrams: the #201 fixture really removed lines from the real document" -- \
+  cmp -s "$CHAIN_FIX/real.md" "$CHAIN_FIX/real-201.md"
+chain_drift_case "the #201 drift (Review Chain diagram without its Security and Compliance Engineers)" \
+  "$CHAIN_FIX/real-201.md" "$CHAIN_FIX/real.yml" \
+  "Review Chain, step 2: $CHAIN_FIX/real-201.md:" \
+  "records \"employee: Security Engineer (conditional)\""
+
+# --- A fixture pair carrying every construct the grammar reads: outputs with
+# arrows inside, a conditional gate, the multi-pole clause alone and beside a
+# condition, Engineer(s) with its parallel marker, the review loop, a branch
+# box, "(P1/P2 ...)" as a condition, "when: Always", a folded "when: >-", and
+# block-scalar text that looks like keys and steps, one at the very indentation
+# of a step.
+cat > "$CHAIN_FIX/base.md" <<'EOF'
+# Agent Chains
+
+Every construct the diagrams of Core/AGENT_CHAINS.md use, in two chains.
+
+# Chain Selection
+
+| Request type | Chain |
+|---|---|
+| A test request | Alpha Chain |
+
+---
+
+# Alpha Chain
+
+```
+Business Analyst
+      ↓
+  [Specification — acceptance criteria]
+      ↓
+Main Agent → Director  (if an ADR is required)
+      ↓
+  [ADR decision → implementation blocked until Accepted]
+      ↓
+Main Agent  (Engineering Manager if multi-pole work)
+      ↓
+Engineer(s)        ← parallel if Work Units are independent
+      ↓
+Code Reviewer
+      ↓
+  ┌── Approved ──────────────────────────────┐
+  │                                          │
+  └── Changes requested → Engineer → resubmit ──┘
+      ↓
+Main Agent  (if Accepted; Engineering Manager if multi-pole work)
+      ↓
+Main Agent → Director
+      ↓
+  [Approval → Release Chain]
+```
+
+# Beta Chain
+
+```
+SRE Engineer
+      ↓
+Engineering Manager
+      ↓
+Main Agent → Director  (P1/P2 mandatory notification)
+      ↓
+  ┌── Security incident? → Security Engineer ──┐
+  └────────────────────────────────────────────┘
+      ↓
+QA Engineer  (if the change is high-risk)
+      ↓
+Main Agent → Director
+```
+
+# Chain Conventions
+
+- Prose under a heading that is not a chain.
+EOF
+cat > "$CHAIN_FIX/base.yml" <<'EOF'
+chains:
+
+  - name: Alpha Chain
+    document: Core/AGENT_CHAINS.md
+    steps:
+      - employee: Business Analyst
+        produces: Specification
+      - gate: Director
+        when: An ADR is required
+        blocks: Implementation
+      - employee: Main Agent
+        note: >-
+          Folded text sits deeper than a key and is never read as one:
+          when: this line is prose
+          - employee: Not A Step
+      - employee: Engineer
+        parallel: true
+      - employee: Code Reviewer
+        loops_to: Engineer
+      - employee: Main Agent
+        when: The ADR is Accepted
+      - gate: Director
+        when: Always
+
+  - name: Beta Chain
+    document: Core/AGENT_CHAINS.md
+    trigger: >-
+      - employee: Folded trigger text at the step indentation, not a step
+    steps:
+      - employee: SRE Engineer
+      - employee: Engineering Manager
+      - gate: Director
+        when: Severity is P1 or P2
+      - employee: Security Engineer
+        when: The incident has a security dimension
+      - employee: QA Engineer
+        when: >-
+          The change is high-risk
+      - gate: Director
+        when: Always
+EOF
+expect 0 "chain diagrams: the fixture pair carrying every construct agrees" -- \
+  bash "$CHAIN_HARNESS" "$CHAIN_FIX/base.md" "$CHAIN_FIX/base.yml"
+expect_output "total${CHAIN_TAB}2${CHAIN_TAB}13"
+
+# --- One drift at a time: a diagram step removed, a Registry step added, two
+# steps swapped, a gate recorded as an employee; then one case for each of the
+# three attributes compared besides kind and name.
+awk '$0 != "QA Engineer  (if the change is high-risk)"' \
+  "$CHAIN_FIX/base.md" > "$CHAIN_FIX/step-removed.md"
+chain_drift_case "a diagram step removed" "$CHAIN_FIX/step-removed.md" "$CHAIN_FIX/base.yml" \
+  "Beta Chain, step 5: $CHAIN_FIX/step-removed.md:" \
+  "draws \"gate: Director\", $CHAIN_FIX/base.yml:" \
+  "records \"employee: QA Engineer (conditional)\"" \
+  "Diagram, 5 steps:" "Registry, 6 steps:"
+
+awk '$0 == "  - name: Beta Chain" { print "      - employee: Release Manager"; print "" } { print }' \
+  "$CHAIN_FIX/base.yml" > "$CHAIN_FIX/step-added.yml"
+chain_drift_case "a Registry step added" "$CHAIN_FIX/base.md" "$CHAIN_FIX/step-added.yml" \
+  "Alpha Chain, step 8: $CHAIN_FIX/base.md draws nothing (the diagram ends at step 7), $CHAIN_FIX/step-added.yml:" \
+  "records \"employee: Release Manager\""
+
+awk '$0 == "SRE Engineer" { print "Engineering Manager"; next }
+     $0 == "Engineering Manager" { print "SRE Engineer"; next }
+     { print }' "$CHAIN_FIX/base.md" > "$CHAIN_FIX/steps-swapped.md"
+chain_drift_case "two diagram steps swapped" "$CHAIN_FIX/steps-swapped.md" "$CHAIN_FIX/base.yml" \
+  "Beta Chain, step 1: $CHAIN_FIX/steps-swapped.md:" \
+  "draws \"employee: Engineering Manager\", $CHAIN_FIX/base.yml:" \
+  "records \"employee: SRE Engineer\""
+
+# Section 13 accepts Director as an employee: (a framework role), so only this
+# comparison sees a gate recorded as an employee. The one case that pins the
+# whole message: chain, position, file:line and the step on each side.
+awk '!done && $0 == "      - gate: Director" { print "      - employee: Director"; done = 1; next } { print }' \
+  "$CHAIN_FIX/base.yml" > "$CHAIN_FIX/gate-as-employee.yml"
+CHAIN_GATE_DOC="$(grep -n '^Main Agent → Director  (if an ADR is required)$' "$CHAIN_FIX/base.md" | cut -d: -f1)"
+CHAIN_GATE_REG="$(grep -n '^      - employee: Director$' "$CHAIN_FIX/gate-as-employee.yml" | cut -d: -f1)"
+chain_drift_case "a gate recorded as an employee" "$CHAIN_FIX/base.md" "$CHAIN_FIX/gate-as-employee.yml" \
+  "Alpha Chain, step 2: $CHAIN_FIX/base.md:$CHAIN_GATE_DOC draws \"gate: Director (conditional)\", $CHAIN_FIX/gate-as-employee.yml:$CHAIN_GATE_REG records \"employee: Director (conditional)\""
+
+awk '$0 == "QA Engineer  (if the change is high-risk)" { print "QA Engineer"; next } { print }' \
+  "$CHAIN_FIX/base.md" > "$CHAIN_FIX/condition-dropped.md"
+chain_drift_case "a condition dropped from the diagram" "$CHAIN_FIX/condition-dropped.md" "$CHAIN_FIX/base.yml" \
+  "Beta Chain, step 5: $CHAIN_FIX/condition-dropped.md:" \
+  "draws \"employee: QA Engineer\", $CHAIN_FIX/base.yml:" \
+  "records \"employee: QA Engineer (conditional)\""
+
+awk '$0 != "        parallel: true"' "$CHAIN_FIX/base.yml" > "$CHAIN_FIX/parallel-dropped.yml"
+chain_drift_case "the parallel marker dropped from the Registry" "$CHAIN_FIX/base.md" "$CHAIN_FIX/parallel-dropped.yml" \
+  "Alpha Chain, step 4:" \
+  "draws \"employee: Engineer (parallel)\"" \
+  "records \"employee: Engineer\""
+
+awk '!/Changes requested/' "$CHAIN_FIX/base.md" > "$CHAIN_FIX/loop-dropped.md"
+chain_drift_case "the review loop dropped from the diagram" "$CHAIN_FIX/loop-dropped.md" "$CHAIN_FIX/base.yml" \
+  "Alpha Chain, step 5:" \
+  "draws \"employee: Code Reviewer\"" \
+  "records \"employee: Code Reviewer (loops to Engineer)\""
+
+# --- What the first version let pass with exit 0 (review of PR #229). Each
+# case is one of the reviewer's falsifiers, rebuilt on the fixture pair.
+#
+# F1, F2, F3: a box line with no "→" was skipped whatever it said. Only box
+# rules and the label "Approved" are now accepted; anything else is refused.
+# chain_insert_box <target> <box line> — base.md with that box line, a closing
+# rule and a connector inserted before the Beta Chain's QA Engineer step.
+chain_insert_box() {
+  printf '%s\n' "$2" "  └─────────────────────────┘" "      ↓" > "$CHAIN_FIX/insert.txt"
+  awk 'NR == FNR { add = add $0 "\n"; next }
+       $0 == "QA Engineer  (if the change is high-risk)" { printf "%s", add }
+       { print }' "$CHAIN_FIX/insert.txt" "$CHAIN_FIX/base.md" > "$1"
+}
+chain_insert_box "$CHAIN_FIX/box-step.md" "  ┌── Compliance Engineer ──┐"
+chain_drift_case "a step drawn as a box, with no arrow (F1)" "$CHAIN_FIX/box-step.md" "$CHAIN_FIX/base.yml" \
+  "Beta Chain: unrecognised box line \"┌── Compliance Engineer ──┐\""
+chain_insert_box "$CHAIN_FIX/box-step-condition.md" "  ┌── Compliance Engineer  (if personal data is exposed) ──┐"
+chain_drift_case "a step drawn as a box with its condition, with no arrow (F1)" "$CHAIN_FIX/box-step-condition.md" "$CHAIN_FIX/base.yml" \
+  "Beta Chain: unrecognised box line \"┌── Compliance Engineer  (if personal data is exposed) ──┐\""
+awk '/^  │ +│$/ { print "  │   Compliance Engineer   │"; next } { print }' \
+  "$CHAIN_FIX/base.md" > "$CHAIN_FIX/box-interior.md"
+chain_drift_case "a step written inside the review box (F2)" "$CHAIN_FIX/box-interior.md" "$CHAIN_FIX/base.yml" \
+  "Alpha Chain: unrecognised box line \"│   Compliance Engineer   │\""
+chain_insert_box "$CHAIN_FIX/box-ascii-arrow.md" "  ┌── Data breach? -> Compliance Engineer ──┐"
+chain_drift_case "a branch box typed with -> (F3)" "$CHAIN_FIX/box-ascii-arrow.md" "$CHAIN_FIX/base.yml" \
+  "Beta Chain: unrecognised box line \"┌── Data breach? -> Compliance Engineer ──┐\""
+chain_insert_box "$CHAIN_FIX/box-long-arrow.md" "  ┌── Data breach? ⟶ Compliance Engineer ──┐"
+chain_drift_case "a branch box typed with ⟶ (F3)" "$CHAIN_FIX/box-long-arrow.md" "$CHAIN_FIX/base.yml" \
+  "Beta Chain: unrecognised box line \"┌── Data breach? ⟶ Compliance Engineer ──┐\""
+
+# F4, F4d: the multi-pole exception matched any clause ending in "if multi-pole
+# work". It is now that one clause, by name; anything else is a condition.
+awk '$0 == "Engineering Manager" { print "Engineering Manager  (Only if multi-pole work)"; next } { print }' \
+  "$CHAIN_FIX/base.md" > "$CHAIN_FIX/only-if-multi-pole.md"
+chain_drift_case "(Only if multi-pole work) read as no condition (F4)" "$CHAIN_FIX/only-if-multi-pole.md" "$CHAIN_FIX/base.yml" \
+  "Beta Chain, step 2: $CHAIN_FIX/only-if-multi-pole.md:" \
+  "draws \"employee: Engineering Manager (conditional)\"" \
+  "records \"employee: Engineering Manager\""
+awk '$0 == "Engineering Manager" { print "Engineering Manager  (Skipped if multi-pole work)"; next } { print }' \
+  "$CHAIN_FIX/base.md" > "$CHAIN_FIX/skipped-if-multi-pole.md"
+chain_drift_case "(Skipped if multi-pole work) read as no condition (F4)" "$CHAIN_FIX/skipped-if-multi-pole.md" "$CHAIN_FIX/base.yml" \
+  "Beta Chain, step 2:" \
+  "draws \"employee: Engineering Manager (conditional)\""
+awk '$0 != "        when: The ADR is Accepted"' "$CHAIN_FIX/base.yml" > "$CHAIN_FIX/accepted-dropped.yml"
+awk '$0 == "Main Agent  (if Accepted; Engineering Manager if multi-pole work)" {
+       print "Main Agent  (If Accepted And Engineering Manager if multi-pole work)"; next }
+     { print }' "$CHAIN_FIX/base.md" > "$CHAIN_FIX/fused-clause.md"
+chain_drift_case "a condition fused with the multi-pole clause, its when: gone (F4d)" "$CHAIN_FIX/fused-clause.md" "$CHAIN_FIX/accepted-dropped.yml" \
+  "Alpha Chain, step 6: $CHAIN_FIX/fused-clause.md:" \
+  "draws \"employee: Main Agent (conditional)\"" \
+  "records \"employee: Main Agent\""
+chain_drift_case "the when: beside the multi-pole clause dropped from the Registry" "$CHAIN_FIX/base.md" "$CHAIN_FIX/accepted-dropped.yml" \
+  "Alpha Chain, step 6:" \
+  "draws \"employee: Main Agent (conditional)\""
+
+# Finding 3: a Registry step at the wrong indentation was ignored, not refused.
+awk '{ print } $0 == "        produces: Specification" { print "    - employee: Technical Writer" }' \
+  "$CHAIN_FIX/base.yml" > "$CHAIN_FIX/step-at-four.yml"
+chain_drift_case "a Registry step indented four spaces" "$CHAIN_FIX/base.md" "$CHAIN_FIX/step-at-four.yml" \
+  "a step at the wrong indentation (the parsing contract puts it at six spaces) \"- employee: Technical Writer\""
+awk '{ print } $0 == "        produces: Specification" { print "        - employee: Technical Writer" }' \
+  "$CHAIN_FIX/base.yml" > "$CHAIN_FIX/step-at-eight.yml"
+chain_drift_case "a Registry step indented eight spaces" "$CHAIN_FIX/base.md" "$CHAIN_FIX/step-at-eight.yml" \
+  "a step at the wrong indentation (the parsing contract puts it at six spaces) \"- employee: Technical Writer\""
+
+# The same class as F1: an output line that opens "[" and never closes it.
+awk '$0 == "  [Approval → Release Chain]" { print "  [Approval → Release Chain"; next } { print }' \
+  "$CHAIN_FIX/base.md" > "$CHAIN_FIX/unclosed-output.md"
+chain_drift_case "an output line that never closes its bracket" "$CHAIN_FIX/unclosed-output.md" "$CHAIN_FIX/base.yml" \
+  "Alpha Chain: unrecognised output line \"[Approval → Release Chain\""
+
+# --- Rule 1: what cannot be compared fails. It is never skipped.
+awk '/^# / { beta = ($0 == "# Beta Chain") } !(beta && /^```/)' \
+  "$CHAIN_FIX/base.md" > "$CHAIN_FIX/no-diagram.md"
+chain_drift_case "a chain whose diagram is missing" "$CHAIN_FIX/no-diagram.md" "$CHAIN_FIX/base.yml" \
+  "Beta Chain: $CHAIN_FIX/no-diagram.md draws no diagram for it"
+
+printf '\n  - name: Gamma Chain\n    steps:\n      - employee: Technical Lead\n' \
+  | cat "$CHAIN_FIX/base.yml" - > "$CHAIN_FIX/extra-chain.yml"
+chain_drift_case "a Registry chain the document does not draw" "$CHAIN_FIX/base.md" "$CHAIN_FIX/extra-chain.yml" \
+  "Gamma Chain: $CHAIN_FIX/extra-chain.yml records it, but $CHAIN_FIX/base.md has no \"# Gamma Chain\" section"
+
+{
+  cat "$CHAIN_FIX/base.md"
+  cat <<'EOF'
+
+# Gamma Chain
+
+```
+Technical Lead
+```
+EOF
+} > "$CHAIN_FIX/document-only.md"
+chain_drift_case "a chain the document draws and the Registry lacks" "$CHAIN_FIX/document-only.md" "$CHAIN_FIX/base.yml" \
+  "Gamma Chain: $CHAIN_FIX/document-only.md draws it, but $CHAIN_FIX/base.yml has no entry for it"
+
+printf '\n  - name: Beta Chain\n    steps:\n      - employee: SRE Engineer\n' \
+  | cat "$CHAIN_FIX/base.yml" - > "$CHAIN_FIX/recorded-twice.yml"
+chain_drift_case "a chain the Registry records twice" "$CHAIN_FIX/base.md" "$CHAIN_FIX/recorded-twice.yml" \
+  "chain \"Beta Chain\" is recorded twice"
+
+{
+  cat "$CHAIN_FIX/base.md"
+  cat <<'EOF'
+
+# Beta Chain
+
+```
+SRE Engineer
+```
+EOF
+} > "$CHAIN_FIX/two-sections.md"
+chain_drift_case "a chain the document draws in two sections" "$CHAIN_FIX/two-sections.md" "$CHAIN_FIX/base.yml" \
+  "chain \"Beta Chain\" has two sections"
+
+awk '$0 == "SRE Engineer" { print "SRE Engineer → QA Engineer"; next } { print }' \
+  "$CHAIN_FIX/base.md" > "$CHAIN_FIX/unreadable.md"
+chain_drift_case "a diagram line outside the grammar" "$CHAIN_FIX/unreadable.md" "$CHAIN_FIX/base.yml" \
+  "Beta Chain: unrecognised step line \"SRE Engineer → QA Engineer\""
+
+: > "$CHAIN_FIX/empty.md"
+: > "$CHAIN_FIX/empty.yml"
+chain_drift_case "two empty files" "$CHAIN_FIX/empty.md" "$CHAIN_FIX/empty.yml" \
+  "no chain diagram was compared" "total${CHAIN_TAB}0${CHAIN_TAB}0"
+chain_drift_case "a missing file" "$CHAIN_FIX/absent.md" "$CHAIN_FIX/base.yml" \
+  "cannot compare chain diagrams: $CHAIN_FIX/absent.md or $CHAIN_FIX/base.yml is missing"
+
 # ------------------------------------------------- git-hooks/pre-push -------
 #
 # Pen-test finding PT2-08 (1 Oct 2026): pre-push refused every push to main

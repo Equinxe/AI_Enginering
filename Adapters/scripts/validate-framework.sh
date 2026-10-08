@@ -1056,7 +1056,8 @@ fi
 section "13. Registry: chains, workflows, Work Units"
 # ==========================================================================
 # Validated when present, so the Registry can grow one file at a time without
-# this script hard-failing on the files not yet written.
+# this script hard-failing on the files not yet written. Whether each chain's
+# steps match its diagram in Core/AGENT_CHAINS.md is section 22.
 
 if [ -f Registry/chains.yml ]; then
   bad_actors=""
@@ -1782,6 +1783,385 @@ else
       fi
     fi
   fi
+fi
+
+# ==========================================================================
+section "22. Chain diagrams match Registry/chains.yml step for step"
+# ==========================================================================
+# Section 13 checks that Registry/chains.yml names real Employees, real
+# workflow documents, and every chain Core/AGENT_CHAINS.md defines. It never
+# compared the STEPS. The Review Chain diagram therefore lost its Security
+# Engineer and Compliance Engineer steps, the Architecture Chain diagram its
+# Security Engineer step, and the Feature Chain diagram its ADR gate, while
+# chains.yml kept all four and every check here passed. A manual check-up found
+# them (WU-IAENG-334, PR #201). This section compares each diagram with its
+# Registry entry position by position, in both directions, so that drift fails
+# the build instead of waiting for the next audit.
+#
+# HOW A DIAGRAM IS READ. The grammar below is the one the six diagrams already
+# use, derived from them rather than imposed on them. A chain's diagram is the
+# first fenced block after its "# <Name> Chain" heading (section 13's heading
+# rule). Each line, trimmed, is one of:
+#
+#   ↓                              connector                not a step
+#   [ ... ]                        output                   not a step
+#   Main Agent → Director          Director gate            gate: Director
+#   Main Agent                     Main Agent's own work    employee: Main Agent
+#   Engineer, Engineer(s)          the Engineer step        employee: Engineer
+#   <Employee>                     dispatch                 employee: <Employee>
+#   ┌── <cond>? → <Employee> ──┐  conditional branch       employee: <Employee>, when:
+#   └── <cond> → <Employee> → resubmit ──┘
+#                                  review loop              loops_to: <Employee>, on
+#                                                           the step before the box
+#   ┌── Approved ──┐, │   │, └───┘  branch label, box rules  not a step
+#
+# A step line may end in "(...)", a condition, and in "← parallel ...", which
+# the Registry records as parallel: true. Anything else is refused as
+# unrecognised rather than skipped (rule 1). That includes a box line with no
+# "→" whose text is anything but empty (box rules only) or the one branch label
+# the diagrams use, "Approved" - a named allow-list (rule 2), because a step
+# drawn in a box, or a branch typed with "->" or "⟶", would otherwise go
+# unchecked. It includes an output line that opens "[" and never closes "]".
+#
+# WHAT IS COMPARED at each position: the kind (gate or employee), the name,
+# whether the step is conditional, whether it is parallel, and its loop
+# target. A condition is compared by PRESENCE, never by wording: the diagram's
+# "(if ...)" and the Registry's when: say one thing in two styles. The Registry
+# writes "when: Always" on an unconditional gate, so that value counts as no
+# condition.
+#
+# ONE NAMED EXCEPTION (rule 2). The parenthesised clause "Engineering Manager
+# if multi-pole work", exactly, names who does the step under a Director's
+# multi-pole mandate (Core/AGENT_CHAINS.md, Work Unit Decomposition). It names
+# another actor; it does not make the step conditional, and the Registry
+# records it in a note:, not a when:. Clauses are split on ";", so in the
+# Architecture Chain's "(if Accepted; Engineering Manager if multi-pole work)"
+# the "if Accepted" clause is still a condition. The exception is that name and
+# nothing else: "(Only if multi-pole work)" is a condition, and so is any clause
+# that merely ends the same way. Every other parenthesised clause is a
+# condition, including "(P1/P2 mandatory notification)", which the Registry
+# records as "when: Severity is P1 or P2".
+#
+# WHAT IS READ FROM chains.yml, at the fixed indentation its header's parsing
+# contract requires: "  - name:" opens a chain; "      - employee:" or
+# "      - gate:" opens a step; the step keys read are "        when:",
+# "        parallel:" and "        loops_to:". Refused rather than skipped: any
+# other "      - " line, and a "- employee:" or "- gate:" line at any other
+# indentation. The content of a block scalar (a key ending in ">-", ">", "|"
+# and the like) is text, whatever it looks like: it is skipped while its lines
+# are blank or deeper than the key that opened it, exactly as YAML reads it.
+#
+# CRLF is stripped explicitly. Git for Windows' awk drops the carriage return
+# on read, but an awk elsewhere keeps it, which would end every heading, name
+# and value with \r.
+#
+# One awk process reads both files, because process creation dominates this
+# script's runtime on Windows (see flatten_roster). Only the first differing
+# position of a chain is reported: after one missing step every later position
+# differs too. The detail line carries both full sequences instead, which is
+# what the fix needs.
+
+# chain_diagram_drift <diagram-document> <chain-registry>
+# Prints tab-separated records: "ok<TAB><message>" for each agreeing chain,
+# "fail<TAB><message><TAB><detail>" for each difference or unreadable line,
+# and last "total<TAB><chains compared><TAB><steps compared>". Exits 0 only
+# when at least one chain was compared and nothing differed. Self-contained,
+# because Adapters/scripts/tests/run.sh extracts and runs it on fixtures.
+chain_diagram_drift() {
+  local doc="$1" reg="$2"
+  if [ ! -f "$doc" ] || [ ! -f "$reg" ]; then
+    printf 'fail\tcannot compare chain diagrams: %s or %s is missing\tBoth files are required. Nothing was compared, which is not a pass.\n' "$doc" "$reg"
+    printf 'total\t0\t0\n'
+    return 1
+  fi
+  LC_ALL=C awk '
+    function trim(s) {
+      sub(/^[ \t]+/, "", s)
+      sub(/[ \t]+$/, "", s)
+      return s
+    }
+    function unreadable(file, what) {
+      printf "fail\t%s:%d: %s\tThis line is outside the grammar section 22 of validate-framework.sh reads, so it was not compared. Rewrite it in that grammar, or extend the grammar and its tests.\n", file, FNR, what
+      errors++
+    }
+    function add_step(side, chain, kind, name, cond, par,   i) {
+      i = ++count[side, chain]
+      skind[side, chain, i] = kind
+      sname[side, chain, i] = name
+      scond[side, chain, i] = cond
+      spar[side, chain, i] = par
+      sloop[side, chain, i] = ""
+      sline[side, chain, i] = FNR
+      return i
+    }
+    function render(side, chain, i,   q) {
+      q = ""
+      if (scond[side, chain, i]) q = q ", conditional"
+      if (spar[side, chain, i]) q = q ", parallel"
+      if (sloop[side, chain, i] != "") q = q ", loops to " sloop[side, chain, i]
+      if (q != "") q = " (" substr(q, 3) ")"
+      return skind[side, chain, i] ": " sname[side, chain, i] q
+    }
+    function sequence(side, chain,   i, s) {
+      s = ""
+      for (i = 1; i <= count[side, chain] + 0; i++)
+        s = s ((i > 1) ? "; " : "") i " " render(side, chain, i)
+      return s
+    }
+    function diagram_line(raw,   t, x, inner, n, seg, i, p, ann, par, cond, paren, ncl, cl, c, kind, name, last) {
+      t = trim(raw)
+      if (t == "") return
+      x = t
+      gsub(/↓/, "", x)
+      gsub(/[ \t]/, "", x)
+      if (x == "") return
+      if (substr(t, 1, 1) == "[") {
+        if (substr(t, length(t)) == "]") return
+        unreadable(ARGV[2], dchain ": unrecognised output line \"" t "\"")
+        return
+      }
+      if (index(t, "┌") == 1 || index(t, "│") == 1 || index(t, "└") == 1) {
+        inner = t
+        gsub(/┌|┐|└|┘|│|─/, "", inner)
+        inner = trim(inner)
+        if (index(inner, "→") == 0) {
+          # Named allow-list (rule 2): box rules only, or the one branch label
+          # the diagrams use. Anything else in a box is a line this grammar
+          # does not read: a step drawn in a box, or a branch typed with "->".
+          if (inner == "" || inner == "Approved") return
+          unreadable(ARGV[2], dchain ": unrecognised box line \"" t "\"")
+          return
+        }
+        n = split(inner, seg, "→")
+        for (i = 1; i <= n; i++) seg[i] = trim(seg[i])
+        if (n == 2 && seg[1] != "" && seg[2] != "") {
+          add_step("d", dchain, "employee", seg[2], 1, 0)
+          return
+        }
+        last = count["d", dchain] + 0
+        if (n == 3 && seg[1] != "" && seg[2] != "" && last > 0) {
+          sloop["d", dchain, last] = seg[2]
+          return
+        }
+        unreadable(ARGV[2], dchain ": unrecognised box line \"" t "\"")
+        return
+      }
+      par = 0
+      p = index(t, "←")
+      if (p > 0) {
+        ann = trim(substr(t, p + length("←")))
+        t = trim(substr(t, 1, p - 1))
+        if (ann !~ /^parallel/) {
+          unreadable(ARGV[2], dchain ": unrecognised annotation \"" ann "\"")
+          return
+        }
+        par = 1
+      }
+      cond = 0
+      p = index(t, " (")
+      if (p > 0) {
+        if (substr(t, length(t)) != ")") {
+          unreadable(ARGV[2], dchain ": unrecognised step line \"" trim(raw) "\"")
+          return
+        }
+        paren = substr(t, p + 2, length(t) - p - 2)
+        t = trim(substr(t, 1, p - 1))
+        ncl = split(paren, cl, ";")
+        for (i = 1; i <= ncl; i++) {
+          c = trim(cl[i])
+          # The one named exception, compared for equality: a pattern would
+          # also exempt "Only if multi-pole work", a real condition.
+          if (c != "" && c != "Engineering Manager if multi-pole work") cond = 1
+        }
+      }
+      n = split(t, seg, "→")
+      if (n == 1) {
+        kind = "employee"
+        name = t
+        sub(/\(s\)$/, "", name)
+      } else if (n == 2 && trim(seg[1]) == "Main Agent") {
+        kind = "gate"
+        name = trim(seg[2])
+      } else {
+        unreadable(ARGV[2], dchain ": unrecognised step line \"" trim(raw) "\"")
+        return
+      }
+      if (name == "") {
+        unreadable(ARGV[2], dchain ": a step line with no name \"" trim(raw) "\"")
+        return
+      }
+      add_step("d", dchain, kind, name, cond, par)
+    }
+
+    BEGIN { block = -1 }
+
+    # Registry/chains.yml, the first operand.
+    FILENAME == ARGV[1] {
+      gsub(/\015/, "")
+      # The content of a block scalar is text, whatever it looks like. It runs
+      # while lines are blank or deeper than the key that opened it.
+      if (block >= 0) {
+        if ($0 ~ /^[ \t]*$/) next
+        match($0, /^ */)
+        if (RLENGTH > block) next
+        block = -1
+      }
+      if ($0 ~ /^ *[A-Za-z_]+:[ \t]*[>|][-+0-9]*[ \t]*$/) {
+        match($0, /^ */)
+        block = RLENGTH
+      }
+      v = $0
+      if (sub(/^  - name: /, "", v)) {
+        rchain = trim(v)
+        rcur = 0
+        if (rchain in rseen) {
+          unreadable(ARGV[1], "chain \"" rchain "\" is recorded twice")
+          rchain = ""
+        } else {
+          rseen[rchain] = 1
+          rorder[++nr] = rchain
+        }
+        next
+      }
+      if ($0 ~ /^      - (employee|gate): /) {
+        if (rchain == "") {
+          unreadable(ARGV[1], "a step outside any chain \"" trim($0) "\"")
+          next
+        }
+        sub(/^      - /, "", v)
+        p = index(v, ":")
+        rcur = add_step("r", rchain, substr(v, 1, p - 1), trim(substr(v, p + 1)), 0, 0)
+        next
+      }
+      if ($0 ~ /^      - /) {
+        unreadable(ARGV[1], "a step that opens with neither employee: nor gate: \"" trim($0) "\"")
+        next
+      }
+      if ($0 ~ /^[ \t]*-[ \t]*(employee|gate):/) {
+        unreadable(ARGV[1], "a step at the wrong indentation (the parsing contract puts it at six spaces) \"" trim($0) "\"")
+        next
+      }
+      if (!rcur) next
+      if (sub(/^        when: /, "", v)) scond["r", rchain, rcur] = (trim(v) != "Always")
+      else if (sub(/^        parallel: /, "", v)) spar["r", rchain, rcur] = (trim(v) == "true")
+      else if (sub(/^        loops_to: /, "", v)) sloop["r", rchain, rcur] = trim(v)
+      next
+    }
+
+    # Core/AGENT_CHAINS.md, the second operand.
+    FILENAME == ARGV[2] {
+      gsub(/\015/, "")
+      if ($0 ~ /^[ \t]*```/) {
+        if (fence) {
+          fence = 0
+          drawing = 0
+        } else {
+          fence = 1
+          if (dchain != "" && !(dchain in dhas)) {
+            dhas[dchain] = 1
+            drawing = 1
+          }
+        }
+        next
+      }
+      if (fence) {
+        if (drawing) diagram_line($0)
+        next
+      }
+      if ($0 ~ /^# /) {
+        h = trim(substr($0, 3))
+        dchain = ""
+        if (h ~ /^[A-Za-z][A-Za-z ]*Chain$/ && h !~ /^(Chain Selection|Chain Conventions|Composing Custom Chain)$/) {
+          if (h in dseen) {
+            unreadable(ARGV[2], "chain \"" h "\" has two sections")
+          } else {
+            dseen[h] = 1
+            dorder[++nd] = h
+            dchain = h
+          }
+        }
+      }
+      next
+    }
+
+    END {
+      for (k = 1; k <= nd; k++) {
+        c = dorder[k]
+        if (!(c in dhas)) {
+          printf "fail\t%s: %s draws no diagram for it\tA chain diagram is the first fenced block after its heading, and this section has none, so nothing was compared.\n", c, ARGV[2]
+          bad++
+          continue
+        }
+        if (!(c in rseen)) {
+          printf "fail\t%s: %s draws it, but %s has no entry for it\tA runtime reading the Registry would not know this chain exists. Add it to %s.\n", c, ARGV[2], ARGV[1], ARGV[1]
+          bad++
+          continue
+        }
+        dn = count["d", c] + 0
+        rn = count["r", c] + 0
+        if (dn == 0) {
+          printf "fail\t%s: the diagram in %s yields no step\tAn empty diagram cannot be compared, which is not a pass.\n", c, ARGV[2]
+          bad++
+          continue
+        }
+        differs = 0
+        for (i = 1; i <= dn || i <= rn; i++) {
+          a = (i <= dn) ? render("d", c, i) : ""
+          b = (i <= rn) ? render("r", c, i) : ""
+          if (a != b) {
+            differs = i
+            break
+          }
+        }
+        compared++
+        steps += dn
+        if (!differs) {
+          printf "ok\t%s: diagram and Registry agree step for step (%d steps)\n", c, dn
+          continue
+        }
+        bad++
+        a = (differs <= dn) ? sprintf("%s:%d draws \"%s\"", ARGV[2], sline["d", c, differs], render("d", c, differs)) : sprintf("%s draws nothing (the diagram ends at step %d)", ARGV[2], dn)
+        b = (differs <= rn) ? sprintf("%s:%d records \"%s\"", ARGV[1], sline["r", c, differs], render("r", c, differs)) : sprintf("%s records nothing (the Registry ends at step %d)", ARGV[1], rn)
+        printf "fail\t%s, step %d: %s, %s\tDiagram, %d steps: %s. Registry, %d steps: %s. The diagram is authoritative: bring %s into line with it, unless the diagram is what changed by mistake (Registry/README.md, Authority - the Registry Never Wins).\n", c, differs, a, b, dn, sequence("d", c), rn, sequence("r", c), ARGV[1]
+      }
+      for (k = 1; k <= nr; k++) {
+        c = rorder[k]
+        if (!(c in dseen)) {
+          printf "fail\t%s: %s records it, but %s has no \"# %s\" section\tA Registry chain with no diagram is stale or misnamed: the document is authoritative, so remove or rename the entry.\n", c, ARGV[1], ARGV[2], c
+          bad++
+        }
+      }
+      if (compared == 0) {
+        printf "fail\tno chain diagram was compared\t%s yielded no \"# <Name> Chain\" section with a diagram that %s also records. A comparison over an empty set is not a pass.\n", ARGV[2], ARGV[1]
+        bad++
+      }
+      printf "total\t%d\t%d\n", compared, steps
+      if (bad || errors) exit 1
+      exit 0
+    }
+  ' "$reg" "$doc"
+}
+
+chain_out="$(chain_diagram_drift Core/AGENT_CHAINS.md Registry/chains.yml)"
+chain_status=$?
+chain_total=""
+chain_steps=""
+chain_fails=0
+while IFS=$'\t' read -r verdict message detail; do
+  case "$verdict" in
+    "") ;;
+    ok) pass "$message" ;;
+    fail) chain_fails=$((chain_fails + 1)); fail "$message" "$detail" ;;
+    total) chain_total="$message"; chain_steps="$detail" ;;
+    *) chain_fails=$((chain_fails + 1)); fail "chain_diagram_drift printed a record this section cannot read" "$verdict $message" ;;
+  esac
+done <<< "$chain_out"
+if [ -z "$chain_total" ]; then
+  fail "the chain diagram comparison produced no verdict" "chain_diagram_drift exited $chain_status without its closing 'total' record: awk did not run, or stopped early. Nothing was compared, which is not a pass."
+elif [ "$chain_status" -eq 0 ] && [ "$chain_fails" -eq 0 ]; then
+  pass "all $chain_total chain diagrams match Registry/chains.yml step for step ($chain_steps steps compared)"
+elif [ "$chain_fails" -eq 0 ]; then
+  fail "the chain diagram comparison failed without naming a difference" "chain_diagram_drift exited $chain_status after comparing $chain_total chains. Reported rather than passed."
 fi
 
 # ==========================================================================
