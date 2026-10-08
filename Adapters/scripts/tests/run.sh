@@ -4913,6 +4913,374 @@ expect 3 "collector: an empty transcript directory is 'none found' (3), not an e
 expect 1 "collector: an explicit transcript directory that does not exist is an error" -- \
   bash "$COLLECT" --transcripts-dir "$WORK/usage-no-such-dir"
 
+# ---- WU-IAENG-341: kept fresh — persistent cache, fast open, refreshes ------
+# A project that ignores .ia-engineering/usage/ (install.sh makes every adopter
+# do so), a transcript copy of its own, an opener that records each page it is
+# handed, and a TMPDIR of its own so leftovers can be counted. FRUN measures
+# that project with the same arguments everywhere unless a case adds one.
+new_repo usage-fresh
+FRESH="$PWD"
+write_employee_roster "DevOps Engineer" "Observability Engineer" "Scrum Master"
+printf '.ia-engineering/usage/\n' > .gitignore
+git add -A && git commit -q -m "roster and the ignore rule"
+commit_with "feat: first" "OBS341-SENTINEL-BODY" "" "Work Unit: WU-TEST-001" "" "Employee: DevOps Engineer"
+FT="$WORK/usage-fresh-transcripts"
+FTMP="$WORK/usage-fresh-tmp"
+rm -rf "$FT" "$FTMP"
+mkdir -p "$FT" "$FTMP"
+cp "$UT/s1.jsonl" "$FT/s1.jsonl"
+FU="$FRESH/.ia-engineering/usage"
+FC="$FU/cache"
+FPAGE="$FU/dashboard.html"
+FOPEN="$WORK/usage-fresh-opened.txt"
+cat > "$WORK/usage-fresh-opener.sh" <<OPENER
+#!/usr/bin/env bash
+printf '%s\n' "\$1" >> "$FOPEN"
+OPENER
+chmod +x "$WORK/usage-fresh-opener.sh"
+FRUN=(env TMPDIR="$FTMP" IAENG_USAGE_OPENER="$WORK/usage-fresh-opener.sh"
+  bash "$DASH" --project-dir "$FRESH" --transcripts-dir "$FT")
+
+# The persistent cache: kept between runs, shaped values only.
+expect 0 "cache: a first build" -- "${FRUN[@]}"
+expect 1 "cache: an ignored cache is used, with no note about falling back" -- \
+  grep -qF 'not using the persistent cache' <<< "$LAST_OUTPUT"
+expect 0 "cache: the git half is kept in .ia-engineering/usage/cache" -- test -s "$FC/git/key"
+expect 0 "cache: so are the transcript records" -- test -f "$FC/transcripts/v1/index.tsv"
+expect 1 "cache: no work file is kept there (raw git output stays in a temporary directory)" -- test -e "$FC/build"
+expect 1 "cache: no commit-message or transcript text is kept, only shaped values" -- \
+  grep -rqE 'OBS341-SENTINEL|OBS326-SENTINEL' "$FC"
+expect 0 "cache: the run's temporary directories are gone" -- test -z "$(find "$FTMP" -mindepth 1 -maxdepth 1)"
+# Windows (noacl) keeps no mode bits, as for R3 above.
+FPERM_WANT=0
+case "${OSTYPE:-}" in msys*|cygwin*|win*) FPERM_WANT=1 ;; esac
+expect "$FPERM_WANT" "cache: created 0700 (Windows has no mode bits to set)" -- \
+  test -n "$(find "$FC/." -maxdepth 0 -perm 0700 2>/dev/null)"
+# A row added to the cached git half, and a record added to a cached
+# transcript file, are counted by the next run: it read the cache, not git
+# and the transcripts again. Both are shaped values, as the cache holds.
+printf 'feedfacefeedfacefeedfacefeedfacefeedface\t1\tScrum Master\t(no trailer)\tClaude Opus 5.5\t1\t1\n' >> "$FC/git/commits.tsv"
+for r in "$FC"/transcripts/v1/rec/*.tsv; do
+  printf 'C\tmsg_PERSIST341\t2026-10-07\tclaude-persist-341\tmain session\t\t1\t1\t0\t0\n' >> "$r"
+done
+expect 0 "cache: a second run" -- "${FRUN[@]}"
+expect 0 "cache: it took the git half from the cache" -- \
+  grep -qF '"name":"Scrum Master","roster":"framework","dispatches":0,"commits_range":1,"commits_all":1' "$FPAGE"
+expect 0 "cache: and the transcript records" -- grep -qF '"model":"claude-persist-341"' "$FPAGE"
+expect 0 "cache: a --watch started later uses the same cache" -- \
+  env IAENG_USAGE_WATCH_MAX_CYCLES=1 "${FRUN[@]}" --watch
+expect 0 "cache: the watch counted the cached record" -- grep -qF '"model":"claude-persist-341"' "$FPAGE"
+expect 0 "cache: the cache outlives the watch" -- test -f "$FC/transcripts/v1/index.tsv"
+expect 0 "cache: the watch left no temporary directory" -- test -z "$(find "$FTMP" -mindepth 1 -maxdepth 1)"
+# An uncommitted registry edit is newer than the cached git half: read again.
+printf '  - name: Domain Lead\n    category: Management\n' >> "$FRESH/Registry/employees.yml"
+expect 0 "cache: a run after an uncommitted registry edit" -- "${FRUN[@]}"
+expect 0 "cache: the edit is on the page" -- grep -qF '"name":"Domain Lead"' "$FPAGE"
+expect 1 "cache: the git half was recomputed, not taken from the cache" -- \
+  grep -qF '"name":"Scrum Master","roster":"framework","dispatches":0,"commits_range":1' "$FPAGE"
+
+# Refused: a link (a junction on Windows, which [ -L ] reports as one), a
+# directory another user owns, a cache git does not ignore. Each run falls
+# back to a cache of its own and still writes the page.
+FL="$WORK/usage-fresh-elsewhere"
+rm -rf "$FC" "$FL"
+mkdir -p "$FL"
+case "${OSTYPE:-}" in
+  msys*|cygwin*|win*) cmd //c mklink //J "$(cygpath -w "$FC")" "$(cygpath -w "$FL")" > /dev/null ;;
+  *) ln -s "$FL" "$FC" ;;
+esac
+expect 0 "refusal: the cache is a link here" -- test -L "$FC"
+expect 0 "refusal: a linked cache is not used; the page is still built" -- "${FRUN[@]}"
+expect_output "is a symbolic link or a junction"
+expect 0 "refusal: nothing was written through the link" -- test -z "$(find "$FL" -mindepth 1 2>/dev/null)"
+case "${OSTYPE:-}" in msys*|cygwin*|win*) cmd //c rmdir "$(cygpath -w "$FC")" ;; *) rm -f "$FC" ;; esac
+# Ownership: / is root's on Linux and macOS. Where / is the runner's own —
+# as root, or under Git for Windows, whose noacl mount reads every path as
+# the user's — no directory is another user's, and a private one is used.
+if [ -O / ]; then
+  UFOR="$WORK/usage-cache-own"
+  mkdir -p "$UFOR"
+  expect 0 "ownership: a cache directory of the user's own is used" -- \
+    env IAENG_USAGE_CACHE="$UFOR" "${FRUN[@]}" --out "$WORK/usage-out/foreign.html"
+  expect 0 "ownership: (no other owner exists here) its git half was written" -- test -s "$UFOR/git/key"
+else
+  expect 0 "ownership: a cache directory another user owns (/) is not used; the page is still built" -- \
+    env IAENG_USAGE_CACHE=/ "${FRUN[@]}" --out "$WORK/usage-out/foreign.html"
+  expect_output "is not owned by you"
+fi
+expect 0 "refusal: a project whose .gitignore does not cover the cache still gets its page" -- \
+  env CLAUDE_CONFIG_DIR="$WORK/usage-empty-config" bash "$DASH" --project-dir "$USAGE_REPO" --out "$WORK/usage-out/unignored.html"
+expect_output "git does not ignore"
+expect 1 "refusal: and no cache was created in it" -- test -e "$USAGE_REPO/.ia-engineering/usage/cache"
+
+# Fast open: --open rebuilds only when something the page is built from changed.
+rm -f "$FOPEN" "$FU/.dashboard.html.fingerprint"
+expect 0 "fast open: --open with no fingerprint yet builds, then opens" -- "${FRUN[@]}" --open
+expect_output "Usage dashboard written"
+expect 0 "fast open: the fingerprint is beside the page" -- test -s "$FU/.dashboard.html.fingerprint"
+: > "$WORK/usage-fresh-mark"
+expect 0 "fast open: --open again with nothing changed" -- "${FRUN[@]}" --open
+expect_output "is up to date"
+expect 1 "fast open: no build ran" -- grep -qF 'Usage dashboard written' <<< "$LAST_OUTPUT"
+expect 1 "fast open: the page was not rewritten" -- test "$FPAGE" -nt "$WORK/usage-fresh-mark"
+expect 0 "fast open: the page was opened both times" -- test "$(grep -c . "$FOPEN")" = 2
+commit_with "feat: second" "Work Unit: WU-TEST-002" "" "Employee: Observability Engineer"
+expect 0 "fast open: after a new commit, --open rebuilds" -- "${FRUN[@]}" --open
+expect_output "Usage dashboard written"
+expect 0 "fast open: the new commit is on the page" -- \
+  grep -qF '"name":"Observability Engineer","roster":"framework","dispatches":1,"commits_range":1,"commits_all":1' "$FPAGE"
+{ usage_line msg_F341A 3; printf '\n'; } >> "$FT/s1.jsonl"
+expect 0 "fast open: after a transcript grew, --open rebuilds" -- "${FRUN[@]}" --open
+expect_output "Usage dashboard written"
+git tag v9
+expect 0 "fast open: after a new release tag on the same commit, --open rebuilds" -- "${FRUN[@]}" --open
+expect_output "Usage dashboard written"
+expect 0 "fast open: the range is the new tag" -- grep -qF 'since v9' "$FPAGE"
+expect 0 "fast open: another --since is another page: rebuilt" -- "${FRUN[@]}" --open --since HEAD~1
+expect_output "Usage dashboard written"
+
+# --refresh: debounced, single instance, nothing done when unchanged.
+rm -f "$FC/refresh.stamp"
+expect 0 "refresh: --refresh rebuilds a stale page" -- "${FRUN[@]}" --refresh --min-interval 10
+expect_output "Usage dashboard written"
+expect 0 "refresh: its page reloads itself every interval" -- \
+  grep -qF '<meta http-equiv="refresh" content="10">' "$FPAGE"
+expect 0 "refresh: and says it is kept fresh in the background" -- grep -qF 'Kept fresh:' "$FPAGE"
+expect 0 "refresh: another within the interval is skipped" -- "${FRUN[@]}" --refresh --min-interval 600
+expect_output "skipped: the last refresh started"
+rm -f "$FC/refresh.stamp"
+expect 0 "refresh: with nothing changed it is skipped without a build" -- "${FRUN[@]}" --refresh --min-interval 10
+expect_output "no change in HEAD"
+expect 1 "refresh: no build ran" -- grep -qF 'Usage dashboard written' <<< "$LAST_OUTPUT"
+for bad in 9 010 86401; do
+  expect 2 "refresh: --min-interval $bad is refused" -- "${FRUN[@]}" --refresh --min-interval "$bad"
+done
+expect 2 "--no-wait without --open is a usage error" -- "${FRUN[@]}" --no-wait
+expect 2 "--refresh with --watch is a usage error" -- "${FRUN[@]}" --refresh --watch
+
+# The lock: a live owner is waited for or skipped; a stale one is taken over.
+sleep 60 &
+FLIVE=$!
+FDEAD="$(bash -c 'echo $$')"
+rm -f "$FC/refresh.stamp"
+mkdir -p "$FC/lock"
+printf '%s %s\n' "$FLIVE" "$(date +%s)" > "$FC/lock/owner"
+{ usage_line msg_F341B 4; printf '\n'; } >> "$FT/s1.jsonl"
+expect 0 "lock: a refresh while another runs is skipped" -- "${FRUN[@]}" --refresh
+expect_output "another one is running (pid $FLIVE)"
+expect 0 "lock: the running one's lock is left alone" -- grep -qF "$FLIVE" "$FC/lock/owner"
+expect 0 "lock: the hook starts none either" -- "${FRUN[@]}" --refresh-in-background
+expect_output "one is already running (pid $FLIVE)"
+printf '%s %s\n' "$FDEAD" "$(date +%s)" > "$FC/lock/owner"
+expect 0 "lock: a lock whose process is gone is taken over" -- "${FRUN[@]}" --refresh
+expect_output "took over a stale lock"
+expect_output "Usage dashboard written"
+expect 1 "lock: and released when the refresh ends" -- test -e "$FC/lock"
+rm -f "$FC/refresh.stamp"
+mkdir -p "$FC/lock"
+printf '%s %s\n' "$FLIVE" "$(( $(date +%s) - 700 ))" > "$FC/lock/owner"
+{ usage_line msg_F341C 5; printf '\n'; } >> "$FT/s1.jsonl"
+expect 0 "lock: a lock older than 10 minutes is taken over, though its process lives" -- "${FRUN[@]}" --refresh
+expect_output "took over a stale lock"
+kill "$FLIVE" 2>/dev/null
+wait "$FLIVE" 2>/dev/null
+sleep 4 &
+FSHORT=$!
+mkdir -p "$FC/lock"
+printf '%s %s\n' "$FSHORT" "$(date +%s)" > "$FC/lock/owner"
+{ usage_line msg_F341D 6; printf '\n'; } >> "$FT/s1.jsonl"
+expect 0 "lock: --open waits for the run holding the lock, then builds" -- "${FRUN[@]}" --open
+expect_output "waiting for the refresh that is running (pid $FSHORT)"
+expect_output "Usage dashboard written"
+wait "$FSHORT" 2>/dev/null
+
+# In the background: the caller reads stdout through a pipe, as a hook runner
+# does, and $(...) returns only once every writer of that pipe has closed it.
+# The refresh waits 8 s once it holds the lock, so a refresh that kept the
+# pipe would have made the caller wait at least that long.
+rm -f "$FC/refresh.stamp" "$FU/refresh.log" "$FU/refresh.log.1"
+{ usage_line msg_F341E 7; printf '\n'; } >> "$FT/s1.jsonl"
+BG_T0=$SECONDS
+BG_OUT="$(env IAENG_USAGE_WORKER_DELAY=8 "${FRUN[@]}" --refresh-in-background --min-interval 10 2> "$WORK/usage-bg-err.txt")"
+BG_RC=$?
+BG_SECS=$((SECONDS - BG_T0))
+expect 0 "background: exits 0" -- test "$BG_RC" = 0
+expect 0 "background: returned before its refresh could end (${BG_SECS} s; the refresh waits 8 s)" -- test "$BG_SECS" -lt 8
+expect 0 "background: one line on stdout" -- test "$(printf '%s\n' "$BG_OUT" | grep -c .)" = 1
+expect 0 "background: saying the refresh started" -- grep -qF 'in the background' <<< "$BG_OUT"
+expect 0 "background: nothing on stderr" -- test ! -s "$WORK/usage-bg-err.txt"
+i=0
+while [ "$i" -lt 300 ] && { ! grep -qsF 'page rebuilt' "$FU/refresh.log" || [ -e "$FC/lock" ]; }; do
+  sleep 1
+  i=$((i + 1))
+done
+expect 0 "background: the detached refresh rebuilt the page" -- grep -qF 'page rebuilt' "$FU/refresh.log"
+expect 0 "background: its output went to the log" -- grep -qF 'Usage dashboard written' "$FU/refresh.log"
+BG_PID="$(sed -n 's/.*refresh started (pid \([0-9]*\)).*/\1/p' "$FU/refresh.log" | tail -n 1)"
+expect 0 "background: the log names the refresh's process" -- test -n "$BG_PID"
+expect 1 "background: that process is gone once it ended (no orphan)" -- kill -0 "${BG_PID:-0}"
+expect 1 "background: its lock is released" -- test -e "$FC/lock"
+expect 0 "background: no temporary directory is left" -- test -z "$(find "$FTMP" -mindepth 1 -maxdepth 1)"
+expect 0 "background: a call within the interval is skipped by the hook itself" -- \
+  "${FRUN[@]}" --refresh-in-background --min-interval 600
+expect_output "skipped: the last one started"
+expect 0 "background: a bad argument still exits 0, in one line (a hook never fails)" -- \
+  "${FRUN[@]}" --refresh-in-background --min-interval 5
+expect_output "refresh not started"
+expect 0 "background: that is one line" -- test "$(printf '%s\n' "$LAST_OUTPUT" | grep -c .)" = 1
+
+# The log is bounded: past 64 KiB it moves to refresh.log.1.
+rm -f "$FC/refresh.stamp"
+head -c 70000 /dev/zero | tr '\0' 'x' > "$FU/refresh.log"
+expect 0 "log: a refresh run as the background one" -- env IAENG_USAGE_WORKER=bg "${FRUN[@]}" --refresh
+expect 0 "log: it wrote to its log, not to its caller" -- test -z "$LAST_OUTPUT"
+expect 0 "log: past 64 KiB the log moved to refresh.log.1" -- test "$(wc -c < "$FU/refresh.log.1")" -ge 70000
+expect 0 "log: the new log starts small" -- test "$(wc -c < "$FU/refresh.log")" -lt 8192
+
+# --open --no-wait: the page at once, and a refresh behind it even within the
+# interval — it was asked for.
+date +%s > "$FC/refresh.stamp"
+{ usage_line msg_F341F 8; printf '\n'; } >> "$FT/s1.jsonl"
+rm -f "$FOPEN" "$FU/refresh.log"
+expect 0 "--open --no-wait: opens the existing page at once" -- \
+  env IAENG_USAGE_WORKER_DELAY=3 "${FRUN[@]}" --open --no-wait
+expect_output "opened as it is; refreshing it in the background"
+expect 0 "--open --no-wait: the page went to the opener" -- test "$(grep -c . "$FOPEN")" = 1
+i=0
+while [ "$i" -lt 300 ] && { ! grep -qsF 'page rebuilt' "$FU/refresh.log" || [ -e "$FC/lock" ]; }; do
+  sleep 1
+  i=$((i + 1))
+done
+expect 0 "--open --no-wait: its refresh ran though one had just started" -- grep -qF 'page rebuilt' "$FU/refresh.log"
+rm -f "$FPAGE"
+expect 0 "--open --no-wait: with no page yet, builds one first" -- "${FRUN[@]}" --open --no-wait
+expect_output "Usage dashboard written"
+expect 0 "--open --no-wait: that page keeps itself fresh" -- grep -qF 'Kept fresh:' "$FPAGE"
+
+# Code review of #230, M1: a page from a plain build (every page the Windows
+# launcher writes) does not reload itself, so --no-wait and a refresh rebuild
+# it instead of keeping it; a tab opened on it would never show a refresh.
+expect 0 "M1: a plain build" -- "${FRUN[@]}"
+expect 1 "M1: its page does not reload itself" -- grep -qF 'http-equiv="refresh"' "$FPAGE"
+expect 0 "M1: --open --no-wait on that page" -- "${FRUN[@]}" --open --no-wait
+expect_output "Usage dashboard written"
+expect 0 "M1: builds first a page that reloads itself" -- grep -qF '<meta http-equiv="refresh" content="60">' "$FPAGE"
+rm -f "$FC/refresh.stamp"
+expect 0 "M1: a refresh keeps that page while nothing changes" -- "${FRUN[@]}" --refresh
+expect_output "page kept"
+expect 0 "M1: after another plain build" -- "${FRUN[@]}"
+rm -f "$FC/refresh.stamp"
+expect 0 "M1: a refresh rebuilds the page that does not reload" -- "${FRUN[@]}" --refresh
+expect_output "Usage dashboard written"
+expect 0 "M1: and its page reloads itself" -- grep -qF 'Kept fresh:' "$FPAGE"
+
+# PR #230 security review S3: a lock started in the future is stale, though
+# its process lives (it would never age out otherwise).
+sleep 60 &
+FLIVE3=$!
+rm -f "$FC/refresh.stamp"
+mkdir -p "$FC/lock"
+printf '%s %s\n' "$FLIVE3" 99999999999 > "$FC/lock/owner"
+{ usage_line msg_F341G 9; printf '\n'; } >> "$FT/s1.jsonl"
+expect 0 "S3: a lock started in the future is taken over, though its process lives" -- "${FRUN[@]}" --refresh
+expect_output "took over a stale lock"
+kill "$FLIVE3" 2>/dev/null
+wait "$FLIVE3" 2>/dev/null
+
+# S1: a repository that commits .ia-engineering/usage as a link to a folder
+# outside it (a junction on Windows, where git cannot commit one: the same
+# check). Nothing is written through it, from any mode.
+new_repo usage-s1
+S1R="$PWD"
+S1LOOT="$WORK/usage-s1-loot"
+write_employee_roster "DevOps Engineer"
+git add -A && git commit -q -m "roster"
+rm -rf "$S1LOOT"
+mkdir -p "$S1LOOT" .ia-engineering
+case "${OSTYPE:-}" in
+  msys*|cygwin*|win*) cmd //c mklink //J "$(cygpath -w "$S1R/.ia-engineering/usage")" "$(cygpath -w "$S1LOOT")" > /dev/null ;;
+  *) ln -s ../../usage-s1-loot .ia-engineering/usage
+     git add .ia-engineering/usage && git commit -q -m "the usage folder, committed as a link" ;;
+esac
+expect 0 "S1: the usage folder is a link" -- test -L "$S1R/.ia-engineering/usage"
+expect 0 "S1: the hook starts no refresh, in one line, exit 0" -- \
+  env CLAUDE_CONFIG_DIR="$WORK/usage-empty-config" bash "$DASH" --project-dir "$S1R" --refresh-in-background
+expect_output "reached through a symbolic link or a junction"
+expect 1 "S1: a build refuses to write its default page through the link" -- \
+  env CLAUDE_CONFIG_DIR="$WORK/usage-empty-config" bash "$DASH" --project-dir "$S1R"
+expect_output "refusing to write the page through it"
+expect 1 "S1: so does a refresh run as the background one" -- \
+  env IAENG_USAGE_WORKER=bg CLAUDE_CONFIG_DIR="$WORK/usage-empty-config" bash "$DASH" --project-dir "$S1R" --refresh
+expect 0 "S1: nothing was written outside the project" -- test -z "$(find "$S1LOOT" -mindepth 1 2>/dev/null)"
+case "${OSTYPE:-}" in msys*|cygwin*|win*) cmd //c rmdir "$(cygpath -w "$S1R/.ia-engineering/usage")" ;; esac
+
+# S2: a repository that force-adds its own dashboard.html (and a fingerprint)
+# under the ignore rule. --open --no-wait builds first and never opens it.
+new_repo usage-s2
+S2R="$PWD"
+write_employee_roster "DevOps Engineer"
+printf '.ia-engineering/usage/\n' > .gitignore
+mkdir -p .ia-engineering/usage
+printf '<html><body>OBS341-ATTACKER-PAGE<script>1</script></body></html>\n' > .ia-engineering/usage/dashboard.html
+printf 'forged\n' > .ia-engineering/usage/.dashboard.html.fingerprint
+git add -A
+git add -f .ia-engineering/usage/dashboard.html .ia-engineering/usage/.dashboard.html.fingerprint
+git commit -q -m "a page of the repository's own"
+cat > "$WORK/usage-s2-opener.sh" <<OPENER
+#!/usr/bin/env bash
+cp "\$1" "$WORK/usage-s2-opened.html"
+OPENER
+chmod +x "$WORK/usage-s2-opener.sh"
+rm -f "$WORK/usage-s2-opened.html"
+expect 0 "S2: --open --no-wait on a page the repository committed" -- \
+  env CLAUDE_CONFIG_DIR="$WORK/usage-empty-config" IAENG_USAGE_OPENER="$WORK/usage-s2-opener.sh" \
+  bash "$DASH" --project-dir "$S2R" --open --no-wait
+expect_output "Usage dashboard written"
+expect 1 "S2: the committed page was never opened" -- grep -qF 'OBS341-ATTACKER-PAGE' "$WORK/usage-s2-opened.html"
+expect 0 "S2: the page opened is this script's, under its CSP" -- \
+  grep -qF "default-src 'none'" "$WORK/usage-s2-opened.html"
+
+# QA of #230: in a project that does not ignore .ia-engineering/usage/, a
+# refresh run as the background one writes nothing in the work tree; it
+# records why in .git, and the hook then starts none within the interval.
+new_repo usage-unignored-bg
+QR="$PWD"
+write_employee_roster "DevOps Engineer"
+git add -A && git commit -q -m "roster, no ignore rule"
+expect 0 "QA: a refresh run as the background one, in a project that does not ignore its usage folder" -- \
+  env IAENG_USAGE_WORKER=bg CLAUDE_CONFIG_DIR="$WORK/usage-empty-config" bash "$DASH" --project-dir "$QR" --refresh
+expect 0 "QA: it left nothing for git status to show" -- test -z "$(git -C "$QR" status --porcelain)"
+expect 0 "QA: it recorded why in .git, out of the work tree" -- test -s "$QR/.git/ia-engineering-usage.refused"
+expect 0 "QA: the hook starts no refresh within the interval, and says why" -- \
+  env CLAUDE_CONFIG_DIR="$WORK/usage-empty-config" bash "$DASH" --project-dir "$QR" --refresh-in-background
+expect_output "could not use the cache: git does not ignore"
+expect 0 "QA: --refresh-in-background with --open (the Windows launcher's) says it is for a hook" -- \
+  bash "$DASH" --project-dir "$QR" --refresh-in-background --open
+expect_output "not through usage-dashboard.cmd"
+cd "$FRESH" || exit 1
+
+# The collector: --listing-out is what --list prints; a cache older than the
+# script is read again (a copy of the script, so the real one is untouched).
+expect 0 "collector: --listing-out writes the listing --list prints" -- \
+  test "$(bash "$COLLECT" --transcripts-dir "$UT" --listing-out "$WORK/usage-listing.txt" > /dev/null 2>&1; cat "$WORK/usage-listing.txt")" \
+     = "$(bash "$COLLECT" --transcripts-dir "$UT" --list)"
+UCOPY="$WORK/usage-collect-copy.sh"
+UCV="$WORK/usage-cache-version"
+rm -rf "$UCV"
+cp "$COLLECT" "$UCOPY"
+expect 0 "collector: a cached run" -- bash "$UCOPY" --transcripts-dir "$UT" --cache-dir "$UCV"
+for r in "$UCV"/v1/rec/*.tsv; do
+  printf 'C\tmsg_OLDVER\t2026-10-07\tclaude-old-version\tmain session\t\t1\t1\t0\t0\n' >> "$r"
+done
+expect 0 "collector: the cache is reused while the script is unchanged" -- \
+  bash "$UCOPY" --transcripts-dir "$UT" --cache-dir "$UCV"
+expect_output "claude-old-version"
+touch "$UCOPY"
+expect 0 "collector: a newer version of the script reads everything again" -- \
+  bash "$UCOPY" --transcripts-dir "$UT" --cache-dir "$UCV"
+expect 1 "collector: and what the older version stored is not counted" -- grep -qF 'claude-old-version' <<< "$LAST_OUTPUT"
+cd "$WORK" || exit 1
+
 # ------------------------------------------------- usage-dashboard.cmd ------
 # WU-IAENG-329. The Windows launcher cannot be run on the Linux CI runner, so
 # its contract is pinned statically: it exists, it is CRLF where cmd.exe reads

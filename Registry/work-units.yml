@@ -1296,3 +1296,9 @@ work_units:
     title: Put the Prompt Engineer review of every Employees/ or Core/*.md change into Workflows/CODE_REVIEW.md (Actors, Step 4, Exit Criteria) and the Code Review blocking conditions in Registry/workflows.yml, citing the Prompt Engineer trigger in Core/EMPLOYEE_SELECTION.md - the condition #203 adds lived only in that routing document, which no review or merge-readiness check reads
     milestone: Precision
     delivers: Workflows/CODE_REVIEW.md, Registry/workflows.yml, Registry/work-units.yml
+
+  - id: WU-IAENG-341
+    employee: Observability Engineer
+    title: Keep the usage dashboard fresh with no rebuild to wait for (Director, 7 Oct 2026) - a persistent cache under .ia-engineering/usage/cache/ (0700, shape-checked values only, refused with a fallback when it is a link or junction, not the user's, in a folder others can rename in, or not ignored by git; held under a lock with stale-lock recovery) keeps the git half per HEAD and the transcript records across runs and watches; a fingerprint beside the page (HEAD, arguments, transcript sizes and mtimes, plus newer registries, tags or scripts) lets --open open a current page at once; --refresh, --refresh-in-background (one line, exit 0, detached without setsid on Windows Git Bash, debounced by --min-interval, single instance, bounded refresh.log) and --open --no-wait are the CLI contract for the Claude Code Stop hook and /dashboard command of WU-IAENG-342
+    milestone: Precision
+    delivers: Adapters/scripts/usage-dashboard.sh, Adapters/ai-runtimes/claude-code/usage-collect.sh, Adapters/scripts/tests/run.sh, Adapters/README.md, Governance/DISPATCH_IN_PRACTICE.md, Registry/work-units.yml
