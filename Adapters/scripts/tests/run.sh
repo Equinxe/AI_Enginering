@@ -5000,7 +5000,11 @@ printf '* merge=union\n' > .git/info/attributes
 expect 2 "a non-empty .git/info/attributes, which no option switches off, fails closed" -- \
   bash "$CARRY" "$CO_A" "$CO_OK" --base develop
 expect_output "info/attributes"
-rm -f .git/info/attributes
+# Emptied, not deleted: the refusal is for a NON-empty file, and nothing in
+# this suite deletes inside .git/.
+: > .git/info/attributes
+expect 0 "an empty .git/info/attributes is not refused" -- \
+  bash "$CARRY" "$CO_A" "$CO_OK" --base develop
 # A local replace ref that shows the honest merge in place of the hand-edited one.
 git replace "$CO_EDIT" "$CO_OK"
 expect 1 "a refs/replace entry swapping in an honest merge for a hand-edited one is ignored" -- \
