@@ -64,7 +64,7 @@ for /f "delims=" %%S in ('cd /d "%%IAENG_ROOT%%" ^&^& "%%IAENG_GITROOT%%\bin\git
 set "IAENG_PROJECT=%IAENG_PROJECT:/=\%"
 
 cd /d "%IAENG_PROJECT%" || (set "IAENG_RC=1" & goto :done)
-echo Building the usage dashboard for "%IAENG_PROJECT%" - this takes about half a minute.
+echo Opening the usage dashboard for "%IAENG_PROJECT%" - it is rebuilt first only when something it shows has changed.
 "%IAENG_GITROOT%\bin\bash.exe" "%IAENG_HERE%usage-dashboard.sh" --open %*
 set "IAENG_RC=%ERRORLEVEL%"
 

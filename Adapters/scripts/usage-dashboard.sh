@@ -39,14 +39,17 @@
 # Standards/DATA_PROTECTION_STANDARD.md: the page holds aggregates only —
 # counts, token totals, names of Employees, models, agent types and Work Unit
 # IDs. No prompt, reply, commit-message body, file content or secret is read
-# into it. The default output path is gitignored (.ia-engineering/usage/), and
-# the page makes no network request: inline CSS, inline JS, inline SVG.
+# into it, nor into the cache kept between runs (see KEPT FRESH). The default
+# output path is gitignored (.ia-engineering/usage/), and the page makes no
+# network request: inline CSS, inline JS, inline SVG.
 #
 # USAGE
 #
 #   usage-dashboard.sh [--project-dir DIR] [--out FILE] [--since REF]
-#                      [--transcripts-dir DIR] [--prices FILE] [--open]
-#                      [--watch [SECONDS]]
+#                      [--transcripts-dir DIR] [--prices FILE]
+#                      [--open [--no-wait]] [--watch [SECONDS]]
+#                      [--refresh | --refresh-in-background]
+#                      [--min-interval SECONDS]
 #
 #   --project-dir      the project's git work tree (default: the one containing
 #                      the current directory; run from inside a framework
@@ -58,13 +61,19 @@
 #   --prices           a TSV of USD prices per million tokens, one model per
 #                      line: <model-id> <input> <output> <cache-write> <cache-read>.
 #                      Without it the page shows no cost, and says so.
-#   --open             open the page in the default browser afterwards
-#                      ($IAENG_USAGE_OPENER, when set, is used as the opener)
+#   --open             open the page in the default browser: at once when it is
+#                      current, after an incremental rebuild otherwise (see
+#                      KEPT FRESH; $IAENG_USAGE_OPENER, when set, is the opener)
+#   --no-wait          with --open: open the page as it is and refresh it in
+#                      the background (see KEPT FRESH)
 #   --watch [SECONDS]  live mode: rebuild the page every SECONDS (default 10,
 #                      minimum 10) until Ctrl-C; the page reloads itself at the
 #                      same interval and shows when it was last updated. With
 #                      --open, the browser is opened once, after the first
 #                      build. See "Live mode" below.
+#   --refresh, --refresh-in-background, --min-interval SECONDS
+#                      rebuild the page only when it is stale, in the
+#                      foreground or detached; see KEPT FRESH.
 #
 # PER PROJECT
 #
@@ -78,12 +87,79 @@
 # period (Claude Code: cleanupPeriodDays, 30 days by default), so token and
 # dispatch history is a rolling window while the git columns are permanent.
 #
+# KEPT FRESH (WU-IAENG-341) — AND THE CONTRACT A HOOK OR A COMMAND CALLS
+#
+# The page is meant to be current whenever it is opened, with no rebuild to
+# wait for. Three pieces, all per project.
+#
+# The cache. <project>/.ia-engineering/usage/cache/ ($IAENG_USAGE_CACHE when
+# set) keeps the git half per HEAD (git/) and the collector's per-transcript
+# records (transcripts/) between runs, so only the first run reads everything.
+# It is created 0700 and holds shape-checked values only, each checked again
+# when read: commit messages and transcript text are read in per-run temporary
+# directories, removed on exit. It is not used — the run says why and reads
+# everything again into a cache of its own, removed on exit — when it is, or
+# is reached through, a symbolic link or a junction, is not owned by you, sits
+# in a folder others can write to without the sticky bit, or lies in the work
+# tree without git saying it ignores it. A default output folder reached
+# through a link is refused outright, and a detached refresh that cannot use
+# the cache writes nothing in the work tree: it records why in the
+# repository's git directory, and the hook starts none for an interval. A build that uses it holds its lock, <cache>/lock/, stale once
+# its process is gone or after 10 minutes. A registry edit, a new tag or a
+# newer version of these scripts makes what they change be read again.
+#
+# The fingerprint. Beside the page, .<page name>.fingerprint records what it
+# was built from: HEAD, the build arguments, and the size and modification time
+# of every transcript — the cheap listing --watch compares each cycle. The page
+# is current while that is unchanged and no registry, price file, tag ref or
+# one of these scripts is newer than the fingerprint.
+#
+# The modes, for Claude Code's Stop hook and /dashboard command
+# (WU-IAENG-342) or any other runtime's equivalent. A hook passes the project
+# explicitly: --project-dir "$CLAUDE_PROJECT_DIR".
+#
+#   --refresh-in-background [--min-interval SECONDS] [build options]
+#     For an end-of-turn hook. Returns at once: it runs no git and starts no
+#     process but the refresh. Prints exactly one line on stdout — started,
+#     skipped and why, or not started and why — nothing on stderr, and exits 0
+#     in every case, a bad argument included: a hook must never fail. Starts
+#     no refresh while one runs or within SECONDS of the last one's start
+#     (default 60, 10 to 86400). The refresh is the --refresh below, detached:
+#     setsid where it exists, nohup elsewhere, under nice -n 10 except on
+#     Windows (see spawn_worker), with stdin, stdout and stderr all
+#     redirected, so it holds none of the caller's pipes (Windows Git Bash
+#     has no setsid; redirecting the three is what releases a native caller's
+#     pipes there, measured). It logs to .ia-engineering/usage/refresh.log,
+#     moved to refresh.log.1 past 64 KiB.
+#   --refresh [--min-interval SECONDS] [build options]
+#     The same refresh in the foreground. Skipped when one runs, within
+#     SECONDS of the last one's start, or — cheaply, with no build — when the
+#     fingerprint is unchanged; otherwise an incremental rebuild, whose page
+#     reloads itself every SECONDS. Exit 0 when refreshed or skipped, 1 when
+#     the cache cannot be used or the rebuild failed.
+#   --open [build options]
+#     Opens the page at once when it is current; otherwise waits for a running
+#     refresh, rebuilds incrementally, then opens it.
+#   --open --no-wait [--min-interval SECONDS] [build options]
+#     For an "open the dashboard" command. Opens the existing page at once,
+#     however old — when this script wrote it: its fingerprint beside it,
+#     ignored and untracked by git; any other page is rebuilt first — then
+#     starts the background refresh — not held back by the
+#     interval, since it was asked for — and the page, which reloads itself,
+#     catches up. With no page yet, builds one first. Exit 0, or 1 when no
+#     page could be built or opened.
+#
+# Inside an AI-runtime session every turn grows the session's transcript, so
+# by the time a command runs the fingerprint has changed: there --open would
+# rebuild almost every time, which is why --no-wait exists.
+#
 # Requires bash, git, awk and jq — the framework's existing dependencies.
 #
-# Exit 0 when the page was written (with --watch: when stopped), 1 when it
-# could not be (not a git work tree, a dependency or the roster missing, a bad
-# --since ref, a write failure, a first --watch build that failed), 2 on a
-# usage error.
+# Exit 0 when the page was written or was already current (with --watch: when
+# stopped; with --refresh: also when skipped), 1 when it could not be (not a
+# git work tree, a dependency or the roster missing, a bad --since ref, a write
+# failure, a first --watch build that failed), 2 on a usage error.
+# --refresh-in-background always exits 0.
 
 set -uo pipefail
 
@@ -120,11 +196,18 @@ open_page() {
 usage() {
   cat >&2 <<'USAGE'
 Usage: usage-dashboard.sh [--project-dir DIR] [--out FILE] [--since REF]
-                          [--transcripts-dir DIR] [--prices FILE] [--open]
-                          [--watch [SECONDS]]
+                          [--transcripts-dir DIR] [--prices FILE]
+                          [--open [--no-wait]] [--watch [SECONDS]]
+                          [--refresh | --refresh-in-background]
+                          [--min-interval SECONDS]
   Builds a self-contained HTML usage dashboard (Employees, chains, models,
   tokens, Work Units) for a project. Aggregates only; no network.
+  --open opens it, rebuilt first only when something changed; with
+  --no-wait it opens at once and is refreshed in the background.
   --watch keeps it live: rebuilt every SECONDS (default and minimum 10).
+  --refresh rebuilds it only when stale; --refresh-in-background does that
+  detached, for an end-of-turn hook: one line, exit 0, at most once every
+  --min-interval SECONDS (default 60). See the script's header.
 USAGE
 }
 
@@ -146,6 +229,7 @@ CDPATH='' cd -- "$SCRIPT_DIR/../.." || { printf 'usage-dashboard: ERROR: cannot 
 FRAMEWORK_DIR="$PWD"
 CDPATH='' cd -- "$START_PWD" || exit 1
 COLLECTOR="$FRAMEWORK_DIR/Adapters/ai-runtimes/claude-code/usage-collect.sh"
+SELF="$SCRIPT_DIR/${SCRIPT_SRC##*/}"
 
 PROJECT_ARG=""
 OUT=""
@@ -153,7 +237,34 @@ SINCE=""
 TRANSCRIPTS_DIR=""
 PRICES=""
 OPEN=""
+NO_WAIT=""
 WATCH=""
+MODE=""
+MIN_INTERVAL=""
+# --refresh-in-background is a hook's command: whatever goes wrong, it prints
+# one line and exits 0. Known before parsing, so that a parse error obeys it.
+BG=""
+for arg in "$@"; do [ "$arg" = --refresh-in-background ] && BG=1; done
+# A hook's command writes nothing on stderr, whatever fails (an unreadable
+# stamp included).
+[ -z "$BG" ] || exec 2>/dev/null
+
+# bg_say <line> — the hook path's one line, and exit 0. SIGPIPE is ignored
+# only here, after any refresh is started (an ignored signal would be
+# inherited by it): a caller that closed stdout does not turn this into a
+# failure.
+bg_say() {
+  trap '' PIPE
+  printf '%s\n' "$1" 2>/dev/null
+  exit 0
+}
+
+# fail_usage <message> — a usage error: exit 2, or for a hook one line and 0.
+fail_usage() {
+  [ -z "$BG" ] || bg_say "usage-dashboard: refresh not started: $1"
+  err "$1"; usage; exit 2
+}
+
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --watch)
@@ -167,12 +278,17 @@ while [ "$#" -gt 0 ]; do
       if [ "$#" -ge 2 ] && [[ "$2" =~ ^[1-9][0-9]{0,5}$ ]]; then
         WATCH=$((10#$2)); shift
       elif [ "$#" -ge 2 ] && [[ "$2" =~ ^0[0-9]+$ ]]; then
-        err "--watch $2: write the interval without a leading zero (bash would read $2 as an octal number)."
-        exit 2
+        fail_usage "--watch $2: write the interval without a leading zero (bash would read $2 as an octal number)."
       fi
       shift ;;
+    --min-interval)
+      # The same rule as --watch's interval, but the value is not optional.
+      [ "$#" -ge 2 ] || fail_usage "--min-interval needs a value"
+      [[ "$2" =~ ^0[0-9]+$ ]] && fail_usage "--min-interval $2: write the interval without a leading zero (bash would read $2 as an octal number)."
+      [[ "$2" =~ ^[1-9][0-9]{0,5}$ ]] || fail_usage "--min-interval $2: the interval is 10 to 86400 seconds."
+      MIN_INTERVAL=$((10#$2)); shift 2 ;;
     --project-dir|--out|--since|--transcripts-dir|--prices)
-      if [ "$#" -lt 2 ]; then err "$1 needs a value"; usage; exit 2; fi
+      [ "$#" -ge 2 ] || fail_usage "$1 needs a value"
       case "$1" in
         --project-dir) PROJECT_ARG="$2" ;;
         --out) OUT="$2" ;;
@@ -182,28 +298,250 @@ while [ "$#" -gt 0 ]; do
       esac
       shift 2 ;;
     --open) OPEN=1; shift ;;
-    -h|--help) usage; exit 0 ;;
-    *) err "unknown argument '$1'"; usage; exit 2 ;;
+    --no-wait) NO_WAIT=1; shift ;;
+    --refresh|--refresh-in-background)
+      [ -z "$MODE" ] || [ "$MODE" = "$1" ] || fail_usage "--refresh and --refresh-in-background are exclusive."
+      MODE="$1"; shift ;;
+    -h|--help)
+      [ -z "$BG" ] || fail_usage "--help is not a refresh; run it without --refresh-in-background."
+      usage; exit 0 ;;
+    *) fail_usage "unknown argument '$1'" ;;
   esac
 done
 
 if [ -n "$WATCH" ] && { [ "$WATCH" -lt 10 ] || [ "$WATCH" -gt 86400 ]; }; then
-  err "--watch $WATCH: the interval is 10 to 86400 seconds."
-  exit 2
+  fail_usage "--watch $WATCH: the interval is 10 to 86400 seconds."
 fi
+if [ -n "$MIN_INTERVAL" ] && { [ "$MIN_INTERVAL" -lt 10 ] || [ "$MIN_INTERVAL" -gt 86400 ]; }; then
+  fail_usage "--min-interval $MIN_INTERVAL: the interval is 10 to 86400 seconds."
+fi
+if [ -n "$MODE" ] && { [ -n "$WATCH" ] || [ -n "$OPEN" ]; }; then
+  # The Windows launcher always adds --open: say what to run instead (QA).
+  fail_usage "$MODE goes with neither --watch nor --open: it is for an end-of-turn hook, run with bash usage-dashboard.sh (not through usage-dashboard.cmd, which adds --open)."
+fi
+if [ -n "$NO_WAIT" ] && { [ -z "$OPEN" ] || [ -n "$WATCH" ]; }; then
+  fail_usage "--no-wait goes with --open, and not with --watch."
+fi
+if [ -n "$MIN_INTERVAL" ] && [ -z "$MODE" ] && [ -z "$NO_WAIT" ]; then
+  fail_usage "--min-interval applies to --refresh, --refresh-in-background and --open --no-wait."
+fi
+MIN_INTERVAL="${MIN_INTERVAL:-60}"
+# The page a refresh or --no-wait must find to keep: one that reloads itself
+# every interval and says it is kept fresh. A page from a plain build or
+# --open does not reload, so an open tab would never show the refreshes:
+# such a page is rebuilt (code review of #230, M1). Plain --open takes any.
+NEED_PAGE=""
+if [ "$MODE" = --refresh ] || [ -n "$NO_WAIT" ]; then NEED_PAGE="auto $MIN_INTERVAL"; fi
 
 # Set only for a build started by --watch: the page then carries the reload
 # directive and the "last updated" line. Anything but a plain decimal is
 # ignored. The two test knobs of the watch loop are numbers or nothing:
 # they used to reach bash arithmetic, which evaluates what it is given
-# (PR #204 review, F4 and F5).
+# (PR #204 review, F4 and F5). A refresh sets REFRESH itself, and AUTO, for
+# a page that says it is kept fresh in the background.
 REFRESH="${IAENG_USAGE_REFRESH:-}"
 [[ "$REFRESH" =~ ^[1-9][0-9]{0,5}$ ]] || REFRESH=""
+WATCH_CHILD="${REFRESH:+1}"
+AUTO=""
 [[ "${IAENG_USAGE_WATCH_SLEEP:-}" =~ ^[0-9]{1,6}$ ]] || IAENG_USAGE_WATCH_SLEEP=""
 [[ "${IAENG_USAGE_WATCH_MAX_CYCLES:-}" =~ ^[1-9][0-9]{0,5}$ ]] || IAENG_USAGE_WATCH_MAX_CYCLES=""
+# A refresh started detached by this script: "bg" from a hook, "now" from
+# --open --no-wait (not held back by the interval). It logs to refresh.log.
+# The test knob makes it wait that many seconds once it holds the lock, so a
+# test can see the caller return while the refresh still runs.
+WORKER="${IAENG_USAGE_WORKER:-}"
+case "$MODE:$WORKER" in --refresh:bg|--refresh:now) ;; *) WORKER="" ;; esac
+[[ "${IAENG_USAGE_WORKER_DELAY:-}" =~ ^[1-9][0-9]?$ ]] || IAENG_USAGE_WORKER_DELAY=""
 
-# The page, the git cache and the build files are this user's alone.
+# --- Locks and stamps, with builtins ------------------------------------------
+# The hook path below starts no process but the refresh, so everything it
+# reads — the lock's owner, the time of the last refresh — is read with
+# builtins, and only from a regular file (a FIFO would block the hook).
+
+LEASE=600
+# Where a detached refresh that could not use the cache records why, in the
+# repository's git directory: "<epoch><TAB><reason>".
+REFUSED_NAME="ia-engineering-usage.refused"
+NOW_S=""
+now_epoch() {
+  if [ -n "${EPOCHSECONDS:-}" ]; then NOW_S="$EPOCHSECONDS"
+  else printf -v NOW_S '%(%s)T' -1 2>/dev/null || NOW_S="$(date +%s)"; fi
+}
+
+# read_number <file> — NUM from a file holding one decimal, or return 1.
+NUM=""
+# The provisional stamp the hook wrote for the refresh it starts (below).
+STAMPED=""
+[[ "${IAENG_USAGE_STAMPED:-}" =~ ^[0-9]{1,12}$ ]] && [ -n "$WORKER" ] && STAMPED="$IAENG_USAGE_STAMPED"
+read_number() {
+  local s=""
+  NUM=""
+  [ -f "$1" ] && [ ! -L "$1" ] || return 1
+  IFS= read -r s 2>/dev/null < "$1" || [ -n "$s" ] || return 1
+  [[ "$s" =~ ^[0-9]{1,12}$ ]] || return 1
+  NUM="$((10#$s))"
+}
+
+# read_lock_owner <lock-dir> — LOCK_PID and LOCK_T (its start, in epoch
+# seconds) from <lock-dir>/owner, when that holds two numbers.
+LOCK_PID=""
+LOCK_T=""
+read_lock_owner() {
+  local p="" t=""
+  LOCK_PID=""
+  LOCK_T=""
+  [ -f "$1/owner" ] && [ ! -L "$1/owner" ] || return 1
+  read -r p t _ 2>/dev/null < "$1/owner" || [ -n "$t" ] || return 1
+  [[ "$p" =~ ^[1-9][0-9]{0,9}$ ]] && [[ "$t" =~ ^[0-9]{1,12}$ ]] || return 1
+  LOCK_PID="$p"
+  LOCK_T="$((10#$t))"
+}
+
+# lock_live <lock-dir> — 0 while its owner runs and is within the lease.
+# A start in the future (a planted owner, or a clock stepped back) is stale,
+# as the refresh stamp's is ignored: otherwise it would never age out while
+# its pid lives (PR #230 security review, S3).
+lock_live() {
+  local age
+  read_lock_owner "$1" || return 1
+  now_epoch
+  age=$((NOW_S - LOCK_T))
+  [ "$age" -ge 0 ] && [ "$age" -le "$LEASE" ] && kill -0 "$LOCK_PID" 2>/dev/null
+}
+
+# link_under <root> <path> — 0 when <path>, or a directory between <root> and
+# it, is a symbolic link or a junction. A cloned repository decides what sits
+# at .ia-engineering/usage: committed as a link, it would send the page, the
+# cache and the log anywhere the user can write (PR #230 security review,
+# S1). Builtins only: the hook path below may not start a process.
+link_under() {
+  local rest="${2#"$1"/}" acc="$1" part
+  [ "$rest" != "$2" ] || return 1
+  while [ -n "$rest" ]; do
+    case "$rest" in
+      */*) part="${rest%%/*}"; rest="${rest#*/}" ;;
+      *) part="$rest"; rest="" ;;
+    esac
+    acc="$acc/$part"
+    [ -L "$acc" ] && return 0
+  done
+  return 1
+}
+
+# spawn_worker <bg|now> <project-dir> <out> — starts `--refresh` detached.
+# stdin, stdout and stderr all redirected: a hook runner waits until every
+# copy of its pipes is closed, and a child that kept one would hold it for
+# the whole refresh (measured from Node and PowerShell on Windows Git Bash,
+# which has no setsid). setsid, where it exists, also puts the refresh out of
+# the caller's session, so a signal to the hook's process group misses it.
+# nice -n 10 keeps the refresh behind the user's own work where the scheduler
+# shares by weight (Linux, macOS). Not on Windows: there any nice of 5 or
+# more is the below-normal priority class, which a busy machine starves.
+# Measured there: a fixed CPU loop ran 4 to 5 times slower under nice, and a
+# refresh of a tiny project took 510 s instead of 13 s — a page that is
+# never fresh.
+spawn_worker() {
+  local a=(--refresh --min-interval "$MIN_INTERVAL") run=(nohup)
+  [ -n "$2" ] && a+=(--project-dir "$2")
+  [ -n "$3" ] && a+=(--out "$3")
+  [ -n "$SINCE" ] && a+=(--since "$SINCE")
+  [ -n "$TRANSCRIPTS_DIR" ] && a+=(--transcripts-dir "$TRANSCRIPTS_DIR")
+  [ -n "$PRICES" ] && a+=(--prices "$PRICES")
+  command -v setsid >/dev/null 2>&1 && run=(setsid)
+  case "${OSTYPE:-}" in
+    msys*|cygwin*|win*) ;;
+    *) command -v nice >/dev/null 2>&1 && run+=(nice -n 10) ;;
+  esac
+  IAENG_USAGE_WORKER="$1" IAENG_USAGE_STAMPED="$STAMPED" \
+  IAENG_USAGE_REFRESH="" IAENG_USAGE_PAGEDIR="" IAENG_USAGE_WORKDIR="" \
+    "${run[@]}" bash "$SELF" "${a[@]}" </dev/null >/dev/null 2>&1 &
+  disown 2>/dev/null || true
+}
+
+# --- In the background (an end-of-turn hook) -----------------------------------
+# No git, no process but the refresh: the project is the nearest directory
+# holding .git, found with builtins, and the refresh itself (the one --refresh
+# run, with git) settles everything again. Run from inside this framework
+# when it is a submodule or a linked worktree, with no --project-dir, that
+# question is git's, so it is left to the refresh.
+if [ "$MODE" = --refresh-in-background ]; then
+  d="${PROJECT_ARG:-.}"
+  CDPATH='' cd -- "$d" 2>/dev/null || fail_usage "--project-dir '$d' is not a directory."
+  d="$PWD"
+  CDPATH='' cd -- "$START_PWD" 2>/dev/null || fail_usage "cannot return to '$START_PWD'."
+  root=""
+  while :; do
+    if [ -e "$d/.git" ]; then root="$d"; break; fi
+    case "$d" in /|"") break ;; esac
+    d="${d%/*}"
+    [ -n "$d" ] || d="/"
+  done
+  [ -n "$root" ] || fail_usage "'${PROJECT_ARG:-$START_PWD}' is not inside a git work tree."
+  if [ -z "$PROJECT_ARG" ] && [ "$root" -ef "$FRAMEWORK_DIR" ] && [ -f "$root/.git" ]; then root=""; fi
+  if [ -n "$root" ] && link_under "$root" "$root/.ia-engineering/usage"; then
+    fail_usage "$root/.ia-engineering/usage is reached through a symbolic link or a junction; nothing is written through it."
+  fi
+  if [ -n "$root" ]; then
+    c="${IAENG_USAGE_CACHE:-$root/.ia-engineering/usage/cache}"
+    if lock_live "$c/lock"; then
+      bg_say "usage-dashboard: refresh skipped: one is already running (pid $LOCK_PID)."
+    fi
+    # A refresh refused within the interval is not started again (QA of
+    # #230): its reason, recorded in .git by the refused refresh, is said.
+    r="$root/.git/$REFUSED_NAME"
+    if [ -d "$root/.git" ] && [ -f "$r" ] && [ ! -L "$r" ] && IFS=$'\t' read -r t why 2>/dev/null < "$r" \
+        && [[ "$t" =~ ^[0-9]{1,12}$ ]]; then
+      now_epoch
+      if [ $((NOW_S - 10#$t)) -ge 0 ] && [ $((NOW_S - 10#$t)) -lt "$MIN_INTERVAL" ]; then
+        bg_say "usage-dashboard: refresh not started: the last one, $((NOW_S - 10#$t)) s ago, could not use the cache: ${why:0:400}."
+      fi
+    fi
+    if read_number "$c/refresh.stamp"; then
+      now_epoch
+      if [ $((NOW_S - NUM)) -ge 0 ] && [ $((NOW_S - NUM)) -lt "$MIN_INTERVAL" ]; then
+        bg_say "usage-dashboard: refresh skipped: the last one started $((NOW_S - NUM)) s ago (at most one every $MIN_INTERVAL s)."
+      fi
+      # A provisional stamp, so a second hook call during the refresh's own
+      # start-up (seconds on Windows) spawns none; the refresh it is handed
+      # to knows the value and does not take it for a recent refresh. Only
+      # an existing stamp — one a refresh wrote in a cache it checked — is
+      # rewritten, and never through a link.
+      if [ ! -L "$c" ] && [ ! -L "$c/refresh.stamp" ] && ! link_under "$root" "$c"; then
+        now_epoch
+        { printf '%s\n' "$NOW_S" > "$c/refresh.stamp"; } 2>/dev/null && STAMPED="$NOW_S"
+      fi
+    fi
+  fi
+  spawn_worker bg "$PROJECT_ARG" "$OUT"
+  bg_say "usage-dashboard: refreshing the usage dashboard in the background (log: .ia-engineering/usage/refresh.log)."
+fi
+
+# The page, the cache and the build files are this user's alone.
 umask 077
+
+# Everything a run may leave behind, removed on any exit in one process: the
+# temporary page, this run's private directories, the watch's state, and the
+# cache lock when this run holds it.
+TMPD=""
+TMPD_OWN=""
+WATCH_STATE=""
+PAGE_DIR=""
+PAGE_DIR_OWN=""
+PAGE_TMP=""
+CACHE=""
+LOCK=""
+LOCK_HELD=""
+cleanup() {
+  local gone=()
+  [ -n "$PAGE_TMP" ] && [ -e "$PAGE_TMP" ] && gone+=("$PAGE_TMP")
+  [ -n "$PAGE_DIR_OWN" ] && gone+=("$PAGE_DIR_OWN")
+  [ -n "$TMPD_OWN" ] && gone+=("$TMPD_OWN")
+  [ -n "$WATCH_STATE" ] && gone+=("$WATCH_STATE")
+  # Only the lock this run holds: one taken over as stale is the new owner's.
+  [ -n "$LOCK_HELD" ] && read_lock_owner "$LOCK" && [ "$LOCK_PID" = "$$" ] && gone+=("$LOCK")
+  [ "${#gone[@]}" -eq 0 ] || rm -rf "${gone[@]}"
+}
+trap 'cleanup' EXIT
 
 for dep in git awk jq; do
   if ! command -v "$dep" >/dev/null 2>&1; then
@@ -219,13 +557,21 @@ if [ ! -d "$START_DIR" ]; then
   err "--project-dir '$START_DIR' does not exist."
   exit 1
 fi
-# One git call for both the work tree and its HEAD. Without commits, git
-# still prints the work tree and then the literal "HEAD", and fails; outside
-# a work tree it prints nothing.
-GITINFO="$(git -C "$START_DIR" rev-parse --show-toplevel HEAD 2>/dev/null)"
+# One git call for the work tree, the repository's common directory (where its
+# tags are, for the freshness check) and HEAD. Without commits, git still
+# prints the first two and then the literal "HEAD", and fails; outside a work
+# tree it prints nothing.
+GITINFO="$(git -C "$START_DIR" rev-parse --show-toplevel --git-common-dir HEAD 2>/dev/null)"
 PROJECT="${GITINFO%%$'\n'*}"
+GIT_COMMON=""
 HEAD_SHA=""
-case "$GITINFO" in *$'\n'*) HEAD_SHA="${GITINFO#*$'\n'}" ;; esac
+# set_common_head <dir> <common-dir-and-HEAD> — the common directory (made
+# absolute: git prints it relative to <dir> when it is not) and HEAD.
+set_common_head() {
+  case "$2" in *$'\n'*) GIT_COMMON="${2%%$'\n'*}"; HEAD_SHA="${2#*$'\n'}" ;; *) return ;; esac
+  case "$GIT_COMMON" in /*|[A-Za-z]:*) ;; ?*) GIT_COMMON="$1/$GIT_COMMON" ;; esac
+}
+case "$GITINFO" in *$'\n'*) set_common_head "$START_DIR" "${GITINFO#*$'\n'}" ;; esac
 if [ -z "$PROJECT" ]; then
   err "'$START_DIR' is not inside a git work tree. The dashboard reads Employee and Work Unit trailers from git history; there is nothing to measure without one. Pass --project-dir <your project>."
   exit 1
@@ -240,7 +586,8 @@ if [ -z "$PROJECT_ARG" ] && [ "$PROJECT" -ef "$FRAMEWORK_DIR" ]; then
   if [ -n "$SUPER" ]; then
     note "measuring $SUPER, the project that includes this framework (pass --project-dir to measure the framework itself)."
     PROJECT="$SUPER"
-    HEAD_SHA="$(git -C "$PROJECT" rev-parse -q --verify HEAD 2>/dev/null || true)"
+    HEAD_SHA=""
+    set_common_head "$PROJECT" "$(git -C "$PROJECT" rev-parse --git-common-dir HEAD 2>/dev/null)"
   fi
 fi
 
@@ -255,6 +602,8 @@ now_hms() {
   printf -v NOW '%(%H:%M:%S)T' -1 2>/dev/null || NOW="$(date '+%H:%M:%S')"
 }
 
+OUT_DEFAULT=""
+[ -n "$OUT" ] || OUT_DEFAULT=1
 OUT="${OUT:-$PROJECT/.ia-engineering/usage/dashboard.html}"
 # A native Windows path (C:\...\dash.html, as typed in PowerShell or passed
 # through the launcher) has no "/", so the directory part would never split
@@ -266,6 +615,13 @@ case "$OUT" in
   */*) OUT_DIR="${OUT%/*}" ;;
   *) OUT_DIR="." ;;
 esac
+# The default folder is the project's, so the repository decides what sits
+# there: one reached through a link is refused before anything is created
+# (S1). An --out the user names is the user's choice, links included.
+if [ -n "$OUT_DEFAULT" ] && link_under "$PROJECT" "$OUT_DIR"; then
+  err "$OUT_DIR is reached through a symbolic link or a junction; refusing to write the page through it. Pass --out to write it elsewhere."
+  exit 1
+fi
 if [ ! -d "$OUT_DIR" ] && ! mkdir -p "$OUT_DIR"; then
   err "cannot create $OUT_DIR."
   exit 1
@@ -282,7 +638,7 @@ case "${OSTYPE:-}" in
   *)
     # "$OUT_DIR/." so that find inspects the folder itself, not a symlink
     # that leads to it (a link's own mode reads 0777): portable to BSD find.
-    if [ -z "$REFRESH" ]; then
+    if [ -z "$WATCH_CHILD" ]; then
       if [ -n "$(find "$OUT_DIR/." -maxdepth 0 -perm -0002 ! -perm -1000 2>/dev/null)" ]; then
         err "$OUT_DIR is writable by other users and has no sticky bit; refusing to write the page there. Use a private --out."
         exit 1
@@ -299,21 +655,287 @@ if [ -n "$PRICES" ] && [ ! -f "$PRICES" ]; then
   exit 1
 fi
 
+# --- Kept fresh: what the page and the git half are built from -------------------
+# Besides HEAD, the arguments and the transcripts, which the fingerprint holds,
+# these files change what a build shows. Every candidate is listed, not only
+# the one first_file would pick: one more rebuild after an edit costs little.
+GIT_INPUTS=("$SELF" "${IAENG_REGISTRY:-}" "$PROJECT/Registry/employees.yml"
+  "$PROJECT/ia-engineering/Registry/employees.yml" "$FRAMEWORK_DIR/Registry/employees.yml"
+  "${IAENG_PROJECT_ROSTER:-}" "$PROJECT/.ia-engineering/Registry/employees.yml"
+  "$PROJECT/Registry/chains.yml" "$PROJECT/ia-engineering/Registry/chains.yml"
+  "$FRAMEWORK_DIR/Registry/chains.yml" "${IAENG_REGISTRY_WORK_UNITS:-}" "$PROJECT/Registry/work-units.yml"
+  "$GIT_COMMON/refs/tags" "$GIT_COMMON/packed-refs")
+FP_INPUTS=("${GIT_INPUTS[@]}" "$COLLECTOR" "$PRICES")
+
+# any_newer <ref> <file...> — 0 when a file is newer than ref, or ref is gone.
+any_newer() {
+  local ref="$1" f
+  shift
+  [ -e "$ref" ] || return 0
+  for f in "$@"; do [ -n "$f" ] && [ "$f" -nt "$ref" ] && return 0; done
+  return 1
+}
+
+FP_FILE="$OUT_DIR/.${OUT##*/}.fingerprint"
+FP_KEY="$SINCE|$PRICES|$TRANSCRIPTS_DIR|${IAENG_REGISTRY:-}|${IAENG_PROJECT_ROSTER:-}|${IAENG_REGISTRY_WORK_UNITS:-}"
+FP_TEXT=""
+# fp_text <transcripts-status> <listing> — the fingerprint, into FP_TEXT. The
+# status is the collector's exit when it listed nothing (3 none, 4
+# ambiguous), "none" without a collector, and 0 otherwise.
+fp_text() {
+  FP_TEXT="iaeng-usage-fingerprint 1
+head $HEAD_SHA
+key $FP_KEY
+transcripts $1
+$2"
+}
+# fp_now — the fingerprint of the project as it is now: one collector --list.
+fp_now() {
+  local listing="" rc=none la=(--project-dir "$PROJECT")
+  [ -n "$TRANSCRIPTS_DIR" ] && la=(--transcripts-dir "$TRANSCRIPTS_DIR")
+  if [ -f "$COLLECTOR" ]; then
+    listing="$(bash "$COLLECTOR" "${la[@]}" --list 2>/dev/null)"
+    rc=$?
+    [ -z "$listing" ] || rc=0
+  fi
+  fp_text "$rc" "$listing"
+}
+# The page, when it is a regular file of this user's. Anything else is
+# rebuilt, and the rename then replaces it.
+page_ok() { [ -f "$OUT" ] && [ ! -L "$OUT" ] && [ -O "$OUT" ]; }
+# page_ours — a page --no-wait may open without a build: one this script
+# wrote, with its fingerprint beside it, and — in the work tree — ignored and
+# untracked, the only case check-ignore answers 0. A page the repository
+# supplied, even force-added under an ignore rule, is rebuilt first (PR #230
+# security review, S2).
+page_ours() {
+  local first=""
+  page_ok && [ -f "$FP_FILE" ] && [ ! -L "$FP_FILE" ] && [ -O "$FP_FILE" ] || return 1
+  # A page that does not reload itself would never show the refresh (M1).
+  IFS= read -r first 2>/dev/null < "$FP_FILE"
+  [ "$first" = "page $NEED_PAGE" ] || return 1
+  git -C "$PROJECT" check-ignore -q -- "$OUT" 2>/dev/null
+  case "$?:$OUT" in
+    0:*) return 0 ;;
+    *:"$PROJECT"/*) return 1 ;;
+    128:*) return 0 ;;
+  esac
+  return 1
+}
+# fp_fresh — 0 when the page is current: its fingerprint is this user's
+# regular file, nothing it is built from is newer, and it equals fp_now.
+# The file's first line is the page's mode ("page auto N", "page watch N" or
+# "page static"); when NEED_PAGE is set, only that mode is current.
+fp_fresh() {
+  local old=""
+  page_ok && [ -f "$FP_FILE" ] && [ ! -L "$FP_FILE" ] && [ -O "$FP_FILE" ] || return 1
+  any_newer "$FP_FILE" "${FP_INPUTS[@]}" && return 1
+  IFS= read -r -d '' old 2>/dev/null < "$FP_FILE"
+  [ -z "$NEED_PAGE" ] || [ "${old%%$'\n'*}" = "page $NEED_PAGE" ] || return 1
+  fp_now
+  [ "${old#*$'\n'}" = "$FP_TEXT" ]
+}
+
+# --- Kept fresh: the cache -----------------------------------------------------
+# setup_cache — CACHE is the persistent cache, checked and created 0700, or
+# "" with the reason in CACHE_WHY. A --watch build skips what its watch
+# checked once (git, the folder's mode), as it does for the output folder.
+CACHE_WHY=""
+CACHE_SET=""
+setup_cache() {
+  local c="${IAENG_USAGE_CACHE:-$PROJECT/.ia-engineering/usage/cache}" rc
+  c="${c//\\//}"
+  CACHE=""
+  CACHE_SET=1
+  if [ -L "$c" ]; then CACHE_WHY="$c is a symbolic link or a junction"; return 1; fi
+  if [ -e "$c" ] && [ ! -d "$c" ]; then CACHE_WHY="$c is not a directory"; return 1; fi
+  if link_under "$PROJECT" "$c"; then CACHE_WHY="$c is reached through a symbolic link or a junction"; return 1; fi
+  if [ -z "$WATCH_CHILD" ]; then
+    # Never committed: in the work tree, git must ignore it, which is checked
+    # before anything is created there. Any other answer for a path in the
+    # project — 128 is also "beyond a symbolic link" — is a refusal; only a
+    # path outside the project is outside the tree (S1).
+    git -C "$PROJECT" check-ignore -q -- "$c/" 2>/dev/null
+    rc=$?
+    case "$rc:$c" in
+      0:*) ;;
+      1:*)
+        CACHE_WHY="git does not ignore $c, so it could be committed; add .ia-engineering/usage/ to the project's .gitignore (install.sh does)"
+        return 1 ;;
+      *:"$PROJECT"/*)
+        CACHE_WHY="git cannot say it ignores $c (exit $rc)"
+        return 1 ;;
+    esac
+  fi
+  if [ ! -d "$c" ] && ! mkdir -p "$c" 2>/dev/null; then CACHE_WHY="$c cannot be created"; return 1; fi
+  if [ ! -O "$c" ]; then CACHE_WHY="$c is not owned by you"; return 1; fi
+  case "${OSTYPE:-}" in
+    msys*|cygwin*|win*) ;;
+    *)
+      if [ -z "$WATCH_CHILD" ]; then
+        # Others able to rename in its folder could swap it (R3, above).
+        if [ -n "$(find "$c/.." -maxdepth 0 -perm -0002 ! -perm -1000 2>/dev/null)" ]; then
+          CACHE_WHY="the folder holding $c is writable by other users and has no sticky bit"
+          return 1
+        fi
+        chmod 0700 "$c" 2>/dev/null
+      fi
+      ;;
+  esac
+  CACHE="$c"
+}
+
+# lock_try — 0 when this run now holds <cache>/lock, 1 when a live run holds
+# it, 2 when it cannot be made. mkdir is the atomic test-and-set. A lock is
+# stale once its owner's process is gone or it is older than LEASE; it is
+# then renamed away first, which only one of two runs that judged it stale
+# at the same moment can do.
+lock_try() {
+  local was old age
+  LOCK="$CACHE/lock"
+  if ! mkdir "$LOCK" 2>/dev/null; then
+    [ -d "$LOCK" ] || return 2
+    if read_lock_owner "$LOCK"; then
+      now_epoch
+      age=$((NOW_S - LOCK_T))
+      # Older than the lease, started in the future (S3), or its process gone.
+      [ "$age" -gt "$LEASE" ] || [ "$age" -lt 0 ] || ! kill -0 "$LOCK_PID" 2>/dev/null || return 1
+    else
+      # No owner yet (being written this instant), or a run that died
+      # between the two steps: stale only past the lease.
+      [ -n "$(find "$LOCK" -maxdepth 0 -mmin +$((LEASE / 60)) 2>/dev/null)" ] || return 1
+    fi
+    was="$LOCK_PID $LOCK_T"
+    old="$LOCK.stale.$$"
+    mv "$LOCK" "$old" 2>/dev/null || return 1
+    # Another run took it over and made a fresh lock between the check and
+    # the rename: that lock is given back.
+    if read_lock_owner "$old" && [ "$LOCK_PID $LOCK_T" != "$was" ]; then
+      mv "$old" "$LOCK" 2>/dev/null || rm -rf "$old"
+      return 1
+    fi
+    rm -rf "$old"
+    note "took over a stale lock (owner ${was% *} gone or older than $LEASE s)."
+    mkdir "$LOCK" 2>/dev/null || return 1
+  fi
+  now_epoch
+  printf '%s %s\n' "$$" "$NOW_S" > "$LOCK/owner"
+  LOCK_HELD=1
+}
+
+# lock_renew — the lease runs from the last renewal, so a long build (cold,
+# loaded, or under nice) keeps its lock while it works. Renewed only while
+# the lock is still this run's (code review of #230).
+lock_renew() {
+  [ -n "$LOCK_HELD" ] && read_lock_owner "$LOCK" && [ "$LOCK_PID" = "$$" ] || return 0
+  now_epoch
+  printf '%s %s\n' "$$" "$NOW_S" > "$LOCK/owner"
+}
+
+# say <message> — a refresh's report, with the time: it reads as a log.
+say() {
+  local t
+  printf -v t '%(%Y-%m-%d %H:%M:%S %z)T' -1 2>/dev/null || t="$(date '+%Y-%m-%d %H:%M:%S %z')"
+  printf '%s usage-dashboard: %s\n' "$t" "$1"
+}
+
+# worker_log — a detached refresh writes to .ia-engineering/usage/refresh.log,
+# moved to refresh.log.1 once past 64 KiB: at most twice that on disk. Not a
+# link, not another user's, not a folder others can rename in; otherwise the
+# refresh writes nowhere.
+worker_log() {
+  local dir="$PROJECT/.ia-engineering/usage" log
+  log="$dir/refresh.log"
+  ! link_under "$PROJECT" "$dir" || return 0
+  [ -d "$dir" ] || mkdir -p "$dir" 2>/dev/null || return 0
+  if [ -L "$log" ] || { [ -e "$log" ] && { [ ! -f "$log" ] || [ ! -O "$log" ]; }; }; then return 0; fi
+  case "${OSTYPE:-}" in
+    msys*|cygwin*|win*) ;;
+    *) [ -z "$(find "$dir/." -maxdepth 0 -perm -0002 ! -perm -1000 2>/dev/null)" ] || return 0 ;;
+  esac
+  if [ -n "$(find "$log" -maxdepth 0 -size +64k 2>/dev/null)" ]; then mv -f "$log" "$log.1" 2>/dev/null; fi
+  exec >> "$log" 2>&1
+}
+
+# --- Kept fresh: the modes ---------------------------------------------------------
+
+# --open --no-wait: the page as it is, at once, and a refresh behind it.
+if [ -n "$NO_WAIT" ] && page_ours; then
+  open_page "$OUT" || exit 1
+  if lock_live "${IAENG_USAGE_CACHE:-$PROJECT/.ia-engineering/usage/cache}/lock"; then
+    echo "Usage dashboard opened as it is; a refresh is already running (pid $LOCK_PID) and will update it."
+  else
+    spawn_worker now "$PROJECT" "$OUT"
+    echo "Usage dashboard opened as it is; refreshing it in the background (log: .ia-engineering/usage/refresh.log)."
+  fi
+  exit 0
+fi
+# Without a page of its own yet, --no-wait builds one first: one that reloads
+# itself, as a refresh's does.
+if [ -n "$NO_WAIT" ]; then AUTO=1; REFRESH="$MIN_INTERVAL"; fi
+
+# --open: at once when nothing the page is built from has changed.
+if [ -n "$OPEN" ] && [ -z "$WATCH" ] && [ -z "$NO_WAIT" ] && fp_fresh; then
+  echo "Usage dashboard is up to date (nothing it is built from has changed): $OUT"
+  open_page "$OUT" || exit 1
+  exit 0
+fi
+
+# --refresh: one at a time, at most one start per interval, nothing done when
+# the fingerprint is unchanged. It then falls through to the build below,
+# holding the lock, and its page reloads itself every interval.
+if [ "$MODE" = --refresh ]; then
+  # The cache is settled before anything is written: a detached refresh that
+  # may not use it — a folder git does not ignore, a link — writes no log in
+  # the work tree (QA of #230). It records why in the repository's git
+  # directory instead, which git never shows or commits, and the hook reads
+  # that to start no refresh for an interval.
+  if ! setup_cache; then
+    if [ -n "$WORKER" ]; then
+      [ -d "$GIT_COMMON" ] && [ ! -L "$GIT_COMMON/$REFUSED_NAME" ] && now_epoch \
+        && printf '%s\t%s\n' "$NOW_S" "${CACHE_WHY:0:400}" > "$GIT_COMMON/$REFUSED_NAME"
+      exit 0
+    fi
+    say "refresh not done: the persistent cache cannot be used: $CACHE_WHY."
+    exit 1
+  fi
+  [ -z "$WORKER" ] || worker_log
+  say "refresh started (pid $$)."
+  lock_try
+  case "$?" in
+    1) say "refresh skipped: another one is running (pid $LOCK_PID)."; exit 0 ;;
+    2) say "refresh not done: cannot make the lock in $CACHE."; exit 1 ;;
+  esac
+  [ -z "$IAENG_USAGE_WORKER_DELAY" ] || sleep "$IAENG_USAGE_WORKER_DELAY"
+  if [ "$WORKER" != now ] && read_number "$CACHE/refresh.stamp" && [ "$NUM" != "$STAMPED" ]; then
+    now_epoch
+    if [ $((NOW_S - NUM)) -ge 0 ] && [ $((NOW_S - NUM)) -lt "$MIN_INTERVAL" ]; then
+      say "refresh skipped: the last refresh started $((NOW_S - NUM)) s ago (at most one every $MIN_INTERVAL s)."
+      exit 0
+    fi
+  fi
+  now_epoch
+  printf '%s\n' "$NOW_S" > "$CACHE/refresh.stamp"
+  if fp_fresh; then
+    say "no change in HEAD, the transcripts or what the page is built from; page kept."
+    exit 0
+  fi
+  AUTO=1
+  REFRESH="$MIN_INTERVAL"
+fi
+
 # --- Live mode -------------------------------------------------------------------
 # --watch rebuilds the page every N seconds until interrupted. Each build is a
 # child run of this script, so a build that fails leaves the page as it was
 # and the loop going; only a failing FIRST build stops it, since that is a
 # configuration fault rather than a passing one. A cycle starts only after
 # the previous one has finished, and is skipped when neither HEAD nor any
-# transcript's size changed. The builds share a cache (IAENG_USAGE_CACHE): the
-# git half is computed once per HEAD, and only the transcripts that grew are
-# read, from where the previous build stopped (usage-collect.sh). For tests,
-# IAENG_USAGE_WATCH_MAX_CYCLES stops after that many cycles and
-# IAENG_USAGE_WATCH_SLEEP replaces the interval actually slept.
-SELF="$SCRIPT_DIR/${SCRIPT_SRC##*/}"
-WATCH_STATE=""
-PAGE_DIR=""
-PAGE_DIR_OWN=""
+# transcript's size changed. The builds share the persistent cache (KEPT
+# FRESH): the git half is computed once per HEAD, and only the transcripts
+# that grew are read, from where the previous build stopped (usage-collect.sh)
+# — so a new watch starts warm. For tests, IAENG_USAGE_WATCH_MAX_CYCLES stops
+# after that many cycles and IAENG_USAGE_WATCH_SLEEP replaces the interval
+# actually slept.
 
 watch_loop() {
   local cycle=0 start fp last_fp="" opened="" rc nap interval
@@ -326,11 +948,23 @@ watch_loop() {
   fi
   interval="${IAENG_USAGE_WATCH_SLEEP:-$WATCH}"
   WATCH_STATE="$(mktemp -d "${TMPDIR:-/tmp}/obs330-watch.XXXXXX")" || { err "cannot create a temporary directory"; return 1; }
-  trap 'rm -rf "$WATCH_STATE" ${PAGE_DIR:+"$PAGE_DIR"}' EXIT
   # The private directory every build renders its page into, created once
   # here, beside the page, and reused by each cycle's build.
   PAGE_DIR="$(mktemp -d "$OUT_DIR/.usage-dashboard.XXXXXX")" || { err "cannot create a private directory in $OUT_DIR"; return 1; }
+  PAGE_DIR_OWN="$PAGE_DIR"
   export IAENG_USAGE_PAGEDIR="$PAGE_DIR"
+  # Each build's work files — raw git output among them — stay in the watch's
+  # own temporary directory, never in the cache. The cache is the persistent
+  # one every run shares; when it may not be used, the watch keeps one of its
+  # own until it stops, as before WU-IAENG-341.
+  mkdir "$WATCH_STATE/build" || return 1
+  export IAENG_USAGE_WORKDIR="$WATCH_STATE/build"
+  if setup_cache; then
+    export IAENG_USAGE_CACHE="$CACHE"
+  else
+    note "not using the persistent cache: $CACHE_WHY. This watch keeps a cache of its own until it stops."
+    export IAENG_USAGE_CACHE="$WATCH_STATE/cache"
+  fi
   trap 'note "stopped; the page keeps its last update."; exit 0' INT TERM
   # The transcript directories are resolved once, here, and handed to every
   # build (usage-collect.sh, IAENG_USAGE_TRANSCRIPT_DIRS). None found yet: each
@@ -351,8 +985,7 @@ $(bash "$COLLECTOR" "${list_args[@]}" --list 2>/dev/null)"
     if [ "$fp" = "$last_fp" ]; then
       now_hms
       note "$NOW no change in HEAD or the transcripts; page kept ($((SECONDS - start)) s)"
-    elif IAENG_USAGE_CACHE="$WATCH_STATE/cache" IAENG_USAGE_REFRESH="$WATCH" \
-        bash "$SELF" "${child_args[@]}" > /dev/null 2> "$WATCH_STATE/build.err"; then
+    elif IAENG_USAGE_REFRESH="$WATCH" bash "$SELF" "${child_args[@]}" > /dev/null 2> "$WATCH_STATE/build.err"; then
       last_fp="$fp"
       now_hms
       note "$NOW rebuilt in $((SECONDS - start)) s: $OUT"
@@ -381,21 +1014,53 @@ if [ -n "$WATCH" ]; then
   exit $?
 fi
 
-# A build started by --watch works in a fixed directory inside the watch's
-# cache, overwritten each cycle and removed with it: no mktemp and no rm per
-# cycle. Any other build uses a temporary directory of its own.
-PAGE_TMP=""
-if [ -n "${IAENG_USAGE_CACHE:-}" ]; then
-  TMPD="$IAENG_USAGE_CACHE/build"
-  if [ ! -d "$TMPD" ] && ! mkdir -p "$TMPD"; then
-    err "cannot create $TMPD"
-    exit 1
+# --- The build ---------------------------------------------------------------------
+
+# The persistent cache (a refresh has settled it already), held under its
+# lock. A run that finds the lock taken waits for that run to end — with
+# --open, its page may then be current — and a lock that cannot be made, or
+# is not released within the lease, leaves this run to a cache of its own.
+[ -n "$CACHE_SET" ] || setup_cache || note "not using the persistent cache: $CACHE_WHY. This run reads everything again."
+if [ -n "$CACHE" ] && [ -z "$LOCK_HELD" ]; then
+  lock_try
+  lrc=$?
+  if [ "$lrc" = 1 ]; then
+    note "waiting for the refresh that is running (pid ${LOCK_PID:-unknown}) to finish..."
+    waited=0
+    while [ "$lrc" = 1 ] && [ "$waited" -le $((LEASE + 60)) ]; do
+      sleep 1
+      waited=$((waited + 1))
+      lock_try
+      lrc=$?
+    done
+    if [ "$lrc" = 0 ] && [ -n "$OPEN" ] && fp_fresh; then
+      echo "Usage dashboard is up to date (the refresh that just ended rebuilt it): $OUT"
+      open_page "$OUT" || exit 1
+      exit 0
+    fi
   fi
-  trap 'rm -f ${PAGE_TMP:+"$PAGE_TMP"}; rm -rf ${PAGE_DIR_OWN:+"$PAGE_DIR_OWN"}' EXIT
+  if [ "$lrc" != 0 ]; then
+    note "cannot lock the persistent cache $CACHE; this run reads everything again."
+    CACHE=""
+  fi
+fi
+
+# A build started by --watch works in a fixed directory the watch made in its
+# own temporary state, overwritten each cycle and removed with it: no mktemp
+# and no rm per cycle. Any other build uses a temporary directory of its own.
+# Never the cache: these files hold raw git output.
+W="${IAENG_USAGE_WORKDIR:-}"
+if [ -n "$W" ] && [ -d "$W" ] && [ ! -L "$W" ] && [ -O "$W" ]; then
+  TMPD="$W"
 else
   TMPD="$(mktemp -d "${TMPDIR:-/tmp}/obs326-usage.XXXXXX")" || { err "cannot create a temporary directory"; exit 1; }
-  trap 'rm -rf "$TMPD" ${PAGE_DIR_OWN:+"$PAGE_DIR_OWN"}' EXIT
+  TMPD_OWN="$TMPD"
 fi
+# The build's start: the fingerprint and the git key take its time, so an
+# input changed while the build ran (30 to 90 s here) is newer than both and
+# makes the next run read again (code review of #230).
+STARTED="$TMPD/started"
+: > "$STARTED"
 
 # Sources, for the page header: name <TAB> found|missing|error <TAB> detail.
 SOURCES="$TMPD/sources.tsv"
@@ -613,22 +1278,23 @@ collect_git_side() {
   printf '%s' "$RANGE_LABEL" > "$TMPD/range.txt"
 }
 
-# The git half is the same for as long as HEAD is: under --watch it is
-# computed once per HEAD and reused from the cache (IAENG_USAGE_CACHE, set by
-# the watch loop for the builds it starts). The key also carries what changes
-# its meaning without a commit — the --since argument and the registry
-# overrides. An edit to a registry file that is not yet committed shows on the
-# next commit, or when --watch is restarted.
+# The git half is the same for as long as HEAD is: it is computed once per
+# HEAD and reused from the persistent cache, across runs and watches. The key
+# also carries what changes its meaning without a commit — the --since
+# argument and the registry overrides — and a key older than a registry, the
+# tag refs or this script is not trusted: an uncommitted registry edit, a new
+# release tag or a new version of this script recomputes it.
 ROSTER_TSV="$TMPD/roster.tsv"
 CHAINS_TSV="$TMPD/chains.tsv"
 WUS_TSV="$TMPD/wus.tsv"
 COMMITS_TSV="$TMPD/commits.tsv"
-GIT_CACHE="${IAENG_USAGE_CACHE:+$IAENG_USAGE_CACHE/git}"
+GIT_CACHE="${CACHE:+$CACHE/git}"
 GIT_KEY=""
 CACHED_KEY=""
 if [ -n "$GIT_CACHE" ]; then
   GIT_KEY="$HEAD_SHA|${SINCE}|${IAENG_REGISTRY:-}|${IAENG_PROJECT_ROSTER:-}|${IAENG_REGISTRY_WORK_UNITS:-}"
-  [ -f "$GIT_CACHE/key" ] && IFS= read -r CACHED_KEY < "$GIT_CACHE/key"
+  [ -f "$GIT_CACHE/key" ] && [ ! -L "$GIT_CACHE/key" ] && IFS= read -r CACHED_KEY < "$GIT_CACHE/key"
+  any_newer "$GIT_CACHE/key" "${GIT_INPUTS[@]}" && CACHED_KEY=""
 fi
 if [ -n "$GIT_CACHE" ] && [ "$GIT_KEY" = "$CACHED_KEY" ]; then
   # A hit is read in place — no copy, which would be one more process per
@@ -645,23 +1311,35 @@ if [ -n "$GIT_CACHE" ] && [ "$GIT_KEY" = "$CACHED_KEY" ]; then
   while IFS= read -r sline; do printf '%s\n' "$sline"; done < "$GIT_CACHE/sources.tsv" > "$SOURCES"
 else
   collect_git_side
-  if [ -n "$GIT_CACHE" ] && mkdir -p "$GIT_CACHE" \
+  # The key is emptied first and written last: files copied by a run that
+  # stopped half-way never pass for the HEAD of the key they sit beside.
+  if [ -n "$GIT_CACHE" ] && { [ -d "$GIT_CACHE" ] || mkdir -p "$GIT_CACHE"; } && : > "$GIT_CACHE/key" \
       && cp "$ROSTER_TSV" "$CHAINS_TSV" "$WUS_TSV" "$COMMITS_TSV" "$SOURCES" "$TMPD/range.txt" "$GIT_CACHE"/; then
     printf '%s\n' "$GIT_KEY" > "$GIT_CACHE/key"
+    touch -r "$STARTED" "$GIT_CACHE/key" 2>/dev/null
   fi
 fi
+lock_renew
 
 # --- AI-runtime transcripts -------------------------------------------------------------
 
 USAGE_TSV="$TMPD/usage.tsv"
 : > "$USAGE_TSV"
+# The listing the collector worked from becomes the page's fingerprint, so a
+# build costs no second listing. Emptied first: a watch reuses this directory.
+LISTING_FILE="$TMPD/listing.txt"
+: > "$LISTING_FILE"
+COLLECT_RC=none
 if [ -f "$COLLECTOR" ]; then
-  collect_args=(--project-dir "$PROJECT")
+  collect_args=(--project-dir "$PROJECT" --listing-out "$LISTING_FILE")
   [ -n "$TRANSCRIPTS_DIR" ] && collect_args+=(--transcripts-dir "$TRANSCRIPTS_DIR")
-  [ -n "${IAENG_USAGE_CACHE:-}" ] && collect_args+=(--cache-dir "$IAENG_USAGE_CACHE/transcripts")
-  note "reading Claude Code transcripts (a large project can take a minute)..."
+  [ -n "$CACHE" ] && collect_args+=(--cache-dir "$CACHE/transcripts")
+  if [ -z "$CACHE" ] || [ ! -f "$CACHE/transcripts/v1/index.tsv" ]; then
+    note "reading Claude Code transcripts (a large project can take a minute)..."
+  fi
   bash "$COLLECTOR" "${collect_args[@]}" > "$USAGE_TSV" 2> "$TMPD/collect.err"
   rc=$?
+  COLLECT_RC="$rc"
   case "$rc" in
     0)
       # The collector prints its `source` line first; read it with a builtin.
@@ -686,7 +1364,21 @@ if [ -f "$COLLECTOR" ]; then
 else
   source_line "Claude Code transcripts" missing "no runtime collector installed"
 fi
+# What this build read, recorded beside the page once it is written — the
+# form fp_now computes. A collector that failed records nothing: the next
+# --open or refresh then rebuilds rather than keep an error page as current.
+FP_BUILD=""
+case "$COLLECT_RC" in
+  0|3|4|none)
+    listing=""
+    [ -s "$LISTING_FILE" ] && IFS= read -r -d '' listing < "$LISTING_FILE"
+    trc="$COLLECT_RC"
+    [ -z "$listing" ] || trc=0
+    fp_text "$trc" "$listing"
+    FP_BUILD="$FP_TEXT" ;;
+esac
 
+lock_renew
 PRICES_TSV="$TMPD/prices.tsv"
 : > "$PRICES_TSV"
 if [ -n "$PRICES" ]; then
@@ -716,6 +1408,10 @@ def gitname: if type != "string" then "(unrecognised)" elif bucket then .
              elif test($secret) then "(redacted)" else . end;
 def gitwu: if type == "string" and (bucket or test("^WU-[A-Z0-9]+-[0-9]+$")) then . else "(unrecognised)" end;
 def count: if type == "string" and test("^[0-9]{1,12}$") then tonumber else 0 end;
+# The sources list may come from the cache too: a status is one this script
+# writes, and a name or detail is one bounded line of text.
+def srcstatus: if . == "found" or . == "missing" or . == "error" or . == "ambiguous" then . else "error" end;
+def srctext: tostring | if length > 300 then .[0:297] + "..." else . end;
 
 (rows($commits) | map(select(length == 7)
                       | {sha: .[0], inr: (.[1] == "1"), emp: (.[2] | gitname), wu: (.[3] | gitwu),
@@ -779,7 +1475,7 @@ def count: if type == "string" and test("^[0-9]{1,12}$") then tonumber else 0 en
                                       + .cw * $price[$m].cw + .cr * $price[$m].cr) / 1000000) else null end;
 {
   generated: $generated, project: $project, range: $range_label,
-  sources: (rows($sources) | map({name: .[0], status: .[1], detail: .[2]})),
+  sources: (rows($sources) | map({name: (.[0] | srctext), status: (.[1] // "" | srcstatus), detail: (.[2] // "" | srctext)})),
   have_transcripts: (($calls | length) > 0 or ($disp | length) > 0),
   have_prices: (($price | length) > 0),
   employees: $employees,
@@ -873,9 +1569,10 @@ def badge: if . == "never" then {h: "<span class=\"badge never\">NEVER USED</spa
 | "<!DOCTYPE html>\n<html lang=\"en\"><head><meta charset=\"utf-8\">"
 + "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
 + "<meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:\">"
-# Only under --watch: the page reloads itself from disk every N seconds. A
-# meta refresh is navigation, which no CSP directive governs, so
-# default-src 'none' does not block it; and it needs no script.
+# Only under --watch, or for a page a refresh keeps fresh: the page reloads
+# itself from disk every N seconds. A meta refresh is navigation, which no CSP
+# directive governs, so default-src 'none' does not block it; and it needs no
+# script.
 + (if $refresh != "" then "<meta http-equiv=\"refresh\" content=\"\($refresh)\">" else "" end)
 + "<title>Usage dashboard - \($d.project | e)</title><style>
 :root{color-scheme:light;--surface:#fcfcfb;--panel:#f3f2ef;--text:#0b0b0b;--text2:#52514e;--rule:#d6d4cf;--bar:#2a78d6;--never-bg:#fde7e7;--never-fg:#8a1414;--rare-bg:#fff3d6;--rare-fg:#6b4a00;--used-fg:#1f5a1f;--focus:#2a78d6}
@@ -895,7 +1592,8 @@ footer{margin-top:48px;padding-top:12px;border-top:1px solid var(--rule)}
 @media (forced-colors: active){svg .bar{fill:CanvasText}tr.never td,tr.rare td{background:Canvas}}
 </style></head><body><main>"
 + "<header><h1>Usage dashboard: \($d.project | e)</h1>"
-+ (if $refresh != "" then "<p class=\"live\"><strong>Live:</strong> last updated \($d.generated | e) - refreshes every \($refresh) s while the --watch command runs. Stop the command and the page stays at its last update.</p>" else "" end)
++ (if $auto != "" then "<p class=\"live\"><strong>Kept fresh:</strong> last updated \($d.generated | e) - rebuilt in the background when the project changes (usage-dashboard.sh --refresh-in-background, at most once every \($refresh) s); this page reloads itself every \($refresh) s.</p>"
+   elif $refresh != "" then "<p class=\"live\"><strong>Live:</strong> last updated \($d.generated | e) - refreshes every \($refresh) s while the --watch command runs. Stop the command and the page stays at its last update.</p>" else "" end)
 + "<p class=\"muted\">Generated \($d.generated | e). Range columns: <strong>\($d.range | e)</strong>; all-time columns cover the whole history. Transcript data covers whatever the runtime has retained.</p>"
 + "<h2 id=\"sources\">Data sources</h2><ul class=\"src\">"
 + ($d.sources | map("<li><span class=\"st \(.status | e)\">\(.status | e)</span> <strong>\(.name | e)</strong> - \(.detail | e)</li>") | join(""))
@@ -992,11 +1690,12 @@ if [ -z "$PAGE_DIR" ] || [ "${PAGE_DIR%/*}" != "$OUT_DIR" ] || [ -L "$PAGE_DIR" 
   PAGE_DIR="$(mktemp -d "$OUT_DIR/.usage-dashboard.XXXXXX")" || { err "cannot create a private directory in $OUT_DIR. No page was written."; exit 1; }
   PAGE_DIR_OWN="$PAGE_DIR"
 fi
+lock_renew
 PAGE_TMP="$PAGE_DIR/page.html.tmp"
 if [ -n "$REFRESH" ]; then
-  render() { jq -n -r "${BUILD_ARGS[@]}" --arg refresh "$REFRESH" "($JQ_BUILD) | ($JQ_RENDER)"; }
+  render() { jq -n -r "${BUILD_ARGS[@]}" --arg refresh "$REFRESH" --arg auto "$AUTO" "($JQ_BUILD) | ($JQ_RENDER)"; }
 else
-  render() { jq -r --arg refresh "" "$JQ_RENDER" < "$DATA"; }
+  render() { jq -r --arg refresh "" --arg auto "" "$JQ_RENDER" < "$DATA"; }
 fi
 # A render that fails leaves no orphan behind: the partial page is removed
 # here, and the private directory with it on exit.
@@ -1010,17 +1709,32 @@ if ! mv -f "$PAGE_TMP" "$OUT"; then
   err "cannot write $OUT."
   exit 1
 fi
+# The fingerprint follows the page the same way: written in the private
+# directory, renamed beside it. Without one, the page is rebuilt next time.
+if [ -n "$FP_BUILD" ]; then
+  PAGE_MODE=static
+  if [ -n "$AUTO" ]; then PAGE_MODE="auto $REFRESH"; elif [ -n "$REFRESH" ]; then PAGE_MODE="watch $REFRESH"; fi
+  if ! { printf 'page %s\n%s' "$PAGE_MODE" "$FP_BUILD" > "$PAGE_DIR/fingerprint.tmp" \
+      && touch -r "$STARTED" "$PAGE_DIR/fingerprint.tmp" && mv -f "$PAGE_DIR/fingerprint.tmp" "$FP_FILE"; }; then
+    note "could not record the page's fingerprint; it will be rebuilt next time."
+  fi
+elif [ -e "$FP_FILE" ]; then
+  rm -f "$FP_FILE"
+fi
 
 echo "Usage dashboard written: $OUT"
 # Under --watch nobody reads this summary (the loop prints its own line), so
-# the process that prints it is not spent.
+# the process that prints it is not spent; nor in a refresh's log.
 [ -n "$REFRESH" ] || jq -r '"  Employees: \(.totals.roster) on roster, \(.totals.never) never used, \(.totals.rare) rarely used",
        "  Dispatches: \(.totals.dispatches); commits: \(.totals.commits_range) (\(.range)), \(.totals.commits_all) all time",
        "  API calls: \(.totals.tokens.calls); tokens: \(.totals.tokens.total); cache-read share: \(.totals.tokens.cache_read_share * 1000 | round / 10)%",
        (.sources[] | "  source \(.status): \(.name)")' < "$DATA"
+[ "$MODE" != --refresh ] || say "page rebuilt in ${SECONDS} s."
 
 if [ -n "$OPEN" ]; then
   open_page "$OUT" || exit 1
 fi
-
-exit 0
+# No final `exit 0`: the run ends with status 0 by reaching the end. shellcheck
+# runs an EXIT trap's handler at the end of the script, so an unconditional
+# exit there would report cleanup() unreachable (SC2317), and suppressing that
+# is not allowed (Standards/CODE_QUALITY_STANDARD.md, No Inline Suppression).
