@@ -4900,7 +4900,11 @@ expect 1 "a resolution that commits git's conflict markers in the registry is re
 expect_output "does not hold exactly the entries"
 
 # Configuration that changes what git diff or git merge print must not change
-# the verdict: a hostile global config, run from a subdirectory.
+# the verdict: a hostile global config, run from a subdirectory. The
+# subdirectory is load-bearing on its own: `git merge-tree --name-only` prints
+# conflicted paths relative to the current directory, which once made the
+# registry's conflict read ../Registry/work-units.yml and refused the honest
+# merge.
 cat > "$WORK/carry-hostile.gitconfig" <<EOF
 [diff]
 	relative = true

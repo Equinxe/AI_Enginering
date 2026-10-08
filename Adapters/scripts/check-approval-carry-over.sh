@@ -226,6 +226,19 @@ declare -F merge_classify_automatic > /dev/null \
 merge_classify_git_ok \
   || cannot_decide "$(git version) is too old: git's own merge needs 'git merge-tree --write-tree' (git 2.38) with --attr-source (git 2.40); use git 2.40 or newer"
 
+# Every path git prints below is read from the top of the work tree. Run from
+# a subdirectory, `git merge-tree --name-only` prints conflicted paths relative
+# to it: the registry's own conflict reads ../Registry/work-units.yml and is
+# refused as a conflict elsewhere, and from X/ a conflict in
+# X/Registry/work-units.yml would read as the registry's and be exempted. A
+# bare repository has no work tree and no prefix, so it stays where it is.
+TOP="$(git rev-parse --show-toplevel 2> /dev/null)" || TOP=""
+if [ -n "$TOP" ]; then
+  cd "$TOP" || cannot_decide "cannot enter the top of the work tree ($(q "$TOP"))"
+fi
+[ -z "$(git rev-parse --show-prefix 2> /dev/null)" ] \
+  || cannot_decide "git still reports a prefix at the top of the work tree"
+
 SHALLOW="$(git rev-parse --is-shallow-repository 2> /dev/null)" \
   || cannot_decide "git rev-parse --is-shallow-repository failed"
 [ "$SHALLOW" = false ] \
