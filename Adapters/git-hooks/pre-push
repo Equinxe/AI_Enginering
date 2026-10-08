@@ -117,7 +117,14 @@ while read -r _ local_sha remote_ref remote_sha; do
       "refs/heads/$RELEASE_PREFIX"*) variant_of="$RELEASE_PREFIX*" ;;
     esac
     if [ -n "$variant_of" ]; then
-      echo "pre-push: rejected — '$remote_ref' differs from the protected branch name '$variant_of' only by case." >&2
+      # Under release/* the pattern alone does not say which branch was
+      # meant, so the refusal names the lowercased one (issue #211).
+      if [ "$variant_of" = "$RELEASE_PREFIX*" ]; then
+        meant="${lower_ref#refs/heads/}"
+        echo "pre-push: rejected — '$remote_ref' differs from the protected branch name '$meant' ('$variant_of') only by case. Did you mean '$meant'?" >&2
+      else
+        echo "pre-push: rejected — '$remote_ref' differs from the protected branch name '$variant_of' only by case." >&2
+      fi
       echo "  A ref under a protected name must be spelled all-lowercase." >&2
       echo "  On a case-insensitive remote it can overwrite the protected branch itself." >&2
       echo "  Per Standards/BRANCH_STANDARD.md, use the exact lowercase name through a" >&2
