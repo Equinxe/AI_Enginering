@@ -36,7 +36,7 @@ So the conclusion stands: **dispatching an Employee is not, by itself, how Emplo
 Adapters/scripts/usage-dashboard.sh --project-dir <project> [--open]
 ```
 
-Two ways to build and open it in one step:
+Two ways to open it in one step — it is rebuilt first only when something it shows has changed:
 
 - **Windows** — `Adapters\scripts\usage-dashboard.cmd`, from PowerShell, cmd, or a double-click in Explorer. It runs the script with `--open` through Git for Windows' own `bash.exe`; typing `bash` in PowerShell reaches WSL instead (`Governance/TROUBLESHOOTING.md` entry AA). From an adopter's `ia-engineering` submodule it measures the adopting project.
 - **macOS, Linux, Git Bash** — `Adapters/scripts/usage-dashboard.sh --open`.
@@ -55,6 +55,8 @@ The decisions it informs, and the first question each one raises:
 | A requested model out of line with the Employee's tier | Does the brief's model match `Core/CAPABILITY_TIERS.md`? | Main Agent; changing a tier is a Director decision |
 
 **Live.** `--watch` keeps the page current while you work: it is rebuilt every 10 seconds by default (`--watch 30` for slower), reloads itself in the browser, and says when it was last updated. Stop the command and the page stays as it was. A cycle that finds no new commit and no grown transcript rebuilds nothing; otherwise only what changed is read again. The interval is optional and the flag can come after `--open`, so the Windows launcher of WU-IAENG-329, which passes its arguments after `--open`, keeps the page live with `usage-dashboard.cmd --watch`. The transcript directories are found once, when the watch starts: a session started afterwards in a new runtime worktree of the project is counted after the watch is restarted.
+
+**Kept fresh.** Opening the page does not mean waiting for a rebuild. Every run keeps what it read in the project's `.ia-engineering/usage/cache/` — shape-checked values only, never a message or a transcript line — so only the very first run reads everything; a cache that is a link, is not yours, or is not ignored by git is not used, and the run says why. `--open` (and the Windows launcher, which passes it) opens the page at once when nothing it is built from has changed since — no new commit or tag, no transcript grown, no registry edited — and otherwise reads only what changed, then opens it. Two more modes keep the page current while you work: `--refresh-in-background` refreshes it detached, at most once a minute, and returns at once; `--open --no-wait` opens the page as it is and refreshes it behind, the open page reloading itself. Once WU-IAENG-342 installs them — a Claude Code `Stop` hook that runs the first at the end of each turn, and a `/dashboard` command that runs the second — the page is kept fresh automatically and `/dashboard` opens it instantly. Until then, open it with `--open` as above. The contract both call is in the script's header, under KEPT FRESH.
 
 **One page per project.** Run from a project — including through `ia-engineering/Adapters/scripts/`, or from inside that directory — it measures that project and nothing else: its git history, the framework roster plus its own Domain Employees, its own `Registry/`, the AI-runtime transcripts recorded for its own path, and it writes under its own `.ia-engineering/usage/`. A new project therefore starts with every Employee at zero. Two caveats, both about transcripts:
 

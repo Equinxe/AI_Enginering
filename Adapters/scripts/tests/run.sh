@@ -1799,6 +1799,83 @@ else
   FAILED=$((FAILED + 1))
 fi
 
+section "generate-agents.sh --print-tier-map — the mapping a session reads (WU-IAENG-336)"
+
+# Issue #212: the Lightweight and Frontier values were printed only in a
+# generation's summary, so a session applying a Tier Override had no model to
+# pass and invented one ("sonnet" in a project mapping every tier to
+# claude-opus-5-5). --print-tier-map resolves the mapping the way a generation
+# does and prints it for session-start.sh; these cases pin that it is the SAME
+# resolution (file, defaults, per-tier flags, refusals) and that it writes
+# nothing.
+
+D="$(project ga-printmap-file)"
+write_tier_map "$D" "map=strategic=s-model,standard=e-model,lightweight=l-model,frontier=f-model" \
+  "effort-map=strategic=max,standard=low,lightweight=,frontier="
+expect 0 "--print-tier-map prints a project's tier-map" -- bash "$GEN" --project "$D" --print-tier-map
+expect_output "# mapping: file ("
+expect_output "map=strategic=s-model,standard=e-model,lightweight=l-model,frontier=f-model"
+expect_output "effort-map=strategic=max,standard=low,lightweight=,frontier="
+TOTAL=$((TOTAL + 1))
+if [ -e "$D/.claude" ]; then
+  printf '   FAIL --print-tier-map wrote into the project (%s exists)\n' "$D/.claude"
+  FAILED=$((FAILED + 1))
+else
+  [ -n "$VERBOSE" ] && printf '   ok   --print-tier-map writes nothing\n'
+fi
+
+# Its output is itself a tier-map: fed back in, it resolves to the same lines.
+PRINTED="$LAST_OUTPUT"
+D2="$(project ga-printmap-roundtrip)"
+mkdir -p "$D2/.ia-engineering"
+printf '%s\n' "$PRINTED" > "$D2/.ia-engineering/tier-map"
+expect 0 "--print-tier-map output is a valid tier-map" -- bash "$GEN" --project "$D2" --print-tier-map
+TOTAL=$((TOTAL + 1))
+if [ "$(grep -v '^#' <<< "$LAST_OUTPUT")" = "$(grep -v '^#' <<< "$PRINTED")" ]; then
+  [ -n "$VERBOSE" ] && printf '   ok   the printed mapping round-trips through a tier-map file\n'
+else
+  printf '   FAIL the printed mapping did not round-trip:\n'
+  printf '%s\n--- vs ---\n%s\n' "$PRINTED" "$LAST_OUTPUT" | sed 's/^/        | /'
+  FAILED=$((FAILED + 1))
+fi
+
+# Absent file: the target defaults, said so, and every tier named.
+D="$(project ga-printmap-defaults)"
+expect 0 "--print-tier-map without a tier-map prints the target defaults" -- \
+  bash "$GEN" --project "$D" --print-tier-map
+expect_output "# mapping: defaults (target claude-code"
+expect_output "map=strategic=opus,standard=sonnet,lightweight=haiku,frontier=fable"
+
+# The issue's own project: every tier on one model. Lightweight must print it,
+# not the target's default and not any other alias.
+D="$(project ga-printmap-issue-212)"
+write_tier_map "$D" "map=strategic=claude-opus-5-5,standard=claude-opus-5-5,lightweight=claude-opus-5-5,frontier=fable" \
+  "effort-map=strategic=high,standard=,lightweight=,frontier="
+expect 0 "--print-tier-map on the issue #212 mapping" -- bash "$GEN" --project "$D" --print-tier-map
+expect_output "lightweight=claude-opus-5-5,"
+
+# Flags still win per tier over the file.
+D="$(project ga-printmap-flags)"
+write_tier_map "$D" "map=strategic=file-s,standard=file-e,lightweight=file-l,frontier=file-f" ""
+expect 0 "--print-tier-map applies a flag over the file, per tier" -- \
+  bash "$GEN" --project "$D" --print-tier-map --map lightweight=flag-l
+expect_output "# mapping: flags (over "
+expect_output "map=strategic=file-s,standard=file-e,lightweight=flag-l,frontier=file-f"
+
+# A malformed file is refused exactly as a generation refuses it: a session
+# must be told the map is broken, never handed a half-read one.
+D="$(project ga-printmap-malformed)"
+write_tier_map "$D" "map=bogus=x" ""
+expect 2 "--print-tier-map refuses a malformed tier-map" -- bash "$GEN" --project "$D" --print-tier-map
+expect_output "/.ia-engineering/tier-map line 2) entry: bogus=x"
+
+# It never stands in for --check or --dry-run, which it does not perform.
+D="$(project ga-printmap-combined)"
+expect 2 "--print-tier-map with --check is refused" -- bash "$GEN" --project "$D" --print-tier-map --check
+expect_output "cannot be combined with --check or --dry-run"
+expect 2 "--print-tier-map with --dry-run is refused" -- bash "$GEN" --project "$D" --dry-run --print-tier-map
+expect_output "cannot be combined with --check or --dry-run"
+
 # ------------------------------------------------- git-hooks/commit-msg -----
 #
 # WU-IAENG-304 added `perf` as an accepted Conventional Commits type but
@@ -3441,6 +3518,382 @@ else
   printf '   FAIL validate-framework.sh pipes a variable into grep -q (SIGPIPE under pipefail):\n%s\n' "$SIGPIPE_HITS"
 fi
 
+# ------ validate-framework.sh chain diagrams vs the Registry (WU-IAENG-335) --
+#
+# Core/AGENT_CHAINS.md draws each chain and Registry/chains.yml records it as
+# data. Nothing compared their steps. Three diagrams lost four steps that the
+# Registry still held: the Review Chain its Security and Compliance Engineers,
+# the Architecture Chain its Security Engineer, the Feature Chain its ADR gate.
+# Every check passed until a manual check-up found them (WU-IAENG-334, PR #201).
+# Section 22 of the validator now compares the two step for step.
+#
+# These cases run the REAL chain_diagram_drift, extracted from the validator in
+# the same way as resolves() above. They run it on the real files, as LF and as
+# CRLF; on the #201 drift put back into the real document; and on a fixture
+# pair that carries every construct of the grammar, mutated one drift at a
+# time. The fixture pair is written here rather than derived from the real
+# files, so rewording a diagram breaks only the cases that read the real files.
+#
+# CRLF: Git for Windows' awk drops a carriage return on read, so on a Windows
+# run the CRLF cases pass with or without the strip. They prove the strip on
+# the Linux runner, where awk keeps the CR.
+
+section "validate-framework.sh — chain diagrams match Registry/chains.yml step for step (WU-IAENG-335)"
+
+CHAIN_HARNESS="$WORK/chain-diagram-harness.sh"
+{
+  echo 'set -uo pipefail'
+  sed -n '/^chain_diagram_drift() {/,/^}/p' "$VF"
+  cat <<'HARNESS'
+chain_diagram_drift "$1" "$2"
+HARNESS
+} > "$CHAIN_HARNESS"
+CHAIN_ROOT="$(cd "$SCRIPTS/../.." && pwd)"
+CHAIN_FIX="$WORK/chain-diagrams"
+CHAIN_TAB=$'\t'
+mkdir -p "$CHAIN_FIX"
+
+expect 0 "chain diagrams: chain_diagram_drift is extracted from the validator" -- \
+  grep -q '^chain_diagram_drift() {' "$CHAIN_HARNESS"
+
+# chain_drift_case <what> <document> <registry> <expected output...>
+# The pair must FAIL, and its output must contain every expected string.
+chain_drift_case() {
+  local what="$1" doc="$2" reg="$3" want
+  shift 3
+  expect 1 "chain diagrams: $what fails" -- bash "$CHAIN_HARNESS" "$doc" "$reg"
+  for want in "$@"; do
+    expect_output "$want"
+  done
+}
+
+# --- The real files.
+expect 0 "chain diagrams: the real Core/AGENT_CHAINS.md and Registry/chains.yml agree step for step" -- \
+  bash "$CHAIN_HARNESS" "$CHAIN_ROOT/Core/AGENT_CHAINS.md" "$CHAIN_ROOT/Registry/chains.yml"
+for chain_name in Feature Review Architecture; do
+  expect_output "ok${CHAIN_TAB}$chain_name Chain: diagram and Registry agree step for step"
+done
+
+tr -d '\r' < "$CHAIN_ROOT/Core/AGENT_CHAINS.md" > "$CHAIN_FIX/real.md"
+tr -d '\r' < "$CHAIN_ROOT/Registry/chains.yml" > "$CHAIN_FIX/real.yml"
+awk '{ printf "%s\r\n", $0 }' "$CHAIN_FIX/real.md" > "$CHAIN_FIX/real-crlf.md"
+awk '{ printf "%s\r\n", $0 }' "$CHAIN_FIX/real.yml" > "$CHAIN_FIX/real-crlf.yml"
+CHAIN_CR="$(tr -cd '\r' < "$CHAIN_FIX/real-crlf.md" | wc -c | tr -d ' ')"
+CHAIN_LF="$(tr -cd '\n' < "$CHAIN_FIX/real-crlf.md" | wc -c | tr -d ' ')"
+expect 0 "chain diagrams: the CRLF copy ends every line in CRLF ($CHAIN_CR CR, $CHAIN_LF LF)" -- \
+  test "$CHAIN_LF" -gt 0 -a "$CHAIN_CR" = "$CHAIN_LF"
+expect 0 "chain diagrams: the real files agree checked out CRLF" -- \
+  bash "$CHAIN_HARNESS" "$CHAIN_FIX/real-crlf.md" "$CHAIN_FIX/real-crlf.yml"
+expect 0 "chain diagrams: the real files agree checked out LF" -- \
+  bash "$CHAIN_HARNESS" "$CHAIN_FIX/real.md" "$CHAIN_FIX/real.yml"
+
+# The #201 drift, put back: the Review Chain diagram without its Security
+# Engineer and Compliance Engineer steps, against the Registry that kept them.
+awk '/^# / { review = ($0 == "# Review Chain") }
+     review && /^(Security|Compliance) Engineer  \(/ { next }
+     { print }' "$CHAIN_FIX/real.md" > "$CHAIN_FIX/real-201.md"
+expect 1 "chain diagrams: the #201 fixture really removed lines from the real document" -- \
+  cmp -s "$CHAIN_FIX/real.md" "$CHAIN_FIX/real-201.md"
+chain_drift_case "the #201 drift (Review Chain diagram without its Security and Compliance Engineers)" \
+  "$CHAIN_FIX/real-201.md" "$CHAIN_FIX/real.yml" \
+  "Review Chain, step 2: $CHAIN_FIX/real-201.md:" \
+  "records \"employee: Security Engineer (conditional)\""
+
+# --- A fixture pair carrying every construct the grammar reads: outputs with
+# arrows inside, a conditional gate, the multi-pole clause alone and beside a
+# condition, Engineer(s) with its parallel marker, the review loop, a branch
+# box, "(P1/P2 ...)" as a condition, "when: Always", a folded "when: >-", and
+# block-scalar text that looks like keys and steps, one at the very indentation
+# of a step.
+cat > "$CHAIN_FIX/base.md" <<'EOF'
+# Agent Chains
+
+Every construct the diagrams of Core/AGENT_CHAINS.md use, in two chains.
+
+# Chain Selection
+
+| Request type | Chain |
+|---|---|
+| A test request | Alpha Chain |
+
+---
+
+# Alpha Chain
+
+```
+Business Analyst
+      ↓
+  [Specification — acceptance criteria]
+      ↓
+Main Agent → Director  (if an ADR is required)
+      ↓
+  [ADR decision → implementation blocked until Accepted]
+      ↓
+Main Agent  (Engineering Manager if multi-pole work)
+      ↓
+Engineer(s)        ← parallel if Work Units are independent
+      ↓
+Code Reviewer
+      ↓
+  ┌── Approved ──────────────────────────────┐
+  │                                          │
+  └── Changes requested → Engineer → resubmit ──┘
+      ↓
+Main Agent  (if Accepted; Engineering Manager if multi-pole work)
+      ↓
+Main Agent → Director
+      ↓
+  [Approval → Release Chain]
+```
+
+# Beta Chain
+
+```
+SRE Engineer
+      ↓
+Engineering Manager
+      ↓
+Main Agent → Director  (P1/P2 mandatory notification)
+      ↓
+  ┌── Security incident? → Security Engineer ──┐
+  └────────────────────────────────────────────┘
+      ↓
+QA Engineer  (if the change is high-risk)
+      ↓
+Main Agent → Director
+```
+
+# Chain Conventions
+
+- Prose under a heading that is not a chain.
+EOF
+cat > "$CHAIN_FIX/base.yml" <<'EOF'
+chains:
+
+  - name: Alpha Chain
+    document: Core/AGENT_CHAINS.md
+    steps:
+      - employee: Business Analyst
+        produces: Specification
+      - gate: Director
+        when: An ADR is required
+        blocks: Implementation
+      - employee: Main Agent
+        note: >-
+          Folded text sits deeper than a key and is never read as one:
+          when: this line is prose
+          - employee: Not A Step
+      - employee: Engineer
+        parallel: true
+      - employee: Code Reviewer
+        loops_to: Engineer
+      - employee: Main Agent
+        when: The ADR is Accepted
+      - gate: Director
+        when: Always
+
+  - name: Beta Chain
+    document: Core/AGENT_CHAINS.md
+    trigger: >-
+      - employee: Folded trigger text at the step indentation, not a step
+    steps:
+      - employee: SRE Engineer
+      - employee: Engineering Manager
+      - gate: Director
+        when: Severity is P1 or P2
+      - employee: Security Engineer
+        when: The incident has a security dimension
+      - employee: QA Engineer
+        when: >-
+          The change is high-risk
+      - gate: Director
+        when: Always
+EOF
+expect 0 "chain diagrams: the fixture pair carrying every construct agrees" -- \
+  bash "$CHAIN_HARNESS" "$CHAIN_FIX/base.md" "$CHAIN_FIX/base.yml"
+expect_output "total${CHAIN_TAB}2${CHAIN_TAB}13"
+
+# --- One drift at a time: a diagram step removed, a Registry step added, two
+# steps swapped, a gate recorded as an employee; then one case for each of the
+# three attributes compared besides kind and name.
+awk '$0 != "QA Engineer  (if the change is high-risk)"' \
+  "$CHAIN_FIX/base.md" > "$CHAIN_FIX/step-removed.md"
+chain_drift_case "a diagram step removed" "$CHAIN_FIX/step-removed.md" "$CHAIN_FIX/base.yml" \
+  "Beta Chain, step 5: $CHAIN_FIX/step-removed.md:" \
+  "draws \"gate: Director\", $CHAIN_FIX/base.yml:" \
+  "records \"employee: QA Engineer (conditional)\"" \
+  "Diagram, 5 steps:" "Registry, 6 steps:"
+
+awk '$0 == "  - name: Beta Chain" { print "      - employee: Release Manager"; print "" } { print }' \
+  "$CHAIN_FIX/base.yml" > "$CHAIN_FIX/step-added.yml"
+chain_drift_case "a Registry step added" "$CHAIN_FIX/base.md" "$CHAIN_FIX/step-added.yml" \
+  "Alpha Chain, step 8: $CHAIN_FIX/base.md draws nothing (the diagram ends at step 7), $CHAIN_FIX/step-added.yml:" \
+  "records \"employee: Release Manager\""
+
+awk '$0 == "SRE Engineer" { print "Engineering Manager"; next }
+     $0 == "Engineering Manager" { print "SRE Engineer"; next }
+     { print }' "$CHAIN_FIX/base.md" > "$CHAIN_FIX/steps-swapped.md"
+chain_drift_case "two diagram steps swapped" "$CHAIN_FIX/steps-swapped.md" "$CHAIN_FIX/base.yml" \
+  "Beta Chain, step 1: $CHAIN_FIX/steps-swapped.md:" \
+  "draws \"employee: Engineering Manager\", $CHAIN_FIX/base.yml:" \
+  "records \"employee: SRE Engineer\""
+
+# Section 13 accepts Director as an employee: (a framework role), so only this
+# comparison sees a gate recorded as an employee. The one case that pins the
+# whole message: chain, position, file:line and the step on each side.
+awk '!done && $0 == "      - gate: Director" { print "      - employee: Director"; done = 1; next } { print }' \
+  "$CHAIN_FIX/base.yml" > "$CHAIN_FIX/gate-as-employee.yml"
+CHAIN_GATE_DOC="$(grep -n '^Main Agent → Director  (if an ADR is required)$' "$CHAIN_FIX/base.md" | cut -d: -f1)"
+CHAIN_GATE_REG="$(grep -n '^      - employee: Director$' "$CHAIN_FIX/gate-as-employee.yml" | cut -d: -f1)"
+chain_drift_case "a gate recorded as an employee" "$CHAIN_FIX/base.md" "$CHAIN_FIX/gate-as-employee.yml" \
+  "Alpha Chain, step 2: $CHAIN_FIX/base.md:$CHAIN_GATE_DOC draws \"gate: Director (conditional)\", $CHAIN_FIX/gate-as-employee.yml:$CHAIN_GATE_REG records \"employee: Director (conditional)\""
+
+awk '$0 == "QA Engineer  (if the change is high-risk)" { print "QA Engineer"; next } { print }' \
+  "$CHAIN_FIX/base.md" > "$CHAIN_FIX/condition-dropped.md"
+chain_drift_case "a condition dropped from the diagram" "$CHAIN_FIX/condition-dropped.md" "$CHAIN_FIX/base.yml" \
+  "Beta Chain, step 5: $CHAIN_FIX/condition-dropped.md:" \
+  "draws \"employee: QA Engineer\", $CHAIN_FIX/base.yml:" \
+  "records \"employee: QA Engineer (conditional)\""
+
+awk '$0 != "        parallel: true"' "$CHAIN_FIX/base.yml" > "$CHAIN_FIX/parallel-dropped.yml"
+chain_drift_case "the parallel marker dropped from the Registry" "$CHAIN_FIX/base.md" "$CHAIN_FIX/parallel-dropped.yml" \
+  "Alpha Chain, step 4:" \
+  "draws \"employee: Engineer (parallel)\"" \
+  "records \"employee: Engineer\""
+
+awk '!/Changes requested/' "$CHAIN_FIX/base.md" > "$CHAIN_FIX/loop-dropped.md"
+chain_drift_case "the review loop dropped from the diagram" "$CHAIN_FIX/loop-dropped.md" "$CHAIN_FIX/base.yml" \
+  "Alpha Chain, step 5:" \
+  "draws \"employee: Code Reviewer\"" \
+  "records \"employee: Code Reviewer (loops to Engineer)\""
+
+# --- What the first version let pass with exit 0 (review of PR #229). Each
+# case is one of the reviewer's falsifiers, rebuilt on the fixture pair.
+#
+# F1, F2, F3: a box line with no "→" was skipped whatever it said. Only box
+# rules and the label "Approved" are now accepted; anything else is refused.
+# chain_insert_box <target> <box line> — base.md with that box line, a closing
+# rule and a connector inserted before the Beta Chain's QA Engineer step.
+chain_insert_box() {
+  printf '%s\n' "$2" "  └─────────────────────────┘" "      ↓" > "$CHAIN_FIX/insert.txt"
+  awk 'NR == FNR { add = add $0 "\n"; next }
+       $0 == "QA Engineer  (if the change is high-risk)" { printf "%s", add }
+       { print }' "$CHAIN_FIX/insert.txt" "$CHAIN_FIX/base.md" > "$1"
+}
+chain_insert_box "$CHAIN_FIX/box-step.md" "  ┌── Compliance Engineer ──┐"
+chain_drift_case "a step drawn as a box, with no arrow (F1)" "$CHAIN_FIX/box-step.md" "$CHAIN_FIX/base.yml" \
+  "Beta Chain: unrecognised box line \"┌── Compliance Engineer ──┐\""
+chain_insert_box "$CHAIN_FIX/box-step-condition.md" "  ┌── Compliance Engineer  (if personal data is exposed) ──┐"
+chain_drift_case "a step drawn as a box with its condition, with no arrow (F1)" "$CHAIN_FIX/box-step-condition.md" "$CHAIN_FIX/base.yml" \
+  "Beta Chain: unrecognised box line \"┌── Compliance Engineer  (if personal data is exposed) ──┐\""
+awk '/^  │ +│$/ { print "  │   Compliance Engineer   │"; next } { print }' \
+  "$CHAIN_FIX/base.md" > "$CHAIN_FIX/box-interior.md"
+chain_drift_case "a step written inside the review box (F2)" "$CHAIN_FIX/box-interior.md" "$CHAIN_FIX/base.yml" \
+  "Alpha Chain: unrecognised box line \"│   Compliance Engineer   │\""
+chain_insert_box "$CHAIN_FIX/box-ascii-arrow.md" "  ┌── Data breach? -> Compliance Engineer ──┐"
+chain_drift_case "a branch box typed with -> (F3)" "$CHAIN_FIX/box-ascii-arrow.md" "$CHAIN_FIX/base.yml" \
+  "Beta Chain: unrecognised box line \"┌── Data breach? -> Compliance Engineer ──┐\""
+chain_insert_box "$CHAIN_FIX/box-long-arrow.md" "  ┌── Data breach? ⟶ Compliance Engineer ──┐"
+chain_drift_case "a branch box typed with ⟶ (F3)" "$CHAIN_FIX/box-long-arrow.md" "$CHAIN_FIX/base.yml" \
+  "Beta Chain: unrecognised box line \"┌── Data breach? ⟶ Compliance Engineer ──┐\""
+
+# F4, F4d: the multi-pole exception matched any clause ending in "if multi-pole
+# work". It is now that one clause, by name; anything else is a condition.
+awk '$0 == "Engineering Manager" { print "Engineering Manager  (Only if multi-pole work)"; next } { print }' \
+  "$CHAIN_FIX/base.md" > "$CHAIN_FIX/only-if-multi-pole.md"
+chain_drift_case "(Only if multi-pole work) read as no condition (F4)" "$CHAIN_FIX/only-if-multi-pole.md" "$CHAIN_FIX/base.yml" \
+  "Beta Chain, step 2: $CHAIN_FIX/only-if-multi-pole.md:" \
+  "draws \"employee: Engineering Manager (conditional)\"" \
+  "records \"employee: Engineering Manager\""
+awk '$0 == "Engineering Manager" { print "Engineering Manager  (Skipped if multi-pole work)"; next } { print }' \
+  "$CHAIN_FIX/base.md" > "$CHAIN_FIX/skipped-if-multi-pole.md"
+chain_drift_case "(Skipped if multi-pole work) read as no condition (F4)" "$CHAIN_FIX/skipped-if-multi-pole.md" "$CHAIN_FIX/base.yml" \
+  "Beta Chain, step 2:" \
+  "draws \"employee: Engineering Manager (conditional)\""
+awk '$0 != "        when: The ADR is Accepted"' "$CHAIN_FIX/base.yml" > "$CHAIN_FIX/accepted-dropped.yml"
+awk '$0 == "Main Agent  (if Accepted; Engineering Manager if multi-pole work)" {
+       print "Main Agent  (If Accepted And Engineering Manager if multi-pole work)"; next }
+     { print }' "$CHAIN_FIX/base.md" > "$CHAIN_FIX/fused-clause.md"
+chain_drift_case "a condition fused with the multi-pole clause, its when: gone (F4d)" "$CHAIN_FIX/fused-clause.md" "$CHAIN_FIX/accepted-dropped.yml" \
+  "Alpha Chain, step 6: $CHAIN_FIX/fused-clause.md:" \
+  "draws \"employee: Main Agent (conditional)\"" \
+  "records \"employee: Main Agent\""
+chain_drift_case "the when: beside the multi-pole clause dropped from the Registry" "$CHAIN_FIX/base.md" "$CHAIN_FIX/accepted-dropped.yml" \
+  "Alpha Chain, step 6:" \
+  "draws \"employee: Main Agent (conditional)\""
+
+# Finding 3: a Registry step at the wrong indentation was ignored, not refused.
+awk '{ print } $0 == "        produces: Specification" { print "    - employee: Technical Writer" }' \
+  "$CHAIN_FIX/base.yml" > "$CHAIN_FIX/step-at-four.yml"
+chain_drift_case "a Registry step indented four spaces" "$CHAIN_FIX/base.md" "$CHAIN_FIX/step-at-four.yml" \
+  "a step at the wrong indentation (the parsing contract puts it at six spaces) \"- employee: Technical Writer\""
+awk '{ print } $0 == "        produces: Specification" { print "        - employee: Technical Writer" }' \
+  "$CHAIN_FIX/base.yml" > "$CHAIN_FIX/step-at-eight.yml"
+chain_drift_case "a Registry step indented eight spaces" "$CHAIN_FIX/base.md" "$CHAIN_FIX/step-at-eight.yml" \
+  "a step at the wrong indentation (the parsing contract puts it at six spaces) \"- employee: Technical Writer\""
+
+# The same class as F1: an output line that opens "[" and never closes it.
+awk '$0 == "  [Approval → Release Chain]" { print "  [Approval → Release Chain"; next } { print }' \
+  "$CHAIN_FIX/base.md" > "$CHAIN_FIX/unclosed-output.md"
+chain_drift_case "an output line that never closes its bracket" "$CHAIN_FIX/unclosed-output.md" "$CHAIN_FIX/base.yml" \
+  "Alpha Chain: unrecognised output line \"[Approval → Release Chain\""
+
+# --- Rule 1: what cannot be compared fails. It is never skipped.
+awk '/^# / { beta = ($0 == "# Beta Chain") } !(beta && /^```/)' \
+  "$CHAIN_FIX/base.md" > "$CHAIN_FIX/no-diagram.md"
+chain_drift_case "a chain whose diagram is missing" "$CHAIN_FIX/no-diagram.md" "$CHAIN_FIX/base.yml" \
+  "Beta Chain: $CHAIN_FIX/no-diagram.md draws no diagram for it"
+
+printf '\n  - name: Gamma Chain\n    steps:\n      - employee: Technical Lead\n' \
+  | cat "$CHAIN_FIX/base.yml" - > "$CHAIN_FIX/extra-chain.yml"
+chain_drift_case "a Registry chain the document does not draw" "$CHAIN_FIX/base.md" "$CHAIN_FIX/extra-chain.yml" \
+  "Gamma Chain: $CHAIN_FIX/extra-chain.yml records it, but $CHAIN_FIX/base.md has no \"# Gamma Chain\" section"
+
+{
+  cat "$CHAIN_FIX/base.md"
+  cat <<'EOF'
+
+# Gamma Chain
+
+```
+Technical Lead
+```
+EOF
+} > "$CHAIN_FIX/document-only.md"
+chain_drift_case "a chain the document draws and the Registry lacks" "$CHAIN_FIX/document-only.md" "$CHAIN_FIX/base.yml" \
+  "Gamma Chain: $CHAIN_FIX/document-only.md draws it, but $CHAIN_FIX/base.yml has no entry for it"
+
+printf '\n  - name: Beta Chain\n    steps:\n      - employee: SRE Engineer\n' \
+  | cat "$CHAIN_FIX/base.yml" - > "$CHAIN_FIX/recorded-twice.yml"
+chain_drift_case "a chain the Registry records twice" "$CHAIN_FIX/base.md" "$CHAIN_FIX/recorded-twice.yml" \
+  "chain \"Beta Chain\" is recorded twice"
+
+{
+  cat "$CHAIN_FIX/base.md"
+  cat <<'EOF'
+
+# Beta Chain
+
+```
+SRE Engineer
+```
+EOF
+} > "$CHAIN_FIX/two-sections.md"
+chain_drift_case "a chain the document draws in two sections" "$CHAIN_FIX/two-sections.md" "$CHAIN_FIX/base.yml" \
+  "chain \"Beta Chain\" has two sections"
+
+awk '$0 == "SRE Engineer" { print "SRE Engineer → QA Engineer"; next } { print }' \
+  "$CHAIN_FIX/base.md" > "$CHAIN_FIX/unreadable.md"
+chain_drift_case "a diagram line outside the grammar" "$CHAIN_FIX/unreadable.md" "$CHAIN_FIX/base.yml" \
+  "Beta Chain: unrecognised step line \"SRE Engineer → QA Engineer\""
+
+: > "$CHAIN_FIX/empty.md"
+: > "$CHAIN_FIX/empty.yml"
+chain_drift_case "two empty files" "$CHAIN_FIX/empty.md" "$CHAIN_FIX/empty.yml" \
+  "no chain diagram was compared" "total${CHAIN_TAB}0${CHAIN_TAB}0"
+chain_drift_case "a missing file" "$CHAIN_FIX/absent.md" "$CHAIN_FIX/base.yml" \
+  "cannot compare chain diagrams: $CHAIN_FIX/absent.md or $CHAIN_FIX/base.yml is missing"
+
 # ------------------------------------------------- git-hooks/pre-push -------
 #
 # Pen-test finding PT2-08 (1 Oct 2026): pre-push refused every push to main
@@ -3667,11 +4120,32 @@ done
 # prefix, so it classified as a release branch and took the creation
 # exception; on a packed case-insensitive remote it moved the existing
 # release/v1. A ref under a protected name must be all-lowercase.
-for pp_variant in refs/heads/release/V1 refs/heads/release/v1.0.0-RC1 refs/heads/release/v9.9.9-RC1; do
+# Issue #211 (WU-IAENG-339): the refusal names the lowercased branch the
+# user probably meant, not only the release/* pattern.
+for pp_pair in "refs/heads/release/V1 release/v1" \
+               "refs/heads/release/v1.0.0-RC1 release/v1.0.0-rc1" \
+               "refs/heads/release/v9.9.9-RC1 release/v9.9.9-rc1"; do
+  pp_variant="${pp_pair% *}"
+  pp_meant="${pp_pair#* }"
   expect 1 "creating $pp_variant is refused (upper case after the exact release/ prefix)" -- \
     "${PP[@]}" "refs/heads/x $PP_NEW $pp_variant $PP_ZERO"
-  expect_output "'$pp_variant' differs from the protected branch name"
+  expect_output "'$pp_variant' differs from the protected branch name '$pp_meant' ('release/*') only by case. Did you mean '$pp_meant'?"
 done
+# Every other spelling of a release variant names its lowercased branch too:
+# a variant in the ref path, and in the release/ prefix itself.
+for pp_pair in "refs/Heads/release/v1 release/v1" \
+               "refs/heads/Release/v1 release/v1" \
+               "refs/heads/RELEASE/v9.9.9 release/v9.9.9"; do
+  pp_variant="${pp_pair% *}"
+  pp_meant="${pp_pair#* }"
+  expect 1 "creating $pp_variant is refused and names '$pp_meant'" -- \
+    "${PP[@]}" "refs/heads/x $PP_NEW $pp_variant $PP_ZERO"
+  expect_output "Did you mean '$pp_meant'?"
+done
+# main and develop keep naming the protected branch itself.
+expect 1 "creating refs/heads/DEVELOP is refused and names 'develop'" -- \
+  "${PP[@]}" "refs/heads/x $PP_NEW refs/heads/DEVELOP $PP_ZERO"
+expect_output "'refs/heads/DEVELOP' differs from the protected branch name 'develop' only by case."
 expect 1 "updating refs/heads/release/V1 is refused" -- \
   "${PP[@]}" "refs/heads/x $PP_NEW refs/heads/release/V1 $PP_OLD"
 expect 0 "an all-lowercase release/v9.9.9-rc1 is still created" -- \
@@ -3725,6 +4199,7 @@ for ppc_ref in refs/Heads/main refs/HEADS/develop refs/Heads/release/v1 refs/hea
     git push -q "$PPC_REMOTE" "HEAD:$ppc_ref"
   expect_output "'$ppc_ref' differs from the protected branch name"
 done
+expect_output "Did you mean 'release/v1'?"
 for ppc_branch in main develop release/v1; do
   expect 0 "real push: the remote's $ppc_branch still points at its original commit" -- \
     test "$(git --git-dir="$PPC_REMOTE" rev-parse "refs/heads/$ppc_branch")" = "$PPC_MAIN"
@@ -4438,6 +4913,374 @@ expect 3 "collector: an empty transcript directory is 'none found' (3), not an e
 expect 1 "collector: an explicit transcript directory that does not exist is an error" -- \
   bash "$COLLECT" --transcripts-dir "$WORK/usage-no-such-dir"
 
+# ---- WU-IAENG-341: kept fresh — persistent cache, fast open, refreshes ------
+# A project that ignores .ia-engineering/usage/ (install.sh makes every adopter
+# do so), a transcript copy of its own, an opener that records each page it is
+# handed, and a TMPDIR of its own so leftovers can be counted. FRUN measures
+# that project with the same arguments everywhere unless a case adds one.
+new_repo usage-fresh
+FRESH="$PWD"
+write_employee_roster "DevOps Engineer" "Observability Engineer" "Scrum Master"
+printf '.ia-engineering/usage/\n' > .gitignore
+git add -A && git commit -q -m "roster and the ignore rule"
+commit_with "feat: first" "OBS341-SENTINEL-BODY" "" "Work Unit: WU-TEST-001" "" "Employee: DevOps Engineer"
+FT="$WORK/usage-fresh-transcripts"
+FTMP="$WORK/usage-fresh-tmp"
+rm -rf "$FT" "$FTMP"
+mkdir -p "$FT" "$FTMP"
+cp "$UT/s1.jsonl" "$FT/s1.jsonl"
+FU="$FRESH/.ia-engineering/usage"
+FC="$FU/cache"
+FPAGE="$FU/dashboard.html"
+FOPEN="$WORK/usage-fresh-opened.txt"
+cat > "$WORK/usage-fresh-opener.sh" <<OPENER
+#!/usr/bin/env bash
+printf '%s\n' "\$1" >> "$FOPEN"
+OPENER
+chmod +x "$WORK/usage-fresh-opener.sh"
+FRUN=(env TMPDIR="$FTMP" IAENG_USAGE_OPENER="$WORK/usage-fresh-opener.sh"
+  bash "$DASH" --project-dir "$FRESH" --transcripts-dir "$FT")
+
+# The persistent cache: kept between runs, shaped values only.
+expect 0 "cache: a first build" -- "${FRUN[@]}"
+expect 1 "cache: an ignored cache is used, with no note about falling back" -- \
+  grep -qF 'not using the persistent cache' <<< "$LAST_OUTPUT"
+expect 0 "cache: the git half is kept in .ia-engineering/usage/cache" -- test -s "$FC/git/key"
+expect 0 "cache: so are the transcript records" -- test -f "$FC/transcripts/v1/index.tsv"
+expect 1 "cache: no work file is kept there (raw git output stays in a temporary directory)" -- test -e "$FC/build"
+expect 1 "cache: no commit-message or transcript text is kept, only shaped values" -- \
+  grep -rqE 'OBS341-SENTINEL|OBS326-SENTINEL' "$FC"
+expect 0 "cache: the run's temporary directories are gone" -- test -z "$(find "$FTMP" -mindepth 1 -maxdepth 1)"
+# Windows (noacl) keeps no mode bits, as for R3 above.
+FPERM_WANT=0
+case "${OSTYPE:-}" in msys*|cygwin*|win*) FPERM_WANT=1 ;; esac
+expect "$FPERM_WANT" "cache: created 0700 (Windows has no mode bits to set)" -- \
+  test -n "$(find "$FC/." -maxdepth 0 -perm 0700 2>/dev/null)"
+# A row added to the cached git half, and a record added to a cached
+# transcript file, are counted by the next run: it read the cache, not git
+# and the transcripts again. Both are shaped values, as the cache holds.
+printf 'feedfacefeedfacefeedfacefeedfacefeedface\t1\tScrum Master\t(no trailer)\tClaude Opus 5.5\t1\t1\n' >> "$FC/git/commits.tsv"
+for r in "$FC"/transcripts/v1/rec/*.tsv; do
+  printf 'C\tmsg_PERSIST341\t2026-10-07\tclaude-persist-341\tmain session\t\t1\t1\t0\t0\n' >> "$r"
+done
+expect 0 "cache: a second run" -- "${FRUN[@]}"
+expect 0 "cache: it took the git half from the cache" -- \
+  grep -qF '"name":"Scrum Master","roster":"framework","dispatches":0,"commits_range":1,"commits_all":1' "$FPAGE"
+expect 0 "cache: and the transcript records" -- grep -qF '"model":"claude-persist-341"' "$FPAGE"
+expect 0 "cache: a --watch started later uses the same cache" -- \
+  env IAENG_USAGE_WATCH_MAX_CYCLES=1 "${FRUN[@]}" --watch
+expect 0 "cache: the watch counted the cached record" -- grep -qF '"model":"claude-persist-341"' "$FPAGE"
+expect 0 "cache: the cache outlives the watch" -- test -f "$FC/transcripts/v1/index.tsv"
+expect 0 "cache: the watch left no temporary directory" -- test -z "$(find "$FTMP" -mindepth 1 -maxdepth 1)"
+# An uncommitted registry edit is newer than the cached git half: read again.
+printf '  - name: Domain Lead\n    category: Management\n' >> "$FRESH/Registry/employees.yml"
+expect 0 "cache: a run after an uncommitted registry edit" -- "${FRUN[@]}"
+expect 0 "cache: the edit is on the page" -- grep -qF '"name":"Domain Lead"' "$FPAGE"
+expect 1 "cache: the git half was recomputed, not taken from the cache" -- \
+  grep -qF '"name":"Scrum Master","roster":"framework","dispatches":0,"commits_range":1' "$FPAGE"
+
+# Refused: a link (a junction on Windows, which [ -L ] reports as one), a
+# directory another user owns, a cache git does not ignore. Each run falls
+# back to a cache of its own and still writes the page.
+FL="$WORK/usage-fresh-elsewhere"
+rm -rf "$FC" "$FL"
+mkdir -p "$FL"
+case "${OSTYPE:-}" in
+  msys*|cygwin*|win*) cmd //c mklink //J "$(cygpath -w "$FC")" "$(cygpath -w "$FL")" > /dev/null ;;
+  *) ln -s "$FL" "$FC" ;;
+esac
+expect 0 "refusal: the cache is a link here" -- test -L "$FC"
+expect 0 "refusal: a linked cache is not used; the page is still built" -- "${FRUN[@]}"
+expect_output "is a symbolic link or a junction"
+expect 0 "refusal: nothing was written through the link" -- test -z "$(find "$FL" -mindepth 1 2>/dev/null)"
+case "${OSTYPE:-}" in msys*|cygwin*|win*) cmd //c rmdir "$(cygpath -w "$FC")" ;; *) rm -f "$FC" ;; esac
+# Ownership: / is root's on Linux and macOS. Where / is the runner's own —
+# as root, or under Git for Windows, whose noacl mount reads every path as
+# the user's — no directory is another user's, and a private one is used.
+if [ -O / ]; then
+  UFOR="$WORK/usage-cache-own"
+  mkdir -p "$UFOR"
+  expect 0 "ownership: a cache directory of the user's own is used" -- \
+    env IAENG_USAGE_CACHE="$UFOR" "${FRUN[@]}" --out "$WORK/usage-out/foreign.html"
+  expect 0 "ownership: (no other owner exists here) its git half was written" -- test -s "$UFOR/git/key"
+else
+  expect 0 "ownership: a cache directory another user owns (/) is not used; the page is still built" -- \
+    env IAENG_USAGE_CACHE=/ "${FRUN[@]}" --out "$WORK/usage-out/foreign.html"
+  expect_output "is not owned by you"
+fi
+expect 0 "refusal: a project whose .gitignore does not cover the cache still gets its page" -- \
+  env CLAUDE_CONFIG_DIR="$WORK/usage-empty-config" bash "$DASH" --project-dir "$USAGE_REPO" --out "$WORK/usage-out/unignored.html"
+expect_output "git does not ignore"
+expect 1 "refusal: and no cache was created in it" -- test -e "$USAGE_REPO/.ia-engineering/usage/cache"
+
+# Fast open: --open rebuilds only when something the page is built from changed.
+rm -f "$FOPEN" "$FU/.dashboard.html.fingerprint"
+expect 0 "fast open: --open with no fingerprint yet builds, then opens" -- "${FRUN[@]}" --open
+expect_output "Usage dashboard written"
+expect 0 "fast open: the fingerprint is beside the page" -- test -s "$FU/.dashboard.html.fingerprint"
+: > "$WORK/usage-fresh-mark"
+expect 0 "fast open: --open again with nothing changed" -- "${FRUN[@]}" --open
+expect_output "is up to date"
+expect 1 "fast open: no build ran" -- grep -qF 'Usage dashboard written' <<< "$LAST_OUTPUT"
+expect 1 "fast open: the page was not rewritten" -- test "$FPAGE" -nt "$WORK/usage-fresh-mark"
+expect 0 "fast open: the page was opened both times" -- test "$(grep -c . "$FOPEN")" = 2
+commit_with "feat: second" "Work Unit: WU-TEST-002" "" "Employee: Observability Engineer"
+expect 0 "fast open: after a new commit, --open rebuilds" -- "${FRUN[@]}" --open
+expect_output "Usage dashboard written"
+expect 0 "fast open: the new commit is on the page" -- \
+  grep -qF '"name":"Observability Engineer","roster":"framework","dispatches":1,"commits_range":1,"commits_all":1' "$FPAGE"
+{ usage_line msg_F341A 3; printf '\n'; } >> "$FT/s1.jsonl"
+expect 0 "fast open: after a transcript grew, --open rebuilds" -- "${FRUN[@]}" --open
+expect_output "Usage dashboard written"
+git tag v9
+expect 0 "fast open: after a new release tag on the same commit, --open rebuilds" -- "${FRUN[@]}" --open
+expect_output "Usage dashboard written"
+expect 0 "fast open: the range is the new tag" -- grep -qF 'since v9' "$FPAGE"
+expect 0 "fast open: another --since is another page: rebuilt" -- "${FRUN[@]}" --open --since HEAD~1
+expect_output "Usage dashboard written"
+
+# --refresh: debounced, single instance, nothing done when unchanged.
+rm -f "$FC/refresh.stamp"
+expect 0 "refresh: --refresh rebuilds a stale page" -- "${FRUN[@]}" --refresh --min-interval 10
+expect_output "Usage dashboard written"
+expect 0 "refresh: its page reloads itself every interval" -- \
+  grep -qF '<meta http-equiv="refresh" content="10">' "$FPAGE"
+expect 0 "refresh: and says it is kept fresh in the background" -- grep -qF 'Kept fresh:' "$FPAGE"
+expect 0 "refresh: another within the interval is skipped" -- "${FRUN[@]}" --refresh --min-interval 600
+expect_output "skipped: the last refresh started"
+rm -f "$FC/refresh.stamp"
+expect 0 "refresh: with nothing changed it is skipped without a build" -- "${FRUN[@]}" --refresh --min-interval 10
+expect_output "no change in HEAD"
+expect 1 "refresh: no build ran" -- grep -qF 'Usage dashboard written' <<< "$LAST_OUTPUT"
+for bad in 9 010 86401; do
+  expect 2 "refresh: --min-interval $bad is refused" -- "${FRUN[@]}" --refresh --min-interval "$bad"
+done
+expect 2 "--no-wait without --open is a usage error" -- "${FRUN[@]}" --no-wait
+expect 2 "--refresh with --watch is a usage error" -- "${FRUN[@]}" --refresh --watch
+
+# The lock: a live owner is waited for or skipped; a stale one is taken over.
+sleep 60 &
+FLIVE=$!
+FDEAD="$(bash -c 'echo $$')"
+rm -f "$FC/refresh.stamp"
+mkdir -p "$FC/lock"
+printf '%s %s\n' "$FLIVE" "$(date +%s)" > "$FC/lock/owner"
+{ usage_line msg_F341B 4; printf '\n'; } >> "$FT/s1.jsonl"
+expect 0 "lock: a refresh while another runs is skipped" -- "${FRUN[@]}" --refresh
+expect_output "another one is running (pid $FLIVE)"
+expect 0 "lock: the running one's lock is left alone" -- grep -qF "$FLIVE" "$FC/lock/owner"
+expect 0 "lock: the hook starts none either" -- "${FRUN[@]}" --refresh-in-background
+expect_output "one is already running (pid $FLIVE)"
+printf '%s %s\n' "$FDEAD" "$(date +%s)" > "$FC/lock/owner"
+expect 0 "lock: a lock whose process is gone is taken over" -- "${FRUN[@]}" --refresh
+expect_output "took over a stale lock"
+expect_output "Usage dashboard written"
+expect 1 "lock: and released when the refresh ends" -- test -e "$FC/lock"
+rm -f "$FC/refresh.stamp"
+mkdir -p "$FC/lock"
+printf '%s %s\n' "$FLIVE" "$(( $(date +%s) - 700 ))" > "$FC/lock/owner"
+{ usage_line msg_F341C 5; printf '\n'; } >> "$FT/s1.jsonl"
+expect 0 "lock: a lock older than 10 minutes is taken over, though its process lives" -- "${FRUN[@]}" --refresh
+expect_output "took over a stale lock"
+kill "$FLIVE" 2>/dev/null
+wait "$FLIVE" 2>/dev/null
+sleep 4 &
+FSHORT=$!
+mkdir -p "$FC/lock"
+printf '%s %s\n' "$FSHORT" "$(date +%s)" > "$FC/lock/owner"
+{ usage_line msg_F341D 6; printf '\n'; } >> "$FT/s1.jsonl"
+expect 0 "lock: --open waits for the run holding the lock, then builds" -- "${FRUN[@]}" --open
+expect_output "waiting for the refresh that is running (pid $FSHORT)"
+expect_output "Usage dashboard written"
+wait "$FSHORT" 2>/dev/null
+
+# In the background: the caller reads stdout through a pipe, as a hook runner
+# does, and $(...) returns only once every writer of that pipe has closed it.
+# The refresh waits 8 s once it holds the lock, so a refresh that kept the
+# pipe would have made the caller wait at least that long.
+rm -f "$FC/refresh.stamp" "$FU/refresh.log" "$FU/refresh.log.1"
+{ usage_line msg_F341E 7; printf '\n'; } >> "$FT/s1.jsonl"
+BG_T0=$SECONDS
+BG_OUT="$(env IAENG_USAGE_WORKER_DELAY=8 "${FRUN[@]}" --refresh-in-background --min-interval 10 2> "$WORK/usage-bg-err.txt")"
+BG_RC=$?
+BG_SECS=$((SECONDS - BG_T0))
+expect 0 "background: exits 0" -- test "$BG_RC" = 0
+expect 0 "background: returned before its refresh could end (${BG_SECS} s; the refresh waits 8 s)" -- test "$BG_SECS" -lt 8
+expect 0 "background: one line on stdout" -- test "$(printf '%s\n' "$BG_OUT" | grep -c .)" = 1
+expect 0 "background: saying the refresh started" -- grep -qF 'in the background' <<< "$BG_OUT"
+expect 0 "background: nothing on stderr" -- test ! -s "$WORK/usage-bg-err.txt"
+i=0
+while [ "$i" -lt 300 ] && { ! grep -qsF 'page rebuilt' "$FU/refresh.log" || [ -e "$FC/lock" ]; }; do
+  sleep 1
+  i=$((i + 1))
+done
+expect 0 "background: the detached refresh rebuilt the page" -- grep -qF 'page rebuilt' "$FU/refresh.log"
+expect 0 "background: its output went to the log" -- grep -qF 'Usage dashboard written' "$FU/refresh.log"
+BG_PID="$(sed -n 's/.*refresh started (pid \([0-9]*\)).*/\1/p' "$FU/refresh.log" | tail -n 1)"
+expect 0 "background: the log names the refresh's process" -- test -n "$BG_PID"
+expect 1 "background: that process is gone once it ended (no orphan)" -- kill -0 "${BG_PID:-0}"
+expect 1 "background: its lock is released" -- test -e "$FC/lock"
+expect 0 "background: no temporary directory is left" -- test -z "$(find "$FTMP" -mindepth 1 -maxdepth 1)"
+expect 0 "background: a call within the interval is skipped by the hook itself" -- \
+  "${FRUN[@]}" --refresh-in-background --min-interval 600
+expect_output "skipped: the last one started"
+expect 0 "background: a bad argument still exits 0, in one line (a hook never fails)" -- \
+  "${FRUN[@]}" --refresh-in-background --min-interval 5
+expect_output "refresh not started"
+expect 0 "background: that is one line" -- test "$(printf '%s\n' "$LAST_OUTPUT" | grep -c .)" = 1
+
+# The log is bounded: past 64 KiB it moves to refresh.log.1.
+rm -f "$FC/refresh.stamp"
+head -c 70000 /dev/zero | tr '\0' 'x' > "$FU/refresh.log"
+expect 0 "log: a refresh run as the background one" -- env IAENG_USAGE_WORKER=bg "${FRUN[@]}" --refresh
+expect 0 "log: it wrote to its log, not to its caller" -- test -z "$LAST_OUTPUT"
+expect 0 "log: past 64 KiB the log moved to refresh.log.1" -- test "$(wc -c < "$FU/refresh.log.1")" -ge 70000
+expect 0 "log: the new log starts small" -- test "$(wc -c < "$FU/refresh.log")" -lt 8192
+
+# --open --no-wait: the page at once, and a refresh behind it even within the
+# interval — it was asked for.
+date +%s > "$FC/refresh.stamp"
+{ usage_line msg_F341F 8; printf '\n'; } >> "$FT/s1.jsonl"
+rm -f "$FOPEN" "$FU/refresh.log"
+expect 0 "--open --no-wait: opens the existing page at once" -- \
+  env IAENG_USAGE_WORKER_DELAY=3 "${FRUN[@]}" --open --no-wait
+expect_output "opened as it is; refreshing it in the background"
+expect 0 "--open --no-wait: the page went to the opener" -- test "$(grep -c . "$FOPEN")" = 1
+i=0
+while [ "$i" -lt 300 ] && { ! grep -qsF 'page rebuilt' "$FU/refresh.log" || [ -e "$FC/lock" ]; }; do
+  sleep 1
+  i=$((i + 1))
+done
+expect 0 "--open --no-wait: its refresh ran though one had just started" -- grep -qF 'page rebuilt' "$FU/refresh.log"
+rm -f "$FPAGE"
+expect 0 "--open --no-wait: with no page yet, builds one first" -- "${FRUN[@]}" --open --no-wait
+expect_output "Usage dashboard written"
+expect 0 "--open --no-wait: that page keeps itself fresh" -- grep -qF 'Kept fresh:' "$FPAGE"
+
+# Code review of #230, M1: a page from a plain build (every page the Windows
+# launcher writes) does not reload itself, so --no-wait and a refresh rebuild
+# it instead of keeping it; a tab opened on it would never show a refresh.
+expect 0 "M1: a plain build" -- "${FRUN[@]}"
+expect 1 "M1: its page does not reload itself" -- grep -qF 'http-equiv="refresh"' "$FPAGE"
+expect 0 "M1: --open --no-wait on that page" -- "${FRUN[@]}" --open --no-wait
+expect_output "Usage dashboard written"
+expect 0 "M1: builds first a page that reloads itself" -- grep -qF '<meta http-equiv="refresh" content="60">' "$FPAGE"
+rm -f "$FC/refresh.stamp"
+expect 0 "M1: a refresh keeps that page while nothing changes" -- "${FRUN[@]}" --refresh
+expect_output "page kept"
+expect 0 "M1: after another plain build" -- "${FRUN[@]}"
+rm -f "$FC/refresh.stamp"
+expect 0 "M1: a refresh rebuilds the page that does not reload" -- "${FRUN[@]}" --refresh
+expect_output "Usage dashboard written"
+expect 0 "M1: and its page reloads itself" -- grep -qF 'Kept fresh:' "$FPAGE"
+
+# PR #230 security review S3: a lock started in the future is stale, though
+# its process lives (it would never age out otherwise).
+sleep 60 &
+FLIVE3=$!
+rm -f "$FC/refresh.stamp"
+mkdir -p "$FC/lock"
+printf '%s %s\n' "$FLIVE3" 99999999999 > "$FC/lock/owner"
+{ usage_line msg_F341G 9; printf '\n'; } >> "$FT/s1.jsonl"
+expect 0 "S3: a lock started in the future is taken over, though its process lives" -- "${FRUN[@]}" --refresh
+expect_output "took over a stale lock"
+kill "$FLIVE3" 2>/dev/null
+wait "$FLIVE3" 2>/dev/null
+
+# S1: a repository that commits .ia-engineering/usage as a link to a folder
+# outside it (a junction on Windows, where git cannot commit one: the same
+# check). Nothing is written through it, from any mode.
+new_repo usage-s1
+S1R="$PWD"
+S1LOOT="$WORK/usage-s1-loot"
+write_employee_roster "DevOps Engineer"
+git add -A && git commit -q -m "roster"
+rm -rf "$S1LOOT"
+mkdir -p "$S1LOOT" .ia-engineering
+case "${OSTYPE:-}" in
+  msys*|cygwin*|win*) cmd //c mklink //J "$(cygpath -w "$S1R/.ia-engineering/usage")" "$(cygpath -w "$S1LOOT")" > /dev/null ;;
+  *) ln -s ../../usage-s1-loot .ia-engineering/usage
+     git add .ia-engineering/usage && git commit -q -m "the usage folder, committed as a link" ;;
+esac
+expect 0 "S1: the usage folder is a link" -- test -L "$S1R/.ia-engineering/usage"
+expect 0 "S1: the hook starts no refresh, in one line, exit 0" -- \
+  env CLAUDE_CONFIG_DIR="$WORK/usage-empty-config" bash "$DASH" --project-dir "$S1R" --refresh-in-background
+expect_output "reached through a symbolic link or a junction"
+expect 1 "S1: a build refuses to write its default page through the link" -- \
+  env CLAUDE_CONFIG_DIR="$WORK/usage-empty-config" bash "$DASH" --project-dir "$S1R"
+expect_output "refusing to write the page through it"
+expect 1 "S1: so does a refresh run as the background one" -- \
+  env IAENG_USAGE_WORKER=bg CLAUDE_CONFIG_DIR="$WORK/usage-empty-config" bash "$DASH" --project-dir "$S1R" --refresh
+expect 0 "S1: nothing was written outside the project" -- test -z "$(find "$S1LOOT" -mindepth 1 2>/dev/null)"
+case "${OSTYPE:-}" in msys*|cygwin*|win*) cmd //c rmdir "$(cygpath -w "$S1R/.ia-engineering/usage")" ;; esac
+
+# S2: a repository that force-adds its own dashboard.html (and a fingerprint)
+# under the ignore rule. --open --no-wait builds first and never opens it.
+new_repo usage-s2
+S2R="$PWD"
+write_employee_roster "DevOps Engineer"
+printf '.ia-engineering/usage/\n' > .gitignore
+mkdir -p .ia-engineering/usage
+printf '<html><body>OBS341-ATTACKER-PAGE<script>1</script></body></html>\n' > .ia-engineering/usage/dashboard.html
+printf 'forged\n' > .ia-engineering/usage/.dashboard.html.fingerprint
+git add -A
+git add -f .ia-engineering/usage/dashboard.html .ia-engineering/usage/.dashboard.html.fingerprint
+git commit -q -m "a page of the repository's own"
+cat > "$WORK/usage-s2-opener.sh" <<OPENER
+#!/usr/bin/env bash
+cp "\$1" "$WORK/usage-s2-opened.html"
+OPENER
+chmod +x "$WORK/usage-s2-opener.sh"
+rm -f "$WORK/usage-s2-opened.html"
+expect 0 "S2: --open --no-wait on a page the repository committed" -- \
+  env CLAUDE_CONFIG_DIR="$WORK/usage-empty-config" IAENG_USAGE_OPENER="$WORK/usage-s2-opener.sh" \
+  bash "$DASH" --project-dir "$S2R" --open --no-wait
+expect_output "Usage dashboard written"
+expect 1 "S2: the committed page was never opened" -- grep -qF 'OBS341-ATTACKER-PAGE' "$WORK/usage-s2-opened.html"
+expect 0 "S2: the page opened is this script's, under its CSP" -- \
+  grep -qF "default-src 'none'" "$WORK/usage-s2-opened.html"
+
+# QA of #230: in a project that does not ignore .ia-engineering/usage/, a
+# refresh run as the background one writes nothing in the work tree; it
+# records why in .git, and the hook then starts none within the interval.
+new_repo usage-unignored-bg
+QR="$PWD"
+write_employee_roster "DevOps Engineer"
+git add -A && git commit -q -m "roster, no ignore rule"
+expect 0 "QA: a refresh run as the background one, in a project that does not ignore its usage folder" -- \
+  env IAENG_USAGE_WORKER=bg CLAUDE_CONFIG_DIR="$WORK/usage-empty-config" bash "$DASH" --project-dir "$QR" --refresh
+expect 0 "QA: it left nothing for git status to show" -- test -z "$(git -C "$QR" status --porcelain)"
+expect 0 "QA: it recorded why in .git, out of the work tree" -- test -s "$QR/.git/ia-engineering-usage.refused"
+expect 0 "QA: the hook starts no refresh within the interval, and says why" -- \
+  env CLAUDE_CONFIG_DIR="$WORK/usage-empty-config" bash "$DASH" --project-dir "$QR" --refresh-in-background
+expect_output "could not use the cache: git does not ignore"
+expect 0 "QA: --refresh-in-background with --open (the Windows launcher's) says it is for a hook" -- \
+  bash "$DASH" --project-dir "$QR" --refresh-in-background --open
+expect_output "not through usage-dashboard.cmd"
+cd "$FRESH" || exit 1
+
+# The collector: --listing-out is what --list prints; a cache older than the
+# script is read again (a copy of the script, so the real one is untouched).
+expect 0 "collector: --listing-out writes the listing --list prints" -- \
+  test "$(bash "$COLLECT" --transcripts-dir "$UT" --listing-out "$WORK/usage-listing.txt" > /dev/null 2>&1; cat "$WORK/usage-listing.txt")" \
+     = "$(bash "$COLLECT" --transcripts-dir "$UT" --list)"
+UCOPY="$WORK/usage-collect-copy.sh"
+UCV="$WORK/usage-cache-version"
+rm -rf "$UCV"
+cp "$COLLECT" "$UCOPY"
+expect 0 "collector: a cached run" -- bash "$UCOPY" --transcripts-dir "$UT" --cache-dir "$UCV"
+for r in "$UCV"/v1/rec/*.tsv; do
+  printf 'C\tmsg_OLDVER\t2026-10-07\tclaude-old-version\tmain session\t\t1\t1\t0\t0\n' >> "$r"
+done
+expect 0 "collector: the cache is reused while the script is unchanged" -- \
+  bash "$UCOPY" --transcripts-dir "$UT" --cache-dir "$UCV"
+expect_output "claude-old-version"
+touch "$UCOPY"
+expect 0 "collector: a newer version of the script reads everything again" -- \
+  bash "$UCOPY" --transcripts-dir "$UT" --cache-dir "$UCV"
+expect 1 "collector: and what the older version stored is not counted" -- grep -qF 'claude-old-version' <<< "$LAST_OUTPUT"
+cd "$WORK" || exit 1
+
 # ------------------------------------------------- usage-dashboard.cmd ------
 # WU-IAENG-329. The Windows launcher cannot be run on the Linux CI runner, so
 # its contract is pinned statically: it exists, it is CRLF where cmd.exe reads
@@ -4493,6 +5336,595 @@ expect 1 "launcher: no for /f command opens with '\"\" (unquoted paths)" -- \
   grep -F "in ('\"\"" <<< "$L_CODE"
 expect 1 "launcher: cmdcmdline is not expanded in a for set" -- \
   grep -F '(%cmdcmdline%)' <<< "$L_CODE"
+
+# WU-IAENG-338, issue #210: `call` doubles every caret, inside quotes too,
+# and expands %NAME% a second time, so a "^" in the adopting project's path
+# made rev-parse fail and the dashboard silently measured the framework. The
+# superproject lookup runs without `call`: its child command starts with the
+# bare word cd (cmd /c strips the quotes of a command starting with one), and
+# git runs in IAENG_ROOT. Verified on Windows with "^", "(x) & y" and
+# "(x86)" paths; the Linux runner can only pin the text.
+expect 1 "launcher: no call anywhere (it doubles carets and re-expands %NAME%)" -- \
+  grep -iE '(^|[^a-z_])call[[:space:]]' <<< "$L_CODE"
+expect 0 "launcher: the superproject lookup starts with cd /d into IAENG_ROOT, then runs git" -- \
+  grep -qF "in ('cd /d \"%%IAENG_ROOT%%\" ^&^& \"%%IAENG_GITROOT%%\\bin\\git.exe\" rev-parse --show-superproject-working-tree 2^>nul')" <<< "$L_CODE"
+
+# ------------------------------------------ check-approval-carry-over.sh ----
+
+section "check-approval-carry-over.sh — approvals across an update merge of develop (WU-IAENG-344)"
+
+# Every history is built here. The cases this rule was decided on are real
+# Pull Requests of this repository (#202, #215, #220 carry over; #202 from its
+# earlier head, #203 and #201 do not), but this suite also runs from a shallow
+# CI checkout and inside adopting projects, where that history is absent, so
+# each is rebuilt below in the same shape, named after the PR it stands for.
+# The run against the real commits is evidence in WU-IAENG-344's Pull Request.
+# The attacks are the Code Reviewer's on PR #225 (comment 6035895314) and the
+# Prompt Engineer's registry cases; each is a merge that must be refused.
+
+CARRY="$SCRIPTS/check-approval-carry-over.sh"
+CO_TAIL="merges equal git's own merge outside Registry/work-units.yml; registry entry identical; checker: check-approval-carry-over.sh"
+
+# co_entry <id> <title> — one registry entry in the parsing contract's shape,
+# preceded by its blank separator line.
+co_entry() {
+  printf '\n  - id: %s\n    employee: Technical Writer\n    title: %s\n    milestone: Precision\n    delivers: Registry/work-units.yml\n' "$1" "$2"
+}
+# co_registry <entry-spec...> — the whole registry; a spec is <id>:<title>.
+co_registry() {
+  local spec
+  printf '# Work Unit Registry (test fixture)\n\nwork_units:\n'
+  for spec in "$@"; do co_entry "${spec%%:*}" "${spec#*:}"; done
+}
+# co_start <branch> <approved> <develop-commit> <entry-spec...> — merges the
+# develop commit into the approved head without committing and resolves the
+# registry with exactly the entries given, in that order. Edits follow, then
+# co_commit.
+co_start() {
+  local branch="$1" head="$2" dev="$3"
+  shift 3
+  git checkout -q -B "$branch" "$head"
+  git merge -q --no-ff --no-commit "$dev" > /dev/null 2>&1
+  co_registry "$@" > Registry/work-units.yml
+  git add -A
+}
+co_commit() {
+  git commit -q -m "Merge develop into the branch"
+  CO_M="$(git rev-parse HEAD)"
+}
+
+new_repo carry-lab
+git branch -m develop
+mkdir -p Registry templates
+cat > policy.md <<'EOF'
+# Policy
+
+## Release
+- Director approval is required.
+
+## Hotfix
+- Director approval is required.
+
+## Develop
+- Code review is required.
+
+## Main
+- Release Manager only.
+EOF
+cat > app.py <<'EOF'
+def handle(request):
+    data = parse(request)
+    return render(data)
+
+
+def admin(request):
+    data = parse(request)
+    return render(data)
+EOF
+co_registry "WU-T-1:one" "WU-T-2:two" > Registry/work-units.yml
+printf 'line one\nline two\n' > z-notes.md
+printf '#!/bin/sh\necho run\n' > run.sh
+git add -A && git commit -q -m "D0"
+CO_D0="$(git rev-parse HEAD)"
+
+# develop moves on: a new file and its own registry entry, appended.
+printf 'unrelated develop change\n' > dev.md
+co_registry "WU-T-1:one" "WU-T-2:two" "WU-T-4:four" > Registry/work-units.yml
+git add -A && git commit -q -m "D1"
+CO_D1="$(git rev-parse HEAD)"
+
+# The approved head: the Pull Request's lines in a Markdown policy, a code
+# file, a note, a commit template with its trailers, and its registry entry.
+git checkout -q -b pr "$CO_D0"
+cat > policy.md <<'EOF'
+# Policy
+
+## Release
+- Director approval is required.
+
+## Hotfix
+
+## Develop
+- Code review is required.
+- The Main Agent may merge.
+- Only after review.
+
+These rules apply to every Pull Request.
+
+## Main
+- Release Manager only.
+- Releases go develop → main.
+EOF
+cat > app.py <<'EOF'
+def handle(request):
+    check_auth(request)
+    data = parse(request)
+    return render(data)
+
+
+def admin(request):
+    data = parse(request)
+    return render(data)
+EOF
+co_registry "WU-T-1:one" "WU-T-2:two" "WU-T-3:three" > Registry/work-units.yml
+printf 'line one\nline two (PR)\n' > z-notes.md
+printf 'docs(x): y\n\nWork Unit: WU-X-1\n\nEmployee: Technical Writer\n' > templates/commit.txt
+git add -A && git commit -q -m "A: the approved head"
+CO_A="$(git rev-parse HEAD)"
+
+# A second approved head, A plus a binary file holding NUL bytes.
+git checkout -q -b pr-bin "$CO_A"
+mkdir -p assets
+printf 'PNG\000\000\001\002binary\n' > assets/logo.bin
+git add -A && git commit -q -m "B: the approved head with a binary file"
+CO_B="$(git rev-parse HEAD)"
+
+# The honest update merges.
+co_start m-ok "$CO_A" "$CO_D1" "WU-T-1:one" "WU-T-2:two" "WU-T-4:four" "WU-T-3:three"
+co_commit
+CO_OK="$CO_M"
+co_start m-idorder "$CO_A" "$CO_D1" "WU-T-1:one" "WU-T-2:two" "WU-T-3:three" "WU-T-4:four"
+co_commit
+CO_IDORDER="$CO_M"
+co_start m-reorder-only "$CO_A" "$CO_D1" "WU-T-4:four" "WU-T-2:two" "WU-T-3:three" "WU-T-1:one"
+co_commit
+CO_REORDER_ONLY="$CO_M"
+co_start m-bin "$CO_B" "$CO_D1" "WU-T-1:one" "WU-T-2:two" "WU-T-4:four" "WU-T-3:three"
+co_commit
+CO_BIN_OK="$CO_M"
+# Reset back to the approved head after an extra commit, then develop merged:
+# the extra commit is not in the history, so nothing unreviewed is.
+git checkout -q -B m-rewound "$CO_A"
+printf 'extra\n' >> z-notes.md
+git add -A && git commit -q -m "an extra commit, abandoned"
+co_start m-rewound "$CO_A" "$CO_D1" "WU-T-1:one" "WU-T-2:two" "WU-T-4:four" "WU-T-3:three"
+co_commit
+CO_REWOUND="$CO_M"
+
+expect 0 "#202/#215 shape: a registry-only conflict resolved by keeping both entries carries over" -- \
+  bash "$CARRY" "$CO_A" "$CO_OK" --base develop
+expect_output "both sides kept"
+expect_output "byte for byte the same on both heads: WU-T-3"
+expect 0 "#220 shape: the PR's entry placed in ID order carries over" -- \
+  bash "$CARRY" "$CO_A" "$CO_IDORDER" --base develop
+expect 0 "a resolution that only reorders registry entries, other PRs' included, carries over" -- \
+  bash "$CARRY" "$CO_A" "$CO_REORDER_ONLY" --base develop
+expect 0 "a binary file with NUL bytes in the PR does not stop an honest merge carrying over" -- \
+  bash "$CARRY" "$CO_B" "$CO_BIN_OK" --base develop
+expect 0 "a branch reset to the approved head, then merged with develop, carries over" -- \
+  bash "$CARRY" "$CO_A" "$CO_REWOUND" --base develop
+
+# The record: stdout is exactly that one line on success, and empty otherwise.
+CO_STDOUT="$(bash "$CARRY" "$CO_A" "$CO_OK" --base develop 2> /dev/null)"
+expect 0 "on success stdout is exactly the record, full commit ids, nothing else" -- \
+  test "$CO_STDOUT" = "Approval carry-over: $CO_A -> $CO_OK; $CO_TAIL"
+# QA, PR #232: from a PowerShell 5.1 console on code page 850 a non-ASCII
+# arrow in the record printed mangled, with exit 0. Every byte of the record
+# must be printable 7-bit ASCII (space to tilde).
+expect 1 "the record is 7-bit ASCII: no byte outside space..tilde" -- \
+  env LC_ALL=C grep -q '[^ -~]' <<< "$CO_STDOUT"
+expect 0 "the record is not empty (the ASCII check above read a real record)" -- \
+  test -n "$CO_STDOUT"
+
+# A merge chain: develop merged twice; the second merge honest, then not.
+git checkout -q develop
+printf 'second develop change\n' > dev2.md
+co_registry "WU-T-1:one" "WU-T-2:two" "WU-T-4:four" "WU-T-5:five" > Registry/work-units.yml
+git add -A && git commit -q -m "D3"
+CO_D3="$(git rev-parse HEAD)"
+co_start m-chain "$CO_OK" "$CO_D3" "WU-T-1:one" "WU-T-2:two" "WU-T-4:four" "WU-T-3:three" "WU-T-5:five"
+co_commit
+CO_CHAIN="$CO_M"
+co_start m-chain-bad "$CO_OK" "$CO_D3" "WU-T-1:one" "WU-T-2:two" "WU-T-4:four" "WU-T-3:three"
+co_commit
+CO_CHAIN_BAD="$CO_M"
+expect 0 "two honest merges of develop in a row carry over" -- \
+  bash "$CARRY" "$CO_A" "$CO_CHAIN" --base develop
+expect 1 "a second merge that drops develop's newer entry does not" -- \
+  bash "$CARRY" "$CO_A" "$CO_CHAIN_BAD" --base develop
+expect_output "WU-T-5"
+
+# The Code Reviewer's attacks: each update merge changes something by hand.
+co_start m-edit "$CO_A" "$CO_D1" "WU-T-1:one" "WU-T-2:two" "WU-T-4:four" "WU-T-3:three"
+cat > app.py <<'EOF'
+def handle(request):
+    check_auth(request, skip=True)
+    data = parse(request)
+    return render(data)
+
+
+def admin(request):
+    data = parse(request)
+    return render(data)
+EOF
+git add -A && co_commit
+CO_EDIT="$CO_M"
+expect 1 "a merge that edits a PR line is refused" -- bash "$CARRY" "$CO_A" "$CO_EDIT" --base develop
+expect_output "differs from git's own merge of its parents outside Registry/work-units.yml, in app.py"
+CO_STDOUT="$(bash "$CARRY" "$CO_A" "$CO_EDIT" --base develop 2> /dev/null)"
+expect 0 "on a refusal stdout is empty: there is no record to paste" -- test -z "$CO_STDOUT"
+
+co_start m-relocate "$CO_A" "$CO_D1" "WU-T-1:one" "WU-T-2:two" "WU-T-4:four" "WU-T-3:three"
+cat > app.py <<'EOF'
+def handle(request):
+    data = parse(request)
+    return render(data)
+
+
+def admin(request):
+    check_auth(request)
+    data = parse(request)
+    return render(data)
+EOF
+git add -A && co_commit
+expect 1 "a merge that relocates a PR line to another function is refused" -- \
+  bash "$CARRY" "$CO_A" "$CO_M" --base develop
+expect_output "in app.py"
+
+co_start m-swap "$CO_A" "$CO_D1" "WU-T-1:one" "WU-T-2:two" "WU-T-4:four" "WU-T-3:three"
+cat > policy.md <<'EOF'
+# Policy
+
+## Release
+
+## Hotfix
+- Director approval is required.
+
+## Develop
+- Code review is required.
+- The Main Agent may merge.
+- Only after review.
+
+These rules apply to every Pull Request.
+
+## Main
+- Release Manager only.
+- Releases go develop → main.
+EOF
+git add -A && co_commit
+expect 1 "a merge that removes the OTHER identical bullet instead is refused" -- \
+  bash "$CARRY" "$CO_A" "$CO_M" --base develop
+expect_output "in policy.md"
+
+co_start m-rename "$CO_A" "$CO_D1" "WU-T-1:one" "WU-T-2:two" "WU-T-4:four" "WU-T-3:three"
+git mv -f z-notes.md notes-z.md
+co_commit
+expect 1 "a merge that renames a PR file is refused" -- bash "$CARRY" "$CO_A" "$CO_M" --base develop
+expect_output "notes-z.md"
+
+co_start m-mode "$CO_A" "$CO_D1" "WU-T-1:one" "WU-T-2:two" "WU-T-4:four" "WU-T-3:three"
+chmod +x run.sh
+git update-index --chmod=+x run.sh
+co_commit
+expect 1 "a merge that sets +x on a file is refused" -- bash "$CARRY" "$CO_A" "$CO_M" --base develop
+expect_output "in run.sh"
+
+co_start m-reorder "$CO_A" "$CO_D1" "WU-T-1:one" "WU-T-2:two" "WU-T-4:four" "WU-T-3:three"
+cat > policy.md <<'EOF'
+# Policy
+
+## Release
+- Director approval is required.
+
+## Hotfix
+
+## Develop
+- Code review is required.
+- Only after review.
+- The Main Agent may merge.
+
+These rules apply to every Pull Request.
+
+## Main
+- Release Manager only.
+- Releases go develop → main.
+EOF
+git add -A && co_commit
+expect 1 "a merge that reorders two PR lines is refused" -- bash "$CARRY" "$CO_A" "$CO_M" --base develop
+expect_output "in policy.md"
+
+co_start m-crlf "$CO_A" "$CO_D1" "WU-T-1:one" "WU-T-2:two" "WU-T-4:four" "WU-T-3:three"
+printf '# Policy\n\n## Release\n- Director approval is required.\n\n## Hotfix\n\n## Develop\n- Code review is required.\n- The Main Agent may merge.\n- Only after review.\r\n\nThese rules apply to every Pull Request.\n\n## Main\n- Release Manager only.\n- Releases go develop \342\206\222 main.\n' > policy.md
+git add -A && co_commit
+expect 1 "a merge that turns a PR line's LF into CRLF is refused" -- bash "$CARRY" "$CO_A" "$CO_M" --base develop
+expect_output "in policy.md"
+
+co_start m-lazy "$CO_A" "$CO_D1" "WU-T-1:one" "WU-T-2:two" "WU-T-4:four" "WU-T-3:three"
+printf '# Policy\n\n## Release\n- Director approval is required.\n\n## Hotfix\n\n## Develop\n- Code review is required.\n- The Main Agent may merge.\n- Only after review.\nThese rules apply to every Pull Request.\n\n## Main\n- Release Manager only.\n- Releases go develop \342\206\222 main.\n' > policy.md
+git add -A && co_commit
+expect 1 "a merge that drops a Markdown blank line (the paragraph joins the bullet) is refused" -- \
+  bash "$CARRY" "$CO_A" "$CO_M" --base develop
+expect_output "in policy.md"
+
+co_start m-trailer "$CO_A" "$CO_D1" "WU-T-1:one" "WU-T-2:two" "WU-T-4:four" "WU-T-3:three"
+printf 'docs(x): y\n\nWork Unit: WU-X-1\nEmployee: Technical Writer\n' > templates/commit.txt
+git add -A && co_commit
+expect 1 "a merge that drops the blank line between two trailers is refused" -- \
+  bash "$CARRY" "$CO_A" "$CO_M" --base develop
+expect_output "templates/commit.txt"
+
+co_start m-arrow "$CO_A" "$CO_D1" "WU-T-1:one" "WU-T-2:two" "WU-T-4:four" "WU-T-3:three"
+printf '# Policy\n\n## Release\n- Director approval is required.\n\n## Hotfix\n\n## Develop\n- Code review is required.\n- The Main Agent may merge.\n- Only after review.\n\nThese rules apply to every Pull Request.\n\n## Main\n- Release Manager only.\n- Releases go develop \342\206\220 main.\n' > policy.md
+git add -A && co_commit
+expect 1 "a merge that flips a non-ASCII arrow is refused" -- bash "$CARRY" "$CO_A" "$CO_M" --base develop
+expect_output "in policy.md"
+
+git checkout -q -B m-ours "$CO_A"
+git merge -q -s ours --no-edit "$CO_D1"
+expect 1 "a merge -s ours, which discards develop's changes, is refused" -- \
+  bash "$CARRY" "$CO_A" "$(git rev-parse HEAD)" --base develop
+expect_output "dev.md"
+
+co_start m-bin-edit "$CO_B" "$CO_D1" "WU-T-1:one" "WU-T-2:two" "WU-T-4:four" "WU-T-3:three"
+printf 'line one\nline two (PR, changed after approval)\n' > z-notes.md
+git add -A && co_commit
+expect 1 "a binary file in the PR does not hide a later PR line edited by the merge" -- \
+  bash "$CARRY" "$CO_B" "$CO_M" --base develop
+expect_output "in z-notes.md"
+
+# Crafted merges: the history itself is wrong.
+git checkout -q -B side "$CO_D0"
+printf 'not from develop\n' > side.txt
+git add -A && git commit -q -m "a side commit, not on develop"
+CO_SIDE="$(git rev-parse HEAD)"
+CO_OK_TREE="$(git rev-parse "$CO_OK^{tree}")"
+CO_NOANC="$(git commit-tree "$CO_OK_TREE" -p "$CO_D0" -p "$CO_D1" -m "Merge develop (approved head dropped)")"
+CO_OCTO="$(git commit-tree "$CO_OK_TREE" -p "$CO_A" -p "$CO_D1" -p "$CO_SIDE" -m "Merge develop (octopus)")"
+CO_XSIDE="$(git commit-tree "$CO_OK_TREE" -p "$CO_A" -p "$CO_SIDE" -m "Merge a commit that is not on develop")"
+expect 1 "a merge that drops the approved head from the history is refused" -- \
+  bash "$CARRY" "$CO_A" "$CO_NOANC" --base develop
+expect_output "is not an ancestor of the new head"
+expect 1 "an octopus merge is refused" -- bash "$CARRY" "$CO_A" "$CO_OCTO" --base develop
+expect_output "is a merge of 3 parents"
+expect 1 "a merge whose second parent is not on develop is refused" -- \
+  bash "$CARRY" "$CO_A" "$CO_XSIDE" --base develop
+expect_output "is not on develop"
+
+# #202 from its earlier head: a commit was pushed after the approval, then
+# develop merged. The commit voids the approval; the merge cannot restore it.
+git checkout -q -B after-approval "$CO_A"
+printf 'line one\nline two (PR, revised)\n' > z-notes.md
+git add -A && git commit -q -m "a change after the approval"
+co_start after-approval "$(git rev-parse HEAD)" "$CO_D1" "WU-T-1:one" "WU-T-2:two" "WU-T-4:four" "WU-T-3:three"
+co_commit
+expect 1 "#202 from its earlier head: a commit after the approval, then a merge, is refused" -- \
+  bash "$CARRY" "$CO_A" "$CO_M" --base develop
+expect_output "is not a merge"
+
+# #203 and #201: develop changed a line next to the PR's, so git's own merge
+# conflicts outside the registry; the resolution keeps both, by hand.
+git checkout -q -B develop-next "$CO_D1"
+printf '# Policy\n\n## Release\n- Director approval is required.\n\n## Hotfix\n- Director approval is required.\n\n## Develop\n- Code review by the Code Reviewer is required.\n\n## Main\n- Release Manager only.\n' > policy.md
+git add -A && git commit -q -m "D2: develop rewrites the Develop bullet"
+CO_D2="$(git rev-parse HEAD)"
+co_start m-conflict "$CO_A" "$CO_D2" "WU-T-1:one" "WU-T-2:two" "WU-T-4:four" "WU-T-3:three"
+printf '# Policy\n\n## Release\n- Director approval is required.\n\n## Hotfix\n\n## Develop\n- Code review by the Code Reviewer is required.\n- The Main Agent may merge.\n- Only after review.\n\nThese rules apply to every Pull Request.\n\n## Main\n- Release Manager only.\n- Releases go develop \342\206\222 main.\n' > policy.md
+git add -A && co_commit
+expect 1 "#203/#201 shape: a conflict outside the registry, resolved by hand, is refused" -- \
+  bash "$CARRY" "$CO_A" "$CO_M" --base "$CO_D2"
+expect_output "conflicts outside Registry/work-units.yml, in policy.md"
+
+# The machine's own state must not redefine git's own merge (Security Engineer
+# on PR #232). The same conflict, resolved the way `merge=union` would: with
+# that driver in core.attributesFile, git's merge resolves it on its own, so
+# the hand resolution used to pass as "git's own merge".
+printf '* merge=union\n' > .git/carry-union-attributes
+CO_UNION_TREE="$(git -c core.attributesFile=.git/carry-union-attributes --attr-source=4b825dc642cb6eb9a060e54bf8d69288fbee4904 merge-tree --write-tree --no-messages "$CO_A" "$CO_D2" | head -1)"
+co_start m-union "$CO_A" "$CO_D2" "WU-T-1:one" "WU-T-2:two" "WU-T-4:four" "WU-T-3:three"
+git cat-file blob "$CO_UNION_TREE:policy.md" > policy.md
+git add -A && co_commit
+CO_UNION="$CO_M"
+git config core.attributesFile .git/carry-union-attributes
+expect 1 "core.attributesFile with merge=union does not turn a hand resolution into git's own merge" -- \
+  bash "$CARRY" "$CO_A" "$CO_UNION" --base "$CO_D2"
+expect_output "conflicts outside Registry/work-units.yml, in policy.md"
+git config --unset core.attributesFile
+mkdir -p .git/info
+printf '* merge=union\n' > .git/info/attributes
+expect 2 "a non-empty .git/info/attributes, which no option switches off, fails closed" -- \
+  bash "$CARRY" "$CO_A" "$CO_OK" --base develop
+expect_output "info/attributes"
+# Emptied, not deleted: the refusal is for a NON-empty file, and nothing in
+# this suite deletes inside .git/.
+: > .git/info/attributes
+expect 0 "an empty .git/info/attributes is not refused" -- \
+  bash "$CARRY" "$CO_A" "$CO_OK" --base develop
+# A local replace ref that shows the honest merge in place of the hand-edited one.
+git replace "$CO_EDIT" "$CO_OK"
+expect 1 "a refs/replace entry swapping in an honest merge for a hand-edited one is ignored" -- \
+  bash "$CARRY" "$CO_A" "$CO_EDIT" --base develop
+expect_output "in app.py"
+git replace -d "$CO_EDIT" > /dev/null
+# Variables that move git's repository, objects, config or attribute source.
+expect 2 "GIT_CONFIG_GLOBAL in the environment fails closed" -- \
+  env GIT_CONFIG_GLOBAL=/dev/null bash "$CARRY" "$CO_A" "$CO_OK" --base develop
+expect_output "GIT_CONFIG_GLOBAL is set"
+expect 2 "GIT_REPLACE_REF_BASE in the environment fails closed" -- \
+  env GIT_REPLACE_REF_BASE=refs/replace/ bash "$CARRY" "$CO_A" "$CO_OK" --base develop
+expect_output "GIT_REPLACE_REF_BASE is set"
+expect 2 "GIT_DIR in the environment fails closed" -- \
+  env GIT_DIR=.git bash "$CARRY" "$CO_A" "$CO_OK" --base develop
+expect_output "GIT_DIR is set"
+
+# The registry: exactly git's own merge's entries, byte for byte, any order.
+co_start m-drop-dev "$CO_A" "$CO_D1" "WU-T-1:one" "WU-T-2:two" "WU-T-3:three"
+co_commit
+expect 1 "a resolution that drops develop's newly arrived entry is refused" -- \
+  bash "$CARRY" "$CO_A" "$CO_M" --base develop
+expect_output "does not hold exactly the entries git's own merge of its parents holds"
+expect_output "WU-T-4"
+co_start m-edit-other "$CO_A" "$CO_D1" "WU-T-1:one, retitled" "WU-T-2:two" "WU-T-4:four" "WU-T-3:three"
+co_commit
+expect 1 "a resolution that edits another Work Unit's title is refused" -- \
+  bash "$CARRY" "$CO_A" "$CO_M" --base develop
+expect_output "WU-T-1"
+co_start m-edit-own "$CO_A" "$CO_D1" "WU-T-1:one" "WU-T-2:two" "WU-T-4:four" "WU-T-3:three, retitled"
+co_commit
+expect 1 "a conflict resolution that edits the PR's own registry entry is refused" -- \
+  bash "$CARRY" "$CO_A" "$CO_M" --base develop
+expect_output "WU-T-3"
+co_start m-reg-crlf "$CO_A" "$CO_D1" "WU-T-1:one" "WU-T-2:two" "WU-T-4:four" "WU-T-3:three"
+co_registry "WU-T-1:one" "WU-T-2:two" "WU-T-4:four" "WU-T-3:three"$'\r' > Registry/work-units.yml
+git add -A && co_commit
+expect 1 "a CR added to the PR's own entry is seen (bash keeps the CR awk and grep drop)" -- \
+  bash "$CARRY" "$CO_A" "$CO_M" --base develop
+expect_output "WU-T-3"
+co_start m-reg-nul "$CO_A" "$CO_D1" "WU-T-1:one" "WU-T-2:two" "WU-T-4:four" "WU-T-3:three"
+co_registry "WU-T-1:one" "WU-T-2:two" "WU-T-4:four" "WU-T-3:thr" > Registry/work-units.yml
+printf '\000ee\n' >> Registry/work-units.yml
+git add -A && co_commit
+expect 1 "a NUL byte in the registry is refused, not read past" -- \
+  bash "$CARRY" "$CO_A" "$CO_M" --base develop
+expect_output "a NUL or another control byte"
+co_start m-markers "$CO_A" "$CO_D1" "WU-T-1:one" "WU-T-2:two"
+git cat-file blob "$(git --attr-source=4b825dc642cb6eb9a060e54bf8d69288fbee4904 merge-tree --write-tree --no-messages "$CO_A" "$CO_D1" | head -1):Registry/work-units.yml" > Registry/work-units.yml
+git add -A && co_commit
+expect 1 "a resolution that commits git's conflict markers in the registry is refused" -- \
+  bash "$CARRY" "$CO_A" "$CO_M" --base develop
+expect_output "does not hold exactly the entries"
+
+# Configuration that changes what git diff or git merge print must not change
+# the verdict: a hostile config in the repository's own .git/config (through
+# include.path: GIT_CONFIG* in the environment is refused, see above), run
+# from a subdirectory. The subdirectory is load-bearing on its own:
+# `git merge-tree --name-only` prints conflicted paths relative to the current
+# directory, which once made the registry's conflict read
+# ../Registry/work-units.yml and refused the honest merge.
+cat > .git/carry-hostile.gitconfig <<'EOF'
+[diff]
+	relative = true
+	noprefix = true
+	mnemonicPrefix = true
+	algorithm = patience
+	indentHeuristic = false
+	interHunkContext = 10
+	orderFile = .git/carry-order.txt
+	renames = copies
+	ignoreSubmodules = all
+[core]
+	quotePath = false
+	autocrlf = true
+[merge]
+	conflictStyle = zdiff3
+	renames = false
+	directoryRenames = true
+	renormalize = true
+EOF
+# diff.orderFile is relative to the top of the work tree; .git/ keeps it
+# out of every later `git add -A`.
+printf 'z-notes.md\napp.py\n' > .git/carry-order.txt
+git config include.path carry-hostile.gitconfig
+cd templates || exit 1
+expect 0 "hostile diff/merge config, from a subdirectory: the honest merge still carries over" -- \
+  bash "$CARRY" "$CO_A" "$CO_OK" --base develop
+expect 0 "hostile config: the ID-ordered resolution still carries over" -- \
+  bash "$CARRY" "$CO_A" "$CO_IDORDER" --base develop
+expect 1 "hostile config: an edit outside the subdirectory is still refused" -- \
+  bash "$CARRY" "$CO_A" "$CO_EDIT" --base develop
+expect_output "in app.py"
+cd .. || exit 1
+git config --unset include.path
+
+# A submodule pointer that .gitmodules (ignore = all) and the config both hide
+# from git diff.
+new_repo carry-sub
+git branch -m develop
+mkdir -p Registry
+printf '[submodule "vendor/fw"]\n\tpath = vendor/fw\n\turl = https://example.invalid/fw.git\n\tignore = all\n' > .gitmodules
+co_registry "WU-T-1:one" > Registry/work-units.yml
+git add -A && git commit -q -m "D0"
+CS_PIN0="$(git rev-parse HEAD)"
+git update-index --add --cacheinfo "160000,$CS_PIN0,vendor/fw"
+mkdir -p vendor/fw
+git commit -q -m "D0: the submodule"
+CS_D0="$(git rev-parse HEAD)"
+printf 'develop\n' > dev.md
+co_registry "WU-T-1:one" "WU-T-4:four" > Registry/work-units.yml
+git add -A && git commit -q -m "D1"
+CS_D1="$(git rev-parse HEAD)"
+git checkout -q -b pr "$CS_D0"
+co_registry "WU-T-1:one" "WU-T-3:three" > Registry/work-units.yml
+git add -A && git commit -q -m "A"
+CS_A="$(git rev-parse HEAD)"
+git config diff.ignoreSubmodules all
+git config submodule.vendor/fw.ignore all
+co_start m-sub "$CS_A" "$CS_D1" "WU-T-1:one" "WU-T-4:four" "WU-T-3:three"
+co_commit
+expect 0 "submodule lab: the honest merge carries over" -- bash "$CARRY" "$CS_A" "$CO_M" --base develop
+co_start m-sub-moved "$CS_A" "$CS_D1" "WU-T-1:one" "WU-T-4:four" "WU-T-3:three"
+git update-index --cacheinfo "160000,$CS_D1,vendor/fw"
+co_commit
+expect 1 "a merge that moves a submodule pointer hidden by ignore = all is refused" -- \
+  bash "$CARRY" "$CS_A" "$CO_M" --base develop
+expect_output "in vendor/fw"
+
+# Usage and environment: exit 2, never 0, and no record.
+cd "$WORK/carry-lab" || exit 1
+expect 2 "no argument is a usage error" -- bash "$CARRY"
+expect 2 "one revision is a usage error" -- bash "$CARRY" "$CO_A"
+expect 2 "an unknown option is a usage error" -- bash "$CARRY" "$CO_A" "$CO_OK" --bogus
+expect 2 "a revision that does not resolve fails closed" -- bash "$CARRY" "$CO_A" no-such-revision --base develop
+expect_output "is not a commit in this repository"
+expect 2 "the approved head being the new head is nothing to carry over" -- \
+  bash "$CARRY" "$CO_OK" "$CO_OK" --base develop
+expect 2 "without --base, a missing origin/develop fails closed" -- bash "$CARRY" "$CO_A" "$CO_OK"
+expect_output "origin/develop"
+git update-ref refs/remotes/origin/develop develop
+expect 0 "without --base, origin/develop is the base" -- bash "$CARRY" "$CO_A" "$CO_OK"
+mkdir -p "$WORK/carry-norepo"
+cd "$WORK/carry-norepo" || exit 1
+expect 2 "outside a git repository it fails closed" -- env GIT_CEILING_DIRECTORIES="$WORK" bash "$CARRY" "$CO_A" "$CO_OK"
+# A shallow repository, made by the file a shallow clone writes: ancestry and
+# merge bases are not decidable on truncated history.
+new_repo carry-shallow
+echo two > two.txt && git add -A && git commit -q -m "two"
+git rev-parse HEAD~1 > .git/shallow
+expect 2 "a shallow clone fails closed" -- bash "$CARRY" HEAD~1 HEAD --base HEAD
+expect_output "shallow"
+cd "$WORK/carry-lab" || exit 1
+# Shims of its own: this section must not depend on another section's state.
+CO_REAL_GIT="$(command -v git)"
+mkdir -p "$WORK/carry-shim-old" "$WORK/carry-shim-mt"
+cat > "$WORK/carry-shim-old/git" <<SHIM
+#!/usr/bin/env bash
+if [ "\$1" = "version" ]; then echo "git version 2.39.5"; exit 0; fi
+exec "$CO_REAL_GIT" "\$@"
+SHIM
+cat > "$WORK/carry-shim-mt/git" <<SHIM
+#!/usr/bin/env bash
+for a in "\$@"; do [ "\$a" = "merge-tree" ] && exit 128; done
+exec "$CO_REAL_GIT" "\$@"
+SHIM
+chmod +x "$WORK/carry-shim-old/git" "$WORK/carry-shim-mt/git"
+expect 2 "git older than 2.40 fails closed" -- env PATH="$WORK/carry-shim-old:$PATH" bash "$CARRY" "$CO_A" "$CO_OK" --base develop
+expect_output "2.40"
+expect 2 "a git merge-tree that errors fails closed" -- env PATH="$WORK/carry-shim-mt:$PATH" bash "$CARRY" "$CO_A" "$CO_OK" --base develop
+expect_output "merge-tree exited"
+mkdir -p "$WORK/carry-alone"
+cp "$CARRY" "$WORK/carry-alone/"
+expect 2 "without merge-classify.sh beside it, it fails closed" -- \
+  bash "$WORK/carry-alone/check-approval-carry-over.sh" "$CO_A" "$CO_OK" --base develop
+expect_output "merge-classify.sh not found"
 
 # --------------------------------------------------------------- verdict ----
 

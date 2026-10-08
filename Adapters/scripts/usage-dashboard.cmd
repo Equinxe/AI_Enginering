@@ -53,14 +53,18 @@ if not defined IAENG_GITROOT (
 )
 
 rem The adopting project when this repository is its submodule, else this
-rem repository. The child cmd expands the two paths, inside quotes; "call"
-rem keeps its command from starting with a quote, which cmd /c would strip.
+rem repository. The child cmd expands the two paths, inside quotes. Its
+rem command starts with the bare word cd, because cmd /c strips the quotes of
+rem a command that starts with one, and git runs in IAENG_ROOT instead of
+rem taking it through -C. Not "call": call doubles every caret, quoted or not,
+rem and expands %NAME% a second time, so a "^" in the adopting project's path
+rem broke rev-parse and the framework was measured instead (issue #210).
 set "IAENG_PROJECT=%IAENG_ROOT%"
-for /f "delims=" %%S in ('call "%%IAENG_GITROOT%%\bin\git.exe" -C "%%IAENG_ROOT%%" rev-parse --show-superproject-working-tree 2^>nul') do set "IAENG_PROJECT=%%S"
+for /f "delims=" %%S in ('cd /d "%%IAENG_ROOT%%" ^&^& "%%IAENG_GITROOT%%\bin\git.exe" rev-parse --show-superproject-working-tree 2^>nul') do set "IAENG_PROJECT=%%S"
 set "IAENG_PROJECT=%IAENG_PROJECT:/=\%"
 
 cd /d "%IAENG_PROJECT%" || (set "IAENG_RC=1" & goto :done)
-echo Building the usage dashboard for "%IAENG_PROJECT%" - this takes about half a minute.
+echo Opening the usage dashboard for "%IAENG_PROJECT%" - it is rebuilt first only when something it shows has changed.
 "%IAENG_GITROOT%\bin\bash.exe" "%IAENG_HERE%usage-dashboard.sh" --open %*
 set "IAENG_RC=%ERRORLEVEL%"
 

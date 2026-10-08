@@ -1261,11 +1261,35 @@ work_units:
     milestone: Precision
     delivers: Core/AGENT_CHAINS.md, Core/EMPLOYEE_SELECTION.md, Core/GLOSSARY.md, Registry/chains.yml, Registry/workflows.yml, Workflows/FEATURE_DEVELOPMENT.md, Workflows/ONBOARDING.md, Workflows/AUTONOMOUS_DELIVERY.md, Templates/WORK_UNIT.md, Examples/FEATURE_CHAIN_EXAMPLE.md, Examples/ARCHITECTURE_CHAIN_EXAMPLE.md, Registry/work-units.yml
 
+  - id: WU-IAENG-335
+    employee: Documentation Engineer
+    title: Make validate-framework.sh compare every chain diagram in Core/AGENT_CHAINS.md with its Registry/chains.yml entry step for step (section 22 - position by position, each step's kind, name, condition presence, parallel marker and review loop), so the drift WU-IAENG-334 repaired fails the build instead of waiting for an audit; a difference is reported with the chain, the step number, file and line, and the step on each side; one awk pass, CRLF-safe; Script Tests cases on the real files as LF and CRLF, on that drift put back into the real document, and on one fixture per drift
+    milestone: Precision
+    delivers: Adapters/scripts/validate-framework.sh, Adapters/scripts/tests/run.sh, Adapters/README.md, Registry/work-units.yml
+
+  - id: WU-IAENG-336
+    employee: AI Engineer
+    title: Make the project's tier map visible to the session at runtime (issue 212) - generate-agents.sh --print-tier-map resolves the mapping exactly as a generation does and prints it, writing nothing; session-start.sh prints the tier map in force, Lightweight and Frontier included, with the rule that a Tier Override takes its model from that map (no model parameter when it equals the agent's pinned model, the exact value otherwise, the Director when the dispatch cannot take it) and never one of the Main Agent's choosing; a refused tier-map is reported, never skipped
+    milestone: Precision
+    delivers: Adapters/ai-runtimes/generate-agents.sh, Adapters/ai-runtimes/claude-code/hooks/session-start.sh, Adapters/ai-runtimes/claude-code/hooks/tests/run.sh, Adapters/ai-runtimes/claude-code/hooks/README.md, Adapters/ai-runtimes/README.md, Adapters/scripts/tests/run.sh, Registry/work-units.yml
+
   - id: WU-IAENG-337
     employee: Technical Writer
     title: Make the SESSION_STATE adoption instruction produce a readable state file - the README says to copy only the fenced block under the template's Template heading, never the whole file, and to give its _Last updated line an absolute date in the form session-start.sh parses; the template marks that block as the part to copy, so every other pointer to it resolves without being edited
     milestone: Precision
     delivers: README.md, Templates/SESSION_STATE.md, Registry/work-units.yml
+
+  - id: WU-IAENG-338
+    employee: DevOps Engineer
+    title: Make the usage-dashboard.cmd superproject lookup safe for a caret in the adopting project's path - the for /f child command starts with cd /d into IAENG_ROOT instead of call, which doubled carets and re-expanded %NAME%, so a "^" made rev-parse fail and the framework was measured instead (issue #210); pinned statically, verified on Windows
+    milestone: Precision
+    delivers: Adapters/scripts/usage-dashboard.cmd, Adapters/scripts/tests/run.sh, Registry/work-units.yml
+
+  - id: WU-IAENG-339
+    employee: DevOps Engineer
+    title: Name the lowercased branch the user probably meant in the pre-push release/* case-variant refusal ("did you mean 'release/v1'?") instead of the release/* pattern alone; refusal logic and the main/develop message unchanged (issue #211)
+    milestone: Precision
+    delivers: Adapters/git-hooks/pre-push, Adapters/scripts/tests/run.sh, Registry/work-units.yml
 
   - id: WU-IAENG-340
     employee: Technical Lead
@@ -1273,8 +1297,20 @@ work_units:
     milestone: Precision
     delivers: Workflows/CODE_REVIEW.md, Registry/workflows.yml, Registry/work-units.yml
 
+  - id: WU-IAENG-341
+    employee: Observability Engineer
+    title: Keep the usage dashboard fresh with no rebuild to wait for (Director, 7 Oct 2026) - a persistent cache under .ia-engineering/usage/cache/ (0700, shape-checked values only, refused with a fallback when it is a link or junction, not the user's, in a folder others can rename in, or not ignored by git; held under a lock with stale-lock recovery) keeps the git half per HEAD and the transcript records across runs and watches; a fingerprint beside the page (HEAD, arguments, transcript sizes and mtimes, plus newer registries, tags or scripts) lets --open open a current page at once; --refresh, --refresh-in-background (one line, exit 0, detached without setsid on Windows Git Bash, debounced by --min-interval, single instance, bounded refresh.log) and --open --no-wait are the CLI contract for the Claude Code Stop hook and /dashboard command of WU-IAENG-342
+    milestone: Precision
+    delivers: Adapters/scripts/usage-dashboard.sh, Adapters/ai-runtimes/claude-code/usage-collect.sh, Adapters/scripts/tests/run.sh, Adapters/README.md, Governance/DISPATCH_IN_PRACTICE.md, Registry/work-units.yml
+
   - id: WU-IAENG-343
     employee: Technical Lead
     title: Let approvals survive an update merge of develop into a Pull Request whose own changes did not move - Core/MAIN_AGENT_CONDUCT.md condition 1 of the develop-merge exception carries the Code Reviewer, QA and Prompt Engineer approvals over pushes that only merge develop into the branch when the approved head is an ancestor of the new head, every first-parent commit since is a two-parent merge of develop, each merge equals git's own automatic merge of its parents everywhere except Registry/work-units.yml, where the new head holds exactly the entries git's own merge would hold in any order and the Pull Request's own entry is byte-identical, as Adapters/scripts/check-approval-carry-over.sh (WU-IAENG-344) checks; the Main Agent pastes the script's record on the Pull Request, checks must be green on the new head, any other push needs a fresh review, and the Director's Core approval is never carried over; Workflows/FEATURE_DEVELOPMENT.md Step 8 and Workflows/CODE_REVIEW.md Step 4 and Exit Criteria point to it (Director, 7 Oct 2026)
     milestone: Precision
     delivers: Core/MAIN_AGENT_CONDUCT.md, Workflows/FEATURE_DEVELOPMENT.md, Workflows/CODE_REVIEW.md, Registry/work-units.yml
+
+  - id: WU-IAENG-344
+    employee: Platform Engineer
+    title: Decide mechanically whether approvals carry over an update merge of develop (Director, 7 Oct 2026; Core/MAIN_AGENT_CONDUCT.md condition 1 as PR #225 states it) - Adapters/scripts/check-approval-carry-over.sh refuses unless the approved head starts the new head's first-parent line, every commit on it is a two-parent merge whose second parent is an ancestor of origin/develop, each merge is git's own merge of its parents outside Registry/work-units.yml (no conflict elsewhere, every other path equal by object id, submodule pointers included), the registry holds exactly the entries git's own merge holds (both sides of a conflict, byte for byte, any order) and the PR's own entry is byte for byte the same on both heads; exit 0 prints the one-line record to paste, 1 the refusing commit and reason, 2 fails closed; merge-classify.sh gains merge_classify_automatic, the one automatic merge both it and the new script use, with merge settings pinned to git's defaults; lab tests rebuild #202, #215, #220, #203, #201 and every attack of the PR #225 review
+    milestone: Precision
+    delivers: Adapters/scripts/check-approval-carry-over.sh, Adapters/scripts/merge-classify.sh, Adapters/scripts/tests/run.sh, Adapters/README.md, Registry/work-units.yml
