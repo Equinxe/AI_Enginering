@@ -1261,11 +1261,29 @@ work_units:
     milestone: Precision
     delivers: Core/AGENT_CHAINS.md, Core/EMPLOYEE_SELECTION.md, Core/GLOSSARY.md, Registry/chains.yml, Registry/workflows.yml, Workflows/FEATURE_DEVELOPMENT.md, Workflows/ONBOARDING.md, Workflows/AUTONOMOUS_DELIVERY.md, Templates/WORK_UNIT.md, Examples/FEATURE_CHAIN_EXAMPLE.md, Examples/ARCHITECTURE_CHAIN_EXAMPLE.md, Registry/work-units.yml
 
+  - id: WU-IAENG-336
+    employee: AI Engineer
+    title: Make the project's tier map visible to the session at runtime (issue 212) - generate-agents.sh --print-tier-map resolves the mapping exactly as a generation does and prints it, writing nothing; session-start.sh prints the tier map in force, Lightweight and Frontier included, with the rule that a Tier Override takes its model from that map (no model parameter when it equals the agent's pinned model, the exact value otherwise, the Director when the dispatch cannot take it) and never one of the Main Agent's choosing; a refused tier-map is reported, never skipped
+    milestone: Precision
+    delivers: Adapters/ai-runtimes/generate-agents.sh, Adapters/ai-runtimes/claude-code/hooks/session-start.sh, Adapters/ai-runtimes/claude-code/hooks/tests/run.sh, Adapters/ai-runtimes/claude-code/hooks/README.md, Adapters/ai-runtimes/README.md, Adapters/scripts/tests/run.sh, Registry/work-units.yml
+
   - id: WU-IAENG-337
     employee: Technical Writer
     title: Make the SESSION_STATE adoption instruction produce a readable state file - the README says to copy only the fenced block under the template's Template heading, never the whole file, and to give its _Last updated line an absolute date in the form session-start.sh parses; the template marks that block as the part to copy, so every other pointer to it resolves without being edited
     milestone: Precision
     delivers: README.md, Templates/SESSION_STATE.md, Registry/work-units.yml
+
+  - id: WU-IAENG-338
+    employee: DevOps Engineer
+    title: Make the usage-dashboard.cmd superproject lookup safe for a caret in the adopting project's path - the for /f child command starts with cd /d into IAENG_ROOT instead of call, which doubled carets and re-expanded %NAME%, so a "^" made rev-parse fail and the framework was measured instead (issue #210); pinned statically, verified on Windows
+    milestone: Precision
+    delivers: Adapters/scripts/usage-dashboard.cmd, Adapters/scripts/tests/run.sh, Registry/work-units.yml
+
+  - id: WU-IAENG-339
+    employee: DevOps Engineer
+    title: Name the lowercased branch the user probably meant in the pre-push release/* case-variant refusal ("did you mean 'release/v1'?") instead of the release/* pattern alone; refusal logic and the main/develop message unchanged (issue #211)
+    milestone: Precision
+    delivers: Adapters/git-hooks/pre-push, Adapters/scripts/tests/run.sh, Registry/work-units.yml
 
   - id: WU-IAENG-340
     employee: Technical Lead

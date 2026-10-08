@@ -1799,6 +1799,83 @@ else
   FAILED=$((FAILED + 1))
 fi
 
+section "generate-agents.sh --print-tier-map — the mapping a session reads (WU-IAENG-336)"
+
+# Issue #212: the Lightweight and Frontier values were printed only in a
+# generation's summary, so a session applying a Tier Override had no model to
+# pass and invented one ("sonnet" in a project mapping every tier to
+# claude-opus-5-5). --print-tier-map resolves the mapping the way a generation
+# does and prints it for session-start.sh; these cases pin that it is the SAME
+# resolution (file, defaults, per-tier flags, refusals) and that it writes
+# nothing.
+
+D="$(project ga-printmap-file)"
+write_tier_map "$D" "map=strategic=s-model,standard=e-model,lightweight=l-model,frontier=f-model" \
+  "effort-map=strategic=max,standard=low,lightweight=,frontier="
+expect 0 "--print-tier-map prints a project's tier-map" -- bash "$GEN" --project "$D" --print-tier-map
+expect_output "# mapping: file ("
+expect_output "map=strategic=s-model,standard=e-model,lightweight=l-model,frontier=f-model"
+expect_output "effort-map=strategic=max,standard=low,lightweight=,frontier="
+TOTAL=$((TOTAL + 1))
+if [ -e "$D/.claude" ]; then
+  printf '   FAIL --print-tier-map wrote into the project (%s exists)\n' "$D/.claude"
+  FAILED=$((FAILED + 1))
+else
+  [ -n "$VERBOSE" ] && printf '   ok   --print-tier-map writes nothing\n'
+fi
+
+# Its output is itself a tier-map: fed back in, it resolves to the same lines.
+PRINTED="$LAST_OUTPUT"
+D2="$(project ga-printmap-roundtrip)"
+mkdir -p "$D2/.ia-engineering"
+printf '%s\n' "$PRINTED" > "$D2/.ia-engineering/tier-map"
+expect 0 "--print-tier-map output is a valid tier-map" -- bash "$GEN" --project "$D2" --print-tier-map
+TOTAL=$((TOTAL + 1))
+if [ "$(grep -v '^#' <<< "$LAST_OUTPUT")" = "$(grep -v '^#' <<< "$PRINTED")" ]; then
+  [ -n "$VERBOSE" ] && printf '   ok   the printed mapping round-trips through a tier-map file\n'
+else
+  printf '   FAIL the printed mapping did not round-trip:\n'
+  printf '%s\n--- vs ---\n%s\n' "$PRINTED" "$LAST_OUTPUT" | sed 's/^/        | /'
+  FAILED=$((FAILED + 1))
+fi
+
+# Absent file: the target defaults, said so, and every tier named.
+D="$(project ga-printmap-defaults)"
+expect 0 "--print-tier-map without a tier-map prints the target defaults" -- \
+  bash "$GEN" --project "$D" --print-tier-map
+expect_output "# mapping: defaults (target claude-code"
+expect_output "map=strategic=opus,standard=sonnet,lightweight=haiku,frontier=fable"
+
+# The issue's own project: every tier on one model. Lightweight must print it,
+# not the target's default and not any other alias.
+D="$(project ga-printmap-issue-212)"
+write_tier_map "$D" "map=strategic=claude-opus-5-5,standard=claude-opus-5-5,lightweight=claude-opus-5-5,frontier=fable" \
+  "effort-map=strategic=high,standard=,lightweight=,frontier="
+expect 0 "--print-tier-map on the issue #212 mapping" -- bash "$GEN" --project "$D" --print-tier-map
+expect_output "lightweight=claude-opus-5-5,"
+
+# Flags still win per tier over the file.
+D="$(project ga-printmap-flags)"
+write_tier_map "$D" "map=strategic=file-s,standard=file-e,lightweight=file-l,frontier=file-f" ""
+expect 0 "--print-tier-map applies a flag over the file, per tier" -- \
+  bash "$GEN" --project "$D" --print-tier-map --map lightweight=flag-l
+expect_output "# mapping: flags (over "
+expect_output "map=strategic=file-s,standard=file-e,lightweight=flag-l,frontier=file-f"
+
+# A malformed file is refused exactly as a generation refuses it: a session
+# must be told the map is broken, never handed a half-read one.
+D="$(project ga-printmap-malformed)"
+write_tier_map "$D" "map=bogus=x" ""
+expect 2 "--print-tier-map refuses a malformed tier-map" -- bash "$GEN" --project "$D" --print-tier-map
+expect_output "/.ia-engineering/tier-map line 2) entry: bogus=x"
+
+# It never stands in for --check or --dry-run, which it does not perform.
+D="$(project ga-printmap-combined)"
+expect 2 "--print-tier-map with --check is refused" -- bash "$GEN" --project "$D" --print-tier-map --check
+expect_output "cannot be combined with --check or --dry-run"
+expect 2 "--print-tier-map with --dry-run is refused" -- bash "$GEN" --project "$D" --dry-run --print-tier-map
+expect_output "cannot be combined with --check or --dry-run"
+
 # ------------------------------------------------- git-hooks/commit-msg -----
 #
 # WU-IAENG-304 added `perf` as an accepted Conventional Commits type but
@@ -3667,11 +3744,32 @@ done
 # prefix, so it classified as a release branch and took the creation
 # exception; on a packed case-insensitive remote it moved the existing
 # release/v1. A ref under a protected name must be all-lowercase.
-for pp_variant in refs/heads/release/V1 refs/heads/release/v1.0.0-RC1 refs/heads/release/v9.9.9-RC1; do
+# Issue #211 (WU-IAENG-339): the refusal names the lowercased branch the
+# user probably meant, not only the release/* pattern.
+for pp_pair in "refs/heads/release/V1 release/v1" \
+               "refs/heads/release/v1.0.0-RC1 release/v1.0.0-rc1" \
+               "refs/heads/release/v9.9.9-RC1 release/v9.9.9-rc1"; do
+  pp_variant="${pp_pair% *}"
+  pp_meant="${pp_pair#* }"
   expect 1 "creating $pp_variant is refused (upper case after the exact release/ prefix)" -- \
     "${PP[@]}" "refs/heads/x $PP_NEW $pp_variant $PP_ZERO"
-  expect_output "'$pp_variant' differs from the protected branch name"
+  expect_output "'$pp_variant' differs from the protected branch name '$pp_meant' ('release/*') only by case. Did you mean '$pp_meant'?"
 done
+# Every other spelling of a release variant names its lowercased branch too:
+# a variant in the ref path, and in the release/ prefix itself.
+for pp_pair in "refs/Heads/release/v1 release/v1" \
+               "refs/heads/Release/v1 release/v1" \
+               "refs/heads/RELEASE/v9.9.9 release/v9.9.9"; do
+  pp_variant="${pp_pair% *}"
+  pp_meant="${pp_pair#* }"
+  expect 1 "creating $pp_variant is refused and names '$pp_meant'" -- \
+    "${PP[@]}" "refs/heads/x $PP_NEW $pp_variant $PP_ZERO"
+  expect_output "Did you mean '$pp_meant'?"
+done
+# main and develop keep naming the protected branch itself.
+expect 1 "creating refs/heads/DEVELOP is refused and names 'develop'" -- \
+  "${PP[@]}" "refs/heads/x $PP_NEW refs/heads/DEVELOP $PP_ZERO"
+expect_output "'refs/heads/DEVELOP' differs from the protected branch name 'develop' only by case."
 expect 1 "updating refs/heads/release/V1 is refused" -- \
   "${PP[@]}" "refs/heads/x $PP_NEW refs/heads/release/V1 $PP_OLD"
 expect 0 "an all-lowercase release/v9.9.9-rc1 is still created" -- \
@@ -3725,6 +3823,7 @@ for ppc_ref in refs/Heads/main refs/HEADS/develop refs/Heads/release/v1 refs/hea
     git push -q "$PPC_REMOTE" "HEAD:$ppc_ref"
   expect_output "'$ppc_ref' differs from the protected branch name"
 done
+expect_output "Did you mean 'release/v1'?"
 for ppc_branch in main develop release/v1; do
   expect 0 "real push: the remote's $ppc_branch still points at its original commit" -- \
     test "$(git --git-dir="$PPC_REMOTE" rev-parse "refs/heads/$ppc_branch")" = "$PPC_MAIN"
@@ -4493,6 +4592,18 @@ expect 1 "launcher: no for /f command opens with '\"\" (unquoted paths)" -- \
   grep -F "in ('\"\"" <<< "$L_CODE"
 expect 1 "launcher: cmdcmdline is not expanded in a for set" -- \
   grep -F '(%cmdcmdline%)' <<< "$L_CODE"
+
+# WU-IAENG-338, issue #210: `call` doubles every caret, inside quotes too,
+# and expands %NAME% a second time, so a "^" in the adopting project's path
+# made rev-parse fail and the dashboard silently measured the framework. The
+# superproject lookup runs without `call`: its child command starts with the
+# bare word cd (cmd /c strips the quotes of a command starting with one), and
+# git runs in IAENG_ROOT. Verified on Windows with "^", "(x) & y" and
+# "(x86)" paths; the Linux runner can only pin the text.
+expect 1 "launcher: no call anywhere (it doubles carets and re-expands %NAME%)" -- \
+  grep -iE '(^|[^a-z_])call[[:space:]]' <<< "$L_CODE"
+expect 0 "launcher: the superproject lookup starts with cd /d into IAENG_ROOT, then runs git" -- \
+  grep -qF "in ('cd /d \"%%IAENG_ROOT%%\" ^&^& \"%%IAENG_GITROOT%%\\bin\\git.exe\" rev-parse --show-superproject-working-tree 2^>nul')" <<< "$L_CODE"
 
 # ------------------------------------------ check-approval-carry-over.sh ----
 
