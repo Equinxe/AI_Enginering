@@ -4759,6 +4759,91 @@ expect 0 "--open --no-wait: with no page yet, builds one first" -- "${FRUN[@]}" 
 expect_output "Usage dashboard written"
 expect 0 "--open --no-wait: that page keeps itself fresh" -- grep -qF 'Kept fresh:' "$FPAGE"
 
+# PR #230 security review S3: a lock started in the future is stale, though
+# its process lives (it would never age out otherwise).
+sleep 60 &
+FLIVE3=$!
+rm -f "$FC/refresh.stamp"
+mkdir -p "$FC/lock"
+printf '%s %s\n' "$FLIVE3" 99999999999 > "$FC/lock/owner"
+{ usage_line msg_F341G 9; printf '\n'; } >> "$FT/s1.jsonl"
+expect 0 "S3: a lock started in the future is taken over, though its process lives" -- "${FRUN[@]}" --refresh
+expect_output "took over a stale lock"
+kill "$FLIVE3" 2>/dev/null
+wait "$FLIVE3" 2>/dev/null
+
+# S1: a repository that commits .ia-engineering/usage as a link to a folder
+# outside it (a junction on Windows, where git cannot commit one: the same
+# check). Nothing is written through it, from any mode.
+new_repo usage-s1
+S1R="$PWD"
+S1LOOT="$WORK/usage-s1-loot"
+write_employee_roster "DevOps Engineer"
+git add -A && git commit -q -m "roster"
+rm -rf "$S1LOOT"
+mkdir -p "$S1LOOT" .ia-engineering
+case "${OSTYPE:-}" in
+  msys*|cygwin*|win*) cmd //c mklink //J "$(cygpath -w "$S1R/.ia-engineering/usage")" "$(cygpath -w "$S1LOOT")" > /dev/null ;;
+  *) ln -s ../../usage-s1-loot .ia-engineering/usage
+     git add .ia-engineering/usage && git commit -q -m "the usage folder, committed as a link" ;;
+esac
+expect 0 "S1: the usage folder is a link" -- test -L "$S1R/.ia-engineering/usage"
+expect 0 "S1: the hook starts no refresh, in one line, exit 0" -- \
+  env CLAUDE_CONFIG_DIR="$WORK/usage-empty-config" bash "$DASH" --project-dir "$S1R" --refresh-in-background
+expect_output "reached through a symbolic link or a junction"
+expect 1 "S1: a build refuses to write its default page through the link" -- \
+  env CLAUDE_CONFIG_DIR="$WORK/usage-empty-config" bash "$DASH" --project-dir "$S1R"
+expect_output "refusing to write the page through it"
+expect 1 "S1: so does a refresh run as the background one" -- \
+  env IAENG_USAGE_WORKER=bg CLAUDE_CONFIG_DIR="$WORK/usage-empty-config" bash "$DASH" --project-dir "$S1R" --refresh
+expect 0 "S1: nothing was written outside the project" -- test -z "$(find "$S1LOOT" -mindepth 1 2>/dev/null)"
+case "${OSTYPE:-}" in msys*|cygwin*|win*) cmd //c rmdir "$(cygpath -w "$S1R/.ia-engineering/usage")" ;; esac
+
+# S2: a repository that force-adds its own dashboard.html (and a fingerprint)
+# under the ignore rule. --open --no-wait builds first and never opens it.
+new_repo usage-s2
+S2R="$PWD"
+write_employee_roster "DevOps Engineer"
+printf '.ia-engineering/usage/\n' > .gitignore
+mkdir -p .ia-engineering/usage
+printf '<html><body>OBS341-ATTACKER-PAGE<script>1</script></body></html>\n' > .ia-engineering/usage/dashboard.html
+printf 'forged\n' > .ia-engineering/usage/.dashboard.html.fingerprint
+git add -A
+git add -f .ia-engineering/usage/dashboard.html .ia-engineering/usage/.dashboard.html.fingerprint
+git commit -q -m "a page of the repository's own"
+cat > "$WORK/usage-s2-opener.sh" <<OPENER
+#!/usr/bin/env bash
+cp "\$1" "$WORK/usage-s2-opened.html"
+OPENER
+chmod +x "$WORK/usage-s2-opener.sh"
+rm -f "$WORK/usage-s2-opened.html"
+expect 0 "S2: --open --no-wait on a page the repository committed" -- \
+  env CLAUDE_CONFIG_DIR="$WORK/usage-empty-config" IAENG_USAGE_OPENER="$WORK/usage-s2-opener.sh" \
+  bash "$DASH" --project-dir "$S2R" --open --no-wait
+expect_output "Usage dashboard written"
+expect 1 "S2: the committed page was never opened" -- grep -qF 'OBS341-ATTACKER-PAGE' "$WORK/usage-s2-opened.html"
+expect 0 "S2: the page opened is this script's, under its CSP" -- \
+  grep -qF "default-src 'none'" "$WORK/usage-s2-opened.html"
+
+# QA of #230: in a project that does not ignore .ia-engineering/usage/, a
+# refresh run as the background one writes nothing in the work tree; it
+# records why in .git, and the hook then starts none within the interval.
+new_repo usage-unignored-bg
+QR="$PWD"
+write_employee_roster "DevOps Engineer"
+git add -A && git commit -q -m "roster, no ignore rule"
+expect 0 "QA: a refresh run as the background one, in a project that does not ignore its usage folder" -- \
+  env IAENG_USAGE_WORKER=bg CLAUDE_CONFIG_DIR="$WORK/usage-empty-config" bash "$DASH" --project-dir "$QR" --refresh
+expect 0 "QA: it left nothing for git status to show" -- test -z "$(git -C "$QR" status --porcelain)"
+expect 0 "QA: it recorded why in .git, out of the work tree" -- test -s "$QR/.git/ia-engineering-usage.refused"
+expect 0 "QA: the hook starts no refresh within the interval, and says why" -- \
+  env CLAUDE_CONFIG_DIR="$WORK/usage-empty-config" bash "$DASH" --project-dir "$QR" --refresh-in-background
+expect_output "could not use the cache: git does not ignore"
+expect 0 "QA: --refresh-in-background with --open (the Windows launcher's) says it is for a hook" -- \
+  bash "$DASH" --project-dir "$QR" --refresh-in-background --open
+expect_output "not through usage-dashboard.cmd"
+cd "$FRESH" || exit 1
+
 # The collector: --listing-out is what --list prints; a cache older than the
 # script is read again (a copy of the script, so the real one is untouched).
 expect 0 "collector: --listing-out writes the listing --list prints" -- \

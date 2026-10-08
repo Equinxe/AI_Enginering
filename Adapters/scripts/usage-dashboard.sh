@@ -98,10 +98,13 @@
 # It is created 0700 and holds shape-checked values only, each checked again
 # when read: commit messages and transcript text are read in per-run temporary
 # directories, removed on exit. It is not used — the run says why and reads
-# everything again into a cache of its own, removed on exit — when it is a
-# symbolic link or a junction, is not owned by you, sits in a folder others can
-# write to without the sticky bit, or lies in the work tree without git
-# ignoring it. A build that uses it holds its lock, <cache>/lock/, stale once
+# everything again into a cache of its own, removed on exit — when it is, or
+# is reached through, a symbolic link or a junction, is not owned by you, sits
+# in a folder others can write to without the sticky bit, or lies in the work
+# tree without git saying it ignores it. A default output folder reached
+# through a link is refused outright, and a detached refresh that cannot use
+# the cache writes nothing in the work tree: it records why in the
+# repository's git directory, and the hook starts none for an interval. A build that uses it holds its lock, <cache>/lock/, stale once
 # its process is gone or after 10 minutes. A registry edit, a new tag or a
 # newer version of these scripts makes what they change be read again.
 #
@@ -139,7 +142,9 @@
 #     refresh, rebuilds incrementally, then opens it.
 #   --open --no-wait [--min-interval SECONDS] [build options]
 #     For an "open the dashboard" command. Opens the existing page at once,
-#     however old, then starts the background refresh — not held back by the
+#     however old — when this script wrote it: its fingerprint beside it,
+#     ignored and untracked by git; any other page is rebuilt first — then
+#     starts the background refresh — not held back by the
 #     interval, since it was asked for — and the page, which reloads itself,
 #     catches up. With no page yet, builds one first. Exit 0, or 1 when no
 #     page could be built or opened.
@@ -298,7 +303,8 @@ if [ -n "$MIN_INTERVAL" ] && { [ "$MIN_INTERVAL" -lt 10 ] || [ "$MIN_INTERVAL" -
   fail_usage "--min-interval $MIN_INTERVAL: the interval is 10 to 86400 seconds."
 fi
 if [ -n "$MODE" ] && { [ -n "$WATCH" ] || [ -n "$OPEN" ]; }; then
-  fail_usage "$MODE goes with neither --watch nor --open."
+  # The Windows launcher always adds --open: say what to run instead (QA).
+  fail_usage "$MODE goes with neither --watch nor --open: it is for an end-of-turn hook, run with bash usage-dashboard.sh (not through usage-dashboard.cmd, which adds --open)."
 fi
 if [ -n "$NO_WAIT" ] && { [ -z "$OPEN" ] || [ -n "$WATCH" ]; }; then
   fail_usage "--no-wait goes with --open, and not with --watch."
@@ -334,6 +340,9 @@ case "$MODE:$WORKER" in --refresh:bg|--refresh:now) ;; *) WORKER="" ;; esac
 # builtins, and only from a regular file (a FIFO would block the hook).
 
 LEASE=600
+# Where a detached refresh that could not use the cache records why, in the
+# repository's git directory: "<epoch><TAB><reason>".
+REFUSED_NAME="ia-engineering-usage.refused"
 NOW_S=""
 now_epoch() {
   if [ -n "${EPOCHSECONDS:-}" ]; then NOW_S="$EPOCHSECONDS"
@@ -367,10 +376,34 @@ read_lock_owner() {
 }
 
 # lock_live <lock-dir> — 0 while its owner runs and is within the lease.
+# A start in the future (a planted owner, or a clock stepped back) is stale,
+# as the refresh stamp's is ignored: otherwise it would never age out while
+# its pid lives (PR #230 security review, S3).
 lock_live() {
+  local age
   read_lock_owner "$1" || return 1
   now_epoch
-  [ $((NOW_S - LOCK_T)) -le "$LEASE" ] && kill -0 "$LOCK_PID" 2>/dev/null
+  age=$((NOW_S - LOCK_T))
+  [ "$age" -ge 0 ] && [ "$age" -le "$LEASE" ] && kill -0 "$LOCK_PID" 2>/dev/null
+}
+
+# link_under <root> <path> — 0 when <path>, or a directory between <root> and
+# it, is a symbolic link or a junction. A cloned repository decides what sits
+# at .ia-engineering/usage: committed as a link, it would send the page, the
+# cache and the log anywhere the user can write (PR #230 security review,
+# S1). Builtins only: the hook path below may not start a process.
+link_under() {
+  local rest="${2#"$1"/}" acc="$1" part
+  [ "$rest" != "$2" ] || return 1
+  while [ -n "$rest" ]; do
+    case "$rest" in
+      */*) part="${rest%%/*}"; rest="${rest#*/}" ;;
+      *) part="$rest"; rest="" ;;
+    esac
+    acc="$acc/$part"
+    [ -L "$acc" ] && return 0
+  done
+  return 1
 }
 
 # spawn_worker <bg|now> <project-dir> <out> — starts `--refresh` detached.
@@ -422,11 +455,26 @@ if [ "$MODE" = --refresh-in-background ]; then
   done
   [ -n "$root" ] || fail_usage "'${PROJECT_ARG:-$START_PWD}' is not inside a git work tree."
   if [ -z "$PROJECT_ARG" ] && [ "$root" -ef "$FRAMEWORK_DIR" ] && [ -f "$root/.git" ]; then root=""; fi
+  if [ -n "$root" ] && link_under "$root" "$root/.ia-engineering/usage"; then
+    fail_usage "$root/.ia-engineering/usage is reached through a symbolic link or a junction; nothing is written through it."
+  fi
   if [ -n "$root" ]; then
     c="${IAENG_USAGE_CACHE:-$root/.ia-engineering/usage/cache}"
     if lock_live "$c/lock"; then
       printf 'usage-dashboard: refresh skipped: one is already running (pid %s).\n' "$LOCK_PID"
       exit 0
+    fi
+    # A refresh refused within the interval is not started again (QA of
+    # #230): its reason, recorded in .git by the refused refresh, is said.
+    r="$root/.git/$REFUSED_NAME"
+    if [ -d "$root/.git" ] && [ -f "$r" ] && [ ! -L "$r" ] && IFS=$'\t' read -r t why < "$r" \
+        && [[ "$t" =~ ^[0-9]{1,12}$ ]]; then
+      now_epoch
+      if [ $((NOW_S - 10#$t)) -ge 0 ] && [ $((NOW_S - 10#$t)) -lt "$MIN_INTERVAL" ]; then
+        printf 'usage-dashboard: refresh not started: the last one, %s s ago, could not use the cache: %s.\n' \
+          "$((NOW_S - 10#$t))" "${why:0:400}"
+        exit 0
+      fi
     fi
     if read_number "$c/refresh.stamp"; then
       now_epoch
@@ -528,6 +576,8 @@ now_hms() {
   printf -v NOW '%(%H:%M:%S)T' -1 2>/dev/null || NOW="$(date '+%H:%M:%S')"
 }
 
+OUT_DEFAULT=""
+[ -n "$OUT" ] || OUT_DEFAULT=1
 OUT="${OUT:-$PROJECT/.ia-engineering/usage/dashboard.html}"
 # A native Windows path (C:\...\dash.html, as typed in PowerShell or passed
 # through the launcher) has no "/", so the directory part would never split
@@ -539,6 +589,13 @@ case "$OUT" in
   */*) OUT_DIR="${OUT%/*}" ;;
   *) OUT_DIR="." ;;
 esac
+# The default folder is the project's, so the repository decides what sits
+# there: one reached through a link is refused before anything is created
+# (S1). An --out the user names is the user's choice, links included.
+if [ -n "$OUT_DEFAULT" ] && link_under "$PROJECT" "$OUT_DIR"; then
+  err "$OUT_DIR is reached through a symbolic link or a junction; refusing to write the page through it. Pass --out to write it elsewhere."
+  exit 1
+fi
 if [ ! -d "$OUT_DIR" ] && ! mkdir -p "$OUT_DIR"; then
   err "cannot create $OUT_DIR."
   exit 1
@@ -620,6 +677,21 @@ fp_now() {
 # The page, when it is a regular file of this user's. Anything else is
 # rebuilt, and the rename then replaces it.
 page_ok() { [ -f "$OUT" ] && [ ! -L "$OUT" ] && [ -O "$OUT" ]; }
+# page_ours — a page --no-wait may open without a build: one this script
+# wrote, with its fingerprint beside it, and — in the work tree — ignored and
+# untracked, the only case check-ignore answers 0. A page the repository
+# supplied, even force-added under an ignore rule, is rebuilt first (PR #230
+# security review, S2).
+page_ours() {
+  page_ok && [ -f "$FP_FILE" ] && [ ! -L "$FP_FILE" ] && [ -O "$FP_FILE" ] || return 1
+  git -C "$PROJECT" check-ignore -q -- "$OUT" 2>/dev/null
+  case "$?:$OUT" in
+    0:*) return 0 ;;
+    *:"$PROJECT"/*) return 1 ;;
+    128:*) return 0 ;;
+  esac
+  return 1
+}
 # fp_fresh — 0 when the page is current: its fingerprint is this user's
 # regular file, nothing it is built from is newer, and it equals fp_now.
 fp_fresh() {
@@ -644,15 +716,23 @@ setup_cache() {
   CACHE_SET=1
   if [ -L "$c" ]; then CACHE_WHY="$c is a symbolic link or a junction"; return 1; fi
   if [ -e "$c" ] && [ ! -d "$c" ]; then CACHE_WHY="$c is not a directory"; return 1; fi
+  if link_under "$PROJECT" "$c"; then CACHE_WHY="$c is reached through a symbolic link or a junction"; return 1; fi
   if [ -z "$WATCH_CHILD" ]; then
     # Never committed: in the work tree, git must ignore it, which is checked
-    # before anything is created there. Exit 128 is a path outside the tree.
+    # before anything is created there. Any other answer for a path in the
+    # project — 128 is also "beyond a symbolic link" — is a refusal; only a
+    # path outside the project is outside the tree (S1).
     git -C "$PROJECT" check-ignore -q -- "$c/" 2>/dev/null
     rc=$?
-    if [ "$rc" = 1 ]; then
-      CACHE_WHY="git does not ignore $c, so it could be committed; add .ia-engineering/usage/ to the project's .gitignore (install.sh does)"
-      return 1
-    fi
+    case "$rc:$c" in
+      0:*) ;;
+      1:*)
+        CACHE_WHY="git does not ignore $c, so it could be committed; add .ia-engineering/usage/ to the project's .gitignore (install.sh does)"
+        return 1 ;;
+      *:"$PROJECT"/*)
+        CACHE_WHY="git cannot say it ignores $c (exit $rc)"
+        return 1 ;;
+    esac
   fi
   if [ ! -d "$c" ] && ! mkdir -p "$c" 2>/dev/null; then CACHE_WHY="$c cannot be created"; return 1; fi
   if [ ! -O "$c" ]; then CACHE_WHY="$c is not owned by you"; return 1; fi
@@ -678,13 +758,15 @@ setup_cache() {
 # then renamed away first, which only one of two runs that judged it stale
 # at the same moment can do.
 lock_try() {
-  local was old
+  local was old age
   LOCK="$CACHE/lock"
   if ! mkdir "$LOCK" 2>/dev/null; then
     [ -d "$LOCK" ] || return 2
     if read_lock_owner "$LOCK"; then
       now_epoch
-      [ $((NOW_S - LOCK_T)) -gt "$LEASE" ] || ! kill -0 "$LOCK_PID" 2>/dev/null || return 1
+      age=$((NOW_S - LOCK_T))
+      # Older than the lease, started in the future (S3), or its process gone.
+      [ "$age" -gt "$LEASE" ] || [ "$age" -lt 0 ] || ! kill -0 "$LOCK_PID" 2>/dev/null || return 1
     else
       # No owner yet (being written this instant), or a run that died
       # between the two steps: stale only past the lease.
@@ -722,6 +804,7 @@ say() {
 worker_log() {
   local dir="$PROJECT/.ia-engineering/usage" log
   log="$dir/refresh.log"
+  ! link_under "$PROJECT" "$dir" || return 0
   [ -d "$dir" ] || mkdir -p "$dir" 2>/dev/null || return 0
   if [ -L "$log" ] || { [ -e "$log" ] && { [ ! -f "$log" ] || [ ! -O "$log" ]; }; }; then return 0; fi
   case "${OSTYPE:-}" in
@@ -735,7 +818,7 @@ worker_log() {
 # --- Kept fresh: the modes ---------------------------------------------------------
 
 # --open --no-wait: the page as it is, at once, and a refresh behind it.
-if [ -n "$NO_WAIT" ] && page_ok; then
+if [ -n "$NO_WAIT" ] && page_ours; then
   open_page "$OUT" || exit 1
   if lock_live "${IAENG_USAGE_CACHE:-$PROJECT/.ia-engineering/usage/cache}/lock"; then
     echo "Usage dashboard opened as it is; a refresh is already running (pid $LOCK_PID) and will update it."
@@ -745,8 +828,8 @@ if [ -n "$NO_WAIT" ] && page_ok; then
   fi
   exit 0
 fi
-# Without a page yet, --no-wait builds one first: one that reloads itself, as
-# a refresh's does.
+# Without a page of its own yet, --no-wait builds one first: one that reloads
+# itself, as a refresh's does.
 if [ -n "$NO_WAIT" ]; then AUTO=1; REFRESH="$MIN_INTERVAL"; fi
 
 # --open: at once when nothing the page is built from has changed.
@@ -760,12 +843,22 @@ fi
 # the fingerprint is unchanged. It then falls through to the build below,
 # holding the lock, and its page reloads itself every interval.
 if [ "$MODE" = --refresh ]; then
-  [ -z "$WORKER" ] || worker_log
-  say "refresh started (pid $$)."
+  # The cache is settled before anything is written: a detached refresh that
+  # may not use it — a folder git does not ignore, a link — writes no log in
+  # the work tree (QA of #230). It records why in the repository's git
+  # directory instead, which git never shows or commits, and the hook reads
+  # that to start no refresh for an interval.
   if ! setup_cache; then
+    if [ -n "$WORKER" ]; then
+      [ -d "$GIT_COMMON" ] && [ ! -L "$GIT_COMMON/$REFUSED_NAME" ] && now_epoch \
+        && printf '%s\t%s\n' "$NOW_S" "${CACHE_WHY:0:400}" > "$GIT_COMMON/$REFUSED_NAME"
+      exit 0
+    fi
     say "refresh not done: the persistent cache cannot be used: $CACHE_WHY."
     exit 1
   fi
+  [ -z "$WORKER" ] || worker_log
+  say "refresh started (pid $$)."
   lock_try
   case "$?" in
     1) say "refresh skipped: another one is running (pid $LOCK_PID)."; exit 0 ;;
