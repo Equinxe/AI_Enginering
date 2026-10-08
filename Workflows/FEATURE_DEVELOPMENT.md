@@ -172,6 +172,8 @@ A Pull Request **changes executable behaviour** when it changes anything a progr
 4. Merge the Pull Request into `develop`.
 5. Delete the feature branch after merge.
 
+When the Main Agent executes this merge, an approval given before a merge of `develop` into the branch counts only as condition 1 of `Core/MAIN_AGENT_CONDUCT.md` (Git Execution via Named Employee) allows.
+
 **Output:** Feature merged into `develop`.
 
 **Handoff to:** Release Workflow when the sprint or release cycle concludes.
@@ -233,7 +235,7 @@ The two entries are deliberately parallel. `Workflows/CODE_REVIEW.md` treats the
 
 Owner: IA Engineering
 
-Version: 0.0.11
+Version: 0.0.12
 
 Status: Draft
 
