@@ -4651,7 +4651,7 @@ expect 0 "refresh: and says it is kept fresh in the background" -- grep -qF 'Kep
 expect 0 "refresh: another within the interval is skipped" -- "${FRUN[@]}" --refresh --min-interval 600
 expect_output "skipped: the last refresh started"
 rm -f "$FC/refresh.stamp"
-expect 0 "refresh: with nothing changed it is skipped without a build" -- "${FRUN[@]}" --refresh
+expect 0 "refresh: with nothing changed it is skipped without a build" -- "${FRUN[@]}" --refresh --min-interval 10
 expect_output "no change in HEAD"
 expect 1 "refresh: no build ran" -- grep -qF 'Usage dashboard written' <<< "$LAST_OUTPUT"
 for bad in 9 010 86401; do
@@ -4758,6 +4758,23 @@ rm -f "$FPAGE"
 expect 0 "--open --no-wait: with no page yet, builds one first" -- "${FRUN[@]}" --open --no-wait
 expect_output "Usage dashboard written"
 expect 0 "--open --no-wait: that page keeps itself fresh" -- grep -qF 'Kept fresh:' "$FPAGE"
+
+# Code review of #230, M1: a page from a plain build (every page the Windows
+# launcher writes) does not reload itself, so --no-wait and a refresh rebuild
+# it instead of keeping it; a tab opened on it would never show a refresh.
+expect 0 "M1: a plain build" -- "${FRUN[@]}"
+expect 1 "M1: its page does not reload itself" -- grep -qF 'http-equiv="refresh"' "$FPAGE"
+expect 0 "M1: --open --no-wait on that page" -- "${FRUN[@]}" --open --no-wait
+expect_output "Usage dashboard written"
+expect 0 "M1: builds first a page that reloads itself" -- grep -qF '<meta http-equiv="refresh" content="60">' "$FPAGE"
+rm -f "$FC/refresh.stamp"
+expect 0 "M1: a refresh keeps that page while nothing changes" -- "${FRUN[@]}" --refresh
+expect_output "page kept"
+expect 0 "M1: after another plain build" -- "${FRUN[@]}"
+rm -f "$FC/refresh.stamp"
+expect 0 "M1: a refresh rebuilds the page that does not reload" -- "${FRUN[@]}" --refresh
+expect_output "Usage dashboard written"
+expect 0 "M1: and its page reloads itself" -- grep -qF 'Kept fresh:' "$FPAGE"
 
 # PR #230 security review S3: a lock started in the future is stale, though
 # its process lives (it would never age out otherwise).

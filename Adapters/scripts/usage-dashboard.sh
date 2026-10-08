@@ -245,10 +245,23 @@ MIN_INTERVAL=""
 # one line and exits 0. Known before parsing, so that a parse error obeys it.
 BG=""
 for arg in "$@"; do [ "$arg" = --refresh-in-background ] && BG=1; done
+# A hook's command writes nothing on stderr, whatever fails (an unreadable
+# stamp included).
+[ -z "$BG" ] || exec 2>/dev/null
+
+# bg_say <line> — the hook path's one line, and exit 0. SIGPIPE is ignored
+# only here, after any refresh is started (an ignored signal would be
+# inherited by it): a caller that closed stdout does not turn this into a
+# failure.
+bg_say() {
+  trap '' PIPE
+  printf '%s\n' "$1" 2>/dev/null
+  exit 0
+}
 
 # fail_usage <message> — a usage error: exit 2, or for a hook one line and 0.
 fail_usage() {
-  if [ -n "$BG" ]; then printf 'usage-dashboard: refresh not started: %s\n' "$1"; exit 0; fi
+  [ -z "$BG" ] || bg_say "usage-dashboard: refresh not started: $1"
   err "$1"; usage; exit 2
 }
 
@@ -313,6 +326,12 @@ if [ -n "$MIN_INTERVAL" ] && [ -z "$MODE" ] && [ -z "$NO_WAIT" ]; then
   fail_usage "--min-interval applies to --refresh, --refresh-in-background and --open --no-wait."
 fi
 MIN_INTERVAL="${MIN_INTERVAL:-60}"
+# The page a refresh or --no-wait must find to keep: one that reloads itself
+# every interval and says it is kept fresh. A page from a plain build or
+# --open does not reload, so an open tab would never show the refreshes:
+# such a page is rebuilt (code review of #230, M1). Plain --open takes any.
+NEED_PAGE=""
+if [ "$MODE" = --refresh ] || [ -n "$NO_WAIT" ]; then NEED_PAGE="auto $MIN_INTERVAL"; fi
 
 # Set only for a build started by --watch: the page then carries the reload
 # directive and the "last updated" line. Anything but a plain decimal is
@@ -351,11 +370,14 @@ now_epoch() {
 
 # read_number <file> — NUM from a file holding one decimal, or return 1.
 NUM=""
+# The provisional stamp the hook wrote for the refresh it starts (below).
+STAMPED=""
+[[ "${IAENG_USAGE_STAMPED:-}" =~ ^[0-9]{1,12}$ ]] && [ -n "$WORKER" ] && STAMPED="$IAENG_USAGE_STAMPED"
 read_number() {
   local s=""
   NUM=""
   [ -f "$1" ] && [ ! -L "$1" ] || return 1
-  IFS= read -r s < "$1" || [ -n "$s" ] || return 1
+  IFS= read -r s 2>/dev/null < "$1" || [ -n "$s" ] || return 1
   [[ "$s" =~ ^[0-9]{1,12}$ ]] || return 1
   NUM="$((10#$s))"
 }
@@ -369,7 +391,7 @@ read_lock_owner() {
   LOCK_PID=""
   LOCK_T=""
   [ -f "$1/owner" ] && [ ! -L "$1/owner" ] || return 1
-  read -r p t _ < "$1/owner" || [ -n "$t" ] || return 1
+  read -r p t _ 2>/dev/null < "$1/owner" || [ -n "$t" ] || return 1
   [[ "$p" =~ ^[1-9][0-9]{0,9}$ ]] && [[ "$t" =~ ^[0-9]{1,12}$ ]] || return 1
   LOCK_PID="$p"
   LOCK_T="$((10#$t))"
@@ -430,7 +452,8 @@ spawn_worker() {
     msys*|cygwin*|win*) ;;
     *) command -v nice >/dev/null 2>&1 && run+=(nice -n 10) ;;
   esac
-  IAENG_USAGE_WORKER="$1" IAENG_USAGE_REFRESH="" IAENG_USAGE_PAGEDIR="" IAENG_USAGE_WORKDIR="" \
+  IAENG_USAGE_WORKER="$1" IAENG_USAGE_STAMPED="$STAMPED" \
+  IAENG_USAGE_REFRESH="" IAENG_USAGE_PAGEDIR="" IAENG_USAGE_WORKDIR="" \
     "${run[@]}" bash "$SELF" "${a[@]}" </dev/null >/dev/null 2>&1 &
   disown 2>/dev/null || true
 }
@@ -461,33 +484,36 @@ if [ "$MODE" = --refresh-in-background ]; then
   if [ -n "$root" ]; then
     c="${IAENG_USAGE_CACHE:-$root/.ia-engineering/usage/cache}"
     if lock_live "$c/lock"; then
-      printf 'usage-dashboard: refresh skipped: one is already running (pid %s).\n' "$LOCK_PID"
-      exit 0
+      bg_say "usage-dashboard: refresh skipped: one is already running (pid $LOCK_PID)."
     fi
     # A refresh refused within the interval is not started again (QA of
     # #230): its reason, recorded in .git by the refused refresh, is said.
     r="$root/.git/$REFUSED_NAME"
-    if [ -d "$root/.git" ] && [ -f "$r" ] && [ ! -L "$r" ] && IFS=$'\t' read -r t why < "$r" \
+    if [ -d "$root/.git" ] && [ -f "$r" ] && [ ! -L "$r" ] && IFS=$'\t' read -r t why 2>/dev/null < "$r" \
         && [[ "$t" =~ ^[0-9]{1,12}$ ]]; then
       now_epoch
       if [ $((NOW_S - 10#$t)) -ge 0 ] && [ $((NOW_S - 10#$t)) -lt "$MIN_INTERVAL" ]; then
-        printf 'usage-dashboard: refresh not started: the last one, %s s ago, could not use the cache: %s.\n' \
-          "$((NOW_S - 10#$t))" "${why:0:400}"
-        exit 0
+        bg_say "usage-dashboard: refresh not started: the last one, $((NOW_S - 10#$t)) s ago, could not use the cache: ${why:0:400}."
       fi
     fi
     if read_number "$c/refresh.stamp"; then
       now_epoch
       if [ $((NOW_S - NUM)) -ge 0 ] && [ $((NOW_S - NUM)) -lt "$MIN_INTERVAL" ]; then
-        printf 'usage-dashboard: refresh skipped: the last one started %s s ago (at most one every %s s).\n' \
-          "$((NOW_S - NUM))" "$MIN_INTERVAL"
-        exit 0
+        bg_say "usage-dashboard: refresh skipped: the last one started $((NOW_S - NUM)) s ago (at most one every $MIN_INTERVAL s)."
+      fi
+      # A provisional stamp, so a second hook call during the refresh's own
+      # start-up (seconds on Windows) spawns none; the refresh it is handed
+      # to knows the value and does not take it for a recent refresh. Only
+      # an existing stamp — one a refresh wrote in a cache it checked — is
+      # rewritten, and never through a link.
+      if [ ! -L "$c" ] && [ ! -L "$c/refresh.stamp" ] && ! link_under "$root" "$c"; then
+        now_epoch
+        { printf '%s\n' "$NOW_S" > "$c/refresh.stamp"; } 2>/dev/null && STAMPED="$NOW_S"
       fi
     fi
   fi
   spawn_worker bg "$PROJECT_ARG" "$OUT"
-  printf 'usage-dashboard: refreshing the usage dashboard in the background (log: .ia-engineering/usage/refresh.log).\n'
-  exit 0
+  bg_say "usage-dashboard: refreshing the usage dashboard in the background (log: .ia-engineering/usage/refresh.log)."
 fi
 
 # The page, the cache and the build files are this user's alone.
@@ -683,7 +709,11 @@ page_ok() { [ -f "$OUT" ] && [ ! -L "$OUT" ] && [ -O "$OUT" ]; }
 # supplied, even force-added under an ignore rule, is rebuilt first (PR #230
 # security review, S2).
 page_ours() {
+  local first=""
   page_ok && [ -f "$FP_FILE" ] && [ ! -L "$FP_FILE" ] && [ -O "$FP_FILE" ] || return 1
+  # A page that does not reload itself would never show the refresh (M1).
+  IFS= read -r first 2>/dev/null < "$FP_FILE"
+  [ "$first" = "page $NEED_PAGE" ] || return 1
   git -C "$PROJECT" check-ignore -q -- "$OUT" 2>/dev/null
   case "$?:$OUT" in
     0:*) return 0 ;;
@@ -694,13 +724,16 @@ page_ours() {
 }
 # fp_fresh — 0 when the page is current: its fingerprint is this user's
 # regular file, nothing it is built from is newer, and it equals fp_now.
+# The file's first line is the page's mode ("page auto N", "page watch N" or
+# "page static"); when NEED_PAGE is set, only that mode is current.
 fp_fresh() {
   local old=""
   page_ok && [ -f "$FP_FILE" ] && [ ! -L "$FP_FILE" ] && [ -O "$FP_FILE" ] || return 1
   any_newer "$FP_FILE" "${FP_INPUTS[@]}" && return 1
-  IFS= read -r -d '' old < "$FP_FILE"
+  IFS= read -r -d '' old 2>/dev/null < "$FP_FILE"
+  [ -z "$NEED_PAGE" ] || [ "${old%%$'\n'*}" = "page $NEED_PAGE" ] || return 1
   fp_now
-  [ "$old" = "$FP_TEXT" ]
+  [ "${old#*$'\n'}" = "$FP_TEXT" ]
 }
 
 # --- Kept fresh: the cache -----------------------------------------------------
@@ -790,6 +823,15 @@ lock_try() {
   LOCK_HELD=1
 }
 
+# lock_renew — the lease runs from the last renewal, so a long build (cold,
+# loaded, or under nice) keeps its lock while it works. Renewed only while
+# the lock is still this run's (code review of #230).
+lock_renew() {
+  [ -n "$LOCK_HELD" ] && read_lock_owner "$LOCK" && [ "$LOCK_PID" = "$$" ] || return 0
+  now_epoch
+  printf '%s %s\n' "$$" "$NOW_S" > "$LOCK/owner"
+}
+
 # say <message> — a refresh's report, with the time: it reads as a log.
 say() {
   local t
@@ -865,7 +907,7 @@ if [ "$MODE" = --refresh ]; then
     2) say "refresh not done: cannot make the lock in $CACHE."; exit 1 ;;
   esac
   [ -z "$IAENG_USAGE_WORKER_DELAY" ] || sleep "$IAENG_USAGE_WORKER_DELAY"
-  if [ "$WORKER" != now ] && read_number "$CACHE/refresh.stamp"; then
+  if [ "$WORKER" != now ] && read_number "$CACHE/refresh.stamp" && [ "$NUM" != "$STAMPED" ]; then
     now_epoch
     if [ $((NOW_S - NUM)) -ge 0 ] && [ $((NOW_S - NUM)) -lt "$MIN_INTERVAL" ]; then
       say "refresh skipped: the last refresh started $((NOW_S - NUM)) s ago (at most one every $MIN_INTERVAL s)."
@@ -1014,6 +1056,11 @@ else
   TMPD="$(mktemp -d "${TMPDIR:-/tmp}/obs326-usage.XXXXXX")" || { err "cannot create a temporary directory"; exit 1; }
   TMPD_OWN="$TMPD"
 fi
+# The build's start: the fingerprint and the git key take its time, so an
+# input changed while the build ran (30 to 90 s here) is newer than both and
+# makes the next run read again (code review of #230).
+STARTED="$TMPD/started"
+: > "$STARTED"
 
 # Sources, for the page header: name <TAB> found|missing|error <TAB> detail.
 SOURCES="$TMPD/sources.tsv"
@@ -1269,8 +1316,10 @@ else
   if [ -n "$GIT_CACHE" ] && { [ -d "$GIT_CACHE" ] || mkdir -p "$GIT_CACHE"; } && : > "$GIT_CACHE/key" \
       && cp "$ROSTER_TSV" "$CHAINS_TSV" "$WUS_TSV" "$COMMITS_TSV" "$SOURCES" "$TMPD/range.txt" "$GIT_CACHE"/; then
     printf '%s\n' "$GIT_KEY" > "$GIT_CACHE/key"
+    touch -r "$STARTED" "$GIT_CACHE/key" 2>/dev/null
   fi
 fi
+lock_renew
 
 # --- AI-runtime transcripts -------------------------------------------------------------
 
@@ -1329,6 +1378,7 @@ case "$COLLECT_RC" in
     FP_BUILD="$FP_TEXT" ;;
 esac
 
+lock_renew
 PRICES_TSV="$TMPD/prices.tsv"
 : > "$PRICES_TSV"
 if [ -n "$PRICES" ]; then
@@ -1640,6 +1690,7 @@ if [ -z "$PAGE_DIR" ] || [ "${PAGE_DIR%/*}" != "$OUT_DIR" ] || [ -L "$PAGE_DIR" 
   PAGE_DIR="$(mktemp -d "$OUT_DIR/.usage-dashboard.XXXXXX")" || { err "cannot create a private directory in $OUT_DIR. No page was written."; exit 1; }
   PAGE_DIR_OWN="$PAGE_DIR"
 fi
+lock_renew
 PAGE_TMP="$PAGE_DIR/page.html.tmp"
 if [ -n "$REFRESH" ]; then
   render() { jq -n -r "${BUILD_ARGS[@]}" --arg refresh "$REFRESH" --arg auto "$AUTO" "($JQ_BUILD) | ($JQ_RENDER)"; }
@@ -1661,7 +1712,10 @@ fi
 # The fingerprint follows the page the same way: written in the private
 # directory, renamed beside it. Without one, the page is rebuilt next time.
 if [ -n "$FP_BUILD" ]; then
-  if ! { printf '%s' "$FP_BUILD" > "$PAGE_DIR/fingerprint.tmp" && mv -f "$PAGE_DIR/fingerprint.tmp" "$FP_FILE"; }; then
+  PAGE_MODE=static
+  if [ -n "$AUTO" ]; then PAGE_MODE="auto $REFRESH"; elif [ -n "$REFRESH" ]; then PAGE_MODE="watch $REFRESH"; fi
+  if ! { printf 'page %s\n%s' "$PAGE_MODE" "$FP_BUILD" > "$PAGE_DIR/fingerprint.tmp" \
+      && touch -r "$STARTED" "$PAGE_DIR/fingerprint.tmp" && mv -f "$PAGE_DIR/fingerprint.tmp" "$FP_FILE"; }; then
     note "could not record the page's fingerprint; it will be rebuilt next time."
   fi
 elif [ -e "$FP_FILE" ]; then
