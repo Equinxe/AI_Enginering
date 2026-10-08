@@ -4980,6 +4980,44 @@ expect 1 "#203/#201 shape: a conflict outside the registry, resolved by hand, is
   bash "$CARRY" "$CO_A" "$CO_M" --base "$CO_D2"
 expect_output "conflicts outside Registry/work-units.yml, in policy.md"
 
+# The machine's own state must not redefine git's own merge (Security Engineer
+# on PR #232). The same conflict, resolved the way `merge=union` would: with
+# that driver in core.attributesFile, git's merge resolves it on its own, so
+# the hand resolution used to pass as "git's own merge".
+printf '* merge=union\n' > .git/carry-union-attributes
+CO_UNION_TREE="$(git -c core.attributesFile=.git/carry-union-attributes --attr-source=4b825dc642cb6eb9a060e54bf8d69288fbee4904 merge-tree --write-tree --no-messages "$CO_A" "$CO_D2" | head -1)"
+co_start m-union "$CO_A" "$CO_D2" "WU-T-1:one" "WU-T-2:two" "WU-T-4:four" "WU-T-3:three"
+git cat-file blob "$CO_UNION_TREE:policy.md" > policy.md
+git add -A && co_commit
+CO_UNION="$CO_M"
+git config core.attributesFile .git/carry-union-attributes
+expect 1 "core.attributesFile with merge=union does not turn a hand resolution into git's own merge" -- \
+  bash "$CARRY" "$CO_A" "$CO_UNION" --base "$CO_D2"
+expect_output "conflicts outside Registry/work-units.yml, in policy.md"
+git config --unset core.attributesFile
+mkdir -p .git/info
+printf '* merge=union\n' > .git/info/attributes
+expect 2 "a non-empty .git/info/attributes, which no option switches off, fails closed" -- \
+  bash "$CARRY" "$CO_A" "$CO_OK" --base develop
+expect_output "info/attributes"
+rm -f .git/info/attributes
+# A local replace ref that shows the honest merge in place of the hand-edited one.
+git replace "$CO_EDIT" "$CO_OK"
+expect 1 "a refs/replace entry swapping in an honest merge for a hand-edited one is ignored" -- \
+  bash "$CARRY" "$CO_A" "$CO_EDIT" --base develop
+expect_output "in app.py"
+git replace -d "$CO_EDIT" > /dev/null
+# Variables that move git's repository, objects, config or attribute source.
+expect 2 "GIT_CONFIG_GLOBAL in the environment fails closed" -- \
+  env GIT_CONFIG_GLOBAL=/dev/null bash "$CARRY" "$CO_A" "$CO_OK" --base develop
+expect_output "GIT_CONFIG_GLOBAL is set"
+expect 2 "GIT_REPLACE_REF_BASE in the environment fails closed" -- \
+  env GIT_REPLACE_REF_BASE=refs/replace/ bash "$CARRY" "$CO_A" "$CO_OK" --base develop
+expect_output "GIT_REPLACE_REF_BASE is set"
+expect 2 "GIT_DIR in the environment fails closed" -- \
+  env GIT_DIR=.git bash "$CARRY" "$CO_A" "$CO_OK" --base develop
+expect_output "GIT_DIR is set"
+
 # The registry: exactly git's own merge's entries, byte for byte, any order.
 co_start m-drop-dev "$CO_A" "$CO_D1" "WU-T-1:one" "WU-T-2:two" "WU-T-3:three"
 co_commit
@@ -5018,12 +5056,13 @@ expect 1 "a resolution that commits git's conflict markers in the registry is re
 expect_output "does not hold exactly the entries"
 
 # Configuration that changes what git diff or git merge print must not change
-# the verdict: a hostile global config, run from a subdirectory. The
-# subdirectory is load-bearing on its own: `git merge-tree --name-only` prints
-# conflicted paths relative to the current directory, which once made the
-# registry's conflict read ../Registry/work-units.yml and refused the honest
-# merge.
-cat > "$WORK/carry-hostile.gitconfig" <<EOF
+# the verdict: a hostile config in the repository's own .git/config (through
+# include.path: GIT_CONFIG* in the environment is refused, see above), run
+# from a subdirectory. The subdirectory is load-bearing on its own:
+# `git merge-tree --name-only` prints conflicted paths relative to the current
+# directory, which once made the registry's conflict read
+# ../Registry/work-units.yml and refused the honest merge.
+cat > .git/carry-hostile.gitconfig <<'EOF'
 [diff]
 	relative = true
 	noprefix = true
@@ -5046,15 +5085,17 @@ EOF
 # diff.orderFile is relative to the top of the work tree; .git/ keeps it
 # out of every later `git add -A`.
 printf 'z-notes.md\napp.py\n' > .git/carry-order.txt
+git config include.path carry-hostile.gitconfig
 cd templates || exit 1
 expect 0 "hostile diff/merge config, from a subdirectory: the honest merge still carries over" -- \
-  env GIT_CONFIG_GLOBAL="$WORK/carry-hostile.gitconfig" bash "$CARRY" "$CO_A" "$CO_OK" --base develop
+  bash "$CARRY" "$CO_A" "$CO_OK" --base develop
 expect 0 "hostile config: the ID-ordered resolution still carries over" -- \
-  env GIT_CONFIG_GLOBAL="$WORK/carry-hostile.gitconfig" bash "$CARRY" "$CO_A" "$CO_IDORDER" --base develop
+  bash "$CARRY" "$CO_A" "$CO_IDORDER" --base develop
 expect 1 "hostile config: an edit outside the subdirectory is still refused" -- \
-  env GIT_CONFIG_GLOBAL="$WORK/carry-hostile.gitconfig" bash "$CARRY" "$CO_A" "$CO_EDIT" --base develop
+  bash "$CARRY" "$CO_A" "$CO_EDIT" --base develop
 expect_output "in app.py"
 cd .. || exit 1
+git config --unset include.path
 
 # A submodule pointer that .gitmodules (ignore = all) and the config both hide
 # from git diff.

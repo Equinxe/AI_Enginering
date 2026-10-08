@@ -41,6 +41,17 @@
 # reproducible by whoever audits it, and a classification must not depend on
 # the config of the machine that runs it.
 #
+# NOR THE MACHINE'S OWN ATTRIBUTE FILES AND REPLACE REFS (WU-IAENG-344,
+# Security Engineer on PR #232). --attr-source replaces only the in-tree
+# .gitattributes: a `merge=union` in core.attributesFile or the system
+# attributes file still turned a union-shaped hand resolution into the
+# "automatic" merge, and a local refs/replace entry made git read one merge
+# as another. core.attributesFile=/dev/null (Git for Windows maps it too),
+# GIT_ATTR_NOSYSTEM=1 and GIT_NO_REPLACE_OBJECTS=1 close those. A non-empty
+# $GIT_DIR/info/attributes cannot be switched off by an option; the
+# carry-over check refuses to run with one. In CI none of these exist, so the
+# required checks classify exactly as before.
+#
 # ONE AUTOMATIC MERGE. merge_classify_automatic is the only place the automatic
 # merge is computed: merge_classify below and check-approval-carry-over.sh both
 # call it, so the pins above cannot drift between the checks that read merges.
@@ -93,7 +104,9 @@ merge_classify_automatic() {
   p1="$1"
   p2="$2"
   shift 2
-  git -c merge.conflictStyle="$style" \
+  GIT_NO_REPLACE_OBJECTS=1 GIT_ATTR_NOSYSTEM=1 \
+    git -c core.attributesFile=/dev/null \
+      -c merge.conflictStyle="$style" \
       -c merge.renames=true \
       -c merge.directoryRenames=conflict \
       -c merge.renormalize=false \

@@ -89,7 +89,13 @@
 # FAILS CLOSED. Exit 2, never 0, when it cannot decide: a revision that does
 # not resolve, a shallow clone, git older than 2.40 (`merge-tree --write-tree`
 # needs 2.38, --attr-source 2.40), merge-classify.sh missing, a git command
-# failing. Exit 1, with the reason, when the history or the registry is not
+# failing, a non-empty $GIT_DIR/info/attributes, or an environment variable
+# that moves git's repository, objects, config or attribute source (GIT_DIR,
+# GIT_WORK_TREE, GIT_COMMON_DIR, GIT_INDEX_FILE, GIT_OBJECT_DIRECTORY,
+# GIT_ALTERNATE_OBJECT_DIRECTORIES, GIT_ATTR_SOURCE, GIT_REPLACE_REF_BASE,
+# GIT_NAMESPACE, GIT_CONFIG*). Replace refs and the system attributes file are
+# ignored, and core.attributesFile is pinned: the machine running the check
+# cannot make a hand resolution look like git's own merge. Exit 1, with the reason, when the history or the registry is not
 # what the rule requires, including a registry this script cannot read
 # without ambiguity.
 #
@@ -219,6 +225,24 @@ done
 
 # ------------------------------------------------------------ environment ---
 
+# The Main Agent's own local state must not change what "git's own merge" is
+# (Security Engineer on PR #232). Variables that move the repository, its
+# objects, its config or its attribute source are refused before git runs
+# once; replace refs and the system attributes file are switched off for every
+# git command below; core.attributesFile is pinned in merge_classify_automatic;
+# a non-empty info/attributes is refused once the repository is found.
+for var in GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE GIT_OBJECT_DIRECTORY \
+           GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_ATTR_SOURCE GIT_REPLACE_REF_BASE GIT_NAMESPACE; do
+  [ -z "${!var+set}" ] \
+    || cannot_decide "$var is set in the environment: it changes which repository, objects or attributes git reads, so the verdict would not be the one an auditor reproduces; unset it"
+done
+for var in $(compgen -e); do
+  case "$var" in
+    GIT_CONFIG*) cannot_decide "$var is set in the environment: it changes git's configuration for this run, so the verdict would not be the one an auditor reproduces; unset it" ;;
+  esac
+done
+export GIT_NO_REPLACE_OBJECTS=1 GIT_ATTR_NOSYSTEM=1
+
 command -v git > /dev/null 2>&1 || cannot_decide "git is not on PATH"
 git rev-parse --git-dir > /dev/null 2>&1 || cannot_decide "not inside a git repository"
 
@@ -245,6 +269,10 @@ if [ -n "$TOP" ]; then
 fi
 [ -z "$(git rev-parse --show-prefix 2> /dev/null)" ] \
   || cannot_decide "git still reports a prefix at the top of the work tree"
+INFO_ATTRIBUTES="$(git rev-parse --git-path info/attributes 2> /dev/null)" \
+  || cannot_decide "git rev-parse --git-path info/attributes failed"
+[ ! -s "$INFO_ATTRIBUTES" ] \
+  || cannot_decide "$(q "$INFO_ATTRIBUTES") is not empty: git applies it to every merge and no option switches it off, so git's own merge here may not be the one an auditor reproduces (a merge=union line in it made a hand resolution pass); empty or remove it"
 
 SHALLOW="$(git rev-parse --is-shallow-repository 2> /dev/null)" \
   || cannot_decide "git rev-parse --is-shallow-repository failed"
