@@ -5349,6 +5349,583 @@ expect 1 "launcher: no call anywhere (it doubles carets and re-expands %NAME%)" 
 expect 0 "launcher: the superproject lookup starts with cd /d into IAENG_ROOT, then runs git" -- \
   grep -qF "in ('cd /d \"%%IAENG_ROOT%%\" ^&^& \"%%IAENG_GITROOT%%\\bin\\git.exe\" rev-parse --show-superproject-working-tree 2^>nul')" <<< "$L_CODE"
 
+# ------------------------------------------ check-approval-carry-over.sh ----
+
+section "check-approval-carry-over.sh — approvals across an update merge of develop (WU-IAENG-344)"
+
+# Every history is built here. The cases this rule was decided on are real
+# Pull Requests of this repository (#202, #215, #220 carry over; #202 from its
+# earlier head, #203 and #201 do not), but this suite also runs from a shallow
+# CI checkout and inside adopting projects, where that history is absent, so
+# each is rebuilt below in the same shape, named after the PR it stands for.
+# The run against the real commits is evidence in WU-IAENG-344's Pull Request.
+# The attacks are the Code Reviewer's on PR #225 (comment 6035895314) and the
+# Prompt Engineer's registry cases; each is a merge that must be refused.
+
+CARRY="$SCRIPTS/check-approval-carry-over.sh"
+CO_TAIL="merges equal git's own merge outside Registry/work-units.yml; registry entry identical; checker: check-approval-carry-over.sh"
+
+# co_entry <id> <title> — one registry entry in the parsing contract's shape,
+# preceded by its blank separator line.
+co_entry() {
+  printf '\n  - id: %s\n    employee: Technical Writer\n    title: %s\n    milestone: Precision\n    delivers: Registry/work-units.yml\n' "$1" "$2"
+}
+# co_registry <entry-spec...> — the whole registry; a spec is <id>:<title>.
+co_registry() {
+  local spec
+  printf '# Work Unit Registry (test fixture)\n\nwork_units:\n'
+  for spec in "$@"; do co_entry "${spec%%:*}" "${spec#*:}"; done
+}
+# co_start <branch> <approved> <develop-commit> <entry-spec...> — merges the
+# develop commit into the approved head without committing and resolves the
+# registry with exactly the entries given, in that order. Edits follow, then
+# co_commit.
+co_start() {
+  local branch="$1" head="$2" dev="$3"
+  shift 3
+  git checkout -q -B "$branch" "$head"
+  git merge -q --no-ff --no-commit "$dev" > /dev/null 2>&1
+  co_registry "$@" > Registry/work-units.yml
+  git add -A
+}
+co_commit() {
+  git commit -q -m "Merge develop into the branch"
+  CO_M="$(git rev-parse HEAD)"
+}
+
+new_repo carry-lab
+git branch -m develop
+mkdir -p Registry templates
+cat > policy.md <<'EOF'
+# Policy
+
+## Release
+- Director approval is required.
+
+## Hotfix
+- Director approval is required.
+
+## Develop
+- Code review is required.
+
+## Main
+- Release Manager only.
+EOF
+cat > app.py <<'EOF'
+def handle(request):
+    data = parse(request)
+    return render(data)
+
+
+def admin(request):
+    data = parse(request)
+    return render(data)
+EOF
+co_registry "WU-T-1:one" "WU-T-2:two" > Registry/work-units.yml
+printf 'line one\nline two\n' > z-notes.md
+printf '#!/bin/sh\necho run\n' > run.sh
+git add -A && git commit -q -m "D0"
+CO_D0="$(git rev-parse HEAD)"
+
+# develop moves on: a new file and its own registry entry, appended.
+printf 'unrelated develop change\n' > dev.md
+co_registry "WU-T-1:one" "WU-T-2:two" "WU-T-4:four" > Registry/work-units.yml
+git add -A && git commit -q -m "D1"
+CO_D1="$(git rev-parse HEAD)"
+
+# The approved head: the Pull Request's lines in a Markdown policy, a code
+# file, a note, a commit template with its trailers, and its registry entry.
+git checkout -q -b pr "$CO_D0"
+cat > policy.md <<'EOF'
+# Policy
+
+## Release
+- Director approval is required.
+
+## Hotfix
+
+## Develop
+- Code review is required.
+- The Main Agent may merge.
+- Only after review.
+
+These rules apply to every Pull Request.
+
+## Main
+- Release Manager only.
+- Releases go develop → main.
+EOF
+cat > app.py <<'EOF'
+def handle(request):
+    check_auth(request)
+    data = parse(request)
+    return render(data)
+
+
+def admin(request):
+    data = parse(request)
+    return render(data)
+EOF
+co_registry "WU-T-1:one" "WU-T-2:two" "WU-T-3:three" > Registry/work-units.yml
+printf 'line one\nline two (PR)\n' > z-notes.md
+printf 'docs(x): y\n\nWork Unit: WU-X-1\n\nEmployee: Technical Writer\n' > templates/commit.txt
+git add -A && git commit -q -m "A: the approved head"
+CO_A="$(git rev-parse HEAD)"
+
+# A second approved head, A plus a binary file holding NUL bytes.
+git checkout -q -b pr-bin "$CO_A"
+mkdir -p assets
+printf 'PNG\000\000\001\002binary\n' > assets/logo.bin
+git add -A && git commit -q -m "B: the approved head with a binary file"
+CO_B="$(git rev-parse HEAD)"
+
+# The honest update merges.
+co_start m-ok "$CO_A" "$CO_D1" "WU-T-1:one" "WU-T-2:two" "WU-T-4:four" "WU-T-3:three"
+co_commit
+CO_OK="$CO_M"
+co_start m-idorder "$CO_A" "$CO_D1" "WU-T-1:one" "WU-T-2:two" "WU-T-3:three" "WU-T-4:four"
+co_commit
+CO_IDORDER="$CO_M"
+co_start m-reorder-only "$CO_A" "$CO_D1" "WU-T-4:four" "WU-T-2:two" "WU-T-3:three" "WU-T-1:one"
+co_commit
+CO_REORDER_ONLY="$CO_M"
+co_start m-bin "$CO_B" "$CO_D1" "WU-T-1:one" "WU-T-2:two" "WU-T-4:four" "WU-T-3:three"
+co_commit
+CO_BIN_OK="$CO_M"
+# Reset back to the approved head after an extra commit, then develop merged:
+# the extra commit is not in the history, so nothing unreviewed is.
+git checkout -q -B m-rewound "$CO_A"
+printf 'extra\n' >> z-notes.md
+git add -A && git commit -q -m "an extra commit, abandoned"
+co_start m-rewound "$CO_A" "$CO_D1" "WU-T-1:one" "WU-T-2:two" "WU-T-4:four" "WU-T-3:three"
+co_commit
+CO_REWOUND="$CO_M"
+
+expect 0 "#202/#215 shape: a registry-only conflict resolved by keeping both entries carries over" -- \
+  bash "$CARRY" "$CO_A" "$CO_OK" --base develop
+expect_output "both sides kept"
+expect_output "byte for byte the same on both heads: WU-T-3"
+expect 0 "#220 shape: the PR's entry placed in ID order carries over" -- \
+  bash "$CARRY" "$CO_A" "$CO_IDORDER" --base develop
+expect 0 "a resolution that only reorders registry entries, other PRs' included, carries over" -- \
+  bash "$CARRY" "$CO_A" "$CO_REORDER_ONLY" --base develop
+expect 0 "a binary file with NUL bytes in the PR does not stop an honest merge carrying over" -- \
+  bash "$CARRY" "$CO_B" "$CO_BIN_OK" --base develop
+expect 0 "a branch reset to the approved head, then merged with develop, carries over" -- \
+  bash "$CARRY" "$CO_A" "$CO_REWOUND" --base develop
+
+# The record: stdout is exactly that one line on success, and empty otherwise.
+CO_STDOUT="$(bash "$CARRY" "$CO_A" "$CO_OK" --base develop 2> /dev/null)"
+expect 0 "on success stdout is exactly the record, full commit ids, nothing else" -- \
+  test "$CO_STDOUT" = "Approval carry-over: $CO_A -> $CO_OK; $CO_TAIL"
+# QA, PR #232: from a PowerShell 5.1 console on code page 850 a non-ASCII
+# arrow in the record printed mangled, with exit 0. Every byte of the record
+# must be printable 7-bit ASCII (space to tilde).
+expect 1 "the record is 7-bit ASCII: no byte outside space..tilde" -- \
+  env LC_ALL=C grep -q '[^ -~]' <<< "$CO_STDOUT"
+expect 0 "the record is not empty (the ASCII check above read a real record)" -- \
+  test -n "$CO_STDOUT"
+
+# A merge chain: develop merged twice; the second merge honest, then not.
+git checkout -q develop
+printf 'second develop change\n' > dev2.md
+co_registry "WU-T-1:one" "WU-T-2:two" "WU-T-4:four" "WU-T-5:five" > Registry/work-units.yml
+git add -A && git commit -q -m "D3"
+CO_D3="$(git rev-parse HEAD)"
+co_start m-chain "$CO_OK" "$CO_D3" "WU-T-1:one" "WU-T-2:two" "WU-T-4:four" "WU-T-3:three" "WU-T-5:five"
+co_commit
+CO_CHAIN="$CO_M"
+co_start m-chain-bad "$CO_OK" "$CO_D3" "WU-T-1:one" "WU-T-2:two" "WU-T-4:four" "WU-T-3:three"
+co_commit
+CO_CHAIN_BAD="$CO_M"
+expect 0 "two honest merges of develop in a row carry over" -- \
+  bash "$CARRY" "$CO_A" "$CO_CHAIN" --base develop
+expect 1 "a second merge that drops develop's newer entry does not" -- \
+  bash "$CARRY" "$CO_A" "$CO_CHAIN_BAD" --base develop
+expect_output "WU-T-5"
+
+# The Code Reviewer's attacks: each update merge changes something by hand.
+co_start m-edit "$CO_A" "$CO_D1" "WU-T-1:one" "WU-T-2:two" "WU-T-4:four" "WU-T-3:three"
+cat > app.py <<'EOF'
+def handle(request):
+    check_auth(request, skip=True)
+    data = parse(request)
+    return render(data)
+
+
+def admin(request):
+    data = parse(request)
+    return render(data)
+EOF
+git add -A && co_commit
+CO_EDIT="$CO_M"
+expect 1 "a merge that edits a PR line is refused" -- bash "$CARRY" "$CO_A" "$CO_EDIT" --base develop
+expect_output "differs from git's own merge of its parents outside Registry/work-units.yml, in app.py"
+CO_STDOUT="$(bash "$CARRY" "$CO_A" "$CO_EDIT" --base develop 2> /dev/null)"
+expect 0 "on a refusal stdout is empty: there is no record to paste" -- test -z "$CO_STDOUT"
+
+co_start m-relocate "$CO_A" "$CO_D1" "WU-T-1:one" "WU-T-2:two" "WU-T-4:four" "WU-T-3:three"
+cat > app.py <<'EOF'
+def handle(request):
+    data = parse(request)
+    return render(data)
+
+
+def admin(request):
+    check_auth(request)
+    data = parse(request)
+    return render(data)
+EOF
+git add -A && co_commit
+expect 1 "a merge that relocates a PR line to another function is refused" -- \
+  bash "$CARRY" "$CO_A" "$CO_M" --base develop
+expect_output "in app.py"
+
+co_start m-swap "$CO_A" "$CO_D1" "WU-T-1:one" "WU-T-2:two" "WU-T-4:four" "WU-T-3:three"
+cat > policy.md <<'EOF'
+# Policy
+
+## Release
+
+## Hotfix
+- Director approval is required.
+
+## Develop
+- Code review is required.
+- The Main Agent may merge.
+- Only after review.
+
+These rules apply to every Pull Request.
+
+## Main
+- Release Manager only.
+- Releases go develop → main.
+EOF
+git add -A && co_commit
+expect 1 "a merge that removes the OTHER identical bullet instead is refused" -- \
+  bash "$CARRY" "$CO_A" "$CO_M" --base develop
+expect_output "in policy.md"
+
+co_start m-rename "$CO_A" "$CO_D1" "WU-T-1:one" "WU-T-2:two" "WU-T-4:four" "WU-T-3:three"
+git mv -f z-notes.md notes-z.md
+co_commit
+expect 1 "a merge that renames a PR file is refused" -- bash "$CARRY" "$CO_A" "$CO_M" --base develop
+expect_output "notes-z.md"
+
+co_start m-mode "$CO_A" "$CO_D1" "WU-T-1:one" "WU-T-2:two" "WU-T-4:four" "WU-T-3:three"
+chmod +x run.sh
+git update-index --chmod=+x run.sh
+co_commit
+expect 1 "a merge that sets +x on a file is refused" -- bash "$CARRY" "$CO_A" "$CO_M" --base develop
+expect_output "in run.sh"
+
+co_start m-reorder "$CO_A" "$CO_D1" "WU-T-1:one" "WU-T-2:two" "WU-T-4:four" "WU-T-3:three"
+cat > policy.md <<'EOF'
+# Policy
+
+## Release
+- Director approval is required.
+
+## Hotfix
+
+## Develop
+- Code review is required.
+- Only after review.
+- The Main Agent may merge.
+
+These rules apply to every Pull Request.
+
+## Main
+- Release Manager only.
+- Releases go develop → main.
+EOF
+git add -A && co_commit
+expect 1 "a merge that reorders two PR lines is refused" -- bash "$CARRY" "$CO_A" "$CO_M" --base develop
+expect_output "in policy.md"
+
+co_start m-crlf "$CO_A" "$CO_D1" "WU-T-1:one" "WU-T-2:two" "WU-T-4:four" "WU-T-3:three"
+printf '# Policy\n\n## Release\n- Director approval is required.\n\n## Hotfix\n\n## Develop\n- Code review is required.\n- The Main Agent may merge.\n- Only after review.\r\n\nThese rules apply to every Pull Request.\n\n## Main\n- Release Manager only.\n- Releases go develop \342\206\222 main.\n' > policy.md
+git add -A && co_commit
+expect 1 "a merge that turns a PR line's LF into CRLF is refused" -- bash "$CARRY" "$CO_A" "$CO_M" --base develop
+expect_output "in policy.md"
+
+co_start m-lazy "$CO_A" "$CO_D1" "WU-T-1:one" "WU-T-2:two" "WU-T-4:four" "WU-T-3:three"
+printf '# Policy\n\n## Release\n- Director approval is required.\n\n## Hotfix\n\n## Develop\n- Code review is required.\n- The Main Agent may merge.\n- Only after review.\nThese rules apply to every Pull Request.\n\n## Main\n- Release Manager only.\n- Releases go develop \342\206\222 main.\n' > policy.md
+git add -A && co_commit
+expect 1 "a merge that drops a Markdown blank line (the paragraph joins the bullet) is refused" -- \
+  bash "$CARRY" "$CO_A" "$CO_M" --base develop
+expect_output "in policy.md"
+
+co_start m-trailer "$CO_A" "$CO_D1" "WU-T-1:one" "WU-T-2:two" "WU-T-4:four" "WU-T-3:three"
+printf 'docs(x): y\n\nWork Unit: WU-X-1\nEmployee: Technical Writer\n' > templates/commit.txt
+git add -A && co_commit
+expect 1 "a merge that drops the blank line between two trailers is refused" -- \
+  bash "$CARRY" "$CO_A" "$CO_M" --base develop
+expect_output "templates/commit.txt"
+
+co_start m-arrow "$CO_A" "$CO_D1" "WU-T-1:one" "WU-T-2:two" "WU-T-4:four" "WU-T-3:three"
+printf '# Policy\n\n## Release\n- Director approval is required.\n\n## Hotfix\n\n## Develop\n- Code review is required.\n- The Main Agent may merge.\n- Only after review.\n\nThese rules apply to every Pull Request.\n\n## Main\n- Release Manager only.\n- Releases go develop \342\206\220 main.\n' > policy.md
+git add -A && co_commit
+expect 1 "a merge that flips a non-ASCII arrow is refused" -- bash "$CARRY" "$CO_A" "$CO_M" --base develop
+expect_output "in policy.md"
+
+git checkout -q -B m-ours "$CO_A"
+git merge -q -s ours --no-edit "$CO_D1"
+expect 1 "a merge -s ours, which discards develop's changes, is refused" -- \
+  bash "$CARRY" "$CO_A" "$(git rev-parse HEAD)" --base develop
+expect_output "dev.md"
+
+co_start m-bin-edit "$CO_B" "$CO_D1" "WU-T-1:one" "WU-T-2:two" "WU-T-4:four" "WU-T-3:three"
+printf 'line one\nline two (PR, changed after approval)\n' > z-notes.md
+git add -A && co_commit
+expect 1 "a binary file in the PR does not hide a later PR line edited by the merge" -- \
+  bash "$CARRY" "$CO_B" "$CO_M" --base develop
+expect_output "in z-notes.md"
+
+# Crafted merges: the history itself is wrong.
+git checkout -q -B side "$CO_D0"
+printf 'not from develop\n' > side.txt
+git add -A && git commit -q -m "a side commit, not on develop"
+CO_SIDE="$(git rev-parse HEAD)"
+CO_OK_TREE="$(git rev-parse "$CO_OK^{tree}")"
+CO_NOANC="$(git commit-tree "$CO_OK_TREE" -p "$CO_D0" -p "$CO_D1" -m "Merge develop (approved head dropped)")"
+CO_OCTO="$(git commit-tree "$CO_OK_TREE" -p "$CO_A" -p "$CO_D1" -p "$CO_SIDE" -m "Merge develop (octopus)")"
+CO_XSIDE="$(git commit-tree "$CO_OK_TREE" -p "$CO_A" -p "$CO_SIDE" -m "Merge a commit that is not on develop")"
+expect 1 "a merge that drops the approved head from the history is refused" -- \
+  bash "$CARRY" "$CO_A" "$CO_NOANC" --base develop
+expect_output "is not an ancestor of the new head"
+expect 1 "an octopus merge is refused" -- bash "$CARRY" "$CO_A" "$CO_OCTO" --base develop
+expect_output "is a merge of 3 parents"
+expect 1 "a merge whose second parent is not on develop is refused" -- \
+  bash "$CARRY" "$CO_A" "$CO_XSIDE" --base develop
+expect_output "is not on develop"
+
+# #202 from its earlier head: a commit was pushed after the approval, then
+# develop merged. The commit voids the approval; the merge cannot restore it.
+git checkout -q -B after-approval "$CO_A"
+printf 'line one\nline two (PR, revised)\n' > z-notes.md
+git add -A && git commit -q -m "a change after the approval"
+co_start after-approval "$(git rev-parse HEAD)" "$CO_D1" "WU-T-1:one" "WU-T-2:two" "WU-T-4:four" "WU-T-3:three"
+co_commit
+expect 1 "#202 from its earlier head: a commit after the approval, then a merge, is refused" -- \
+  bash "$CARRY" "$CO_A" "$CO_M" --base develop
+expect_output "is not a merge"
+
+# #203 and #201: develop changed a line next to the PR's, so git's own merge
+# conflicts outside the registry; the resolution keeps both, by hand.
+git checkout -q -B develop-next "$CO_D1"
+printf '# Policy\n\n## Release\n- Director approval is required.\n\n## Hotfix\n- Director approval is required.\n\n## Develop\n- Code review by the Code Reviewer is required.\n\n## Main\n- Release Manager only.\n' > policy.md
+git add -A && git commit -q -m "D2: develop rewrites the Develop bullet"
+CO_D2="$(git rev-parse HEAD)"
+co_start m-conflict "$CO_A" "$CO_D2" "WU-T-1:one" "WU-T-2:two" "WU-T-4:four" "WU-T-3:three"
+printf '# Policy\n\n## Release\n- Director approval is required.\n\n## Hotfix\n\n## Develop\n- Code review by the Code Reviewer is required.\n- The Main Agent may merge.\n- Only after review.\n\nThese rules apply to every Pull Request.\n\n## Main\n- Release Manager only.\n- Releases go develop \342\206\222 main.\n' > policy.md
+git add -A && co_commit
+expect 1 "#203/#201 shape: a conflict outside the registry, resolved by hand, is refused" -- \
+  bash "$CARRY" "$CO_A" "$CO_M" --base "$CO_D2"
+expect_output "conflicts outside Registry/work-units.yml, in policy.md"
+
+# The machine's own state must not redefine git's own merge (Security Engineer
+# on PR #232). The same conflict, resolved the way `merge=union` would: with
+# that driver in core.attributesFile, git's merge resolves it on its own, so
+# the hand resolution used to pass as "git's own merge".
+printf '* merge=union\n' > .git/carry-union-attributes
+CO_UNION_TREE="$(git -c core.attributesFile=.git/carry-union-attributes --attr-source=4b825dc642cb6eb9a060e54bf8d69288fbee4904 merge-tree --write-tree --no-messages "$CO_A" "$CO_D2" | head -1)"
+co_start m-union "$CO_A" "$CO_D2" "WU-T-1:one" "WU-T-2:two" "WU-T-4:four" "WU-T-3:three"
+git cat-file blob "$CO_UNION_TREE:policy.md" > policy.md
+git add -A && co_commit
+CO_UNION="$CO_M"
+git config core.attributesFile .git/carry-union-attributes
+expect 1 "core.attributesFile with merge=union does not turn a hand resolution into git's own merge" -- \
+  bash "$CARRY" "$CO_A" "$CO_UNION" --base "$CO_D2"
+expect_output "conflicts outside Registry/work-units.yml, in policy.md"
+git config --unset core.attributesFile
+mkdir -p .git/info
+printf '* merge=union\n' > .git/info/attributes
+expect 2 "a non-empty .git/info/attributes, which no option switches off, fails closed" -- \
+  bash "$CARRY" "$CO_A" "$CO_OK" --base develop
+expect_output "info/attributes"
+# Emptied, not deleted: the refusal is for a NON-empty file, and nothing in
+# this suite deletes inside .git/.
+: > .git/info/attributes
+expect 0 "an empty .git/info/attributes is not refused" -- \
+  bash "$CARRY" "$CO_A" "$CO_OK" --base develop
+# A local replace ref that shows the honest merge in place of the hand-edited one.
+git replace "$CO_EDIT" "$CO_OK"
+expect 1 "a refs/replace entry swapping in an honest merge for a hand-edited one is ignored" -- \
+  bash "$CARRY" "$CO_A" "$CO_EDIT" --base develop
+expect_output "in app.py"
+git replace -d "$CO_EDIT" > /dev/null
+# Variables that move git's repository, objects, config or attribute source.
+expect 2 "GIT_CONFIG_GLOBAL in the environment fails closed" -- \
+  env GIT_CONFIG_GLOBAL=/dev/null bash "$CARRY" "$CO_A" "$CO_OK" --base develop
+expect_output "GIT_CONFIG_GLOBAL is set"
+expect 2 "GIT_REPLACE_REF_BASE in the environment fails closed" -- \
+  env GIT_REPLACE_REF_BASE=refs/replace/ bash "$CARRY" "$CO_A" "$CO_OK" --base develop
+expect_output "GIT_REPLACE_REF_BASE is set"
+expect 2 "GIT_DIR in the environment fails closed" -- \
+  env GIT_DIR=.git bash "$CARRY" "$CO_A" "$CO_OK" --base develop
+expect_output "GIT_DIR is set"
+
+# The registry: exactly git's own merge's entries, byte for byte, any order.
+co_start m-drop-dev "$CO_A" "$CO_D1" "WU-T-1:one" "WU-T-2:two" "WU-T-3:three"
+co_commit
+expect 1 "a resolution that drops develop's newly arrived entry is refused" -- \
+  bash "$CARRY" "$CO_A" "$CO_M" --base develop
+expect_output "does not hold exactly the entries git's own merge of its parents holds"
+expect_output "WU-T-4"
+co_start m-edit-other "$CO_A" "$CO_D1" "WU-T-1:one, retitled" "WU-T-2:two" "WU-T-4:four" "WU-T-3:three"
+co_commit
+expect 1 "a resolution that edits another Work Unit's title is refused" -- \
+  bash "$CARRY" "$CO_A" "$CO_M" --base develop
+expect_output "WU-T-1"
+co_start m-edit-own "$CO_A" "$CO_D1" "WU-T-1:one" "WU-T-2:two" "WU-T-4:four" "WU-T-3:three, retitled"
+co_commit
+expect 1 "a conflict resolution that edits the PR's own registry entry is refused" -- \
+  bash "$CARRY" "$CO_A" "$CO_M" --base develop
+expect_output "WU-T-3"
+co_start m-reg-crlf "$CO_A" "$CO_D1" "WU-T-1:one" "WU-T-2:two" "WU-T-4:four" "WU-T-3:three"
+co_registry "WU-T-1:one" "WU-T-2:two" "WU-T-4:four" "WU-T-3:three"$'\r' > Registry/work-units.yml
+git add -A && co_commit
+expect 1 "a CR added to the PR's own entry is seen (bash keeps the CR awk and grep drop)" -- \
+  bash "$CARRY" "$CO_A" "$CO_M" --base develop
+expect_output "WU-T-3"
+co_start m-reg-nul "$CO_A" "$CO_D1" "WU-T-1:one" "WU-T-2:two" "WU-T-4:four" "WU-T-3:three"
+co_registry "WU-T-1:one" "WU-T-2:two" "WU-T-4:four" "WU-T-3:thr" > Registry/work-units.yml
+printf '\000ee\n' >> Registry/work-units.yml
+git add -A && co_commit
+expect 1 "a NUL byte in the registry is refused, not read past" -- \
+  bash "$CARRY" "$CO_A" "$CO_M" --base develop
+expect_output "a NUL or another control byte"
+co_start m-markers "$CO_A" "$CO_D1" "WU-T-1:one" "WU-T-2:two"
+git cat-file blob "$(git --attr-source=4b825dc642cb6eb9a060e54bf8d69288fbee4904 merge-tree --write-tree --no-messages "$CO_A" "$CO_D1" | head -1):Registry/work-units.yml" > Registry/work-units.yml
+git add -A && co_commit
+expect 1 "a resolution that commits git's conflict markers in the registry is refused" -- \
+  bash "$CARRY" "$CO_A" "$CO_M" --base develop
+expect_output "does not hold exactly the entries"
+
+# Configuration that changes what git diff or git merge print must not change
+# the verdict: a hostile config in the repository's own .git/config (through
+# include.path: GIT_CONFIG* in the environment is refused, see above), run
+# from a subdirectory. The subdirectory is load-bearing on its own:
+# `git merge-tree --name-only` prints conflicted paths relative to the current
+# directory, which once made the registry's conflict read
+# ../Registry/work-units.yml and refused the honest merge.
+cat > .git/carry-hostile.gitconfig <<'EOF'
+[diff]
+	relative = true
+	noprefix = true
+	mnemonicPrefix = true
+	algorithm = patience
+	indentHeuristic = false
+	interHunkContext = 10
+	orderFile = .git/carry-order.txt
+	renames = copies
+	ignoreSubmodules = all
+[core]
+	quotePath = false
+	autocrlf = true
+[merge]
+	conflictStyle = zdiff3
+	renames = false
+	directoryRenames = true
+	renormalize = true
+EOF
+# diff.orderFile is relative to the top of the work tree; .git/ keeps it
+# out of every later `git add -A`.
+printf 'z-notes.md\napp.py\n' > .git/carry-order.txt
+git config include.path carry-hostile.gitconfig
+cd templates || exit 1
+expect 0 "hostile diff/merge config, from a subdirectory: the honest merge still carries over" -- \
+  bash "$CARRY" "$CO_A" "$CO_OK" --base develop
+expect 0 "hostile config: the ID-ordered resolution still carries over" -- \
+  bash "$CARRY" "$CO_A" "$CO_IDORDER" --base develop
+expect 1 "hostile config: an edit outside the subdirectory is still refused" -- \
+  bash "$CARRY" "$CO_A" "$CO_EDIT" --base develop
+expect_output "in app.py"
+cd .. || exit 1
+git config --unset include.path
+
+# A submodule pointer that .gitmodules (ignore = all) and the config both hide
+# from git diff.
+new_repo carry-sub
+git branch -m develop
+mkdir -p Registry
+printf '[submodule "vendor/fw"]\n\tpath = vendor/fw\n\turl = https://example.invalid/fw.git\n\tignore = all\n' > .gitmodules
+co_registry "WU-T-1:one" > Registry/work-units.yml
+git add -A && git commit -q -m "D0"
+CS_PIN0="$(git rev-parse HEAD)"
+git update-index --add --cacheinfo "160000,$CS_PIN0,vendor/fw"
+mkdir -p vendor/fw
+git commit -q -m "D0: the submodule"
+CS_D0="$(git rev-parse HEAD)"
+printf 'develop\n' > dev.md
+co_registry "WU-T-1:one" "WU-T-4:four" > Registry/work-units.yml
+git add -A && git commit -q -m "D1"
+CS_D1="$(git rev-parse HEAD)"
+git checkout -q -b pr "$CS_D0"
+co_registry "WU-T-1:one" "WU-T-3:three" > Registry/work-units.yml
+git add -A && git commit -q -m "A"
+CS_A="$(git rev-parse HEAD)"
+git config diff.ignoreSubmodules all
+git config submodule.vendor/fw.ignore all
+co_start m-sub "$CS_A" "$CS_D1" "WU-T-1:one" "WU-T-4:four" "WU-T-3:three"
+co_commit
+expect 0 "submodule lab: the honest merge carries over" -- bash "$CARRY" "$CS_A" "$CO_M" --base develop
+co_start m-sub-moved "$CS_A" "$CS_D1" "WU-T-1:one" "WU-T-4:four" "WU-T-3:three"
+git update-index --cacheinfo "160000,$CS_D1,vendor/fw"
+co_commit
+expect 1 "a merge that moves a submodule pointer hidden by ignore = all is refused" -- \
+  bash "$CARRY" "$CS_A" "$CO_M" --base develop
+expect_output "in vendor/fw"
+
+# Usage and environment: exit 2, never 0, and no record.
+cd "$WORK/carry-lab" || exit 1
+expect 2 "no argument is a usage error" -- bash "$CARRY"
+expect 2 "one revision is a usage error" -- bash "$CARRY" "$CO_A"
+expect 2 "an unknown option is a usage error" -- bash "$CARRY" "$CO_A" "$CO_OK" --bogus
+expect 2 "a revision that does not resolve fails closed" -- bash "$CARRY" "$CO_A" no-such-revision --base develop
+expect_output "is not a commit in this repository"
+expect 2 "the approved head being the new head is nothing to carry over" -- \
+  bash "$CARRY" "$CO_OK" "$CO_OK" --base develop
+expect 2 "without --base, a missing origin/develop fails closed" -- bash "$CARRY" "$CO_A" "$CO_OK"
+expect_output "origin/develop"
+git update-ref refs/remotes/origin/develop develop
+expect 0 "without --base, origin/develop is the base" -- bash "$CARRY" "$CO_A" "$CO_OK"
+mkdir -p "$WORK/carry-norepo"
+cd "$WORK/carry-norepo" || exit 1
+expect 2 "outside a git repository it fails closed" -- env GIT_CEILING_DIRECTORIES="$WORK" bash "$CARRY" "$CO_A" "$CO_OK"
+# A shallow repository, made by the file a shallow clone writes: ancestry and
+# merge bases are not decidable on truncated history.
+new_repo carry-shallow
+echo two > two.txt && git add -A && git commit -q -m "two"
+git rev-parse HEAD~1 > .git/shallow
+expect 2 "a shallow clone fails closed" -- bash "$CARRY" HEAD~1 HEAD --base HEAD
+expect_output "shallow"
+cd "$WORK/carry-lab" || exit 1
+# Shims of its own: this section must not depend on another section's state.
+CO_REAL_GIT="$(command -v git)"
+mkdir -p "$WORK/carry-shim-old" "$WORK/carry-shim-mt"
+cat > "$WORK/carry-shim-old/git" <<SHIM
+#!/usr/bin/env bash
+if [ "\$1" = "version" ]; then echo "git version 2.39.5"; exit 0; fi
+exec "$CO_REAL_GIT" "\$@"
+SHIM
+cat > "$WORK/carry-shim-mt/git" <<SHIM
+#!/usr/bin/env bash
+for a in "\$@"; do [ "\$a" = "merge-tree" ] && exit 128; done
+exec "$CO_REAL_GIT" "\$@"
+SHIM
+chmod +x "$WORK/carry-shim-old/git" "$WORK/carry-shim-mt/git"
+expect 2 "git older than 2.40 fails closed" -- env PATH="$WORK/carry-shim-old:$PATH" bash "$CARRY" "$CO_A" "$CO_OK" --base develop
+expect_output "2.40"
+expect 2 "a git merge-tree that errors fails closed" -- env PATH="$WORK/carry-shim-mt:$PATH" bash "$CARRY" "$CO_A" "$CO_OK" --base develop
+expect_output "merge-tree exited"
+mkdir -p "$WORK/carry-alone"
+cp "$CARRY" "$WORK/carry-alone/"
+expect 2 "without merge-classify.sh beside it, it fails closed" -- \
+  bash "$WORK/carry-alone/check-approval-carry-over.sh" "$CO_A" "$CO_OK" --base develop
+expect_output "merge-classify.sh not found"
+
 # --------------------------------------------------------------- verdict ----
 
 cd "$HERE" || exit 1
