@@ -134,7 +134,7 @@ This writes `.claude/settings.json` from `settings.example.json`, substituting t
 There is a test suite, and it is the control:
 
 ```bash
-./Adapters/ai-runtimes/claude-code/hooks/tests/run.sh          # 681 checks, plus the 67 of tests/dashboard.sh
+./Adapters/ai-runtimes/claude-code/hooks/tests/run.sh          # 770 checks (CI, 8 Oct 2026), 67 of them from tests/dashboard.sh
 ./Adapters/ai-runtimes/claude-code/hooks/tests/run.sh --verbose
 ./Adapters/ai-runtimes/claude-code/hooks/tests/dashboard.sh    # the dashboard refresh, installers and /dashboard alone
 ```
