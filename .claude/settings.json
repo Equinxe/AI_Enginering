@@ -51,6 +51,15 @@
             "command": "bash \"$CLAUDE_PROJECT_DIR/./Adapters/ai-runtimes/claude-code/hooks/stop-gate.sh\""
           }
         ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/./Adapters/ai-runtimes/claude-code/hooks/dashboard-refresh.sh\" >/dev/null 2>&1 || true",
+            "timeout": 10
+          }
+        ]
       }
     ]
   }

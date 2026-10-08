@@ -4,11 +4,28 @@
 # Writes .claude/settings.json from settings.example.json with __IAENG_ROOT__
 # replaced by the framework's path relative to the project root. Never
 # overwrites an existing settings.json: Claude Code's settings carry more than
-# hooks, and a project that already has one merges by hand (the file this
-# script would have written is printed with --print).
+# hooks, and a project's own entries are the project's.
+#
+# AN EXISTING settings.json IS MERGED INTO, NOT REPLACED (WU-IAENG-342). Each
+# hook entry of the template that the file does not already have is appended
+# to its event; nothing already in the file is changed, reordered or removed —
+# the project's own hooks, its env, its permissions, its $comment. An entry is
+# "already there" when a command under the same event already runs the same
+# hook script (hooks/<name>.sh), whatever path spells it, so a re-run adds
+# nothing and a hand-merged entry is not duplicated. The file is rewritten by
+# jq, so its formatting is normalised (two-space indent); its content is kept.
+# Without jq, or when the file is not a JSON object, nothing is written and
+# the merge is left to you (--print). A project that does not want one of the
+# framework's hooks does not delete its entry — a re-run adds it back — but
+# uses the hook's own switch where it has one (hooks/README.md).
 #
 # Usage, from the project root:
 #   ./ia-engineering/Adapters/ai-runtimes/claude-code/install-hooks.sh [--print] [--force]
+#
+#   --print  print the file this script would write for a new project, and
+#            change nothing
+#   --force  replace an existing settings.json with that file instead of
+#            merging (review its other settings first)
 #
 # The hooks are project-scoped (.claude/settings.json is committed), so every
 # session on every clone runs them — unlike git hooks, Claude Code reads its
@@ -77,20 +94,58 @@ if [ "$PRINT" -eq 1 ]; then
   exit 0
 fi
 
+HOOK_LIST="SessionStart read-first, PreToolUse escape-hatch and inline-suppression blocks, PostToolUse lint, Stop gate, Stop usage-dashboard refresh (never blocks; opt-out in hooks/README.md)."
+
 DEST="$PROJECT/.claude/settings.json"
 if [ -f "$DEST" ] && [ "$FORCE" -eq 0 ]; then
   if [ "$(cat "$DEST")" = "$RENDERED" ]; then
     echo "= $DEST already current"
     exit 0
   fi
-  echo "! $DEST exists and differs. Not overwritten." >&2
-  echo "  Merge the 'hooks' block from: $0 --print" >&2
-  echo "  or re-run with --force to replace the file (review its other settings first)." >&2
-  exit 1
+  merge_by_hand() {
+    echo "! $DEST exists and differs, and $1. Not changed." >&2
+    echo "  Merge the 'hooks' block from: $0 --print" >&2
+    echo "  or re-run with --force to replace the file (review its other settings first)." >&2
+    exit 1
+  }
+  command -v jq >/dev/null 2>&1 || merge_by_hand "jq is not installed to merge into it"
+  # One JSON object, or nothing is touched. tr: jq on Windows writes CRLF.
+  jq -es 'length == 1 and (.[0] | type == "object") and ((.[0].hooks // {}) | type == "object")' "$DEST" >/dev/null 2>&1 \
+    || merge_by_hand "it is not one JSON object with an object 'hooks'"
+  # {m: the merged settings, a: ["Event: script.sh", ...] added}. A template
+  # group is present when every hooks/<name>.sh it runs is already run by
+  # some command under the same event.
+  MERGED="$(jq --argjson tpl "$RENDERED" '
+    def scripts: [.hooks[]?.command // "" | strings | scan("hooks/([A-Za-z0-9._-]+[.]sh)") | .[0]];
+    reduce ($tpl.hooks | to_entries[]) as $e ({m: ., a: []};
+      reduce $e.value[] as $g (.;
+        ($g | scripts) as $want
+        | ([.m.hooks[$e.key][]? | scripts[]]) as $have
+        | if ($want | length) == 0 or all($want[]; . as $w | any($have[]; . == $w)) then .
+          else .m.hooks[$e.key] = ((.m.hooks[$e.key] // []) + [$g])
+               | .a += [$e.key + ": " + ($want | join(", "))]
+          end))' "$DEST" 2>/dev/null | tr -d '\r')" \
+    || merge_by_hand "the merge failed"
+  ADDED="$(printf '%s\n' "$MERGED" | jq -r '.a[]' | tr -d '\r')"
+  if [ -z "$ADDED" ]; then
+    echo "= $DEST already has every IA Engineering hook; left as it is."
+    exit 0
+  fi
+  TMP="$DEST.iaeng-merge.$$"
+  if ! printf '%s\n' "$MERGED" | jq '.m' | tr -d '\r' > "$TMP" || ! jq -e 'type == "object"' "$TMP" >/dev/null 2>&1; then
+    rm -f "$TMP"
+    merge_by_hand "the merged file could not be written"
+  fi
+  mv -f "$TMP" "$DEST" || { rm -f "$TMP"; merge_by_hand "the merged file could not replace it"; }
+  echo "+ $DEST: merged (framework root: $ROOT); every entry already in it is kept. Added:"
+  printf '%s\n' "$ADDED" | sed 's/^/    /'
+  echo "  Hooks: $HOOK_LIST"
+  echo "  Review the diff, commit it, and restart the Claude Code session for the hooks to load."
+  exit 0
 fi
 
 mkdir -p "$PROJECT/.claude"
 printf '%s\n' "$RENDERED" > "$DEST"
 echo "+ $DEST (framework root: $ROOT)"
-echo "  Hooks: SessionStart read-first, PreToolUse escape-hatch and inline-suppression blocks, PostToolUse lint, Stop gate."
+echo "  Hooks: $HOOK_LIST"
 echo "  Restart the Claude Code session for the hooks to load."
