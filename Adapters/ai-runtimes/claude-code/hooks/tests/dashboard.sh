@@ -22,7 +22,9 @@
 #   - The settings entry: run as Claude Code runs it (bash -c), with the hook
 #     present and with the hook missing (a framework pinned before it).
 #   - install-hooks.sh adds the entry once, keeps a project's own entries,
-#     and never duplicates on a re-run or beside a hand-merged entry.
+#     counts an entry present only when the same event and matcher run the
+#     exact command (a decoy, a neutered copy or another matcher gets the real
+#     entry added beside it and is reported), and refuses a symbolic link.
 #   - install-skills.sh installs /dashboard, quietly on a re-run, and in the
 #     framework checkout installs it alone; SKILL.md is well formed and
 #     names the command its allowed-tools permits; the launcher prints one
@@ -318,15 +320,70 @@ check "older file: the project's env and permissions are kept" \
   [ "$(jq -c '[.env, .permissions]' "$SET" | tr -d '\r')" = '[{"FOO":"1"},{"allow":["Bash(ls)"]}]' ]
 check "older file: every other framework hook still exactly once" \
   [ "$(count_cmd SessionStart session-start.sh)$(count_cmd PreToolUse block-escape-hatches.sh)$(count_cmd PreToolUse block-inline-suppression.sh)$(count_cmd PostToolUse post-edit-lint.sh)" = 1111 ]
+if grep -q "^  Hooks: " "$T/inst.out"; then bad "older file: the report lists only what was added or found, not a fixed list"; else ok "older file: the report lists only what was added or found, not a fixed list"; fi
 cp "$SET" "$T/merged.json"
 inst
-if [ "$INST_RC" -eq 0 ] && grep -q "already has every IA Engineering hook" "$T/inst.out" && cmp -s "$SET" "$T/merged.json"; then ok "re-run after a merge: exit 0, nothing added, byte-identical"; else bad "re-run after a merge: exit 0, nothing added, byte-identical"; fi
+if [ "$INST_RC" -eq 0 ] && grep -q "every IA Engineering hook entry is present exactly" "$T/inst.out" && cmp -s "$SET" "$T/merged.json"; then ok "re-run after a merge: exit 0, nothing added, byte-identical"; else bad "re-run after a merge: exit 0, nothing added, byte-identical"; fi
+if [ ! -s "$T/inst.err" ]; then ok "re-run after a merge: no near-miss warning"; else bad "re-run after a merge: no near-miss warning" "$(head -c 300 "$T/inst.err")"; fi
 
-# Hand-merged with another spelling of the path: not added a second time.
-jq '.hooks.Stop |= map(if ([.hooks[].command] | any(test("dashboard-refresh"))) then .hooks[0].command = "bash ./ia-engineering/Adapters/ai-runtimes/claude-code/hooks/dashboard-refresh.sh" else . end)' \
-  "$T/merged.json" | tr -d '\r' > "$SET"
+# PRESENCE IS EXACT (PR #239 security review, F1). The template commands:
+TPL_ESC="$(jq -r '.hooks.PreToolUse[] | select(.matcher == "Bash") | .hooks[0].command' "$T/rendered.json" | tr -d '\r')"
+TPL_SUP="$(jq -r '.hooks.PreToolUse[] | select(.matcher == "Edit|Write|MultiEdit") | .hooks[0].command' "$T/rendered.json" | tr -d '\r')"
+TPL_GATE="$(jq -r '.hooks.Stop[0].hooks[0].command' "$T/rendered.json" | tr -d '\r')"
+TPL_DASH="$(jq -r '.hooks.Stop[1].hooks[0].command' "$T/rendered.json" | tr -d '\r')"
+# exact_count <event> <matcher, empty for none> <command> — groups running it exactly.
+exact_count() {
+  jq -r --arg ev "$1" --arg m "$2" --arg c "$3" \
+    '[.hooks[$ev][]? | select((.matcher // "") == $m) | .hooks[]? | select(.command == $c)] | length' "$SET" | tr -d '\r'
+}
+
+# Row 1: the escape-hatch guard under a matcher that never fires.
+jq --arg c "$TPL_ESC" '.hooks.PreToolUse |= map(select(.matcher != "Bash"))
+    | .hooks.PreToolUse += [{"matcher":"NoSuchTool","hooks":[{"type":"command","command":$c}]}]' \
+  "$T/rendered.json" | tr -d '\r' > "$SET"
 inst
-if [ "$INST_RC" -eq 0 ] && grep -q "already has every IA Engineering hook" "$T/inst.out" && [ "$(count_cmd Stop dashboard-refresh.sh)" = 1 ]; then ok "hand-merged entry spelled differently: recognised, not duplicated"; else bad "hand-merged entry spelled differently: recognised, not duplicated"; fi
+if [ "$INST_RC" -eq 0 ] && [ "$(exact_count PreToolUse Bash "$TPL_ESC")" = 1 ] && grep -q 'added: *PreToolUse \[Bash\]: block-escape-hatches.sh' "$T/inst.out"; then ok "F1: a guard under a matcher that never fires — the real Bash entry is added and reported"; else bad "F1: a guard under a matcher that never fires — the real Bash entry is added and reported" "rc=$INST_RC $(cat "$T/inst.out")"; fi
+if grep -q 'PreToolUse \[NoSuchTool\]: .*block-escape-hatches.sh' "$T/inst.err"; then ok "F1: ... and the NoSuchTool entry is reported as a near miss"; else bad "F1: ... and the NoSuchTool entry is reported as a near miss"; fi
+
+# Row 2: the guard neutered with "|| true" (its exit 2 can block nothing).
+jq --arg c "$TPL_ESC" '.hooks.PreToolUse |= map(if .matcher == "Bash" then .hooks[0].command = ($c + " || true") else . end)' \
+  "$T/rendered.json" | tr -d '\r' > "$SET"
+inst
+if [ "$INST_RC" -eq 0 ] && [ "$(exact_count PreToolUse Bash "$TPL_ESC")" = 1 ] && [ "$(exact_count PreToolUse Bash "$TPL_ESC || true")" = 1 ]; then ok "F1: a guard neutered with || true — the real entry is added beside it, the project's kept"; else bad "F1: a guard neutered with || true — the real entry is added beside it, the project's kept"; fi
+if grep -q 'block-escape-hatches.sh" || true' "$T/inst.err"; then ok "F1: ... and the neutered command is reported as a near miss"; else bad "F1: ... and the neutered command is reported as a near miss"; fi
+
+# Row 3: decoys that only name the scripts.
+jq '.hooks.PreToolUse = [{"matcher":"Bash","hooks":[{"type":"command","command":"echo hooks/block-escape-hatches.sh hooks/block-inline-suppression.sh"}]}]
+    | .hooks.Stop = [{"hooks":[{"type":"command","command":"true # hooks/stop-gate.sh hooks/dashboard-refresh.sh"}]}]' \
+  "$T/rendered.json" | tr -d '\r' > "$SET"
+inst
+if [ "$INST_RC" -eq 0 ] && [ "$(exact_count PreToolUse Bash "$TPL_ESC")" = 1 ] && [ "$(exact_count PreToolUse 'Edit|Write|MultiEdit' "$TPL_SUP")" = 1 ] \
+    && [ "$(exact_count Stop '' "$TPL_GATE")" = 1 ] && [ "$(exact_count Stop '' "$TPL_DASH")" = 1 ]; then
+  ok "F1: echo / true # decoys naming the scripts — all four real entries are added"
+else
+  bad "F1: echo / true # decoys naming the scripts — all four real entries are added" "$(cat "$T/inst.out")"
+fi
+if [ "$(grep -c '^ *added: ' "$T/inst.out")" -eq 4 ] && grep -q 'echo hooks/block-escape-hatches.sh' "$T/inst.err" && grep -q 'true # hooks/stop-gate.sh' "$T/inst.err"; then ok "F1: ... reported as four additions, the decoys as near misses"; else bad "F1: ... reported as four additions, the decoys as near misses"; fi
+
+# The project directory's spelling alone does not make a different entry.
+jq '.hooks.Stop |= map(.hooks |= map(.command |= gsub("[$]CLAUDE_PROJECT_DIR"; "${CLAUDE_PROJECT_DIR}")))' \
+  "$T/rendered.json" | tr -d '\r' > "$SET"
+inst
+if [ "$INST_RC" -eq 0 ] && grep -q "present exactly" "$T/inst.out" && [ ! -s "$T/inst.err" ] && [ "$(count_cmd Stop stop-gate.sh)" = 1 ]; then ok "\${CLAUDE_PROJECT_DIR} for \$CLAUDE_PROJECT_DIR: still the same entry, nothing added, no warning"; else bad "\${CLAUDE_PROJECT_DIR} for \$CLAUDE_PROJECT_DIR: still the same entry, nothing added, no warning"; fi
+
+# A symbolic link is refused, not replaced by a file. MSYS=winsymlinks:sys
+# makes a link Git Bash reads as one on Windows; elsewhere it is ignored.
+jq '.hooks.Stop = []' "$T/rendered.json" | tr -d '\r' > "$T/link-target.json"
+cp "$T/link-target.json" "$T/link-target.before"
+rm -f "$SET"
+MSYS=winsymlinks:sys ln -s "$T/link-target.json" "$SET" 2>/dev/null
+if [ -L "$SET" ]; then
+  inst
+  if [ "$INST_RC" -eq 1 ] && [ -L "$SET" ] && cmp -s "$T/link-target.json" "$T/link-target.before" && grep -q "symbolic link" "$T/inst.err"; then ok "a symlinked settings.json: refused, the link and its target untouched"; else bad "a symlinked settings.json: refused, the link and its target untouched" "rc=$INST_RC"; fi
+  rm -f "$SET"
+else
+  bad "a symlinked settings.json: refused" "could not create a symbolic link here to test it"
+fi
 
 printf '{ "hooks": { "Stop": [ }' > "$SET"; cp "$SET" "$T/broken.json"
 inst
@@ -392,6 +449,36 @@ RUNS="$(awk '/^```$/{f=!f; next} f{print; exit}' "$SK")"
 if [ -n "$ALLOWED" ] && [ "$ALLOWED" = "$RUNS" ]; then ok "SKILL.md: allowed-tools permits exactly the command it tells the model to run"; else bad "SKILL.md: allowed-tools permits exactly the command it tells the model to run"; fi
 if [ "$RUNS" = "bash .claude/skills/dashboard/open-dashboard.sh" ] && [ -f "$CC/skills/dashboard/open-dashboard.sh" ]; then ok "SKILL.md: that command runs the launcher installed beside it"; else bad "SKILL.md: that command runs the launcher installed beside it"; fi
 check "launcher: valid bash" bash -n "$CC/skills/dashboard/open-dashboard.sh"
+# Prompt Engineer review of PR #239: run as written, a timeout and what to do
+# when it expires, the moved-directory case, and instructions only.
+AS_WRITTEN="Run it exactly as written: no \`cd\`, no prefix, no redirection."
+check "SKILL.md: says to run the command as written, with no cd or prefix" grep -qF "$AS_WRITTEN" "$SK"
+check "SKILL.md: sets a 600000 ms timeout and says not to run it again" grep -qF 'Set the Bash tool'"'"'s timeout to 600000 ms. If it still times out, say so and stop; do not run it again.' "$SK"
+check "SKILL.md: says what to do when the file is not found (directory moved)" grep -qF 'the session'"'"'s working directory has moved off the project root, and stop.' "$SK"
+if grep -qi 'why this file lives' "$SK"; then bad "SKILL.md: the body is instructions only (maintainer notes live in hooks/README.md)"; else ok "SKILL.md: the body is instructions only (maintainer notes live in hooks/README.md)"; fi
+
+# Acceptance from that review: cd Adapters, then /dashboard. The exact
+# command, from a subdirectory, fails as "not found" and starts nothing,
+# which is the case SKILL.md tells the model to explain and stop on.
+mkdir -p "$SP/Adapters"
+rm -f "$LCALLS"
+out="$(cd "$SP/Adapters" && unset CLAUDE_PROJECT_DIR IAENG_FRAMEWORK && bash .claude/skills/dashboard/open-dashboard.sh 2>&1)"; rc=$?
+case "$rc:$out" in
+  127:*"No such file"*) if [ ! -e "$LCALLS" ]; then ok "acceptance: from a subdirectory the exact command fails as not found and opens nothing"; else bad "acceptance: from a subdirectory the exact command opens nothing"; fi ;;
+  *) bad "acceptance: from a subdirectory the exact command fails as not found" "rc=$rc got: $out" ;;
+esac
+
+# A root-level Adapters/scripts/ of an adopter's own never shadows the pinned
+# framework's script (PR #239 security review, info).
+mkdir -p "$SP/Adapters/scripts"
+cat > "$SP/Adapters/scripts/usage-dashboard.sh" <<'FAKE'
+#!/usr/bin/env bash
+echo "shadow" >> "$FAKE_LAUNCHER_CALLS"
+FAKE
+rm -f "$LCALLS"
+out="$(cd "$T" && unset CLAUDE_PROJECT_DIR IAENG_FRAMEWORK && bash "$SP/.claude/skills/dashboard/open-dashboard.sh" 2>&1)"; rc=$?
+if [ "$rc" -eq 0 ] && [ "$(cat "$LCALLS" 2>/dev/null)" = "--open --no-wait --project-dir $SP" ]; then ok "launcher: the pinned ia-engineering/ script is used, not a root-level Adapters/scripts/ copy"; else bad "launcher: the pinned ia-engineering/ script is used, not a root-level Adapters/scripts/ copy" "calls: $(cat "$LCALLS" 2>/dev/null)"; fi
+rm -rf "$SP/Adapters"
 
 # The launcher, installed, run from elsewhere: the project is found from its place.
 LAUNCH="$SP/.claude/skills/dashboard/open-dashboard.sh"

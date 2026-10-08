@@ -12,10 +12,15 @@
 # matter:
 #   the project    $CLAUDE_PROJECT_DIR when it is a directory, else three
 #                  levels above this file;
-#   the script     Adapters/scripts/usage-dashboard.sh under $IAENG_FRAMEWORK,
-#                  the project itself (the framework repository), or the
-#                  project's ia-engineering/ (an adopter) — the order
-#                  hooks/lib.sh uses to find the framework.
+#   the script     Adapters/scripts/usage-dashboard.sh under, in this order,
+#                  $IAENG_FRAMEWORK, the project's ia-engineering/ (an
+#                  adopter's pinned framework), then the project itself (the
+#                  framework repository, which has no ia-engineering/). The
+#                  pinned submodule comes before the project root, so a
+#                  root-level Adapters/scripts/ of an adopter's own never
+#                  shadows the framework version it pinned (PR #239 security
+#                  review). hooks/lib.sh looks at the root first; that order
+#                  finds documents, this one picks a script to run.
 #
 # Prints ONE line for the user: where the page is and that it keeps itself
 # fresh, or why it did not open (then the script's last lines, and exit 1).
@@ -34,14 +39,14 @@ if [ -n "${CLAUDE_PROJECT_DIR:-}" ] && [ -d "$CLAUDE_PROJECT_DIR" ]; then
 fi
 
 SCRIPT=""
-for c in "${IAENG_FRAMEWORK:-}" "$ROOT" "$ROOT/ia-engineering"; do
+for c in "${IAENG_FRAMEWORK:-}" "$ROOT/ia-engineering" "$ROOT"; do
   if [ -n "$c" ] && [ -f "$c/Adapters/scripts/usage-dashboard.sh" ]; then
     SCRIPT="$c/Adapters/scripts/usage-dashboard.sh"
     break
   fi
 done
 if [ -z "$SCRIPT" ]; then
-  echo "Usage dashboard not opened: Adapters/scripts/usage-dashboard.sh was found neither in $ROOT nor in $ROOT/ia-engineering (a framework pinned before the kept-fresh dashboard has none; update the ia-engineering submodule)."
+  echo "Usage dashboard not opened: Adapters/scripts/usage-dashboard.sh was found neither in $ROOT/ia-engineering nor in $ROOT (a framework pinned before the kept-fresh dashboard has none; update the ia-engineering submodule)."
   exit 1
 fi
 

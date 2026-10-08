@@ -10,12 +10,16 @@
 # hook entry of the template that the file does not already have is appended
 # to its event; nothing already in the file is changed, reordered or removed —
 # the project's own hooks, its env, its permissions, its $comment. An entry is
-# "already there" when a command under the same event already runs the same
-# hook script (hooks/<name>.sh), whatever path spells it, so a re-run adds
-# nothing and a hand-merged entry is not duplicated. The file is rewritten by
-# jq, so its formatting is normalised (two-space indent); its content is kept.
-# Without jq, or when the file is not a JSON object, nothing is written and
-# the merge is left to you (--print). A project that does not want one of the
+# "already there" only when the same event has a group with the same matcher
+# running exactly the template's command (the project directory's spelling
+# aside), so a re-run adds nothing; a command that only names a framework hook
+# script — another matcher, an "|| true", an echo — does not count, the
+# framework's entry is added beside it, and the command is reported for the
+# project to check. The report lists what was added and what was found
+# present, nothing more. The file is rewritten by jq, so its formatting is
+# normalised (two-space indent); its content is kept. Without jq, when the
+# file is not a JSON object, or when it is a symbolic link, nothing is written
+# and the merge is left to you (--print). A project that does not want one of the
 # framework's hooks does not delete its entry — a re-run adds it back — but
 # uses the hook's own switch where it has one (hooks/README.md).
 #
@@ -108,27 +112,61 @@ if [ -f "$DEST" ] && [ "$FORCE" -eq 0 ]; then
     echo "  or re-run with --force to replace the file (review its other settings first)." >&2
     exit 1
   }
+  # A link is refused, not merged through: writing the merge would replace
+  # the link with a regular file and detach it from what it points at.
+  [ -L "$DEST" ] && merge_by_hand "it is a symbolic link (a merge would replace the link with a file)"
   command -v jq >/dev/null 2>&1 || merge_by_hand "jq is not installed to merge into it"
   # One JSON object, or nothing is touched. tr: jq on Windows writes CRLF.
   jq -es 'length == 1 and (.[0] | type == "object") and ((.[0].hooks // {}) | type == "object")' "$DEST" >/dev/null 2>&1 \
     || merge_by_hand "it is not one JSON object with an object 'hooks'"
-  # {m: the merged settings, a: ["Event: script.sh", ...] added}. A template
-  # group is present when every hooks/<name>.sh it runs is already run by
-  # some command under the same event.
+  # PRESENT MEANS EXACTLY THE FRAMEWORK'S ENTRY (PR #239 security review, F1).
+  # A template group is present only when a group under the same event has
+  # the same matcher and runs each of the template's commands exactly, after
+  # normalising only how the project directory is spelled ("${CLAUDE_PROJECT_DIR}"
+  # for "$CLAUDE_PROJECT_DIR", "/./" for "/"). A command that merely names a
+  # hook script — under a matcher that never fires, with "|| true" turning
+  # its block into nothing, or in an echo — is not the guard: the framework's
+  # entry is appended beside it (a hook run twice is harmless) and the other
+  # one is reported as a near miss for the project to check.
+  # Result: {m: merged settings, a: added, p: present, w: near misses}.
   MERGED="$(jq --argjson tpl "$RENDERED" '
+    def norm: gsub("[$][{]CLAUDE_PROJECT_DIR[}]"; "$CLAUDE_PROJECT_DIR") | gsub("/[.]/"; "/");
+    def cmds: [.hooks[]? | select((.type // "command") == "command") | .command // "" | strings | norm];
     def scripts: [.hooks[]?.command // "" | strings | scan("hooks/([A-Za-z0-9._-]+[.]sh)") | .[0]];
-    reduce ($tpl.hooks | to_entries[]) as $e ({m: ., a: []};
-      reduce $e.value[] as $g (.;
-        ($g | scripts) as $want
-        | ([.m.hooks[$e.key][]? | scripts[]]) as $have
-        | if ($want | length) == 0 or all($want[]; . as $w | any($have[]; . == $w)) then .
-          else .m.hooks[$e.key] = ((.m.hooks[$e.key] // []) + [$g])
-               | .a += [$e.key + ": " + ($want | join(", "))]
-          end))' "$DEST" 2>/dev/null | tr -d '\r')" \
+    def where($ev): $ev + (if (.matcher // "") != "" then " [" + .matcher + "]" else "" end);
+    . as $cur
+    | ([$tpl.hooks[][] | scripts[]] | unique) as $names
+    | reduce ($tpl.hooks | to_entries[]) as $e ({m: ., a: [], p: []};
+        reduce $e.value[] as $g (.;
+          ($g | cmds) as $want
+          | ($g | where($e.key) + ": " + (scripts | join(", "))) as $label
+          | if any($cur.hooks[$e.key][]?;
+                   (.matcher // null) == ($g.matcher // null)
+                   and (cmds as $have | all($want[]; . as $w | any($have[]; . == $w))))
+            then .p += [$label]
+            else .m.hooks[$e.key] = ((.m.hooks[$e.key] // []) + [$g]) | .a += [$label]
+            end))
+    | .w = [ $cur.hooks | to_entries[] | .key as $ev | .value[]? | . as $grp
+             | .hooks[]? | .command // "" | strings | . as $c
+             | select(any($names[]; . as $n | $c | contains("hooks/" + $n)))
+             | select(([$tpl.hooks[$ev][]? | select((.matcher // null) == ($grp.matcher // null)) | cmds[]]
+                       | any(.[]; . == ($c | norm))) | not)
+             | ($grp | where($ev)) + ": " + $c ]' "$DEST" 2>/dev/null | tr -d '\r')" \
     || merge_by_hand "the merge failed"
   ADDED="$(printf '%s\n' "$MERGED" | jq -r '.a[]' | tr -d '\r')"
+  PRESENT="$(printf '%s\n' "$MERGED" | jq -r '.p[]' | tr -d '\r')"
+  NEAR="$(printf '%s\n' "$MERGED" | jq -r '.w[]' | tr -d '\r')"
+  if [ -n "$NEAR" ]; then
+    {
+      echo "! $DEST: these commands name a framework hook script but are not the framework's entry"
+      echo "  (another matcher, or another command). Check each is not a weakened copy; the"
+      echo "  framework's own entry is in the file beside them either way:"
+      printf '%s\n' "$NEAR" | sed 's/^/    /'
+    } >&2
+  fi
   if [ -z "$ADDED" ]; then
-    echo "= $DEST already has every IA Engineering hook; left as it is."
+    echo "= $DEST: every IA Engineering hook entry is present exactly; left as it is."
+    printf '%s\n' "$PRESENT" | sed 's/^/    present: /'
     exit 0
   fi
   TMP="$DEST.iaeng-merge.$$"
@@ -137,9 +175,9 @@ if [ -f "$DEST" ] && [ "$FORCE" -eq 0 ]; then
     merge_by_hand "the merged file could not be written"
   fi
   mv -f "$TMP" "$DEST" || { rm -f "$TMP"; merge_by_hand "the merged file could not replace it"; }
-  echo "+ $DEST: merged (framework root: $ROOT); every entry already in it is kept. Added:"
-  printf '%s\n' "$ADDED" | sed 's/^/    /'
-  echo "  Hooks: $HOOK_LIST"
+  echo "+ $DEST: merged (framework root: $ROOT); every entry already in it is kept."
+  printf '%s\n' "$ADDED" | sed 's/^/    added:   /'
+  [ -z "$PRESENT" ] || printf '%s\n' "$PRESENT" | sed 's/^/    present: /'
   echo "  Review the diff, commit it, and restart the Claude Code session for the hooks to load."
   exit 0
 fi
