@@ -112,13 +112,20 @@
 # OUTPUT AND EXIT STATUS
 #
 #   0  the approvals carry over. stdout is exactly one line, the record:
-#        Approval carry-over: <approved> → <new>; merges equal git's own merge outside Registry/work-units.yml; registry entry identical; checker: check-approval-carry-over.sh
+#        Approval carry-over: <approved> -> <new>; merges equal git's own merge outside Registry/work-units.yml; registry entry identical; checker: check-approval-carry-over.sh
 #      with both heads as full commit ids. What was checked goes to stderr.
 #   1  they do not: the reason is on stderr, and stdout is empty.
 #   2  usage or environment error: stdout is empty. No approval carries over.
 #
-# Run it from Git Bash or another POSIX shell, not through a PowerShell 5.1
-# pipeline, which re-encodes the record's arrow.
+# THE RECORD IS 7-BIT ASCII, and must stay so. Exit 0 with a wrong record is
+# worse than no record. QA ran this script from a stock PowerShell 5.1
+# console on OEM code page 850: an arrow in the record printed as three
+# mangled characters, and `>` wrote the file as UTF-16LE. An ASCII line reads
+# the same in every console and code page, so the record has no non-ASCII
+# byte; a test asserts it. The diagnostics on stderr may still quote paths
+# that are not ASCII.
+#
+# Run it from Git Bash or another POSIX shell: its comparisons are bash code.
 #
 # This file is a control path (Adapters/scripts/): it decides whether a review
 # still stands. A change to it is a change to that decision; review it as one.
@@ -698,6 +705,6 @@ else
 fi
 
 say "the approvals carry over. The record to paste on the Pull Request is on stdout:"
-printf "Approval carry-over: %s → %s; merges equal git's own merge outside %s; registry entry identical; checker: %s\n" \
+printf "Approval carry-over: %s -> %s; merges equal git's own merge outside %s; registry entry identical; checker: %s\n" \
   "$APPROVED" "$NEW" "$REGISTRY" "$PROG"
 exit 0

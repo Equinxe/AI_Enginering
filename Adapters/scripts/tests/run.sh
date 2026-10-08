@@ -4773,7 +4773,14 @@ expect 0 "a branch reset to the approved head, then merged with develop, carries
 # The record: stdout is exactly that one line on success, and empty otherwise.
 CO_STDOUT="$(bash "$CARRY" "$CO_A" "$CO_OK" --base develop 2> /dev/null)"
 expect 0 "on success stdout is exactly the record, full commit ids, nothing else" -- \
-  test "$CO_STDOUT" = "Approval carry-over: $CO_A → $CO_OK; $CO_TAIL"
+  test "$CO_STDOUT" = "Approval carry-over: $CO_A -> $CO_OK; $CO_TAIL"
+# QA, PR #232: from a PowerShell 5.1 console on code page 850 a non-ASCII
+# arrow in the record printed mangled, with exit 0. Every byte of the record
+# must be printable 7-bit ASCII (space to tilde).
+expect 1 "the record is 7-bit ASCII: no byte outside space..tilde" -- \
+  env LC_ALL=C grep -q '[^ -~]' <<< "$CO_STDOUT"
+expect 0 "the record is not empty (the ASCII check above read a real record)" -- \
+  test -n "$CO_STDOUT"
 
 # A merge chain: develop merged twice; the second merge honest, then not.
 git checkout -q develop
