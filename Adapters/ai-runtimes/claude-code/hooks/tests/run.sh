@@ -595,6 +595,28 @@ ss_check_has  "session-start: framework root not found — no tier map warning" 
 
 rm -rf "$SSBASE"
 
+# --- Usage dashboard: Stop hook, installers, /dashboard (WU-IAENG-342) -------
+# Its own file, so it can be run alone (tests/dashboard.sh); its checks are
+# counted here. A run that reports no counts is a failure, never a pass.
+DASH_COUNTS="$(mktemp "${TMPDIR:-/tmp}/iaeng-dash-counts.XXXXXX")"
+DASH_ARGS=()
+[ "$VERBOSE" -eq 1 ] && DASH_ARGS=(--verbose)
+IAENG_HOOK_TESTS_COUNTS="$DASH_COUNTS" bash "$HERE/dashboard.sh" ${DASH_ARGS[@]+"${DASH_ARGS[@]}"}
+DASH_RC=$?
+if read -r DASH_TOTAL DASH_FAILED < "$DASH_COUNTS" 2>/dev/null \
+    && [[ "$DASH_TOTAL" =~ ^[0-9]+$ ]] && [[ "$DASH_FAILED" =~ ^[0-9]+$ ]] && [ "$DASH_TOTAL" -gt 0 ]; then
+  TOTAL=$((TOTAL + DASH_TOTAL))
+  FAILED=$((FAILED + DASH_FAILED))
+  if [ "$DASH_RC" -ne 0 ] && [ "$DASH_FAILED" -eq 0 ]; then
+    TOTAL=$((TOTAL + 1)); FAILED=$((FAILED + 1))
+    echo "   FAIL  tests/dashboard.sh exited $DASH_RC with no failed check counted"
+  fi
+else
+  TOTAL=$((TOTAL + 1)); FAILED=$((FAILED + 1))
+  echo "   FAIL  tests/dashboard.sh reported no counts (exit $DASH_RC) — it could not run"
+fi
+rm -f "$DASH_COUNTS"
+
 # --- Verdict ----------------------------------------------------------------
 
 echo

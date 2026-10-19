@@ -2,8 +2,9 @@
 # IA Engineering — install the Claude Code skills into a project
 #
 # Copies Adapters/ai-runtimes/claude-code/skills/* into the project's
-# .claude/skills/, so a slash command like /create-project exists in this
-# runtime without the framework's own content ever mentioning one.
+# .claude/skills/, so a slash command like /create-project or /dashboard
+# exists in this runtime without the framework's own content ever mentioning
+# one.
 #
 # WHY THIS IS A SEPARATE SCRIPT FROM install-hooks.sh
 #
@@ -19,15 +20,27 @@
 # runtime Adapter and the Workflow it invokes never mentions it. A different
 # runtime writes its own wrapper beside this one and the Workflow is untouched.
 #
+# IN THE FRAMEWORK CHECKOUT ITSELF
+#
+# Only the skills named in FRAMEWORK_SKILLS below are installed there, and the
+# others are skipped with a note. /create-project bootstraps a project that
+# imports the framework; installing it in the framework's own .claude/ would
+# offer the framework a command for somebody else's repository. /dashboard
+# measures whichever project it runs in, the framework repository included
+# (WU-IAENG-342). Its installed copy is committed beside .claude/settings.json,
+# the same kind of runtime configuration, and the hook tests check that the
+# copy matches its source here.
+#
 # Usage, from the project root:
 #   ./ia-engineering/Adapters/ai-runtimes/claude-code/install-skills.sh [--force] [--list]
 #
 #   --list   print what would be installed and where, and change nothing
-#   --force  overwrite a skill that already exists in the project
+#   --force  overwrite a skill that already exists in the project and differs
 #
 # An existing skill of the same name is NEVER overwritten without --force. A
 # project may have edited it, and silently replacing edited content is the
-# failure mode install-hooks.sh already refuses for settings.json.
+# failure mode install-hooks.sh already refuses for settings.json. One that is
+# identical to its source is reported as current, so a re-run is quiet.
 
 set -uo pipefail
 export LC_ALL=C
@@ -50,30 +63,39 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 PROJECT="$(pwd)"
 SRC="$HERE/skills"
 
+# The skills that also belong in the framework repository's own .claude/.
+FRAMEWORK_SKILLS="dashboard"
+
 if [ ! -d "$SRC" ]; then
   echo "install-skills.sh: $SRC is missing" >&2
   exit 1
 fi
 
-# Refuse to install into the framework's own checkout. Running this from the
-# framework root rather than from a project would put the skill in the
-# framework's .claude/, where it is not wanted and where it would then be
-# committed as framework content — the exact thing Principle X rules out.
+IN_FRAMEWORK=0
 if [ -f "$PROJECT/Core/AI_MANIFEST.md" ] && [ -d "$PROJECT/Adapters/ai-runtimes" ]; then
-  echo "install-skills.sh: this looks like the IA Engineering checkout itself, not a project." >&2
-  echo "  Run it from the root of the project that imported the framework." >&2
-  echo "  The skill is an Adapter for other projects; installing it here would" >&2
-  echo "  make a Claude-Code-specific file part of the framework's own content." >&2
-  exit 1
+  IN_FRAMEWORK=1
+  echo "  This is the IA Engineering checkout itself: only the skills it uses for its own"
+  echo "  work are installed here ($FRAMEWORK_SKILLS); the others are Adapters for projects."
 fi
+
+wanted() {
+  [ "$IN_FRAMEWORK" -eq 0 ] && return 0
+  case " $FRAMEWORK_SKILLS " in *" $1 "*) return 0 ;; esac
+  return 1
+}
 
 INSTALLED=0
 SKIPPED=0
+CURRENT=0
 FOUND=0
 
 for skill_dir in "$SRC"/*/; do
   [ -d "$skill_dir" ] || continue
   name="$(basename "$skill_dir")"
+  if ! wanted "$name"; then
+    echo "  - $name: not for the framework checkout — skipped."
+    continue
+  fi
   FOUND=$((FOUND + 1))
   dest="$PROJECT/.claude/skills/$name"
 
@@ -82,8 +104,14 @@ for skill_dir in "$SRC"/*/; do
     continue
   fi
 
+  if [ -e "$dest" ] && diff -r "$skill_dir" "$dest" >/dev/null 2>&1; then
+    echo "  = .claude/skills/$name already current"
+    CURRENT=$((CURRENT + 1))
+    continue
+  fi
+
   if [ -e "$dest" ] && [ "$FORCE" -eq 0 ]; then
-    echo "  ! $name already exists at .claude/skills/$name — left untouched." >&2
+    echo "  ! $name already exists at .claude/skills/$name and differs — left untouched." >&2
     echo "    A project may have edited it. Re-run with --force to replace it." >&2
     SKIPPED=$((SKIPPED + 1))
     continue
@@ -114,7 +142,7 @@ if [ "$LIST" -eq 1 ]; then
   exit 0
 fi
 
-echo "  $INSTALLED installed, $SKIPPED left untouched, of $FOUND available."
+echo "  $INSTALLED installed, $CURRENT already current, $SKIPPED left untouched, of $FOUND available."
 
 # VERIFIED, NOT ASSUMED: a skill Claude Code cannot read is not installed,
 # whatever the copy reported. The one property that decides that is the
@@ -122,6 +150,7 @@ echo "  $INSTALLED installed, $SKIPPED left untouched, of $FOUND available."
 MISSING=""
 for skill_dir in "$SRC"/*/; do
   name="$(basename "$skill_dir")"
+  wanted "$name" || continue
   [ -f "$PROJECT/.claude/skills/$name/SKILL.md" ] || MISSING="$MISSING $name"
 done
 if [ -n "$MISSING" ]; then
