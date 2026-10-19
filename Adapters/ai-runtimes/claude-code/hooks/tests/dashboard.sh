@@ -365,6 +365,14 @@ else
 fi
 if [ "$(grep -c '^ *added: ' "$T/inst.out")" -eq 4 ] && grep -q 'echo hooks/block-escape-hatches.sh' "$T/inst.err" && grep -q 'true # hooks/stop-gate.sh' "$T/inst.err"; then ok "F1: ... reported as four additions, the decoys as near misses"; else bad "F1: ... reported as four additions, the decoys as near misses"; fi
 
+# Row 4 (PR #239 code review): the project's own script of the same name
+# under another hooks/ folder is not the framework's stop gate.
+jq '.hooks.Stop = [{"hooks":[{"type":"command","command":"bash ./scripts/hooks/stop-gate.sh"}]}]' \
+  "$T/rendered.json" | tr -d '\r' > "$SET"
+inst
+if [ "$INST_RC" -eq 0 ] && [ "$(exact_count Stop '' "$TPL_GATE")" = 1 ] && [ "$(exact_count Stop '' "bash ./scripts/hooks/stop-gate.sh")" = 1 ]; then ok "a project's own scripts/hooks/stop-gate.sh: the framework stop gate is still added, the project's kept"; else bad "a project's own scripts/hooks/stop-gate.sh: the framework stop gate is still added, the project's kept" "$(cat "$T/inst.out")"; fi
+if grep -q 'scripts/hooks/stop-gate.sh' "$T/inst.err"; then ok "a project's own scripts/hooks/stop-gate.sh: reported as a near miss"; else bad "a project's own scripts/hooks/stop-gate.sh: reported as a near miss"; fi
+
 # The project directory's spelling alone does not make a different entry.
 jq '.hooks.Stop |= map(.hooks |= map(.command |= gsub("[$]CLAUDE_PROJECT_DIR"; "${CLAUDE_PROJECT_DIR}")))' \
   "$T/rendered.json" | tr -d '\r' > "$SET"
@@ -405,7 +413,8 @@ LCALLS="$T/launcher-calls"
 cat > "$SP/ia-engineering/Adapters/scripts/usage-dashboard.sh" <<'FAKE'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "$FAKE_LAUNCHER_CALLS"
-echo "fake usage-dashboard: opened"
+echo "${FAKE_SAY:-Usage dashboard opened as it is; refreshing it in the background (log: .ia-engineering/usage/refresh.log).}"
+[ -z "${FAKE_NOTE:-}" ] || echo "$FAKE_NOTE" >&2
 [ "${FAKE_RC:-0}" -eq 0 ] || { echo "fake usage-dashboard: boom, the reason" >&2; exit "$FAKE_RC"; }
 exit 0
 FAKE
@@ -496,6 +505,34 @@ out="$(cd "$T" && unset CLAUDE_PROJECT_DIR IAENG_FRAMEWORK && IAENG_USAGE_AUTO_R
 case "$out" in
   *"is off"*) ok "launcher: says when the automatic refresh is off" ;;
   *) bad "launcher: says when the automatic refresh is off" "got: $out" ;;
+esac
+
+# The line says what happened (PR #239 code review, QA). This project has no
+# .claude/settings.json yet: the Stop hook is not credited.
+lrun() { out="$(cd "$T" && unset CLAUDE_PROJECT_DIR IAENG_FRAMEWORK IAENG_USAGE_AUTO_REFRESH && bash "$LAUNCH" 2>&1)"; rc=$?; }
+lrun
+case "$out" in
+  *"a refresh is running now"*"Stop hook is not installed"*) ok "launcher: a warm page — says a refresh is running; no Stop hook in settings, says it is not installed" ;;
+  *) bad "launcher: a warm page — says a refresh is running; no Stop hook in settings, says it is not installed" "got: $out" ;;
+esac
+mkdir -p "$SP/.claude"
+jq -n --arg c "bash ./ia-engineering/Adapters/ai-runtimes/claude-code/hooks/dashboard-refresh.sh" \
+  '{hooks: {Stop: [{hooks: [{type: "command", command: $c}]}]}}' > "$SP/.claude/settings.json"
+lrun
+case "$out" in
+  *"after every turn by the Stop hook"*) ok "launcher: the Stop hook registered in settings — credited" ;;
+  *) bad "launcher: the Stop hook registered in settings — credited" "got: $out" ;;
+esac
+out="$(cd "$T" && unset CLAUDE_PROJECT_DIR IAENG_FRAMEWORK && FAKE_SAY="Usage dashboard written: x" bash "$LAUNCH" 2>&1)"
+case "$out" in
+  *"a refresh is running now"*) bad "launcher: a cold page built in the foreground — no claim of a running refresh" "got: $out" ;;
+  *"built just now"*) ok "launcher: a cold page built in the foreground — says built just now, no claim of a running refresh" ;;
+  *) bad "launcher: a cold page built in the foreground — says built just now" "got: $out" ;;
+esac
+out="$(cd "$T" && unset CLAUDE_PROJECT_DIR IAENG_FRAMEWORK && FAKE_NOTE="usage-dashboard: could not open a browser; open x yourself." bash "$LAUNCH" 2>&1)"; rc=$?
+case "$rc:$out" in
+  0:*"no browser could be opened; open it yourself"*) if [ "$(printf '%s\n' "$out" | wc -l | tr -d ' ')" -eq 1 ]; then ok "launcher: the opener failed — says so in its one line instead of 'opened'"; else bad "launcher: the opener failed — one line" "got: $out"; fi ;;
+  *) bad "launcher: the opener failed — says so instead of 'opened'" "rc=$rc got: $out" ;;
 esac
 out="$(cd "$T" && unset CLAUDE_PROJECT_DIR IAENG_FRAMEWORK && FAKE_RC=1 bash "$LAUNCH" 2>&1)"; rc=$?
 case "$rc:$out" in

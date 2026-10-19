@@ -40,10 +40,11 @@
 # .ia-engineering/usage/, so the gate's `git status` sees nothing of it.
 #
 # SKIPPED SILENTLY when:
-#   - the project opted out: $IAENG_USAGE_AUTO_REFRESH is 0, off, false or no
-#     (any case) — in the shell, or in the "env" block of .claude/settings.json
-#     or .claude/settings.local.json — or the file
-#     .ia-engineering/usage-auto-refresh.off exists in the project;
+#   - the project opted out: the file .ia-engineering/usage-auto-refresh.off
+#     exists in the project (the reliable switch), or $IAENG_USAGE_AUTO_REFRESH
+#     is 0, off, false or no (any case) — in the shell, or in the "env" block
+#     of .claude/settings.json or .claude/settings.local.json, which reaches
+#     the hook only where the runtime passes that env to hooks;
 #   - the dashboard script is absent beside this hook (a framework pinned at
 #     a version without it).
 # Anything else — a project that is not a git work tree, a path that does not

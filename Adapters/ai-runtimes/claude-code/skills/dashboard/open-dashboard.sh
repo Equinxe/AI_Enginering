@@ -22,8 +22,11 @@
 #                  review). hooks/lib.sh looks at the root first; that order
 #                  finds documents, this one picks a script to run.
 #
-# Prints ONE line for the user: where the page is and that it keeps itself
-# fresh, or why it did not open (then the script's last lines, and exit 1).
+# Prints ONE line for the user: where the page is, what happened to it, and
+# what keeps it fresh; or why it did not open (then the script's last lines,
+# and exit 1). The first page in a project is built in the foreground, which
+# SKILL.md covers with a 600000 ms Bash timeout (cold builds measured at 9 s
+# for an adopter and 57-90 s for the framework itself on a loaded machine).
 # Called with Git Bash's bash on Windows, never through usage-dashboard.cmd,
 # which costs seconds to start and adds a plain --open.
 
@@ -58,12 +61,39 @@ if [ "$RC" -ne 0 ]; then
   exit 1
 fi
 
+# THE LINE SAYS WHAT HAPPENED, NOT WHAT USUALLY HAPPENS (PR #239 code review).
+# It is worded from what usage-dashboard.sh printed: a page opened as it was
+# with a refresh started behind it, or one a refresh already running will
+# update, or a first page built just now in the foreground (no refresh is
+# started then: the page is new). The Stop hook is credited only when the
+# project's settings register it, and an opt-out is named. A browser that
+# could not be opened is said, not hidden: the script reports it as a note
+# and still exits 0 (on Windows explorer.exe gives no usable status, so
+# there nothing can be reported).
 PAGE="$ROOT/.ia-engineering/usage/dashboard.html"
 command -v cygpath >/dev/null 2>&1 && PAGE="$(cygpath -w "$PAGE")"
-AUTO="refreshed in the background after every turn by the Stop hook"
+
+case "$OUT" in
+  *"opened as it is; refreshing it in the background"*) NOW="a refresh is running now; " ;;
+  *"a refresh is already running"*) NOW="a refresh already running will update it; " ;;
+  *"Usage dashboard written"*) NOW="built just now; " ;;
+  *) NOW="" ;;
+esac
+
+AUTO="not refreshed after each turn: the Stop hook is not installed (install-hooks.sh)"
+for s in "$ROOT/.claude/settings.json" "$ROOT/.claude/settings.local.json"; do
+  if [ -f "$s" ] && grep -q 'hooks/dashboard-refresh\.sh' "$s"; then
+    AUTO="refreshed in the background after every turn by the Stop hook"
+  fi
+done
 case "${IAENG_USAGE_AUTO_REFRESH:-}" in
   [0]|[Oo][Ff][Ff]|[Ff][Aa][Ll][Ss][Ee]|[Nn][Oo]) AUTO="automatic refresh after each turn is off for this session" ;;
 esac
 [ -e "$ROOT/.ia-engineering/usage-auto-refresh.off" ] && AUTO="automatic refresh after each turn is off for this project"
-echo "Usage dashboard opened: $PAGE - it keeps itself fresh (a refresh is running now, the page reloads itself every 60 s; $AUTO)."
+
+TITLE="Usage dashboard opened: $PAGE"
+case "$OUT" in
+  *"could not open a browser"*) TITLE="Usage dashboard ready, but no browser could be opened; open it yourself: $PAGE" ;;
+esac
+echo "$TITLE - it keeps itself fresh (${NOW}the page reloads itself every 60 s; $AUTO)."
 exit 0
