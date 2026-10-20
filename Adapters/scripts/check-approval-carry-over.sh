@@ -89,13 +89,15 @@
 # FAILS CLOSED. Exit 2, never 0, when it cannot decide: a revision that does
 # not resolve, a shallow clone, git older than 2.40 (`merge-tree --write-tree`
 # needs 2.38, --attr-source 2.40), merge-classify.sh missing, a git command
-# failing, a non-empty $GIT_DIR/info/attributes, or an environment variable
-# that moves git's repository, objects, config or attribute source (GIT_DIR,
-# GIT_WORK_TREE, GIT_COMMON_DIR, GIT_INDEX_FILE, GIT_OBJECT_DIRECTORY,
-# GIT_ALTERNATE_OBJECT_DIRECTORIES, GIT_ATTR_SOURCE, GIT_REPLACE_REF_BASE,
-# GIT_NAMESPACE, GIT_CONFIG*). Replace refs and the system attributes file are
-# ignored, and core.attributesFile is pinned: the machine running the check
-# cannot make a hand resolution look like git's own merge. Exit 1, with the reason, when the history or the registry is not
+# failing, a non-empty $GIT_DIR/info/attributes or info/grafts, or an
+# environment variable that moves git's repository, objects, parents, config
+# or attribute source (GIT_DIR, GIT_WORK_TREE, GIT_COMMON_DIR, GIT_INDEX_FILE,
+# GIT_OBJECT_DIRECTORY, GIT_ALTERNATE_OBJECT_DIRECTORIES, GIT_ATTR_SOURCE,
+# GIT_REPLACE_REF_BASE, GIT_NAMESPACE, GIT_GRAFT_FILE, GIT_CONFIG*). Replace refs and the system attributes file are
+# ignored, core.attributesFile is pinned, and no commit-graph file is read
+# (core.commitGraph=false on every git command, merge-classify.sh's
+# included): the machine running the check cannot make a hand resolution
+# look like git's own merge, nor a commit look like a merge. Exit 1, with the reason, when the history or the registry is not
 # what the rule requires, including a registry this script cannot read
 # without ambiguity.
 #
@@ -118,8 +120,18 @@
 # OUTPUT AND EXIT STATUS
 #
 #   0  the approvals carry over. stdout is exactly one line, the record:
-#        Approval carry-over: <approved> -> <new>; merges equal git's own merge outside Registry/work-units.yml; registry entry identical; checker: check-approval-carry-over.sh
-#      with both heads as full commit ids. What was checked goes to stderr.
+#        Approval carry-over: <approved> -> <new>; base <base>; merges equal git's own merge outside Registry/work-units.yml; registry entry identical; checker: check-approval-carry-over.sh blob <blob>, merge-classify.sh blob <blob>
+#      with both heads and the base as full commit ids, and the blob ids of
+#      this script and of merge-classify.sh as they ran. What was checked goes
+#      to stderr.
+#
+#      The record says enough to reproduce the verdict (issue #240): an auditor
+#      finds a commit holding those two blobs (`git hash-object --no-filters
+#      <file>` on a checkout, or `git log --all --find-object=<blob>`), and runs
+#      that checker with `--base <base>`. The base is named by its commit id,
+#      not by the ref given: origin/develop moves, and a newer develop can
+#      decide a merge differently. The record's prefix, up to the first `;`,
+#      is unchanged since PR #232.
 #   1  they do not: the reason is on stderr, and stdout is empty.
 #   2  usage or environment error: stdout is empty. No approval carries over.
 #
@@ -230,11 +242,13 @@ done
 # objects, its config or its attribute source are refused before git runs
 # once; replace refs and the system attributes file are switched off for every
 # git command below; core.attributesFile is pinned in merge_classify_automatic;
-# a non-empty info/attributes is refused once the repository is found.
+# a non-empty info/attributes or info/grafts is refused once the repository
+# is found.
 for var in GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE GIT_OBJECT_DIRECTORY \
-           GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_ATTR_SOURCE GIT_REPLACE_REF_BASE GIT_NAMESPACE; do
+           GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_ATTR_SOURCE GIT_REPLACE_REF_BASE GIT_NAMESPACE \
+           GIT_GRAFT_FILE; do
   [ -z "${!var+set}" ] \
-    || cannot_decide "$var is set in the environment: it changes which repository, objects or attributes git reads, so the verdict would not be the one an auditor reproduces; unset it"
+    || cannot_decide "$var is set in the environment: it changes which repository, objects, parents or attributes git reads, so the verdict would not be the one an auditor reproduces; unset it"
 done
 for var in $(compgen -e); do
   case "$var" in
@@ -244,6 +258,14 @@ done
 export GIT_NO_REPLACE_OBJECTS=1 GIT_ATTR_NOSYSTEM=1
 
 command -v git > /dev/null 2>&1 || cannot_decide "git is not on PATH"
+# A commit-graph file records each commit's parents, and git trusts it over
+# the commit object: a patched one made a single-parent commit read as a
+# merge of develop, and this check printed a record for it (Security Engineer
+# on PR #249, SEC-IAENG-351-F3). Neither GIT_NO_REPLACE_OBJECTS nor the
+# grafts refusal sees it. Every git command below, merge-classify.sh's
+# included (a function is looked up when called), reads no commit-graph.
+# Defined after the PATH check, which must find the real git.
+git() { command git -c core.commitGraph=false "$@"; }
 git rev-parse --git-dir > /dev/null 2>&1 || cannot_decide "not inside a git repository"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)" \
@@ -256,6 +278,21 @@ declare -F merge_classify_automatic > /dev/null \
   || cannot_decide "merge-classify.sh beside this script defines no merge_classify_automatic: it is older than this script"
 merge_classify_git_ok \
   || cannot_decide "$(git version) is too old: git's own merge needs 'git merge-tree --write-tree' (git 2.38) with --attr-source (git 2.40); use git 2.40 or newer"
+
+# The blob ids of the two files that decide the verdict, for the record: the
+# bytes bash read, hashed without filters, so no attribute or line-ending
+# setting changes the id, and it is the id `git ls-tree` shows for the file in
+# a commit that holds it.
+blob_of() {
+  local id
+  id="$(git hash-object --no-filters -- "$1" 2> /dev/null)" || return 1
+  is_oid "$id" || return 1
+  printf '%s' "$id"
+}
+CHECKER_BLOB="$(blob_of "$SCRIPT_DIR/${BASH_SOURCE[0]##*/}")" \
+  || cannot_decide "git hash-object failed on this script: the record could not name the checker that decided it"
+CLASSIFY_BLOB="$(blob_of "$SCRIPT_DIR/merge-classify.sh")" \
+  || cannot_decide "git hash-object failed on merge-classify.sh: the record could not name the checker that decided it"
 
 # Every path git prints below is read from the top of the work tree. Run from
 # a subdirectory, `git merge-tree --name-only` prints conflicted paths relative
@@ -273,6 +310,15 @@ INFO_ATTRIBUTES="$(git rev-parse --git-path info/attributes 2> /dev/null)" \
   || cannot_decide "git rev-parse --git-path info/attributes failed"
 [ ! -s "$INFO_ATTRIBUTES" ] \
   || cannot_decide "$(q "$INFO_ATTRIBUTES") is not empty: git applies it to every merge and no option switches it off, so git's own merge here may not be the one an auditor reproduces (a merge=union line in it made a hand resolution pass); empty or remove it"
+# Grafts rewrite a commit's parents for every git command, and
+# GIT_NO_REPLACE_OBJECTS does not switch them off: a graft can make a commit
+# with content of its own look like a merge of develop (SEC-IAENG-351-F2).
+# --git-path resolves to $GIT_GRAFT_FILE when it is set, though that is
+# refused above.
+INFO_GRAFTS="$(git rev-parse --git-path info/grafts 2> /dev/null)" \
+  || cannot_decide "git rev-parse --git-path info/grafts failed"
+[ ! -s "$INFO_GRAFTS" ] \
+  || cannot_decide "$(q "$INFO_GRAFTS") is not empty: grafts rewrite the parents git reads and no option switches them off, so the history checked here may not be the history an auditor reproduces; empty or remove it"
 
 SHALLOW="$(git rev-parse --is-shallow-repository 2> /dev/null)" \
   || cannot_decide "git rev-parse --is-shallow-repository failed"
@@ -733,6 +779,6 @@ else
 fi
 
 say "the approvals carry over. The record to paste on the Pull Request is on stdout:"
-printf "Approval carry-over: %s -> %s; merges equal git's own merge outside %s; registry entry identical; checker: %s\n" \
-  "$APPROVED" "$NEW" "$REGISTRY" "$PROG"
+printf "Approval carry-over: %s -> %s; base %s; merges equal git's own merge outside %s; registry entry identical; checker: %s blob %s, merge-classify.sh blob %s\n" \
+  "$APPROVED" "$NEW" "$BASE" "$REGISTRY" "$PROG" "$CHECKER_BLOB" "$CLASSIFY_BLOB"
 exit 0
