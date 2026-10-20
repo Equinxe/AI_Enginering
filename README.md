@@ -37,11 +37,14 @@ reaches you only with the next tag. An early adopter who needs one sooner pins
 a specific `develop` commit instead, and moves to the next tag when it is cut.
 Upgrading is a deliberate `git -C ia-engineering checkout <newer tag>` followed
 by `git add ia-engineering`, reviewed like any other change. Then re-run
-`setup-project-bootstrap.sh <stack>` **without `--force`**: it adds what the new
-version needs and lists each existing file that differs from its Adapter. Copy
-an Adapter over a listed file by hand only if you never edited that file, since
-`--force` replaces every existing file the script manages at once, your
-Dockerfile and Work Unit registry included. Then re-run `install-hooks.sh` and `install-skills.sh`. The
+`setup-project-bootstrap.sh <stack>` (the value in `.ia-engineering/stack`)
+**without `--force`**: it adds what the new version needs, appends missing
+rules to `.gitattributes` and `.gitignore` (commit them with the upgrade), and
+lists with `!` each existing file it left alone. Leave the `already exists`
+stack files as they are. Copy an Adapter by hand over a file that `differs from
+the Adapter` only if you never edited that file, since `--force` replaces every
+existing file the script manages at once, your Dockerfile and Work Unit
+registry included. Then re-run `install-hooks.sh` and `install-skills.sh`. The
 version's `CHANGELOG.md` entry says what changed.
 
 If the framework comes from a local directory instead of a URL, `git submodule
