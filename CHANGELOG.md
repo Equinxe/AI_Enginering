@@ -44,8 +44,7 @@ This project follows Semantic Versioning, extended with an informal 4th segment 
 - The security enforcement boundary stated: local guardrails (`pre-push`, hooks) are skipped by the same `--no-verify` / `core.hooksPath` they back up; the server-side required checks are the boundary. `SECURITY.md` and the hooks README say so; two limits of `block-inline-suppression.sh` documented (WU-IAENG-305)
 - Adoption-path and dogfood documentation: Work Unit line enforcement stated as at most one locally and exactly one in CI, the bootstrap handoff, README hook and skill installs required (WU-IAENG-321); `git init`, the ref to pin, TROUBLESHOOTING Y and Z, the signer of the adoption commit (WU-IAENG-324); the bootstrap closing report (WU-IAENG-325)
 - `Adapters/scripts/setup-*`, `install.sh` — a project's own Registry is read, never the framework's, and a missing one fails naming the file to create; the bootstrap writes an empty starter registry; exact-path LF rules for the files hooks and CI parse (WU-IAENG-320)
-
-- `Adapters/ai-runtimes/claude-code/install-hooks.sh` now **merges** the template's missing entries into an existing `.claude/settings.json` (exit 0) instead of refusing it (exit 1); a framework hook entry a project deleted **comes back** on the next run, and a command that only resembles a framework guard (another matcher, `|| true`, a decoy, a same-named project script) does not count — the real entry is added beside it and the near miss reported. It refuses untouched without `jq`, on invalid JSON or on a symlink. `install-skills.sh` installs `/dashboard` in the framework repository too and reports an identical skill as current. **Adopters upgrading must re-run `install-skills.sh --force` to get `/dashboard`** (WU-IAENG-342)
+- `Adapters/ai-runtimes/claude-code/install-hooks.sh` now **merges** the template's missing entries into an existing `.claude/settings.json` (exit 0) instead of refusing it (exit 1); a framework hook entry a project deleted **comes back** on the next run, and a command that only resembles a framework guard (another matcher, `|| true`, a decoy, a same-named project script) does not count — the real entry is added beside it and the near miss reported. It refuses untouched without `jq`, on invalid JSON or on a symlink. `install-skills.sh` installs `/dashboard` in the framework repository too and reports an identical skill as current. **Adopters upgrading: re-run `install-hooks.sh`** (it merges the new `Stop` hook into an existing `.claude/settings.json` and lists what it added) **and then `install-skills.sh`** (it installs the new `/dashboard` skill and leaves a skill the project edited untouched). Add `--force` only to replace a skill the project has **not** edited: it overwrites project edits (WU-IAENG-342)
 
 ### Fixed
 
@@ -62,10 +61,9 @@ This project follows Semantic Versioning, extended with an informal 4th segment 
 
 ### Notes
 
-
 This release makes the framework exact, and it came from two directions that met in the same files.
 
-**A front door nobody guards drifts.** Every drift found after v0.0.13 — the README naming the old version, CLAUDE.md reading `TBD` for two Work Units after a milestone was declared, a count that was true once — was cleared and then pinned by a validator section, so the same class cannot reappear unseen.
+**A front door nobody guards drifts.** Every drift found after v0.0.13 — the README naming the old version (WU-IAENG-260), `VERSION.md` leaving the in-progress milestone `TBD` while its Work Units were already registered (WU-IAENG-282), CLAUDE.md and README still reading `TBD` after Precision was declared (WU-IAENG-283), a count that was true once — was cleared and then pinned by a validator section, so the same class cannot reappear unseen.
 
 **The controls that grade a change can be rewritten by the change.** Issue #112 and two Purple exercises attacked the hooks and CI from inside; each finding closed as a check, a hook rule, or a stated limit. Two limits are stated rather than hidden: the local guardrails are not the security boundary (the server-side required checks are), and the Control Path Guard is **not yet a required check**.
 
