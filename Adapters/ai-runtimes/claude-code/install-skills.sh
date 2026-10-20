@@ -41,6 +41,12 @@
 # project may have edited it, and silently replacing edited content is the
 # failure mode install-hooks.sh already refuses for settings.json. One that is
 # identical to its source is reported as current, so a re-run is quiet.
+#
+# The project's .gitattributes gets the line "/.claude/skills/** text eol=lf"
+# when it does not have it yet (issue #242): the launchers are bash scripts,
+# and a clone with core.autocrlf=true would otherwise check them out CRLF,
+# unlike the framework's own copies. Nothing else in .gitattributes is
+# touched; --list writes nothing.
 
 set -uo pipefail
 export LC_ALL=C
@@ -143,6 +149,30 @@ if [ "$LIST" -eq 1 ]; then
 fi
 
 echo "  $INSTALLED installed, $CURRENT already current, $SKIPPED left untouched, of $FOUND available."
+
+# THE INSTALLED SKILLS ARE PINNED TO LF IN THE PROJECT (issue #242). Exact
+# line (a CRLF .gitattributes read as LF); appended on its own line, so a file
+# without a final newline is not joined to it. The same few lines as
+# install-hooks.sh's, written out rather than shared: that script is a control
+# path, and a file it sourced would have to be one too.
+LF_RULE="/.claude/skills/** text eol=lf"
+ATTR="$PROJECT/.gitattributes"
+# Read before the append starts: a last line without its newline gets one.
+SEP=""
+if [ -s "$ATTR" ] && [ -n "$(tail -c 1 "$ATTR")" ]; then SEP=$'\n'; fi
+if [ -f "$ATTR" ] && tr -d '\r' < "$ATTR" | grep -qxF "$LF_RULE"; then
+  :
+elif {
+  printf '%s' "$SEP"
+  echo "# IA Engineering — .claude/skills/ is written by install-skills.sh and holds"
+  echo "# bash launchers; LF on every checkout, as in the framework (issue #242)."
+  echo "$LF_RULE"
+} >> "$ATTR"; then
+  echo "  + .gitattributes: $LF_RULE (commit it with the skills)"
+else
+  echo "install-skills.sh: could not append to $ATTR; add this line to it by hand: $LF_RULE" >&2
+  exit 1
+fi
 
 # VERIFIED, NOT ASSUMED: a skill Claude Code cannot read is not installed,
 # whatever the copy reported. The one property that decides that is the

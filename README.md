@@ -18,7 +18,7 @@ a roster of named Employees on top of them.
 # from the root of your project (skip git init if it is already a repository)
 git init -b main
 git submodule add https://github.com/Equinxe/AI_Enginering ia-engineering
-git -C ia-engineering checkout v0.0.13   # pin a release tag: see "Which ref to pin" below
+git -C ia-engineering checkout v0.0.14   # pin a release tag: see "Which ref to pin" below
 git add ia-engineering                   # records the pinned commit
 
 # CI checks, git hooks, data-protection rules, PR and issue templates
@@ -32,7 +32,7 @@ git add ia-engineering                   # records the pinned commit
 promises nothing across versions yet: `VERSION.md` Status is Active Development
 and no backward-compatibility guarantee applies
 (`Governance/VERSIONING_POLICY.md`). So pin a release tag, never a moving
-branch; the latest is `v0.0.13`. A fix that lands on `develop` after a tag
+branch; the latest is `v0.0.14`. A fix that lands on `develop` after a tag
 reaches you only with the next tag. An early adopter who needs one sooner pins
 a specific `develop` commit instead, and moves to the next tag when it is cut.
 Upgrading is a deliberate `git -C ia-engineering checkout <newer tag>` followed
@@ -123,7 +123,7 @@ skipping it:
 
 | | |
 |---|---|
-| **Proven by execution** | as of v0.0.13: 189 framework self-validation checks, 185 behaviour tests over the check scripts, 265 over the runtime hooks, and ten required CI checks — all green on every merge, on Linux |
+| **Proven by execution** | as of v0.0.14: 200 framework self-validation checks, 1208 behaviour tests over the check scripts, 791 over the runtime hooks, and ten required CI checks — all green on every merge, on Linux |
 | **Proven once, end to end** | a fresh project importing the framework, bootstrapping, generating its 42 agents, installing hooks that refuse a bad commit and accept a good one |
 | **Not yet proven** | **the framework has only ever been used on itself.** No third-party project has adopted it. The first one will find things `Governance/TROUBLESHOOTING.md` does not yet contain |
 | **Not yet proven** | 29 of the 42 Employees have never been dispatched. Their definitions are careful; carefulness is not evidence |
@@ -193,7 +193,7 @@ Current Version
 
 ```
 
-v0.0.13 - Portability
+v0.0.14 - Precision
 
 ```
 
@@ -214,10 +214,11 @@ Completed
 - ✅ Automation (framework self-validation in CI, one-command Adapter installation, release-workflow automation up to the Director gate, runtime agent generation from the Employee definitions)
 - ✅ Convergence (governance concepts absorbed from sibling frameworks and made framework-wide: a shared Risk scale with stop tiers, structural Data Protection with a pre-commit hook and a history-scanning CI check, the Work Unit Report and Session State contracts, Domain Employees with a project roster, a review-size gate, the escape-hatch ban list enforced by Claude Code hooks, multi-lens review, the dependent-task queue, the conductor/pole Autonomous Delivery workflow, and the Troubleshooting Catalog with its learning loop)
 - ✅ Portability (the framework made runnable off its own repository: the four Pull Request checks extracted from CI into scripts any forge can run with a real behaviour suite, a host seam where the host fetches and acts but never decides, seven first-class stacks each pinned to a starter Dockerfile, the Risk Map by which a project classifies its own paths, and an already-started-project adoption path that never overwrites the project's own work)
+- ✅ Precision (the framework made exact and usable: every front-facing surface audited and pinned against drift by the validator, the controls that grade a Pull Request attacked from the inside and each finding closed as a check, a hook rule or a stated limit, the newcomer path dogfooded on real adoptions, and a local usage dashboard for roster and chain tuning)
 
 Planned
 
-- **Precision** (in progress on `develop`, targets v0.0.14) — the framework made exact and usable: every front-facing surface audited and guarded against drift, and the newcomer's operating path completed and dogfooded
+- **Adoption** (next, targets v0.0.15) — sustained adoption on a real project and the follow-ups it finds
 
 ---
 

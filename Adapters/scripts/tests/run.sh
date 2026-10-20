@@ -3396,7 +3396,7 @@ if ln -s "$FRAMEWORK_ROOT" ia-engineering 2>/dev/null; then
     FAILED=$((FAILED + 1))
   fi
 
-  for rule in '/.claude/settings.json' '/.ia-engineering/stack' '/.ia-engineering/risk-map.yml' \
+  for rule in '/.claude/settings.json' '/.claude/skills/**' '/.ia-engineering/stack' '/.ia-engineering/risk-map.yml' \
               '/Registry/work-units.yml' '/Dockerfile' '/.gitmodules'; do
     TOTAL=$((TOTAL + 1))
     if grep -qxF "$rule text eol=lf" .gitattributes 2>/dev/null; then
@@ -3429,7 +3429,7 @@ if ln -s "$FRAMEWORK_ROOT" ia-engineering 2>/dev/null; then
   expect 0 "install.sh run on its own succeeds" -- bash ./ia-engineering/Adapters/scripts/install.sh
   expect_output "setup-project-bootstrap.sh <stack>"
 else
-  skip 9 "bootstrap registry/LF/summary: ln -s failed on this platform (no admin rights / Developer Mode off) -- not a fix defect."
+  skip 12 "bootstrap registry/LF/summary: ln -s failed on this platform (no admin rights / Developer Mode off) -- not a fix defect."
 fi
 
 section "install-hooks.sh — framework-inside-project by identity, not spelling (WU-IAENG-320, DEF-14)"
@@ -3837,6 +3837,29 @@ awk '$0 == "  [Approval → Release Chain]" { print "  [Approval → Release Cha
   "$CHAIN_FIX/base.md" > "$CHAIN_FIX/unclosed-output.md"
 chain_drift_case "an output line that never closes its bracket" "$CHAIN_FIX/unclosed-output.md" "$CHAIN_FIX/base.yml" \
   "Alpha Chain: unrecognised output line \"[Approval → Release Chain\""
+
+# Issue #233 (WU-IAENG-350): a line that opened "[" and closed "]" was skipped
+# as one output, so a step drawn between two outputs on one line went
+# unchecked. An output line now holds exactly one bracket pair. First the
+# falsifier as the issue states it, on the real document with the Registry
+# unchanged; then the same line in the fixture, and a nested pair.
+awk '/^# / { incident = ($0 == "# Incident Chain") }
+     incident && $0 == "Engineer(s)" { print "  [Containment] Compliance Engineer [Assessment]"; print "      ↓" }
+     { print }' "$CHAIN_FIX/real.md" > "$CHAIN_FIX/real-233.md"
+expect 1 "chain diagrams: the #233 fixture really added a line to the real document" -- \
+  cmp -s "$CHAIN_FIX/real.md" "$CHAIN_FIX/real-233.md"
+chain_drift_case "a step hidden between two outputs on one line, in the real Incident Chain (#233)" \
+  "$CHAIN_FIX/real-233.md" "$CHAIN_FIX/real.yml" \
+  "$CHAIN_FIX/real-233.md:" \
+  "Incident Chain: unrecognised output line \"[Containment] Compliance Engineer [Assessment]\""
+awk '{ print } $0 == "Code Reviewer" { print "      ↓"; print "  [Review] Security Engineer [Assessment]" }' \
+  "$CHAIN_FIX/base.md" > "$CHAIN_FIX/two-outputs.md"
+chain_drift_case "a step hidden between two outputs on one line (#233)" "$CHAIN_FIX/two-outputs.md" "$CHAIN_FIX/base.yml" \
+  "Alpha Chain: unrecognised output line \"[Review] Security Engineer [Assessment]\""
+awk '$0 == "  [Approval → Release Chain]" { print "  [Approval → [Release] Chain]"; next } { print }' \
+  "$CHAIN_FIX/base.md" > "$CHAIN_FIX/nested-output.md"
+chain_drift_case "an output line holding a nested bracket pair" "$CHAIN_FIX/nested-output.md" "$CHAIN_FIX/base.yml" \
+  "Alpha Chain: unrecognised output line \"[Approval → [Release] Chain]\""
 
 # --- Rule 1: what cannot be compared fails. It is never skipped.
 awk '/^# / { beta = ($0 == "# Beta Chain") } !(beta && /^```/)' \
