@@ -319,11 +319,76 @@ The same applies to `--body` on `gh pr create` and `gh pr comment`; `--body-file
 
 **Symptom.** A check passes locally on a small fixture and gives the *wrong* answer on a real, larger repository: `check-risk-map.sh --range` reports no `RISK:` record when one is plainly in the range; a dead-entry error names a zone whose files exist; a registered Work Unit is called unregistered. The larger the input, the more reliable the wrong answer.
 
-**Cause.** `producer | grep -q PATTERN` under `set -o pipefail`. `grep -q` exits on its **first** match and closes the pipe. If the producer — `git log` over a range, `git ls-files`, a roster — has more to write than the ~64 KB pipe buffer holds, it takes SIGPIPE on the next write. `pipefail` then reports the pipeline's status as that failure, **even though grep matched**. Below the buffer size the producer finishes before grep exits, no signal fires, and the bug is invisible — which is why every fixture small enough to read passes.
+**Cause.** `producer | grep -q PATTERN` under `set -o pipefail`. `grep -q` exits on its **first** match and closes the pipe. If the producer — `git log` over a range, `git ls-files`, a roster — has more to write than the ~64 KB pipe buffer holds, it takes SIGPIPE on the next write. `pipefail` then reports the pipeline's status as that failure, **even though grep matched**. Below the buffer size the producer finishes before grep exits, no signal fires, and the bug is invisible — which is why every fixture small enough to read passes. The threshold is lower than 64 KB when the producer is a bash-builtin `printf` or `echo`: a builtin writes through a ~4 KB stdio buffer, so a variable of about 4 KB or more is flushed in several `write()` calls and the SIGPIPE can land on the second. Whether it does depends on how the two processes are scheduled, so between 4 KB and 64 KB the failure is intermittent, not deterministic. The same applies to any early-exiting consumer at the end of a pipe: `awk '... exit ...'` or `head -1` as well as `grep -q`.
 
 **Remedy.** Do not run `grep -q` as the tail of a pipeline whose producer can be large. Capture first, then match with a here-string, which is not a pipeline and to which `pipefail` does not apply: `out="$(producer)"; if grep -qE PATTERN <<< "$out"; then`. A here-string was verified correct at 5.9 MB.
 
 **Prevention.** The tell is `| grep -q` with a variable-size producer. A single filename or a fixed label list is safe; anything read from the repository — commit messages, tracked paths, a registry, a pasted comment — is not, because it grows with the project and the developer who wrote the check never has a repository large enough to see it fail. This is a member of class A (a check that reports without evaluating): here the check *did* evaluate and then discarded the answer. It was found while testing an unrelated assertion whose own `printf | grep -q` gave a false negative — the test caught the class before the shipped scripts shipped it to an adopter, which is the entire argument for testing checks by running them (`Adapters/scripts/tests/run.sh`).
+
+**Recurrence (WU-IAENG-319).** The validator's own cross-reference check still carried the pattern, in `resolves()`: `printf '%s\n' "$TRACKED_PATHS" | grep -qxF -- "$p"` over a ~6.7 KB `git ls-files` list. Required check *Framework Validation* failed intermittently on PR #174 (run 36870284039, attempt 1: `printf: write error: Broken pipe`, then `documents reference paths that do not exist: Adapters/git-hooks/pre-push`) and on PR #182 (run 36995593625, attempt 1, `Templates/PULL_REQUEST.md`); both paths exist and a re-run of the identical commit passed. The `awk` fallback behind it, which exits at its first hit, was exposed the same way for directory references. The fix is `has_line` (pure bash) and a here-string, and `Adapters/scripts/tests/run.sh` now runs `resolves()` against a 100 KB list 50 times so the failure is deterministic.
+
+---
+
+## Y. `git submodule add` of a local path fails with `transport 'file' not allowed`
+
+**Symptom.** Adopting the framework from a directory on disk (a clone, a mirror, a path on a shared drive) instead of its URL:
+
+```
+git submodule add ../AI_Enginering ia-engineering
+fatal: transport 'file' not allowed
+```
+
+**Cause.** Since git 2.38.1 (CVE-2022-39253) the `file` transport is refused by default when git runs a clone on behalf of a submodule, because a hostile repository can use a local-path submodule to read files from the machine that clones it. The failure is git's security default doing its job, not a broken install.
+
+**Remedy.** If, and only if, the path is a local repository you trust, allow the transport for that one command and never in a configuration file:
+
+```
+git -c protocol.file.allow=always submodule add <local path> ia-engineering
+```
+
+Prefer the network URL (`README.md` Getting Started), which needs no exception. Do not set `protocol.file.allow=always` globally (`git config --global`): that lifts the protection for every repository you will ever clone. The setting is a per-command `-c`, as above, and the pin (`git -C ia-engineering checkout <tag>`) is unaffected.
+
+**Prevention.** `README.md` Getting Started gives the URL form and links here. The exception is deliberately per-command so it cannot outlive the one trusted path it was granted for.
+
+---
+
+## Z. I committed on `develop` by mistake, and the push is refused
+
+**Symptom.** `git push` from `develop` (or `main`, or a `release/*` branch) fails:
+
+```
+pre-push: rejected — direct push to 'develop' is not allowed.
+  Per Standards/BRANCH_STANDARD.md, changes reach 'develop' only
+  through a reviewed Pull Request merged on the remote.
+  Open a feature/fix/hotfix branch and submit a PR instead.
+```
+
+On a `release/*` branch the message differs: `pre-push: rejected — direct push to existing release branch '<name>' is not allowed.` The cause and the remedy are the same.
+
+**Cause.** The commit was made while `develop` was checked out. The `pre-push` hook (`Adapters/git-hooks/pre-push`) refuses any update of an existing protected branch, and the server-side branch protection would refuse it too where it applies (the repository owner's role is exempt in a single-identity setup, per `SECURITY.md`); the commit itself is fine, only its branch is wrong.
+
+**Remedy.** Keep the commit, move the work to a branch where it belongs, and never rewrite anything:
+
+1. Create the feature branch at the current commit, so the commit is now reachable from a branch of its own: `git branch feature/x` (`feature/short-description`, or `docs/short-description` for documentation only: `Standards/BRANCH_STANDARD.md`).
+2. `git switch feature/x`, then push it and open a Pull Request: `git push -u origin feature/x`.
+3. Leave local `develop` alone. It holds a commit the remote does not; the hook stops that commit being pushed from it, and nothing is lost because the commit is on `feature/x`. After the Pull Request is merged with a merge commit, `git switch develop` then `git pull --ff-only` brings it level.
+4. If you want local `develop` back at the remote state now, or if `git pull --ff-only` refuses after a squash merge, move the branch pointer while `develop` is **not** checked out: `git branch -f develop origin/develop`. This does not appear in the Escape Hatches table of `Standards/GIT_STANDARD.md` and the Claude Code hook does not block it, and it discards nothing here because step 1 already made the commit reachable from `feature/x` (check with `git log origin/develop..feature/x`). If the commit is not on another branch, do not run it.
+
+Do **not** use `git reset --hard origin/develop` or `git push --force`: both are Escape Hatches in `Standards/GIT_STANDARD.md`. The hook message is the control telling you the branch is wrong, not a prompt to override it. If a commit was already pushed to the remote's `develop` by someone with the right to bypass, that is an incident for the Director, not a local fix.
+
+**Prevention.** `pre-push` locally and branch protection on the remote already stop the push. What stops the mistake earlier is the habit the Feature Development workflow starts with: create the feature branch before the first edit (`Workflows/FEATURE_DEVELOPMENT.md` Step 2), and read `git branch --show-current` before committing.
+
+---
+
+## AA. `bash` in PowerShell is WSL, not Git Bash
+
+**Symptom.** A framework script that works from Git Bash fails from PowerShell or cmd: `bash Adapters/scripts/usage-dashboard.sh` stops with `execvpe(/bin/bash) failed`, and typing `.\Adapters\scripts\usage-dashboard.sh` opens the file in an editor instead of running it.
+
+**Cause.** Outside Git Bash, `bash` resolves to `C:\Windows\System32\bash.exe`, the WSL launcher, which needs a Linux distribution and does not see Git for Windows. Windows runs a `.sh` file by its file association, not by its shebang.
+
+**Remedy.** Run the script from Git Bash, or call Git for Windows' bash by its full path: `& "$env:ProgramFiles\Git\bin\bash.exe" Adapters/scripts/usage-dashboard.sh --open`. For the usage dashboard, `Adapters\scripts\usage-dashboard.cmd` does this for you.
+
+**Prevention.** A script the Director runs by hand on Windows gets a `.cmd` launcher that resolves Git for Windows' `bin\bash.exe` itself and never runs the PATH's `bash`; `Adapters/scripts/tests/run.sh` pins this for `usage-dashboard.cmd`.
 
 ---
 

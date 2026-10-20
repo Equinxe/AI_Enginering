@@ -402,7 +402,7 @@ cmd_check() {
         while IFS= read -r id; do
           [ -n "$id" ] || continue
           total=$((total + 1))
-          printf '%s\n' "$merged_ids" | grep -qxF "$id" || missing_wu="$missing_wu$id "
+          grep -qxF "$id" <<< "$merged_ids" || missing_wu="$missing_wu$id "
         done < <(printf '%s\n' "$registry_ids")
 
         if [ -n "$missing_wu" ]; then
@@ -667,9 +667,11 @@ cmd_publish() {
   cat <<'REMAINING'
 
    Remaining, per Workflows/RELEASE.md:
-     Step 8   Back-merge to develop via Pull Request, IF a defect fix landed
-              directly on the release branch during Step 4. Not needed when the
-              release branch never diverged.
+     Step 8   Back-merge to develop via Pull Request. ALWAYS required, on every
+              release: Step 6 left a merge commit on main that develop never
+              otherwise sees, and skipping it blocks the next release's Pull
+              Request to main. Additionally, any defect fix that landed directly
+              on the release branch during Step 4 is carried back by it.
      Step 9   Post-release verification — QA Engineer and Observability
               Engineer confirm production health.
      Step 10  Preserve the release branch. It is never deleted.

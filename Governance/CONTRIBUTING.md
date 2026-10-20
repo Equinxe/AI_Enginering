@@ -22,15 +22,17 @@ It does not apply to work inside a *project that uses* IA Engineering — that p
 
 # 1. Change Tiers — How Much Process a Change Needs
 
-Not every change to this repository carries the same weight. IA Engineering already has a framework for matching scrutiny to stakes: `Core/CAPABILITY_TIERS.md`'s three execution tiers (Lightweight Execution, Standard Execution, Strategic Judgment). That framing maps directly onto how much review a framework contribution needs, because the same question — *how much does getting this wrong cost, and how reversible is it?* — applies to both.
+Not every change to this repository carries the same weight. IA Engineering already has a framework for matching scrutiny to stakes: `Core/CAPABILITY_TIERS.md`'s two default execution tiers (Standard Execution, Strategic Judgment) plus its two override-only levels (Lightweight Execution, Frontier). That framing maps directly onto how much review a framework contribution needs, because the same question — *how much does getting this wrong cost, and how reversible is it?* — applies to both.
+
+For a genuinely mechanical change, `Workflows/FEATURE_DEVELOPMENT.md`'s "Trivial / Mechanical Changes (Express Path)" section shows this tiering already running end-to-end at Lightweight Execution.
 
 | Change type | Tier | Concrete review bar |
 |---|---|---|
-| Typo, broken link, formatting fix in a Workflow, Example, or Template doc | Lightweight Execution | Self-merge after one other person (or Employee) skims the diff. No PR discussion required. |
-| Wording clarification in a Standard, Employee, or Workflow document that does not change what the document requires or permits | Standard Execution | Standard Pull Request review per `Standards/PULL_REQUEST_STANDARD.md`. One reviewer approval. |
+| Typo, broken link, formatting fix in a Workflow, Example, Template, or root-level doc (`README.md`, `CHANGELOG.md`, and other root-level `*.md`) | Lightweight Execution | Self-merge after one other person (or Employee) skims the diff. No PR discussion required. |
+| Wording clarification in a Standard, Employee, Workflow, or root-level doc (`README.md`, `CHANGELOG.md`, and other root-level `*.md`) that does not change what the document requires or permits | Standard Execution | Standard Pull Request review per `Standards/PULL_REQUEST_STANDARD.md`. One reviewer approval. |
 | Adding a new Workflow, Template, or Standard | Standard Execution, escalating to Strategic Judgment if it changes how existing Workflows or Employees operate | See Section 3. Requires the cross-reference check (Section 3) and Director awareness before merge. |
 | Adding a new Employee to the 42-roster | Strategic Judgment | See Section 2. Requires Director approval before merge — a new Employee changes who is authorized to do what across every project on this framework. |
-| Any change to a document under `Core/*.md` | Strategic Judgment — the highest scrutiny tier this framework has | See Section 4. Mandatory Director approval, no exceptions. |
+| Any change to a document under `Core/*.md` | Strategic Judgment — the highest review tier this framework has; Frontier is an execution capability, not a review tier | See Section 4. Mandatory Director approval, no exceptions. |
 | Any change that alters what an existing Standard requires or permits (not just wording) | Strategic Judgment | Mandatory Director approval. Must include the documented-deviation reasoning `Standards/STANDARDS_FIRST.md` requires when moving away from an official standard. |
 
 **The concrete check, not the vague one:** if you cannot point to which row above your change falls into, it defaults to Strategic Judgment until a maintainer confirms otherwise. This mirrors the reasoning `Core/CAPABILITY_TIERS.md` already uses for Work Unit dispatch — ambiguity escalates, it does not get guessed downward.
@@ -108,7 +110,7 @@ A reviewer who cannot answer all three questions with a specific document name a
 
 Documents under `Core/` (`AI_MANIFEST.md`, `MAIN_AGENT_CONDUCT.md`, `AGENT_CONDUCT.md`, `DECISION_TREE.md`, `GLOSSARY.md`, `CAPABILITY_TIERS.md`, `EMPLOYEE_SELECTION.md`, `ORCHESTRATION.md`, `AGENT_CHAINS.md`) govern the Main Agent's own behavior — not just in this repository, but in every project that adopts this framework. A wording change here changes how the Main Agent behaves everywhere IA Engineering is used.
 
-**This is the highest scrutiny tier this framework has.** Concretely:
+**This is the highest review tier this framework has; Frontier is an execution capability, not a review tier.** Concretely:
 
 - Every change to a `Core/*.md` document is Strategic Judgment tier (Section 1) — no downgrade, regardless of how small the diff looks. A one-line wording change to `Core/MAIN_AGENT_CONDUCT.md` is not a typo fix; it is a behavioral change to every Main Agent instance running this framework.
 - The proposal must state, in the Pull Request description, exactly what behavior changes and why — the same "why does this change exist, in one sentence" bar `Standards/COMMIT_STANDARD.md` already sets for commits, applied here to behavior instead of code.
@@ -182,7 +184,7 @@ Two things the loop is not. It is not blame: entries name mechanisms, and where 
 
 Owner: IA Engineering
 
-Version: 0.0.2
+Version: 0.0.4
 
 Status: Draft
 

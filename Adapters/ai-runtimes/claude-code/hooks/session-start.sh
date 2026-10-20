@@ -16,7 +16,22 @@ STATE="$BASE/.ia-engineering/SESSION_STATE.md"
 
 echo "IA Engineering — read first, then say in one line what you read and what you are about to do (Core/AGENT_CONDUCT.md, Read First):"
 echo
-echo "  1. CLAUDE.md — the project's stable contract."
+
+# --- CLAUDE.md ---------------------------------------------------------
+# Mirrors the SESSION_STATE branch below: a project that has not yet
+# finished Workflows/PROJECT_BOOTSTRAP.md Phase B (or the ONBOARDING.md
+# Step 1 handoff that follows it) has no CLAUDE.md yet, and asserting one
+# exists — as this line unconditionally did before WU-IAENG-302 — misleads
+# the very first thing the model reads in the session.
+if [ -f "$BASE/CLAUDE.md" ]; then
+  echo "  1. CLAUDE.md — the project's stable contract."
+else
+  if [ -n "$ROOT" ] && [ -f "$ROOT/Templates/PROJECT_CLAUDE.md" ]; then
+    echo "  1. CLAUDE.md does not exist yet — this project has not completed Workflows/PROJECT_BOOTSTRAP.md Phase B. It is created from $ROOT/Templates/PROJECT_CLAUDE.md at Workflows/ONBOARDING.md Step 1, once the Stack Decision ADR is Accepted."
+  else
+    echo "  1. CLAUDE.md does not exist yet and the framework's template was not found (looked for Core/AGENT_CONDUCT.md at ., ia-engineering/, \$IAENG_FRAMEWORK)."
+  fi
+fi
 if [ -f "$STATE" ]; then
   echo "  2. .ia-engineering/SESSION_STATE.md — where things actually stand. Never committed."
   LAST="$(grep -m1 -E '^_Last updated:' "$STATE" | sed 's/^_//; s/_$//')"
@@ -27,9 +42,77 @@ if [ -f "$STATE" ]; then
     printf '%s\n' "$NEXT" | sed 's/^/       /'
   fi
   BLOCKED="$(awk '/^## Blocked On/{f=1; next} /^## /{f=0} f && NF' "$STATE" | head -3)"
-  if [ -n "$BLOCKED" ] && ! printf '%s' "$BLOCKED" | grep -qiE '^\[?nothing'; then
+  if [ -n "$BLOCKED" ] && ! grep -qiE '^\[?nothing' <<< "$BLOCKED"; then
     echo "     Blocked on:"
     printf '%s\n' "$BLOCKED" | sed 's/^/       /'
+  fi
+
+  # mtime is computed once and used by both Warning 1 and Warning 2: it is
+  # the file's own record of when it was last touched, independent of
+  # whether the header inside it was updated in the same edit (Warning 2
+  # exists because it often was not).
+  STATE_MTIME="$(iaeng_file_mtime "$STATE")"
+
+  # --- Warning 1: behind the repository -----------------------------------
+  # A future HEAD_TS (clock skew, or a deliberately future-dated commit) is
+  # never compared against mtime at all: a clamp-and-compare against a
+  # live-read "now" looked right (a file touched in the same second passed)
+  # but was not — "now" moves forward on every invocation while mtime stays
+  # fixed, so it silently re-warned a second later with no edit made. A
+  # future HEAD_TS is instead reported as its own, distinct condition.
+  if [ -n "$STATE_MTIME" ] && git -C "$BASE" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    HEAD_TS="$(iaeng_head_commit_time "$BASE")"
+    NOW="$(iaeng_now)"
+    if [ -n "$HEAD_TS" ] && [ -n "$NOW" ] && [ "$HEAD_TS" -gt "$NOW" ]; then
+      HEAD_CDATE="$(git -C "$BASE" log -1 --format=%cd 2>/dev/null)"
+      echo "     WARNING: HEAD's last commit is dated after the system clock ($HEAD_CDATE vs. $(date 2>/dev/null)) — cannot verify SESSION_STATE.md's freshness; check it by hand."
+    elif [ -n "$HEAD_TS" ] && [ "$STATE_MTIME" -lt "$HEAD_TS" ]; then
+      BEHIND="$(git -C "$BASE" rev-list --count --since="@$STATE_MTIME" HEAD 2>/dev/null)"
+      if [ -n "$BEHIND" ] && iaeng_is_int "$BEHIND"; then
+        echo "     WARNING: SESSION_STATE.md is $BEHIND commit(s) behind the repository — refresh it before acting."
+      else
+        echo "     WARNING: SESSION_STATE.md is behind the repository (commit count unavailable) — refresh it before acting."
+      fi
+    fi
+  fi
+
+  # --- Warning 2: header not refreshed on the last edit -------------------
+  # The header is free-text ("DD Month YYYY, morning/evening by ..."), so
+  # this parses defensively: an unparsable header is reported as such, never
+  # silently skipped — that silence is exactly the failure mode this Work
+  # Unit exists to catch (the header can go stale while the body keeps
+  # moving, and nothing said so).
+  if [ -n "$STATE_MTIME" ]; then
+    HEADER_DATE="$(printf '%s' "$LAST" | grep -oE '[0-9]{1,2} [A-Za-z]+ [0-9]{4}' | head -1)"
+    if [ -n "$HEADER_DATE" ]; then
+      HEADER_YMD="$(iaeng_ymd_from_header_date "$HEADER_DATE")"
+      MTIME_YMD="$(date -r "$STATE" +%Y-%m-%d 2>/dev/null)"
+      if [ -n "$HEADER_YMD" ] && [ -n "$MTIME_YMD" ]; then
+        if [[ "$HEADER_YMD" < "$MTIME_YMD" ]]; then
+          echo "     WARNING: the _Last updated: header ($HEADER_DATE) was not refreshed on the file's last edit ($MTIME_YMD) — update it every time the body changes."
+        fi
+      else
+        echo "     WARNING: the _Last updated: header's date could not be parsed for freshness comparison — verify it was refreshed by hand."
+      fi
+    else
+      echo "     WARNING: no parsable date found in the _Last updated: header — verify it was refreshed by hand."
+    fi
+  fi
+
+  # --- Warning 3: size ----------------------------------------------------
+  # Loaded on every resume (this hook prints it, unabridged, into context),
+  # so its size is occupation paid on every session, not just its author's —
+  # see Core/CONTEXT_BUDGET.md, rule 3 ("read what you will not use") and its
+  # own measured baseline for this file (6,456 characters). 15,000 characters
+  # (~3.75k tokens at the ~4 chars/token estimate CONTEXT_BUDGET.md uses) is
+  # a little over twice that healthy baseline, and well under the ~36,000
+  # characters / 224 lines this file had grown to when this Work Unit was
+  # opened — chosen as a threshold that catches "becoming a log" before it
+  # reaches "is one". Measured in characters; this is an estimate, not a
+  # token count.
+  STATE_CHARS="$(wc -c < "$STATE" | tr -d '[:space:]')"
+  if [ -n "$STATE_CHARS" ] && iaeng_is_int "$STATE_CHARS" && [ "$STATE_CHARS" -gt 15000 ]; then
+    echo "     WARNING: SESSION_STATE.md is $STATE_CHARS characters (Core/CONTEXT_BUDGET.md: measured in characters, ~4 chars/token estimate) — over the 15,000-character budget and loaded on every resume. Prune \"Where the Project Stands\" and \"Next Step\" to a snapshot; history belongs in git or the Journal, not here."
   fi
 else
   if [ -n "$ROOT" ] && [ -f "$ROOT/Templates/SESSION_STATE.md" ]; then
@@ -39,7 +122,47 @@ else
   fi
 fi
 echo "  3. The Employee Brief for the Work Unit, and the Standards it names."
+if [ -n "$ROOT" ] && [ -f "$ROOT/Core/MAIN_AGENT_CONDUCT.md" ]; then
+  echo "  The Main Agent follows $ROOT/Core/MAIN_AGENT_CONDUCT.md: delegate every Work Unit to its named Employee, and present the plan to the Director before executing."
+fi
 echo
+
+# --- Tier map in force (WU-IAENG-336) ----------------------------------------
+# The project's tier map decides which concrete model each tier runs on. The
+# two default tiers reach the session through the generated agents' model:
+# lines; the override-only tiers (Lightweight, Frontier) reached it nowhere —
+# they were printed in generate-agents.sh's summary and then lost, so a Main
+# Agent applying a Lightweight Tier Override in a project mapping every tier
+# to claude-opus-5-5 dispatched with "sonnet" (issue #212). The mapping is
+# resolved by the generator itself (--print-tier-map: flags > file > target
+# defaults), never re-parsed here, so there is one parser and one set of
+# defaults. A file the generator refuses is reported, not skipped: a session
+# told nothing would go back to inventing a model.
+GEN="${ROOT:+$ROOT/Adapters/ai-runtimes/generate-agents.sh}"
+if [ -n "$GEN" ] && [ -f "$GEN" ]; then
+  TIER_OUT="$(bash "$GEN" --target claude-code --project "$BASE" --print-tier-map 2>&1)"
+  TIER_RC=$?
+  if [ "$TIER_RC" -eq 0 ]; then
+    TIER_SRC="$(sed -n 's/^# mapping: //p' <<< "$TIER_OUT")"
+    TIER_MAP="$(grep -m1 '^map=' <<< "$TIER_OUT")"
+    TIER_EFFORT="$(grep -m1 '^effort-map=' <<< "$TIER_OUT")"
+    tier_of() { sed -n "s/.*[=,]$1=\([^,]*\).*/\1/p" <<< "$TIER_MAP"; }
+    T_STRATEGIC="$(tier_of strategic)"
+    T_STANDARD="$(tier_of standard)"
+    T_LIGHTWEIGHT="$(tier_of lightweight)"
+    echo "Tier map in force — mapping: $TIER_SRC"
+    echo "  $TIER_MAP"
+    echo "  $TIER_EFFORT"
+    echo "  A Tier Override (Core/CAPABILITY_TIERS.md) runs the Work Unit on the model this map gives the target tier — never on a model or alias of the Main Agent's own choosing. When that model is the one the Employee's generated agent already pins, dispatch with no model parameter; otherwise pass exactly that value, and if the dispatch cannot take it, stop and ask the Director rather than substitute one (Adapters/ai-runtimes/README.md, How a per-Work-Unit Execution tier is actually run)."
+    if [ -n "$T_LIGHTWEIGHT" ] && [ "$T_LIGHTWEIGHT" = "$T_STANDARD" ] && [ "$T_LIGHTWEIGHT" = "$T_STRATEGIC" ]; then
+      echo "  Here Strategic Judgment, Standard Execution and Lightweight Execution all map to $T_LIGHTWEIGHT: an override between them changes no model — dispatch without a model parameter."
+    fi
+  else
+    echo "WARNING: the tier map could not be resolved — $(head -1 <<< "$TIER_OUT")"
+    echo "  Fix .ia-engineering/tier-map (Adapters/ai-runtimes/README.md). Until then a Tier Override has no model to use: ask the Director rather than pick one."
+  fi
+  echo
+fi
 
 if git -C "$BASE" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   echo "Repository state now:"

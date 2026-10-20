@@ -25,6 +25,17 @@ zones:
       nothing in CI measures the bill. Listed before the ai-runtimes pattern
       below because first match wins.
 
+  - pattern: ".ia-engineering/tier-map"
+    level: sensitive
+    category: payments_and_spend
+    reason: >
+      Decides which billed model every Employee runs on: generate-agents.sh
+      writes its map= into every generated agent's model: on each
+      regeneration. A one-line edit moves all of them to a different price
+      tier, with no Employee definition changing and nothing in CI measuring
+      the bill — the same exposure as review-bot.yml above. It records a
+      Director decision (5 Oct 2026), so changing it is one too.
+
   - pattern: "Adapters/ai-runtimes/claude-code/hooks/*"
     level: sensitive
     category: infrastructure_and_ci

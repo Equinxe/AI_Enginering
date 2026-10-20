@@ -650,8 +650,10 @@ broken=""
 TRACKED_PATHS="$(git ls-files)"
 resolves() {
   local p="${1%/}"
-  printf '%s\n' "$TRACKED_PATHS" | grep -qxF -- "$p" && return 0
-  printf '%s\n' "$TRACKED_PATHS" | awk -v pre="$p/" 'index($0, pre) == 1 { found = 1; exit } END { exit !found }'
+  has_line "$TRACKED_PATHS" "$p" && return 0
+  # Here-string, not a pipe: awk exits at its first hit, and the producer on the
+  # other end of a pipe would take SIGPIPE and fail the pipeline under pipefail.
+  awk -v pre="$p/" 'index($0, pre) == 1 { found = 1; exit } END { exit !found }' <<< "$TRACKED_PATHS"
 }
 
 # The backtick that delimits a quoted path is held in a variable so the grep
@@ -1054,17 +1056,19 @@ fi
 section "13. Registry: chains, workflows, Work Units"
 # ==========================================================================
 # Validated when present, so the Registry can grow one file at a time without
-# this script hard-failing on the files not yet written.
+# this script hard-failing on the files not yet written. Whether each chain's
+# steps match its diagram in Core/AGENT_CHAINS.md is section 22.
 
 if [ -f Registry/chains.yml ]; then
   bad_actors=""
   actors_checked=0
+  roster_list="$(roster_names)"
   while IFS= read -r actor; do
     actors_checked=$((actors_checked + 1))
     case "$actor" in
       "Main Agent"|"Director"|"Engineer") continue ;;
     esac
-    roster_names | grep -qxF "$actor" || bad_actors="$bad_actors$actor; "
+    has_line "$roster_list" "$actor" || bad_actors="$bad_actors$actor; "
   done < <(grep -E '^ +- employee: ' Registry/chains.yml | sed 's/^ *- employee: //' | tr -d '\015' | sort -u)
   if [ -n "$bad_actors" ]; then
     fail "Registry/chains.yml names non-Employees: $bad_actors" "A chain step dispatches to a real Employee, or to the framework roles Main Agent / Director / Engineer. Core/MAIN_AGENT_CONDUCT.md's Dispatch Discipline is the reason: a step with no named Employee has no accountable owner."
@@ -1173,8 +1177,9 @@ if [ -f Registry/work-units.yml ]; then
   fi
 
   bad_owner=""
+  roster_list="$(roster_names)"
   while IFS= read -r owner; do
-    roster_names | grep -qxF "$owner" || bad_owner="$bad_owner$owner; "
+    has_line "$roster_list" "$owner" || bad_owner="$bad_owner$owner; "
   done < <(grep -E '^    employee: ' Registry/work-units.yml | sed 's/^    employee: //' | tr -d '\015' | sort -u)
   if [ -n "$bad_owner" ]; then
     fail "Registry/work-units.yml credits non-Employees: $bad_owner" "A Work Unit's owner must be a real Employee, matching the 'Employee:' commit trailer the work landed under."
@@ -1503,6 +1508,660 @@ else
       esac
     done
   fi
+fi
+
+section "18. Front doors name the current version"
+# ==========================================================================
+# Two files restate the version and codename that live authoritatively in
+# VERSION.md: README.md (the page a visitor reads first) and CLAUDE.md (the
+# contract every agent reads first). Nothing checked they agreed, so the README
+# block sat at "v0.0.12 - Automation & Convergence" for ten days after v0.0.13
+# shipped, and CLAUDE.md still announced "the next milestone takes 0.0.13" after
+# 0.0.13 was the current one — the exact silent drift this repository keeps
+# repairing, on its two most-read pages. This pins both: the version and
+# codename VERSION.md declares must appear in each. VERSION.md is the source;
+# the two files are restatements, so a mismatch names the restatement to fix.
+VER_FILE="VERSION.md"
+if [ ! -f "$VER_FILE" ]; then
+  fail "cannot check the front doors: $VER_FILE is missing" "It is the authoritative source the README and CLAUDE.md are checked against."
+else
+  # VERSION.md: the '**vX.Y.Z**' after 'Current Version', the '**Codename**'
+  # after 'Codename'. tr -d '\r' so a CRLF checkout does not defeat the match.
+  ver_version="$(grep -A2 '^Current Version' "$VER_FILE" | grep -oE 'v[0-9]+\.[0-9]+\.[0-9.]+' | head -1 | tr -d '\r')"
+  ver_codename="$(grep -A2 '^Codename' "$VER_FILE" | grep -oE '\*\*[^*]+\*\*' | head -1 | tr -d '*\r')"
+  if [ -z "$ver_version" ] || [ -z "$ver_codename" ]; then
+    fail "could not read the current version and codename from $VER_FILE" "The extraction reads '**vX.Y.Z**' under 'Current Version' and '**Codename**' under 'Codename'. Empty means that header moved and this section now verifies nothing — reported rather than passed."
+  else
+    # README: the exact 'vX.Y.Z - Codename' line in the Current Status block.
+    if [ ! -f README.md ]; then
+      fail "README.md is missing" "The front door must exist and restate the current version."
+    else
+      readme_line="$(sed -n '/^## Current Status/,/^Completed/p' README.md | grep -oE 'v[0-9]+\.[0-9]+\.[0-9.]+ - .+' | head -1 | tr -d '\r')"
+      expected="$ver_version - $ver_codename"
+      if [ -z "$readme_line" ]; then
+        fail "README.md has no 'vX.Y.Z - Codename' line in its Current Status block" "Add it under '## Current Status' as '$expected', or this check reads nothing."
+      elif [ "$readme_line" = "$expected" ]; then
+        pass "README Current Status names '$expected', matching $VER_FILE"
+      else
+        fail "README Current Status says '$readme_line' but $VER_FILE declares '$expected'" "The front door has drifted. Fix README.md's '## Current Status' block to '$expected'."
+      fi
+    fi
+    # CLAUDE.md: the '# Current Version' section must name BOTH the version and
+    # the codename. It uses an em-dash rather than the README's hyphen, so the
+    # two tokens are checked for presence rather than an exact 'X - Y' line.
+    if [ ! -f CLAUDE.md ]; then
+      fail "CLAUDE.md is missing" "It is the contract every agent reads first and must restate the current version."
+    else
+      claude_block="$(sed -n '/^# Current Version/,/^# /p' CLAUDE.md | tr -d '\r')"
+      if grep -qF "$ver_version" <<< "$claude_block" && grep -qF "$ver_codename" <<< "$claude_block"; then
+        pass "CLAUDE.md Current Version names '$ver_version' and '$ver_codename', matching $VER_FILE"
+      else
+        fail "CLAUDE.md's Current Version section does not name '$ver_version — $ver_codename'" "The contract every agent reads first has drifted. Fix CLAUDE.md's '# Current Version' section to name the version and codename $VER_FILE declares."
+      fi
+    fi
+  fi
+fi
+
+section "19. README front-page counts match the framework"
+# ==========================================================================
+# Workflows/CODE_REVIEW.md rule 5 — "count the things prose counts" — is a
+# manual review step: every literal count drifts each time the set it counts
+# grows. The README front page states three such counts (engineering workflows,
+# required status checks, first-class stacks), each derivable from the tree or a
+# script. This mechanises the rule for those three, the same way section 3 does
+# for the roster: the claimed number, in digits or as a written-out word, must
+# equal what the framework actually has. Reported against the README — the
+# directory and the scripts are the source, the front page the restatement.
+
+# Written-out cardinals, one..twenty, so "seven first-class stacks" is checked
+# as strictly as "7". Returns the input unchanged when it is already digits.
+word2num() {
+  case "$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')" in
+    one) echo 1 ;; two) echo 2 ;; three) echo 3 ;; four) echo 4 ;;
+    five) echo 5 ;; six) echo 6 ;; seven) echo 7 ;; eight) echo 8 ;;
+    nine) echo 9 ;; ten) echo 10 ;; eleven) echo 11 ;; twelve) echo 12 ;;
+    thirteen) echo 13 ;; fourteen) echo 14 ;; fifteen) echo 15 ;;
+    sixteen) echo 16 ;; seventeen) echo 17 ;; eighteen) echo 18 ;;
+    nineteen) echo 19 ;; twenty) echo 20 ;;
+    *) printf '%s' "$1" ;;
+  esac
+}
+
+# check_front_page_count <label> <actual> <regex-with-count-token-first>
+# The regex must match a README phrase whose FIRST token is the count (digit or
+# cardinal word); grep -oE extracts the phrase, and the leading token is read.
+check_front_page_count() {
+  local label="$1" actual="$2" regex="$3" phrase tok claimed
+  phrase="$(grep -ohE "$regex" README.md | head -1 | tr -d '\r')"
+  if [ -z "$phrase" ]; then
+    fail "README: could not find the $label count" "Expected a phrase matching /$regex/. If the front page reworded it, update this check — a count no check reads drifts silently (Workflows/CODE_REVIEW.md rule 5)."
+    return
+  fi
+  tok="$(printf '%s' "$phrase" | grep -oiE '^[A-Za-z0-9]+')"
+  claimed="$(word2num "$tok")"
+  if [[ ! "$claimed" =~ ^[0-9]+$ ]]; then
+    fail "README: could not read a number from '$phrase' for the $label count" "The leading token '$tok' is neither digits nor a cardinal one..twenty."
+  elif [ "$claimed" -ne "$actual" ]; then
+    fail "README says '$phrase' but the framework has $actual $label" "Front-page count drift. Fix README.md to state $actual, or the set changed and the front page did not (Workflows/CODE_REVIEW.md rule 5)."
+  else
+    pass "README $label count is $actual"
+  fi
+}
+
+gt_workflows="$(find Workflows -maxdepth 1 -name '*.md' 2>/dev/null | grep -c . || true)"
+gt_checks="$(sed -n '/^REQUIRED_CHECKS=(/,/^)/p' Adapters/scripts/setup-branch-protection.sh 2>/dev/null | grep -cE '^[[:space:]]*"' || true)"
+# First-class stacks = the declared stacks minus the generic fallback.
+gt_stacks_all="$(grep -m1 '^VALID_STACKS=' Adapters/scripts/setup-project-bootstrap.sh 2>/dev/null | grep -oE '"[^"]*"' | tr -d '"' | wc -w | tr -d ' ')"
+gt_stacks_fc="$(( gt_stacks_all > 0 ? gt_stacks_all - 1 : 0 ))"
+# Named Agent Chains = the top-level chain entries in the Registry, the same
+# source Core/AGENT_CHAINS.md and Examples/ are built from.
+gt_chains="$(grep -cE '^  - name:' Registry/chains.yml 2>/dev/null || true)"
+# Example walkthroughs = Examples/*.md minus the directory's own index file.
+# Examples/README.md is the index (see its "Category: Example — Index"
+# metadata), not a seventh walkthrough; excluding it by name is excluding a
+# known non-walkthrough file, not hard-coding the walkthrough count.
+gt_examples="$(find Examples -maxdepth 1 -name '*.md' ! -name 'README.md' 2>/dev/null | grep -c . || true)"
+
+if [ ! -f README.md ]; then
+  fail "README.md is missing" "The front page must exist for its counts to be checked."
+else
+  if [ "$gt_workflows" -gt 0 ]; then
+    check_front_page_count "engineering workflows" "$gt_workflows" '[0-9]+ engineering workflows'
+  else
+    fail "could not count Workflows/*.md" "The workflow count is derived from the directory; an empty count means the directory moved."
+  fi
+  if [ "$gt_checks" -gt 0 ]; then
+    check_front_page_count "required status checks" "$gt_checks" '[A-Za-z0-9]+ required status checks'
+  else
+    fail "could not count REQUIRED_CHECKS in setup-branch-protection.sh" "The required-checks count is derived from that array; an empty count means it moved."
+  fi
+  if [ "$gt_stacks_fc" -gt 0 ]; then
+    check_front_page_count "first-class stacks" "$gt_stacks_fc" '[A-Za-z0-9]+ first-class stacks'
+  else
+    fail "could not count VALID_STACKS in setup-project-bootstrap.sh" "The stack count is derived from that array; an empty count means it moved."
+  fi
+  if [ "$gt_chains" -gt 0 ]; then
+    check_front_page_count "named Agent Chains" "$gt_chains" '[0-9]+ named Agent Chains'
+  else
+    fail "could not count '  - name:' entries in Registry/chains.yml" "The named-Agent-Chains count is derived from that Registry; an empty count means it moved or was renamed."
+  fi
+  if [ "$gt_examples" -gt 0 ]; then
+    check_front_page_count "end-to-end chain walkthroughs" "$gt_examples" '[0-9]+ end-to-end chain walkthroughs'
+  else
+    fail "could not count Examples/*.md walkthroughs (excluding README.md)" "The walkthrough count is derived from the directory minus its index file; an empty count means the directory moved or the index was renamed."
+  fi
+fi
+
+# ==========================================================================
+section "20. README enumeration completeness (Core, Templates, Standards)"
+# ==========================================================================
+# Section 19 checks that the README's front-page COUNTS match the framework;
+# it does not check that the counted items are the right ones. A precision
+# audit (WU-IAENG-264) found the "Completed" section's Core and Templates
+# enumeration bullets each silently dropped one file from their list while
+# every number elsewhere on the page stayed correct — nothing above would
+# have caught it, because nothing above reads the list itself, only digits
+# near it. WU-IAENG-266 extends the same coverage to the Standards bullet,
+# a full name-list of the same shape as Core and Templates, closing it
+# before the same drift repeats there unguarded.
+#
+# APPROACH CHOSEN: count-based, not title-derivation, on evidence rather than
+# a shortcut. Title-derivation was tried first, against the file each
+# enumeration names. For Templates, 12 of 13 README entries are exactly the
+# file's `# ` heading with a trailing " Template" stripped — but ADR.md's
+# heading is "Architecture Decision Record Template" and the README calls it
+# "ADR", an abbreviation, not a suffix strip. Core has the same shape in the
+# other direction: AI_MANIFEST.md, DECISION_TREE.md, GLOSSARY.md, and
+# ORCHESTRATION.md all drop words their heading has that the README does not
+# ("AI Engineering Manifest" -> "AI Manifest", "IA Engineering Decision Tree"
+# -> "Decision Tree", "IA Engineering Glossary" -> "Glossary",
+# "Orchestration Protocol" -> "Orchestration"). A strict match needs a
+# hand-maintained exception table for 5 of the 23 entries before it can run
+# at all — which is a second place for the same drift to happen unnoticed,
+# exactly what this section exists to remove.
+#
+# A count check needs no such table: the number of comma-separated entries in
+# the enumeration must equal the number of *.md files in the directory. It
+# catches exactly the failure this section was written for — a file silently
+# dropped from (or a phantom one added to) the list, which changes the count
+# either way. It does NOT catch a file swapped for a same-count rename (e.g.
+# one entry's name changed to duplicate another, or to the wrong file's
+# title), which title-matching would have caught. That gap is accepted: the
+# defect on record is a drop, not a swap, and this check is unconditionally
+# reliable where title-matching is reliable only after exceptions are
+# hand-maintained — the second copy of the bug the title approach would add.
+
+check_enum_completeness() {
+  local label="$1" dir="$2" line items n_items n_files
+  if [ ! -d "$dir" ]; then
+    fail "cannot check the $label enumeration: $dir/ is missing" "README.md's 'Completed' section enumerates $dir/*.md; without the directory this check verifies nothing."
+    return
+  fi
+  n_files="$(find "$dir" -maxdepth 1 -name '*.md' 2>/dev/null | grep -c . || true)"
+  if [ "$n_files" -eq 0 ]; then
+    fail "cannot check the $label enumeration: $dir/*.md matched nothing" "An empty input set is not a passing check."
+    return
+  fi
+  line="$(grep -oE "$label \\([^)]*\\)" README.md | head -1 | tr -d '\r')"
+  if [ -z "$line" ]; then
+    fail "README: could not find the $label enumeration bullet" "Expected a line matching /$label \\([^)]*\\)/ in the 'Completed' section. If the wording changed, update this check — an unread enumeration drifts silently."
+    return
+  fi
+  items="$(sed -E 's/^[A-Za-z]+ \(//; s/\)$//' <<< "$line")"
+  n_items="$(awk -F',' '{print NF}' <<< "$items")"
+  if [ "$n_items" -ne "$n_files" ]; then
+    fail "README's $label enumeration lists $n_items entries but $dir/ holds $n_files files" "A file was added to or dropped from $dir/ without the README enumeration following it. Compare '$line' against $dir/*.md."
+  else
+    pass "README's $label enumeration lists $n_items entries, matching $dir/ ($n_files files)"
+  fi
+}
+
+if [ ! -f README.md ]; then
+  fail "README.md is missing" "The Core, Templates, and Standards enumeration bullets checked here live in its 'Completed' section."
+else
+  check_enum_completeness "Core" "Core"
+  check_enum_completeness "Templates" "Templates"
+  check_enum_completeness "Standards" "Standards"
+fi
+
+section "21. In-progress milestone named consistently across the front doors"
+# ==========================================================================
+# Section 18 pins the CURRENT version and codename across VERSION.md,
+# README.md and CLAUDE.md. It does not pin the IN-PROGRESS milestone that
+# VERSION.md separately declares under '## Next Milestone' — the exact gap
+# that let VERSION.md declare Precision (v0.0.14) while CLAUDE.md's 'Next:'
+# line and README's 'Planned' section still read TBD for two more Work
+# Units (fixed by WU-IAENG-283). VERSION.md is the source; CLAUDE.md's
+# 'Next:' line and README's 'Planned' bullet are restatements, so a mismatch
+# names the restatement to fix.
+#
+# DESIGN CHOICE, recorded rather than assumed: when VERSION.md's Next
+# Milestone is TBD/unscoped (no milestone name declared), this check does
+# NOT require the front doors to also read TBD. A between-milestones state
+# is legitimate, and asserting the negative ("the front doors name nothing")
+# is brittle against wording that has already varied across releases (see
+# VERSION.md history). The failure this section exists to catch is a SCOPED
+# milestone in VERSION.md that the front doors have not caught up to, not
+# the shape of the unscoped state's prose.
+if [ ! -f "$VER_FILE" ]; then
+  fail "cannot check the in-progress milestone: $VER_FILE is missing" "It is the authoritative source the README and CLAUDE.md are checked against."
+elif ! grep -q '^## Next Milestone' "$VER_FILE"; then
+  fail "cannot find '## Next Milestone' in $VER_FILE" "The extraction reads the first bold token in the two lines following that heading. A missing heading means it moved and this section verifies nothing."
+else
+  # The milestone name is the first '**...**' token within the heading plus
+  # the two lines that follow it (heading, blank line, content line) — the
+  # same '-A2' plus bold-token idiom section 18 uses for Codename. A TBD
+  # line carries no bold token, so this is empty for the unscoped state, by
+  # design (see above).
+  next_ms="$(grep -A2 '^## Next Milestone' "$VER_FILE" | grep -oE '\*\*[^*]+\*\*' | head -1 | tr -d '*\r')"
+  if [ -z "$next_ms" ]; then
+    pass "$VER_FILE's Next Milestone is unscoped (TBD); the front doors are not required to name one"
+  else
+    if [ ! -f CLAUDE.md ]; then
+      fail "CLAUDE.md is missing" "It must restate the in-progress milestone $VER_FILE declares."
+    else
+      claude_next="$(grep -E '^Next:' CLAUDE.md | tr -d '\r')"
+      if [ -z "$claude_next" ]; then
+        fail "CLAUDE.md has no 'Next:' line" "Expected a line starting 'Next:' naming '$next_ms', the in-progress milestone $VER_FILE declares."
+      elif grep -qF "$next_ms" <<< "$claude_next"; then
+        pass "CLAUDE.md's 'Next:' line names '$next_ms', matching $VER_FILE's Next Milestone"
+      else
+        fail "CLAUDE.md's 'Next:' line does not name '$next_ms'" "$VER_FILE's Next Milestone declares '$next_ms'; CLAUDE.md's 'Next:' line has drifted ('$claude_next'). Fix CLAUDE.md's 'Next:' line to name '$next_ms'."
+      fi
+    fi
+
+    if [ ! -f README.md ]; then
+      fail "README.md is missing" "It must restate the in-progress milestone $VER_FILE declares."
+    else
+      readme_planned="$(sed -n '/^Planned/,/^---/p' README.md | tr -d '\r')"
+      if [ -z "$readme_planned" ]; then
+        fail "README.md has no 'Planned' section" "Expected a 'Planned' section naming '$next_ms', the in-progress milestone $VER_FILE declares."
+      elif grep -qF "$next_ms" <<< "$readme_planned"; then
+        pass "README's 'Planned' section names '$next_ms', matching $VER_FILE's Next Milestone"
+      else
+        fail "README's 'Planned' section does not name '$next_ms'" "$VER_FILE's Next Milestone declares '$next_ms'; README's 'Planned' section has drifted. Fix it to name '$next_ms'."
+      fi
+    fi
+  fi
+fi
+
+# ==========================================================================
+section "22. Chain diagrams match Registry/chains.yml step for step"
+# ==========================================================================
+# Section 13 checks that Registry/chains.yml names real Employees, real
+# workflow documents, and every chain Core/AGENT_CHAINS.md defines. It never
+# compared the STEPS. The Review Chain diagram therefore lost its Security
+# Engineer and Compliance Engineer steps, the Architecture Chain diagram its
+# Security Engineer step, and the Feature Chain diagram its ADR gate, while
+# chains.yml kept all four and every check here passed. A manual check-up found
+# them (WU-IAENG-334, PR #201). This section compares each diagram with its
+# Registry entry position by position, in both directions, so that drift fails
+# the build instead of waiting for the next audit.
+#
+# HOW A DIAGRAM IS READ. The grammar below is the one the six diagrams already
+# use, derived from them rather than imposed on them. A chain's diagram is the
+# first fenced block after its "# <Name> Chain" heading (section 13's heading
+# rule). Each line, trimmed, is one of:
+#
+#   ↓                              connector                not a step
+#   [ ... ]                        output                   not a step
+#   Main Agent → Director          Director gate            gate: Director
+#   Main Agent                     Main Agent's own work    employee: Main Agent
+#   Engineer, Engineer(s)          the Engineer step        employee: Engineer
+#   <Employee>                     dispatch                 employee: <Employee>
+#   ┌── <cond>? → <Employee> ──┐  conditional branch       employee: <Employee>, when:
+#   └── <cond> → <Employee> → resubmit ──┘
+#                                  review loop              loops_to: <Employee>, on
+#                                                           the step before the box
+#   ┌── Approved ──┐, │   │, └───┘  branch label, box rules  not a step
+#
+# A step line may end in "(...)", a condition, and in "← parallel ...", which
+# the Registry records as parallel: true. Anything else is refused as
+# unrecognised rather than skipped (rule 1). That includes a box line with no
+# "→" whose text is anything but empty (box rules only) or the one branch label
+# the diagrams use, "Approved" - a named allow-list (rule 2), because a step
+# drawn in a box, or a branch typed with "->" or "⟶", would otherwise go
+# unchecked. It includes an output line that opens "[" and never closes "]".
+#
+# WHAT IS COMPARED at each position: the kind (gate or employee), the name,
+# whether the step is conditional, whether it is parallel, and its loop
+# target. A condition is compared by PRESENCE, never by wording: the diagram's
+# "(if ...)" and the Registry's when: say one thing in two styles. The Registry
+# writes "when: Always" on an unconditional gate, so that value counts as no
+# condition.
+#
+# ONE NAMED EXCEPTION (rule 2). The parenthesised clause "Engineering Manager
+# if multi-pole work", exactly, names who does the step under a Director's
+# multi-pole mandate (Core/AGENT_CHAINS.md, Work Unit Decomposition). It names
+# another actor; it does not make the step conditional, and the Registry
+# records it in a note:, not a when:. Clauses are split on ";", so in the
+# Architecture Chain's "(if Accepted; Engineering Manager if multi-pole work)"
+# the "if Accepted" clause is still a condition. The exception is that name and
+# nothing else: "(Only if multi-pole work)" is a condition, and so is any clause
+# that merely ends the same way. Every other parenthesised clause is a
+# condition, including "(P1/P2 mandatory notification)", which the Registry
+# records as "when: Severity is P1 or P2".
+#
+# WHAT IS READ FROM chains.yml, at the fixed indentation its header's parsing
+# contract requires: "  - name:" opens a chain; "      - employee:" or
+# "      - gate:" opens a step; the step keys read are "        when:",
+# "        parallel:" and "        loops_to:". Refused rather than skipped: any
+# other "      - " line, and a "- employee:" or "- gate:" line at any other
+# indentation. The content of a block scalar (a key ending in ">-", ">", "|"
+# and the like) is text, whatever it looks like: it is skipped while its lines
+# are blank or deeper than the key that opened it, exactly as YAML reads it.
+#
+# CRLF is stripped explicitly. Git for Windows' awk drops the carriage return
+# on read, but an awk elsewhere keeps it, which would end every heading, name
+# and value with \r.
+#
+# One awk process reads both files, because process creation dominates this
+# script's runtime on Windows (see flatten_roster). Only the first differing
+# position of a chain is reported: after one missing step every later position
+# differs too. The detail line carries both full sequences instead, which is
+# what the fix needs.
+
+# chain_diagram_drift <diagram-document> <chain-registry>
+# Prints tab-separated records: "ok<TAB><message>" for each agreeing chain,
+# "fail<TAB><message><TAB><detail>" for each difference or unreadable line,
+# and last "total<TAB><chains compared><TAB><steps compared>". Exits 0 only
+# when at least one chain was compared and nothing differed. Self-contained,
+# because Adapters/scripts/tests/run.sh extracts and runs it on fixtures.
+chain_diagram_drift() {
+  local doc="$1" reg="$2"
+  if [ ! -f "$doc" ] || [ ! -f "$reg" ]; then
+    printf 'fail\tcannot compare chain diagrams: %s or %s is missing\tBoth files are required. Nothing was compared, which is not a pass.\n' "$doc" "$reg"
+    printf 'total\t0\t0\n'
+    return 1
+  fi
+  LC_ALL=C awk '
+    function trim(s) {
+      sub(/^[ \t]+/, "", s)
+      sub(/[ \t]+$/, "", s)
+      return s
+    }
+    function unreadable(file, what) {
+      printf "fail\t%s:%d: %s\tThis line is outside the grammar section 22 of validate-framework.sh reads, so it was not compared. Rewrite it in that grammar, or extend the grammar and its tests.\n", file, FNR, what
+      errors++
+    }
+    function add_step(side, chain, kind, name, cond, par,   i) {
+      i = ++count[side, chain]
+      skind[side, chain, i] = kind
+      sname[side, chain, i] = name
+      scond[side, chain, i] = cond
+      spar[side, chain, i] = par
+      sloop[side, chain, i] = ""
+      sline[side, chain, i] = FNR
+      return i
+    }
+    function render(side, chain, i,   q) {
+      q = ""
+      if (scond[side, chain, i]) q = q ", conditional"
+      if (spar[side, chain, i]) q = q ", parallel"
+      if (sloop[side, chain, i] != "") q = q ", loops to " sloop[side, chain, i]
+      if (q != "") q = " (" substr(q, 3) ")"
+      return skind[side, chain, i] ": " sname[side, chain, i] q
+    }
+    function sequence(side, chain,   i, s) {
+      s = ""
+      for (i = 1; i <= count[side, chain] + 0; i++)
+        s = s ((i > 1) ? "; " : "") i " " render(side, chain, i)
+      return s
+    }
+    function diagram_line(raw,   t, x, inner, n, seg, i, p, ann, par, cond, paren, ncl, cl, c, kind, name, last) {
+      t = trim(raw)
+      if (t == "") return
+      x = t
+      gsub(/↓/, "", x)
+      gsub(/[ \t]/, "", x)
+      if (x == "") return
+      if (substr(t, 1, 1) == "[") {
+        if (substr(t, length(t)) == "]") return
+        unreadable(ARGV[2], dchain ": unrecognised output line \"" t "\"")
+        return
+      }
+      if (index(t, "┌") == 1 || index(t, "│") == 1 || index(t, "└") == 1) {
+        inner = t
+        gsub(/┌|┐|└|┘|│|─/, "", inner)
+        inner = trim(inner)
+        if (index(inner, "→") == 0) {
+          # Named allow-list (rule 2): box rules only, or the one branch label
+          # the diagrams use. Anything else in a box is a line this grammar
+          # does not read: a step drawn in a box, or a branch typed with "->".
+          if (inner == "" || inner == "Approved") return
+          unreadable(ARGV[2], dchain ": unrecognised box line \"" t "\"")
+          return
+        }
+        n = split(inner, seg, "→")
+        for (i = 1; i <= n; i++) seg[i] = trim(seg[i])
+        if (n == 2 && seg[1] != "" && seg[2] != "") {
+          add_step("d", dchain, "employee", seg[2], 1, 0)
+          return
+        }
+        last = count["d", dchain] + 0
+        if (n == 3 && seg[1] != "" && seg[2] != "" && last > 0) {
+          sloop["d", dchain, last] = seg[2]
+          return
+        }
+        unreadable(ARGV[2], dchain ": unrecognised box line \"" t "\"")
+        return
+      }
+      par = 0
+      p = index(t, "←")
+      if (p > 0) {
+        ann = trim(substr(t, p + length("←")))
+        t = trim(substr(t, 1, p - 1))
+        if (ann !~ /^parallel/) {
+          unreadable(ARGV[2], dchain ": unrecognised annotation \"" ann "\"")
+          return
+        }
+        par = 1
+      }
+      cond = 0
+      p = index(t, " (")
+      if (p > 0) {
+        if (substr(t, length(t)) != ")") {
+          unreadable(ARGV[2], dchain ": unrecognised step line \"" trim(raw) "\"")
+          return
+        }
+        paren = substr(t, p + 2, length(t) - p - 2)
+        t = trim(substr(t, 1, p - 1))
+        ncl = split(paren, cl, ";")
+        for (i = 1; i <= ncl; i++) {
+          c = trim(cl[i])
+          # The one named exception, compared for equality: a pattern would
+          # also exempt "Only if multi-pole work", a real condition.
+          if (c != "" && c != "Engineering Manager if multi-pole work") cond = 1
+        }
+      }
+      n = split(t, seg, "→")
+      if (n == 1) {
+        kind = "employee"
+        name = t
+        sub(/\(s\)$/, "", name)
+      } else if (n == 2 && trim(seg[1]) == "Main Agent") {
+        kind = "gate"
+        name = trim(seg[2])
+      } else {
+        unreadable(ARGV[2], dchain ": unrecognised step line \"" trim(raw) "\"")
+        return
+      }
+      if (name == "") {
+        unreadable(ARGV[2], dchain ": a step line with no name \"" trim(raw) "\"")
+        return
+      }
+      add_step("d", dchain, kind, name, cond, par)
+    }
+
+    BEGIN { block = -1 }
+
+    # Registry/chains.yml, the first operand.
+    FILENAME == ARGV[1] {
+      gsub(/\015/, "")
+      # The content of a block scalar is text, whatever it looks like. It runs
+      # while lines are blank or deeper than the key that opened it.
+      if (block >= 0) {
+        if ($0 ~ /^[ \t]*$/) next
+        match($0, /^ */)
+        if (RLENGTH > block) next
+        block = -1
+      }
+      if ($0 ~ /^ *[A-Za-z_]+:[ \t]*[>|][-+0-9]*[ \t]*$/) {
+        match($0, /^ */)
+        block = RLENGTH
+      }
+      v = $0
+      if (sub(/^  - name: /, "", v)) {
+        rchain = trim(v)
+        rcur = 0
+        if (rchain in rseen) {
+          unreadable(ARGV[1], "chain \"" rchain "\" is recorded twice")
+          rchain = ""
+        } else {
+          rseen[rchain] = 1
+          rorder[++nr] = rchain
+        }
+        next
+      }
+      if ($0 ~ /^      - (employee|gate): /) {
+        if (rchain == "") {
+          unreadable(ARGV[1], "a step outside any chain \"" trim($0) "\"")
+          next
+        }
+        sub(/^      - /, "", v)
+        p = index(v, ":")
+        rcur = add_step("r", rchain, substr(v, 1, p - 1), trim(substr(v, p + 1)), 0, 0)
+        next
+      }
+      if ($0 ~ /^      - /) {
+        unreadable(ARGV[1], "a step that opens with neither employee: nor gate: \"" trim($0) "\"")
+        next
+      }
+      if ($0 ~ /^[ \t]*-[ \t]*(employee|gate):/) {
+        unreadable(ARGV[1], "a step at the wrong indentation (the parsing contract puts it at six spaces) \"" trim($0) "\"")
+        next
+      }
+      if (!rcur) next
+      if (sub(/^        when: /, "", v)) scond["r", rchain, rcur] = (trim(v) != "Always")
+      else if (sub(/^        parallel: /, "", v)) spar["r", rchain, rcur] = (trim(v) == "true")
+      else if (sub(/^        loops_to: /, "", v)) sloop["r", rchain, rcur] = trim(v)
+      next
+    }
+
+    # Core/AGENT_CHAINS.md, the second operand.
+    FILENAME == ARGV[2] {
+      gsub(/\015/, "")
+      if ($0 ~ /^[ \t]*```/) {
+        if (fence) {
+          fence = 0
+          drawing = 0
+        } else {
+          fence = 1
+          if (dchain != "" && !(dchain in dhas)) {
+            dhas[dchain] = 1
+            drawing = 1
+          }
+        }
+        next
+      }
+      if (fence) {
+        if (drawing) diagram_line($0)
+        next
+      }
+      if ($0 ~ /^# /) {
+        h = trim(substr($0, 3))
+        dchain = ""
+        if (h ~ /^[A-Za-z][A-Za-z ]*Chain$/ && h !~ /^(Chain Selection|Chain Conventions|Composing Custom Chain)$/) {
+          if (h in dseen) {
+            unreadable(ARGV[2], "chain \"" h "\" has two sections")
+          } else {
+            dseen[h] = 1
+            dorder[++nd] = h
+            dchain = h
+          }
+        }
+      }
+      next
+    }
+
+    END {
+      for (k = 1; k <= nd; k++) {
+        c = dorder[k]
+        if (!(c in dhas)) {
+          printf "fail\t%s: %s draws no diagram for it\tA chain diagram is the first fenced block after its heading, and this section has none, so nothing was compared.\n", c, ARGV[2]
+          bad++
+          continue
+        }
+        if (!(c in rseen)) {
+          printf "fail\t%s: %s draws it, but %s has no entry for it\tA runtime reading the Registry would not know this chain exists. Add it to %s.\n", c, ARGV[2], ARGV[1], ARGV[1]
+          bad++
+          continue
+        }
+        dn = count["d", c] + 0
+        rn = count["r", c] + 0
+        if (dn == 0) {
+          printf "fail\t%s: the diagram in %s yields no step\tAn empty diagram cannot be compared, which is not a pass.\n", c, ARGV[2]
+          bad++
+          continue
+        }
+        differs = 0
+        for (i = 1; i <= dn || i <= rn; i++) {
+          a = (i <= dn) ? render("d", c, i) : ""
+          b = (i <= rn) ? render("r", c, i) : ""
+          if (a != b) {
+            differs = i
+            break
+          }
+        }
+        compared++
+        steps += dn
+        if (!differs) {
+          printf "ok\t%s: diagram and Registry agree step for step (%d steps)\n", c, dn
+          continue
+        }
+        bad++
+        a = (differs <= dn) ? sprintf("%s:%d draws \"%s\"", ARGV[2], sline["d", c, differs], render("d", c, differs)) : sprintf("%s draws nothing (the diagram ends at step %d)", ARGV[2], dn)
+        b = (differs <= rn) ? sprintf("%s:%d records \"%s\"", ARGV[1], sline["r", c, differs], render("r", c, differs)) : sprintf("%s records nothing (the Registry ends at step %d)", ARGV[1], rn)
+        printf "fail\t%s, step %d: %s, %s\tDiagram, %d steps: %s. Registry, %d steps: %s. The diagram is authoritative: bring %s into line with it, unless the diagram is what changed by mistake (Registry/README.md, Authority - the Registry Never Wins).\n", c, differs, a, b, dn, sequence("d", c), rn, sequence("r", c), ARGV[1]
+      }
+      for (k = 1; k <= nr; k++) {
+        c = rorder[k]
+        if (!(c in dseen)) {
+          printf "fail\t%s: %s records it, but %s has no \"# %s\" section\tA Registry chain with no diagram is stale or misnamed: the document is authoritative, so remove or rename the entry.\n", c, ARGV[1], ARGV[2], c
+          bad++
+        }
+      }
+      if (compared == 0) {
+        printf "fail\tno chain diagram was compared\t%s yielded no \"# <Name> Chain\" section with a diagram that %s also records. A comparison over an empty set is not a pass.\n", ARGV[2], ARGV[1]
+        bad++
+      }
+      printf "total\t%d\t%d\n", compared, steps
+      if (bad || errors) exit 1
+      exit 0
+    }
+  ' "$reg" "$doc"
+}
+
+chain_out="$(chain_diagram_drift Core/AGENT_CHAINS.md Registry/chains.yml)"
+chain_status=$?
+chain_total=""
+chain_steps=""
+chain_fails=0
+while IFS=$'\t' read -r verdict message detail; do
+  case "$verdict" in
+    "") ;;
+    ok) pass "$message" ;;
+    fail) chain_fails=$((chain_fails + 1)); fail "$message" "$detail" ;;
+    total) chain_total="$message"; chain_steps="$detail" ;;
+    *) chain_fails=$((chain_fails + 1)); fail "chain_diagram_drift printed a record this section cannot read" "$verdict $message" ;;
+  esac
+done <<< "$chain_out"
+if [ -z "$chain_total" ]; then
+  fail "the chain diagram comparison produced no verdict" "chain_diagram_drift exited $chain_status without its closing 'total' record: awk did not run, or stopped early. Nothing was compared, which is not a pass."
+elif [ "$chain_status" -eq 0 ] && [ "$chain_fails" -eq 0 ]; then
+  pass "all $chain_total chain diagrams match Registry/chains.yml step for step ($chain_steps steps compared)"
+elif [ "$chain_fails" -eq 0 ]; then
+  fail "the chain diagram comparison failed without naming a difference" "chain_diagram_drift exited $chain_status after comparing $chain_total chains. Reported rather than passed."
 fi
 
 # ==========================================================================

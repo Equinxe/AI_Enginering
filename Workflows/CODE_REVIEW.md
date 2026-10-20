@@ -24,6 +24,7 @@ It ensures every change is reviewed systematically, that feedback is actionable,
 | Engineer (author) | Responds to review comments and makes requested changes |
 | Security Engineer | Reviews security findings escalated by the Code Reviewer |
 | Compliance Engineer | Reviews compliance findings escalated by the Code Reviewer (regulated data handling, retention/deletion logic, cross-border data transfer) |
+| Prompt Engineer | Approves every change to an Employee definition (`Employees/`) or to any `Core/*.md` document (including a deletion or rename), in addition to the Code Reviewer, and never a change it authored (`Core/EMPLOYEE_SELECTION.md`, Prompt Engineer trigger) |
 | Software Architect | Reviews architectural concerns escalated by the Code Reviewer |
 | Engineering Manager | Resolves blockers when review cycles exceed two rounds |
 | QA Engineer | Validates the change after approval when it is security-sensitive or high-risk (see "Security-Sensitive or High-Risk Changes") |
@@ -98,7 +99,9 @@ If a security issue is found: escalate immediately to the Security Engineer. Do 
 
 If compliance-relevant content is found: escalate immediately to the Compliance Engineer, the same way a security issue escalates to the Security Engineer. Do not wait for the full review to complete.
 
-**Output:** Security assessment. Escalation opened if needed (Security Engineer and/or Compliance Engineer).
+If the Pull Request makes a change to an Employee definition (`Employees/`) or to any `Core/*.md` document (including a deletion or rename): request the Prompt Engineer's review, whether or not a finding exists. The Prompt Engineer's **approval** is required before merge, in addition to this review, and must cover the `Employees/` and `Core/*.md` text the head carries. A later push that changes that text needs it again; a merge of `develop` into the branch keeps it only as condition 1 of `Core/MAIN_AGENT_CONDUCT.md` (Git Execution via Named Employee) allows. If the Prompt Engineer authored the change, its own review does not count: escalate to the Director, who names the second reviewer (`Core/EMPLOYEE_SELECTION.md`, Prompt Engineer trigger).
+
+**Output:** Security assessment. Escalation opened if needed (Security Engineer and/or Compliance Engineer). Prompt Engineer review requested for a change to `Employees/` or any `Core/*.md` document (including a deletion or rename).
 
 ---
 
@@ -188,7 +191,7 @@ Steps 2 through 6 are five **lenses** — correctness, tests, security and compl
 |---|---|---|
 | Correctness, quality, documentation (Steps 2, 5, 6) | Code Reviewer | The baseline pass |
 | Tests (Step 3) | QA Engineer | Whether the tests *can fail* is a question the author of the review checklist tends to answer optimistically |
-| Security and compliance (Step 4) | Security Engineer; Compliance Engineer when regulated data is in scope | Already the Escalation rule when a finding exists; for high-risk changes the pass runs whether or not the baseline reviewer noticed anything |
+| Security and compliance (Step 4) | Security Engineer; Compliance Engineer when regulated data is in scope; Prompt Engineer for a change to `Employees/` or any `Core/*.md` document (including a deletion or rename) | Already the Escalation rule when a finding exists; for high-risk changes the pass runs whether or not the baseline reviewer noticed anything. The Prompt Engineer's approval is required on every such change, whatever its risk |
 
 Three rules make separate passes worth more than one long one:
 
@@ -228,6 +231,7 @@ After the Code Reviewer approves a PR, the change is routed to the QA Engineer f
 - **Untrusted input at a trust boundary** — parsing, deserialization, file upload, or query construction from external input.
 - **Infrastructure, deployment, or configuration with production access** — IAM policies, network exposure, or secrets-management configuration.
 - **Security architecture changes** — any change that meets the "Security architecture change" ADR trigger in `Workflows/ARCHITECTURE_DECISION.md`.
+- **User-facing UI changes that affect accessibility** — new or modified interactive components, focus order, contrast, or ARIA / platform accessibility attributes.
 
 If the Code Reviewer flags a security concern during the review (Step 4), the Security Engineer is engaged before the QA Engineer, per the Escalation table.
 
@@ -242,6 +246,7 @@ This workflow is complete when:
 - The PR has a documented approval from the Code Reviewer.
 - All critical and major issues are resolved.
 - Security escalations are resolved or formally accepted by the Security Engineer and Director.
+- A change to `Employees/` or any `Core/*.md` document (including a deletion or rename) has the Prompt Engineer's approval on the `Employees/` and `Core/*.md` text the head carries, or, when the Prompt Engineer authored it, the approval of the reviewer the Director named (Step 4). A later push that changes that text needs it again; a merge of `develop` into the branch keeps it only as condition 1 of `Core/MAIN_AGENT_CONDUCT.md` (Git Execution via Named Employee) allows.
 
 ---
 
@@ -269,7 +274,7 @@ This workflow is complete when:
 
 Owner: IA Engineering
 
-Version: 0.0.5
+Version: 0.0.8
 
 Status: Draft
 

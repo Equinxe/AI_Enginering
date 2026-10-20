@@ -32,6 +32,10 @@
 #   Adapters/github-actions/ci-build-test.yml -> .github/workflows/
 #   Adapters/github-actions/ghcr-publish.yml  -> .github/workflows/
 #   Adapters/dockerfiles/<stack>.Dockerfile   -> ./Dockerfile
+#   .ia-engineering/stack, .ia-engineering/risk-map.yml  (starters)
+#   Registry/work-units.yml                   (starter, empty: the project's own
+#                                              Work Unit registry, read by the
+#                                              required Work Unit Exists check)
 #
 # Still not installed here, deliberately: branch protection. It mutates shared
 # repository settings through the GitHub API and needs an authenticated `gh`;
@@ -96,8 +100,54 @@ esac
 
 # Resolve the Adapters directory relative to this script, so the script works
 # regardless of the caller's current directory.
+#
+# `cd ... && pwd` here — without `-P` — resolves through `.`/`..` but NOT
+# through a symlink: bash's own logical `$PWD` keeps a symlinked path
+# component (e.g. a project's `ia-engineering -> ../elsewhere/ia-engineering`
+# checkout) intact as the name it was invoked through, rather than rewriting
+# it to the link's physical target. SCRIPT_DIR relies on that: it is used
+# below to print a path the reader can act on, and a project sees its own
+# framework checkout by the link name, not by wherever that link happens to
+# point on this machine.
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ADAPTERS_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+# Computes a relative path from directory $1 to path $2 by comparing path
+# segments as strings — no realpath, and no symlink resolution. GNU
+# `realpath --relative-to` CANONICALIZES both sides first, so a caller
+# reached through a symlinked directory gets back a path through the link's
+# physical target instead of the link name (e.g. `../actual-target/...`
+# instead of `./ia-engineering/...`); `realpath` is also not present on every
+# platform this script targets (Git Bash, Linux, macOS — the earlier
+# `--relative-to` call fell back to an absolute path when it failed). Both
+# inputs must already be absolute (SCRIPT_DIR and the caller's `pwd` both are,
+# from plain non -P `cd`/`pwd`).
+relpath() {
+  local from="$1" to="$2" i=0 up="" rest="" j
+  local -a from_parts to_parts
+  IFS='/' read -r -a from_parts <<<"$from"
+  IFS='/' read -r -a to_parts <<<"$to"
+  while [ "$i" -lt "${#from_parts[@]}" ] && [ "$i" -lt "${#to_parts[@]}" ] \
+        && [ "${from_parts[$i]}" = "${to_parts[$i]}" ]; do
+    i=$((i + 1))
+  done
+  j="$i"
+  while [ "$j" -lt "${#from_parts[@]}" ]; do
+    up="../$up"
+    j=$((j + 1))
+  done
+  j="$i"
+  while [ "$j" -lt "${#to_parts[@]}" ]; do
+    rest="$rest${to_parts[$j]}/"
+    j=$((j + 1))
+  done
+  rest="${rest%/}"
+  if [ -z "$up$rest" ]; then
+    printf '.'
+  else
+    printf '%s%s' "$up" "$rest"
+  fi
+}
 
 DRY_RUN=0
 for arg in "${PASSTHROUGH[@]+"${PASSTHROUGH[@]}"}"; do
@@ -131,7 +181,7 @@ echo
 # A hook problem should not stop the Dockerfile being installed.
 echo "--- Host-agnostic Adapters (install.sh) ---"
 INSTALL_RC=0
-"$SCRIPT_DIR/install.sh" ${PASSTHROUGH[@]+"${PASSTHROUGH[@]}"} || INSTALL_RC=$?
+IAENG_FROM_BOOTSTRAP=1 "$SCRIPT_DIR/install.sh" ${PASSTHROUGH[@]+"${PASSTHROUGH[@]}"} || INSTALL_RC=$?
 echo
 
 # 2. Stack-dependent CI and container publishing.
@@ -294,6 +344,57 @@ RISKMAP
   echo "  + $RISK_MAP_FILE (starter — installed files only; the check will name what remains)"
 fi
 
+# A STARTER WORK UNIT REGISTRY, BECAUSE THE REQUIRED `Work Unit Exists` CHECK
+# READS THE PROJECT'S AND NEVER THE FRAMEWORK'S.
+#
+# check-work-units.sh used to fall back to ia-engineering/Registry/work-units.yml
+# when the project had none, which failed the adopter's first Pull Request and
+# let a commit claiming a framework Work Unit pass (DEF-1, issue #181). It now
+# fails with the file to create instead, so this script creates it.
+#
+# The location is Registry/work-units.yml at the project root: it is the path
+# Workflows/FEATURE_DEVELOPMENT.md Step 4 already tells every project to
+# register Work Units in, and the path the check reads, so no new convention is
+# introduced. The list is EMPTY, not seeded with an example: an example ID would
+# be a registered Work Unit that nobody performed, which is the false pass this
+# file exists to prevent. A bare `work_units:` key (not `[]`) so entries can be
+# appended beneath it as valid YAML.
+WU_REGISTRY_FILE="Registry/work-units.yml"
+if [ -f "$WU_REGISTRY_FILE" ] && ! printf '%s\n' "${PASSTHROUGH[@]+"${PASSTHROUGH[@]}"}" | grep -qx -- '--force'; then
+  echo "  ! $WU_REGISTRY_FILE already exists — left untouched (the project's own)." >&2
+  WU_REGISTRY_NOTE="already present, left untouched (the project's own)"
+  echo "    Re-run with --force to replace it with the empty starter." >&2
+elif [ "$DRY_RUN" -eq 1 ]; then
+  WU_REGISTRY_NOTE="would be written (dry run)"
+  echo "  [dry-run] write $WU_REGISTRY_FILE (starter: empty Work Unit list)"
+else
+  WU_REGISTRY_NOTE="starter written above"
+  mkdir -p "$(dirname "$WU_REGISTRY_FILE")"
+  cat > "$WU_REGISTRY_FILE" <<'WUREGISTRY'
+# Work Unit Registry — STARTER, written by setup-project-bootstrap.sh
+#
+# The Work Units executed in THIS project. The required `Work Unit Exists` check
+# resolves each commit's `Work Unit:` trailer against this file, and never
+# against the framework's own Registry/work-units.yml.
+#
+# Register a Work Unit in the SAME commit that performs it, one entry per Work
+# Unit, appended below the `work_units:` line:
+#
+#   - id: WU-<PROJECT>-001
+#     employee: <an Employee name from the roster>
+#     title: <what the Work Unit does>
+#     milestone: <milestone or release label>
+#     delivers: <paths this Work Unit changes>
+#
+# PARSING CONTRACT — read this before reformatting. Consumers read these lines
+# with grep and sed: keep `  - id: <WU-ID>` as each entry's first line, two
+# leading spaces, unquoted. IDs follow Templates/WORK_UNIT.md.
+
+work_units:
+WUREGISTRY
+  echo "  + $WU_REGISTRY_FILE (starter — empty; register each Work Unit in the commit that performs it)"
+fi
+
 DOCKERFILE_SRC="$ADAPTERS_DIR/dockerfiles/$STACK.Dockerfile"
 if [ ! -f "$DOCKERFILE_SRC" ]; then
   echo "Error: no starter Dockerfile for stack '$STACK' at $DOCKERFILE_SRC" >&2
@@ -314,8 +415,10 @@ echo
 #    requires every checklist item, and the items below need a decision, a
 #    Director, or an authenticated API call — not a file copy.
 echo "--- Remaining Coverage Checklist items (Workflows/PROJECT_BOOTSTRAP.md) ---"
-echo "  Branch protection      ./$(realpath --relative-to=. "$SCRIPT_DIR" 2>/dev/null || echo "$SCRIPT_DIR")/setup-branch-protection.sh"
-echo "  main + develop created git branch develop && git push -u origin develop"
+echo "  Branch protection      ./$(relpath "$(pwd)" "$SCRIPT_DIR")/setup-branch-protection.sh"
+echo "  main + develop created make the first commit first (git branch fails with none), then"
+echo "                         git push -u origin main && git branch develop && git push -u origin develop"
+echo "                         (pre-push allows creating them; every later change goes by PR)"
 echo "  README.md              from the Phase A answers (project identity)"
 echo "  .gitignore             stack-appropriate for $STACK"
 echo "  Project Charter        Templates/PROJECT_CHARTER.md, from Phase A"
@@ -324,7 +427,15 @@ echo "                         Workflows/ARCHITECTURE_DECISION.md"
 echo "  Risk Map               .ia-engineering/risk-map.yml — the starter covers the installed"
 echo "                         files only; map your own zones and account for all eight"
 echo "                         categories (Templates/RISK_MAP.md), then run check-risk-map.sh"
-echo "  CLAUDE.md + roster     Workflows/ONBOARDING.md Step 4"
+echo "  CLAUDE.md              from Templates/PROJECT_CLAUDE.md, before Onboarding Step 4"
+echo "                         (Workflows/ONBOARDING.md Step 1 item 2)"
+echo "  SESSION_STATE.md       .ia-engineering/SESSION_STATE.md from Templates/SESSION_STATE.md,"
+echo "                         after first commit (Workflows/ONBOARDING.md Step 1 item 3; gitignored)"
+echo "  Adoption commit        signed Employee: DevOps Engineer; registers an adoption Work Unit"
+echo "                         (milestone: Bootstrap; Workflows/PROJECT_BOOTSTRAP.md Step 4 item 5)"
+echo "  Roster                 Workflows/ONBOARDING.md Step 4"
+echo "  Work Unit registry     Registry/work-units.yml — $WU_REGISTRY_NOTE; register each"
+echo "                         Work Unit in the commit that performs it"
 echo "  First Work Unit        Workflows/ONBOARDING.md Step 6, Director-approved"
 echo
 

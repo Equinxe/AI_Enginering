@@ -46,6 +46,10 @@ Lower levels extend upper levels. They never contradict them.
 - `Core/DECISION_TREE.md` — Decision process
 - `Core/GLOSSARY.md` — Official vocabulary
 - `Standards/STANDARDS_FIRST.md` — Standards hierarchy
+- `Core/ORCHESTRATION.md` — Main Agent dispatch protocol
+- `Core/AGENT_CHAINS.md` — the named Agent Chains
+- `Core/EMPLOYEE_SELECTION.md` — per-Employee dispatch triggers
+- `Core/CAPABILITY_TIERS.md` — execution tiers
 
 ---
 
@@ -97,7 +101,7 @@ Present plans before executing.
 
 Escalate architectural, business, and product decisions.
 
-Never merge, tag, release, or take irreversible actions without Director approval.
+Never tag, release, merge to `main`, or take another irreversible action without Director approval. Merging an approved Pull Request into `develop` is delegable (`Workflows/FEATURE_DEVELOPMENT.md` Step 8).
 
 ---
 
@@ -120,8 +124,8 @@ Adapters/      — Tool integrations
 
 # Current Version
 
-v0.0.12 — Automation & Convergence
+v0.0.14 — Precision
 
-Two milestones under one number: both completed on `develop` before either shipped. See `Governance/VERSIONING_POLICY.md`.
+The framework made exact and usable: every front-facing surface audited and guarded against drift, the controls that grade a Pull Request hardened by adversarial exercises, and the newcomer path dogfooded on real adoptions. See `CHANGELOG.md` and `Governance/VERSIONING_POLICY.md`.
 
-Next: TBD — not yet scoped. The next milestone takes 0.0.13.
+Next: **Adoption**, targeting v0.0.15.

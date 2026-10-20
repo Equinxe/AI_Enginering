@@ -42,23 +42,25 @@ It applies both to new projects starting from scratch and to existing projects a
 **Actor:** Director + Main Agent
 
 1. Add the IA Engineering framework to the project:
-   - As a git submodule, copied reference, or linked documentation directory.
+   - As a git submodule, copied reference, or linked documentation directory. As a submodule, pin a release tag, not a branch; `README.md` Getting Started says which and why. A submodule from a local path needs the workaround in `Governance/TROUBLESHOOTING.md` entry Y. Commit the adoption (the submodule and the installed tooling) once items 4 and 5 have run (item 5 installs `.claude/settings.json` and the skills, which belong to the same commit), signed `Employee: DevOps Engineer`, with an adoption Work Unit registered in the same commit (`Workflows/PROJECT_BOOTSTRAP.md` Step 4 item 5); item 3 below is created after that commit.
 2. Create `CLAUDE.md` at the project root from `Templates/PROJECT_CLAUDE.md`, filling every bracketed field from the Project Charter and the Stack Decision ADR:
    - Project identity, objective, and profile
    - **What constitutes PROOF** for each output someone will act on
    - Technology stack
    - Active standards, and any project rule that is stricter
    - Active Employees — framework and Domain — with concrete dispatch triggers
+   - The Main Agent rule — delegate every Work Unit to the named Employee, plan first — as the template's short pointer to `Core/MAIN_AGENT_CONDUCT.md`, not restated
    - Working method, and which enforcement is installed
    - Director identity
    - Open questions
-3. Create `.ia-engineering/SESSION_STATE.md` from `Templates/SESSION_STATE.md` — the project's dated operational state, read immediately after `CLAUDE.md` on every resume. It is **never committed**: `Adapters/scripts/install.sh` gitignores it and the `pre-commit` hook refuses it, because a file that records what is currently weak does not belong in the repository it describes. `CLAUDE.md` holds the stable contract; this file holds where things stand. One fact lives in exactly one of them.
-4. Run `Adapters/scripts/install.sh` from the project root so the hooks, CI workflows, `.gitignore` data-protection rules, and local data directory exist before the first commit — `Standards/DATA_PROTECTION_STANDARD.md` is enforceable only if its controls predate the data.
-5. Confirm the framework loads correctly in the AI assistant context.
+3. Create `.ia-engineering/SESSION_STATE.md` from `Templates/SESSION_STATE.md` — the project's dated operational state, read immediately after `CLAUDE.md` on every resume. Create it **after the project's first commit**, not before: the session-start hook warns "N commit(s) behind" when the file is older than the latest commit, so a file written ahead of the first commit is stale on the first session (if it already exists, `touch` it). It is **never committed**: `Adapters/scripts/install.sh` gitignores it and the `pre-commit` hook refuses it, because a file that records what is currently weak does not belong in the repository it describes. `CLAUDE.md` holds the stable contract; this file holds where things stand. One fact lives in exactly one of them.
+4. Run `Adapters/scripts/install.sh`, found in your imported framework directory, from the project root so the hooks, CI workflows, `.gitignore` data-protection rules, and local data directory exist before the first commit — `Standards/DATA_PROTECTION_STANDARD.md` is enforceable only if its controls predate the data. `install.sh` alone is the host-agnostic subset, for when no stack bootstrap is wanted — a project adopting a technology stack should instead run `Adapters/scripts/setup-project-bootstrap.sh <stack>`, which runs `install.sh` internally and additionally installs the stack's CI workflows and `Dockerfile`, and writes the project's own, empty `Registry/work-units.yml`. That registry must exist before the first Pull Request: the required `Work Unit Exists` check reads the project's registry and never the framework's, and fails, naming the file to create, if it is missing. A project that ran `install.sh` alone creates it by hand (`work_units:` followed by one entry per Work Unit, shape in `Registry/README.md`; the stack bootstrap is `Workflows/PROJECT_BOOTSTRAP.md` Step 4).
+5. Install the AI-runtime integration — a separate, deliberate step from item 4 above, for the same reason `Workflows/PROJECT_BOOTSTRAP.md` Step 4 gives it its own step: `.claude/settings.json` is committed content that decides what the model may do, not something a per-clone installer writes unasked. From the project root, run `Adapters/ai-runtimes/generate-agents.sh`, found in your imported framework directory, to turn the Employee roster into agents the runtime can dispatch to. Using Claude Code as the runtime, also run `Adapters/ai-runtimes/claude-code/install-hooks.sh` and `Adapters/ai-runtimes/claude-code/install-skills.sh`, both in the same framework directory. A different runtime uses its own Adapter under `Adapters/ai-runtimes/<runtime>/` (`Core/AI_MANIFEST.md` Principle X). Restart the session afterward — Claude Code reads `.claude/settings.json` at session start — and confirm the session-start hook prints `.ia-engineering/SESSION_STATE.md`'s pointers into context.
+6. Confirm the framework loads correctly in the AI assistant context.
 
 For a project that already has code and history, the install adds alongside what is there and never overwrites it — see **Adopting into an already-started project** below for the four realities greenfield never meets.
 
-**Output:** Framework imported. `CLAUDE.md` created and active. `SESSION_STATE.md` created and ignored. Adapters installed.
+**Output:** Framework imported. `CLAUDE.md` created and active. `SESSION_STATE.md` created and ignored. Adapters installed, including the AI-runtime integration for the runtime in use.
 
 ---
 
@@ -127,13 +129,13 @@ For existing projects:
 
 ## Step 6 — Create first Work Unit
 
-**Actor:** Engineering Manager → Director
+**Actor:** Main Agent → Director
 
-1. Engineering Manager proposes the first Work Unit based on the project brief.
+1. The Main Agent proposes the first Work Unit based on the project brief — its own Orchestration Step 3 (`Core/ORCHESTRATION.md`), not a dispatch (`Core/AGENT_CHAINS.md`, Work Unit Decomposition).
 2. Director reviews and approves.
-3. Work Unit is assigned to the appropriate engineer.
+3. The Work Unit is dispatched to the implementing Employee chosen per `Core/EMPLOYEE_SELECTION.md`.
 
-This step confirms the framework is operational: the full loop from Director → Main Agent → Engineering Manager → Engineer is active.
+This step confirms the framework is operational: the full loop from Director → Main Agent → Employee is active.
 
 **Output:** First Work Unit created and approved by Director.
 
@@ -204,7 +206,7 @@ This workflow is complete when:
 
 Owner: IA Engineering
 
-Version: 0.0.5
+Version: 0.0.15
 
 Status: Draft
 

@@ -816,3 +816,519 @@ work_units:
     title: Bump VERSION.md to v0.0.13 and finalize the CHANGELOG.md section for the Portability release
     milestone: Portability
     delivers: VERSION.md, CHANGELOG.md
+
+  - id: WU-IAENG-260
+    employee: Technical Writer
+    title: Clear the post-release drift on the README front door — Current Status, Completed, and Roadmap name v0.0.13 Portability
+    milestone: Precision
+    delivers: README.md
+
+  - id: WU-IAENG-261
+    employee: Test Automation Engineer
+    title: The validator pins the README front door against VERSION.md, so the stated current version cannot silently drift
+    milestone: Precision
+    delivers: Adapters/scripts/validate-framework.sh
+
+  - id: WU-IAENG-262
+    employee: Test Automation Engineer
+    title: Clear the CLAUDE.md front-door drift and extend the validator guard to the contract every agent reads first
+    milestone: Precision
+    delivers: CLAUDE.md, Adapters/scripts/validate-framework.sh
+
+  - id: WU-IAENG-263
+    employee: Test Automation Engineer
+    title: Mechanise CODE_REVIEW rule 5 for the README front-page counts — workflows, required checks, first-class stacks
+    milestone: Precision
+    delivers: Adapters/scripts/validate-framework.sh
+
+  - id: WU-IAENG-264
+    employee: Technical Writer
+    title: Clear the README Core/Templates enumeration drift and correct CONTEXT_BUDGET's false EMPLOYEE_BRIEF cross-reference
+    milestone: Precision
+    delivers: README.md, Core/CONTEXT_BUDGET.md
+
+  - id: WU-IAENG-265
+    employee: Test Automation Engineer
+    title: Guard the README Core/Templates enumeration bullets against silently dropping a file, by comma count against the directory
+    milestone: Precision
+    delivers: Adapters/scripts/validate-framework.sh
+
+  - id: WU-IAENG-266
+    employee: Test Automation Engineer
+    title: Extend the README Completed-section guards to the Standards enumeration and the Agent Chains and Examples front-page counts
+    milestone: Precision
+    delivers: Adapters/scripts/validate-framework.sh
+
+  - id: WU-IAENG-267
+    employee: Technical Writer
+    title: Fix the hooks README verification example whose own comment claimed rc=0 while the shell construction actually produced rc=2
+    milestone: Precision
+    delivers: Adapters/ai-runtimes/claude-code/hooks/README.md, Workflows/ONBOARDING.md, Workflows/PROJECT_BOOTSTRAP.md
+
+  - id: WU-IAENG-268
+    employee: Technical Writer
+    title: Fix RELEASE_CHAIN_EXAMPLE's closing summary bullet still claiming the back-merge is normally a no-op, contradicting its own corrected Step 6 body
+    milestone: Precision
+    delivers: Examples/RELEASE_CHAIN_EXAMPLE.md
+
+  - id: WU-IAENG-269
+    employee: Security Engineer
+    title: Clarify how the Critical tier interacts with the Incident Chain's one non-pausing gate — reversible containment may proceed with post-hoc independent verification, irreversible still stops
+    milestone: Precision
+    delivers: Standards/RISK_STANDARD.md, Examples/INCIDENT_CHAIN_EXAMPLE.md
+
+  - id: WU-IAENG-270
+    employee: Software Architect
+    title: Align the Incident Chain diagram and Registry with the workflow's order — Incident Commander assigned before the P1/P2 notification, not folded into containment
+    milestone: Precision
+    delivers: Core/AGENT_CHAINS.md, Registry/chains.yml
+
+  - id: WU-IAENG-271
+    employee: Technical Writer
+    title: Port RELEASE.md Step 8's proven back-merge PR shape into HOTFIX.md Step 9, closing the head=main deadlock it never inherited
+    milestone: Precision
+    delivers: Workflows/HOTFIX.md
+
+  - id: WU-IAENG-272
+    employee: Technical Writer
+    title: Correct four normative-doc precision defects — Agent Chains overbroad claim, Branch Standard lifecycle exception, Risk Standard stale cross-references, Agent Conduct citation form
+    milestone: Precision
+    delivers: Core/AGENT_CHAINS.md, Standards/BRANCH_STANDARD.md, Standards/RISK_STANDARD.md, Core/AGENT_CONDUCT.md
+
+  - id: WU-IAENG-273
+    employee: Software Architect
+    title: Give STANDARDS_FIRST and the Manifest one answer to project-convention vs framework-Standard precedence, via a governed tie-break on the existing Documented Deviations mechanism
+    milestone: Precision
+    delivers: Standards/STANDARDS_FIRST.md, Core/AI_MANIFEST.md
+
+  - id: WU-IAENG-274
+    employee: Software Architect
+    title: Map Conduct's 7-step Core Behavior to Orchestration's concrete protocol with a correspondence table, without renumbering either
+    milestone: Precision
+    delivers: Core/ORCHESTRATION.md
+
+  - id: WU-IAENG-275
+    employee: Technical Writer
+    title: Document the Work Unit registration step in the authoring path — the golden path named no step for Registry/work-units.yml, so a newcomer following it hit an unnamed required CI check
+    milestone: Precision
+    delivers: Workflows/FEATURE_DEVELOPMENT.md, Templates/WORK_UNIT.md, Standards/COMMIT_STANDARD.md, Registry/work-units.yml
+
+  - id: WU-IAENG-276
+    employee: Technical Writer
+    title: Correct the README's stale self-validation and test counts against the tools' own measured output, and align two other docs that disagreed 3x on the hook-suite size
+    milestone: Precision
+    delivers: README.md, Adapters/README.md, Adapters/ai-runtimes/claude-code/hooks/README.md
+
+  - id: WU-IAENG-277
+    employee: Technical Writer
+    title: Add the four operating-critical Core docs missing from CLAUDE.md's Core Documents list, and clarify the canonical install command at ONBOARDING.md's entry point
+    milestone: Precision
+    delivers: CLAUDE.md, Workflows/ONBOARDING.md, Registry/work-units.yml
+
+  - id: WU-IAENG-278
+    employee: Technical Writer
+    title: Document the express path for trivial/mechanical changes as lighter execution of every existing Feature Workflow step at the Lightweight Execution tier, not fewer steps
+    milestone: Precision
+    delivers: Workflows/FEATURE_DEVELOPMENT.md, Core/CAPABILITY_TIERS.md, Registry/work-units.yml
+
+  - id: WU-IAENG-279
+    employee: Technical Writer
+    title: Add a README Getting Started note for a reader handed this repository to work on the framework itself, pointing to CLAUDE.md and Governance/CONTRIBUTING.md
+    milestone: Precision
+    delivers: README.md, Registry/work-units.yml
+
+  - id: WU-IAENG-280
+    employee: Technical Writer
+    title: Close five cycle-2 dogfood friction items — cross-link the tier docs, document the docs/ branch prefix, surface the RISK trailer from the Commit Standard, point Step 4 at the milestone source, and fix the commit-msg hook's header example
+    milestone: Precision
+    delivers: Governance/CONTRIBUTING.md, Workflows/FEATURE_DEVELOPMENT.md, Core/CAPABILITY_TIERS.md, Standards/BRANCH_STANDARD.md, Standards/COMMIT_STANDARD.md, Adapters/git-hooks/commit-msg, Registry/work-units.yml
+
+  - id: WU-IAENG-281
+    employee: Technical Writer
+    title: Tier root docs (README.md, CHANGELOG.md, other root-level *.md) like other doc types in CONTRIBUTING §1, closing the fallback to Strategic Judgment a trivial root-doc fix hit by default
+    milestone: Precision
+    delivers: Governance/CONTRIBUTING.md, Registry/work-units.yml
+
+  - id: WU-IAENG-282
+    employee: Release Manager
+    title: Declare Precision as the in-progress milestone on develop, targeting v0.0.14, in VERSION.md
+    milestone: Precision
+    delivers: VERSION.md, Workflows/FEATURE_DEVELOPMENT.md
+
+  - id: WU-IAENG-283
+    employee: Release Manager
+    title: Sync CLAUDE.md and README.md's next-milestone lines to VERSION.md's Precision declaration, closing the drift a newcomer hits on the first hop
+    milestone: Precision
+    delivers: CLAUDE.md, README.md
+
+  - id: WU-IAENG-284
+    employee: Test Automation Engineer
+    title: Extend the front-door guard to the in-progress milestone VERSION.md declares, closing the drift class that let CLAUDE.md and README.md read TBD for two Work Units after Precision was declared
+    milestone: Precision
+    delivers: Adapters/scripts/validate-framework.sh
+
+  - id: WU-IAENG-285
+    employee: Security Engineer
+    title: Decode printf's runtime escapes in the escape-hatch lexer, closing the printf-built-token bypass class of issue #112, and document the residual runtime-value limitation the hook does not and cannot catch
+    milestone: Precision
+    delivers: Adapters/ai-runtimes/claude-code/hooks/strip-quotes.awk, Adapters/ai-runtimes/claude-code/hooks/README.md, Adapters/ai-runtimes/claude-code/hooks/tests/escape-hatch-cases.tsv, Adapters/ai-runtimes/claude-code/hooks/tests/lexer-cases.tsv
+
+  - id: WU-IAENG-286
+    employee: Test Automation Engineer
+    title: Commit the legitimate-command corpus behind WU-285's reported 0-false-positives claim as allow cases, so the escape-hatch hook is guarded against over-blocking on every CI run rather than resting on an uncommitted one-time measurement
+    milestone: Precision
+    delivers: Adapters/ai-runtimes/claude-code/hooks/tests/escape-hatch-cases.tsv
+
+  - id: WU-IAENG-287
+    employee: DevOps Engineer
+    title: Keep .ia-engineering/SESSION_STATE.md in step with the repository — session-start.sh warns when it is behind HEAD, when its header was not refreshed, or when it exceeds a size budget; stop-gate.sh blocks ending a session whose SESSION_STATE is behind the repo, with a non-blocking reminder when the file does not exist
+    milestone: Precision
+    delivers: Adapters/ai-runtimes/claude-code/hooks/session-start.sh, Adapters/ai-runtimes/claude-code/hooks/stop-gate.sh, Adapters/ai-runtimes/claude-code/hooks/lib.sh, Adapters/ai-runtimes/claude-code/hooks/README.md, Adapters/ai-runtimes/claude-code/hooks/tests/run.sh
+
+  - id: WU-IAENG-288
+    employee: Technical Writer
+    title: Write the snapshot-discipline half of session continuity — SESSION_STATE.md is rewritten not appended, a 15,000-character size budget, and a Handoff to a New Conversation checklist the Main Agent runs before Step 7's closing Stop
+    milestone: Precision
+    delivers: Templates/SESSION_STATE.md, Core/ORCHESTRATION.md, Registry/work-units.yml
+
+  - id: WU-IAENG-289
+    employee: Technical Writer
+    title: Name the AI-runtime install step in Project Bootstrap and Onboarding, closing the gap that left a real greenfield adoption with no .claude/ directory, no hooks, and no skills
+    milestone: Precision
+    delivers: Workflows/PROJECT_BOOTSTRAP.md, Workflows/ONBOARDING.md, Registry/work-units.yml
+
+  - id: WU-IAENG-290
+    employee: Security Engineer
+    title: Extend the Penetration Tester to threat-led adversary emulation including the AI-runtime attack surface, require every resolved adversarial finding to end as a regression test or a detection, and give the Observability Engineer the implementation half of security-event detection — three existing Employees extended, no new Employee, no new chain
+    milestone: Precision
+    delivers: Employees/Specialized/PENETRATION_TESTER.md, Employees/Quality/SECURITY_ENGINEER.md, Employees/DevOps/OBSERVABILITY_ENGINEER.md, Core/EMPLOYEE_SELECTION.md, Registry/work-units.yml
+
+  - id: WU-IAENG-291
+    employee: Technical Writer
+    title: Make accessibility conformance testing an explicit verified quality gate — WCAG 2.2 AA in QA and automation scopes, update stale WCAG 2.1 references, platform-specific accessibility guidelines for iOS and Android
+    milestone: Precision
+    delivers: Employees/Quality/QA_ENGINEER.md, Employees/Quality/TEST_AUTOMATION_ENGINEER.md, Employees/Development/FRONTEND_ENGINEER.md, Employees/Specialized/UX_UI_DESIGNER.md, Employees/Development/IOS_ENGINEER.md, Employees/Development/ANDROID_ENGINEER.md
+
+  - id: WU-IAENG-292
+    employee: Technical Writer
+    title: Choose the execution tier per Work Unit rather than per Employee, and add a Director-approved, override-only Frontier tier reachable only by upgrading from Strategic Judgment
+    milestone: Precision
+    delivers: Core/CAPABILITY_TIERS.md, Core/ORCHESTRATION.md, Core/MAIN_AGENT_CONDUCT.md, Core/GLOSSARY.md, Workflows/FEATURE_DEVELOPMENT.md, Templates/EMPLOYEE_BRIEF.md, Templates/WORK_UNIT_REPORT.md, Governance/CONTRIBUTING.md, Adapters/ai-runtimes/README.md, Adapters/ai-runtimes/omc/README.md, Adapters/ai-runtimes/generate-agents.sh, Registry/work-units.yml
+
+  - id: WU-IAENG-293
+    employee: DevOps Engineer
+    title: Add a Frontier key to generate-agents.sh's --map (never written as any Employee's default model), a per-tier effort field with a --effort-map override, document how a per-Work-Unit Execution tier is actually run against a statically generated agent file, document the provider aliasing caveat, and pin the independent review bot's model and effort explicitly
+    milestone: Precision
+    delivers: Adapters/ai-runtimes/generate-agents.sh, Adapters/ai-runtimes/README.md, Adapters/ai-runtimes/claude-code/review-bot.yml, Adapters/scripts/tests/run.sh, Registry/work-units.yml
+
+  - id: WU-IAENG-294
+    employee: Compliance Engineer
+    title: Give open-source licence compliance an owner — extend the Compliance Engineer with dependency licence inventory, compatibility, and obligation-tracking duties backed by SPDX/OpenChain/CycloneDX, and split the Security Engineer's dependency scan into a report/adjudicate hand-off
+    milestone: Precision
+    delivers: Employees/Specialized/COMPLIANCE_ENGINEER.md, Employees/Quality/SECURITY_ENGINEER.md, Registry/work-units.yml
+
+  - id: WU-IAENG-295
+    employee: Technical Lead
+    title: Add Miscasting Risks entries for the AI/ML cluster and the infrastructure cluster, plus Observability vs SRE, Code Reviewer vs Technical Lead, and Engineering Manager vs Scrum Master, and name accessibility conformance in the QA Engineer dispatch trigger
+    milestone: Precision
+    delivers: Core/EMPLOYEE_SELECTION.md, Registry/work-units.yml
+
+  - id: WU-IAENG-296
+    employee: Platform Engineer
+    title: Fix four measured adopter-install defects — ignore generate-agents.sh's and this runtime's own derived/runtime artifacts (.claude/agents/, .claude/worktrees/) by default in an adopting project, matching the framework's own .gitignore reasoning; restrict install.sh's framework-only .gitattributes EOL rules (/Adapters/**, /Registry/**) to installing into the framework itself; and make setup-project-bootstrap.sh's branch-protection hint symlink/junction-safe instead of resolving through realpath to a physical path
+    milestone: Precision
+    delivers: Adapters/scripts/install.sh, Adapters/scripts/setup-project-bootstrap.sh, Adapters/scripts/tests/run.sh, .gitignore, Registry/work-units.yml
+
+  - id: WU-IAENG-297
+    employee: Technical Writer
+    title: Replace MAIN_AGENT_CONDUCT.md's stale copied Miscasting pairs list with a pointer to EMPLOYEE_SELECTION.md's Miscasting Risks section so it cannot drift again, and apply three Software Architect wording precisions from the PR #156 review (Observability vs SRE's SLO-derived paging thresholds, Cloud vs IaC's security-requirement origin, and Code Reviewer vs Technical Lead's merge-approval citation moved off CLAUDE.md to Workflows/RELEASE.md)
+    milestone: Precision
+    delivers: Core/MAIN_AGENT_CONDUCT.md, Core/EMPLOYEE_SELECTION.md, Registry/work-units.yml
+
+  - id: WU-IAENG-298
+    employee: Technical Writer
+    title: Align the RISK-record rule on the Pull Request range instead of the same commit, correcting Standards/COMMIT_STANDARD.md and check-risk-map.sh's error text to match the check that already validates the whole range
+    milestone: Precision
+    delivers: Standards/COMMIT_STANDARD.md, Adapters/scripts/check-risk-map.sh, Registry/work-units.yml
+
+  - id: WU-IAENG-299
+    employee: Technical Writer
+    title: Define the optional runtime attribution trailer — it names the model that actually ran, is never dictated by a brief, is not validated, and is not a substitute for Employee: — and cross-reference it from the Employee Brief and Work Unit Report templates
+    milestone: Precision
+    delivers: Standards/COMMIT_STANDARD.md, Templates/EMPLOYEE_BRIEF.md, Templates/WORK_UNIT_REPORT.md, Registry/work-units.yml
+
+  - id: WU-IAENG-300
+    employee: Test Automation Engineer
+    title: Count skipped checks instead of shrinking the total — the two ln -s-gated sections of Adapters/scripts/tests/run.sh printed SKIP without touching any counter, so a platform where ln -s fails silently reported a smaller "N checks passed" than a full run; add a skip helper with an explicit SKIPPED counter, report it in the final summary only when non-zero, and fail a skip outright under CI=true since this framework's CI runs on Linux where ln -s always succeeds
+    milestone: Precision
+    delivers: Adapters/scripts/tests/run.sh, Registry/work-units.yml
+
+  - id: WU-IAENG-301
+    employee: DevOps Engineer
+    title: Collapse generate-agents.sh's per-section "awk | sed | awk" extraction (12 process-substitution calls per Employee) into one single-pass awk extraction per Employee file, fixing a multi-minute MSYS fork-emulation stall on Windows/Git Bash with byte-identical output, verified by diffing all 42 generated agents before and after
+    milestone: Precision
+    delivers: Adapters/ai-runtimes/generate-agents.sh, Adapters/scripts/tests/run.sh, Registry/work-units.yml
+
+  - id: WU-IAENG-302
+    employee: DevOps Engineer
+    title: Fix session-start.sh's unconditional CLAUDE.md line — it now checks the project's CLAUDE.md for existence the same way the SESSION_STATE branch already does, and when missing reports that it does not exist yet and where it comes from (Workflows/PROJECT_BOOTSTRAP.md Phase B / Workflows/ONBOARDING.md Step 1, from Templates/PROJECT_CLAUDE.md), found on the first external greenfield adoption (24 Sep)
+    milestone: Precision
+    delivers: Adapters/ai-runtimes/claude-code/hooks/session-start.sh, Adapters/ai-runtimes/claude-code/hooks/tests/run.sh, Adapters/ai-runtimes/claude-code/hooks/README.md, Registry/work-units.yml
+
+  - id: WU-IAENG-303
+    employee: Technical Writer
+    title: Reword CLAUDE.md's Director section to split merge-approval scope precisely — merge to main, tags, and releases always need Director approval; merging an approved Pull Request into develop is delegable per Workflows/FEATURE_DEVELOPMENT.md Step 8 — and align every other statement of the merge-approval rule (Core/GLOSSARY.md, Templates/PROJECT_CLAUDE.md, Governance/DEPRECATION_POLICY.md's CLAUDE.md quote) without weakening anything about main, tags, releases, or irreversible actions
+    milestone: Precision
+    delivers: CLAUDE.md, Core/GLOSSARY.md, Templates/PROJECT_CLAUDE.md, Governance/DEPRECATION_POLICY.md, Registry/work-units.yml
+
+  - id: WU-IAENG-304
+    employee: DevOps Engineer
+    title: Accept the perf commit type
+    milestone: Precision
+    delivers: Adapters/git-hooks/commit-msg, Standards/COMMIT_STANDARD.md, .github/PULL_REQUEST_TEMPLATE.md, Adapters/github/PULL_REQUEST_TEMPLATE.md, Templates/PULL_REQUEST.md, Adapters/ai-runtimes/claude-code/hooks/tests/escape-hatch-cases.tsv, Adapters/scripts/tests/run.sh, Registry/work-units.yml
+
+  - id: WU-IAENG-305
+    employee: Technical Writer
+    title: State where the security enforcement boundary actually is — correct the hooks README's mistaken claim that pre-push is part of the unskippable server-side boundary (it is a local guardrail skipped by the same --no-verify / core.hooksPath it backs up), align the same stale claim found duplicated in strip-quotes.awk's header comment, add a boundary paragraph to SECURITY.md distinguishing local guardrails from the server-side branch-protection/required-checks boundary for severity triage, and document the PT-04 SESSION_STATE mtime-touch limit and the PT-01 Bash-tool blind spot in block-inline-suppression.sh
+    milestone: Precision
+    delivers: Adapters/ai-runtimes/claude-code/hooks/README.md, Adapters/ai-runtimes/claude-code/hooks/strip-quotes.awk, SECURITY.md, Registry/work-units.yml
+
+  - id: WU-IAENG-306
+    employee: DevOps Engineer
+    title: Close three escape-hatch rule gaps found by Purple exercise #112's static penetration test (PT-03, PT-05, PT-06) — case-insensitive core.hooksPath matching plus new GIT_CONFIG_PARAMETERS/GIT_CONFIG_KEY_<n> env-var rules, a widened git global-options prefix, and a core.hooksPath read exemption anchored to an actual git config read instead of matching its flags anywhere on the line
+    milestone: Precision
+    delivers: Adapters/ai-runtimes/claude-code/hooks/block-escape-hatches.sh, Adapters/ai-runtimes/claude-code/hooks/tests/escape-hatch-cases.tsv, Adapters/ai-runtimes/claude-code/hooks/README.md, Registry/work-units.yml
+
+  - id: WU-IAENG-307
+    employee: DevOps Engineer
+    title: Require attribution on merges that author content (PT-02 of the #112 exercise) - classify merges by comparing their tree to the automatic merge of their parents; authored merges need an Employee trailer in CI and in commit-msg; historical ones grandfathered
+    milestone: Precision
+    delivers: Adapters/scripts/check-employee-trailers.sh, Adapters/git-hooks/commit-msg, Standards/COMMIT_STANDARD.md, Adapters/scripts/tests/run.sh, Registry/work-units.yml
+
+  - id: WU-IAENG-308
+    employee: DevOps Engineer
+    title: Scan a Pull Request's added lines for inline suppressions (PT-01 of the #112 exercise) - one shared pattern file read by the hook and a new advisory check, so a directive written through the Bash tool, by a human or by another runtime is reported server-side
+    milestone: Precision
+    delivers: Adapters/scripts/check-inline-suppression.sh, Adapters/scripts/suppression-patterns.tsv, Adapters/ai-runtimes/claude-code/hooks/block-inline-suppression.sh, Adapters/github-actions/pr-validation.yml, .github/workflows/pr-validation.yml, Adapters/scripts/tests/run.sh, Adapters/ai-runtimes/claude-code/hooks/tests/run.sh, Adapters/ai-runtimes/claude-code/hooks/README.md, Adapters/README.md, .gitignore, Registry/work-units.yml
+
+  - id: WU-IAENG-309
+    employee: DevOps Engineer
+    title: Guard control paths with a pull_request_target check (PT-07 of the #112 exercise) - a base-branch job that never runs PR code, lists the PR files through the API and fails when a control path is touched unless the Director applies control-change/approved after the last push
+    milestone: Precision
+    delivers: Adapters/github-actions/control-path-guard.yml, .github/workflows/control-path-guard.yml, Adapters/scripts/check-control-paths.sh, Adapters/scripts/tests/run.sh, Adapters/scripts/install.sh, Adapters/README.md, SECURITY.md, .gitattributes, Registry/work-units.yml
+
+  - id: WU-IAENG-310
+    employee: DevOps Engineer
+    title: Harden the pr-validation graders against reconfiguration by the change they grade - shellcheck runs with --norc so a .shellcheckrc in the PR tree cannot disable it, and workflow YAML is parsed by a pinned js-yaml run from a fresh temp directory with no npmrc honoured, so the PR tree cannot supply the parser; content guards keep both from regressing
+    milestone: Precision
+    delivers: Adapters/github-actions/pr-validation.yml, .github/workflows/pr-validation.yml, Adapters/scripts/tests/run.sh, Adapters/README.md, SECURITY.md, Registry/work-units.yml
+
+  - id: WU-IAENG-311
+    employee: DevOps Engineer
+    title: Refuse an agent command that applies the Director-only approval labels control-change/approved and size/approved - a local speed bump in the escape-hatch hook, not a boundary, covering gh pr/issue edit and create, gh api label writes and gh label rename or create
+    milestone: Precision
+    delivers: Adapters/ai-runtimes/claude-code/hooks/block-escape-hatches.sh, Adapters/ai-runtimes/claude-code/hooks/tests/escape-hatch-cases.tsv, Adapters/ai-runtimes/claude-code/hooks/README.md, Registry/work-units.yml
+
+  - id: WU-IAENG-312
+    employee: DevOps Engineer
+    title: Close PT2-01 and PT2-02 in the required Data Policy check - scan what a merge itself authored (conflict-resolution lines, paths and lines added in the merge commit) via the dense combined diff in --history, and read added lines as text (--text) so a -diff or binary-classified path is no longer skipped as Binary files differ
+    milestone: Precision
+    delivers: Adapters/scripts/data-policy-scan.sh, Adapters/scripts/tests/run.sh, Adapters/README.md, Registry/work-units.yml
+
+  - id: WU-IAENG-313
+    employee: DevOps Engineer
+    title: Close PT2-03 in the required Work Unit Exists check - classify merges with the shared merge-tree classifier so an authored merge must carry a registered Work Unit trailer; extract the classifier into a sourced helper used by both check scripts; historical authored merges grandfathered in a closed in-script constant
+    milestone: Precision
+    delivers: Adapters/scripts/merge-classify.sh, Adapters/scripts/check-work-units.sh, Adapters/scripts/check-employee-trailers.sh, Adapters/scripts/tests/run.sh, Adapters/README.md, Standards/COMMIT_STANDARD.md, Registry/work-units.yml
+
+  - id: WU-IAENG-314
+    employee: DevOps Engineer
+    title: Close PT2-05 and PT2-06 in the advisory Risk Map check - diff the range from the merge base so a file the base advanced after the fork is not attributed to the change, and require the RISK record to start at column 0 and carry tier=, mitigation= and decided_by= so an indented example no longer satisfies the gate
+    milestone: Precision
+    delivers: Adapters/scripts/check-risk-map.sh, Adapters/scripts/tests/run.sh, Adapters/README.md, Registry/work-units.yml
+
+  - id: WU-IAENG-315
+    employee: DevOps Engineer
+    title: One pre-push rule for main, develop and release/* (pen-test PT2-08, QA DEF-2/DEF-10) - creating an absent branch allowed (bootstrap first push, RELEASE.md Step 3), any update (fast-forward or force) and any reported deletion refused (RELEASE.md Steps 4 and 10); the mirror-push limit stated and pinned; first behaviour cases for the hook, by its real stdin protocol and by real pushes into throwaway remotes; bootstrap instructions corrected; the last shellcheck disable directive removed
+    milestone: Precision
+    delivers: Adapters/git-hooks/pre-push, Adapters/scripts/tests/run.sh, Adapters/README.md, Adapters/scripts/setup-project-bootstrap.sh, Workflows/PROJECT_BOOTSTRAP.md, Standards/CODE_QUALITY_STANDARD.md, Registry/work-units.yml
+
+  - id: WU-IAENG-317
+    employee: DevOps Engineer
+    title: Fix the advisory Review Recorded job failing at actions/checkout (issue 180) - its permissions block omitted contents read so the token could not read the repository; grant it, and guard that every shipped job which checks out and declares permissions grants contents read
+    milestone: Precision
+    delivers: Adapters/github-actions/pr-validation.yml, .github/workflows/pr-validation.yml, Adapters/scripts/tests/run.sh, Registry/work-units.yml
+
+  - id: WU-IAENG-318
+    employee: DevOps Engineer
+    title: Make block-inline-suppression fail closed on an unreadable payload (DEF-4 of the end-to-end adoption test) - with jq present an unparseable payload left the text empty and the write was allowed; a shared iaeng_require_object refuses empty, non-object or multi-value input while a readable payload with no text is still allowed; the no-jq fallback gap is stated honestly
+    milestone: Precision
+    delivers: Adapters/ai-runtimes/claude-code/hooks/lib.sh, Adapters/ai-runtimes/claude-code/hooks/block-inline-suppression.sh, Adapters/ai-runtimes/claude-code/hooks/tests/run.sh, Adapters/ai-runtimes/claude-code/hooks/README.md, Adapters/ai-runtimes/README.md, Adapters/ai-runtimes/claude-code/settings.example.json, .claude/settings.json, Registry/work-units.yml
+
+  - id: WU-IAENG-319
+    employee: DevOps Engineer
+    title: Stop the validator reading SIGPIPE as a missing path - the cross-reference check's pipe into grep -q and awk failed intermittently on CI (PR #174, PR #182) because a bash-builtin printf flushes ~4 KB at a time; membership tests over captured variables use has_line or a here-string across the validator, hooks and scripts, and a 100 KB regression case makes the failure deterministic
+    milestone: Precision
+    delivers: Adapters/scripts/validate-framework.sh, Adapters/scripts/release.sh, Adapters/scripts/data-policy-scan.sh, Adapters/scripts/check-pr-size.sh, Adapters/git-hooks/commit-msg, Adapters/ai-runtimes/claude-code/hooks/session-start.sh, Adapters/scripts/tests/run.sh, Governance/TROUBLESHOOTING.md, Registry/work-units.yml
+
+  - id: WU-IAENG-321
+    employee: Technical Writer
+    title: Fix the documentation defects of the adoption-path acceptance test (issue 181) - Work Unit line enforcement stated as at most one locally and exactly one in CI; the bootstrap handoff instructs CLAUDE.md and SESSION_STATE creation; Step 4 and the checklist name the guard, stack declaration and the guard prerequisites; README makes the Claude Code hook and skill installs required; Adapters README cites ONBOARDING Step 1 item 4; ONBOARDING version refreshed
+    milestone: Precision
+    delivers: Standards/COMMIT_STANDARD.md, Workflows/PROJECT_BOOTSTRAP.md, Workflows/ONBOARDING.md, README.md, Adapters/README.md, Registry/work-units.yml
+
+  - id: WU-IAENG-322
+    employee: Release Manager
+    title: Fix the closing text of release.sh publish, which said the Step 8 back-merge was conditional where Workflows/RELEASE.md says it is always required
+    milestone: Precision
+    delivers: Adapters/scripts/release.sh, Adapters/scripts/tests/run.sh, Registry/work-units.yml
+
+  - id: WU-IAENG-320
+    employee: DevOps Engineer
+    title: Fix adoption-test defects DEF-1, DEF-12, DEF-13, DEF-14 (issue #181) - the required Work Unit Exists check reads the PROJECT's Registry/work-units.yml and never the framework's, failing with the file to create when absent; the bootstrap writes an empty starter registry; install.sh drops the self-referential bootstrap hint when called from the bootstrap and writes exact-path LF rules for the files hooks and CI parse; install-hooks.sh detects framework-inside-project by -ef identity
+    milestone: Precision
+    delivers: Adapters/scripts/check-work-units.sh, Adapters/scripts/setup-project-bootstrap.sh, Adapters/scripts/install.sh, Adapters/ai-runtimes/claude-code/install-hooks.sh, Adapters/scripts/tests/run.sh, Registry/work-units.yml
+
+  - id: WU-IAENG-316
+    employee: DevOps Engineer
+    title: Refuse GIT_CONFIG_PARAMETERS and GIT_CONFIG_KEY_<n> set through an assigning builtin (PT2-07) - printf -v, read, mapfile, readarray, export, readonly, declare, typeset, local, for, getopts and the += and ${NAME:=} forms - when the name is the builtin's operand, while reads, unset, grep, echo, declare -p, export -n and quoted mentions stay allowed; also allow the legacy positional get of core.hooksPath (Refs #181) for plain commands only, with every set form and every quote, backslash, backtick, dollar-paren or newline form still refused; a speed bump, not a boundary
+    milestone: Precision
+    delivers: Adapters/ai-runtimes/claude-code/hooks/block-escape-hatches.sh, Adapters/ai-runtimes/claude-code/hooks/tests/escape-hatch-cases.tsv, Adapters/ai-runtimes/claude-code/hooks/tests/run.sh, Adapters/ai-runtimes/claude-code/hooks/README.md, Registry/work-units.yml
+
+  - id: WU-IAENG-323
+    employee: Prompt Engineer
+    title: Add a short Main Agent section to Templates/PROJECT_CLAUDE.md (follow Core/MAIN_AGENT_CONDUCT.md, delegate every Work Unit to the named Employee and attribute only real work, present the plan and wait for approval whatever the runtime effort or orchestration mode) and a one-line pointer to it in the session-start hook - blindfolded dogfood cycle 4 found adopters' Main Agents implementing inline under a false Employee trailer, and skipping plan approval under ultracode
+    milestone: Precision
+    delivers: Templates/PROJECT_CLAUDE.md, Adapters/ai-runtimes/claude-code/hooks/session-start.sh, Adapters/ai-runtimes/claude-code/hooks/tests/run.sh, Adapters/ai-runtimes/claude-code/hooks/README.md, Registry/work-units.yml
+
+  - id: WU-IAENG-324
+    employee: Technical Writer
+    title: Fix the documentation frictions of blindfolded dogfood cycle 4 (README-only adoption) - git init and the ref to pin in Getting Started, TROUBLESHOOTING entries Y (local-path submodule) and Z (committed on develop), SESSION_STATE created after the first commit, the DevOps Engineer signs the adoption commit, the meaning of the Work Unit milestone field in a consuming project, and the bootstrap .gitattributes wording
+    milestone: Precision
+    delivers: README.md, Workflows/PROJECT_BOOTSTRAP.md, Workflows/ONBOARDING.md, Governance/TROUBLESHOOTING.md, Templates/WORK_UNIT.md, Registry/README.md, Registry/work-units.yml
+
+  - id: WU-IAENG-325
+    employee: DevOps Engineer
+    title: Bootstrap closing report - SESSION_STATE after the first commit; the adoption commit's signer
+    milestone: Precision
+    delivers: Adapters/scripts/setup-project-bootstrap.sh, Registry/work-units.yml
+
+  - id: WU-IAENG-326
+    employee: Observability Engineer
+    title: Add a local usage dashboard for roster and chain tuning - usage-dashboard.sh builds one self-contained HTML page (no network, gitignored) from git trailers, the rosters, the chain and Work Unit registries, and a Claude Code collector that stream-parses the project's transcripts into dispatches, models and tokens per day, deduplicated by message id; never-used Employees and unexercised chain steps are marked; aggregates only, pinned by a privacy test
+    milestone: Precision
+    delivers: Adapters/scripts/usage-dashboard.sh, Adapters/ai-runtimes/claude-code/usage-collect.sh, Adapters/scripts/tests/run.sh, Adapters/scripts/install.sh, .gitignore, Adapters/README.md, Governance/DISPATCH_IN_PRACTICE.md, Registry/work-units.yml
+
+  - id: WU-IAENG-327
+    employee: DevOps Engineer
+    title: Let a project record its tier-to-model mapping in .ia-engineering/tier-map (map= and effort-map=, same syntax as the flags) so generate-agents.sh honours it on every regeneration - precedence per tier flags over the file over the target defaults, a malformed file refused with exit 2, the summary names the mapping source, and --check reports a mapping-only drift as one instead of blaming Employees/; this repository records the Director decision of 5 Oct 2026 (every Employee on Opus 5.5) and tracks the file; the script defaults are unchanged for adopters
+    milestone: Precision
+    delivers: Adapters/ai-runtimes/generate-agents.sh, Adapters/ai-runtimes/README.md, Adapters/scripts/tests/run.sh, .gitignore, .ia-engineering/tier-map, .ia-engineering/risk-map.yml, Registry/work-units.yml
+
+  - id: WU-IAENG-328
+    employee: DevOps Engineer
+    title: Close the FINAL QA Lows - pre-push refuses case variants of protected branch names (SEC-IAENG-179-02), the core.hooksPath legacy-read refusal names the --get read, bootstrap and onboarding branch and adoption-commit wording, and data-policy-scan no longer warns on NUL bytes
+    milestone: Precision
+    delivers: Adapters/git-hooks/pre-push, Adapters/ai-runtimes/claude-code/hooks/block-escape-hatches.sh, Adapters/ai-runtimes/claude-code/hooks/tests/run.sh, Adapters/scripts/data-policy-scan.sh, Adapters/scripts/tests/run.sh, Workflows/PROJECT_BOOTSTRAP.md, Workflows/ONBOARDING.md, Registry/work-units.yml
+
+  - id: WU-IAENG-329
+    employee: DevOps Engineer
+    title: Add a Windows launcher for the usage dashboard - usage-dashboard.cmd opens the page in one command from PowerShell, cmd or a double-click, running usage-dashboard.sh --open through Git for Windows' own bash.exe and never the PATH's bash (WSL there); from an adopter's submodule it measures the adopting project; CRLF pinned by .gitattributes; TROUBLESHOOTING entry AA
+    milestone: Precision
+    delivers: Adapters/scripts/usage-dashboard.cmd, .gitattributes, Adapters/scripts/tests/run.sh, Adapters/README.md, Governance/DISPATCH_IN_PRACTICE.md, Governance/TROUBLESHOOTING.md, Registry/work-units.yml
+
+  - id: WU-IAENG-330
+    employee: Observability Engineer
+    title: Make the usage dashboard live and per project - --watch [SECONDS] (default and minimum 10) rebuilds the page until Ctrl-C, the page reloads itself and shows its last update, a cycle is skipped when neither HEAD nor any transcript changed, the git half is cached per HEAD and the collector re-reads only grown transcripts from their last complete line through a per-file record cache; run from inside a framework submodule the dashboard measures the including project; the runtime's CLAUDE_CODE_PROJECT_DIR_NAME is honoured; the per-project behaviour, the same-path caveat and the transcript retention window are documented
+    milestone: Precision
+    delivers: Adapters/scripts/usage-dashboard.sh, Adapters/ai-runtimes/claude-code/usage-collect.sh, Adapters/scripts/tests/run.sh, Adapters/README.md, Governance/DISPATCH_IN_PRACTICE.md, Registry/work-units.yml
+
+  - id: WU-IAENG-331
+    employee: Technical Lead
+    title: Make role absorption visible at dispatch time and record two practice conventions from the 6 Oct 2026 Engineering Manager check-up - the Employee Brief quotes the Core/EMPLOYEE_SELECTION.md trigger line it relies on and names the closest Miscasting pair rejected; Governance/DISPATCH_IN_PRACTICE.md states the only two cases where a non-Employee agent is acceptable (a naive-user test subject owned by the UX/UI Designer and QA Engineer, a vendor-documentation lookup owned by the AI Engineer) and replaces its stale hand count with the usage dashboard's headline; Core/MAIN_AGENT_CONDUCT.md records the Director's standing exception of 1 Oct 2026 letting the Main Agent execute the Step 8 merge of a Pull Request into develop and delete its merged branch once every required approval is on the current head and the required checks are green there, pinned to that head, never into main or a release branch, never a back-merge, tag, release or conflict resolution; Workflows/FEATURE_DEVELOPMENT.md Step 8 and Registry/workflows.yml name the Main Agent as a permitted executor of that merge, and Step 8 requires QA sign-off only when the Pull Request changes executable behaviour (Director, 6 Oct 2026)
+    milestone: Precision
+    delivers: Templates/EMPLOYEE_BRIEF.md, Governance/DISPATCH_IN_PRACTICE.md, Core/MAIN_AGENT_CONDUCT.md, Workflows/FEATURE_DEVELOPMENT.md, Registry/workflows.yml, Registry/work-units.yml
+
+  - id: WU-IAENG-333
+    employee: Engineering Manager
+    title: Sharpen the role boundaries in Core/EMPLOYEE_SELECTION.md (Director approved in principle 6 Oct 2026) - 92 of the 120 trailer-attributed commits since v0.0.13 went to the DevOps Engineer or Technical Writer; triggers and Miscasting Risks now route documentation-system work and template structure, project conventions and Standard clauses, developer-tooling platform work (git hooks stay DevOps), open-PR branch upkeep, tier mapping, AI-runtime token and context cost, host/forge/runtime adapters, dashboards, milestone scope and usability studies to their owners, and require a Prompt Engineer review for every Employees/ or Core/*.md change
+    milestone: Precision
+    delivers: Core/EMPLOYEE_SELECTION.md, Registry/work-units.yml
+
+  - id: WU-IAENG-334
+    employee: Software Architect
+    title: Align Core/AGENT_CHAINS.md and Registry/chains.yml step for step (the Review Chain diagram gains the Compliance and Security Engineer steps, the Architecture Chain diagram the Security Engineer step, the Feature Chain diagram its ADR gate), make Work Unit decomposition the Main Agent's own Orchestration Step 3 with the Engineering Manager dispatched for it only on multi-pole work (work the Director has mandated under Workflows/AUTONOMOUS_DELIVERY.md), and define the Engineer step as the implementing Employee chosen per Core/EMPLOYEE_SELECTION.md - Director decisions of 6 Oct 2026
+    milestone: Precision
+    delivers: Core/AGENT_CHAINS.md, Core/EMPLOYEE_SELECTION.md, Core/GLOSSARY.md, Registry/chains.yml, Registry/workflows.yml, Workflows/FEATURE_DEVELOPMENT.md, Workflows/ONBOARDING.md, Workflows/AUTONOMOUS_DELIVERY.md, Templates/WORK_UNIT.md, Examples/FEATURE_CHAIN_EXAMPLE.md, Examples/ARCHITECTURE_CHAIN_EXAMPLE.md, Registry/work-units.yml
+
+  - id: WU-IAENG-335
+    employee: Documentation Engineer
+    title: Make validate-framework.sh compare every chain diagram in Core/AGENT_CHAINS.md with its Registry/chains.yml entry step for step (section 22 - position by position, each step's kind, name, condition presence, parallel marker and review loop), so the drift WU-IAENG-334 repaired fails the build instead of waiting for an audit; a difference is reported with the chain, the step number, file and line, and the step on each side; one awk pass, CRLF-safe; Script Tests cases on the real files as LF and CRLF, on that drift put back into the real document, and on one fixture per drift
+    milestone: Precision
+    delivers: Adapters/scripts/validate-framework.sh, Adapters/scripts/tests/run.sh, Adapters/README.md, Registry/work-units.yml
+
+  - id: WU-IAENG-336
+    employee: AI Engineer
+    title: Make the project's tier map visible to the session at runtime (issue 212) - generate-agents.sh --print-tier-map resolves the mapping exactly as a generation does and prints it, writing nothing; session-start.sh prints the tier map in force, Lightweight and Frontier included, with the rule that a Tier Override takes its model from that map (no model parameter when it equals the agent's pinned model, the exact value otherwise, the Director when the dispatch cannot take it) and never one of the Main Agent's choosing; a refused tier-map is reported, never skipped
+    milestone: Precision
+    delivers: Adapters/ai-runtimes/generate-agents.sh, Adapters/ai-runtimes/claude-code/hooks/session-start.sh, Adapters/ai-runtimes/claude-code/hooks/tests/run.sh, Adapters/ai-runtimes/claude-code/hooks/README.md, Adapters/ai-runtimes/README.md, Adapters/scripts/tests/run.sh, Registry/work-units.yml
+
+  - id: WU-IAENG-337
+    employee: Technical Writer
+    title: Make the SESSION_STATE adoption instruction produce a readable state file - the README says to copy only the fenced block under the template's Template heading, never the whole file, and to give its _Last updated line an absolute date in the form session-start.sh parses; the template marks that block as the part to copy, so every other pointer to it resolves without being edited
+    milestone: Precision
+    delivers: README.md, Templates/SESSION_STATE.md, Registry/work-units.yml
+
+  - id: WU-IAENG-338
+    employee: DevOps Engineer
+    title: Make the usage-dashboard.cmd superproject lookup safe for a caret in the adopting project's path - the for /f child command starts with cd /d into IAENG_ROOT instead of call, which doubled carets and re-expanded %NAME%, so a "^" made rev-parse fail and the framework was measured instead (issue #210); pinned statically, verified on Windows
+    milestone: Precision
+    delivers: Adapters/scripts/usage-dashboard.cmd, Adapters/scripts/tests/run.sh, Registry/work-units.yml
+
+  - id: WU-IAENG-339
+    employee: DevOps Engineer
+    title: Name the lowercased branch the user probably meant in the pre-push release/* case-variant refusal ("did you mean 'release/v1'?") instead of the release/* pattern alone; refusal logic and the main/develop message unchanged (issue #211)
+    milestone: Precision
+    delivers: Adapters/git-hooks/pre-push, Adapters/scripts/tests/run.sh, Registry/work-units.yml
+
+  - id: WU-IAENG-340
+    employee: Technical Lead
+    title: Put the Prompt Engineer review of every Employees/ or Core/*.md change into Workflows/CODE_REVIEW.md (Actors, Step 4, Exit Criteria) and the Code Review blocking conditions in Registry/workflows.yml, citing the Prompt Engineer trigger in Core/EMPLOYEE_SELECTION.md - the condition #203 adds lived only in that routing document, which no review or merge-readiness check reads
+    milestone: Precision
+    delivers: Workflows/CODE_REVIEW.md, Registry/workflows.yml, Registry/work-units.yml
+
+  - id: WU-IAENG-341
+    employee: Observability Engineer
+    title: Keep the usage dashboard fresh with no rebuild to wait for (Director, 7 Oct 2026) - a persistent cache under .ia-engineering/usage/cache/ (0700, shape-checked values only, refused with a fallback when it is a link or junction, not the user's, in a folder others can rename in, or not ignored by git; held under a lock with stale-lock recovery) keeps the git half per HEAD and the transcript records across runs and watches; a fingerprint beside the page (HEAD, arguments, transcript sizes and mtimes, plus newer registries, tags or scripts) lets --open open a current page at once; --refresh, --refresh-in-background (one line, exit 0, detached without setsid on Windows Git Bash, debounced by --min-interval, single instance, bounded refresh.log) and --open --no-wait are the CLI contract for the Claude Code Stop hook and /dashboard command of WU-IAENG-342
+    milestone: Precision
+    delivers: Adapters/scripts/usage-dashboard.sh, Adapters/ai-runtimes/claude-code/usage-collect.sh, Adapters/scripts/tests/run.sh, Adapters/README.md, Governance/DISPATCH_IN_PRACTICE.md, Registry/work-units.yml
+
+  - id: WU-IAENG-342
+    employee: Platform Engineer
+    title: Keep the usage dashboard fresh automatically at the end of each Claude Code turn and open it with /dashboard (Director, 7 Oct 2026) - a Stop hook, dashboard-refresh.sh, starts usage-dashboard.sh --refresh-in-background for CLAUDE_PROJECT_DIR without waiting (exit 0 always, no output on either stream, no pipe held, independent of the stop gate's decision, skipped when the script is absent, opt-out by IAENG_USAGE_AUTO_REFRESH=off or .ia-engineering/usage-auto-refresh.off; not on SubagentStop); a user-invoked /dashboard skill whose launcher runs --open --no-wait and prints one line; install-hooks.sh merges missing framework entries into an existing settings.json instead of refusing it, counting an entry present only when the same event and matcher run the exact command (decoys, neutered copies and other matchers get the real entry added and are reported; a symlink is refused); install-skills.sh installs /dashboard alone in the framework checkout and reports an identical skill as current; 88 hook-suite checks in tests/dashboard.sh, timed on Windows from a parent waiting on the hook's pipes
+    milestone: Precision
+    delivers: Adapters/ai-runtimes/claude-code/hooks/dashboard-refresh.sh, Adapters/ai-runtimes/claude-code/settings.example.json, Adapters/ai-runtimes/claude-code/install-hooks.sh, Adapters/ai-runtimes/claude-code/install-skills.sh, Adapters/ai-runtimes/claude-code/skills/dashboard/SKILL.md, Adapters/ai-runtimes/claude-code/skills/dashboard/open-dashboard.sh, Adapters/ai-runtimes/claude-code/hooks/tests/dashboard.sh, Adapters/ai-runtimes/claude-code/hooks/tests/run.sh, Adapters/ai-runtimes/claude-code/hooks/README.md, .claude/settings.json, .claude/skills/dashboard/SKILL.md, .claude/skills/dashboard/open-dashboard.sh, .gitattributes, Adapters/README.md, Governance/DISPATCH_IN_PRACTICE.md, Registry/work-units.yml
+
+  - id: WU-IAENG-343
+    employee: Technical Lead
+    title: Let approvals survive an update merge of develop into a Pull Request whose own changes did not move - Core/MAIN_AGENT_CONDUCT.md condition 1 of the develop-merge exception carries the Code Reviewer, QA and Prompt Engineer approvals over pushes that only merge develop into the branch when the approved head is an ancestor of the new head, every first-parent commit since is a two-parent merge of develop, each merge equals git's own automatic merge of its parents everywhere except Registry/work-units.yml, where the new head holds exactly the entries git's own merge would hold in any order and the Pull Request's own entry is byte-identical, as Adapters/scripts/check-approval-carry-over.sh (WU-IAENG-344) checks; the Main Agent pastes the script's record on the Pull Request, checks must be green on the new head, any other push needs a fresh review, and the Director's Core approval is never carried over; Workflows/FEATURE_DEVELOPMENT.md Step 8 and Workflows/CODE_REVIEW.md Step 4 and Exit Criteria point to it (Director, 7 Oct 2026)
+    milestone: Precision
+    delivers: Core/MAIN_AGENT_CONDUCT.md, Workflows/FEATURE_DEVELOPMENT.md, Workflows/CODE_REVIEW.md, Registry/work-units.yml
+
+  - id: WU-IAENG-344
+    employee: Platform Engineer
+    title: Decide mechanically whether approvals carry over an update merge of develop (Director, 7 Oct 2026; Core/MAIN_AGENT_CONDUCT.md condition 1 as PR #225 states it) - Adapters/scripts/check-approval-carry-over.sh refuses unless the approved head starts the new head's first-parent line, every commit on it is a two-parent merge whose second parent is an ancestor of origin/develop, each merge is git's own merge of its parents outside Registry/work-units.yml (no conflict elsewhere, every other path equal by object id, submodule pointers included), the registry holds exactly the entries git's own merge holds (both sides of a conflict, byte for byte, any order) and the PR's own entry is byte for byte the same on both heads; exit 0 prints the one-line record to paste, 1 the refusing commit and reason, 2 fails closed; merge-classify.sh gains merge_classify_automatic, the one automatic merge both it and the new script use, with merge settings pinned to git's defaults; lab tests rebuild #202, #215, #220, #203, #201 and every attack of the PR #225 review
+    milestone: Precision
+    delivers: Adapters/scripts/check-approval-carry-over.sh, Adapters/scripts/merge-classify.sh, Adapters/scripts/tests/run.sh, Adapters/README.md, Registry/work-units.yml
+
+  - id: WU-IAENG-345
+    employee: Release Manager
+    title: Bump VERSION.md to v0.0.14 and finalize the CHANGELOG.md section for the Precision release - README pin and measured counts, CLAUDE.md Current Version, next milestone Adoption (v0.0.15)
+    milestone: Precision
+    delivers: VERSION.md, CHANGELOG.md, README.md, CLAUDE.md, Registry/work-units.yml
+
+  - id: WU-IAENG-352
+    employee: Release Manager
+    title: Complete the v0.0.14 upgrade note before the tag (QA acceptance DEF-IAENG-REL014-01, Director 20 Oct 2026, Workflows/RELEASE.md Step 4 minor defect) - re-run setup-project-bootstrap.sh <stack> without --force first (adds Registry/work-units.yml and control-path-guard.yml, appends missing .gitattributes and .gitignore rules to commit with the upgrade, overwrites no installed file; of the files it marks, only pr-validation.yml and the PR template changed upstream, the already-exists stack files are left as they are), copy an unedited Adapter over by hand because --force replaces every managed file at once (Dockerfile, Risk Map, stack, issue-template config, Work Unit registry), then install-hooks.sh and install-skills.sh; in the CHANGELOG [0.0.14] Notes and WU-IAENG-342 line, and the README upgrade paragraph
+    milestone: Precision
+    delivers: CHANGELOG.md, README.md, Registry/work-units.yml

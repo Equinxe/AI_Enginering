@@ -36,7 +36,7 @@
 # CAPABILITY_TIERS.md says exactly this: a project's own CLAUDE.md "may map
 # these tiers to concrete models for its chosen AI runtime ... That mapping is
 # project context, not part of this framework document." The mapping lives here
-# and in --map, never in Core/.
+# and in --map or the project's .ia-engineering/tier-map, never in Core/.
 #
 # Adding a runtime means adding a target below. The Employee definitions, the
 # roster, and the tiers do not change.
@@ -63,12 +63,47 @@
 #                     employees.yml when it exists. A value naming a missing
 #                     file is refused, never skipped.
 #   --map <spec>      tier-to-capability mapping, as
-#                     "strategic=X,standard=Y,lightweight=Z". Overrides the
-#                     target's default.
+#                     "strategic=X,standard=Y,lightweight=Z,frontier=W".
+#                     Overrides the target's default. Frontier is never an
+#                     Employee's default tier and this key is never written
+#                     into any generated agent's `model:` field — it is
+#                     recorded only in the printed tiers: summary below, for
+#                     the Main Agent to pass as a per-dispatch Tier Override
+#                     (Core/CAPABILITY_TIERS.md, Frontier Override).
+#   --effort-map <spec>  tier-to-effort mapping, mirroring --map, as
+#                     "strategic=high,standard=,lightweight=,frontier=high".
+#                     Overrides the target's default. An empty value means
+#                     "inherit the runtime's default effort" — no `effort:`
+#                     frontmatter field is emitted for that tier. Values are
+#                     validated against the runtime's accepted effort levels.
 #   --dry-run         report what would be written, write nothing
 #   --check           exit non-zero if any generated file would differ from
-#                     what is on disk. For CI.
+#                     what is on disk. For CI. Resolves the mapping the same
+#                     way as a generation, and says so when a file differs in
+#                     its mapping only rather than in its Employee definition.
+#   --print-tier-map  resolve the tier mapping exactly as a generation would
+#                     (flags > the project's file > the target's defaults),
+#                     print it, and stop: nothing is generated, written or
+#                     checked. Three lines, themselves a valid tier-map file:
+#                       # mapping: <flags|file|defaults ...>
+#                       map=strategic=X,standard=Y,lightweight=Z,frontier=W
+#                       effort-map=strategic=E,standard=,lightweight=,frontier=
+#                     Refused together with --check or --dry-run, which it
+#                     would otherwise silently not perform. It is how a
+#                     session reads the mapping a Tier Override must use
+#                     (claude-code/hooks/session-start.sh) instead of
+#                     inferring one.
 #   --help
+#
+# A PROJECT'S OWN MAPPING: <project>/.ia-engineering/tier-map, optional, holds
+# the --map and --effort-map values a project has decided on, so the plain
+# command honours them on every regeneration:
+#
+#   map=strategic=X,standard=Y,lightweight=Z,frontier=W
+#   effort-map=strategic=high,standard=,lightweight=,frontier=
+#
+# Precedence, per tier: flags > that file > the target's defaults. The summary
+# prints which one applied ("mapping: flags|file|defaults ...").
 #
 # WHERE THE AGENTS ARE WRITTEN, and why it is not the framework directory:
 #
@@ -109,8 +144,10 @@ PROJECT_ROSTER=""
 TARGET="claude-code"
 OUT=""
 MAP_OVERRIDE=""
+EFFORT_MAP_OVERRIDE=""
 DRY_RUN=0
 CHECK=0
+PRINT_TIER_MAP=0
 
 # Each value-taking flag asserts it HAS a value before shifting past it.
 #
@@ -147,12 +184,20 @@ while [ "$#" -gt 0 ]; do
     --project) need_value --project "$#"; PROJECT="$2"; shift 2 ;;
     --roster)  need_value --roster "$#";  PROJECT_ROSTER="$2"; shift 2 ;;
     --map)     need_value --map "$#";     MAP_OVERRIDE="$2"; shift 2 ;;
+    --effort-map) need_value --effort-map "$#"; EFFORT_MAP_OVERRIDE="$2"; shift 2 ;;
     --dry-run) DRY_RUN=1; shift ;;
     --check)   CHECK=1; shift ;;
+    --print-tier-map) PRINT_TIER_MAP=1; shift ;;
     --help|-h) sed -n '2,$p' "$0" | awk '/^#/{print; next} /^$/{print; next} {exit}'; exit 0 ;;
     *) echo "Unknown argument: $1 (try --help)" >&2; exit 2 ;;
   esac
 done
+
+if [ "$PRINT_TIER_MAP" -eq 1 ] && [ "$CHECK$DRY_RUN" != "00" ]; then
+  echo "Argument error: --print-tier-map only prints the resolved mapping; it does not" >&2
+  echo "  generate, so it cannot be combined with --check or --dry-run. Run them separately." >&2
+  exit 2
+fi
 
 # --- Targets ---------------------------------------------------------------
 # One case block per runtime. A new runtime adds a branch here and nothing
@@ -166,14 +211,33 @@ case "$TARGET" in
     ;;
   claude-code)
     DEFAULT_OUT=".claude/agents"
-    # Core/CAPABILITY_TIERS.md's three capability levels, mapped to this
-    # runtime's models. Strategic Judgment is ambiguous tradeoffs and
-    # hard-to-reverse decisions; Standard Execution is work against an existing
-    # contract or pattern; Lightweight is mechanical and reached only through a
-    # per-Work-Unit override, never as an Employee default.
+    # Core/CAPABILITY_TIERS.md's two default execution tiers, plus the two
+    # override-only tiers, mapped to this runtime's models.
+    # Strategic Judgment is ambiguous tradeoffs and hard-to-reverse decisions;
+    # Standard Execution is work against an existing contract or pattern;
+    # Lightweight is mechanical and reached only through a per-Work-Unit
+    # Tier Override, never as an Employee default. Frontier is reached only
+    # by upgrading a Work Unit already at Strategic Judgment, with Director
+    # approval recorded each time (Core/CAPABILITY_TIERS.md, Frontier
+    # Override) — no Employee ever defaults to it, so it is never written as
+    # any generated agent's `model:`. It exists here only so the printed
+    # tiers: summary below gives the Main Agent a value to pass as a
+    # per-dispatch Tier Override.
     MAP_STRATEGIC="opus"
     MAP_STANDARD="sonnet"
     MAP_LIGHTWEIGHT="haiku"
+    MAP_FRONTIER="fable"
+    # Per-tier effort, alongside the per-tier model above. Director decision,
+    # 25 Sep 2026: Strategic Judgment runs at high effort; the other tiers
+    # inherit the runtime's default effort — an empty value here means no
+    # `effort:` frontmatter field is emitted, so the runtime's own default
+    # applies. This is deliberately an Adapter concern, not a Core one:
+    # Core/CAPABILITY_TIERS.md names no model and, by the same Principle X
+    # (Core/AI_MANIFEST.md), no effort level either.
+    EFFORT_STRATEGIC="high"
+    EFFORT_STANDARD=""
+    EFFORT_LIGHTWEIGHT=""
+    EFFORT_FRONTIER=""
     ;;
   *)
     echo "Unknown target: $TARGET" >&2
@@ -184,18 +248,9 @@ case "$TARGET" in
     ;;
 esac
 
-if [ -n "$MAP_OVERRIDE" ]; then
-  for pair in ${MAP_OVERRIDE//,/ }; do
-    case "$pair" in
-      strategic=*)   MAP_STRATEGIC="${pair#strategic=}" ;;
-      standard=*)    MAP_STANDARD="${pair#standard=}" ;;
-      lightweight=*) MAP_LIGHTWEIGHT="${pair#lightweight=}" ;;
-      *) echo "Unrecognised --map entry: $pair" >&2; exit 2 ;;
-    esac
-  done
-fi
-
-# --- Project, output, and rosters ------------------------------------------
+# --- Project -----------------------------------------------------------------
+# Resolved before the mapping, because the project can record its own mapping
+# (.ia-engineering/tier-map, below) and the file is looked for under it.
 
 PROJECT="${PROJECT:-$INVOCATION_DIR}"
 if [ ! -d "$PROJECT" ]; then
@@ -203,6 +258,176 @@ if [ ! -d "$PROJECT" ]; then
   exit 2
 fi
 PROJECT="$(cd "$PROJECT" && pwd)"
+
+# --- Tier mapping: target defaults < project file < flags --------------------
+#
+# Core/CAPABILITY_TIERS.md: the tier-to-model mapping is PROJECT context. Until
+# WU-IAENG-327 the only place a project could state it was the --map flag, so
+# it lived in whoever remembered to type it: the documented command, run
+# without the flag, silently reverted every Employee to the target defaults,
+# and --check run the same way reported every agent stale and blamed
+# Employees/ for a drift that was really a different mapping.
+#
+# <project>/.ia-engineering/tier-map records the choice where a clone inherits
+# it. Two keys, same syntax as the flags, one per line:
+#
+#   map=strategic=X,standard=Y,lightweight=Z,frontier=W
+#   effort-map=strategic=high,standard=,lightweight=,frontier=
+#
+# Blank lines and lines starting with # are ignored. Anything else — an
+# unknown key, a line with no "=", a key given twice — is refused with exit 2,
+# never skipped: a mapping file that is half-read is a mapping nobody chose.
+#
+# Precedence is per tier, layered: the target's defaults, then the file, then
+# --map / --effort-map. A flag naming one tier overrides that tier only, the
+# same way it always overrode the defaults one tier at a time.
+
+TIER_MAP_FILE="$PROJECT/.ia-engineering/tier-map"
+FILE_MAP=""
+FILE_EFFORT_MAP=""
+FILE_MAP_LINE=""
+FILE_EFFORT_MAP_LINE=""
+HAVE_TIER_MAP_FILE=0
+
+if [ -f "$TIER_MAP_FILE" ]; then
+  HAVE_TIER_MAP_FILE=1
+  seen_map=0
+  seen_effort=0
+  lineno=0
+  while IFS= read -r line || [ -n "$line" ]; do
+    lineno=$((lineno + 1))
+    # A UTF-8 byte order mark on line 1 (Windows PowerShell 5.1's Out-File and
+    # Set-Content -Encoding utf8 both write one) would otherwise turn a valid
+    # first line into "<BOM>map=..." and fail as "not understood" while the
+    # message shows nothing visibly wrong. Byte-wise under LC_ALL=C.
+    [ "$lineno" -eq 1 ] && line="${line#$'\xef\xbb\xbf'}"
+    # A CRLF checkout must not turn "high" into "high\r" and fail validation
+    # with a message that shows nothing wrong.
+    line="${line%$'\r'}"
+    # Surrounding whitespace is insignificant; inner whitespace is not allowed
+    # (the flag syntax has none), and is caught by validation below.
+    line="${line#"${line%%[![:space:]]*}"}"
+    line="${line%"${line##*[![:space:]]}"}"
+    case "$line" in
+      ""|"#"*) continue ;;
+      map=*)
+        if [ "$seen_map" -eq 1 ]; then
+          echo "generate-agents.sh: $TIER_MAP_FILE line $lineno: 'map=' is given twice." >&2
+          exit 2
+        fi
+        seen_map=1; FILE_MAP="${line#map=}"; FILE_MAP_LINE="$lineno" ;;
+      effort-map=*)
+        if [ "$seen_effort" -eq 1 ]; then
+          echo "generate-agents.sh: $TIER_MAP_FILE line $lineno: 'effort-map=' is given twice." >&2
+          exit 2
+        fi
+        seen_effort=1; FILE_EFFORT_MAP="${line#effort-map=}"; FILE_EFFORT_MAP_LINE="$lineno" ;;
+      *)
+        echo "generate-agents.sh: $TIER_MAP_FILE line $lineno is not understood: '$line'" >&2
+        echo "  Accepted: 'map=<spec>' and 'effort-map=<spec>' (same syntax as --map and" >&2
+        echo "  --effort-map), blank lines, and lines starting with #." >&2
+        exit 2
+        ;;
+    esac
+  done < "$TIER_MAP_FILE"
+fi
+
+# Accepted effort levels, verified against this runtime's own documentation
+# (code.claude.com/docs/en/sub-agents.md, model-config.md) at the time of
+# writing. An empty value is always accepted regardless of this list — it
+# means "no effort: field", i.e. inherit the runtime's default.
+is_valid_effort() {
+  case "$1" in
+    ""|low|medium|high|xhigh|max) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+# apply_map <spec> <label> — label names the source in an error message:
+# "--map" for the flag, "map= (<file> line N)" for the project file, so an
+# error inside a value points at the line the same way a malformed line does.
+apply_map() {
+  local spec="$1" label="$2" pair
+  for pair in ${spec//,/ }; do
+    case "$pair" in
+      strategic=*)   MAP_STRATEGIC="${pair#strategic=}" ;;
+      standard=*)    MAP_STANDARD="${pair#standard=}" ;;
+      lightweight=*) MAP_LIGHTWEIGHT="${pair#lightweight=}" ;;
+      frontier=*)    MAP_FRONTIER="${pair#frontier=}" ;;
+      *) echo "Unrecognised $label entry: $pair" >&2; exit 2 ;;
+    esac
+  done
+}
+
+apply_effort_map() {
+  local spec="$1" label="$2" pair key value
+  for pair in ${spec//,/ }; do
+    # Pattern-matched like apply_map above, not split-then-validated: a
+    # pattern requires the literal "key=", so a bare "strategic" (no "=")
+    # falls straight to the catch-all "Unrecognised" error instead of being
+    # read as key="strategic" value="strategic" and rejected two lines later
+    # with the less clear "Invalid ... value" message.
+    case "$pair" in
+      strategic=*)   key=strategic;   value="${pair#strategic=}" ;;
+      standard=*)    key=standard;    value="${pair#standard=}" ;;
+      lightweight=*) key=lightweight; value="${pair#lightweight=}" ;;
+      frontier=*)    key=frontier;    value="${pair#frontier=}" ;;
+      *) echo "Unrecognised $label entry: $pair" >&2; exit 2 ;;
+    esac
+    if ! is_valid_effort "$value"; then
+      echo "Invalid $label value in '$pair': '$value'" >&2
+      echo "  Accepted: low, medium, high, xhigh, max, or empty (inherit)." >&2
+      exit 2
+    fi
+    case "$key" in
+      strategic)   EFFORT_STRATEGIC="$value" ;;
+      standard)    EFFORT_STANDARD="$value" ;;
+      lightweight) EFFORT_LIGHTWEIGHT="$value" ;;
+      frontier)    EFFORT_FRONTIER="$value" ;;
+    esac
+  done
+}
+
+# File first, flags second: the order IS the precedence.
+[ -n "$FILE_MAP" ]            && apply_map        "$FILE_MAP"            "map= ($TIER_MAP_FILE line $FILE_MAP_LINE)"
+[ -n "$FILE_EFFORT_MAP" ]     && apply_effort_map "$FILE_EFFORT_MAP"     "effort-map= ($TIER_MAP_FILE line $FILE_EFFORT_MAP_LINE)"
+[ -n "$MAP_OVERRIDE" ]        && apply_map        "$MAP_OVERRIDE"        "--map"
+[ -n "$EFFORT_MAP_OVERRIDE" ] && apply_effort_map "$EFFORT_MAP_OVERRIDE" "--effort-map"
+
+# One word first, so a log or a test can read the source without parsing the
+# detail after it.
+if [ -n "$MAP_OVERRIDE$EFFORT_MAP_OVERRIDE" ]; then
+  if [ "$HAVE_TIER_MAP_FILE" -eq 1 ]; then
+    MAPPING_SOURCE="flags (over $TIER_MAP_FILE, per tier)"
+  else
+    MAPPING_SOURCE="flags (over the $TARGET defaults, per tier)"
+  fi
+elif [ "$HAVE_TIER_MAP_FILE" -eq 1 ]; then
+  MAPPING_SOURCE="file ($TIER_MAP_FILE)"
+else
+  MAPPING_SOURCE="defaults (target $TARGET; no .ia-engineering/tier-map in the project)"
+fi
+
+# --print-tier-map: the resolved mapping, and nothing else (WU-IAENG-336).
+#
+# Before this, the Lightweight and Frontier values existed only in the tiers:
+# summary of a generation run, which no session reads. A Main Agent applying
+# a Tier Override therefore had no concrete model to pass and invented one: in
+# an adopting project whose tier-map gave every tier claude-opus-5-5, it
+# dispatched a Lightweight override with "sonnet" (issue #212). The session
+# now asks this script for the mapping instead of a second parser re-reading
+# the file, so the defaults, the file and the precedence stay in one place.
+#
+# The output is a valid tier-map file (the source line is a comment), which is
+# what lets a test feed it back in and get the same mapping out.
+if [ "$PRINT_TIER_MAP" -eq 1 ]; then
+  echo "# mapping: $MAPPING_SOURCE"
+  echo "map=strategic=$MAP_STRATEGIC,standard=$MAP_STANDARD,lightweight=$MAP_LIGHTWEIGHT,frontier=$MAP_FRONTIER"
+  echo "effort-map=strategic=$EFFORT_STRATEGIC,standard=$EFFORT_STANDARD,lightweight=$EFFORT_LIGHTWEIGHT,frontier=$EFFORT_FRONTIER"
+  exit 0
+fi
+
+# --- Output and rosters ------------------------------------------------------
 
 # Relative --out is the adopter's project path, not a path inside the
 # framework. Absolute --out is taken as given.
@@ -246,25 +471,156 @@ fi
 
 # --- Extraction ------------------------------------------------------------
 
-# Prints one top-level section's body from an Employee definition, without its
-# heading. Sections are delimited by "# Heading" lines.
-section_of() {
-  local file="$1" heading="$2"
-  awk -v want="# $heading" '
-    $0 == want { inside = 1; next }
-    inside && /^# / { exit }
-    inside { print }
-  ' "$file" | sed 's/[[:space:]]*$//' | awk '
-    # Trim leading and trailing blank lines and the horizontal rules that
-    # separate sections in these documents.
-    { lines[NR] = $0 }
-    END {
-      start = 1; end = NR
-      while (start <= end && (lines[start] == "" || lines[start] == "---")) start++
-      while (end >= start && (lines[end] == "" || lines[end] == "---")) end--
-      for (i = start; i <= end; i++) print lines[i]
-    }
-  '
+# Sections needed out of every Employee definition, in the order
+# generate_claude_code() consumes them. One shared list, so the extractor and
+# the consumer never drift apart.
+SECTION_NAMES=(
+  "Mission" "Responsibilities" "Authority" "Standards Applied" "Inputs"
+  "Process" "Outputs" "Output Format" "Definition of Done" "Escalation Rules"
+  "Failure Modes"
+)
+
+# Extracts every section in SECTION_NAMES from one Employee definition in a
+# SINGLE awk pass, populating the SECTION_BODIES array (same order as
+# SECTION_NAMES) with each body: heading stripped, leading/trailing blank
+# lines and "---" rules trimmed — same trimming rule the old three-stage
+# pipeline applied.
+#
+# Was section_of(): one "awk | sed | awk" command substitution PER SECTION,
+# called 12 times per Employee (11 sections + one extra Mission read for the
+# description line) — about 2,000 process creations for 42 Employees. On
+# Windows/Git Bash (MSYS fork emulation plus antivirus scanning of every new
+# process) that made a single --dry-run take minutes; Linux CI never saw it,
+# because a fork() there costs microseconds. The fix is not "a faster awk" —
+# it is not re-invoking awk per section at all. One awk process reads the
+# file once, buffers every wanted section's lines in a 2-D array keyed by
+# (heading, line number) — SUBSEP-joined subscripts, POSIX awk since the One
+# True Awk, portable to gawk/mawk/BSD awk without extensions — and prints
+# them back separated by ASCII Unit Separator (0x1F, chosen because it cannot
+# occur in these markdown files: verified with
+# `grep -rlP '[\x1e\x1f]' Employees/ Registry/`, no match).
+#
+# The separator byte is generated ONCE by bash ($'\x1f') and handed to awk
+# through -v, never spelled as an escape inside the awk program text: awk's
+# only portable string escapes are POSIX's \\, \", \t, \n, \r and octal
+# \ddd — "\x1f" is a gawk-only extension (and warns even there under
+# --posix). Passing the literal byte sidesteps the portability question
+# entirely instead of relying on an escape awk may not support.
+#
+# Bash then splits that single output on the same byte with one
+# `read -d '' -a`: `VAR=x read ...` scopes IFS to that one command, so it
+# does not leak into the caller, and the trailing NUL the caller appends
+# gives `read -d ''` (NUL-delimited) something to stop on for the whole
+# multi-line, multi-section blob in one read. Output is byte-identical to
+# the old pipeline; see the generator's own commit message for the diff
+# proof.
+#
+# CONTRACT: this function returns through the CALLER's SECTION_BODIES
+# array, not through stdout or an explicit `declare -g`, relying on bash's
+# dynamic scoping of `local` — a `local` variable is visible to every
+# function the declaring function calls, until it returns. That only works
+# if the caller has ALREADY run `local SECTION_BODIES=()` (or equivalent)
+# before calling extract_sections(); skip that and the `read -a` below
+# creates SECTION_BODIES as a genuine global instead, which happens to
+# still work for a single-threaded top-to-bottom script but leaks state
+# between calls and between this script and anything sourcing it later.
+# generate_claude_code() does the required pre-declaration; keep that
+# invariant if extract_sections() ever gets a second caller.
+extract_sections() {
+  local file="$1" us want_joined
+  us=$'\x1f'
+  want_joined="$(IFS="$us"; echo "${SECTION_NAMES[*]}")"
+
+  IFS="$us" read -r -d '' -a SECTION_BODIES < <(
+    awk -v want_joined="$want_joined" -v us="$us" '
+      BEGIN {
+        n = split(want_joined, order, us)
+        for (i = 1; i <= n; i++) wanted[order[i]] = 1
+        cur = ""
+      }
+      /^# / {
+        h = $0
+        sub(/^# /, "", h)
+        # FIRST occurrence only, matching the old section_of(): it started
+        # "inside" on the first exact-text match and, once inside, EXITED
+        # entirely at the very next "# " line — so a repeated heading later
+        # in the file never contributed anything, because old section_of()
+        # had already returned. Marking done[h] the moment a wanted heading
+        # is seen (not when its capture ends) is what makes a SECOND
+        # occurrence of the SAME heading fall to the else branch below
+        # instead of reopening capture and concatenating both bodies.
+        if ((h in wanted) && !(h in done)) {
+          cur = h
+          done[h] = 1
+        } else {
+          cur = ""
+        }
+        next
+      }
+      cur != "" {
+        line = $0
+        sub(/[[:space:]]*$/, "", line)
+        cnt[cur]++
+        lines[cur, cnt[cur]] = line
+      }
+      END {
+        for (i = 1; i <= n; i++) {
+          name = order[i]
+          c = cnt[name] + 0
+          start = 1; end = c
+          while (start <= end && (lines[name, start] == "" || lines[name, start] == "---")) start++
+          while (end >= start && (lines[name, end] == "" || lines[name, end] == "---")) end--
+          for (j = start; j <= end; j++) print lines[name, j]
+          if (i < n) printf "%s", us
+        }
+      }
+    ' "$file"
+    printf '\0'
+  )
+
+  # Pad to exactly one element per SECTION_NAMES entry, IMMEDIATELY after the
+  # read and before anything else touches the array.
+  #
+  # `read -a` drops a TRAILING empty field the same way `IFS=, read -a arr
+  # <<< "a,b,"` yields two elements, not three: leading/trailing runs of the
+  # split character are trimmed, so a run of IFS characters right before the
+  # NUL that ends the read never produces a final empty element. That is
+  # exactly what a missing LAST wanted section produces: awk emits no `print`
+  # for it, so the byte stream ends "...<US><NUL>" with nothing between the
+  # last delimiter and the terminator. Reachable in practice — an adopter's
+  # PROJECT_ROSTER can name a Domain Employee file that simply omits Failure
+  # Modes, the last entry in SECTION_NAMES — and it silently shrinks
+  # SECTION_BODIES to one element short of SECTION_NAMES. Every consumer
+  # below indexes both arrays in lockstep, so the missing element is not read
+  # as "empty" — it is read as UNBOUND under `set -u`, and this script does
+  # not set `-e` but does set `-u` (see the top of the file), so that one
+  # Employee aborts the entire run instead of just omitting one heading from
+  # one generated file.
+  #
+  # `${SECTION_BODIES[i]:-}` is the fix, not a defensive nicety on top of one:
+  # default-value expansion is exempt from `set -u`'s unbound-variable error
+  # by design, so re-assigning through it both (a) forces every index in
+  # range to exist, however it got short, and (b) never itself trips the
+  # thing it is here to prevent.
+  local si
+  for ((si = 0; si < ${#SECTION_NAMES[@]}; si++)); do
+    SECTION_BODIES[si]="${SECTION_BODIES[si]:-}"
+  done
+
+  # `read -a` preserves the trailing newline awk's own last `print` left on
+  # each non-empty section (the old section_of() lost it for free: its
+  # result went through a command substitution, and $(...) strips ALL
+  # trailing newlines). Without this, generate_claude_code()'s
+  # `printf '%s\n' "$body"` added a SECOND newline on top of the one already
+  # there, leaving a stray blank line before every section that follows a
+  # non-empty one — caught by the before/after diff this Work Unit's commit
+  # message documents, not by inspection.
+  local i
+  for i in "${!SECTION_BODIES[@]}"; do
+    while [[ "${SECTION_BODIES[i]}" == *$'\n' ]]; do
+      SECTION_BODIES[i]="${SECTION_BODIES[i]%$'\n'}"
+    done
+  done
 }
 
 slugify() {
@@ -278,15 +634,38 @@ slugify() {
 WRITTEN=0
 UNCHANGED=0
 DIFFERENT=0
+# The subset of DIFFERENT whose only difference is the tier mapping (see
+# without_mapping below). Lets --check say which of the two causes it found.
+MAPPING_DRIFT=0
+
+# Prints a generated agent file with what the MAPPING decides removed:
+# `model:` and `effort:` inside the frontmatter, and the " -> <model>..." tail
+# of the header's `Tier:` line. Two files equal under this filter differ in
+# mapping only — their Employee definition, roster, and template are the same.
+#
+# The tier NAME on the `Tier:` line is kept, deliberately. It is the only
+# place a generated file records which tier the roster gave the Employee, so
+# dropping the whole line made a roster tier change (Standard Execution to
+# Strategic Judgment, under a mapping that gives both the same model) read as
+# "mapping only" — the one drift this filter exists to tell apart from a
+# roster or definition change. Code Reviewer finding M1 on PR #197.
+without_mapping() {
+  awk '
+    /^---$/ && fm < 2 { fm++; print; next }
+    fm == 1 && (/^model: / || /^effort: /) { next }
+    /^  Tier:      / { sub(/ -> .*$/, ""); print; next }
+    { print }
+  ' "$1"
+}
 
 generate_claude_code() {
   local name="$1" file="$2" category="$3" tier="$4" from_roster="$5" source_label="$6"
-  local slug model dest tmp
+  local slug model effort effort_note dest tmp
 
   slug="$(slugify "$name")"
   case "$tier" in
-    "Strategic Judgment") model="$MAP_STRATEGIC" ;;
-    "Standard Execution") model="$MAP_STANDARD" ;;
+    "Strategic Judgment") model="$MAP_STRATEGIC"; effort="$EFFORT_STRATEGIC" ;;
+    "Standard Execution") model="$MAP_STANDARD"; effort="$EFFORT_STANDARD" ;;
     *)
       echo "  ! $name has tier '$tier', which is neither default tier." >&2
       echo "    Core/CAPABILITY_TIERS.md defines exactly two Employee defaults;" >&2
@@ -296,6 +675,16 @@ generate_claude_code() {
       return
       ;;
   esac
+  effort_note=""
+  [ -n "$effort" ] && effort_note=", effort: $effort"
+
+  # One awk pass for every section this Employee needs, instead of one
+  # process substitution per section (see extract_sections() above). Kept
+  # after the tier check, not before, so an invalid-tier entry that returns
+  # early still costs zero extraction work — same as the pre-existing
+  # early-return shape.
+  local SECTION_BODIES=()
+  extract_sections "$file"
 
   dest="$OUT/$slug.md"
   tmp="$(mktemp)"
@@ -317,13 +706,18 @@ generate_claude_code() {
     # empty description, silently, for exactly one of the 42. Expansion has no
     # delimiter to collide with.
     local mission
-    mission="$(section_of "$file" "Mission" | head -1)"
+    mission="$(printf '%s\n' "${SECTION_BODIES[0]:-}" | head -1)"
     mission="${mission#The "$name" }"
     mission="${mission#The }"
     mission="${mission%.}"
     printf 'description: %s — %s. %s\n' \
       "$name" "$mission" "Dispatch per Core/EMPLOYEE_SELECTION.md."
     echo "model: $model"
+    # Only when the tier has a non-empty effort: an absent field means
+    # "inherit the runtime's default effort", which is correct for every
+    # tier except Strategic Judgment (Director decision, 25 Sep 2026 — see
+    # Adapters/ai-runtimes/README.md).
+    [ -n "$effort" ] && echo "effort: $effort"
     echo "---"
     echo
     cat <<HEADER
@@ -333,7 +727,7 @@ generate_claude_code() {
   Source:    $source_label
   Generator: Adapters/ai-runtimes/generate-agents.sh --target claude-code
   Roster:    $from_roster
-  Tier:      $tier -> $model
+  Tier:      $tier -> $model$effort_note
 
   Edit the Employee definition and regenerate. An edited copy is a second
   definition of this Employee that will silently diverge from Employees/,
@@ -353,10 +747,10 @@ trailer, and the commit-msg hook validates that name against the roster.
 
 HEADER
 
-    local s
-    for s in "Mission" "Responsibilities" "Authority" "Standards Applied" "Inputs" "Process" "Outputs" "Output Format" "Definition of Done" "Escalation Rules" "Failure Modes"; do
-      local body
-      body="$(section_of "$file" "$s")"
+    local i s body
+    for i in "${!SECTION_NAMES[@]}"; do
+      s="${SECTION_NAMES[$i]}"
+      body="${SECTION_BODIES[$i]:-}"
       if [ -n "$body" ]; then
         echo "## $s"
         echo
@@ -440,6 +834,18 @@ FOOTER
   if [ "$CHECK" -eq 1 ]; then
     if [ -f "$dest" ] && diff -q "$tmp" "$dest" > /dev/null 2>&1; then
       UNCHANGED=$((UNCHANGED + 1))
+    elif [ -f "$dest" ] && diff -q <(without_mapping "$tmp") <(without_mapping "$dest") > /dev/null 2>&1; then
+      # Same content once the mapping lines are set aside: the Employee
+      # definition did not change, the mapping did. Said so, rather than
+      # sending the reader to Employees/ for a drift that is not there.
+      DIFFERENT=$((DIFFERENT + 1))
+      MAPPING_DRIFT=$((MAPPING_DRIFT + 1))
+      # Both halves of the mapping, on both sides: an effort-only drift would
+      # otherwise print the same model twice and show no difference at all.
+      local disk_model disk_effort
+      disk_model="$(awk '/^---$/{n++; next} n==1 && /^model: /{sub(/^model: /, ""); print; exit}' "$dest")"
+      disk_effort="$(awk '/^---$/{n++; next} n==1 && /^effort: /{sub(/^effort: /, ""); print; exit}' "$dest")"
+      echo "  differs: $dest (mapping only: on disk $disk_model, effort: ${disk_effort:-inherit}; resolved $model, effort: ${effort:-inherit})"
     else
       DIFFERENT=$((DIFFERENT + 1))
       echo "  differs: $dest"
@@ -482,7 +888,10 @@ if [ -n "$PROJECT_ROSTER" ]; then
 else
   echo "  project roster: none (no .ia-engineering/Registry/employees.yml under the project — no Domain Employees)"
 fi
-echo "  tiers:   Strategic Judgment -> $MAP_STRATEGIC, Standard Execution -> $MAP_STANDARD (Lightweight override -> $MAP_LIGHTWEIGHT)"
+echo "  mapping: $MAPPING_SOURCE"
+echo "  tiers:   Strategic Judgment -> $MAP_STRATEGIC (effort: ${EFFORT_STRATEGIC:-inherit}), Standard Execution -> $MAP_STANDARD (effort: ${EFFORT_STANDARD:-inherit})"
+echo "           Lightweight via Tier Override -> $MAP_LIGHTWEIGHT (effort: ${EFFORT_LIGHTWEIGHT:-inherit})"
+echo "           Frontier via Tier Override, Director approval each time -> $MAP_FRONTIER (effort: ${EFFORT_FRONTIER:-inherit})"
 echo
 
 # One awk pass per roster, same shape validate-framework.sh uses. The base
@@ -553,7 +962,17 @@ echo
 if [ "$CHECK" -eq 1 ]; then
   echo "Result: $UNCHANGED current, $DIFFERENT stale or missing"
   if [ "$DIFFERENT" -gt 0 ]; then
-    echo "  Generated agents are out of date with Employees/. Regenerate:"
+    if [ "$MAPPING_DRIFT" -gt 0 ]; then
+      echo "  $MAPPING_DRIFT differ in the tier mapping only (model/effort), not in their"
+      echo "  Employee definition: they were generated with a different mapping than the"
+      echo "  one resolved now (mapping: $MAPPING_SOURCE)."
+      echo "  Either regenerate with the resolved mapping, or record the mapping they were"
+      echo "  generated with in .ia-engineering/tier-map (Adapters/ai-runtimes/README.md)."
+    fi
+    if [ "$DIFFERENT" -gt "$MAPPING_DRIFT" ]; then
+      echo "  $((DIFFERENT - MAPPING_DRIFT)) out of date with Employees/ or the roster, or missing."
+    fi
+    echo "  Regenerate:"
     echo "    ./Adapters/ai-runtimes/generate-agents.sh --target $TARGET"
     exit 1
   fi

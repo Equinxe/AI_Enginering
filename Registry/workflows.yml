@@ -50,8 +50,10 @@ workflows:
     step_count: 8
     steps:
       - n: 1
-        actor: Engineering Manager
-        step: Work Unit definition
+        actor: Main Agent
+        step: >-
+          Work Unit definition, per Core/ORCHESTRATION.md Step 3 — the
+          Engineering Manager only for multi-pole work
       - n: 2
         actor: Engineer
         step: Branch creation
@@ -69,10 +71,19 @@ workflows:
         step: Code review, via Workflows/CODE_REVIEW.md
       - n: 7
         actor: QA Engineer
-        step: QA validation against acceptance criteria
+        step: >-
+          QA validation against acceptance criteria — runs when the Pull
+          Request changes executable behaviour, as Workflows/FEATURE_DEVELOPMENT.md
+          Step 7 defines it (when unclear, it does); skipped otherwise
+          (Director, 6 Oct 2026)
       - n: 8
         actor: Engineering Manager
-        step: Merge into develop
+        step: >-
+          Merge into develop — the document names the Engineering Manager or
+          Technical Lead; the Main Agent may also execute this merge, and
+          delete the merged branch, under the Director's standing exception
+          and only on its conditions (Core/MAIN_AGENT_CONDUCT.md, Git
+          Execution via Named Employee)
     gates: []
     gate_note: >-
       No Director gate inside this workflow. The Feature Chain places the
@@ -117,6 +128,7 @@ workflows:
       - Missing or insufficient tests block approval (Step 3)
       - A security finding escalates to the Security Engineer immediately, without waiting for the review to finish (Step 4)
       - Compliance-relevant content escalates to the Compliance Engineer on the same terms (Step 4)
+      - A change to Employees/ or any Core/*.md document (including a deletion or rename) needs the Prompt Engineer's approval before merge, in addition to the Code Reviewer's, covering the text the head carries; the Prompt Engineer's own review of a change it authored does not count, and the Director names the second reviewer (Step 4; Core/EMPLOYEE_SELECTION.md, Prompt Engineer trigger)
       - A security-sensitive or High/Critical-risk PR is reviewed through separate lens passes with cross-debate (Multi-Lens Review)
       - Every open finding is re-anchored or given a disposition before re-review; none is dropped because its line moved (Step 9)
 
@@ -330,7 +342,7 @@ workflows:
         actor: Main Agent
         step: Initialize the git workflow
       - n: 6
-        actor: Engineering Manager
+        actor: Main Agent
         step: Create the first Work Unit
         gate: true
       - n: 7

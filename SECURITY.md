@@ -35,6 +35,10 @@ Anything under `Adapters/` that runs on a developer machine or in CI:
 
 A **false positive is also in scope**, and is treated as seriously. A control that refuses legitimate work teaches people to route around controls, and that costs more than the thing it blocked.
 
+**Where the boundary is.** The runtime hooks (`Adapters/ai-runtimes/`) and the git hooks (`Adapters/git-hooks/`) run on the machine being governed and are guardrails: they stop an escape hatch reached for by habit, not one reached for on purpose. The boundary is server-side — branch protection and the required status checks. A bypass of a guardrail that a required check still catches is Low; a way to satisfy or skip a required check is in scope at full severity.
+
+Two conditions bound that boundary, and both are part of it. Branch protection binds only the identities it is enforced on: in the single-identity configuration `Adapters/scripts/setup-branch-protection.sh` applies, the repository owner's role is exempt, so a session acting under that identity is held by the local guardrails and by the Director's review, not by branch protection. And a required check evaluates the definitions carried by the change under review, so a change to a check, a hook, or the workflow that runs them is reviewed as a change to the boundary itself. A control-path guard (`Adapters/github-actions/control-path-guard.yml`, a `pull_request_target` workflow that GitHub takes from the default branch, so it guards a PR to `develop` only once released to `main`) fails a PR that touches those files unless the Director's login (`IAENG_DIRECTOR_LOGIN`) has just applied `control-change/approved`; with a single shared identity it cannot tell an agent from the Director. The two graders that read tool configuration, `shellcheck` and the workflow-YAML parser, are isolated from the change under review (`--norc`, a pinned `js-yaml` run from a fresh directory) so it cannot reconfigure them through configuration files. The `shellcheck` binary comes from the runner image, and an in-file `# shellcheck` directive is an inline suppression, reported by the advisory Inline Suppression check rather than blocked. That closes config-shadowing only, and the checks that execute the change's own scripts remain within the statement above.
+
 ---
 
 ## What is out of scope
@@ -68,7 +72,7 @@ Only the latest release is supported. This is a pre-1.0 framework: version numbe
 
 Owner: IA Engineering
 
-Version: 0.0.13
+Version: 0.0.15
 
 Status: Draft
 

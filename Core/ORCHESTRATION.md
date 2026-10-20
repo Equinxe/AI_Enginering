@@ -90,7 +90,7 @@ The plan is presented to the Director before execution begins.
 
 For each Work Unit, the Main Agent creates an Employee Brief (see `Templates/EMPLOYEE_BRIEF.md`) and dispatches it to the responsible Employee.
 
-Before dispatching, the Main Agent selects an execution capability for the Work Unit per `Core/CAPABILITY_TIERS.md` — the Employee's Default Complexity Tier, unless the specific Work Unit warrants a Lightweight Override in either direction. This selection never changes which Employee is dispatched, its Mission, Authority, Standards Applied, or Definition of Done — only the execution capability applied.
+Before dispatching, the Main Agent selects an execution capability for the Work Unit per `Core/CAPABILITY_TIERS.md` — the Employee's Default Complexity Tier, unless the specific Work Unit warrants a Tier Override in either direction, including an upgrade to Frontier, which additionally requires Director approval each time. This selection never changes which Employee is dispatched, its Mission, Authority, Standards Applied, or Definition of Done — only the execution capability applied. The Main Agent records the Execution tier in the Employee Brief, and the one-line reason whenever it differs from the Employee's default.
 
 ### Dispatch Rules
 
@@ -146,7 +146,7 @@ After each Employee completes their Work Unit, the Main Agent:
 3. Verifies the output against the Work Unit's Definition of Done, item by item as the report's own table lays it out.
 4. Verifies compliance with applicable Standards, and reads the report's Risk Record: any `High` or `Critical` line with `decided_by=self` is a violation of `Standards/RISK_STANDARD.md`, whatever the output looks like.
 5. If the output passes: mark the Work Unit `COMPLETE`, which is what releases the Work Units that depend on it.
-6. If the output fails: return to the Employee with specific feedback, naming the Definition of Done item. Do not proceed until the DoD is met — and not past the second return (Step 4, the Retry layer).
+6. If the output fails: return to the Employee with specific feedback, naming the Definition of Done item. Do not proceed until the DoD is met — and not past the second return (Step 4, the Retry layer). A Work Unit returned for a capability shortfall is re-dispatched one execution tier up, capped at Strategic Judgment (`Core/CAPABILITY_TIERS.md`, Tier Override) — going beyond Strategic requires a Frontier Override with Director approval, never an automatic retry step. A Work Unit returned for missing information or an incomplete brief is not a capability shortfall; it is resolved per `Core/DECISION_TREE.md` (stop and request), not by raising the tier.
 
 **An output that does not meet its DoD is not an output. A report that was not verified is not evidence.**
 
@@ -176,6 +176,8 @@ The Main Agent presents the result to the Director:
 - Confirmation that all Standards were respected
 
 The Director reviews and either approves or requests changes.
+
+Before that stop — when the session is ending or its context is about to be compacted or replaced — the Main Agent runs the Handoff to a New Conversation checklist (`Templates/SESSION_STATE.md`, Handoff to a New Conversation), including confirming the working directory is the right project for the work just delivered.
 
 **The Main Agent stops after delivery. It does not proceed without a new Director request.**
 
@@ -228,6 +230,7 @@ Escalation pauses the chain. Work resumes only after Director responds.
 | `Core/AGENT_CHAINS.md` | Named pre-defined chains — used in Step 2 to identify the execution map |
 | `Core/DECISION_TREE.md` | Each Employee uses this during their Work Unit |
 | `Templates/EMPLOYEE_BRIEF.md` | Used in Step 4 for every dispatch |
+| `Templates/SESSION_STATE.md` | Step 7 points here, before its closing Stop, for the Handoff to a New Conversation checklist |
 | `Templates/WORK_UNIT.md` | Used in Step 3 to define each Work Unit |
 | `Templates/WORK_UNIT_REPORT.md` | What Step 5 receives and verifies — a Work Unit without one is not complete |
 | `Standards/RISK_STANDARD.md` | A `High` or `Critical` action stops the queue for a Director decision, inside or outside an autonomous range |
@@ -236,13 +239,29 @@ Escalation pauses the chain. Work resumes only after Director responds.
 | `Registry/chains.yml`, `Registry/workflows.yml` | The machine-readable form of the execution maps this protocol produces — chain sequences, workflow steps, and every mandatory gate, as data. Derived from `Core/AGENT_CHAINS.md` and `Workflows/`, which remain authoritative |
 | `Registry/employees.yml` | The roster the `Employee:` commit trailer required by Step 7 is validated against |
 
+## The two 7-step models correspond
+
+`Core/MAIN_AGENT_CONDUCT.md`'s Core Behavior lists seven steps (Understand, Analyze, Plan, Delegate, Review, Deliver, Stop); this document lists seven (Receive, Analyze, Plan, Dispatch, Collect, Review, Deliver). They are one lifecycle at two altitudes: Conduct is the abstract lifecycle, this Orchestration Protocol the concrete protocol — and "never skip a step" binds the phases below, however each document numbers them.
+
+| `Core/MAIN_AGENT_CONDUCT.md` (abstract) | This document (concrete) |
+|---|---|
+| Understand | Step 1 — Receive |
+| Analyze | Step 2 — Analyze |
+| Plan | Step 3 — Plan |
+| Delegate | Step 4 — Dispatch |
+| Review | Step 5 — Collect (per-Work-Unit verify) **and** Step 6 — Review (chain-level) |
+| Deliver | Step 7 — Deliver |
+| Stop | The closing action of Step 7 — Deliver (`:180`), not a separate numbered step |
+
+The one-to-one rows carry the same name or an exact synonym. The two that do not are deliberate: Conduct's single **Review** covers both verification altitudes this protocol splits — Step 5 verifies each Work Unit against its Definition of Done, Step 6 reviews the assembled chain — and Conduct's **Stop** is not a seventh phase of work here but the closing act of Step 7's delivery (`:180`, "The Main Agent stops after delivery"). Neither document renumbers the other; the phases correspond, the numbering need not.
+
 ---
 
 # Metadata
 
 Owner: IA Engineering
 
-Version: 0.0.9
+Version: 0.0.13
 
 Status: Draft
 

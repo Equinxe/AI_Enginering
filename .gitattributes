@@ -5,6 +5,23 @@
 # checkout platform or user's core.autocrlf setting.
 /Adapters/** text eol=lf
 
+# The one exception under Adapters/: a Windows batch file. cmd.exe misreads
+# labels and multi-line blocks in an LF batch file, so the usage-dashboard
+# launcher is checked out CRLF on every platform; this later, more specific
+# rule overrides the one above. An adopter runs it from its ia-engineering
+# submodule, and a submodule is governed by its own repository's
+# .gitattributes — this file — so install.sh appends nothing for it.
+/Adapters/scripts/usage-dashboard.cmd text eol=crlf
+
+# .claude/ holds this repository's own installed copies of the Claude Code
+# Adapter: settings.json from install-hooks.sh, skills/ from install-skills.sh.
+# The hooks and /dashboard run them with bash, which a CRLF checkout breaks
+# (a "\r" ends every line of the launcher), and the hook tests compare them
+# byte for byte with their Adapters/ sources, which are LF by the rule above
+# (WU-IAENG-342).
+/.claude/settings.json text eol=lf
+/.claude/skills/** text eol=lf
+
 # Registry/ is parsed by those same shell consumers with grep and sed (see
 # Registry/README.md's parsing contract). A CRLF checkout would leave a
 # trailing carriage return on every extracted Employee name, so `grep -qxF`
@@ -49,7 +66,12 @@
 /.github/workflows/pr-validation.yml         linguist-generated=true
 /.github/workflows/framework-validation.yml  linguist-generated=true
 /.github/workflows/data-policy.yml           linguist-generated=true
+/.github/workflows/control-path-guard.yml    linguist-generated=true
 /.github/PULL_REQUEST_TEMPLATE.md            linguist-generated=true
 /.github/ISSUE_TEMPLATE/bug_report.md        linguist-generated=true
 /.github/ISSUE_TEMPLATE/feature_request.md   linguist-generated=true
 /.github/ISSUE_TEMPLATE/config.yml           linguist-generated=true
+# Installed by install-skills.sh; parity with Adapters/ai-runtimes/claude-code/
+# skills/dashboard/ is checked by the required Hook Tests job (tests/dashboard.sh).
+/.claude/skills/dashboard/SKILL.md           linguist-generated=true
+/.claude/skills/dashboard/open-dashboard.sh  linguist-generated=true

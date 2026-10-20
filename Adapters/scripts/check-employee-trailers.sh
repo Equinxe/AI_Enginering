@@ -2,7 +2,16 @@
 # IA Engineering — check-employee-trailers.sh
 #
 # Every non-merge commit in a range carries an `Employee: <Name>` trailer, and
-# the name resolves against the Employee roster.
+# the name resolves against the Employee roster. A merge commit is held to the
+# same rule only when it AUTHORS content: its tree differs from the automatic
+# merge of its parents, or it has more than two parents. A clean merge needs no
+# trailer; an `Employee:` line present on any merge is validated regardless.
+# Historical authored merges are grandfathered by sha in a constant inside this
+# script (GRANDFATHERED_MERGES). Classifying needs git >= 2.40
+# (`git merge-tree --write-tree` with --attr-source); without it the check
+# fails closed. The classifier is merge-classify.sh, sourced from beside this
+# script, so the script must run from its real location: a copy or symlink
+# without the helper beside it fails closed.
 #
 # This is the SERVER-SIDE BACKSTOP for Adapters/git-hooks/commit-msg. The hook
 # is the first line and the better one — it refuses before the commit exists —
@@ -32,14 +41,29 @@
 #
 #   check-employee-trailers.sh <base-ref> <head-ref>
 #
-# Exit 0 when every commit resolves, 1 when any does not or when the roster
-# cannot be found. A range with no non-merge commits is a pass and says so.
+# Exit 0 when every commit (and every authored merge) resolves, 1 when any does
+# not, when a merge cannot be classified, or when the roster cannot be found. A
+# range with no non-merge commits says so and still classifies its merges.
 
 set -uo pipefail
 
-# See the note in check-work-units.sh on why this helper is duplicated rather
-# than sourced: these scripts run from a consumer project where the framework
-# path varies, and a sourcing bug would only appear in somebody else's repo.
+# The merge classifier is shared with check-work-units.sh. It sits beside this
+# script, so BASH_SOURCE resolves it wherever the framework is checked out. A
+# missing helper is a failure: continuing without it would pass every authored
+# merge. `CDPATH=` keeps an exported CDPATH from redirecting the cd (and from
+# printing the directory into the captured value).
+SCRIPT_DIR="$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+if [ ! -f "$SCRIPT_DIR/merge-classify.sh" ]; then
+  echo "check-employee-trailers: ERROR: $SCRIPT_DIR/merge-classify.sh not found; failing closed." >&2
+  exit 1
+fi
+# shellcheck source=merge-classify.sh
+. "$SCRIPT_DIR/merge-classify.sh"
+
+# See the note in check-work-units.sh on why this helper is duplicated while
+# merge-classify.sh is sourced: sourcing a sibling via BASH_SOURCE is safe,
+# but `err` differs per script (its prefix) and most check-*.sh siblings
+# source nothing.
 err() {
   if [ -n "${GITHUB_ACTIONS:-}" ]; then
     printf '::error::%s\n' "$1" >&2
@@ -112,24 +136,13 @@ if ! COMMITS="$(git rev-list --no-merges "${BASE_REF}..${HEAD_REF}")"; then
   exit 1
 fi
 
-if [ -z "$COMMITS" ]; then
-  echo "No non-merge commits to validate."
-  exit 0
-fi
-
-echo "Commits to validate: $(printf '%s\n' "$COMMITS" | grep -c .)"
-
 fail=0
-for sha in $COMMITS; do
-  MSG="$(git log -1 --format=%B "$sha")"
-  EMPLOYEE_LINES="$(printf '%s\n' "$MSG" | grep -E '^Employee: ' || true)"
 
-  if [ -z "$EMPLOYEE_LINES" ]; then
-    err "Commit $sha is missing an 'Employee: <Name>' trailer. Per Core/MAIN_AGENT_CONDUCT.md (Dispatch Discipline), every commit must identify the Employee who produced it. This commit likely skipped the local commit-msg hook (--no-verify, or the hook was never installed)."
-    fail=1
-    continue
-  fi
-
+# validate_employee_lines <sha> <employee-lines>
+# Every claim is checked against the roster; the caller decides what an absent
+# claim means. Sets fail=1 on a bad name.
+validate_employee_lines() {
+  local sha="$1" lines="$2" emp_line EMPLOYEE_NAME
   while IFS= read -r emp_line; do
     [ -n "$emp_line" ] || continue
     EMPLOYEE_NAME="$(printf '%s' "${emp_line#Employee: }" | tr -d '\r')"
@@ -142,7 +155,88 @@ for sha in $COMMITS; do
       err "Commit $sha has 'Employee: $EMPLOYEE_NAME', which is not in $ROSTER${PROJECT_ROSTER:+ nor in the project roster $PROJECT_ROSTER}. A functional or tool label ('executor', 'coder', 'reviewer-bot') is not a valid Employee name — see Core/MAIN_AGENT_CONDUCT.md, 'Naming matters.' If this line is an EXAMPLE quoted in the message body, indent it so it does not start at column 0."
       fail=1
     fi
-  done < <(printf '%s\n' "$EMPLOYEE_LINES")
+  done < <(printf '%s\n' "$lines")
+}
+
+if [ -z "$COMMITS" ]; then
+  echo "No non-merge commits to validate."
+else
+  echo "Commits to validate: $(printf '%s\n' "$COMMITS" | grep -c .)"
+fi
+
+for sha in $COMMITS; do
+  MSG="$(git log -1 --format=%B "$sha")"
+  EMPLOYEE_LINES="$(printf '%s\n' "$MSG" | grep -E '^Employee: ' || true)"
+
+  if [ -z "$EMPLOYEE_LINES" ]; then
+    err "Commit $sha is missing an 'Employee: <Name>' trailer. Per Core/MAIN_AGENT_CONDUCT.md (Dispatch Discipline), every commit must identify the Employee who produced it. This commit likely skipped the local commit-msg hook (--no-verify, or the hook was never installed)."
+    fail=1
+    continue
+  fi
+
+  validate_employee_lines "$sha" "$EMPLOYEE_LINES"
 done
+
+# --- Merge commits ---------------------------------------------------------
+# A merge is not judged by its subject, which git generates. It is judged by
+# whether it AUTHORS anything: a merge whose tree equals the automatic merge of
+# its parents contains no new content and needs no attribution; one whose tree
+# differs (conflict resolution, extra edits, `-s ours`) or that has more than
+# two parents (octopus, never classified) put content in the history that no
+# other commit accounts for, and must name the Employee who produced it
+# (PT-02 of the #112 exercise; WU-IAENG-307). A claim that IS present on any
+# merge is always validated.
+#
+# Historical authored merges without a claim are grandfathered by sha in the
+# constant below. It lives in THIS script, not in a data file, on purpose: the
+# required check runs from the PR's own tree, so a data file could be edited by
+# the very PR it is meant to judge. Exempting a merge means editing the check's
+# source, which is what review of a control change is for. The list is closed:
+# both entries predate the rule (WU-IAENG-307); never add a new merge.
+#   3babf69d... merge of origin/develop into feat/commit-type-perf
+#   93c850a7... merge of origin/develop into perf/generate-agents-single-pass
+readonly GRANDFATHERED_MERGES="3babf69d9664ddb590acd7381a99fa90d1e40f70 93c850a754a26a050b621d52ac1881645d21be5f"
+#
+# The classifier is merge-classify.sh (sourced, shared with check-work-units.sh),
+# built on `git merge-tree --write-tree` with --attr-source pinned (git >=
+# 2.40). If it cannot run, the merge is unclassified and the check FAILS: passing on an
+# unclassifiable merge is the check-that-passes-without-evaluating shape.
+if ! MERGES="$(git rev-list --merges "${BASE_REF}..${HEAD_REF}")"; then
+  err "git rev-list --merges failed over ${BASE_REF}..${HEAD_REF}; failing rather than skipping merges unexamined."
+  exit 1
+fi
+
+if [ -n "$MERGES" ]; then
+  echo "Merge commits to classify: $(printf '%s\n' "$MERGES" | grep -c .)"
+
+  if ! merge_classify_git_ok; then
+    err "git $(git version) cannot classify merge commits: 'git merge-tree --write-tree' with --attr-source needs git 2.40 or newer. Failing closed rather than passing merges unclassified."
+    exit 1
+  fi
+
+  for sha in $MERGES; do
+    EMPLOYEE_LINES="$(git log -1 --format=%B "$sha" | grep -E '^Employee: ' || true)"
+    if [ -n "$EMPLOYEE_LINES" ]; then
+      validate_employee_lines "$sha" "$EMPLOYEE_LINES"
+      continue
+    fi
+
+    KIND="$(merge_classify "$sha")"
+    if [ "${KIND#error}" != "$KIND" ]; then
+      err "Merge $sha could not be classified (${KIND#error: }). Failing closed rather than passing an unclassified merge."
+      fail=1
+      continue
+    fi
+
+    if [ "$KIND" = clean ]; then
+      echo "  $sha -> merge, no content of its own"
+    elif [[ " $GRANDFATHERED_MERGES " == *" $sha "* ]]; then
+      echo "  $sha -> authored merge, grandfathered (GRANDFATHERED_MERGES in this script)"
+    else
+      err "Merge $sha changes content beyond its parents' automatic merge and carries no Employee trailer. A merge that resolves conflicts or adds changes is authored work (Standards/COMMIT_STANDARD.md, Merge Commits): add 'Employee: <Name>' to its message."
+      fail=1
+    fi
+  done
+fi
 
 exit "$fail"

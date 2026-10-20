@@ -67,6 +67,16 @@ name: IA Engineering - PR Validation
 # It is also the first check that fails on a project which has not written a
 # map, and that state deserves to be seen before it blocks anyone.
 #
+# "Inline Suppression (advisory)" scans the ADDED lines of the Pull Request for
+# the linter / type-checker / test-skip directives Standards/CODE_QUALITY_STANDARD.md
+# forbids (No Inline Suppression), with the pattern list the Claude Code hook
+# reads (Adapters/scripts/suppression-patterns.tsv). The hook sees only Edit /
+# Write / MultiEdit; a directive written through the Bash tool, by a human, or by
+# another runtime reaches it nowhere but here. It is NOT in
+# required_status_checks.contexts: a required check that has never reported
+# blocks every merge, and it reads its allow file from the PR's own tree.
+# Promoting it is a Director decision.
+#
 # "Review Recorded (advisory)" is deliberately NOT required: it matches comment
 # text, which can be satisfied by pasting the block, so requiring it would buy
 # false confidence. Promoting it stays a Director decision (see the job).
@@ -221,7 +231,16 @@ jobs:
           fi
           echo "Checking ${#SHELL_FILES[@]} shell files:"
           printf '  %s\n' "${SHELL_FILES[@]}"
-          shellcheck -x -P SCRIPTDIR "${SHELL_FILES[@]}"
+          # --norc: shellcheck otherwise reads .shellcheckrc from each script's
+          # directory upward, i.e. from the PR's own tree, so a PR that adds
+          # `disable=all` at the root or in Adapters/ would silence this
+          # required check. --norc ignores every rc file. It is deliberately
+          # not version-guarded: a shellcheck that does not know the flag exits
+          # non-zero, so the step fails closed instead of silently running with
+          # the PR's configuration. The binary is the runner image's, not the
+          # PR's; its version is printed here so a run can be audited.
+          shellcheck --version
+          shellcheck --norc -x -P SCRIPTDIR "${SHELL_FILES[@]}"
 
   yaml-lint:
     name: Validate Workflow YAML
@@ -243,9 +262,31 @@ jobs:
             echo "::error::No YAML files found under Adapters/ or .github/workflows/. Zero matches means the layout changed and this check would otherwise pass without parsing anything."
             exit 1
           fi
+          # The parser must not be resolvable from the PR's tree. npx looks for
+          # local bins, package.json and .npmrc starting at the working
+          # directory, so run it from a fresh empty directory, with no user or
+          # project npmrc honoured, and with the version pinned: an unpinned
+          # `npx js-yaml` lets a PR (or a compromised registry release) change
+          # what "valid YAML" means. Bump the pin deliberately, in its own
+          # Work Unit. The files are passed as absolute paths.
+          # 4.3.2 is the last release of the v4 line; js-yaml's latest is 5.x.
+          # v4 is kept because this only needs a syntax check, and it had no
+          # known advisories as of 30 Sep 2026. A bump to 5.x must be tracked.
+          # NPM_CONFIG_GLOBALCONFIG is left alone on purpose: it is the runner
+          # image's, not the PR tree's; nulling it breaks enterprise mirrors,
+          # and nulling it together with USERCONFIG makes npm fail with
+          # "double-loading config".
+          # The npx cache is per-run too, so a persistent (self-hosted) runner
+          # cannot serve a previously cached, different js-yaml.
+          JS_YAML_VERSION="4.3.2"
+          ROOT="$(pwd)"
+          GRADER_DIR="$(mktemp -d)"
+          trap 'rm -rf "$GRADER_DIR"' EXIT
+          export NPM_CONFIG_USERCONFIG=/dev/null
+          export NPM_CONFIG_CACHE="$GRADER_DIR/npm-cache"
           fail=0
           for f in "${YAML_FILES[@]}"; do
-            if npx --yes -q js-yaml "$f" > /dev/null 2>&1; then
+            if (cd "$GRADER_DIR" && npx --yes -q "js-yaml@${JS_YAML_VERSION}" "$ROOT/$f") > /dev/null 2>&1; then
               echo "OK: $f"
             else
               echo "::error::Invalid YAML syntax in $f"
@@ -259,6 +300,7 @@ jobs:
     name: Review Recorded (advisory)
     runs-on: ubuntu-latest
     permissions:
+      contents: read
       issues: read
       pull-requests: read
     steps:
@@ -332,6 +374,39 @@ jobs:
           # below would then pass correctly on a false input.
           "$SCRIPTS/check-risk-map.sh" .
           "$SCRIPTS/check-risk-map.sh" --range "$BASE_SHA" "$HEAD_SHA" .
+
+  inline-suppression:
+    name: Inline Suppression (advisory)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: recursive
+      - name: Locate the framework
+        id: locate
+        run: |
+          set -euo pipefail
+          for candidate in . ia-engineering; do
+            if [ -x "$candidate/Adapters/scripts/check-inline-suppression.sh" ]; then
+              echo "scripts=$candidate/Adapters/scripts" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          done
+          echo "::error::Could not locate Adapters/scripts/check-inline-suppression.sh (looked in . and ia-engineering/)."
+          exit 1
+      - name: Scan the added lines for inline suppression directives
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          SCRIPTS: ${{ steps.locate.outputs.scripts }}
+        run: |
+          # The Claude Code hook sees only Edit/Write/MultiEdit; this is the
+          # check for a directive that arrived any other way (the Bash tool, a
+          # human, another runtime). It scans the merge-base diff's ADDED lines.
+          "$SCRIPTS/check-inline-suppression.sh" "$BASE_SHA" "$HEAD_SHA"
 
   script-tests:
     name: Script Tests

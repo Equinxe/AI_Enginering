@@ -38,7 +38,7 @@ Chains encode institutional knowledge about who does what, in what order, for re
 
 The Main Agent session that coordinates several other Main Agent sessions — Poles — through one Director mandate, in `Workflows/AUTONOMOUS_DELIVERY.md`.
 
-A Conductor is not a new role and holds no new authority: it decomposes the mandate, briefs each Pole, receives their reports and escalations, runs the integration pass, and reports to the Director. Like any Main Agent, it does not implement, and it never decides what the Director must decide.
+A Conductor is not a new role and holds no new authority: it partitions the mandate's defined Work Units into Poles, briefs each Pole, receives their reports and escalations, runs the integration pass, and reports to the Director. Like any Main Agent, it does not implement, and it never decides what the Director must decide.
 
 ---
 
@@ -48,7 +48,7 @@ A Conductor is not a new role and holds no new authority: it decomposes the mand
 
 The human accountable for a project using IA Engineering.
 
-The Director makes all final decisions and approves every release, merge, and architectural or business decision. See `Core/MAIN_AGENT_CONDUCT.md` and `CLAUDE.md`.
+The Director makes all final decisions and approves every release, tag, merge to `main`, and architectural or business decision. Merging an approved Pull Request into `develop` is delegable (`Workflows/FEATURE_DEVELOPMENT.md` Step 8). See `Core/MAIN_AGENT_CONDUCT.md` and `CLAUDE.md`.
 
 ---
 
@@ -81,6 +81,14 @@ A mandatory rule that defines how software must be developed within IA Engineeri
 A mechanism that makes a control stop applying with nothing recording that it did — `--no-verify`, `--no-gpg-sign`, a stash in place of a commit, a force-push to a protected branch, an inline linter suppression.
 
 Escape hatches exist for genuine emergencies and are forbidden in engineering work: a control that is in the way is a rule that is in the way, and the rule is escalated rather than routed around. See `Standards/GIT_STANDARD.md` and `Standards/CODE_QUALITY_STANDARD.md`.
+
+---
+
+## Execution Tier
+
+The AI execution capability the Main Agent selects for a Work Unit — Lightweight Execution, Standard Execution, Strategic Judgment, or the override-only Frontier — set per Work Unit at dispatch: the Employee's Default Complexity Tier unless a Tier Override changes it, the Employee's tier being only the starting point.
+
+Not to be confused with Risk Tier, below: an Execution Tier is a capability applied to a Work Unit, a Risk Tier is a hazard classification of an action. See `Core/CAPABILITY_TIERS.md`.
 
 ---
 
@@ -178,7 +186,7 @@ Responsibilities define what an Employee owns.
 
 The classification of a risk-bearing action as Low, Medium, High, or Critical, obtained from its likelihood and its impact, and carrying a required behaviour: proceed, proceed with a stated mitigation, stop and escalate, or stop and require a named Director decision plus independent verification.
 
-A tier is never lowered to avoid a gate. See `Standards/RISK_STANDARD.md`.
+A Risk Tier is never lowered to avoid a gate. See `Standards/RISK_STANDARD.md`.
 
 ---
 
@@ -248,7 +256,7 @@ A sequence of coordinated work units executed to achieve an engineering objectiv
 
 # Document Metadata
 
-Version: 0.0.2
+Version: 0.0.5
 
 Status: Stable
 

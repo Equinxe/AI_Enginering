@@ -28,7 +28,7 @@ Concretely, per file:
 | `employees.yml` | `Employees/*/*.md` (name, category, Default Complexity Tier) | A single parseable roster, replacing the same list duplicated in six places |
 | `chains.yml` | `Core/AGENT_CHAINS.md` | Chain sequences and Director gates as ordered data |
 | `workflows.yml` | `Workflows/*.md` | Step numbers, actors, and mandatory gates as ordered data |
-| `work-units.yml` | The Work Units executed in this repository **from WU-IAENG-137 onward** — earlier ones are deliberately absent and unrecoverable; see that file's header | Existence — so a commit's `Work Unit:` trailer can be checked against reality, not only against a regex |
+| `work-units.yml` | The Work Units executed in the repository that holds it: this one for the framework's file; a consuming project keeps its OWN `Registry/work-units.yml` (the bootstrap writes an empty starter) and the check never reads the framework's on its behalf. The framework's file lists the Work Units executed in this repository **from WU-IAENG-137 onward** — earlier ones are deliberately absent and unrecoverable; see that file's header | Existence — so a commit's `Work Unit:` trailer can be checked against reality, not only against a regex |
 
 ---
 
@@ -80,12 +80,27 @@ The project roster never wins over the framework roster either: a project cannot
 
 ---
 
+# Work Unit `milestone` in a Consuming Project
+
+Each entry in `work-units.yml` carries `id`, `employee`, `title`, `milestone` and `delivers`. In this repository `milestone` is a framework milestone codename (`Precision`, `Automation`). A consuming project has no `VERSION.md` and no framework milestones, so the field means **the project's own release or iteration label**: free text, one line, chosen by the project.
+
+- The adoption Work Unit (the commit that installs the framework and its tooling, `Workflows/PROJECT_BOOTSTRAP.md` Step 4 item 5) uses `milestone: Bootstrap`.
+- Every later Work Unit uses the label of the release or iteration it ships in (`v1.0`, `Sprint 3`, `MVP`).
+
+What the tooling requires of it, exactly:
+
+- `Adapters/scripts/check-work-units.sh` (the required `Work Unit Exists` check) reads only the `  - id: ` lines. It does not read `milestone`, so any value, or a missing field, passes that check.
+- `Adapters/scripts/validate-framework.sh` (the installed Framework Validation check) runs inside the imported framework directory and validates the framework's own registry, never the project's, so it does not read the project's `milestone` either.
+- `Adapters/scripts/release.sh check` is the one consumer. It treats a milestone as released once `CHANGELOG.md` has a section naming it, and confirms every Work Unit registered against the milestone being released has landed. A project that uses it keeps `milestone` spelled exactly as its `CHANGELOG.md` section (or passes `--milestone <name>`); a mismatch fails with "no Work Units registered against milestone". `Bootstrap` never gets a CHANGELOG section of its own, so once another milestone is unreleased alongside it, `release.sh check` fails with "cannot determine which milestone is being released". Name it in the project's first CHANGELOG heading, for example `## [0.1.0] - Bootstrap & v1.0` (the " & " list form is supported), or pass `--milestone <name>` every time.
+
+---
+
 # Consumers
 
 | Consumer | Reads | For |
 |---|---|---|
 | `Adapters/git-hooks/commit-msg` | `employees.yml`, project roster | Validating the `Employee:` trailer against the real roster, extended by the project's Domain Employees |
-| `Adapters/github-actions/pr-validation.yml` | `employees.yml`, project roster, `work-units.yml` | Server-side trailer re-validation; Work Unit existence |
+| `Adapters/github-actions/pr-validation.yml` | `employees.yml` (the framework's roster, by design), project roster, and `work-units.yml` — the PROJECT's own in a consuming project, never the framework's | Server-side trailer re-validation; Work Unit existence |
 | `Adapters/scripts/validate-framework.sh` | all four | Drift detection across every derived location |
 | `Adapters/ai-runtimes/generate-agents.sh` | `employees.yml`, project roster | Generating runtime agent definitions from Employee definitions, framework and Domain alike |
 | `Adapters/scripts/release.sh` | `work-units.yml` | Listing the Work Units a release contains |

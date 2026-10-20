@@ -72,6 +72,20 @@ If the answer cannot be expressed in one sentence, the Work Unit should probably
 
 ---
 
+## Commit Types
+
+A commit's `type` indicates the nature of the change. Valid types are:
+
+- feat — new feature
+- fix — bug fix
+- docs — documentation only
+- refactor — code change without feature or fix
+- perf — a change that improves performance without changing behaviour
+- test — adding or updating tests
+- chore — build, tooling, or dependency update
+
+---
+
 ## Trailers
 
 Every commit carries two trailers:
@@ -86,21 +100,23 @@ Work Unit: WU-<project>-<number>
 Employee: <Exact Employee Name>
 ```
 
-**Exactly one `Work Unit:` line, at column 0.** One Work Unit is one commit, so a second claim is malformed rather than something a reader should resolve by position. `Adapters/git-hooks/commit-msg` rejects it and the `Work Unit Exists` CI check fails it.
+**Exactly one `Work Unit:` line, at column 0.** One Work Unit is one commit, so a second claim is malformed rather than something a reader should resolve by position. The two enforcement points cover different halves: `Adapters/git-hooks/commit-msg` rejects **more than one** such line locally and does not require one, so a commit with none passes the hook; the `Work Unit Exists` CI check fails both **none** and **more than one**.
 
 This one is worth understanding rather than just obeying, because it is what lets `Adapters/scripts/release.sh` attribute a Work Unit to a commit at all. Ranking two claims by position produced a false pass on the release gate: a commit conforming to everything else in this section, with a deferral note quoting an id after the trailer block, made an unmerged Work Unit count as merged. Refusing the second claim removes the choice instead of choosing a better end, and moves the failure to commit time for the author rather than Step 1 for the Release Manager.
 
 It assumes merge commits rather than squashes — a squash-merged commit legitimately carries one trailer block per squashed part. This project uses merge commits. If squashing is ever adopted, attribution changes shape and this rule should be reopened deliberately.
 
-Of the rules in this section, two are enforced mechanically: **exactly one `Work Unit:` line** (above) and **quoted examples must be indented** (below). The layout rule and the ordering of the two trailers are conventions — nothing rejects a commit for getting them wrong. That distinction is stated because this framework's own position is that a rule only a careful human applies is a rule the framework does not have; those two are documented as guidance, not presented as gates.
+Of the rules in this section, two are enforced mechanically: **exactly one `Work Unit:` line** (above — at most one locally, exactly one in CI) and **quoted examples must be indented** (below). The layout rule and the ordering of the two trailers are conventions — nothing rejects a commit for getting them wrong. That distinction is stated because this framework's own position is that a rule only a careful human applies is a rule the framework does not have; those two are documented as guidance, not presented as gates.
 
-`Employee:` identifies who produced the change. It is required by `Core/MAIN_AGENT_CONDUCT.md`'s Dispatch Discipline — *"Every Work Unit's output (commit, Pull Request, report) must identify which Employee produced it"* — and the name must match the roster exactly; a functional or tool label is not an Employee name. `Work Unit:` traces the commit to the Work Unit it performs, per `Templates/WORK_UNIT.md`.
+`Employee:` identifies who produced the change. It is required by `Core/MAIN_AGENT_CONDUCT.md`'s Dispatch Discipline — *"Every Work Unit's output (commit, Pull Request, report) must identify which Employee produced it"* — and the name must match the roster exactly; a functional or tool label is not an Employee name. `Work Unit:` traces the commit to the Work Unit it performs, per `Templates/WORK_UNIT.md`. The ID it names must already be registered in the project's `Registry/work-units.yml` (never the framework's, in a project that imported it) — the `Work Unit Exists` CI check validates every commit's trailer against that file (see `Registry/README.md`).
 
 Both are enforced mechanically, not by convention: `Adapters/git-hooks/commit-msg` rejects the commit locally, and the `Employee Trailer` and `Work Unit Exists` CI checks re-validate server-side in case the hook was bypassed or never installed.
 
+A change that lands in a Sensitive change-zone additionally carries a one-line `RISK:` trailer in a commit of the same Pull Request — ideally the commit that makes the sensitive change. `Adapters/scripts/check-risk-map.sh --range` checks the whole Pull Request range, not a single commit, so a record forgotten on the commit that touched the zone is added by a follow-up commit in the same Pull Request, never by amending that commit and force-pushing, which `Standards/GIT_STANDARD.md`'s Forbidden Practices bar as rewriting shared history without approval. See `Standards/RISK_STANDARD.md`'s Risk Record for the exact line shape. Run `Adapters/scripts/check-risk-map.sh --explain` to find which zone a given file falls in.
+
 ### Layout: keep the blank line between them
 
-Write the two trailers as shown above, **separated by a blank line**, with `Employee:` last.
+Write the two trailers as shown above, **separated by a blank line**, with `Employee:` last — or immediately followed by an optional runtime attribution trailer (see Runtime attribution trailer below).
 
 That looks like an accident of formatting and is not. Git defines a trailer block as the message's final paragraph when it consists entirely of trailer-shaped lines, and three facts follow from that definition, all measured directly rather than reasoned about:
 
@@ -134,11 +150,29 @@ The hook rejects this:
 
 An unindented example is a claim the commit is making, and it is checked as one.
 
+### Runtime attribution trailer — optional
+
+A commit may additionally carry an attribution trailer naming the runtime model that actually executed the commit's authoring, in whatever form the runtime that produced the commit uses for that purpose.
+
+Three rules govern it:
+
+- **It names the model that ran, not the model a brief asked for.** The value comes from the runtime reporting on itself — the same source `Templates/WORK_UNIT_REPORT.md`'s "Executed at" field draws from — never a model specified in advance by `Templates/EMPLOYEE_BRIEF.md`. A brief written before execution cannot know which model will actually run the work; dictating one anyway produced mismatched trailers in this repository's own history.
+- **It is not validated.** No hook or CI check can observe which model executed a given commit's authoring, so nothing in this framework enforces that this trailer is accurate. It is a courtesy record, not a gate — unlike `Work Unit:` and `Employee:`, both enforced mechanically per the Trailers section above.
+- **It is not a substitute for `Employee:`.** `Employee:` identifies who is accountable for the Work Unit and is the trailer every mechanical check above validates. The attribution trailer, when present, supplements it and never replaces it — an Employee's accountability does not depend on which model happened to execute it.
+
+When both are present, keep the attribution trailer contiguous with `Employee:` — no blank line between them — per the layout rule above: `Employee:` must be the trailer-shaped final paragraph for git to read it, and a line placed correctly alongside it stays inside that paragraph rather than starting a new one or (worse) rejoining `Work Unit:`'s unparseable block.
+
+This rule stays AI-agnostic on principle: it names no runtime or vendor. A runtime that adds this trailer defines its own concrete form (for example, a token such as `Co-Authored-By:` followed by the model's name and a contact address) in its own Adapter documentation, not here.
+
 ---
 
 ## Merge Commits
 
-A merge commit is exempt from every rule above. Its subject is generated by git and can carry neither the Conventional Commits format nor a trailer. `Adapters/git-hooks/commit-msg` detects this through `MERGE_HEAD` rather than by pattern-matching the message, since the wording varies.
+A merge commit is exempt from the subject rule: its subject is generated by git and cannot carry the Conventional Commits format. `Adapters/git-hooks/commit-msg` detects this through `MERGE_HEAD` rather than by pattern-matching the message, since the wording varies.
+
+A merge is exempt from the trailer rule only while it contains nothing of its own. A merge whose tree equals the automatic merge of its parents needs no `Employee:` trailer; one that resolves conflicts, adds changes, or has more than two parents is authored work and must carry one. `Adapters/scripts/check-employee-trailers.sh` enforces this in CI (the two historical exceptions are a closed constant in that script's source, so exempting a merge means changing the required check itself), and the hook enforces it locally when it can classify the merge. Known friction: `-s ours`, `-X theirs`, custom merge drivers, non-default `merge.renames` / `merge.directoryRenames`, and conflicts resolved in the GitHub web editor all yield a tree that differs from the automatic merge; resolve locally and add the trailer.
+
+The same classification applies to the Work Unit trailer: `Adapters/scripts/check-work-units.sh` (the `Work Unit Exists` check) requires a registered `Work Unit:` line on an authored merge, and the same two historical merges are grandfathered in a closed constant in that script's source. Both scripts share one classifier, `Adapters/scripts/merge-classify.sh`. This is enforced server-side only: `Adapters/git-hooks/commit-msg` does not yet require the `Work Unit:` line on an authored merge locally.
 
 ---
 
@@ -190,7 +224,7 @@ Following this standard provides:
 
 Owner: IA Engineering
 
-Version: 0.0.3
+Version: 0.0.6
 
 Status: Draft
 

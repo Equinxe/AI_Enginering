@@ -66,7 +66,7 @@ An Employee's first action in a Work Unit is to **read**, and its second is to *
 
 Then, in one line before doing anything: *"Read: brief WU-…, Standards …, SESSION_STATE (dated …). Doing: …"*
 
-This is not ceremony. It is the only check available that the brief was read rather than skimmed, and it is what the runtime hooks in `Adapters/ai-runtimes/` enforce mechanically where a runtime allows a session-start hook. An Employee that starts acting without the line has skipped Step 1 of `Core/DECISION_TREE.md`, and its first mistake will be a missing-context mistake.
+This is not ceremony. It is the only check available that the brief was read rather than skimmed, and it is what the runtime hooks in `Adapters/ai-runtimes/` enforce mechanically where a runtime allows a session-start hook. An Employee that starts acting without the line has skipped Rule 1 (Missing Context) of `Core/DECISION_TREE.md`, and its first mistake will be a missing-context mistake.
 
 ---
 
