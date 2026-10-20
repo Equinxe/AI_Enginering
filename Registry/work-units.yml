@@ -1326,3 +1326,9 @@ work_units:
     title: Bump VERSION.md to v0.0.14 and finalize the CHANGELOG.md section for the Precision release - README pin and measured counts, CLAUDE.md Current Version, next milestone Adoption (v0.0.15)
     milestone: Precision
     delivers: VERSION.md, CHANGELOG.md, README.md, CLAUDE.md, Registry/work-units.yml
+
+  - id: WU-IAENG-352
+    employee: Release Manager
+    title: Complete the v0.0.14 upgrade note before the tag (QA acceptance DEF-IAENG-REL014-01, Director 20 Oct 2026, Workflows/RELEASE.md Step 4 minor defect) - re-run setup-project-bootstrap.sh <stack> without --force first (adds Registry/work-units.yml and control-path-guard.yml, leaves every existing file alone and marks the differing pr-validation.yml and PR template), copy an unedited Adapter over by hand because --force replaces every managed file at once (Dockerfile, Risk Map, stack, issue-template config, Work Unit registry), then install-hooks.sh and install-skills.sh; in the CHANGELOG [0.0.14] Notes and WU-IAENG-342 line, and the README upgrade paragraph
+    milestone: Precision
+    delivers: CHANGELOG.md, README.md, Registry/work-units.yml
