@@ -21,16 +21,21 @@
 # WHAT IT READS
 #
 #   git (runtime-agnostic)   per commit: the `Employee:` and `Co-Authored-By:`
-#                            trailers as git parses them, the column-0
-#                            `Work Unit:` line, and the numstat line counts,
-#                            each value shape-checked — never the rest of the
-#                            message, never a diff. Non-merge commits only.
+#                            trailers as git parses them — or, when git parses
+#                            none, the first column-0 line of that key, the
+#                            line check-employee-trailers.sh validates — the
+#                            column-0 `Work Unit:` line, the commit date and
+#                            the numstat line counts, each value shape-checked
+#                            — never the rest of the message, never a diff.
+#                            Non-merge commits only.
 #   Registry/employees.yml   the framework roster, plus the project roster
 #                            (.ia-engineering/Registry/employees.yml) unioned
 #                            in exactly as check-employee-trailers.sh does
 #   Registry/chains.yml      chain steps, in order
 #   Registry/work-units.yml  the PROJECT's own registry, never the framework's
 #                            read on its behalf (WU-IAENG-320)
+#   CLAUDE.md                the project's: the roster names listed under its
+#                            "Active Employees" heading, and nothing else
 #   AI-runtime transcripts   through a runtime collector, when one is present:
 #                            Adapters/ai-runtimes/claude-code/usage-collect.sh.
 #                            Absent collector or absent transcripts is a
@@ -95,6 +100,8 @@
 # The cache. <project>/.ia-engineering/usage/cache/ ($IAENG_USAGE_CACHE when
 # set) keeps the git half per HEAD (git/) and the collector's per-transcript
 # records (transcripts/) between runs, so only the first run reads everything.
+# After new commits on top of the cached HEAD, only those commits are read
+# from git; the registries and the range are read again, which is cheap.
 # It is created 0700 and holds shape-checked values only, each checked again
 # when read: commit messages and transcript text are read in per-run temporary
 # directories, removed on exit. It is not used — the run says why and reads
@@ -664,7 +671,7 @@ GIT_INPUTS=("$SELF" "${IAENG_REGISTRY:-}" "$PROJECT/Registry/employees.yml"
   "${IAENG_PROJECT_ROSTER:-}" "$PROJECT/.ia-engineering/Registry/employees.yml"
   "$PROJECT/Registry/chains.yml" "$PROJECT/ia-engineering/Registry/chains.yml"
   "$FRAMEWORK_DIR/Registry/chains.yml" "${IAENG_REGISTRY_WORK_UNITS:-}" "$PROJECT/Registry/work-units.yml"
-  "$GIT_COMMON/refs/tags" "$GIT_COMMON/packed-refs")
+  "$PROJECT/CLAUDE.md" "$GIT_COMMON/refs/tags" "$GIT_COMMON/packed-refs")
 FP_INPUTS=("${GIT_INPUTS[@]}" "$COLLECTOR" "$PRICES")
 
 # any_newer <ref> <file...> — 0 when a file is newer than ref, or ref is gone.
@@ -1091,9 +1098,9 @@ show_path() {
 # equal by a test in tests/run.sh rather than by memory.
 SECRET_RE='AKIA[0-9A-Z]{12}|ASIA[0-9A-Z]{12}|gh[pousr]_[A-Za-z0-9]{16}|xox[baprs]-|xapp-|sk_(live|test)_|rk_(live|test)_|sk-ant-|sk-[A-Za-z0-9]{20}|AIza[0-9A-Za-z_-]{20}|eyJ[A-Za-z0-9_-]+\.|hf_[A-Za-z0-9]{20}|glpat-|npm_[A-Za-z0-9]{20}|BEGIN.*PRIVATE|[A-Za-z0-9]{24}'
 
-# Everything read from git and the registries: the rosters, the chains, the
-# Work Unit registry, and the per-commit trailers.
-collect_git_side() {
+# The registries: the rosters, the chains, the Work Unit registry and the
+# active roster. No git: re-read on every path that does not hit the cache.
+collect_registries() {
   # --- Rosters ---------------------------------------------------------------------
   # The same resolution as check-employee-trailers.sh, with the framework this
   # script belongs to as the last candidate: a project that vendors the
@@ -1172,8 +1179,42 @@ collect_git_side() {
     source_line "Work Unit registry" missing "no Registry/work-units.yml in the project"
   fi
 
-  # --- Git history ---------------------------------------------------------------------
+  # --- Active roster ------------------------------------------------------------------
+  # A project's CLAUDE.md names the Employees active on it under an "Active
+  # Employees" heading (Templates/PROJECT_CLAUDE.md). When it does, an
+  # Employee outside that list with no activity is "not active here" rather
+  # than NEVER USED: the project decided it does not need it. Only bullet
+  # names that are on the roster are kept, read up to the "not active"
+  # paragraph, the next heading or a `---` rule; nothing else of the file
+  # reaches the page or the cache (WU-IAENG-346).
+  ACTIVE_TSV="$TMPD/active.tsv"
+  : > "$ACTIVE_TSV"
+  if [ -f "$PROJECT/CLAUDE.md" ]; then
+    tr -d '\r' < "$PROJECT/CLAUDE.md" | F_ROSTER="$ROSTER_TSV" awk '
+      BEGIN { while ((getline line < ENVIRON["F_ROSTER"]) > 0) { split(line, r, "\t"); onroster[r[1]] = 1 } }
+      /^#+[ \t]/ { on = ($0 ~ /^#+[ \t]+Active Employees[ \t]*$/); stop = 0; next }
+      /^---/ { on = 0; next }
+      !on || stop { next }
+      tolower($0) ~ /not active/ { stop = 1; next }
+      /^[-*][ \t]/ {
+        v = $0; sub(/^[-*][ \t]+/, "", v); gsub(/[*`]/, "", v)
+        sub(/[ \t]+(—|–|-)[ \t].*$/, "", v); sub(/[:(].*$/, "", v); sub(/[ \t]+$/, "", v)
+        if ((v in onroster) && !(v in seen)) { seen[v] = 1; print v }
+      }
+    ' > "$ACTIVE_TSV"
+  fi
+  if [ -s "$ACTIVE_TSV" ]; then
+    source_line "Active roster" found "CLAUDE.md, Active Employees ($(grep -c . "$ACTIVE_TSV") roster Employees)"
+  else
+    source_line "Active roster" missing "no Active Employees list in CLAUDE.md naming a roster Employee; every Employee counts as active"
+  fi
+}
 
+# resolve_range — SINCE (the latest v* tag reachable from HEAD, unless given),
+# RANGE_LABEL and INRANGE, the non-merge commits in the range. rev-list diffs
+# nothing, so this is cheap and is done again whenever the cache misses: the
+# in-range flag of a cached row is never trusted, whatever moved.
+resolve_range() {
   if [ -z "$SINCE" ]; then
     SINCE="$(git -C "$PROJECT" describe --tags --abbrev=0 --match 'v*' HEAD 2>/dev/null || true)"
   fi
@@ -1196,37 +1237,63 @@ collect_git_side() {
     fi
   fi
 
-  # Employee and Co-Authored-By are read as REAL trailers, parsed by git from
-  # the message's trailer block (PR #196 review, F3): a line that merely looks
-  # like one in the body is not attribution, and nothing else of the body is
-  # read. `Work Unit:` cannot be a git trailer (its key has a space;
-  # Standards/COMMIT_STANDARD.md, Trailers), so it is read as check-work-units.sh
-  # reads it — a column-0 line — and kept only when it is a Work Unit ID.
+  printf '%s' "$RANGE_LABEL" > "$TMPD/range.txt"
+}
+
+# collect_commits [<old-head> <old-rows>] — COMMITS_TSV, one row per non-merge
+# commit, newest first. With no argument, from the whole history. With an
+# ancestor of HEAD whose rows the cache holds, only <old-head>..HEAD is read
+# from git and the cached rows follow, their in-range flag recomputed from
+# INRANGE (issue #231: the three log passes over the whole history, numstat
+# above all, made a rebuild after one new commit take 75 s). NEW_ROWS is the
+# number read from git. Returns 1 when git or awk fails, 3 when a cached row
+# is not one this script writes; the caller then reads the whole history.
+#
+# Employee and Co-Authored-By are read as REAL trailers, parsed by git from
+# the message's trailer block (PR #196 review, F3). When git parses NO
+# Employee trailer — the block held a line git does not take for a trailer,
+# or a paragraph came after it — the first column-0 `Employee:` line of the
+# message is read instead: the line check-employee-trailers.sh validates on
+# every commit, so it is the attribution CI enforced. A parsed trailer always
+# wins over a line in the body. The runtime co-author falls back the same
+# way. `Work Unit:` cannot be a git trailer (its key has a space;
+# Standards/COMMIT_STANDARD.md, Trailers), so it is read as check-work-units.sh
+# reads it — a column-0 line — and kept only when it is a Work Unit ID.
+NEW_ROWS=0
+collect_commits() {
+  local revs=(HEAD)
+  [ -z "${1:-}" ] || revs=("$1..HEAD")
   TRAILERS="$TMPD/trailers.txt"
   BODIES="$TMPD/bodies.txt"
   NUMSTAT="$TMPD/numstat.txt"
-  if ! git -C "$PROJECT" log --no-merges \
-      --format='%x1e%H%x1f%(trailers:key=Employee,valueonly,unfold,separator=%x1d)%x1f%(trailers:key=Co-authored-by,valueonly,unfold,separator=%x1d)' > "$TRAILERS" \
-    || ! git -C "$PROJECT" log --no-merges --format='%x1e%H%n%B' > "$BODIES" \
-    || ! git -C "$PROJECT" log --no-merges --format='%x1e%H' --numstat > "$NUMSTAT"; then
+  COMMITS_TSV="$TMPD/commits.tsv"
+  if ! git -C "$PROJECT" log --no-merges --date=short \
+      --format='%x1e%H%x1f%(trailers:key=Employee,valueonly,unfold,separator=%x1d)%x1f%(trailers:key=Co-authored-by,valueonly,unfold,separator=%x1d)%x1f%cd' "${revs[@]}" > "$TRAILERS" \
+    || ! git -C "$PROJECT" log --no-merges --format='%x1e%H%n%B' "${revs[@]}" > "$BODIES" \
+    || ! git -C "$PROJECT" log --no-merges --format='%x1e%H' --numstat "${revs[@]}" > "$NUMSTAT"; then
     err "git log failed in $PROJECT."
-    exit 1
+    return 1
   fi
 
-  # sha <TAB> in-range <TAB> employee <TAB> work-unit <TAB> model <TAB> added <TAB> deleted
+  # sha in-range employee work-unit model added deleted day source, tab-separated.
   # Every emitted value is shape-checked: an Employee or model name is one short
   # name ([A-Za-z0-9 ._()/-], at most 64 characters, no `@`), a Work Unit is
-  # ^WU-[A-Z0-9]+-[0-9]+$. Absent is "(no trailer)", malformed "(unrecognised)".
-  # The model is the name of the co-author whose address is the runtime's
-  # <noreply@anthropic.com>, not whichever co-author came first.
-  # The four file names reach awk through the environment, not -v: -v
-  # processes backslash escapes, and a Windows TMPDIR (C:\Users\...) would be
-  # mangled so that no FILENAME ever matched and every commit vanished.
+  # ^WU-[A-Z0-9]+-[0-9]+$, a day YYYY-MM-DD. Absent is "(no trailer)",
+  # malformed "(unrecognised)". The model is the name of the co-author whose
+  # address is the runtime's <noreply@anthropic.com>, not whichever co-author
+  # came first. The source says where the Employee came from: t the trailer
+  # block, l a column-0 line, - neither.
+  # The file names reach awk through the environment, not -v: -v processes
+  # backslash escapes, and a Windows TMPDIR (C:\Users\...) would be mangled
+  # so that no FILENAME ever matched and every commit vanished.
   # A value matching a credential family counts as "(redacted)" before any
   # shape check: SECRET_RE, defined above this function.
-  COMMITS_TSV="$TMPD/commits.tsv"
-  F_INR="$INRANGE" F_NUM="$NUMSTAT" F_TR="$TRAILERS" F_BODY="$BODIES" F_SECRET="$SECRET_RE" awk -v OFS='\t' '
-    BEGIN { f_inr = ENVIRON["F_INR"]; f_num = ENVIRON["F_NUM"]; f_tr = ENVIRON["F_TR"]; f_body = ENVIRON["F_BODY"]; secret = ENVIRON["F_SECRET"] }
+  # A body is filed under a commit only at the marker git printed for the
+  # NEXT commit of the trailer pass, the same order: a message line that
+  # imitates a marker is text, and cannot move a line to another commit.
+  F_INR="$INRANGE" F_NUM="$NUMSTAT" F_TR="$TRAILERS" F_BODY="$BODIES" F_OLD="${2:-}" F_SECRET="$SECRET_RE" awk -v OFS='\t' '
+    BEGIN { f_inr = ENVIRON["F_INR"]; f_num = ENVIRON["F_NUM"]; f_tr = ENVIRON["F_TR"]; f_body = ENVIRON["F_BODY"]
+            f_old = ENVIRON["F_OLD"]; secret = ENVIRON["F_SECRET"] }
     function shaped(v,   ok) {
       sub(/^[ \t]+/, "", v); sub(/[ \t]+$/, "", v)
       if (v == "") return "(no trailer)"
@@ -1234,6 +1301,7 @@ collect_git_side() {
       ok = (v ~ /^[A-Za-z0-9][-A-Za-z0-9 ._()\/]*$/ && length(v) <= 64 && index(v, "@") == 0)
       return ok ? v : "(unrecognised)"
     }
+    function hex(s) { return length(s) >= 40 && length(s) <= 64 && s !~ /[^0-9a-f]/ }
     { sub(/\r$/, "") }
     FILENAME == f_inr { inr[$0] = 1; next }
     FILENAME == f_num {
@@ -1245,8 +1313,8 @@ collect_git_side() {
     }
     FILENAME == f_tr {
       if (substr($0, 1, 1) != "\036") next
-      n = split(substr($0, 2), tf, "\037")
-      sha = tf[1]; order[++nc] = sha
+      split(substr($0, 2), tf, "\037")
+      sha = tf[1]; order[++nc] = sha; isnew[sha] = 1
       split(tf[2], emps, "\035"); emp[sha] = shaped(emps[1])
       model[sha] = "(no trailer)"
       m = split(tf[3], coauth, "\035")
@@ -1255,27 +1323,57 @@ collect_git_side() {
           v = coauth[i]; sub(/[ \t]*<.*$/, "", v); model[sha] = shaped(v); break
         }
       }
+      day[sha] = (tf[4] ~ /^[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]$/) ? tf[4] : "unknown"
       next
     }
     FILENAME == f_body {
-      if (substr($0, 1, 1) == "\036") { bsha = substr($0, 2); next }
+      if (substr($0, 1, 1) == "\036" && substr($0, 2) == order[bi + 1]) { bsha = order[++bi]; next }
+      if (bsha == "") next
       if (!(bsha in wu) && $0 ~ /^Work Unit: /) {
         v = substr($0, 12); sub(/[ \t]+$/, "", v)
         wu[bsha] = (v ~ /^WU-[A-Z0-9]+-[0-9]+$/) ? v : "(unrecognised)"
       }
+      if (!(bsha in lemp) && $0 ~ /^Employee: /) lemp[bsha] = substr($0, 11)
+      if (!(bsha in lmod) && $0 ~ /^[Cc]o-[Aa]uthored-[Bb]y: / && index($0, "<noreply@anthropic.com>") > 0) {
+        v = substr($0, 17); sub(/[ \t]*<.*$/, "", v); lmod[bsha] = v
+      }
+      next
+    }
+    FILENAME == f_old {
+      if (split($0, o, "\t") != 9 || !hex(o[1])) { bad = 1; exit }
+      if (o[1] in isnew) next
+      old[++no] = o[1] OFS ((o[1] in inr) ? 1 : 0) OFS o[3] OFS o[4] OFS o[5] OFS o[6] OFS o[7] OFS o[8] OFS o[9]
     }
     END {
+      if (bad) exit 3
       for (k = 1; k <= nc; k++) {
         s = order[k]
-        print s, (s in inr ? 1 : 0), emp[s], ((s in wu) ? wu[s] : "(no trailer)"), model[s], add[s] + 0, del[s] + 0
+        src = "t"
+        if (emp[s] == "(no trailer)" && (s in lemp)) { emp[s] = shaped(lemp[s]); src = "l" }
+        if (emp[s] == "(no trailer)") src = "-"
+        if (model[s] == "(no trailer)" && (s in lmod)) model[s] = shaped(lmod[s])
+        print s, (s in inr ? 1 : 0), emp[s], ((s in wu) ? wu[s] : "(no trailer)"), model[s], add[s] + 0, del[s] + 0, day[s], src
       }
+      for (k = 1; k <= no; k++) print old[k]
     }
-  ' "$INRANGE" "$NUMSTAT" "$TRAILERS" "$BODIES" > "$COMMITS_TSV" || {
-    err "reading the commit trailers failed (awk). A page built on it would show every Employee as never used; no page was written."
-    exit 1
-  }
-  source_line "Git history" found "$(grep -c . "$COMMITS_TSV") non-merge commits; range: $RANGE_LABEL"
-  printf '%s' "$RANGE_LABEL" > "$TMPD/range.txt"
+  ' "$INRANGE" "$NUMSTAT" "$TRAILERS" "$BODIES" ${2:+"$2"} > "$COMMITS_TSV"
+  case "$?" in
+    0) ;;
+    3) return 3 ;;
+    *) err "reading the commit trailers failed (awk). A page built on it would show every Employee as never used; no page was written."
+       return 1 ;;
+  esac
+  # grep -c exits 1 when it counts none: no new commit is not a failure.
+  NEW_ROWS="$(grep -c $'^\036' "$TRAILERS")"
+  return 0
+}
+
+# git_history_source — the sources line for the history, once COMMITS_TSV is
+# complete: how many commits, and how many were attributed from a line.
+git_history_source() {
+  local total byline
+  read -r total byline < <(awk -F '\t' '{ n++ } $9 == "l" { l++ } END { print n + 0, l + 0 }' "$COMMITS_TSV")
+  source_line "Git history" found "$total non-merge commits, $byline of them attributed from a column-0 Employee line git does not parse as a trailer; range: $RANGE_LABEL"
 }
 
 # The git half is the same for as long as HEAD is: it is computed once per
@@ -1284,16 +1382,27 @@ collect_git_side() {
 # argument and the registry overrides — and a key older than a registry, the
 # tag refs or this script is not trusted: an uncommitted registry edit, a new
 # release tag or a new version of this script recomputes it.
+#
+# Otherwise, when the cached HEAD is an ancestor of HEAD — new commits on top,
+# a new tag, an edited registry — and this version of the script wrote the
+# rows, only the new commits are read from git (#231). The registries and the
+# range are read again in full, so the one thing reused is a row per commit,
+# which no registry, tag or --since changes but its in-range flag, and that
+# is recomputed. A rewritten history, a garbage-collected cached HEAD or a
+# newer script reads the whole history.
 ROSTER_TSV="$TMPD/roster.tsv"
 CHAINS_TSV="$TMPD/chains.tsv"
 WUS_TSV="$TMPD/wus.tsv"
+ACTIVE_TSV="$TMPD/active.tsv"
 COMMITS_TSV="$TMPD/commits.tsv"
 GIT_CACHE="${CACHE:+$CACHE/git}"
 GIT_KEY=""
 CACHED_KEY=""
+RAW_KEY=""
 if [ -n "$GIT_CACHE" ]; then
   GIT_KEY="$HEAD_SHA|${SINCE}|${IAENG_REGISTRY:-}|${IAENG_PROJECT_ROSTER:-}|${IAENG_REGISTRY_WORK_UNITS:-}"
-  [ -f "$GIT_CACHE/key" ] && [ ! -L "$GIT_CACHE/key" ] && IFS= read -r CACHED_KEY < "$GIT_CACHE/key"
+  [ -f "$GIT_CACHE/key" ] && [ ! -L "$GIT_CACHE/key" ] && IFS= read -r RAW_KEY < "$GIT_CACHE/key"
+  CACHED_KEY="$RAW_KEY"
   any_newer "$GIT_CACHE/key" "${GIT_INPUTS[@]}" && CACHED_KEY=""
 fi
 if [ -n "$GIT_CACHE" ] && [ "$GIT_KEY" = "$CACHED_KEY" ]; then
@@ -1303,6 +1412,7 @@ if [ -n "$GIT_CACHE" ] && [ "$GIT_KEY" = "$CACHED_KEY" ]; then
   ROSTER_TSV="$GIT_CACHE/roster.tsv"
   CHAINS_TSV="$GIT_CACHE/chains.tsv"
   WUS_TSV="$GIT_CACHE/wus.tsv"
+  ACTIVE_TSV="$GIT_CACHE/active.tsv"
   COMMITS_TSV="$GIT_CACHE/commits.tsv"
   IFS= read -r RANGE_LABEL < "$GIT_CACHE/range.txt" || true
   # A cached label is one of the two shapes this script writes, or neither.
@@ -1310,11 +1420,35 @@ if [ -n "$GIT_CACHE" ] && [ "$GIT_KEY" = "$CACHED_KEY" ]; then
     || RANGE_LABEL="all time (cached label unreadable)"
   while IFS= read -r sline; do printf '%s\n' "$sline"; done < "$GIT_CACHE/sources.tsv" > "$SOURCES"
 else
-  collect_git_side
+  OLD_HEAD=""
+  if [ -n "$GIT_CACHE" ] && [ -f "$GIT_CACHE/commits.tsv" ] && [ ! -L "$GIT_CACHE/commits.tsv" ] \
+      && ! any_newer "$GIT_CACHE/key" "$SELF"; then
+    OLD_HEAD="${RAW_KEY%%|*}"
+    if ! [[ "$OLD_HEAD" =~ ^[0-9a-f]{40,64}$ ]] \
+        || ! git -C "$PROJECT" merge-base --is-ancestor "$OLD_HEAD" "$HEAD_SHA" 2>/dev/null; then
+      OLD_HEAD=""
+    fi
+  fi
+  collect_registries
+  resolve_range
+  crc=1
+  if [ -n "$OLD_HEAD" ]; then
+    collect_commits "$OLD_HEAD" "$GIT_CACHE/commits.tsv"
+    crc=$?
+    if [ "$crc" = 0 ]; then
+      note "git history: read $NEW_ROWS new commit(s) since the cached HEAD ${OLD_HEAD:0:12}; the rest from the cache."
+    else
+      note "the cached commit rows could not be reused; reading the whole history."
+    fi
+  fi
+  if [ "$crc" != 0 ] && ! collect_commits; then
+    exit 1
+  fi
+  git_history_source
   # The key is emptied first and written last: files copied by a run that
   # stopped half-way never pass for the HEAD of the key they sit beside.
   if [ -n "$GIT_CACHE" ] && { [ -d "$GIT_CACHE" ] || mkdir -p "$GIT_CACHE"; } && : > "$GIT_CACHE/key" \
-      && cp "$ROSTER_TSV" "$CHAINS_TSV" "$WUS_TSV" "$COMMITS_TSV" "$SOURCES" "$TMPD/range.txt" "$GIT_CACHE"/; then
+      && cp "$ROSTER_TSV" "$CHAINS_TSV" "$WUS_TSV" "$ACTIVE_TSV" "$COMMITS_TSV" "$SOURCES" "$TMPD/range.txt" "$GIT_CACHE"/; then
     printf '%s\n' "$GIT_KEY" > "$GIT_CACHE/key"
     touch -r "$STARTED" "$GIT_CACHE/key" 2>/dev/null
   fi
@@ -1390,10 +1524,13 @@ fi
 
 # --- Aggregate ---------------------------------------------------------------------------
 
-# The `Engineer` placeholder in Registry/chains.yml stands for whichever
-# implementing Employee the work needs (that file's header lists them). Its
-# usage is the sum of theirs, labelled as such on the page.
-ENGINEERS="Backend Engineer|Frontend Engineer|iOS Engineer|Android Engineer|Cross-Platform Engineer|Database Engineer|Event-Driven Engineer|Integration Engineer"
+# The `Engineer` placeholder in Registry/chains.yml is a step, not an
+# Employee: the implementing Employee of each Work Unit, whoever that is
+# (Core/AGENT_CHAINS.md, The Engineer Step). Its usage is the sum over the
+# Employees who implemented one — a commit, or a registered Work Unit — and
+# the page names them. `Main Agent` and `Director` steps are framework roles,
+# as validate-framework.sh treats them: never "not on roster", never "NEVER
+# exercised" (issue #205).
 
 JQ_BUILD="$(cat <<'JQ'
 def rows($s): $s | split("\n") | map(select(length > 0) | split("\t"));
@@ -1408,16 +1545,28 @@ def gitname: if type != "string" then "(unrecognised)" elif bucket then .
              elif test($secret) then "(redacted)" else . end;
 def gitwu: if type == "string" and (bucket or test("^WU-[A-Z0-9]+-[0-9]+$")) then . else "(unrecognised)" end;
 def count: if type == "string" and test("^[0-9]{1,12}$") then tonumber else 0 end;
+def gitday: if type == "string" and test("^[0-9]{4}-[0-9]{2}-[0-9]{2}$") then . else "unknown" end;
 # The sources list may come from the cache too: a status is one this script
 # writes, and a name or detail is one bounded line of text.
 def srcstatus: if . == "found" or . == "missing" or . == "error" or . == "ambiguous" then . else "error" end;
 def srctext: tostring | if length > 300 then .[0:297] + "..." else . end;
+# The first and last of a list of days, "unknown" left out.
+def span: map(select(. != "unknown")) | if length == 0 then {first: null, last: null} else {first: min, last: max} end;
+# Concentration: the share of the commits attributed to a roster Employee
+# that the two Employees with the most of them hold.
+def concentration($names):
+  map(select(.emp as $e | ($names | index($e)) != null)) as $a
+  | ($a | group_by(.emp) | map({name: .[0].emp, n: length}) | sort_by(-.n, .name) | .[0:2]) as $top
+  | {attributed: ($a | length), top: ($top | map(.name)), top_commits: ($top | map(.n) | add // 0)}
+  | .share = (if .attributed > 0 then .top_commits / .attributed else 0 end);
 
-(rows($commits) | map(select(length == 7)
+(rows($commits) | map(select(length == 9)
                       | {sha: .[0], inr: (.[1] == "1"), emp: (.[2] | gitname), wu: (.[3] | gitwu),
-                         model: (.[4] | gitname), add: (.[5] | count), del: (.[6] | count)})) as $c
+                         model: (.[4] | gitname), add: (.[5] | count), del: (.[6] | count),
+                         day: (.[7] | gitday), src: (.[8] | if . == "t" or . == "l" then . else "-" end)})) as $c
 | (rows($usage)) as $u
 | ($u | map(select(.[0] == "dispatch") | {type: .[1], model: .[2], n: (.[3] | tonumber)})) as $disp
+| ($u | map(select(.[0] == "spawn" and length == 4) | {parent: .[1], type: .[2], n: (.[3] | tonumber? // 0)})) as $spawn
 | ($u | map(select(.[0] == "call") | {day: .[1], model: .[2], agent: .[3],
         input: (.[4] | tonumber), output: (.[5] | tonumber), cw: (.[6] | tonumber),
         cr: (.[7] | tonumber), calls: (.[8] | tonumber)})) as $calls
@@ -1429,6 +1578,15 @@ def srctext: tostring | if length > 300 then .[0:297] + "..." else . end;
 | (reduce rows($roster)[] as $r ([]; if (map(.[0]) | index($r[0])) != null then . else . + [$r] end)) as $rosterRows
 | ($rosterRows | map(.[0] | slug)) as $rosterSlugs
 | ($rosterRows | map(.[0])) as $rosterNames
+| ($rosterRows | map({key: (.[0] | slug), value: .[0]}) | from_entries) as $nameBySlug
+# A sub-agent that is not an Employee, started from inside an Employee's own
+# sub-agent (a fork, a helper), is that Employee's work: credited to it, not
+# listed as a dispatch without an accountable Employee. One started by the
+# main session, or by another non-Employee, is not (WU-IAENG-346).
+| ($spawn | map(select(($nameBySlug[.parent] != null) and ($nameBySlug[.type] == null)))) as $credited
+| (reduce $credited[] as $s ({}; .[$nameBySlug[$s.parent]] += $s.n)) as $spawnedBy
+| (reduce $credited[] as $s ({}; .[$s.type] += $s.n)) as $creditedByType
+| ((rows($active) | map(.[0] | select(. as $a | ($rosterNames | index($a)) != null)) | unique)) as $activeNames
 | ($rosterRows | map(.[0] as $n | {
       name: $n, roster: .[1],
       dispatches: ($dispByType[$n | slug] // 0),
@@ -1436,14 +1594,18 @@ def srctext: tostring | if length > 300 then .[0:297] + "..." else . end;
       commits_all: ($commitsAll[$n] // 0),
       work_units: ($wuByEmp[$n] // 0)
     } | .activity = (.dispatches + .commits_all + .work_units)
-      | .status = (if .activity == 0 then "never" elif (.dispatches + .commits_all) < 3 then "rare" else "used" end))
+      | .status = (if .activity == 0 then "never" elif (.dispatches + .commits_all) < 3 then "rare" else "used" end)
+      | .active = (($activeNames | length) == 0 or ($activeNames | index($n)) != null)
+      | .spawned = ($spawnedBy[$n] // 0)
+      | if (.active | not) and .activity == 0 then .status = "inactive" else . end)
   | sort_by(-.dispatches, -.commits_all, -.work_units, .name)) as $employees
 | ($employees | map({key: .name, value: .}) | from_entries) as $empIdx
-| ($engineers | split("|") | map(select(. as $e | $rosterNames | index($e)))) as $engSet
+| ([$employees[] | select(.commits_all > 0 or .work_units > 0) | .name] | sort) as $engSet
 | (rows($chains) | reduce .[] as $r ([];
       if (length > 0 and .[-1].name == $r[0]) then .[-1].steps += [$r] else . + [{name: $r[0], steps: [$r]}] end)
    | map(.steps |= (to_entries | map(.value as $s | {n: (.key + 1), kind: $s[1], name: $s[2], conditional: ($s[3] == "conditional")}
         | if .kind == "gate" then .
+          elif .name == "Main Agent" or .name == "Director" then .kind = "role"
           elif .name == "Engineer" then
             .placeholder = true
             | .dispatches = ([$engSet[] | $empIdx[.].dispatches] | add // 0)
@@ -1459,7 +1621,8 @@ def srctext: tostring | if length > 300 then .[0:297] + "..." else . end;
    | map(.exercised = ([.steps[] | select(.kind == "employee" and .exercised)] | length)
          | .employee_steps = ([.steps[] | select(.kind == "employee")] | length))) as $chainList
 | ($disp | map(select(.type as $t | $rosterSlugs | index($t) | not))
-   | group_by(.type) | map({type: .[0].type, dispatches: (map(.n) | add)}) | sort_by(-.dispatches, .type)) as $otherAgents
+   | group_by(.type) | map({type: .[0].type, dispatches: ((map(.n) | add) - ($creditedByType[.[0].type] // 0))})
+   | map(select(.dispatches > 0)) | sort_by(-.dispatches, .type)) as $otherAgents
 | ($disp | sort_by(.type, .model)) as $dispModels
 | ($c | map(select(.emp != "(no trailer)" and (.emp as $e | $rosterNames | index($e) | not)))
    | group_by(.emp) | map({name: .[0].emp, commits: length}) | sort_by(-.commits)) as $unrostered
@@ -1494,6 +1657,16 @@ def srctext: tostring | if length > 300 then .[0:297] + "..." else . end;
                      commits: length, commits_range: (map(select(.inr)) | length),
                      lines: (map(.add + .del) | add)})
                | sort_by(-.commits, -.lines) | .[0:30]),
+  credited_spawns: ($credited | group_by(.parent, .type)
+                    | map({employee: $nameBySlug[.[0].parent], type: .[0].type, n: (map(.n) | add)}) | sort_by(-.n, .employee)),
+  has_active: (($activeNames | length) > 0),
+  # What each column covers: the range and the whole history from git, the
+  # retained transcripts for dispatches and tokens (WU-IAENG-346).
+  windows: {
+    range: ({commits: ($c | map(select(.inr)) | length)} + ($c | map(select(.inr) | .day) | span)),
+    all: ({commits: ($c | length)} + ($c | map(.day) | span)),
+    transcripts: ({calls: ($calls | map(.calls) | add // 0)} + ($calls | map(.day) | span))
+  },
   totals: {
     roster: ($employees | length),
     never: ($employees | map(select(.status == "never")) | length),
@@ -1501,7 +1674,11 @@ def srctext: tostring | if length > 300 then .[0:297] + "..." else . end;
     dispatches: ($disp | map(.n) | add // 0),
     commits_all: ($c | length),
     commits_range: ($c | map(select(.inr)) | length),
-    tokens: ($calls | sums)
+    tokens: ($calls | sums),
+    inactive: ($employees | map(select(.status == "inactive")) | length),
+    active_roster: ($activeNames | length),
+    by_line: ($c | map(select(.src == "l")) | length),
+    concentration: {range: ($c | map(select(.inr)) | concentration($rosterNames)), all: ($c | concentration($rosterNames))}
   }
 }
 JQ
@@ -1514,7 +1691,7 @@ printf -v GENERATED '%(%Y-%m-%d %H:%M:%S %z)T' -1 2>/dev/null \
 
 BUILD_ARGS=(--rawfile commits "$COMMITS_TSV" --rawfile usage "$USAGE_TSV" --rawfile wus "$WUS_TSV"
   --rawfile roster "$ROSTER_TSV" --rawfile chains "$CHAINS_TSV" --rawfile sources "$SOURCES"
-  --rawfile prices "$PRICES_TSV" --arg engineers "$ENGINEERS"
+  --rawfile prices "$PRICES_TSV" --rawfile active "$ACTIVE_TSV"
   --arg generated "$GENERATED" --arg project "${PROJECT##*/}" --arg range_label "$RANGE_LABEL"
   --arg secret "$SECRET_RE")
 DATA="$TMPD/data.json"
@@ -1562,7 +1739,9 @@ def barchart($title; $rows):
   + "</svg></figure>" end;
 def badge: if . == "never" then {h: "<span class=\"badge never\">NEVER USED</span>", v: "0"}
            elif . == "rare" then {h: "<span class=\"badge rare\">rarely used</span>", v: "1"}
+           elif . == "inactive" then {h: "<span class=\"badge inactive\">not active here</span>", v: "3"}
            else {h: "<span class=\"badge used\">used</span>", v: "2"} end;
+def days: if .first == null then "no dated data" elif .first == .last then .first else "\(.first) to \(.last)" end;
 
 . as $d
 | $d.totals as $t
@@ -1584,7 +1763,7 @@ p,li{color:var(--text)}.muted{color:var(--text2)}nav a{color:var(--text);margin-
 .tw{overflow-x:auto}table{border-collapse:collapse;width:100%;margin:8px 0 16px;font-variant-numeric:tabular-nums}caption{text-align:left;font-weight:600;padding:4px 0;color:var(--text)}
 th,td{padding:5px 10px;border-bottom:1px solid var(--rule);text-align:left;vertical-align:top}td.num{text-align:right}th button{all:unset;cursor:pointer;font-weight:600;color:var(--text)}th[aria-sort] button::after{content:' \\2195';color:var(--text2)}
 th[aria-sort=ascending] button::after{content:' \\2191'}th[aria-sort=descending] button::after{content:' \\2193'}
-tr.never td{background:var(--never-bg)}tr.rare td{background:var(--rare-bg)}.badge{font-size:.8rem;font-weight:650;padding:1px 6px;border-radius:4px;white-space:nowrap}.badge.never{color:var(--never-fg);border:1px solid currentColor}.badge.rare{color:var(--rare-fg);border:1px solid currentColor}.badge.used{color:var(--used-fg)}
+tr.never td{background:var(--never-bg)}tr.rare td{background:var(--rare-bg)}tr.inactive td{color:var(--text2)}.badge.inactive{color:var(--text2);border:1px dashed currentColor}.tile .s{font-size:.8rem;color:var(--text2)}.badge{font-size:.8rem;font-weight:650;padding:1px 6px;border-radius:4px;white-space:nowrap}.badge.never{color:var(--never-fg);border:1px solid currentColor}.badge.rare{color:var(--rare-fg);border:1px solid currentColor}.badge.used{color:var(--used-fg)}
 figure{margin:12px 0 20px}figcaption{font-weight:600;margin-bottom:4px}svg{width:100%;max-width:900px;height:auto;display:block}svg .lbl{font-size:13px;fill:var(--text)}svg .val{font-size:12px;fill:var(--text2)}svg .bar{fill:var(--bar)}
 .src{list-style:none;padding:0}.src li{margin:2px 0}.st{display:inline-block;min-width:70px;font-weight:650}.st.found{color:var(--used-fg)}.st.missing{color:var(--text2)}.st.error{color:var(--never-fg)}.empty{color:var(--text2);font-style:italic}
 .live{border-left:4px solid var(--bar);background:var(--panel);padding:6px 10px;border-radius:4px}
@@ -1595,34 +1774,49 @@ footer{margin-top:48px;padding-top:12px;border-top:1px solid var(--rule)}
 + (if $auto != "" then "<p class=\"live\"><strong>Kept fresh:</strong> last updated \($d.generated | e) - rebuilt in the background when the project changes (usage-dashboard.sh --refresh-in-background, at most once every \($refresh) s); this page reloads itself every \($refresh) s.</p>"
    elif $refresh != "" then "<p class=\"live\"><strong>Live:</strong> last updated \($d.generated | e) - refreshes every \($refresh) s while the --watch command runs. Stop the command and the page stays at its last update.</p>" else "" end)
 + "<p class=\"muted\">Generated \($d.generated | e). Range columns: <strong>\($d.range | e)</strong>; all-time columns cover the whole history. Transcript data covers whatever the runtime has retained.</p>"
++ table("Measurement windows: what each column counts"; [["Columns", "text"], ["Source", "text"], ["Window", "text"], ["Covers", "text"]];
+    [{cells: ["Commits (\($d.range))", "git, \($d.range)", ($d.windows.range | days), "\($d.windows.range.commits | n) commits"]},
+     {cells: ["Commits (all time), Work Units, commit models", "git, the whole history", ($d.windows.all | days), "\($d.windows.all.commits | n) commits"]},
+     {cells: ["Dispatches, API calls, tokens", "AI-runtime transcripts still on this machine - a rolling window, the runtime deletes old sessions", ($d.windows.transcripts | days), "\($d.windows.transcripts.calls | n) API calls, \($t.dispatches | n) dispatches"]}])
 + "<h2 id=\"sources\">Data sources</h2><ul class=\"src\">"
 + ($d.sources | map("<li><span class=\"st \(.status | e)\">\(.status | e)</span> <strong>\(.name | e)</strong> - \(.detail | e)</li>") | join(""))
 + "</ul></header>"
 + "<nav aria-label=\"Sections\"><a href=\"#agents\">Agents</a><a href=\"#chains\">Chains</a><a href=\"#models\">Models</a><a href=\"#tokens\">Tokens &amp; cache</a><a href=\"#workunits\">Work Units</a><a href=\"#limits\">Limits</a></nav>"
 + "<div class=\"tiles\">"
-+ ([["Employees on roster", $t.roster], ["Never used", $t.never], ["Rarely used", $t.rare], ["Dispatches", $t.dispatches],
-    ["Commits (\($d.range))", $t.commits_range], ["Commits (all time)", $t.commits_all], ["API calls", $t.tokens.calls],
++ ([["Employees on roster", $t.roster]] + (if $d.has_active then [["Active here (CLAUDE.md)", $t.active_roster]] else [] end)
+    + [["Never used", $t.never], ["Rarely used", $t.rare], ["Dispatches (transcript window)", $t.dispatches],
+    ["Commits (\($d.range))", $t.commits_range], ["Commits (all time)", $t.commits_all], ["API calls (transcript window)", $t.tokens.calls],
     ["Tokens (all types)", $t.tokens.total]] | map("<div class=\"tile\"><div class=\"k\">\(.[0] | e)</div><div class=\"v\">\(.[1] | n)</div></div>") | join(""))
-+ "<div class=\"tile\"><div class=\"k\">Cache-read share of input</div><div class=\"v\">\($t.tokens.cache_read_share | pct)</div></div></div>"
++ "<div class=\"tile\"><div class=\"k\">Cache-read share of input</div><div class=\"v\">\($t.tokens.cache_read_share | pct)</div></div>"
++ ([["Top-2 share of commits (\($d.range))", $t.concentration.range], ["Top-2 share of commits (all time)", $t.concentration.all]]
+   | map("<div class=\"tile\"><div class=\"k\">\(.[0] | e)</div><div class=\"v\">\(.[1].share | pct)</div><div class=\"s\">\(.[1].top | map(e) | join(", ")) - \(.[1].top_commits) of \(.[1].attributed) attributed commits</div></div>") | join(""))
++ "</div>"
 
 # --- Agents
-+ "<section><h2 id=\"agents\">Agents</h2><p>Every Employee on the roster. <strong>NEVER USED</strong> means no dispatch in the transcripts, no commit trailer and no registered Work Unit; <strong>rarely used</strong> means fewer than 3 dispatches and commits together. Dispatches are matched to an Employee by its agent name (the slug generate-agents.sh gives it).</p>"
++ "<section><h2 id=\"agents\">Agents</h2><p>Every Employee on the roster. <strong>NEVER USED</strong> means no dispatch in the transcripts, no commit trailer and no registered Work Unit; <strong>rarely used</strong> means fewer than 3 dispatches and commits together. Dispatches are matched to an Employee by its agent name (the slug generate-agents.sh gives it). <em>Sub-agents started</em> counts the forks and helpers an Employee started inside its own work: they are credited to it, not listed as dispatches without an Employee."
+  + (if $d.has_active then " <strong>not active here</strong> means the project's CLAUDE.md does not list the Employee under Active Employees and it has no activity: it is not counted as never used." else "" end) + "</p>"
 + barchart("Dispatches per Employee (transcripts)"; [$d.employees[] | select(.dispatches > 0) | {label: .name, value: .dispatches}])
 + barchart("Commits per Employee, all time (Employee trailer)"; [$d.employees | sort_by(-.commits_all)[] | select(.commits_all > 0) | {label: .name, value: .commits_all}])
-+ table("Employees: dispatches, commits and Work Units"; [["Employee", "text"], ["Status", "text"], ["Roster", "text"], ["Dispatches", "num"], ["Commits (\($d.range))", "num"], ["Commits (all time)", "num"], ["Work Units registered", "num"]];
-    [$d.employees[] | {cls: (if .status == "used" then null else .status end), cells: [.name, (.status | badge), .roster, .dispatches, .commits_range, .commits_all, .work_units]}])
++ table("Employees: dispatches, commits and Work Units"; [["Employee", "text"], ["Status", "text"], ["Roster", "text"], ["Active here", "text"], ["Dispatches", "num"], ["Sub-agents started", "num"], ["Commits (\($d.range))", "num"], ["Commits (all time)", "num"], ["Work Units registered", "num"]];
+    [$d.employees[] | {cls: (if .status == "used" then null else .status end),
+      cells: [.name, (.status | badge), .roster, (if $d.has_active | not then "no list" elif .active then "yes" else "no" end), .dispatches, .spawned, .commits_range, .commits_all, .work_units]}])
 + table("Dispatched agent types that are not Employees"; [["Agent type", "text"], ["Dispatches", "num"]];
     [$d.other_agents[] | {cells: [.type, .dispatches]}])
++ table("Sub-agents an Employee started inside its own work (credited to it)"; [["Employee", "text"], ["Agent type started", "text"], ["Dispatches", "num"]];
+    [$d.credited_spawns[] | {cells: [.employee, .type, .n]}])
 + table("Dispatches by agent type and requested model"; [["Agent type", "text"], ["Requested model", "text"], ["Dispatches", "num"]];
     [$d.dispatch_models[] | {cells: [.type, .model, .n]}])
 + (if ($d.unrostered | length) > 0 then table("Employee trailer names not on the roster"; [["Name in trailer", "text"], ["Commits", "num"]]; [$d.unrostered[] | {cells: [.name, .commits]}]) else "" end)
 + "</section>"
 
 # --- Chains
-+ "<section><h2 id=\"chains\">Chains coverage</h2><p>Each Agent Chain's steps in order, with the usage of the Employee at each step. A step is <strong>exercised</strong> when its Employee has at least one dispatch or commit; usage is per Employee, so it shows that the Employee works, not that it worked inside this chain. <em>Engineer</em> is the chain placeholder: its numbers are the sum over \($d.engineer_set | map(e) | join(", ")).</p>"
++ "<section><h2 id=\"chains\">Chains coverage</h2><p>Each Agent Chain's steps in order, with the usage of the Employee at each step. A step is <strong>exercised</strong> when its Employee has at least one dispatch or commit; usage is per Employee, so it shows that the Employee works, not that it worked inside this chain. <em>Engineer</em> is a step, not an Employee: the implementing Employee of each Work Unit (Core/AGENT_CHAINS.md, The Engineer Step). Its numbers are the sum over the \($d.engineer_set | length) Employees who committed or registered a Work Unit"
+  + (if ($d.engineer_set | length) > 0 then ": \($d.engineer_set | map(e) | join(", "))" else "" end)
+  + ". <em>Main Agent</em> and <em>Director</em> steps are framework roles - the Main Agent's own work and the Director's decision - not dispatches: they are not counted as Employee steps.</p>"
 + ($d.chains | map(. as $ch | "<h3>\($ch.name | e) - \($ch.exercised) of \($ch.employee_steps) Employee steps exercised</h3>"
     + table("\($ch.name) steps"; [["#", "num"], ["Step", "text"], ["When", "text"], ["Exercised", "text"], ["Dispatches", "num"], ["Commits (\($d.range))", "num"], ["Commits (all time)", "num"]];
         [$ch.steps[] | if .kind == "gate" then {cls: null, cells: [.n, {h: "<em>\(.name | e) gate</em>", v: .name}, (if .conditional then "conditional" else "always" end), "gate", "", "", ""]}
+          elif .kind == "role" then {cls: null, cells: [.n, {h: "<em>\(.name | e)</em> (framework role)", v: .name}, (if .conditional then "conditional" else "always" end), {h: "framework role, not a dispatch", v: "2"}, "", "", ""]}
           else {cls: (if .exercised then null else "never" end),
                 cells: [.n, (.name + (if .placeholder then " (placeholder)" else "" end) + (if .on_roster == false then " (not on roster)" else "" end)),
                         (if .conditional then "conditional" else "always" end),
@@ -1665,7 +1859,8 @@ footer{margin-top:48px;padding-top:12px;border-top:1px solid var(--rule)}
 + "<li><strong>Quality.</strong> A dispatch or a commit is activity, not value. A rarely used Employee may be exactly as rare as its work; a frequently used one may be over-dispatched.</li>"
 + "<li><strong>Chain fidelity.</strong> Usage is per Employee, not per chain run: the page cannot show that a chain ran end to end, only which of its Employees work at all.</li>"
 + "<li><strong>Coverage of transcripts.</strong> Only the runtime transcripts still on this machine are counted; the runtime prunes old sessions, and other machines and other runtimes are not seen. Commit counts come from git and are complete for the history present.</li>"
-+ "<li><strong>Attribution of older commits.</strong> Employee and model are read from the git trailer block only. A commit whose trailers git cannot parse as a block (older commits that put a non-trailer line among them) counts as \"(no trailer)\"; a value that is not a plain name or Work Unit ID counts as \"(unrecognised)\", and a transcript value shaped like a credential as \"(redacted)\".</li>"
++ "<li><strong>Attribution.</strong> Employee and model are read from the git trailer block. When git parses no Employee trailer there - a paragraph after it, or a line git does not take for a trailer - the first column-0 Employee line is read instead, the line the Employee Trailer check validates: \($t.by_line) commit(s) here. A commit with neither counts as \"(no trailer)\"; a value that is not a plain name or Work Unit ID counts as \"(unrecognised)\", and a value shaped like a credential as \"(redacted)\".</li>"
++ "<li><strong>Concentration.</strong> The top-2 share is the part of the commits attributed to a roster Employee that the two Employees with the most of them hold. A high share is a question for Core/EMPLOYEE_SELECTION.md - do the triggers route work to its owners? - not a verdict: some periods are one Employee's work.</li>"
 + "<li><strong>Content.</strong> By design the page holds no prompt, reply, message body or file content - aggregates only (Standards/DATA_PROTECTION_STANDARD.md).</li>"
 + "</ul><p class=\"muted\">Roster and chain changes remain Director decisions; this page informs them.</p></footer></main>"
 + "<script type=\"application/json\" id=\"usage-data\">" + ($d | tojson | gsub("<"; "\\u003c")) + "</script>"
@@ -1727,6 +1922,7 @@ echo "Usage dashboard written: $OUT"
 # the process that prints it is not spent; nor in a refresh's log.
 [ -n "$REFRESH" ] || jq -r '"  Employees: \(.totals.roster) on roster, \(.totals.never) never used, \(.totals.rare) rarely used",
        "  Dispatches: \(.totals.dispatches); commits: \(.totals.commits_range) (\(.range)), \(.totals.commits_all) all time",
+       "  Top-2 share of attributed commits: \(.totals.concentration.range.share * 1000 | round / 10)% (\(.range)), \(.totals.concentration.all.share * 1000 | round / 10)% all time",
        "  API calls: \(.totals.tokens.calls); tokens: \(.totals.tokens.total); cache-read share: \(.totals.tokens.cache_read_share * 1000 | round / 10)%",
        (.sources[] | "  source \(.status): \(.name)")' < "$DATA"
 [ "$MODE" != --refresh ] || say "page rebuilt in ${SECONDS} s."
