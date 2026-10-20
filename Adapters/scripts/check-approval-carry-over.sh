@@ -118,8 +118,18 @@
 # OUTPUT AND EXIT STATUS
 #
 #   0  the approvals carry over. stdout is exactly one line, the record:
-#        Approval carry-over: <approved> -> <new>; merges equal git's own merge outside Registry/work-units.yml; registry entry identical; checker: check-approval-carry-over.sh
-#      with both heads as full commit ids. What was checked goes to stderr.
+#        Approval carry-over: <approved> -> <new>; base <base>; merges equal git's own merge outside Registry/work-units.yml; registry entry identical; checker: check-approval-carry-over.sh blob <blob>, merge-classify.sh blob <blob>
+#      with both heads and the base as full commit ids, and the blob ids of
+#      this script and of merge-classify.sh as they ran. What was checked goes
+#      to stderr.
+#
+#      The record says enough to reproduce the verdict (issue #240): an auditor
+#      finds a commit holding those two blobs (`git hash-object --no-filters
+#      <file>` on a checkout, or `git log --all --find-object=<blob>`), and runs
+#      that checker with `--base <base>`. The base is named by its commit id,
+#      not by the ref given: origin/develop moves, and a newer develop can
+#      decide a merge differently. The record's prefix, up to the first `;`,
+#      is unchanged since PR #232.
 #   1  they do not: the reason is on stderr, and stdout is empty.
 #   2  usage or environment error: stdout is empty. No approval carries over.
 #
@@ -256,6 +266,21 @@ declare -F merge_classify_automatic > /dev/null \
   || cannot_decide "merge-classify.sh beside this script defines no merge_classify_automatic: it is older than this script"
 merge_classify_git_ok \
   || cannot_decide "$(git version) is too old: git's own merge needs 'git merge-tree --write-tree' (git 2.38) with --attr-source (git 2.40); use git 2.40 or newer"
+
+# The blob ids of the two files that decide the verdict, for the record: the
+# bytes bash read, hashed without filters, so no attribute or line-ending
+# setting changes the id, and it is the id `git ls-tree` shows for the file in
+# a commit that holds it.
+blob_of() {
+  local id
+  id="$(git hash-object --no-filters -- "$1" 2> /dev/null)" || return 1
+  is_oid "$id" || return 1
+  printf '%s' "$id"
+}
+CHECKER_BLOB="$(blob_of "$SCRIPT_DIR/${BASH_SOURCE[0]##*/}")" \
+  || cannot_decide "git hash-object failed on this script: the record could not name the checker that decided it"
+CLASSIFY_BLOB="$(blob_of "$SCRIPT_DIR/merge-classify.sh")" \
+  || cannot_decide "git hash-object failed on merge-classify.sh: the record could not name the checker that decided it"
 
 # Every path git prints below is read from the top of the work tree. Run from
 # a subdirectory, `git merge-tree --name-only` prints conflicted paths relative
@@ -733,6 +758,6 @@ else
 fi
 
 say "the approvals carry over. The record to paste on the Pull Request is on stdout:"
-printf "Approval carry-over: %s -> %s; merges equal git's own merge outside %s; registry entry identical; checker: %s\n" \
-  "$APPROVED" "$NEW" "$REGISTRY" "$PROG"
+printf "Approval carry-over: %s -> %s; base %s; merges equal git's own merge outside %s; registry entry identical; checker: %s blob %s, merge-classify.sh blob %s\n" \
+  "$APPROVED" "$NEW" "$BASE" "$REGISTRY" "$PROG" "$CHECKER_BLOB" "$CLASSIFY_BLOB"
 exit 0

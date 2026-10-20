@@ -5363,7 +5363,7 @@ section "check-approval-carry-over.sh — approvals across an update merge of de
 # Prompt Engineer's registry cases; each is a merge that must be refused.
 
 CARRY="$SCRIPTS/check-approval-carry-over.sh"
-CO_TAIL="merges equal git's own merge outside Registry/work-units.yml; registry entry identical; checker: check-approval-carry-over.sh"
+CO_TAIL="merges equal git's own merge outside Registry/work-units.yml; registry entry identical"
 
 # co_entry <id> <title> — one registry entry in the parsing contract's shape,
 # preceded by its blank separator line.
@@ -5515,9 +5515,20 @@ expect 0 "a branch reset to the approved head, then merged with develop, carries
   bash "$CARRY" "$CO_A" "$CO_REWOUND" --base develop
 
 # The record: stdout is exactly that one line on success, and empty otherwise.
+# It names the base commit and the blob ids of the two files that decided the
+# verdict (issue #240, Code Reviewer on PR #232), so an auditor can rerun the
+# same checker against the same base: `git hash-object --no-filters` on a file
+# gives the id `git ls-tree` shows for it in a commit.
+CO_CHECKER="checker: check-approval-carry-over.sh blob $(git hash-object --no-filters "$CARRY"), merge-classify.sh blob $(git hash-object --no-filters "$SCRIPTS/merge-classify.sh")"
 CO_STDOUT="$(bash "$CARRY" "$CO_A" "$CO_OK" --base develop 2> /dev/null)"
-expect 0 "on success stdout is exactly the record, full commit ids, nothing else" -- \
-  test "$CO_STDOUT" = "Approval carry-over: $CO_A -> $CO_OK; $CO_TAIL"
+expect 0 "on success stdout is exactly the record: full commit ids, the base, the checker's blobs" -- \
+  test "$CO_STDOUT" = "Approval carry-over: $CO_A -> $CO_OK; base $(git rev-parse develop); $CO_TAIL; $CO_CHECKER"
+expect 0 "the record keeps its prefix, so a reader of an older record still finds the heads" -- \
+  grep -qxE "Approval carry-over: $CO_A -> $CO_OK; .+" <<< "$CO_STDOUT"
+expect 0 "the record is one line" -- test "$(printf '%s\n' "$CO_STDOUT" | wc -l)" -eq 1
+CO_STDOUT_SHA="$(bash "$CARRY" "$CO_A" "$CO_OK" --base "$(git rev-parse develop)" 2> /dev/null)"
+expect 0 "the base is named by its commit id, whichever spelling --base used" -- \
+  test "$CO_STDOUT_SHA" = "$CO_STDOUT"
 # QA, PR #232: from a PowerShell 5.1 console on code page 850 a non-ASCII
 # arrow in the record printed mangled, with exit 0. Every byte of the record
 # must be printable 7-bit ASCII (space to tilde).
@@ -5845,6 +5856,77 @@ expect_output "in app.py"
 cd .. || exit 1
 git config --unset include.path
 
+# merge.renameLimit, and diff.renameLimit it falls back to (issue #237, from
+# the Security Engineer on PR #232). A rename git's merge does not detect is a
+# delete and an add, so the other side's edit to the old path conflicts: a low
+# local limit turned an honest merge into a conflicted one, which refused the
+# carry-over and classified the merge authored. merge_classify_automatic pins
+# git's merge default, 7000. The lab: the PR renames two files and edits them,
+# develop edits the old paths elsewhere. Two renames are needed, because git
+# skips inexact rename detection only when sources x destinations exceeds the
+# square of the limit, and different base names, because a rename that keeps
+# its base name is matched before the limit applies.
+new_repo carry-rename
+git branch -m develop
+mkdir -p Registry
+for f in alpha beta; do
+  i=1
+  while [ "$i" -le 40 ]; do
+    printf '%s line %s\n' "$f" "$i"
+    i=$((i + 1))
+  done > "$f.txt"
+done
+co_registry "WU-T-1:one" > Registry/work-units.yml
+git add -A && git commit -q -m "D0"
+CR_D0="$(git rev-parse HEAD)"
+sed 's/^alpha line 5$/alpha line 5 (develop)/' alpha.txt > alpha.new && mv alpha.new alpha.txt
+sed 's/^beta line 5$/beta line 5 (develop)/' beta.txt > beta.new && mv beta.new beta.txt
+git add -A && git commit -q -m "D1: develop edits both files"
+CR_D1="$(git rev-parse HEAD)"
+co_registry "WU-T-1:one" "WU-T-4:four" > Registry/work-units.yml
+git add -A && git commit -q -m "D2: develop registers a Work Unit"
+CR_D2="$(git rev-parse HEAD)"
+git checkout -q -b pr "$CR_D0"
+git mv alpha.txt first.txt
+git mv beta.txt second.txt
+sed 's/^alpha line 35$/alpha line 35 (pr)/' first.txt > first.new && mv first.new first.txt
+sed 's/^beta line 35$/beta line 35 (pr)/' second.txt > second.new && mv second.new second.txt
+co_registry "WU-T-1:one" "WU-T-3:three" > Registry/work-units.yml
+git add -A && git commit -q -m "A: the PR renames and edits both files"
+CR_A="$(git rev-parse HEAD)"
+# A clean merge for merge_classify: develop's file edits only, no registry.
+git checkout -q -B m-rename-clean "$CR_A"
+git merge -q --no-ff --no-edit "$CR_D1" > /dev/null 2>&1
+CR_CLEAN="$(git rev-parse HEAD)"
+# The update merge for the carry-over: develop's registry entry conflicts.
+co_start m-rename "$CR_CLEAN" "$CR_D2" "WU-T-1:one" "WU-T-4:four" "WU-T-3:three"
+co_commit
+CR_M="$CO_M"
+cr_classify() { bash -c '. "$1" && merge_classify "$2"' _ "$SCRIPTS/merge-classify.sh" "$1"; }
+expect 0 "rename lab: git merged the renames on its own (develop's edit is in first.txt)" -- \
+  grep -qx 'alpha line 5 (develop)' first.txt
+expect 0 "rename lab: the clean merge classifies clean" -- test "$(cr_classify "$CR_CLEAN")" = clean
+expect 0 "rename lab: the honest update merge carries over" -- \
+  bash "$CARRY" "$CR_A" "$CR_M" --base develop
+# Load-bearing: with the limit at 1, git's merge left unpinned conflicts on
+# the renamed files. Without this, the cases below would pass for nothing.
+git config merge.renameLimit 1
+expect 1 "rename lab is load-bearing: merge.renameLimit=1 makes an unpinned git merge-tree conflict" -- \
+  git merge-tree --write-tree --no-messages --name-only "$CR_A" "$CR_D1"
+expect_output "alpha.txt"
+expect 0 "a local merge.renameLimit=1 does not make the clean merge authored" -- \
+  test "$(cr_classify "$CR_CLEAN")" = clean
+expect 0 "a local merge.renameLimit=1 does not refuse the honest update merge" -- \
+  bash "$CARRY" "$CR_A" "$CR_M" --base develop
+git config --unset merge.renameLimit
+git config diff.renameLimit 1
+expect 0 "a local diff.renameLimit=1 (merge.renameLimit's fallback) does not make the clean merge authored" -- \
+  test "$(cr_classify "$CR_CLEAN")" = clean
+expect 0 "a local diff.renameLimit=1 does not refuse the honest update merge" -- \
+  bash "$CARRY" "$CR_A" "$CR_M" --base develop
+git config --unset diff.renameLimit
+cd "$WORK/carry-lab" || exit 1
+
 # A submodule pointer that .gitmodules (ignore = all) and the config both hide
 # from git diff.
 new_repo carry-sub
@@ -5891,6 +5973,7 @@ expect 2 "without --base, a missing origin/develop fails closed" -- bash "$CARRY
 expect_output "origin/develop"
 git update-ref refs/remotes/origin/develop develop
 expect 0 "without --base, origin/develop is the base" -- bash "$CARRY" "$CO_A" "$CO_OK"
+expect_output "; base $(git rev-parse origin/develop); "
 mkdir -p "$WORK/carry-norepo"
 cd "$WORK/carry-norepo" || exit 1
 expect 2 "outside a git repository it fails closed" -- env GIT_CEILING_DIRECTORIES="$WORK" bash "$CARRY" "$CO_A" "$CO_OK"

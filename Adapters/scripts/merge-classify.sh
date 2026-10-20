@@ -35,6 +35,8 @@
 # merge.conflictStyle=diff3 or zdiff3 makes git less eager to resolve
 # overlapping changes, so a merge that is clean by default conflicts;
 # merge.renames=false and merge.directoryRenames change how renames merge;
+# a low merge.renameLimit, or the diff.renameLimit it falls back to, skips
+# rename detection, so an edit to a renamed file conflicts (issue #237);
 # merge.renormalize rewrites line endings before merging. Each is pinned to
 # git's documented default, so two machines compute the same merge from the
 # same two commits — the record check-approval-carry-over.sh prints has to be
@@ -108,6 +110,7 @@ merge_classify_automatic() {
     git -c core.attributesFile=/dev/null \
       -c merge.conflictStyle="$style" \
       -c merge.renames=true \
+      -c merge.renameLimit=7000 \
       -c merge.directoryRenames=conflict \
       -c merge.renormalize=false \
       --attr-source="$MERGE_CLASSIFY_EMPTY_TREE" \
