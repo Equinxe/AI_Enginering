@@ -666,16 +666,25 @@ block	git --config-env=alias.c=CMD c
 block	git --config-env include.path=P status
 block	git -c core.fsmonitor=/tmp/x.sh status
 block	git --no-pager -c core.fsmonitor=/tmp/x.sh status
-# Issue #268 (Security Engineer review of PR #258): through git -c, core.fsmonitor passes as a literal false
-# (the monitor turned OFF), and only when every such option is one; anything else stays refused.
-allow	git -c core.fsmonitor=false status
-allow	git -c core.fsmonitor=false diff --stat
-allow	git -c core.fsmonitor=FALSE status
-allow	git -c core.fsmonitor=no status
-allow	git -c core.fsmonitor=off status
-allow	git -c core.fsmonitor=0 status
-allow	git -c core.fsmonitor="false" status
-allow	git -c core.fsmonitor=false -c commit.gpgsign=true commit -m x
+# PR #258 review F5: no literal-false exception for core.fsmonitor through git -c (issue #268 stays open). The hook
+# judges de-quoted text, where a quoted or escaped separator inside the value is a token boundary, so `=false;x`
+# would read as false while git runs x as the fsmonitor hook. Every -c core.fsmonitor value is refused.
+block	git -c core.fsmonitor=false status
+block	git -c core.fsmonitor=false diff --stat
+block	git -c core.fsmonitor=FALSE status
+block	git -c core.fsmonitor=no status
+block	git -c core.fsmonitor=off status
+block	git -c core.fsmonitor=0 status
+block	git -c core.fsmonitor="false" status
+block	git -c core.fsmonitor=false -c commit.gpgsign=true commit -m x
+block	git -c core.fsmonitor=false\;/tmp/x.sh status
+block	git -c "core.fsmonitor=false;/tmp/x.sh" status
+block	git -c core.fsmonitor="false;/tmp/x.sh" status
+block	git -c 'core.fsmonitor=false||/tmp/x.sh' status
+block	git -c core.fsmonitor=false\|\|/tmp/x.sh status
+block	git -c core.fsmonitor=false\&/tmp/x.sh status
+block	git -c core.fsmonitor='false)'/tmp/x.sh status
+block	git -c "core.fsmonitor=false /tmp/x.sh" status
 allow	git -c core.fsmonitorHookVersion=2 status
 block	git -c core.fsmonitor=true status
 block	git -c core.fsmonitor status

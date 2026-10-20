@@ -346,20 +346,22 @@ fi
 # visible in the command text. These keys are refused when written literally as
 # the value of GIT_CONFIG_KEY_<n> in any form (prefix, export, declare, typeset,
 # readonly, local, env) and as the key of a `git -c` or `--config-env` global
-# option, whatever the value, in any case spelling. Two exceptions, both through
-# `git -c` only, where the value is in the text and one value is the safe one:
-#   - commit.gpgsign passes as the bare key or a literal true (true, yes, on, 1):
-#     that turns signing ON, and `-c commit.gpgsign=true` is an allow case older
-#     than this rule. A false spelling is the gpgsign rule's; an empty value
-#     (git reads it as false), a `$` value and any other word are refused.
-#   - core.fsmonitor passes as a literal false (false, no, off, 0): that turns
-#     the monitor OFF and runs nothing, a common troubleshooting form (issue
-#     #268, Security Engineer review of PR #258). A path, true, the bare key
-#     (true: the built-in daemon), an empty or `$` value are refused.
-# Each passes only when EVERY such option in the command has the safe value;
-# --config-env is always refused (the value sits in another variable), and as a
-# GIT_CONFIG_KEY_<n> value both keys are always refused, because the value is
-# in GIT_CONFIG_VALUE_<n>. Not repeated here:
+# option, whatever the value, in any case spelling. One exception, through
+# `git -c` only: commit.gpgsign passes as the bare key or a literal true (true,
+# yes, on, 1), when EVERY such option in the command is one. That turns signing
+# ON, and `-c commit.gpgsign=true` is an allow case older than this rule. A false
+# spelling is the gpgsign rule's; an empty value (git reads it as false), a `$`
+# value, any other word and --config-env (the value sits in another variable)
+# are refused, and as a GIT_CONFIG_KEY_<n> value the key is always refused,
+# because the value is in GIT_CONFIG_VALUE_<n>. The value is judged on the
+# STRIPPED text, where a quoted or escaped `;` `|` `&` `)` or space inside it
+# has become a token boundary, so `true;x` is judged as `true`. That is safe here
+# only because git dies on a non-boolean commit.gpgsign value.
+# core.fsmonitor has NO such exception (PR #258 review F5): git reads a
+# non-boolean value as a hook path and runs it, so `-c core.fsmonitor=false\;x`
+# would be judged `false` while git runs x. A literal-false exception (issue
+# #268) needs the value judged on the raw text first; until then every
+# `-c core.fsmonitor` is refused, `=false` included. Not repeated here:
 #   - core.hooksPath. The hooksPath rule above refuses it in both places already:
 #     its per-segment `git…core.hooksPath` match is case-insensitive, so the
 #     variable name GIT_CONFIG_KEY_<n> supplies the `git`. Tests pin both forms.
@@ -371,10 +373,10 @@ fi
 # reach the same keys through a file this hook never reads; a text hook cannot
 # close that route (issue #245).
 # DANGER_KEY for a GIT_CONFIG_KEY_<n> value; DANGER_KEY_C, the same list less
-# commit.gpgsign and core.fsmonitor, for git -c / --config-env, where those two
-# are judged by value (c_value_unsafe).
+# commit.gpgsign, for git -c / --config-env, where gpgsign is judged by value
+# (c_value_unsafe).
 DANGER_KEY='(commit\.gpgsign([[:space:];&|)=]|$)|include\.|includeif\.|alias\.|core\.fsmonitor([[:space:];&|)=]|$))'
-DANGER_KEY_C='(include\.|includeif\.|alias\.)'
+DANGER_KEY_C='(include\.|includeif\.|alias\.|core\.fsmonitor([[:space:];&|)=]|$))'
 # c_value_unsafe KEY SAFE — true when some git -c / --config-env option in the
 # command names KEY (a whole key: `core.fsmonitorHookVersion` is not
 # `core.fsmonitor`) with anything other than SAFE, the ERE for the safe `=value`
@@ -390,9 +392,8 @@ c_value_unsafe() {
 }
 if check_key "GIT_CONFIG_KEY_[0-9]+\+?=${DANGER_KEY}" \
    || check_key "${G}(-c${S}+|--config-env(=|${S}+))${DANGER_KEY_C}" \
-   || c_value_unsafe 'commit\.gpgsign' '(=(true|yes|on|1))?' \
-   || c_value_unsafe 'core\.fsmonitor' '=(false|no|off|0)'; then
-  iaeng_block "GIT_CONFIG_KEY_<n> or git -c / --config-env sets commit.gpgsign, include.*, includeIf.*, alias.* or core.fsmonitor — keys that turn off signing, load config this hook cannot read, redefine a command or run a program — refused in every form, whatever the value (through git -c only, commit.gpgsign passes as the bare key or a literal true, and core.fsmonitor as a literal false)" \
+   || c_value_unsafe 'commit\.gpgsign' '(=(true|yes|on|1))?'; then
+  iaeng_block "GIT_CONFIG_KEY_<n> or git -c / --config-env sets commit.gpgsign, include.*, includeIf.*, alias.* or core.fsmonitor — keys that turn off signing, load config this hook cannot read, redefine a command or run a program — refused in every form, whatever the value (git -c commit.gpgsign passes only as the bare key or a literal true)" \
     "Standards/GIT_STANDARD.md, Escape Hatches. Use the setting the project already has, or ask a human to run it and describe why in the commit."
 fi
 if check "${G}stash$E" && ! check "${G}stash${S}+(list|show)$E"; then
