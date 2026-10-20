@@ -1321,6 +1321,12 @@ work_units:
     milestone: Precision
     delivers: Adapters/scripts/check-approval-carry-over.sh, Adapters/scripts/merge-classify.sh, Adapters/scripts/tests/run.sh, Adapters/README.md, Registry/work-units.yml
 
+  - id: WU-IAENG-345
+    employee: Release Manager
+    title: Bump VERSION.md to v0.0.14 and finalize the CHANGELOG.md section for the Precision release - README pin and measured counts, CLAUDE.md Current Version, next milestone Adoption (v0.0.15)
+    milestone: Precision
+    delivers: VERSION.md, CHANGELOG.md, README.md, CLAUDE.md, Registry/work-units.yml
+
   - id: WU-IAENG-350
     employee: Documentation Engineer
     title: Refuse a chain diagram output line that holds more than one bracket pair - validate-framework.sh section 22 read any line opening "[" and closing "]" as one output, so a step drawn between two outputs on one line went unchecked; an output line is now "[" first, "]" last and no bracket in between, anything else unreadable (issue #233, falsifier and nested pair in Script Tests, mutant caught); section 13 counts the chains Core/AGENT_CHAINS.md names, strips the CR before matching, and fails at zero instead of passing unconditionally (issue #227); the Adapters/README.md validator row names sections 13 to 21 and points to the printed section headers as the authoritative list (issue #228)
