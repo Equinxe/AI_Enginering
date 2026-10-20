@@ -107,7 +107,13 @@ if [ -f "$STATE" ]; then
     echo "iaeng: stop gate — could not determine whether SESSION_STATE.md is current (mtime, HEAD commit time, or system clock unavailable); not blocking on it. Verify by hand." >&2
   fi
 else
-  echo "iaeng: SESSION_STATE.md does not exist — not blocking, but create it from Templates/SESSION_STATE.md before the next session resumes (Core/AGENT_CONDUCT.md, Read First)." >&2
+  ROOT="$(iaeng_framework_root || true)"
+  if [ -n "$ROOT" ]; then
+    HELPER="$ROOT/Adapters/scripts/create-session-state.sh"
+  else
+    HELPER="the framework's Adapters/scripts/create-session-state.sh"
+  fi
+  echo "iaeng: SESSION_STATE.md does not exist — not blocking, but create it before the next session resumes (Core/AGENT_CONDUCT.md, Read First): run $HELPER, which writes the Template block of Templates/SESSION_STATE.md with today's date." >&2
 fi
 
 exit 0

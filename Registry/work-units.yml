@@ -1321,8 +1321,32 @@ work_units:
     milestone: Precision
     delivers: Adapters/scripts/check-approval-carry-over.sh, Adapters/scripts/merge-classify.sh, Adapters/scripts/tests/run.sh, Adapters/README.md, Registry/work-units.yml
 
+  - id: WU-IAENG-345
+    employee: Release Manager
+    title: Bump VERSION.md to v0.0.14 and finalize the CHANGELOG.md section for the Precision release - README pin and measured counts, CLAUDE.md Current Version, next milestone Adoption (v0.0.15)
+    milestone: Precision
+    delivers: VERSION.md, CHANGELOG.md, README.md, CLAUDE.md, Registry/work-units.yml
+
   - id: WU-IAENG-346
     employee: Observability Engineer
     title: Fix what the usage dashboard measures (the 6 Oct 2026 check-up, issues #205 and #231, formerly WU-IAENG-332) - a commit whose Employee or runtime co-author trailer git does not parse is attributed from its first column-0 line, the line check-employee-trailers.sh validates, and a message line imitating git's record marker moves nothing; the Engineer step sums every Employee who committed or registered a Work Unit instead of eight Development Employees; Main Agent and Director steps are framework roles, never "not on roster" or NEVER exercised; a sub-agent an Employee started inside its own work (a fork, a helper) is credited to that Employee through the transcript's toolUseId instead of listed as a dispatch without an Employee; a Measurement windows table gives the dates of the range, the whole history and the retained transcripts; a top-2 concentration figure shows the share of attributed commits the two busiest Employees hold; the project's CLAUDE.md Active Employees list, when present, marks other idle Employees "not active here" instead of NEVER USED; after new commits on top of the cached HEAD only those are read from git, the registries and the range re-read and every in-range flag recomputed, a rewritten history, a malformed cached row or a newer script reading the whole history
     milestone: Adoption
     delivers: Adapters/scripts/usage-dashboard.sh, Adapters/ai-runtimes/claude-code/usage-collect.sh, Adapters/scripts/tests/run.sh, Governance/DISPATCH_IN_PRACTICE.md, Registry/work-units.yml
+
+  - id: WU-IAENG-347
+    employee: Platform Engineer
+    title: Close the install-hooks.sh and install-skills.sh residuals of PR #239 (issues #241, #242) - an existing hook entry counts as present only when every field equals the template's (command with the project directory's spelling normalised, type, timeout, any other; key order aside), so the exact guard command with "timeout" 1 or an extra field gets the real entry added beside it and is reported as a near miss naming the fields that differ; "disableAllHooks" true in .claude/settings.json or settings.local.json is named on stderr and in the report on every run and never changed; each installer appends its LF rule (/.claude/settings.json, /.claude/skills/**) to the project's .gitattributes when missing, found in an LF or CRLF file, and install.sh lists the skills rule among the adopter rules; tests/dashboard.sh grows to 114 checks, including a real core.autocrlf=true clone with a CRLF control file (19 of the new checks fail against the pre-fix installers)
+    milestone: Adoption
+    delivers: Adapters/ai-runtimes/claude-code/install-hooks.sh, Adapters/ai-runtimes/claude-code/install-skills.sh, Adapters/scripts/install.sh, Adapters/scripts/tests/run.sh, Adapters/ai-runtimes/claude-code/hooks/tests/dashboard.sh, Adapters/ai-runtimes/claude-code/hooks/README.md, Adapters/README.md, Registry/work-units.yml
+
+  - id: WU-IAENG-348
+    employee: Platform Engineer
+    title: Create an adopter's .ia-engineering/SESSION_STATE.md with a helper instead of by hand (issue #218) - Adapters/scripts/create-session-state.sh refuses outside a git work tree or inside a submodule, before the first commit, over an existing file or link, through a linked .ia-engineering and on a path git does not ignore; writes only the fenced block under Template in Templates/SESSION_STATE.md (carriage returns dropped) with the project name and _Last updated - D Month YYYY taken under LC_ALL=C, the form session-start.sh parses; fails closed when the template or its two filled lines are not where it expects; prints the header as the hook reads it; the bootstrap summary, the README adoption step, session-start.sh's missing-file line and stop-gate.sh's reminder name it; tested end to end with the real session-start.sh in a throwaway adopter
+    milestone: Adoption
+    delivers: Adapters/scripts/create-session-state.sh, Adapters/scripts/setup-project-bootstrap.sh, Adapters/ai-runtimes/claude-code/hooks/session-start.sh, Adapters/ai-runtimes/claude-code/hooks/stop-gate.sh, Adapters/scripts/tests/run.sh, Adapters/ai-runtimes/claude-code/hooks/tests/run.sh, README.md, Registry/work-units.yml
+
+  - id: WU-IAENG-350
+    employee: Documentation Engineer
+    title: Refuse a chain diagram output line that holds more than one bracket pair - validate-framework.sh section 22 read any line opening "[" and closing "]" as one output, so a step drawn between two outputs on one line went unchecked; an output line is now "[" first, "]" last and no bracket in between, anything else unreadable (issue #233, falsifier and nested pair in Script Tests, mutant caught); section 13 counts the chains Core/AGENT_CHAINS.md names, strips the CR before matching, and fails at zero instead of passing unconditionally (issue #227); the Adapters/README.md validator row names sections 13 to 21 and points to the printed section headers as the authoritative list (issue #228)
+    milestone: Adoption
+    delivers: Adapters/scripts/validate-framework.sh, Adapters/scripts/tests/run.sh, Adapters/README.md, Registry/work-units.yml
