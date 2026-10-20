@@ -1090,9 +1090,20 @@ if [ -f Registry/chains.yml ]; then
 
   # Every named chain in Core/AGENT_CHAINS.md must appear, or a runtime reading
   # the Registry would silently not know a chain exists.
+  #
+  # Counted, and failed at zero (rule 3). The pass line used to print whatever
+  # the loop saw, so an extraction that read no chain at all still claimed
+  # coverage (issue #227). One measured way to read none: a CRLF checkout read
+  # by a grep that keeps the carriage return, where "Chain$" never matches
+  # "# Feature Chain\r". The CR is stripped before the match for that reason.
+  chains_named=0
+  chains_missing=0
   while IFS= read -r chain; do
-    grep -qF "name: $chain" Registry/chains.yml \
-      || fail "Core/AGENT_CHAINS.md defines '$chain' but Registry/chains.yml has no entry" "A runtime reading the Registry would not know this chain exists."
+    chains_named=$((chains_named + 1))
+    if ! grep -qF "name: $chain" Registry/chains.yml; then
+      chains_missing=$((chains_missing + 1))
+      fail "Core/AGENT_CHAINS.md defines '$chain' but Registry/chains.yml has no entry" "A runtime reading the Registry would not know this chain exists."
+    fi
   # Multi-word chain names included. The earlier pattern was
   # `^# [A-Za-z]+ Chain$` — single word only — so a chain named e.g.
   # "Incident Response Chain" would never have been extracted, and its failure
@@ -1108,10 +1119,15 @@ if [ -f Registry/chains.yml ]; then
   # in the word. They are excluded by name anyway rather than by relying on
   # that, since a future heading like "# Custom Chain" would otherwise be read
   # as a chain.
-  done < <(grep -oE '^# [A-Za-z][A-Za-z ]*Chain$' Core/AGENT_CHAINS.md \
+  done < <(tr -d '\015' < Core/AGENT_CHAINS.md \
+             | grep -oE '^# [A-Za-z][A-Za-z ]*Chain$' \
              | sed 's/^# //' \
              | grep -vxE 'Chain Selection|Chain Conventions|Composing Custom Chain')
-  pass "Registry/chains.yml covers every named chain"
+  if [ "$chains_named" -eq 0 ]; then
+    fail "Core/AGENT_CHAINS.md yielded 0 named chains" "The extraction reads '# <Name> Chain' headings. Zero means the document is missing, its headings changed form, or the read failed, so no chain was checked against Registry/chains.yml. That is reported, not passed."
+  elif [ "$chains_missing" -eq 0 ]; then
+    pass "Registry/chains.yml covers every named chain ($chains_named checked)"
+  fi
 else
   fail "Registry/chains.yml is missing" "It existed as of WU-IAENG-145 and Registry/README.md lists its consumers. Reporting a pass for an absent file is the same silent-skip shape as a gate that skips itself — if the Registry genuinely no longer carries chains, remove this check deliberately rather than letting a deletion look like a success."
 fi
@@ -1821,7 +1837,10 @@ section "22. Chain diagrams match Registry/chains.yml step for step"
 # "→" whose text is anything but empty (box rules only) or the one branch label
 # the diagrams use, "Approved" - a named allow-list (rule 2), because a step
 # drawn in a box, or a branch typed with "->" or "⟶", would otherwise go
-# unchecked. It includes an output line that opens "[" and never closes "]".
+# unchecked. It includes an output line that opens "[" and never closes "]",
+# and one that holds more than one bracket pair: "[a] Step [b]" would hide a
+# step between two outputs, so an output line is "[" first, "]" last and no
+# bracket in between.
 #
 # WHAT IS COMPARED at each position: the kind (gate or employee), the name,
 # whether the step is conditional, whether it is parallel, and its loop
@@ -1916,7 +1935,13 @@ chain_diagram_drift() {
       gsub(/[ \t]/, "", x)
       if (x == "") return
       if (substr(t, 1, 1) == "[") {
-        if (substr(t, length(t)) == "]") return
+        # Exactly one bracket pair: "[" first, "]" last, and neither bracket
+        # in between. Reading only the two ends skipped
+        # "[Containment] Compliance Engineer [Assessment]" as one output, so
+        # the step drawn between the two outputs went unchecked (issue #233).
+        inner = substr(t, 2, length(t) - 2)
+        if (length(t) >= 2 && substr(t, length(t)) == "]" &&
+            index(inner, "[") == 0 && index(inner, "]") == 0) return
         unreadable(ARGV[2], dchain ": unrecognised output line \"" t "\"")
         return
       }
