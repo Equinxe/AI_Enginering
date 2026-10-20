@@ -124,8 +124,8 @@ Adapters/      — Tool integrations
 
 # Current Version
 
-v0.0.13 — Portability
+v0.0.14 — Precision
 
-The framework made runnable somewhere other than where it was written: the Pull Request checks extracted from CI into scripts any forge can run, a host seam, seven first-class stacks, the Risk Map, and an already-started-project adoption path. See `CHANGELOG.md` and `Governance/VERSIONING_POLICY.md`.
+The framework made exact and usable: every front-facing surface audited and guarded against drift, the controls that grade a Pull Request hardened by adversarial exercises, and the newcomer path dogfooded on real adoptions. See `CHANGELOG.md` and `Governance/VERSIONING_POLICY.md`.
 
-Next: **Precision**, in progress on `develop`, targeting v0.0.14.
+Next: **Adoption**, targeting v0.0.15.

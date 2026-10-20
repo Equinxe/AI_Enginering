@@ -3396,7 +3396,7 @@ if ln -s "$FRAMEWORK_ROOT" ia-engineering 2>/dev/null; then
     FAILED=$((FAILED + 1))
   fi
 
-  for rule in '/.claude/settings.json' '/.ia-engineering/stack' '/.ia-engineering/risk-map.yml' \
+  for rule in '/.claude/settings.json' '/.claude/skills/**' '/.ia-engineering/stack' '/.ia-engineering/risk-map.yml' \
               '/Registry/work-units.yml' '/Dockerfile' '/.gitmodules'; do
     TOTAL=$((TOTAL + 1))
     if grep -qxF "$rule text eol=lf" .gitattributes 2>/dev/null; then
@@ -3429,7 +3429,7 @@ if ln -s "$FRAMEWORK_ROOT" ia-engineering 2>/dev/null; then
   expect 0 "install.sh run on its own succeeds" -- bash ./ia-engineering/Adapters/scripts/install.sh
   expect_output "setup-project-bootstrap.sh <stack>"
 else
-  skip 9 "bootstrap registry/LF/summary: ln -s failed on this platform (no admin rights / Developer Mode off) -- not a fix defect."
+  skip 12 "bootstrap registry/LF/summary: ln -s failed on this platform (no admin rights / Developer Mode off) -- not a fix defect."
 fi
 
 section "install-hooks.sh — framework-inside-project by identity, not spelling (WU-IAENG-320, DEF-14)"
@@ -3837,6 +3837,29 @@ awk '$0 == "  [Approval → Release Chain]" { print "  [Approval → Release Cha
   "$CHAIN_FIX/base.md" > "$CHAIN_FIX/unclosed-output.md"
 chain_drift_case "an output line that never closes its bracket" "$CHAIN_FIX/unclosed-output.md" "$CHAIN_FIX/base.yml" \
   "Alpha Chain: unrecognised output line \"[Approval → Release Chain\""
+
+# Issue #233 (WU-IAENG-350): a line that opened "[" and closed "]" was skipped
+# as one output, so a step drawn between two outputs on one line went
+# unchecked. An output line now holds exactly one bracket pair. First the
+# falsifier as the issue states it, on the real document with the Registry
+# unchanged; then the same line in the fixture, and a nested pair.
+awk '/^# / { incident = ($0 == "# Incident Chain") }
+     incident && $0 == "Engineer(s)" { print "  [Containment] Compliance Engineer [Assessment]"; print "      ↓" }
+     { print }' "$CHAIN_FIX/real.md" > "$CHAIN_FIX/real-233.md"
+expect 1 "chain diagrams: the #233 fixture really added a line to the real document" -- \
+  cmp -s "$CHAIN_FIX/real.md" "$CHAIN_FIX/real-233.md"
+chain_drift_case "a step hidden between two outputs on one line, in the real Incident Chain (#233)" \
+  "$CHAIN_FIX/real-233.md" "$CHAIN_FIX/real.yml" \
+  "$CHAIN_FIX/real-233.md:" \
+  "Incident Chain: unrecognised output line \"[Containment] Compliance Engineer [Assessment]\""
+awk '{ print } $0 == "Code Reviewer" { print "      ↓"; print "  [Review] Security Engineer [Assessment]" }' \
+  "$CHAIN_FIX/base.md" > "$CHAIN_FIX/two-outputs.md"
+chain_drift_case "a step hidden between two outputs on one line (#233)" "$CHAIN_FIX/two-outputs.md" "$CHAIN_FIX/base.yml" \
+  "Alpha Chain: unrecognised output line \"[Review] Security Engineer [Assessment]\""
+awk '$0 == "  [Approval → Release Chain]" { print "  [Approval → [Release] Chain]"; next } { print }' \
+  "$CHAIN_FIX/base.md" > "$CHAIN_FIX/nested-output.md"
+chain_drift_case "an output line holding a nested bracket pair" "$CHAIN_FIX/nested-output.md" "$CHAIN_FIX/base.yml" \
+  "Alpha Chain: unrecognised output line \"[Approval → [Release] Chain]\""
 
 # --- Rule 1: what cannot be compared fails. It is never skipped.
 awk '/^# / { beta = ($0 == "# Beta Chain") } !(beta && /^```/)' \
@@ -6065,6 +6088,172 @@ cp "$CARRY" "$WORK/carry-alone/"
 expect 2 "without merge-classify.sh beside it, it fails closed" -- \
   bash "$WORK/carry-alone/check-approval-carry-over.sh" "$CO_A" "$CO_OK" --base develop
 expect_output "merge-classify.sh not found"
+
+# ------------------------------------------------ create-session-state.sh ----
+
+section "create-session-state.sh — the adopter's state file, written after the first commit (WU-IAENG-348, #218)"
+
+# Issue #218: an adopter created .ia-engineering/SESSION_STATE.md by hand, and
+# two mistakes went unreported until the first session — a whole-file copy of
+# the template (the hook then read the placeholder `_Last updated:` line, #213)
+# and a localized month name lib.sh's iaeng_month_num does not know. The
+# acceptance is end to end: in a fresh repository after its first commit, the
+# helper runs, then the REAL session-start.sh prints `Last updated: <today>`
+# with no date warning and no "behind" warning.
+CSS="$SCRIPTS/create-session-state.sh"
+CSS_FW="$(cd "$SCRIPTS/../.." && pwd)"
+CSS_HOOK="$CSS_FW/Adapters/ai-runtimes/claude-code/hooks/session-start.sh"
+CSS_TODAY="$(LC_ALL=C date '+%d %B %Y')"
+CSS_TODAY="${CSS_TODAY#0}"
+
+# Runs the real session-start.sh with stdin at /dev/null, because lib.sh reads
+# its hook payload with `cat`. A feeder script rather than a shell function,
+# because a function reached only through `expect "$@"` is reported
+# unreachable (SC2317), as the pre-push feeder above explains.
+cat > "$WORK/css-session-start-feed.sh" <<'FEED'
+bash "$1" </dev/null
+FEED
+CSS_SESSION_START=(bash "$WORK/css-session-start-feed.sh" "$CSS_HOOK")
+
+# --- refusals: nothing is written --------------------------------------------
+mkdir -p "$WORK/css-nogit"
+cd "$WORK/css-nogit" || exit 1
+expect 1 "refuses outside a git work tree" -- env GIT_CEILING_DIRECTORIES="$WORK" bash "$CSS"
+expect_output "not inside a git work tree"
+
+rm -rf "$WORK/css-nocommit"
+mkdir -p "$WORK/css-nocommit"
+cd "$WORK/css-nocommit" || exit 1
+git init -q -b main .
+printf '/.ia-engineering/SESSION_STATE.md\n' > .gitignore
+expect 1 "refuses before the project's first commit" -- bash "$CSS"
+expect_output "no commit yet"
+expect_output "commit(s) behind"
+expect 1 "nothing was written before the first commit" -- test -e .ia-engineering/SESSION_STATE.md
+
+new_repo css-notignored
+expect 1 "refuses a path git does not ignore" -- bash "$CSS"
+expect_output "is not ignored by git"
+expect 1 "nothing was written when the path is not ignored" -- test -e .ia-engineering/SESSION_STATE.md
+
+# --- the real run, then the real session-start.sh ------------------------------
+new_repo css-adopter
+printf '/.ia-engineering/SESSION_STATE.md\n' > .gitignore
+git add .gitignore
+git commit -q -m "adoption"
+expect 0 "creates the state file after the first commit" -- bash "$CSS"
+expect_output "Last updated: $CSS_TODAY by Test Runner"
+expect_output "# SESSION STATE — css-adopter"
+expect_output "Gitignored: yes"
+CSS_FILE=".ia-engineering/SESSION_STATE.md"
+CSS_FIRST_LINE="$(head -1 "$CSS_FILE")"
+expect 0 "the file starts at the block's comment line, not the template's title" -- \
+  test "$CSS_FIRST_LINE" = "<!--"
+expect 1 "only the block was copied: no template title" -- grep -qF "# Session State Template" "$CSS_FILE"
+expect 1 "only the block was copied: no fence line" -- grep -qF '```' "$CSS_FILE"
+expect 0 "the block was copied to its end" -- grep -qxF "## Open Questions" "$CSS_FILE"
+expect 1 "no placeholder left on the _Last updated: line" -- grep -qE '^_Last updated: \[' "$CSS_FILE"
+expect 1 "no carriage return in the written file" -- grep -q $'\r' "$CSS_FILE"
+expect 0 "the written file is ignored by git" -- git check-ignore -q "$CSS_FILE"
+CSS_PORCELAIN="$(git status --porcelain)"
+expect 0 "git status shows nothing to commit" -- test -z "$CSS_PORCELAIN"
+
+expect 0 "session-start.sh runs on the created file" -- \
+  env CLAUDE_PROJECT_DIR="$PWD" IAENG_FRAMEWORK="$CSS_FW" "${CSS_SESSION_START[@]}"
+expect_output "Last updated: $CSS_TODAY by Test Runner"
+expect_output_absent "no parsable date"
+expect_output_absent "could not be parsed"
+expect_output_absent "was not refreshed"
+expect_output_absent "behind the repository"
+expect_output_absent "SESSION_STATE.md does not exist"
+expect_output "2. .ia-engineering/SESSION_STATE.md — where things actually stand."
+
+# --- never overwrite --------------------------------------------------------------
+echo "a line the project wrote" >> "$CSS_FILE"
+CSS_SUM="$(cksum < "$CSS_FILE")"
+expect 1 "refuses to overwrite an existing state file" -- bash "$CSS"
+expect_output "already exists"
+CSS_SUM_AFTER="$(cksum < "$CSS_FILE")"
+expect 0 "the existing file is unchanged" -- test "$CSS_SUM_AFTER" = "$CSS_SUM"
+
+# --- the English month whatever the caller's locale; names written as typed ------
+new_repo css-locale
+printf '/.ia-engineering/SESSION_STATE.md\n' > .gitignore
+git add .gitignore
+git commit -q -m "adoption"
+expect 0 "a French locale in the environment still gives an English month" -- \
+  env LANG=fr_FR.UTF-8 LC_ALL=fr_FR.UTF-8 LC_TIME=fr_FR.UTF-8 bash "$CSS" --name 'A & B/C\x' --by 'Platform Engineer'
+expect_output "Last updated: $CSS_TODAY by Platform Engineer"
+expect 0 "--name is written as typed (&, / and \\ are not replacement syntax)" -- \
+  grep -qxF '# SESSION STATE — A & B/C\x' .ia-engineering/SESSION_STATE.md
+
+# --- fails closed when the template is not what it fills ----------------------------
+# A copy of the helper beside a fake framework tree, so the template it reads
+# can be broken without touching the real one.
+css_fake_fw() {
+  rm -rf "$WORK/css-fw"
+  mkdir -p "$WORK/css-fw/Adapters/scripts" "$WORK/css-fw/Templates"
+  cp "$CSS" "$WORK/css-fw/Adapters/scripts/"
+}
+new_repo css-badtemplate
+printf '/.ia-engineering/SESSION_STATE.md\n' > .gitignore
+git add .gitignore
+git commit -q -m "adoption"
+
+css_fake_fw
+expect 2 "fails closed when the template is missing" -- bash "$WORK/css-fw/Adapters/scripts/create-session-state.sh"
+expect_output "template not found"
+
+css_fake_fw
+printf '# Session State Template\n\n_Last updated: [DD Month YYYY, morning/evening] by [Employee or person]_\n' \
+  > "$WORK/css-fw/Templates/SESSION_STATE.md"
+expect 2 "fails closed when there is no fenced block under # Template" -- bash "$WORK/css-fw/Adapters/scripts/create-session-state.sh"
+expect_output "no complete"
+
+css_fake_fw
+cat > "$WORK/css-fw/Templates/SESSION_STATE.md" <<'TPL'
+# Template
+
+```markdown
+# SESSION STATE — [project name]
+
+_Last updated: [some other placeholder]_
+```
+TPL
+expect 2 "fails closed when the block's _Last updated: line is not the one it fills" -- bash "$WORK/css-fw/Adapters/scripts/create-session-state.sh"
+expect_output "changed shape"
+expect 1 "nothing was written when the template was wrong" -- test -e .ia-engineering/SESSION_STATE.md
+
+# The CRLF case: Templates/ is not forced to LF, so a Windows checkout may
+# hand the helper CRLF lines. They are filled, and written LF.
+css_fake_fw
+awk '{ printf "%s\r\n", $0 }' > "$WORK/css-fw/Templates/SESSION_STATE.md" <<'TPL'
+# Template
+
+```markdown
+<!-- x -->
+# SESSION STATE — [project name]
+
+_Last updated: [DD Month YYYY, morning/evening] by [Employee or person]_
+```
+TPL
+expect 1 "the CRLF fixture really has carriage returns" -- \
+  test "$(grep -c $'\r$' "$WORK/css-fw/Templates/SESSION_STATE.md")" -lt 8
+expect 0 "a CRLF template is read" -- bash "$WORK/css-fw/Adapters/scripts/create-session-state.sh"
+expect_output "Last updated: $CSS_TODAY by Test Runner"
+expect 1 "and written without carriage returns" -- grep -q $'\r' .ia-engineering/SESSION_STATE.md
+
+# --- the bootstrap's summary names the helper ----------------------------------------
+new_repo css-bootstrap
+CSS_BOOT_OUT="$(bash "$SCRIPTS/setup-project-bootstrap.sh" generic --dry-run 2>&1)"
+TOTAL=$((TOTAL + 1))
+if grep -qE '^  SESSION_STATE\.md +after the adoption commit: \./.*create-session-state\.sh$' <<< "$CSS_BOOT_OUT"; then
+  [ -n "$VERBOSE" ] && printf '   ok   the bootstrap summary names create-session-state.sh\n'
+else
+  printf '   FAIL the bootstrap summary does not name create-session-state.sh\n'
+  printf '%s\n' "$CSS_BOOT_OUT" | tail -25 | sed 's/^/        | /'
+  FAILED=$((FAILED + 1))
+fi
 
 # --------------------------------------------------------------- verdict ----
 

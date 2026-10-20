@@ -348,8 +348,13 @@ echo "Line endings"
 # otherwise check them out as CRLF (DEF-13, issue #181). They are EXACT paths,
 # not `* text=auto` or a wildcard over the project: this script has no claim
 # on the rest of the project's files and their line endings are its own.
+# /.claude/skills/** is the one directory: install-skills.sh writes it whole,
+# and its launchers are bash scripts (issue #242). install-hooks.sh and
+# install-skills.sh append their own line too when it is missing, for a
+# project that runs them without this script; each finds the other's.
 ATTR_RULES="/.github/** text eol=lf
 /.claude/settings.json text eol=lf
+/.claude/skills/** text eol=lf
 /.ia-engineering/stack text eol=lf
 /.ia-engineering/risk-map.yml text eol=lf
 /Registry/work-units.yml text eol=lf
