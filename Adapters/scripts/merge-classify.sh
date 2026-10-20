@@ -37,7 +37,11 @@
 # merge.renames=false and merge.directoryRenames change how renames merge;
 # a low merge.renameLimit, or the diff.renameLimit it falls back to, skips
 # rename detection, so an edit to a renamed file conflicts (issue #237);
-# merge.renormalize rewrites line endings before merging. Each is pinned to
+# merge.renormalize rewrites line endings before merging; merge.default names
+# the driver for every path whose `merge` attribute is unset, which with the
+# attributes pinned to the empty tree is every path: `union` made a
+# union-shaped hand resolution "clean", and a custom driver's command ran
+# (Security Engineer on PR #249, SEC-IAENG-351-F1). Each is pinned to
 # git's documented default, so two machines compute the same merge from the
 # same two commits — the record check-approval-carry-over.sh prints has to be
 # reproducible by whoever audits it, and a classification must not depend on
@@ -50,8 +54,10 @@
 # "automatic" merge, and a local refs/replace entry made git read one merge
 # as another. core.attributesFile=/dev/null (Git for Windows maps it too),
 # GIT_ATTR_NOSYSTEM=1 and GIT_NO_REPLACE_OBJECTS=1 close those. A non-empty
-# $GIT_DIR/info/attributes cannot be switched off by an option; the
-# carry-over check refuses to run with one. In CI none of these exist, so the
+# $GIT_DIR/info/attributes cannot be switched off by an option, nor can
+# grafts ($GIT_DIR/info/grafts or $GIT_GRAFT_FILE), which rewrite a commit's
+# parents and survive GIT_NO_REPLACE_OBJECTS (SEC-IAENG-351-F2); the
+# carry-over check refuses to run with either. In CI none of these exist, so the
 # required checks classify exactly as before.
 #
 # ONE AUTOMATIC MERGE. merge_classify_automatic is the only place the automatic
@@ -113,6 +119,7 @@ merge_classify_automatic() {
       -c merge.renameLimit=7000 \
       -c merge.directoryRenames=conflict \
       -c merge.renormalize=false \
+      -c merge.default=text \
       --attr-source="$MERGE_CLASSIFY_EMPTY_TREE" \
       merge-tree --write-tree --no-messages "$@" "$p1" "$p2"
 }

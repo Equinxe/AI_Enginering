@@ -89,11 +89,11 @@
 # FAILS CLOSED. Exit 2, never 0, when it cannot decide: a revision that does
 # not resolve, a shallow clone, git older than 2.40 (`merge-tree --write-tree`
 # needs 2.38, --attr-source 2.40), merge-classify.sh missing, a git command
-# failing, a non-empty $GIT_DIR/info/attributes, or an environment variable
-# that moves git's repository, objects, config or attribute source (GIT_DIR,
-# GIT_WORK_TREE, GIT_COMMON_DIR, GIT_INDEX_FILE, GIT_OBJECT_DIRECTORY,
-# GIT_ALTERNATE_OBJECT_DIRECTORIES, GIT_ATTR_SOURCE, GIT_REPLACE_REF_BASE,
-# GIT_NAMESPACE, GIT_CONFIG*). Replace refs and the system attributes file are
+# failing, a non-empty $GIT_DIR/info/attributes or info/grafts, or an
+# environment variable that moves git's repository, objects, parents, config
+# or attribute source (GIT_DIR, GIT_WORK_TREE, GIT_COMMON_DIR, GIT_INDEX_FILE,
+# GIT_OBJECT_DIRECTORY, GIT_ALTERNATE_OBJECT_DIRECTORIES, GIT_ATTR_SOURCE,
+# GIT_REPLACE_REF_BASE, GIT_NAMESPACE, GIT_GRAFT_FILE, GIT_CONFIG*). Replace refs and the system attributes file are
 # ignored, and core.attributesFile is pinned: the machine running the check
 # cannot make a hand resolution look like git's own merge. Exit 1, with the reason, when the history or the registry is not
 # what the rule requires, including a registry this script cannot read
@@ -240,11 +240,13 @@ done
 # objects, its config or its attribute source are refused before git runs
 # once; replace refs and the system attributes file are switched off for every
 # git command below; core.attributesFile is pinned in merge_classify_automatic;
-# a non-empty info/attributes is refused once the repository is found.
+# a non-empty info/attributes or info/grafts is refused once the repository
+# is found.
 for var in GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE GIT_OBJECT_DIRECTORY \
-           GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_ATTR_SOURCE GIT_REPLACE_REF_BASE GIT_NAMESPACE; do
+           GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_ATTR_SOURCE GIT_REPLACE_REF_BASE GIT_NAMESPACE \
+           GIT_GRAFT_FILE; do
   [ -z "${!var+set}" ] \
-    || cannot_decide "$var is set in the environment: it changes which repository, objects or attributes git reads, so the verdict would not be the one an auditor reproduces; unset it"
+    || cannot_decide "$var is set in the environment: it changes which repository, objects, parents or attributes git reads, so the verdict would not be the one an auditor reproduces; unset it"
 done
 for var in $(compgen -e); do
   case "$var" in
@@ -298,6 +300,15 @@ INFO_ATTRIBUTES="$(git rev-parse --git-path info/attributes 2> /dev/null)" \
   || cannot_decide "git rev-parse --git-path info/attributes failed"
 [ ! -s "$INFO_ATTRIBUTES" ] \
   || cannot_decide "$(q "$INFO_ATTRIBUTES") is not empty: git applies it to every merge and no option switches it off, so git's own merge here may not be the one an auditor reproduces (a merge=union line in it made a hand resolution pass); empty or remove it"
+# Grafts rewrite a commit's parents for every git command, and
+# GIT_NO_REPLACE_OBJECTS does not switch them off: a graft can make a commit
+# with content of its own look like a merge of develop (SEC-IAENG-351-F2).
+# --git-path resolves to $GIT_GRAFT_FILE when it is set, though that is
+# refused above.
+INFO_GRAFTS="$(git rev-parse --git-path info/grafts 2> /dev/null)" \
+  || cannot_decide "git rev-parse --git-path info/grafts failed"
+[ ! -s "$INFO_GRAFTS" ] \
+  || cannot_decide "$(q "$INFO_GRAFTS") is not empty: grafts rewrite the parents git reads and no option switches them off, so the history checked here may not be the history an auditor reproduces; empty or remove it"
 
 SHALLOW="$(git rev-parse --is-shallow-repository 2> /dev/null)" \
   || cannot_decide "git rev-parse --is-shallow-repository failed"

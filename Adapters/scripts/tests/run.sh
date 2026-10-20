@@ -5750,6 +5750,41 @@ expect 1 "core.attributesFile with merge=union does not turn a hand resolution i
   bash "$CARRY" "$CO_A" "$CO_UNION" --base "$CO_D2"
 expect_output "conflicts outside Registry/work-units.yml, in policy.md"
 git config --unset core.attributesFile
+
+# merge.default (Security Engineer on PR #249, SEC-IAENG-351-F1). With the
+# attributes pinned to the empty tree, every path merges with the driver
+# merge.default names: `union` made a union-shaped resolution git's own merge,
+# and a custom driver's command ran. Each merge below is commit-tree over the
+# tree the UNPINNED merge computes with that setting, so it is exactly what
+# the classifier called git's own merge before the pin.
+co_classify() { bash -c '. "$1" && merge_classify "$2"' _ "$SCRIPTS/merge-classify.sh" "$1"; }
+CO_MD_UNION_TREE="$(git -c merge.default=union --attr-source=4b825dc642cb6eb9a060e54bf8d69288fbee4904 merge-tree --write-tree --no-messages "$CO_A" "$CO_D2" | head -1)"
+CO_MD_UNION="$(git commit-tree -m "Merge develop, every conflict union-resolved" -p "$CO_A" -p "$CO_D2" "$CO_MD_UNION_TREE")"
+git config merge.default union
+expect 0 "merge.default lab is load-bearing: with merge.default=union an unpinned git merge-tree is clean" -- \
+  git merge-tree --write-tree --no-messages "$CO_A" "$CO_D2"
+expect 0 "a local merge.default=union does not make a union-shaped merge clean" -- \
+  test "$(co_classify "$CO_MD_UNION")" = authored
+expect 1 "a local merge.default=union does not carry an approval over a union-shaped merge" -- \
+  bash "$CARRY" "$CO_A" "$CO_MD_UNION" --base "$CO_D2"
+expect_output "conflicts outside Registry/work-units.yml, in policy.md"
+git config --unset merge.default
+# A custom driver that takes the other side, and leaves a trace when it runs.
+CO_DRIVER_RAN="$WORK/carry-driver-ran"
+git config merge.carry-theirs.driver "echo ran >> '$CO_DRIVER_RAN'; cp %B %A"
+CO_MD_THEIRS_TREE="$(git -c merge.default=carry-theirs --attr-source=4b825dc642cb6eb9a060e54bf8d69288fbee4904 merge-tree --write-tree --no-messages "$CO_A" "$CO_D2" | head -1)"
+CO_MD_THEIRS="$(git commit-tree -m "Merge develop, every conflict resolved to develop's side" -p "$CO_A" -p "$CO_D2" "$CO_MD_THEIRS_TREE")"
+expect 0 "custom-driver lab is load-bearing: the unpinned merge ran the driver" -- test -s "$CO_DRIVER_RAN"
+rm -f "$CO_DRIVER_RAN"
+git config merge.default carry-theirs
+expect 0 "a local merge.default naming a custom driver does not make that driver's merge clean" -- \
+  test "$(co_classify "$CO_MD_THEIRS")" = authored
+expect 1 "a local merge.default naming a custom driver does not carry an approval over that driver's merge" -- \
+  bash "$CARRY" "$CO_A" "$CO_MD_THEIRS" --base "$CO_D2"
+expect_output "conflicts outside Registry/work-units.yml, in policy.md"
+expect 1 "the custom driver's command never ran in the pinned merge" -- test -e "$CO_DRIVER_RAN"
+git config --unset merge.default
+git config --unset merge.carry-theirs.driver
 mkdir -p .git/info
 printf '* merge=union\n' > .git/info/attributes
 expect 2 "a non-empty .git/info/attributes, which no option switches off, fails closed" -- \
@@ -5760,6 +5795,29 @@ expect_output "info/attributes"
 : > .git/info/attributes
 expect 0 "an empty .git/info/attributes is not refused" -- \
   bash "$CARRY" "$CO_A" "$CO_OK" --base develop
+# Grafts (Security Engineer on PR #249, SEC-IAENG-351-F2) rewrite parents and
+# survive GIT_NO_REPLACE_OBJECTS. A single-parent commit holding the honest
+# merge's tree, grafted onto develop as a second parent, reads as that merge.
+CO_SOLO="$(git commit-tree -m "not a merge" -p "$CO_A" "$CO_OK^{tree}")"
+# The grafts file stays, emptied, for the rest of this lab; git prints a
+# deprecation hint for it on every command, which would bury real output.
+git config advice.graftFileDeprecated false
+printf '%s %s %s\n' "$CO_SOLO" "$CO_A" "$CO_D1" > .git/info/grafts
+expect 0 "grafts lab is load-bearing: with GIT_NO_REPLACE_OBJECTS=1 the graft still gives the commit two parents" -- \
+  test "$(env GIT_NO_REPLACE_OBJECTS=1 git rev-list --parents -n 1 "$CO_SOLO" 2> /dev/null)" = "$CO_SOLO $CO_A $CO_D1"
+expect 2 "a non-empty .git/info/grafts fails closed" -- \
+  bash "$CARRY" "$CO_A" "$CO_SOLO" --base develop
+expect_output "info/grafts"
+: > .git/info/grafts
+expect 1 "without the graft, the same commit is refused as not a merge" -- \
+  bash "$CARRY" "$CO_A" "$CO_SOLO" --base develop
+expect_output "is not a merge"
+expect 0 "an empty .git/info/grafts is not refused" -- \
+  bash "$CARRY" "$CO_A" "$CO_OK" --base develop
+printf '%s %s %s\n' "$CO_SOLO" "$CO_A" "$CO_D1" > "$WORK/carry-grafts"
+expect 2 "GIT_GRAFT_FILE in the environment fails closed" -- \
+  env GIT_GRAFT_FILE="$WORK/carry-grafts" bash "$CARRY" "$CO_A" "$CO_SOLO" --base develop
+expect_output "GIT_GRAFT_FILE is set"
 # A local replace ref that shows the honest merge in place of the hand-edited one.
 git replace "$CO_EDIT" "$CO_OK"
 expect 1 "a refs/replace entry swapping in an honest merge for a hand-edited one is ignored" -- \
@@ -5902,10 +5960,9 @@ CR_CLEAN="$(git rev-parse HEAD)"
 co_start m-rename "$CR_CLEAN" "$CR_D2" "WU-T-1:one" "WU-T-4:four" "WU-T-3:three"
 co_commit
 CR_M="$CO_M"
-cr_classify() { bash -c '. "$1" && merge_classify "$2"' _ "$SCRIPTS/merge-classify.sh" "$1"; }
 expect 0 "rename lab: git merged the renames on its own (develop's edit is in first.txt)" -- \
   grep -qx 'alpha line 5 (develop)' first.txt
-expect 0 "rename lab: the clean merge classifies clean" -- test "$(cr_classify "$CR_CLEAN")" = clean
+expect 0 "rename lab: the clean merge classifies clean" -- test "$(co_classify "$CR_CLEAN")" = clean
 expect 0 "rename lab: the honest update merge carries over" -- \
   bash "$CARRY" "$CR_A" "$CR_M" --base develop
 # Load-bearing: with the limit at 1, git's merge left unpinned conflicts on
@@ -5915,13 +5972,13 @@ expect 1 "rename lab is load-bearing: merge.renameLimit=1 makes an unpinned git 
   git merge-tree --write-tree --no-messages --name-only "$CR_A" "$CR_D1"
 expect_output "alpha.txt"
 expect 0 "a local merge.renameLimit=1 does not make the clean merge authored" -- \
-  test "$(cr_classify "$CR_CLEAN")" = clean
+  test "$(co_classify "$CR_CLEAN")" = clean
 expect 0 "a local merge.renameLimit=1 does not refuse the honest update merge" -- \
   bash "$CARRY" "$CR_A" "$CR_M" --base develop
 git config --unset merge.renameLimit
 git config diff.renameLimit 1
 expect 0 "a local diff.renameLimit=1 (merge.renameLimit's fallback) does not make the clean merge authored" -- \
-  test "$(cr_classify "$CR_CLEAN")" = clean
+  test "$(co_classify "$CR_CLEAN")" = clean
 expect 0 "a local diff.renameLimit=1 does not refuse the honest update merge" -- \
   bash "$CARRY" "$CR_A" "$CR_M" --base develop
 git config --unset diff.renameLimit
