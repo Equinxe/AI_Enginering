@@ -304,6 +304,70 @@ if check 'GIT_CONFIG_KEY_[0-9]+\+?=([[:space:];&|]|$|[^[:space:];&|]*\$)'; then
   iaeng_block "GIT_CONFIG_KEY_<n> names a git config key this hook cannot read after quote-stripping — refused rather than assumed to be something other than core.hooksPath" \
     "Standards/GIT_STANDARD.md, Escape Hatches. Write the key literally in the command so it can be reviewed, or ask a human to run it."
 fi
+# VARIABLE INDEX (WU-IAENG-349, issue #236; option B, Director, 20 Oct 2026).
+# `GIT_CONFIG_KEY_$i=…`, `GIT_CONFIG_KEY_${i}=…`, `GIT_CONFIG_KEY_$(…)=…` and
+# the backtick form name a variable this hook cannot read. To bash such a word
+# is not an assignment, but export, declare, typeset, readonly, local and env
+# receive the expanded word and set the variable. The two rules above key on a
+# literal index, so `export GIT_CONFIG_KEY_$i=$K` walked past both. Refused in
+# every form. The lexer prints a `$(…)` or backtick index as separate words
+# (`GIT_CONFIG_KEY_ echo 0 =…`), which is also what a prefix search such as
+# `grep GIT_CONFIG_KEY_ dir` leaves, so that shape is refused only when the RAW
+# command shows the substitution right after the name; a quoted mention is gone
+# from the stripped text and cannot satisfy the first half. Reading or removing
+# with a variable index (`printenv GIT_CONFIG_KEY_$i`, `unset GIT_CONFIG_KEY_$i`)
+# has no `=` and stays allowed; a bare operand of an assigning builtin
+# (`export GIT_CONFIG_KEY_$i`) is already refused by GCN above.
+if check 'GIT_CONFIG_KEY_[^[:space:];&|=+]*\$[^[:space:];&|=+]*\+?=' \
+   || { check 'GIT_CONFIG_KEY_[0-9]*([[:space:]]|$)' \
+        && grep -qE 'GIT_CONFIG_KEY_[0-9]*(\$\(|`)' <<< "$CMD"; }; then
+  iaeng_block "GIT_CONFIG_KEY_<n> with a variable or substituted index names a git config key variable this hook cannot read after quote-stripping — refused rather than assumed to be something other than core.hooksPath" \
+    "Standards/GIT_STANDARD.md, Escape Hatches. Write the index and the key literally in the command so they can be reviewed, or ask a human to run it."
+fi
+# KEYS THAT TURN OFF OR REDIRECT A CONTROL (WU-IAENG-349, issue #236; option B,
+# Director, 20 Oct 2026). A literal key was judged only against core.hooksPath,
+# so `GIT_CONFIG_KEY_0=commit.gpgsign GIT_CONFIG_VALUE_0=false` turned signing
+# off past the gpgsign rule (the value sits in a different variable), and
+# include.path, includeIf.<condition>.path, alias.<name> and core.fsmonitor
+# load another config file, redefine a command or run a program, none of it
+# visible in the command text. These keys are refused when written literally as
+# the value of GIT_CONFIG_KEY_<n> in any form (prefix, export, declare, typeset,
+# readonly, local, env) and as the key of a `git -c` or `--config-env` global
+# option, whatever the value, in any case spelling. One exception: through
+# `git -c`, commit.gpgsign is the listed key with a readable safe value —
+# `-c commit.gpgsign=true` turns signing ON, and is an allow case older than
+# this rule. It is refused unless EVERY such option in the command is the bare
+# key or a literal true (true, yes, on, 1): a false spelling is the gpgsign
+# rule's, while an empty value (git reads it as false), a `$` value, an unknown
+# word and --config-env (the value sits in another variable) cannot be read as
+# true. As a GIT_CONFIG_KEY_<n> value it is always refused, because the value
+# is in GIT_CONFIG_VALUE_<n>. Not repeated here:
+#   - core.hooksPath. The hooksPath rule above refuses it in both places already:
+#     its per-segment `git…core.hooksPath` match is case-insensitive, so the
+#     variable name GIT_CONFIG_KEY_<n> supplies the `git`. Tests pin both forms.
+#   - `git config alias.x …` and the other persistent writes, which stay with
+#     the alias rule below; a subcommand's own -c (`git show -c x`) is not a
+#     config option and is not matched, because G admits only global options
+#     between `git` and the -c.
+# GIT_CONFIG_GLOBAL, GIT_CONFIG_SYSTEM and a config file that includes another
+# reach the same keys through a file this hook never reads; a text hook cannot
+# close that route (issue #245).
+# DANGER_KEY for a GIT_CONFIG_KEY_<n> value; DANGER_KEY_C, the same list less
+# commit.gpgsign, for git -c / --config-env, where gpgsign is judged by value.
+DANGER_KEY='(commit\.gpgsign([[:space:];&|)=]|$)|include\.|includeif\.|alias\.|core\.fsmonitor([[:space:];&|)=]|$))'
+DANGER_KEY_C='(include\.|includeif\.|alias\.|core\.fsmonitor([[:space:];&|)=]|$))'
+GPGSIGN_C=0
+if check_key "${G}(-c${S}+|--config-env(=|${S}+))commit\.gpgsign"; then
+  while IFS= read -r TOK; do
+    grep -qiE -- '^-c[[:space:]]+commit\.gpgsign(=(true|yes|on|1))?$' <<< "$TOK" || GPGSIGN_C=1
+  done < <(grep -oiE -- "(-c${S}+|--config-env(=|${S}+))commit\.gpgsign[^[:space:];&|)]*" <<< "$STRIPPED")
+fi
+if check_key "GIT_CONFIG_KEY_[0-9]+\+?=${DANGER_KEY}" \
+   || check_key "${G}(-c${S}+|--config-env(=|${S}+))${DANGER_KEY_C}" \
+   || [ "$GPGSIGN_C" -eq 1 ]; then
+  iaeng_block "GIT_CONFIG_KEY_<n> or git -c / --config-env sets commit.gpgsign, include.*, includeIf.*, alias.* or core.fsmonitor — keys that turn off signing, load config this hook cannot read, redefine a command or run a program — refused in every form, whatever the value (git -c commit.gpgsign passes only as the bare key or a literal true)" \
+    "Standards/GIT_STANDARD.md, Escape Hatches. Use the setting the project already has, or ask a human to run it and describe why in the commit."
+fi
 if check "${G}stash$E" && ! check "${G}stash${S}+(list|show)$E"; then
   iaeng_block "git stash sets work aside with no record; it is local, unlabelled, and lost with the clone" \
     "Standards/GIT_STANDARD.md, Escape Hatches. Commit as work in progress on the feature branch, or open a second branch."

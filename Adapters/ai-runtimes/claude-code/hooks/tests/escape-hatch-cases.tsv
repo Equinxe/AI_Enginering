@@ -613,3 +613,98 @@ allow	git commit -m "printf -v GIT_CONFIG_PARAMETERS and read -r GIT_CONFIG_PARA
 allow	git commit -m 'declare -x GIT_CONFIG_KEY_0' -m "mapfile GIT_CONFIG_PARAMETERS"
 allow	echo export GIT_CONFIG_PARAMETERS
 allow	sed -i 's/export GIT_CONFIG_PARAMETERS//' notes.md
+# --- WU-IAENG-349 (issue #236; option B, Director, 20 Oct 2026): the literal-key design stays; a variable or
+# substituted GIT_CONFIG_KEY index is refused in every form, and commit.gpgsign, include.*, includeIf.*, alias.*
+# and core.fsmonitor are refused as a literal GIT_CONFIG_KEY_<n> value in every form and in git -c / --config-env.
+# Variable or substituted index:
+block	export GIT_CONFIG_KEY_$i=$K
+block	export GIT_CONFIG_KEY_${i}=safe.directory
+block	export GIT_CONFIG_KEY_${i}+=x
+block	declare -x GIT_CONFIG_KEY_$i=$K
+block	typeset -x GIT_CONFIG_KEY_$n=x
+block	readonly GIT_CONFIG_KEY_$n=x
+block	f() { local -x GIT_CONFIG_KEY_$n=x; }
+block	env GIT_CONFIG_KEY_$i=x git commit -m x
+block	env GIT_CONFIG_KEY_$((i+1))=x git status
+block	GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_$i=x GIT_CONFIG_VALUE_$i=y git commit -m x
+block	(export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_$i=x GIT_CONFIG_VALUE_$i=y; git commit -m x)
+block	export GIT_CONFIG_KEY_"$i"=x
+block	export GIT_CONFIG_KEY_$i'=x'
+block	export GIT_CONFIG_KEY_$(echo 0)=x
+block	export GIT_CONFIG_KEY_`echo 0`=x
+block	env GIT_CONFIG_KEY_`echo 0`=x git status
+# A key that turns off or redirects a control, written literally, in every assigning form:
+block	(export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=include.path GIT_CONFIG_VALUE_0=/tmp/a; bash chk.sh)
+block	GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=commit.gpgsign GIT_CONFIG_VALUE_0=false git commit -m x
+block	export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=commit.gpgSign GIT_CONFIG_VALUE_0=false; git commit -m x
+block	declare -x GIT_CONFIG_KEY_0=COMMIT.GPGSIGN
+block	env GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=include.path GIT_CONFIG_VALUE_0=/tmp/evil git commit -m x
+block	typeset -x GIT_CONFIG_KEY_1=includeIf.gitdir:/repo/.path
+block	readonly -x GIT_CONFIG_KEY_0=alias.c
+block	f() { local -x GIT_CONFIG_KEY_0=Alias.ci; }
+block	export GIT_CONFIG_KEY_0=core.fsmonitor
+block	GIT_CONFIG_KEY_0=core.fsMonitor GIT_CONFIG_VALUE_0=/tmp/x.sh git status
+block	GIT_CONFIG_KEY_0+=alias.x git x
+block	env GIT_CONFIG_KEY_0'=core.fsmonitor' git status
+block	GIT_CONFIG_KEY_0=ali''as.x git x
+block	GIT_CONFIG_KEY_0=include{If.x,}.path git x
+# ... and as a git -c / --config-env global option, whatever the value:
+block	git -c commit.gpgsign= commit -m x
+block	git -c commit.gpgsign=$V commit -m x
+block	git -c commit.gpgsign=maybe commit -m x
+block	git --config-env=commit.gpgsign=V commit -m x
+block	git -c commit.gpgsign=true -c commit.gpgsign=$V commit -m x
+block	git -c include.path=/tmp/evil commit -m x
+block	git -c Include.Path=/tmp/evil status
+block	git -c 'include.path=/tmp/evil' status
+block	git -c include."path"=/tmp/evil status
+block	git -c includeIf.onbranch:main.path=/tmp/evil commit -m x
+block	git -c alias.c=commit c -m x
+block	git -c "alias.x=!sh -c id" x
+block	git -C . -c alias.st=status st
+block	git --config-env=alias.c=CMD c
+block	git --config-env include.path=P status
+block	git -c core.fsmonitor=/tmp/x.sh status
+block	git --no-pager -c core.fsmonitor=/tmp/x.sh status
+# core.hooksPath stays with the hooksPath rule, which already refuses it as a GIT_CONFIG_KEY_<n> value (pinned):
+block	GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.hooksPath GIT_CONFIG_VALUE_0=/dev/null git commit -m x
+block	export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=Core.HooksPath GIT_CONFIG_VALUE_0=/dev/null; git commit -m x
+block	env GIT_CONFIG_KEY_0=core.hookspath git commit -m x
+block	declare -x GIT_CONFIG_KEY_0=CORE.HOOKSPATH
+# Still allowed: a literal key not on the list (issue #236's own key included), COUNT and VALUE in every form,
+# a subcommand's own -c, persistent alias writes (the alias rule's scope), reads, removals and quoted mentions.
+allow	(export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.attributesFile GIT_CONFIG_VALUE_0=/tmp/a; bash chk.sh)
+allow	export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=safe.directory GIT_CONFIG_VALUE_0=/repo
+allow	env GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=safe.directory GIT_CONFIG_VALUE_0=/repo git status
+allow	declare -x GIT_CONFIG_COUNT=1
+allow	typeset -x GIT_CONFIG_VALUE_0=/repo
+allow	readonly -x GIT_CONFIG_COUNT=1
+allow	GIT_CONFIG_KEY_0=core.editor GIT_CONFIG_VALUE_0=vim git commit
+allow	GIT_CONFIG_KEY_0=aliases.x git status
+allow	GIT_CONFIG_KEY_0=core.fsmonitorHookVersion git status
+allow	git -c safe.directory=/repo status
+allow	git -c user.name=x commit -m y
+allow	git -c color.ui=false log
+allow	git show -c include.md
+allow	git log -c --stat
+allow	git grep include.path
+allow	git config alias.co checkout
+allow	git config --get alias.co
+allow	git config --get include.path
+allow	printenv GIT_CONFIG_KEY_$i
+allow	unset GIT_CONFIG_KEY_$i
+allow	echo GIT_CONFIG_KEY_$i
+allow	echo ${GIT_CONFIG_KEY_0}
+allow	grep -rn GIT_CONFIG_KEY_ Adapters/
+allow	grep -rn 'export GIT_CONFIG_KEY_$i=' Adapters/
+allow	git -c commit.gpgsign commit -m x
+allow	git -c commit.gpgSign=YES commit -m x
+allow	git -c commit.gpgsign="true" commit -m x
+# Known false positive, by the lexer's contract: a quoted word with no whitespace is kept as a command token.
+block	grep -rn 'GIT_CONFIG_KEY_$i=' Adapters/
+allow	echo "export GIT_CONFIG_KEY_$i=$K"
+allow	echo 'GIT_CONFIG_KEY_`n`'
+allow	git commit -m 'export GIT_CONFIG_KEY_$i=$K and git -c alias.x=y are refused'
+allow	git commit -m "GIT_CONFIG_KEY_0=include.path is refused"
+allow	gh issue create --title 'git -c include.path and GIT_CONFIG_KEY_0=alias.x' --body x
+allow	sed -i 's/git -c alias.x=y//' notes.md
