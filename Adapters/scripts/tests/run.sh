@@ -3396,7 +3396,7 @@ if ln -s "$FRAMEWORK_ROOT" ia-engineering 2>/dev/null; then
     FAILED=$((FAILED + 1))
   fi
 
-  for rule in '/.claude/settings.json' '/.ia-engineering/stack' '/.ia-engineering/risk-map.yml' \
+  for rule in '/.claude/settings.json' '/.claude/skills/**' '/.ia-engineering/stack' '/.ia-engineering/risk-map.yml' \
               '/Registry/work-units.yml' '/Dockerfile' '/.gitmodules'; do
     TOTAL=$((TOTAL + 1))
     if grep -qxF "$rule text eol=lf" .gitattributes 2>/dev/null; then
@@ -3429,7 +3429,7 @@ if ln -s "$FRAMEWORK_ROOT" ia-engineering 2>/dev/null; then
   expect 0 "install.sh run on its own succeeds" -- bash ./ia-engineering/Adapters/scripts/install.sh
   expect_output "setup-project-bootstrap.sh <stack>"
 else
-  skip 9 "bootstrap registry/LF/summary: ln -s failed on this platform (no admin rights / Developer Mode off) -- not a fix defect."
+  skip 12 "bootstrap registry/LF/summary: ln -s failed on this platform (no admin rights / Developer Mode off) -- not a fix defect."
 fi
 
 section "install-hooks.sh — framework-inside-project by identity, not spelling (WU-IAENG-320, DEF-14)"
