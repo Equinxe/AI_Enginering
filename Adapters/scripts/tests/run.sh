@@ -6005,6 +6005,138 @@ expect 0 "a local diff.renameLimit=1 (merge.renameLimit's fallback) does not mak
 expect 0 "a local diff.renameLimit=1 does not refuse the honest update merge" -- \
   bash "$CARRY" "$CR_A" "$CR_M" --base develop
 git config --unset diff.renameLimit
+
+# merge.text.driver (Security Engineer on PR #249, SEC-IAENG-351-F4). A named
+# driver is looked up among merge.<name>.driver entries before the built-ins,
+# so pinning merge.default=text let one local merge.text.driver replace
+# git's merge: a take-theirs hand resolution read clean, the honest merge
+# authored. git's own merge now sets the `merge` attribute, which selects the
+# built-in driver before any name is looked up. The take-theirs merge below
+# is made by git merge with that driver; the honest one is CR_CLEAN, whose
+# renamed files both sides edited, so the driver would decide its content.
+git checkout -q -B m-rename-theirs "$CR_A"
+git -c merge.cr-theirs.driver='cp %B %A' -c merge.default=cr-theirs merge -q --no-ff --no-edit "$CR_D1" > /dev/null 2>&1
+CR_THEIRS="$(git rev-parse HEAD)"
+expect 1 "text-driver lab: the take-theirs merge dropped the PR's own edit (a hand resolution)" -- \
+  grep -qx 'alpha line 35 (pr)' first.txt
+CR_RAN0="$WORK/carry-text-ran-0"
+expect 0 "text-driver lab is load-bearing: merge.default=text with a local merge.text.driver replaces git's merge" -- \
+  test "$(git -c merge.default=text -c merge.text.driver="echo ran >> '$CR_RAN0'; cp %B %A" merge-tree --write-tree --no-messages "$CR_A" "$CR_D1" | head -1)" = "$(git rev-parse "$CR_THEIRS^{tree}")"
+expect 0 "text-driver lab is load-bearing: that driver's command ran" -- test -s "$CR_RAN0"
+# Phase 1: merge.text.driver alone. Phase 2: with merge.default=text too.
+# Each phase has its own marker, so no marker is removed between them.
+for cr_phase in 1 2; do
+  cr_ran="$WORK/carry-text-ran-$cr_phase"
+  cr_with=""
+  git config merge.text.driver "echo ran >> '$cr_ran'; cp %B %A"
+  if [ "$cr_phase" -eq 2 ]; then
+    git config merge.default text
+    cr_with=" and merge.default=text"
+  fi
+  expect 0 "a local merge.text.driver$cr_with does not make a take-theirs merge clean" -- \
+    test "$(co_classify "$CR_THEIRS")" = authored
+  expect 0 "a local merge.text.driver$cr_with does not make the honest merge authored" -- \
+    test "$(co_classify "$CR_CLEAN")" = clean
+  expect 0 "a local merge.text.driver$cr_with does not refuse the honest update merges" -- \
+    bash "$CARRY" "$CR_A" "$CR_M" --base develop
+  expect 1 "a local merge.text.driver$cr_with does not carry an approval over the take-theirs merge" -- \
+    bash "$CARRY" "$CR_A" "$CR_THEIRS" --base develop
+  expect_output "differs from git's own merge of its parents outside Registry/work-units.yml, in first.txt"
+  expect 1 "the local merge.text.driver$cr_with never ran" -- test -e "$cr_ran"
+done
+git config --unset merge.default
+git config --unset merge.text.driver
+
+# A commit-graph (Security Engineer on PR #249, SEC-IAENG-351-F3) records
+# each commit's parents, and git reads them from it instead of the commit
+# object; neither GIT_NO_REPLACE_OBJECTS nor the grafts refusal sees it. A
+# graph patched to give a single-parent commit develop as a second parent
+# made the check print a record for a commit that is not a merge.
+#
+# cg_patch_second_parent <graph> <commit> <parent> — sets <commit>'s second
+# parent to <parent> in a commit-graph file and recomputes its trailing
+# checksum. Layout (git's gitformat-commit-graph): an 8-byte header ("CGPH",
+# version, hash version, chunk count, base count), a table of 12-byte chunk
+# entries (4-byte id, 8-byte offset), OIDF (fanout; its last entry is the
+# commit count), OIDL (sorted ids), CDAT (36-byte records: tree, parent 1
+# position, parent 2 position, generation and date), a trailing checksum.
+# SHA-1 repositories only, as every lab here is.
+cg_write_bytes() {
+  local h="$3" esc=""
+  while [ -n "$h" ]; do
+    esc="$esc\\x${h:0:2}"
+    h="${h:2}"
+  done
+  printf '%b' "$esc" | dd of="$1" bs=1 seek="$2" conv=notrunc 2> /dev/null
+}
+cg_patch_second_parent() {
+  local f="$1" c="$2" p="$3" hex n i id off oidf="" oidl="" cdat="" total j oid pc="" pp="" size sum
+  hex="$(od -An -v -tx1 "$f" | tr -d ' \n')"
+  if [ "${hex:0:8}" != 43475048 ] || [ "${hex:10:2}" != 01 ]; then
+    return 1
+  fi
+  n=$((16#${hex:12:2}))
+  for ((i = 0; i < n; i++)); do
+    id="${hex:$((16 + i * 24)):8}"
+    off=$((16#${hex:$((24 + i * 24)):16}))
+    case "$id" in
+      4f494446) oidf="$off" ;;
+      4f49444c) oidl="$off" ;;
+      43444154) cdat="$off" ;;
+    esac
+  done
+  if [ -z "$oidf" ] || [ -z "$oidl" ] || [ -z "$cdat" ]; then
+    return 1
+  fi
+  total=$((16#${hex:$(((oidf + 255 * 4) * 2)):8}))
+  for ((j = 0; j < total; j++)); do
+    oid="${hex:$(((oidl + j * 20) * 2)):40}"
+    [ "$oid" = "$c" ] && pc="$j"
+    [ "$oid" = "$p" ] && pp="$j"
+  done
+  if [ -z "$pc" ] || [ -z "$pp" ]; then
+    return 1
+  fi
+  chmod u+w "$f" || return 1
+  cg_write_bytes "$f" $((cdat + pc * 36 + 24)) "$(printf '%08x' "$pp")" || return 1
+  size="$(wc -c < "$f")"
+  sum="$(head -c $((size - 20)) "$f" | sha1sum | cut -c1-40)"
+  cg_write_bytes "$f" $((size - 20)) "$sum"
+}
+new_repo carry-graph
+git branch -m develop
+git commit -q --allow-empty -m "D0"
+CG_D0="$(git rev-parse HEAD)"
+printf 'develop\n' > dev.md
+git add -A && git commit -q -m "D1"
+CG_D1="$(git rev-parse HEAD)"
+git checkout -q -b pr "$CG_D0"
+printf 'pr\n' > pr.md
+git add -A && git commit -q -m "A"
+CG_A="$(git rev-parse HEAD)"
+# Not a merge: one commit on A that copies develop's file in, so its tree is
+# exactly git's own merge of A and D1.
+printf 'develop\n' > dev.md
+git add -A && git commit -q -m "develop's file, copied in by hand"
+CG_SOLO="$(git rev-parse HEAD)"
+expect 0 "graph lab: the copied-in commit's tree is git's own merge of A and develop" -- \
+  test "$(git merge-tree --write-tree --no-messages "$CG_A" "$CG_D1")" = "$(git rev-parse "$CG_SOLO^{tree}")"
+expect 1 "graph lab: with no commit-graph, it is refused as not a merge" -- \
+  bash "$CARRY" "$CG_A" "$CG_SOLO" --base develop
+expect_output "is not a merge"
+expect 0 "graph lab: git writes a commit-graph" -- git commit-graph write --reachable
+# Called directly, its status asserted: a function reached only through
+# `expect "$@"` is reported unreachable by shellcheck (SC2317).
+cg_rc=0
+cg_patch_second_parent .git/objects/info/commit-graph "$CG_SOLO" "$CG_D1" || cg_rc=$?
+expect 0 "graph lab: the commit-graph is patched to give it develop as a second parent" -- test "$cg_rc" -eq 0
+expect 0 "graph lab is load-bearing: with GIT_NO_REPLACE_OBJECTS=1 git reads two parents from the graph" -- \
+  test "$(env GIT_NO_REPLACE_OBJECTS=1 git rev-list --parents -n 1 "$CG_SOLO")" = "$CG_SOLO $CG_A $CG_D1"
+expect 0 "graph lab: the commit object itself still has one parent" -- \
+  test "$(git cat-file -p "$CG_SOLO" | grep -c '^parent ')" -eq 1
+expect 1 "a patched commit-graph does not make a commit a merge: refused as not a merge" -- \
+  bash "$CARRY" "$CG_A" "$CG_SOLO" --base develop
+expect_output "is not a merge"
 cd "$WORK/carry-lab" || exit 1
 
 # A submodule pointer that .gitmodules (ignore = all) and the config both hide
@@ -6068,9 +6200,10 @@ cd "$WORK/carry-lab" || exit 1
 # Shims of its own: this section must not depend on another section's state.
 CO_REAL_GIT="$(command -v git)"
 mkdir -p "$WORK/carry-shim-old" "$WORK/carry-shim-mt"
+# The checker runs every git with -c options first, so "version" is not $1.
 cat > "$WORK/carry-shim-old/git" <<SHIM
 #!/usr/bin/env bash
-if [ "\$1" = "version" ]; then echo "git version 2.39.5"; exit 0; fi
+for a in "\$@"; do [ "\$a" = "version" ] && { echo "git version 2.39.5"; exit 0; }; done
 exec "$CO_REAL_GIT" "\$@"
 SHIM
 cat > "$WORK/carry-shim-mt/git" <<SHIM

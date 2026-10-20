@@ -94,8 +94,10 @@
 # or attribute source (GIT_DIR, GIT_WORK_TREE, GIT_COMMON_DIR, GIT_INDEX_FILE,
 # GIT_OBJECT_DIRECTORY, GIT_ALTERNATE_OBJECT_DIRECTORIES, GIT_ATTR_SOURCE,
 # GIT_REPLACE_REF_BASE, GIT_NAMESPACE, GIT_GRAFT_FILE, GIT_CONFIG*). Replace refs and the system attributes file are
-# ignored, and core.attributesFile is pinned: the machine running the check
-# cannot make a hand resolution look like git's own merge. Exit 1, with the reason, when the history or the registry is not
+# ignored, core.attributesFile is pinned, and no commit-graph file is read
+# (core.commitGraph=false on every git command, merge-classify.sh's
+# included): the machine running the check cannot make a hand resolution
+# look like git's own merge, nor a commit look like a merge. Exit 1, with the reason, when the history or the registry is not
 # what the rule requires, including a registry this script cannot read
 # without ambiguity.
 #
@@ -256,6 +258,14 @@ done
 export GIT_NO_REPLACE_OBJECTS=1 GIT_ATTR_NOSYSTEM=1
 
 command -v git > /dev/null 2>&1 || cannot_decide "git is not on PATH"
+# A commit-graph file records each commit's parents, and git trusts it over
+# the commit object: a patched one made a single-parent commit read as a
+# merge of develop, and this check printed a record for it (Security Engineer
+# on PR #249, SEC-IAENG-351-F3). Neither GIT_NO_REPLACE_OBJECTS nor the
+# grafts refusal sees it. Every git command below, merge-classify.sh's
+# included (a function is looked up when called), reads no commit-graph.
+# Defined after the PATH check, which must find the real git.
+git() { command git -c core.commitGraph=false "$@"; }
 git rev-parse --git-dir > /dev/null 2>&1 || cannot_decide "not inside a git repository"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)" \
