@@ -1321,8 +1321,20 @@ work_units:
     milestone: Precision
     delivers: Adapters/scripts/check-approval-carry-over.sh, Adapters/scripts/merge-classify.sh, Adapters/scripts/tests/run.sh, Adapters/README.md, Registry/work-units.yml
 
+  - id: WU-IAENG-345
+    employee: Release Manager
+    title: Bump VERSION.md to v0.0.14 and finalize the CHANGELOG.md section for the Precision release - README pin and measured counts, CLAUDE.md Current Version, next milestone Adoption (v0.0.15)
+    milestone: Precision
+    delivers: VERSION.md, CHANGELOG.md, README.md, CLAUDE.md, Registry/work-units.yml
+
   - id: WU-IAENG-347
     employee: Platform Engineer
     title: Close the install-hooks.sh and install-skills.sh residuals of PR #239 (issues #241, #242) - an existing hook entry counts as present only when every field equals the template's (command with the project directory's spelling normalised, type, timeout, any other; key order aside), so the exact guard command with "timeout" 1 or an extra field gets the real entry added beside it and is reported as a near miss naming the fields that differ; "disableAllHooks" true in .claude/settings.json or settings.local.json is named on stderr and in the report on every run and never changed; each installer appends its LF rule (/.claude/settings.json, /.claude/skills/**) to the project's .gitattributes when missing, found in an LF or CRLF file, and install.sh lists the skills rule among the adopter rules; tests/dashboard.sh grows to 114 checks, including a real core.autocrlf=true clone with a CRLF control file (19 of the new checks fail against the pre-fix installers)
     milestone: Adoption
     delivers: Adapters/ai-runtimes/claude-code/install-hooks.sh, Adapters/ai-runtimes/claude-code/install-skills.sh, Adapters/scripts/install.sh, Adapters/scripts/tests/run.sh, Adapters/ai-runtimes/claude-code/hooks/tests/dashboard.sh, Adapters/ai-runtimes/claude-code/hooks/README.md, Adapters/README.md, Registry/work-units.yml
+
+  - id: WU-IAENG-350
+    employee: Documentation Engineer
+    title: Refuse a chain diagram output line that holds more than one bracket pair - validate-framework.sh section 22 read any line opening "[" and closing "]" as one output, so a step drawn between two outputs on one line went unchecked; an output line is now "[" first, "]" last and no bracket in between, anything else unreadable (issue #233, falsifier and nested pair in Script Tests, mutant caught); section 13 counts the chains Core/AGENT_CHAINS.md names, strips the CR before matching, and fails at zero instead of passing unconditionally (issue #227); the Adapters/README.md validator row names sections 13 to 21 and points to the printed section headers as the authoritative list (issue #228)
+    milestone: Adoption
+    delivers: Adapters/scripts/validate-framework.sh, Adapters/scripts/tests/run.sh, Adapters/README.md, Registry/work-units.yml
