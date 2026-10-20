@@ -372,6 +372,14 @@ mkdir -p "$CLAUDETEMPLATE/Core" "$CLAUDETEMPLATE/Templates"
 echo 'placeholder' > "$CLAUDETEMPLATE/Core/AGENT_CONDUCT.md"
 echo 'placeholder' > "$CLAUDETEMPLATE/Templates/PROJECT_CLAUDE.md"
 
+# "state-template": no SESSION_STATE.md, but the repo satisfies
+# iaeng_framework_root and carries Templates/SESSION_STATE.md — the branch
+# where both hooks name Adapters/scripts/create-session-state.sh (#218).
+STATETEMPLATE="$(ss_repo state-template)"
+mkdir -p "$STATETEMPLATE/Core" "$STATETEMPLATE/Templates"
+echo 'placeholder' > "$STATETEMPLATE/Core/AGENT_CONDUCT.md"
+echo 'placeholder' > "$STATETEMPLATE/Templates/SESSION_STATE.md"
+
 # "unparsable": a header with no recognisable "DD Month YYYY".
 UNPARSABLE="$(ss_repo unparsable)"
 echo '_Last updated: some day by Tester_' > "$UNPARSABLE/.ia-engineering/SESSION_STATE.md"
@@ -476,6 +484,11 @@ ss_check_rc   "stop-gate: passes when SESSION_STATE is newer than HEAD" 0
 ss_run "$MISSING" "$STOPGATE"
 ss_check_rc   "stop-gate: passes (non-blocking) when SESSION_STATE is missing" 0
 ss_check_has  "stop-gate: reminds when SESSION_STATE is missing" yes "does not exist"
+ss_check_has  "stop-gate: the reminder names the helper that creates it (#218)" yes "the framework's Adapters/scripts/create-session-state.sh"
+
+ss_run "$STATETEMPLATE" "$STOPGATE"
+ss_check_rc   "stop-gate: missing SESSION_STATE with the framework found — still not blocking" 0
+ss_check_has  "stop-gate: framework found — the reminder gives the helper's path (#218)" yes "run $STATETEMPLATE/Adapters/scripts/create-session-state.sh"
 
 ss_run "$STALE" "$STOPGATE" '{"stop_hook_active":true}'
 ss_check_rc   "stop-gate: loop guard still yields even when SESSION_STATE is stale" 0
@@ -534,6 +547,9 @@ ss_check_has  "session-start: CLAUDE.md present — does not warn it is missing"
 ss_run "$MISSING" "$SESSTART" ''
 ss_check_has  "session-start: CLAUDE.md missing, template not found — says so" yes "CLAUDE.md does not exist yet and the framework's template was not found"
 ss_check_has  "session-start: CLAUDE.md missing — does not print the stable-contract line" no "1. CLAUDE.md — the project's stable contract."
+
+ss_run "$STATETEMPLATE" "$SESSTART" ''
+ss_check_has  "session-start: SESSION_STATE missing, template found — names the helper that creates it (#218)" yes "Create it before any other action with $STATETEMPLATE/Adapters/scripts/create-session-state.sh, which writes the Template block of $STATETEMPLATE/Templates/SESSION_STATE.md"
 
 ss_run "$CLAUDETEMPLATE" "$SESSTART" ''
 ss_check_has  "session-start: CLAUDE.md missing, template found — points to PROJECT_BOOTSTRAP Phase B and Templates/PROJECT_CLAUDE.md" yes "CLAUDE.md does not exist yet — this project has not completed Workflows/PROJECT_BOOTSTRAP.md Phase B. It is created from $CLAUDETEMPLATE/Templates/PROJECT_CLAUDE.md at Workflows/ONBOARDING.md Step 1"

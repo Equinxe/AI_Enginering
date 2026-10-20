@@ -73,7 +73,11 @@ It is the contract every session reads first; a project without one starts every
 session with no context and no rules. Make your first commit (the adoption itself: the submodule and the installed
 tooling; `CLAUDE.md` goes in a later commit), signed `Employee: DevOps Engineer`
 (`Workflows/PROJECT_BOOTSTRAP.md` Step 4). Then create
-`.ia-engineering/SESSION_STATE.md` from the fenced block under **Template** in
+`.ia-engineering/SESSION_STATE.md`. The helper
+`./ia-engineering/Adapters/scripts/create-session-state.sh` does it for you: it
+refuses before the first commit and never overwrites an existing file, writes the
+fenced block with the project name and today's date in the form described below,
+and checks that the file is gitignored. By hand, it comes from the fenced block under **Template** in
 `Templates/SESSION_STATE.md`: the block's contents only, not the whole file,
 whose other sections explain how to keep the state file and are not part of
 it. Fill in the placeholders, and at least the `_Last updated:` line with
