@@ -116,7 +116,7 @@ if [ -f "$STATE" ]; then
   fi
 else
   if [ -n "$ROOT" ] && [ -f "$ROOT/Templates/SESSION_STATE.md" ]; then
-    echo "  2. .ia-engineering/SESSION_STATE.md does not exist. Create it from $ROOT/Templates/SESSION_STATE.md before any other action; it is gitignored and refused by the pre-commit hook."
+    echo "  2. .ia-engineering/SESSION_STATE.md does not exist. Create it before any other action with $ROOT/Adapters/scripts/create-session-state.sh, which writes the Template block of $ROOT/Templates/SESSION_STATE.md with today's date (after the project's first commit); it is gitignored and refused by the pre-commit hook."
   else
     echo "  2. .ia-engineering/SESSION_STATE.md does not exist and the framework's template was not found (looked for Core/AGENT_CONDUCT.md at ., ia-engineering/, \$IAENG_FRAMEWORK)."
   fi
