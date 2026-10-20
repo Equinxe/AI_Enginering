@@ -4326,10 +4326,15 @@ expect 0 "dashboard: an Employee with no activity is marked never used" -- \
 expect 0 "dashboard: never-used is labelled in text, not by colour alone" -- grep -qF 'NEVER USED' "$UPAGE"
 expect 0 "dashboard: a message written on two lines is counted once (input 106, not 206)" -- \
   grep -qF '"tokens":{"calls":3,"input":106,"output":57,"cw":13,"cr":1004,"total":1180' "$UPAGE"
-expect 0 "dashboard: a non-Employee agent type is listed apart" -- \
-  grep -qF '"other_agents":[{"type":"general-purpose","dispatches":1}]' "$UPAGE"
+# The general-purpose agent was started inside the Observability Engineer's
+# own sub-agent: credited to it, not listed apart (WU-IAENG-346).
+expect 0 "dashboard: a non-Employee agent an Employee started is credited to that Employee" -- \
+  grep -qF '"credited_spawns":[{"employee":"Observability Engineer","type":"general-purpose","n":1}]' "$UPAGE"
+expect 0 "dashboard: so no dispatch is left without an Employee" -- grep -qF '"other_agents":[]' "$UPAGE"
+# Engineer is exercised by the Employees who implemented Work Units here
+# (DevOps, Observability); Scrum Master is not.
 expect 0 "dashboard: chain coverage counts the unexercised steps" -- \
-  grep -qF 'Test Chain - 1 of 3 Employee steps exercised' "$UPAGE"
+  grep -qF 'Test Chain - 2 of 3 Employee steps exercised' "$UPAGE"
 expect 0 "dashboard: commits per model come from Co-Authored-By" -- \
   grep -qF '{"model":"Claude Sonnet 5.5","commits_all":2,"commits_range":1}' "$UPAGE"
 expect 0 "dashboard: subagent tokens are attributed to the agent type from .meta.json" -- \
@@ -4982,7 +4987,7 @@ expect "$FPERM_WANT" "cache: created 0700 (Windows has no mode bits to set)" -- 
 # A row added to the cached git half, and a record added to a cached
 # transcript file, are counted by the next run: it read the cache, not git
 # and the transcripts again. Both are shaped values, as the cache holds.
-printf 'feedfacefeedfacefeedfacefeedfacefeedface\t1\tScrum Master\t(no trailer)\tClaude Opus 5.5\t1\t1\n' >> "$FC/git/commits.tsv"
+printf 'feedfacefeedfacefeedfacefeedfacefeedface\t1\tScrum Master\t(no trailer)\tClaude Opus 5.5\t1\t1\t2026-10-07\tt\n' >> "$FC/git/commits.tsv"
 for r in "$FC"/transcripts/v1/rec/*.tsv; do
   printf 'C\tmsg_PERSIST341\t2026-10-07\tclaude-persist-341\tmain session\t\t1\t1\t0\t0\n' >> "$r"
 done
@@ -4995,12 +5000,15 @@ expect 0 "cache: a --watch started later uses the same cache" -- \
 expect 0 "cache: the watch counted the cached record" -- grep -qF '"model":"claude-persist-341"' "$FPAGE"
 expect 0 "cache: the cache outlives the watch" -- test -f "$FC/transcripts/v1/index.tsv"
 expect 0 "cache: the watch left no temporary directory" -- test -z "$(find "$FTMP" -mindepth 1 -maxdepth 1)"
-# An uncommitted registry edit is newer than the cached git half: read again.
+# An uncommitted registry edit is newer than the cached git half: the
+# registries and the range are read again. The commit rows, which no registry
+# changes, are reused for the same HEAD, their in-range flag recomputed
+# (WU-IAENG-346): the planted commit is in no range git knows.
 printf '  - name: Domain Lead\n    category: Management\n' >> "$FRESH/Registry/employees.yml"
 expect 0 "cache: a run after an uncommitted registry edit" -- "${FRUN[@]}"
 expect 0 "cache: the edit is on the page" -- grep -qF '"name":"Domain Lead"' "$FPAGE"
-expect 1 "cache: the git half was recomputed, not taken from the cache" -- \
-  grep -qF '"name":"Scrum Master","roster":"framework","dispatches":0,"commits_range":1' "$FPAGE"
+expect 0 "cache: the registries and the range were read again, the rows reused" -- \
+  grep -qF '"name":"Scrum Master","roster":"framework","dispatches":0,"commits_range":0,"commits_all":1' "$FPAGE"
 
 # Refused: a link (a junction on Windows, which [ -L ] reports as one), a
 # directory another user owns, a cache git does not ignore. Each run falls
@@ -5302,6 +5310,304 @@ touch "$UCOPY"
 expect 0 "collector: a newer version of the script reads everything again" -- \
   bash "$UCOPY" --transcripts-dir "$UT" --cache-dir "$UCV"
 expect 1 "collector: and what the older version stored is not counted" -- grep -qF 'claude-old-version' <<< "$LAST_OUTPUT"
+cd "$WORK" || exit 1
+
+# ---- WU-IAENG-346: measurement fixes (6 Oct check-up, issues #205 and #231) --
+# One project, dated commits (the windows), a CLAUDE.md with an Active
+# Employees list, a chain with framework-role steps, and a transcript where an
+# Employee's own sub-agent starts helpers.
+export GIT_COMMITTER_DATE="2026-09-01T10:00:00Z" GIT_AUTHOR_DATE="2026-09-01T10:00:00Z"
+new_repo usage-346
+M346="$PWD"
+write_employee_roster "DevOps Engineer" "Observability Engineer" "Technical Writer" "Code Reviewer" "Scrum Master"
+printf '.ia-engineering/usage/\n' > .gitignore
+cat > Registry/chains.yml <<'CHAINS'
+chains:
+
+  - name: Role Chain
+    workflow: Workflows/TEST.md
+    steps:
+      - employee: DevOps Engineer
+        produces: something
+      - employee: Main Agent
+        produces: the plan
+      - employee: Engineer
+        produces: the implementation
+      - employee: Scrum Master
+        produces: a retrospective
+      - employee: Director
+        produces: the decision
+CHAINS
+cat > Registry/work-units.yml <<'WUS'
+work_units:
+  - id: WU-T-001
+    employee: Technical Writer
+    title: a guide
+    milestone: Testing
+WUS
+cat > CLAUDE.md <<'CLAUDEMD'
+# Project
+
+OBS346-SENTINEL-CLAUDE prose that never reaches the page.
+
+# Active Employees
+
+Framework Employees active on this project:
+
+- DevOps Engineer — the pipeline
+- **Observability Engineer** - the dashboards
+- Technical Writer: the guides
+- Code Reviewer (every Pull Request)
+- [Employee Name] — [when it is dispatched, concretely]
+- OBS346-SENTINEL-NAME — not on the roster
+
+Employees NOT active here, and why:
+
+- Scrum Master — no sprints
+
+---
+
+# Standards in Force
+CLAUDEMD
+git add -A && git commit -q -m "registries"
+commit_with "feat: no Employee anywhere" "Work Unit: WU-T-001"
+NOEMP346="$(git rev-parse HEAD)"
+git tag v1
+export GIT_COMMITTER_DATE="2026-09-10T10:00:00Z" GIT_AUTHOR_DATE="2026-09-10T10:00:00Z"
+# (1) Employee alone in a paragraph, the trailer block after it: git parses
+# only the last paragraph, so the Employee trailer is not parsed.
+commit_with "feat: a paragraph after the Employee" "Work Unit: WU-T-001" "" "Employee: Technical Writer" "" \
+  "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+export GIT_COMMITTER_DATE="2026-09-11T10:00:00Z" GIT_AUTHOR_DATE="2026-09-11T10:00:00Z"
+# (1) A block git does not take for trailers: under a quarter of its lines are.
+commit_with "feat: prose in the trailer block" "" "Work Unit: WU-T-002" "Employee: Code Reviewer" \
+  "Co-Authored-By: Claude Haiku 9 <noreply@anthropic.com>" "this line is prose, not a trailer" \
+  "and so is this one" "and this one" "and this last one" "and one more"
+export GIT_COMMITTER_DATE="2026-09-12T10:00:00Z" GIT_AUTHOR_DATE="2026-09-12T10:00:00Z"
+# (1) A message line that imitates git's record marker cannot move the line
+# after it to another commit: the Employee line stays this commit's.
+echo forged > forged.txt
+git add -A
+git commit -q -m "$(printf 'feat: a forged marker\n\n\036%s\nEmployee: DevOps Engineer\n' "$NOEMP346")"
+export GIT_COMMITTER_DATE="2026-09-13T10:00:00Z" GIT_AUTHOR_DATE="2026-09-13T10:00:00Z"
+commit_with "feat: obs one" "Work Unit: WU-T-003" "" "Employee: Observability Engineer"
+export GIT_COMMITTER_DATE="2026-09-14T10:00:00Z" GIT_AUTHOR_DATE="2026-09-14T10:00:00Z"
+commit_with "feat: obs two" "Work Unit: WU-T-003" "" "Employee: Observability Engineer"
+unset GIT_COMMITTER_DATE GIT_AUTHOR_DATE
+
+# (4) The main session dispatches the Observability Engineer, a fork and a
+# general-purpose agent. The Observability Engineer's sub-agent (toolUseId
+# toolu_O) starts a fork, an Explore and the Code Reviewer; the
+# general-purpose one (toolu_G) starts an Explore.
+T346="$WORK/usage-346-transcripts"
+rm -rf "$T346"
+mkdir -p "$T346/s/subagents"
+cat > "$T346/s.jsonl" <<'JSONL'
+{"type":"assistant","timestamp":"2026-10-02T10:00:00Z","message":{"id":"msg_M1","model":"claude-test-1","content":[{"type":"tool_use","id":"toolu_O","name":"Agent","input":{"subagent_type":"observability-engineer"}},{"type":"tool_use","id":"toolu_F","name":"Agent","input":{"subagent_type":"fork"}},{"type":"tool_use","id":"toolu_G","name":"Agent","input":{"subagent_type":"general-purpose"}}],"usage":{"input_tokens":1,"output_tokens":1,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}
+JSONL
+cat > "$T346/s/subagents/agent-o.jsonl" <<'JSONL'
+{"type":"assistant","isSidechain":true,"timestamp":"2026-10-03T10:00:00Z","message":{"id":"msg_O1","model":"claude-test-1","content":[{"type":"tool_use","id":"toolu_O1","name":"Agent","input":{"subagent_type":"fork"}},{"type":"tool_use","id":"toolu_O2","name":"Agent","input":{"subagent_type":"Explore"}},{"type":"tool_use","id":"toolu_O3","name":"Agent","input":{"subagent_type":"code-reviewer"}}],"usage":{"input_tokens":1,"output_tokens":1,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}
+JSONL
+printf '%s\n' '{"agentType":"lexer346","toolUseId":"toolu_O"}' > "$T346/s/subagents/agent-o.meta.json"
+cat > "$T346/s/subagents/agent-g.jsonl" <<'JSONL'
+{"type":"assistant","isSidechain":true,"timestamp":"2026-10-04T10:00:00Z","message":{"id":"msg_G1","model":"claude-test-1","content":[{"type":"tool_use","id":"toolu_G1","name":"Agent","input":{"subagent_type":"Explore"}}],"usage":{"input_tokens":1,"output_tokens":1,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}
+JSONL
+printf '%s\n' '{"agentType":"general-purpose","toolUseId":"toolu_G"}' > "$T346/s/subagents/agent-g.meta.json"
+
+P346="$M346/.ia-engineering/usage/dashboard.html"
+R346=(env CLAUDE_CONFIG_DIR="$WORK/usage-empty-config" bash "$DASH" --project-dir "$M346" --transcripts-dir "$T346")
+expect 0 "346: builds the page" -- "${R346[@]}"
+expect_output "Top-2 share of attributed commits: 60%"
+
+# (1) Line-scan attribution.
+expect 0 "346 (1): an Employee line git does not parse as a trailer is still attributed (paragraph after it)" -- \
+  grep -qF '"name":"Technical Writer","roster":"framework","dispatches":0,"commits_range":1,"commits_all":1' "$P346"
+expect 0 "346 (1): and in a block git does not take for trailers" -- \
+  grep -qF '"name":"Code Reviewer","roster":"framework","dispatches":1,"commits_range":1,"commits_all":1' "$P346"
+expect 0 "346 (1): the runtime co-author falls back the same way" -- \
+  grep -qF '{"model":"Claude Haiku 9","commits_all":1,"commits_range":1}' "$P346"
+expect 0 "346 (1): a forged marker line moves no attribution: the line is its own commit's" -- \
+  grep -qF '"name":"DevOps Engineer","roster":"framework","dispatches":0,"commits_range":1,"commits_all":1' "$P346"
+expect 0 "346 (1): the page counts the commits attributed from a line" -- grep -qF '"by_line":3' "$P346"
+expect 0 "346 (1): and says so in the sources" -- grep -qF '3 of them attributed from a column-0 Employee line' "$P346"
+
+# (2) Engineer: any implementing Employee, not a fixed list.
+expect 0 "346 (2): the Engineer step sums every Employee with a commit or a registered Work Unit" -- \
+  grep -qF '"engineer_set":["Code Reviewer","DevOps Engineer","Observability Engineer","Technical Writer"]' "$P346"
+expect 0 "346 (2): so the Engineer step is exercised; Scrum Master's is not" -- \
+  grep -qF 'Role Chain - 2 of 3 Employee steps exercised' "$P346"
+
+# (3) Main Agent and Director steps are framework roles.
+expect 0 "346 (3): a Main Agent step is shown as a framework role" -- grep -qF 'Main Agent</em> (framework role)' "$P346"
+expect 0 "346 (3): so is a Director step" -- grep -qF 'Director</em> (framework role)' "$P346"
+expect 1 "346 (3): neither is 'not on roster'" -- grep -qF '(not on roster)' "$P346"
+
+# (4) Sub-agents an Employee started are credited to it.
+expect 0 "346 (4): a fork and an Explore started inside the Observability Engineer's sub-agent are credited to it" -- \
+  grep -qF '"credited_spawns":[{"employee":"Observability Engineer","type":"Explore","n":1},{"employee":"Observability Engineer","type":"fork","n":1}]' "$P346"
+expect 0 "346 (4): and counted on its row" -- \
+  grep -qF '"name":"Observability Engineer","roster":"framework","dispatches":1,"commits_range":2,"commits_all":2,"work_units":0,"activity":3,"status":"used","active":true,"spawned":2' "$P346"
+expect 0 "346 (4): the main session's fork and a non-Employee's Explore stay non-Employee dispatches" -- \
+  grep -qF '"other_agents":[{"type":"Explore","dispatches":1},{"type":"fork","dispatches":1},{"type":"general-purpose","dispatches":1}]' "$P346"
+expect 1 "346 (4): the parent is resolved through toolUseId, not the meta's agentType" -- grep -qF 'lexer346' "$P346"
+expect 1 "346 (7): no CLAUDE.md prose, and no name off the roster, reaches the page" -- grep -qF 'OBS346-SENTINEL' "$P346"
+
+# (5) The windows, from the commit and transcript dates.
+expect 0 "346 (5): range, all-time and transcript windows are measured" -- \
+  grep -qF '"windows":{"range":{"commits":5,"first":"2026-09-10","last":"2026-09-14"},"all":{"commits":8,"first":"2026-09-01","last":"2026-09-14"},"transcripts":{"calls":3,"first":"2026-10-02","last":"2026-10-04"}}' "$P346"
+expect 0 "346 (5): and shown in their own table" -- grep -qF 'Measurement windows: what each column counts' "$P346"
+expect 0 "346 (5): the transcript window is named as rolling" -- grep -qF 'a rolling window, the runtime deletes old sessions' "$P346"
+
+# (6) Concentration.
+expect 0 "346 (6): the top-2 share of attributed commits, in the range" -- \
+  grep -qF '"concentration":{"range":{"attributed":5,"top":["Observability Engineer","Code Reviewer"],"top_commits":3,"share":0.6}' "$P346"
+expect 0 "346 (6): shown as a tile" -- grep -qF 'Top-2 share of commits (since v1)' "$P346"
+
+# (7) The active roster from CLAUDE.md.
+expect 0 "346 (7): four roster names are read from the Active Employees list" -- grep -qF '"active_roster":4' "$P346"
+expect 0 "346 (7): an Employee listed as not active, with no activity, is 'not active here', not never used" -- \
+  grep -qF '"name":"Scrum Master","roster":"framework","dispatches":0,"commits_range":0,"commits_all":0,"work_units":0,"activity":0,"status":"inactive","active":false' "$P346"
+expect 0 "346 (7): so the never-used count leaves it out" -- grep -qF '"totals":{"roster":5,"never":0' "$P346"
+expect 0 "346 (7): labelled in text" -- grep -qF 'not active here</span>' "$P346"
+expect 1 "346 (7): no other CLAUDE.md text reaches the cache" -- grep -rqF 'OBS346-SENTINEL' "$M346/.ia-engineering/usage/cache"
+
+# (8) Incremental git half (#231). A new commit is read alone, and the page
+# equals a from-scratch build.
+usage_data() {
+  sed -n 's/.*<script type="application\/json" id="usage-data">\(.*\)<\/script><script>.*/\1/p' "$1" | jq -cS 'del(.generated)'
+}
+commit_with "feat: obs three" "Work Unit: WU-T-003" "" "Employee: Observability Engineer"
+expect 0 "346 (8): a build after one new commit" -- "${R346[@]}"
+expect_output "git history: read 1 new commit(s) since the cached HEAD"
+FULL346="$WORK/usage-346-full"
+rm -rf "$FULL346"
+mkdir -p "$FULL346"
+expect 0 "346 (8): a from-scratch build of the same HEAD, with a cache of its own" -- \
+  env IAENG_USAGE_CACHE="$FULL346" "${R346[@]}" --out "$WORK/usage-out/full346.html"
+expect 1 "346 (8): (that one read the whole history)" -- grep -qF 'git history: read' <<< "$LAST_OUTPUT"
+expect 0 "346 (8): the incremental page carries exactly the from-scratch data" -- \
+  test "$(usage_data "$P346")" = "$(usage_data "$WORK/usage-out/full346.html")"
+# The cached rows are reused, not re-read: a row planted in the cache is
+# still counted after the next commit, its in-range flag recomputed (the
+# planted commit is not in the range, whatever the row said).
+printf 'feedfacefeedfacefeedfacefeedfacefeedface\t1\tScrum Master\t(no trailer)\tClaude Opus 5.5\t1\t1\t2026-09-30\tt\n' \
+  >> "$M346/.ia-engineering/usage/cache/git/commits.tsv"
+commit_with "feat: obs four" "Work Unit: WU-T-003" "" "Employee: Observability Engineer"
+expect 0 "346 (8): another commit" -- "${R346[@]}"
+expect 0 "346 (8): the cached rows were reused, the in-range flag recomputed" -- \
+  grep -qF '"name":"Scrum Master","roster":"framework","dispatches":0,"commits_range":0,"commits_all":1' "$P346"
+git tag v2
+expect 0 "346 (8): a new tag on the same commit" -- "${R346[@]}"
+expect_output "git history: read 0 new commit(s)"
+expect 0 "346 (8): moves every in-range flag (since v2: no commit)" -- \
+  grep -qF '"name":"Observability Engineer","roster":"framework","dispatches":1,"commits_range":0,"commits_all":4' "$P346"
+# A rewritten history is not an append: the whole history is read again.
+git switch -q -c rewritten HEAD~1
+commit_with "feat: another line of history" "Work Unit: WU-T-003" "" "Employee: Observability Engineer"
+expect 0 "346 (8): after a history the cached HEAD is not part of" -- "${R346[@]}"
+expect 1 "346 (8): nothing is read incrementally" -- grep -qF 'git history: read' <<< "$LAST_OUTPUT"
+expect 0 "346 (8): and the planted row is gone" -- \
+  grep -qF '"name":"Scrum Master","roster":"framework","dispatches":0,"commits_range":0,"commits_all":0' "$P346"
+# A cached row this script would not write is not trusted: whole history.
+printf 'not-a-sha\tgarbage\n' >> "$M346/.ia-engineering/usage/cache/git/commits.tsv"
+commit_with "feat: obs five" "Work Unit: WU-T-003" "" "Employee: Observability Engineer"
+expect 0 "346 (8): a cache holding a malformed row still builds" -- "${R346[@]}"
+expect_output "could not be reused; reading the whole history"
+expect 1 "346 (8): and the malformed row reaches nothing" -- grep -qF 'garbage' "$P346"
+# A newer script reads the whole history: its rows may have another shape.
+commit_with "feat: obs six" "Work Unit: WU-T-003" "" "Employee: Observability Engineer"
+touch -d '2000-01-01 00:00:00' "$M346/.ia-engineering/usage/cache/git/key"
+expect 0 "346 (8): with a cache older than the script" -- "${R346[@]}"
+expect 1 "346 (8): nothing is read incrementally" -- grep -qF 'git history: read' <<< "$LAST_OUTPUT"
+
+# The jq programs together are past a Windows command line's 32,767
+# characters: a --watch or refresh build that passed them as one argument
+# failed there ("Argument list too long"), which a Linux runner never sees.
+# They reach jq as files (-f); pinned statically, since only Windows bites.
+expect 1 "346: no jq program is passed to jq as a command-line argument" -- \
+  grep -qE 'jq [^#]*\$\{?JQ_(BUILD|RENDER)[^_A-Za-z0-9]' "$DASH"
+expect 0 "346: (the programs reach jq with -f)" -- grep -qE -- '-f "[$]JQ_BOTH_F"' "$DASH"
+
+# Review of PR #247, M1: a forged marker naming the PARENT, the next commit
+# in log order, whose SHA is known when the message is written. git's marker
+# carries a per-run nonce, so the forged line is text: the parent keeps its
+# own Employee and gains no Work Unit, in an incremental build where the
+# forging commit is the only new one and in a from-scratch build alike.
+new_repo usage-346-forge
+FG346="$PWD"
+write_employee_roster "DevOps Engineer" "Technical Writer" "Code Reviewer"
+printf '.ia-engineering/usage/\n' > .gitignore
+git add -A && git commit -q -m "roster"
+commit_with "feat: a" "Employee: Technical Writer" "" "a paragraph after it, so git parses no trailer"
+PARENT346="$(git rev-parse HEAD)"
+RF346=(env CLAUDE_CONFIG_DIR="$WORK/usage-empty-config" bash "$DASH" --project-dir "$FG346")
+PF346="$FG346/.ia-engineering/usage/dashboard.html"
+expect 0 "M1: a cold build at the parent" -- "${RF346[@]}"
+echo b > b.txt
+git add -A
+git commit -q -m "$(printf 'feat: b\n\n\036%s\nEmployee: DevOps Engineer\nWork Unit: WU-X-999\n\nEmployee: Code Reviewer\n' "$PARENT346")"
+expect 0 "M1: an incremental build over the forging commit" -- "${RF346[@]}"
+expect_output "git history: read 1 new commit(s)"
+expect 0 "M1: the parent keeps its own Employee" -- \
+  grep -qF '"name":"Technical Writer","roster":"framework","dispatches":0,"commits_range":1,"commits_all":1' "$PF346"
+expect 0 "M1: the forged Employee line moved to no commit" -- \
+  grep -qF '"name":"DevOps Engineer","roster":"framework","dispatches":0,"commits_range":0,"commits_all":0' "$PF346"
+expect 0 "M1: the Work Unit stays the forging commit's own" -- \
+  grep -qF '{"id":"WU-X-999","employee":"Code Reviewer","commits":1' "$PF346"
+rm -rf "$WORK/usage-346-forge-full"
+mkdir -p "$WORK/usage-346-forge-full"
+expect 0 "M1: a from-scratch build of the same HEAD" -- \
+  env IAENG_USAGE_CACHE="$WORK/usage-346-forge-full" "${RF346[@]}" --out "$WORK/usage-out/forge-full.html"
+expect 0 "M1: the incremental page carries exactly the from-scratch data" -- \
+  test "$(usage_data "$PF346")" = "$(usage_data "$WORK/usage-out/forge-full.html")"
+
+# Review of PR #247, M2: deepening or unshallowing a shallow clone makes
+# older commits reachable without moving HEAD. Their rows are in no cache:
+# a changed shallow boundary reads the whole history, then incremental
+# reading resumes. The origin also carries an unregistered Work Unit shared
+# by two Employees, one commit each, the older by the DevOps Engineer.
+new_repo usage-346-origin
+OR346="$PWD"
+write_employee_roster "DevOps Engineer" "Technical Writer"
+printf '.ia-engineering/usage/\n' > .gitignore
+git add -A && git commit -q -m "roster"
+commit_with "feat: s1" "Work Unit: WU-S-1" "" "Employee: DevOps Engineer"
+commit_with "feat: s2" "Work Unit: WU-S-1" "" "Employee: Technical Writer"
+for i in 3 4 5 6; do commit_with "feat: s$i" "Work Unit: WU-S-2" "" "Employee: Technical Writer"; done
+OR346_URL="file://$OR346"
+if command -v cygpath >/dev/null 2>&1; then OR346_URL="file:///$(cygpath -m "$OR346")"; fi
+SH346="$WORK/usage-346-shallow"
+rm -rf "$SH346"
+git clone -q --depth 2 "$OR346_URL" "$SH346"
+cd "$SH346" || exit 1
+git config user.email test@example.invalid
+git config user.name "Test Runner"
+git config commit.gpgsign false
+git config core.autocrlf false
+RS346=(env CLAUDE_CONFIG_DIR="$WORK/usage-empty-config" bash "$DASH" --project-dir "$SH346")
+PS346="$SH346/.ia-engineering/usage/dashboard.html"
+all_commits() { usage_data "$1" | jq -r '.totals.commits_all'; }
+expect 0 "M2: a cold build of a depth-2 clone" -- "${RS346[@]}"
+expect 0 "M2: it counts the 2 commits the clone has" -- test "$(all_commits "$PS346")" = 2
+git fetch -q --deepen 2 origin
+expect 0 "M2: a build after --deepen, HEAD unmoved" -- "${RS346[@]}"
+expect 1 "M2: the cached rows are not reused" -- grep -qF 'git history: read' <<< "$LAST_OUTPUT"
+expect 0 "M2: every commit now reachable is counted (4)" -- test "$(all_commits "$PS346")" = 4
+commit_with "feat: after the deepen" "" "Employee: DevOps Engineer"
+expect 0 "M2: with the boundary unchanged, a new commit" -- "${RS346[@]}"
+expect_output "git history: read 1 new commit(s)"
+expect 0 "M2: is read incrementally, and counted (5)" -- test "$(all_commits "$PS346")" = 5
+git fetch -q --unshallow origin
+expect 0 "M2: --unshallow removed the shallow file" -- test ! -e "$SH346/.git/shallow"
+expect 0 "M2: a build after --unshallow, HEAD unmoved" -- "${RS346[@]}"
+expect 1 "M2: the cached rows are not reused" -- grep -qF 'git history: read' <<< "$LAST_OUTPUT"
+expect 0 "M2: the whole history is counted" -- \
+  test "$(all_commits "$PS346")" = "$(git -C "$SH346" rev-list --no-merges --count HEAD)"
+# Review of PR #247, minor: an unregistered Work Unit's Employee does not
+# depend on row order: most commits, then by name (git lists the newer
+# Technical Writer commit first).
+expect 0 "minor: an unregistered Work Unit's Employee is the most frequent, ties by name" -- \
+  grep -qF '{"id":"WU-S-1","employee":"DevOps Engineer"' "$PS346"
 cd "$WORK" || exit 1
 
 # ------------------------------------------------- usage-dashboard.cmd ------

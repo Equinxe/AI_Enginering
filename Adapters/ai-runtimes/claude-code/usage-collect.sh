@@ -129,6 +129,13 @@
 #   source    <transcript-dirs> <files> <api-calls> <dispatches>
 #   call      <day> <model> <agent> <input> <output> <cache_creation> <cache_read> <calls>
 #   dispatch  <subagent_type> <requested-model> <count>
+#   spawn     <parent-agent> <subagent_type> <count>
+#
+# A `spawn` line counts the dispatches made from INSIDE a subagent's
+# transcript — a fork or a helper an Employee started for its own Work Unit —
+# under the agent that made them, resolved as a call's agent is (toolUseId,
+# then dispatch name, then agentType). Every dispatch is also in the
+# `dispatch` lines; `spawn` only says who started it (WU-IAENG-346).
 #
 # Exit 0 when transcripts were found and aggregated, 3 when none exist for the
 # project (not an error: the dashboard reports the source as missing), 4 when
@@ -582,7 +589,8 @@ fromjson? | select(type == "object" and .type == "assistant") |
   | ["D", (.id | id_shape),
      (.input.subagent_type // "general-purpose" | agent_shape),
      (.input.model // "inherit" | model_shape),
-     (if .input.name == null then "" else (.input.name | agent_shape) end)]
+     (if .input.name == null then "" else (.input.name | agent_shape) end),
+     $agent, $toolu]
   | @tsv
 );
 foreach inputs as $l ({idx: "", agent: $main, toolu: "", line: null};
@@ -669,9 +677,11 @@ extract() {
 # splitter, an index writer and an aggregator.
 #
 # C: id day model agent toolu input output cache_creation cache_read
-# D: tool-id subagent_type model name
+# D: tool-id subagent_type model name parent-agent parent-toolu
+#    (a record cached by an older version has no parent fields: 5, not 7)
 # A subagent file's label is resolved at the end, once every dispatch is
 # known: its spawning tool_use id first, then a dispatch name, then as written.
+# The parent of a dispatch made inside a subagent file is resolved the same way.
 store_and_aggregate() {
   F_REC="$REC" F_PLAN="$PLAN2" F_OFFS="$OFFS" F_INDEX="$INDEX_NEW" F_SECRET="$SECRET_RE" \
   F_MAIN="$MAIN_LABEL" F_UNKNOWN="$UNKNOWN_SUBAGENT" \
@@ -707,7 +717,7 @@ store_and_aggregate() {
           toolu[id] = okid(f[6]) ? f[6] : ""
         }
         for (i = 7; i <= 10; i++) { v = num(f[i]); if (v > val[id, i]) val[id, i] = v }
-      } else if (f[1] == "D" && k == 5) {
+      } else if (f[1] == "D" && (k == 5 || k == 7)) {
         if (f[2] != "" && !okid(f[2])) return
         key = (f[2] == "" ? "anon" (++anon) : f[2])
         if (key in dseen) return
@@ -715,6 +725,14 @@ store_and_aggregate() {
         dcount[shaped(f[3], name_re) OFS shaped(f[4], model_re)]++
         if (f[2] != "") dtype[f[2]] = shaped(f[3], name_re)
         if (f[5] != "" && !bucket(f[5]) && shaped(f[5], name_re) == f[5]) byname[f[5]] = shaped(f[3], name_re)
+        # Made inside a subagent file: its parent is that file, resolved at
+        # the end like the agent of a call (WU-IAENG-346).
+        a = f[6]
+        if (k == 7 && a != mainl) {
+          sp[++ns] = shaped(f[3], name_re)
+          spa[ns] = (a == unknownl) ? a : shaped(a, name_re)
+          spt[ns] = okid(f[7]) ? f[7] : ""
+        }
       }
     }
     { sub(/\r$/, "") }
@@ -757,6 +775,13 @@ store_and_aggregate() {
         print "call", g, sum[g, 7] + 0, sum[g, 8] + 0, sum[g, 9] + 0, sum[g, 10] + 0, calls[g]
       }
       for (d in dcount) print "dispatch", d, dcount[d]
+      for (k = 1; k <= ns; k++) {
+        a = spa[k]
+        if (spt[k] != "" && (spt[k] in dtype)) a = dtype[spt[k]]
+        else if (a in byname) a = byname[a]
+        spc[a OFS sp[k]]++
+      }
+      for (d in spc) print "spawn", d, spc[d]
     }
   ' "$@"
 }
