@@ -5496,6 +5496,95 @@ commit_with "feat: obs six" "Work Unit: WU-T-003" "" "Employee: Observability En
 touch -d '2000-01-01 00:00:00' "$M346/.ia-engineering/usage/cache/git/key"
 expect 0 "346 (8): with a cache older than the script" -- "${R346[@]}"
 expect 1 "346 (8): nothing is read incrementally" -- grep -qF 'git history: read' <<< "$LAST_OUTPUT"
+
+# The jq programs together are past a Windows command line's 32,767
+# characters: a --watch or refresh build that passed them as one argument
+# failed there ("Argument list too long"), which a Linux runner never sees.
+# They reach jq as files (-f); pinned statically, since only Windows bites.
+expect 1 "346: no jq program is passed to jq as a command-line argument" -- \
+  grep -qE 'jq [^#]*\$\{?JQ_(BUILD|RENDER)[^_A-Za-z0-9]' "$DASH"
+expect 0 "346: (the programs reach jq with -f)" -- grep -qE -- '-f "[$]JQ_BOTH_F"' "$DASH"
+
+# Review of PR #247, M1: a forged marker naming the PARENT, the next commit
+# in log order, whose SHA is known when the message is written. git's marker
+# carries a per-run nonce, so the forged line is text: the parent keeps its
+# own Employee and gains no Work Unit, in an incremental build where the
+# forging commit is the only new one and in a from-scratch build alike.
+new_repo usage-346-forge
+FG346="$PWD"
+write_employee_roster "DevOps Engineer" "Technical Writer" "Code Reviewer"
+printf '.ia-engineering/usage/\n' > .gitignore
+git add -A && git commit -q -m "roster"
+commit_with "feat: a" "Employee: Technical Writer" "" "a paragraph after it, so git parses no trailer"
+PARENT346="$(git rev-parse HEAD)"
+RF346=(env CLAUDE_CONFIG_DIR="$WORK/usage-empty-config" bash "$DASH" --project-dir "$FG346")
+PF346="$FG346/.ia-engineering/usage/dashboard.html"
+expect 0 "M1: a cold build at the parent" -- "${RF346[@]}"
+echo b > b.txt
+git add -A
+git commit -q -m "$(printf 'feat: b\n\n\036%s\nEmployee: DevOps Engineer\nWork Unit: WU-X-999\n\nEmployee: Code Reviewer\n' "$PARENT346")"
+expect 0 "M1: an incremental build over the forging commit" -- "${RF346[@]}"
+expect_output "git history: read 1 new commit(s)"
+expect 0 "M1: the parent keeps its own Employee" -- \
+  grep -qF '"name":"Technical Writer","roster":"framework","dispatches":0,"commits_range":1,"commits_all":1' "$PF346"
+expect 0 "M1: the forged Employee line moved to no commit" -- \
+  grep -qF '"name":"DevOps Engineer","roster":"framework","dispatches":0,"commits_range":0,"commits_all":0' "$PF346"
+expect 0 "M1: the Work Unit stays the forging commit's own" -- \
+  grep -qF '{"id":"WU-X-999","employee":"Code Reviewer","commits":1' "$PF346"
+rm -rf "$WORK/usage-346-forge-full"
+mkdir -p "$WORK/usage-346-forge-full"
+expect 0 "M1: a from-scratch build of the same HEAD" -- \
+  env IAENG_USAGE_CACHE="$WORK/usage-346-forge-full" "${RF346[@]}" --out "$WORK/usage-out/forge-full.html"
+expect 0 "M1: the incremental page carries exactly the from-scratch data" -- \
+  test "$(usage_data "$PF346")" = "$(usage_data "$WORK/usage-out/forge-full.html")"
+
+# Review of PR #247, M2: deepening or unshallowing a shallow clone makes
+# older commits reachable without moving HEAD. Their rows are in no cache:
+# a changed shallow boundary reads the whole history, then incremental
+# reading resumes. The origin also carries an unregistered Work Unit shared
+# by two Employees, one commit each, the older by the DevOps Engineer.
+new_repo usage-346-origin
+OR346="$PWD"
+write_employee_roster "DevOps Engineer" "Technical Writer"
+printf '.ia-engineering/usage/\n' > .gitignore
+git add -A && git commit -q -m "roster"
+commit_with "feat: s1" "Work Unit: WU-S-1" "" "Employee: DevOps Engineer"
+commit_with "feat: s2" "Work Unit: WU-S-1" "" "Employee: Technical Writer"
+for i in 3 4 5 6; do commit_with "feat: s$i" "Work Unit: WU-S-2" "" "Employee: Technical Writer"; done
+OR346_URL="file://$OR346"
+if command -v cygpath >/dev/null 2>&1; then OR346_URL="file:///$(cygpath -m "$OR346")"; fi
+SH346="$WORK/usage-346-shallow"
+rm -rf "$SH346"
+git clone -q --depth 2 "$OR346_URL" "$SH346"
+cd "$SH346" || exit 1
+git config user.email test@example.invalid
+git config user.name "Test Runner"
+git config commit.gpgsign false
+git config core.autocrlf false
+RS346=(env CLAUDE_CONFIG_DIR="$WORK/usage-empty-config" bash "$DASH" --project-dir "$SH346")
+PS346="$SH346/.ia-engineering/usage/dashboard.html"
+all_commits() { usage_data "$1" | jq -r '.totals.commits_all'; }
+expect 0 "M2: a cold build of a depth-2 clone" -- "${RS346[@]}"
+expect 0 "M2: it counts the 2 commits the clone has" -- test "$(all_commits "$PS346")" = 2
+git fetch -q --deepen 2 origin
+expect 0 "M2: a build after --deepen, HEAD unmoved" -- "${RS346[@]}"
+expect 1 "M2: the cached rows are not reused" -- grep -qF 'git history: read' <<< "$LAST_OUTPUT"
+expect 0 "M2: every commit now reachable is counted (4)" -- test "$(all_commits "$PS346")" = 4
+commit_with "feat: after the deepen" "" "Employee: DevOps Engineer"
+expect 0 "M2: with the boundary unchanged, a new commit" -- "${RS346[@]}"
+expect_output "git history: read 1 new commit(s)"
+expect 0 "M2: is read incrementally, and counted (5)" -- test "$(all_commits "$PS346")" = 5
+git fetch -q --unshallow origin
+expect 0 "M2: --unshallow removed the shallow file" -- test ! -e "$SH346/.git/shallow"
+expect 0 "M2: a build after --unshallow, HEAD unmoved" -- "${RS346[@]}"
+expect 1 "M2: the cached rows are not reused" -- grep -qF 'git history: read' <<< "$LAST_OUTPUT"
+expect 0 "M2: the whole history is counted" -- \
+  test "$(all_commits "$PS346")" = "$(git -C "$SH346" rev-list --no-merges --count HEAD)"
+# Review of PR #247, minor: an unregistered Work Unit's Employee does not
+# depend on row order: most commits, then by name (git lists the newer
+# Technical Writer commit first).
+expect 0 "minor: an unregistered Work Unit's Employee is the most frequent, ties by name" -- \
+  grep -qF '{"id":"WU-S-1","employee":"DevOps Engineer"' "$PS346"
 cd "$WORK" || exit 1
 
 # ------------------------------------------------- usage-dashboard.cmd ------

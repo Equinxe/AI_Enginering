@@ -663,6 +663,20 @@ if [ -n "$PRICES" ] && [ ! -f "$PRICES" ]; then
 fi
 
 # --- Kept fresh: what the page and the git half are built from -------------------
+# The shallow boundary: a shallow clone's history stops at the commits listed
+# in <common-dir>/shallow, and a fetch --deepen or --unshallow makes older
+# commits reachable without moving HEAD. Their rows are in no cached half, so
+# the boundary is part of the git key and of the fingerprint, and a change
+# reads the whole history again (PR #247 review). Its content, not its mtime:
+# --unshallow deletes the file, and a missing file is never "newer".
+SHALLOW_ID="none"
+if [ -f "$GIT_COMMON/shallow" ]; then
+  if SHALLOW_ID="$(cksum < "$GIT_COMMON/shallow" 2>/dev/null)"; then
+    SHALLOW_ID="${SHALLOW_ID//[!0-9 ]/}"
+  else
+    SHALLOW_ID="unreadable"
+  fi
+fi
 # Besides HEAD, the arguments and the transcripts, which the fingerprint holds,
 # these files change what a build shows. Every candidate is listed, not only
 # the one first_file would pick: one more rebuild after an edit costs little.
@@ -692,6 +706,7 @@ FP_TEXT=""
 fp_text() {
   FP_TEXT="iaeng-usage-fingerprint 1
 head $HEAD_SHA
+shallow $SHALLOW_ID
 key $FP_KEY
 transcripts $1
 $2"
@@ -1261,16 +1276,25 @@ resolve_range() {
 # reads it — a column-0 line — and kept only when it is a Work Unit ID.
 NEW_ROWS=0
 collect_commits() {
-  local revs=(HEAD)
+  local revs=(HEAD) nonce=""
   [ -z "${1:-}" ] || revs=("$1..HEAD")
   TRAILERS="$TMPD/trailers.txt"
   BODIES="$TMPD/bodies.txt"
   NUMSTAT="$TMPD/numstat.txt"
   COMMITS_TSV="$TMPD/commits.tsv"
+  # Each record starts with \x1e, a random nonce drawn for this run, and the
+  # SHA. A commit message is written before the run, so no line in it can
+  # carry the nonce: a body line that imitates a marker is text, whatever SHA
+  # it names (PR #247 review: the parent's SHA is known in advance).
+  nonce="$(od -An -N12 -tx1 /dev/urandom 2>/dev/null | tr -d ' \n')"
+  if ! [[ "$nonce" =~ ^[0-9a-f]{24}$ ]]; then
+    err "cannot draw a random record marker from /dev/urandom."
+    return 1
+  fi
   if ! git -C "$PROJECT" log --no-merges --date=short \
-      --format='%x1e%H%x1f%(trailers:key=Employee,valueonly,unfold,separator=%x1d)%x1f%(trailers:key=Co-authored-by,valueonly,unfold,separator=%x1d)%x1f%cd' "${revs[@]}" > "$TRAILERS" \
-    || ! git -C "$PROJECT" log --no-merges --format='%x1e%H%n%B' "${revs[@]}" > "$BODIES" \
-    || ! git -C "$PROJECT" log --no-merges --format='%x1e%H' --numstat "${revs[@]}" > "$NUMSTAT"; then
+      --format="%x1e$nonce%H%x1f%(trailers:key=Employee,valueonly,unfold,separator=%x1d)%x1f%(trailers:key=Co-authored-by,valueonly,unfold,separator=%x1d)%x1f%cd" "${revs[@]}" > "$TRAILERS" \
+    || ! git -C "$PROJECT" log --no-merges --format="%x1e$nonce%H%n%B" "${revs[@]}" > "$BODIES" \
+    || ! git -C "$PROJECT" log --no-merges --format="%x1e$nonce%H" --numstat "${revs[@]}" > "$NUMSTAT"; then
     err "git log failed in $PROJECT."
     return 1
   fi
@@ -1288,12 +1312,12 @@ collect_commits() {
   # so that no FILENAME ever matched and every commit vanished.
   # A value matching a credential family counts as "(redacted)" before any
   # shape check: SECRET_RE, defined above this function.
-  # A body is filed under a commit only at the marker git printed for the
-  # NEXT commit of the trailer pass, the same order: a message line that
-  # imitates a marker is text, and cannot move a line to another commit.
-  F_INR="$INRANGE" F_NUM="$NUMSTAT" F_TR="$TRAILERS" F_BODY="$BODIES" F_OLD="${2:-}" F_SECRET="$SECRET_RE" awk -v OFS='\t' '
+  # A body is filed under a commit only at a marker that carries the nonce
+  # and names the NEXT commit of the trailer pass, the same order.
+  F_INR="$INRANGE" F_NUM="$NUMSTAT" F_TR="$TRAILERS" F_BODY="$BODIES" F_OLD="${2:-}" F_SECRET="$SECRET_RE" \
+  F_NONCE="$nonce" awk -v OFS='\t' '
     BEGIN { f_inr = ENVIRON["F_INR"]; f_num = ENVIRON["F_NUM"]; f_tr = ENVIRON["F_TR"]; f_body = ENVIRON["F_BODY"]
-            f_old = ENVIRON["F_OLD"]; secret = ENVIRON["F_SECRET"] }
+            f_old = ENVIRON["F_OLD"]; secret = ENVIRON["F_SECRET"]; mark = "\036" ENVIRON["F_NONCE"]; ml = length(mark) }
     function shaped(v,   ok) {
       sub(/^[ \t]+/, "", v); sub(/[ \t]+$/, "", v)
       if (v == "") return "(no trailer)"
@@ -1305,15 +1329,15 @@ collect_commits() {
     { sub(/\r$/, "") }
     FILENAME == f_inr { inr[$0] = 1; next }
     FILENAME == f_num {
-      if (substr($0, 1, 1) == "\036") { cur = substr($0, 2); next }
+      if (substr($0, 1, ml) == mark) { cur = substr($0, ml + 1); next }
       split($0, ns, "\t")
       if (ns[1] ~ /^[0-9]+$/) add[cur] += ns[1]
       if (ns[2] ~ /^[0-9]+$/) del[cur] += ns[2]
       next
     }
     FILENAME == f_tr {
-      if (substr($0, 1, 1) != "\036") next
-      split(substr($0, 2), tf, "\037")
+      if (substr($0, 1, ml) != mark) next
+      split(substr($0, ml + 1), tf, "\037")
       sha = tf[1]; order[++nc] = sha; isnew[sha] = 1
       split(tf[2], emps, "\035"); emp[sha] = shaped(emps[1])
       model[sha] = "(no trailer)"
@@ -1327,7 +1351,7 @@ collect_commits() {
       next
     }
     FILENAME == f_body {
-      if (substr($0, 1, 1) == "\036" && substr($0, 2) == order[bi + 1]) { bsha = order[++bi]; next }
+      if (substr($0, 1, ml) == mark && substr($0, ml + 1) == order[bi + 1]) { bsha = order[++bi]; next }
       if (bsha == "") next
       if (!(bsha in wu) && $0 ~ /^Work Unit: /) {
         v = substr($0, 12); sub(/[ \t]+$/, "", v)
@@ -1364,7 +1388,7 @@ collect_commits() {
        return 1 ;;
   esac
   # grep -c exits 1 when it counts none: no new commit is not a failure.
-  NEW_ROWS="$(grep -c $'^\036' "$TRAILERS")"
+  NEW_ROWS="$(grep -c "^"$'\036'"$nonce" "$TRAILERS")"
   return 0
 }
 
@@ -1400,7 +1424,8 @@ GIT_KEY=""
 CACHED_KEY=""
 RAW_KEY=""
 if [ -n "$GIT_CACHE" ]; then
-  GIT_KEY="$HEAD_SHA|${SINCE}|${IAENG_REGISTRY:-}|${IAENG_PROJECT_ROSTER:-}|${IAENG_REGISTRY_WORK_UNITS:-}"
+  # The shallow boundary is the key's LAST field, read back below.
+  GIT_KEY="$HEAD_SHA|${SINCE}|${IAENG_REGISTRY:-}|${IAENG_PROJECT_ROSTER:-}|${IAENG_REGISTRY_WORK_UNITS:-}|shallow:$SHALLOW_ID"
   [ -f "$GIT_CACHE/key" ] && [ ! -L "$GIT_CACHE/key" ] && IFS= read -r RAW_KEY < "$GIT_CACHE/key"
   CACHED_KEY="$RAW_KEY"
   any_newer "$GIT_CACHE/key" "${GIT_INPUTS[@]}" && CACHED_KEY=""
@@ -1421,8 +1446,9 @@ if [ -n "$GIT_CACHE" ] && [ "$GIT_KEY" = "$CACHED_KEY" ]; then
   while IFS= read -r sline; do printf '%s\n' "$sline"; done < "$GIT_CACHE/sources.tsv" > "$SOURCES"
 else
   OLD_HEAD=""
+  # Same shallow boundary as the cached rows were read under, or none reused.
   if [ -n "$GIT_CACHE" ] && [ -f "$GIT_CACHE/commits.tsv" ] && [ ! -L "$GIT_CACHE/commits.tsv" ] \
-      && ! any_newer "$GIT_CACHE/key" "$SELF"; then
+      && ! any_newer "$GIT_CACHE/key" "$SELF" && [ "${RAW_KEY##*|}" = "shallow:$SHALLOW_ID" ]; then
     OLD_HEAD="${RAW_KEY%%|*}"
     if ! [[ "$OLD_HEAD" =~ ^[0-9a-f]{40,64}$ ]] \
         || ! git -C "$PROJECT" merge-base --is-ancestor "$OLD_HEAD" "$HEAD_SHA" 2>/dev/null; then
@@ -1653,7 +1679,11 @@ def concentration($names):
   tokens_by_agent: ($calls | group_by(.agent) | map(sums + {agent: .[0].agent}) | sort_by(-.total)),
   work_units: ($c | map(select(.wu | startswith("WU-"))) | group_by(.wu)
                | map(.[0].wu as $id | {id: $id,
-                     employee: (($wuRows | map(select(.[0] == $id)) | .[0][1]) // .[0].emp),
+                     # Unregistered: the Employee with the most of its commits,
+                     # then by name - never row order, which the incremental
+                     # path and a full read can differ in (PR #247 review).
+                     employee: (($wuRows | map(select(.[0] == $id)) | .[0][1])
+                                // (group_by(.emp) | map({e: .[0].emp, n: length}) | sort_by(-.n, .e) | .[0].e)),
                      commits: length, commits_range: (map(select(.inr)) | length),
                      lines: (map(.add + .del) | add)})
                | sort_by(-.commits, -.lines) | .[0:30]),
@@ -1695,9 +1725,15 @@ BUILD_ARGS=(--rawfile commits "$COMMITS_TSV" --rawfile usage "$USAGE_TSV" --rawf
   --arg generated "$GENERATED" --arg project "${PROJECT##*/}" --arg range_label "$RANGE_LABEL"
   --arg secret "$SECRET_RE")
 DATA="$TMPD/data.json"
+# The jq programs reach jq as files in this build's private directory, never
+# as an argument: together they are past the 32,767 characters a Windows
+# command line holds, and a --watch or refresh build, which passes both,
+# failed there with "Argument list too long" (WU-IAENG-346).
+JQ_BUILD_F="$TMPD/build.jq"
+printf '%s\n' "$JQ_BUILD" > "$JQ_BUILD_F"
 # A --watch build renders straight from the aggregate in the same jq process
 # (below); a plain build keeps the aggregate, which also prints the summary.
-if [ -z "$REFRESH" ] && ! jq -n "${BUILD_ARGS[@]}" "$JQ_BUILD" > "$DATA"; then
+if [ -z "$REFRESH" ] && ! jq -n "${BUILD_ARGS[@]}" -f "$JQ_BUILD_F" > "$DATA"; then
   err "aggregating the collected data failed (jq). No page was written."
   exit 1
 fi
@@ -1812,7 +1848,7 @@ footer{margin-top:48px;padding-top:12px;border-top:1px solid var(--rule)}
 # --- Chains
 + "<section><h2 id=\"chains\">Chains coverage</h2><p>Each Agent Chain's steps in order, with the usage of the Employee at each step. A step is <strong>exercised</strong> when its Employee has at least one dispatch or commit; usage is per Employee, so it shows that the Employee works, not that it worked inside this chain. <em>Engineer</em> is a step, not an Employee: the implementing Employee of each Work Unit (Core/AGENT_CHAINS.md, The Engineer Step). Its numbers are the sum over the \($d.engineer_set | length) Employees who committed or registered a Work Unit"
   + (if ($d.engineer_set | length) > 0 then ": \($d.engineer_set | map(e) | join(", "))" else "" end)
-  + ". <em>Main Agent</em> and <em>Director</em> steps are framework roles - the Main Agent's own work and the Director's decision - not dispatches: they are not counted as Employee steps.</p>"
+  + ". Its commits are their implementation work; its dispatches are an upper bound, since they include these Employees' other dispatches (a review, a design). <em>Main Agent</em> and <em>Director</em> steps are framework roles - the Main Agent's own work and the Director's decision - not dispatches: they are not counted as Employee steps.</p>"
 + ($d.chains | map(. as $ch | "<h3>\($ch.name | e) - \($ch.exercised) of \($ch.employee_steps) Employee steps exercised</h3>"
     + table("\($ch.name) steps"; [["#", "num"], ["Step", "text"], ["When", "text"], ["Exercised", "text"], ["Dispatches", "num"], ["Commits (\($d.range))", "num"], ["Commits (all time)", "num"]];
         [$ch.steps[] | if .kind == "gate" then {cls: null, cells: [.n, {h: "<em>\(.name | e) gate</em>", v: .name}, (if .conditional then "conditional" else "always" end), "gate", "", "", ""]}
@@ -1887,10 +1923,15 @@ if [ -z "$PAGE_DIR" ] || [ "${PAGE_DIR%/*}" != "$OUT_DIR" ] || [ -L "$PAGE_DIR" 
 fi
 lock_renew
 PAGE_TMP="$PAGE_DIR/page.html.tmp"
+# As files, like the build program above: never a command-line argument.
+JQ_RENDER_F="$TMPD/render.jq"
+JQ_BOTH_F="$TMPD/build-render.jq"
+printf '%s\n' "$JQ_RENDER" > "$JQ_RENDER_F"
+printf '(%s\n) | (%s\n)\n' "$JQ_BUILD" "$JQ_RENDER" > "$JQ_BOTH_F"
 if [ -n "$REFRESH" ]; then
-  render() { jq -n -r "${BUILD_ARGS[@]}" --arg refresh "$REFRESH" --arg auto "$AUTO" "($JQ_BUILD) | ($JQ_RENDER)"; }
+  render() { jq -n -r "${BUILD_ARGS[@]}" --arg refresh "$REFRESH" --arg auto "$AUTO" -f "$JQ_BOTH_F"; }
 else
-  render() { jq -r --arg refresh "" --arg auto "" "$JQ_RENDER" < "$DATA"; }
+  render() { jq -r --arg refresh "" --arg auto "" -f "$JQ_RENDER_F" < "$DATA"; }
 fi
 # A render that fails leaves no orphan behind: the partial page is removed
 # here, and the private directory with it on exit.
