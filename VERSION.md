@@ -2,11 +2,11 @@
 
 Current Version
 
-**v0.0.13**
+**v0.0.14**
 
 Codename
 
-**Portability**
+**Precision**
 
 Status
 
@@ -243,6 +243,21 @@ The milestone that made the framework runnable somewhere other than where it was
 - [x] Two `grep -q`-under-`pipefail` SIGPIPE defects fixed across the check scripts and the runtime hooks, the threshold measured not guessed; and `check-risk-map` taught to tell a present-but-untracked zone from a dead one (WU-IAENG-251, WU-IAENG-252, WU-IAENG-254)
 - [x] `SECURITY.md`, root `CONTRIBUTING.md` and `CODE_OF_CONDUCT.md`, and README's *What is proven, and what is not* — the files a public repository is judged on, stating on the front page that the framework has only ever been used on itself (WU-IAENG-243)
 
+### Precision (v0.0.14)
+
+The milestone that made the framework exact and usable. Two halves: every front-facing surface (README, CLAUDE.md, the Completed section, the documented commands, the Examples, the normative docs) audited and guarded against drift by `validate-framework.sh`; and the controls that grade a Pull Request attacked from the inside (issue #112, two Purple exercises, an end-to-end adoption test and four blindfolded dogfood cycles), each finding closed as a check, a hook rule, or a stated limit.
+
+- [x] Front-door guards in `Adapters/scripts/validate-framework.sh` -- README and CLAUDE.md pinned to VERSION.md (version, codename, in-progress milestone), the README front-page counts and the Core/Templates/Standards enumerations (WU-IAENG-260 ... 266, 284)
+- [x] Normative precision -- Incident Chain order, hotfix back-merge PR shape, one precedence answer for project convention vs Standard, Conduct-to-Orchestration correspondence, the merge-approval scope stated once (WU-IAENG-269 ... 274, 297, 303)
+- [x] The newcomer's path -- Work Unit registration in the authoring path, the express path for trivial changes, the AI-runtime install step, and the documentation defects of the adoption-path acceptance test (WU-IAENG-275 ... 281, 289, 321, 324)
+- [x] Control-path and grader hardening -- `control-path-guard.yml` (`pull_request_target`, never runs PR code), graders pinned against reconfiguration by the change they grade, the Director-only labels refused to agents, authored merges attributed and registered, the Data Policy and Risk Map checks closing their pen-test findings (WU-IAENG-307 ... 314)
+- [x] Escape-hatch and inline-suppression hooks -- runtime printf decode, three rule gaps, fail-closed on an unreadable payload, `GIT_CONFIG_PARAMETERS` through an assigning builtin, one pre-push rule for `main`, `develop` and `release/*` (WU-IAENG-285, 286, 306, 315, 316, 318, 328, 339)
+- [x] Role and tier model -- the execution tier chosen per Work Unit, an override-only Frontier tier, a per-project `.ia-engineering/tier-map`, open-source licence compliance owned by the Compliance Engineer, adversary emulation, accessibility conformance as a gate, Miscasting Risks (WU-IAENG-290 ... 295, 327, 331, 333, 334, 336, 340)
+- [x] Session continuity and observability -- SESSION_STATE kept in step with the repository, the snapshot discipline, and a local usage dashboard with a Windows launcher (WU-IAENG-287, 288, 326, 329, 330, 338, 341, 342)
+- [x] Adopter-facing fixes found by real adoption -- ignore rules, install defects, the project Registry, the bootstrap closing report, the Main Agent section of the project CLAUDE.md, a readable SESSION_STATE adoption instruction (WU-IAENG-296, 302, 320, 323, 325, 337)
+- [x] Review and merge discipline -- the Prompt Engineer review of Core/Employees changes in the Code Review workflow, and approvals carried over an update merge of develop decided mechanically by `check-approval-carry-over.sh` (WU-IAENG-340, 343, 344)
+- [x] Validator and suite reliability -- SIGPIPE read as a missing path, skip accounting, single-pass agent generation, `release.sh publish` text matching Step 8 (WU-IAENG-300, 301, 319, 322, 335, 344)
+
 ---
 
 ## Versioning Policy
@@ -255,13 +270,13 @@ The full, authoritative versioning policy — segment semantics, the `.FIX` vs. 
 
 ## Planned
 
-- The in-progress milestone on `develop` is **Precision**, targeting **v0.0.14**: the framework made exact and usable — every front-facing surface audited and guarded against drift, and the newcomer's operating path completed and dogfooded. Several open issues exist as individual maintenance/tech-debt items (e.g. #61–#66, #69, #71, #112), but none alone constitutes part of this milestone's scope.
+- The next milestone is **Adoption**, targeting **v0.0.15**: sustained adoption of the framework on a real project, and the follow-ups it finds. WU-IAENG-332 (usage dashboard measurement fixes) moves here from Precision. Several open issues exist as individual maintenance/tech-debt items, but none alone constitutes this milestone.
 - Portability made the framework adoptable off its own repository, and a first adoption was rehearsed against a real project to find what greenfield never surfaces. A sustained adoption on a real published project outside this repository is the next thing that will decide scope beyond Precision; `Governance/TROUBLESHOOTING.md` exists for what it finds.
 
 ---
 
 ## Next Milestone
 
-**Precision** — in progress on `develop`, targets **v0.0.14**. The framework made exact and usable: every front-facing surface — README, CLAUDE.md, the Completed section, the documented commands, the Examples, the normative docs — audited and guarded against drift, and the newcomer's operating path completed and dogfooded (Work-Unit registration, the express path for trivial changes, entry-point clarity). Its Work Units are WU-IAENG-260 onward in `Registry/work-units.yml`.
+**Adoption** — next, targets **v0.0.15**. Sustained adoption on a real project and the follow-ups it finds; WU-IAENG-332 and the open follow-up issues are its first Work Units. Its Work Units are registered under this milestone name in `Registry/work-units.yml`.
 
 v0.0.12 carried two milestones under one number: Automation and Convergence both completed on `develop` before either shipped, so both are named in that release's `CHANGELOG.md` heading. A number is not reserved for a milestone that never had a release of its own — so nothing was skipped, Portability took **0.0.13**, and the next takes 0.0.14. `Governance/VERSIONING_POLICY.md` records why v0.0.12's two milestones shipped together, and why that is not the naming shortcut the same document forbids.
