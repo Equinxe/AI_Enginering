@@ -49,6 +49,7 @@ Work Unit: [WU-ID]
 - [ ] This PR targets `develop`, not `main`.
 - [ ] The PR contains one Work Unit — not multiple unrelated changes.
 - [ ] Tests are written and passing locally.
+- [ ] Each new or changed test was seen red where `Standards/TESTING_STANDARD.md` (Falsifiability) requires it; the evidence is in the Work Unit Report.
 - [ ] No credentials, secrets, or sensitive data are in this diff.
 - [ ] The commit message follows the Commit Standard.
 - [ ] Documentation is updated if this PR changes a public interface.
