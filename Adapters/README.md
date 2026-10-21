@@ -144,7 +144,7 @@ A passing Adapter check means the work is correctly *shaped*. It says nothing ab
 
 Owner: IA Engineering
 
-Version: 0.0.9
+Version: 0.0.10
 
 Status: Draft
 

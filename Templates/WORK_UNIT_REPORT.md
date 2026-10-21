@@ -72,7 +72,8 @@ summarised. Trimmed to the lines that carry the verdict.]
 [Each new or changed test that guards a criterion or a fix, seen red as
 `Standards/TESTING_STANDARD.md` (Falsifiability) requires: the mutant or the
 base commit, the command, the failing line, then the green run on the real
-code — or "not applicable — no executable behaviour"]
+code; an equivalent mutant declared as such, or "not falsifiable: <reason>";
+or "not applicable — no executable behaviour"]
 ```
 
 **Lint / static analysis**

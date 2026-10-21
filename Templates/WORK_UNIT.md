@@ -56,9 +56,9 @@ What the engineer needs to understand before starting — without reading the en
 
 The Work Unit is complete when ALL of the following are true:
 
-- [ ] [Criterion 1 — measurable; fails if: ___ (`Standards/TESTING_STANDARD.md`, Falsifiability)]
-- [ ] [Criterion 2]
-- [ ] [Criterion 3]
+- [ ] [Criterion 1 — measurable; fails if: ___ | not falsifiable: <reason> (`Standards/TESTING_STANDARD.md`, Falsifiability)]
+- [ ] [Criterion 2 — fails if: ___ | not falsifiable: <reason>]
+- [ ] [Criterion 3 — fails if: ___ | not falsifiable: <reason>]
 - [ ] Tests are written and passing.
 - [ ] Code has passed review by the Code Reviewer.
 - [ ] The Work Unit Report is written (`Templates/WORK_UNIT_REPORT.md`), with the gate evidence pasted and any omission stated. A bare "Done" is a failed Work Unit.

@@ -78,9 +78,9 @@ What you must deliver:
 
 You are done when ALL of the following are true:
 
-- [ ] [Criterion 1 — fails if: ___]
-- [ ] [Criterion 2 — fails if: ___]
-- [ ] Tests are written and passing, and each was seen red (`Standards/TESTING_STANDARD.md`, Falsifiability).
+- [ ] [Criterion 1 — fails if: ___ | not falsifiable: <reason>]
+- [ ] [Criterion 2 — fails if: ___ | not falsifiable: <reason>]
+- [ ] Tests are written and passing, and each was seen red where `Standards/TESTING_STANDARD.md` (Falsifiability) requires it.
 - [ ] Pull Request is open and assigned to the Code Reviewer.
 - [ ] Your commit follows the Commit Standard: `[type](scope): description`
 - [ ] Your Work Unit Report is written — see below. Without it this Work Unit is not done.

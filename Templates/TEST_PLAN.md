@@ -51,8 +51,8 @@ A Test Plan is required for:
 
 [List the acceptance criteria from the Work Unit or feature specification that this test plan validates:]
 
-- AC-001: [criterion — fails if: ___]
-- AC-002: [criterion — fails if: ___]
+- AC-001: [criterion — fails if: ___ | not falsifiable: <reason>]
+- AC-002: [criterion — fails if: ___ | not falsifiable: <reason>]
 
 ---
 
