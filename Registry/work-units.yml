@@ -1392,3 +1392,9 @@ work_units:
     title: The templates ask for Falsifiability (plan of 20 Oct 2026, WU-2) - Work Unit and Employee Brief criteria carry "fails if: ___", the brief's test item "and each was seen red"; each Test Plan case has Fails if and Seen red by; the Work Unit Report's Gate Evidence has a Falsification block; the three Pull Request templates, kept identical, gain a seen-red checklist item; every addition points to Standards/TESTING_STANDARD.md (Falsifiability) without restating it, and Adapters/README.md Check Convention rule 4 now does the same (issue #277)
     milestone: Adoption
     delivers: Templates/WORK_UNIT.md, Templates/EMPLOYEE_BRIEF.md, Templates/TEST_PLAN.md, Templates/WORK_UNIT_REPORT.md, Templates/PULL_REQUEST.md, Adapters/github/PULL_REQUEST_TEMPLATE.md, .github/PULL_REQUEST_TEMPLATE.md, Adapters/README.md, CHANGELOG.md, Registry/work-units.yml
+
+  - id: WU-IAENG-357
+    employee: Platform Engineer
+    title: install-hooks.sh --check and install-skills.sh --check (plan of 20 Oct 2026, WU-3) - the runtime installers' own decisions reported, never applied, in install.sh --check's record format, closing line, exit 0/3/1/2 and --quiet; settings.json current, absent, customized or fault, each framework hook entry present, absent or near-miss from the same jq merge computation (one definition of present exactly), disableAllHooks reported disabled, each skill current, absent, differs or not-applicable from the same diff -r, the LF rules present or missing; records flattened against forged lines, settings.json parsed with jq and never evaluated, no new file sourced; read-only proven by a before/after snapshot; a CRLF settings.json is current on both paths, and the LF rule match drops a line-ending CR only
+    milestone: Adoption
+    delivers: Adapters/ai-runtimes/claude-code/install-hooks.sh, Adapters/ai-runtimes/claude-code/install-skills.sh, Adapters/scripts/tests/run.sh, CHANGELOG.md, Registry/work-units.yml

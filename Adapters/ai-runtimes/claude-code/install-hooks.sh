@@ -33,11 +33,39 @@
 #
 # Usage, from the project root:
 #   ./ia-engineering/Adapters/ai-runtimes/claude-code/install-hooks.sh [--print] [--force]
+#   ./ia-engineering/Adapters/ai-runtimes/claude-code/install-hooks.sh --check [--quiet]
 #
 #   --print  print the file this script would write for a new project, and
 #            change nothing
 #   --force  replace an existing settings.json with that file instead of
 #            merging (review its other settings first)
+#   --check  report what a run would find, and write nothing (below)
+#   --quiet  with --check: print nothing when there is nothing to act on
+#
+# --check (WU-IAENG-357): THE SAME DECISIONS, REPORTED INSTEAD OF APPLIED, in
+# the record format of Adapters/scripts/install.sh --check:
+#
+#   <family> TAB <status> TAB <path> TAB <detail>
+#
+#   settings       current | absent | customized | disabled | fault
+#                  (current: the template rendered for this project, line
+#                  endings aside; customized: the project's own settings
+#                  beside the framework's entries; disabled: that file sets
+#                  "disableAllHooks": true)
+#   hook           present | absent | near-miss | unchecked   (detail: the
+#                  template entry, or the near-miss command; from the same jq
+#                  computation a merge uses, so "present" has one definition)
+#   gitattributes  present | missing          (detail: the LF rule)
+#   framework      fault                      (the framework copy is unusable)
+#
+# Actionable: absent, missing, disabled, fault. A near miss is information:
+# the framework's entry is beside it after any run, as the write path says.
+# A closing `#` line counts each family and gives the remedies. Exit codes:
+# 0 nothing to act on, 3 drift, 1 a fault (something could not be evaluated:
+# no jq for an existing file, a symbolic link, a file that is not one JSON
+# object), 2 usage (--check with --print or --force; --quiet without
+# --check). settings.json is parsed with jq and never evaluated; a run
+# under --check writes no file and runs no git command.
 #
 # The hooks are project-scoped (.claude/settings.json is committed), so every
 # session on every clone runs them — unlike git hooks, Claude Code reads its
@@ -49,19 +77,101 @@ export LC_ALL=C
 
 PRINT=0
 FORCE=0
+CHECK=0
+QUIET=0
 for arg in "$@"; do
   case "$arg" in
     --print) PRINT=1 ;;
     --force) FORCE=1 ;;
+    --check) CHECK=1 ;;
+    --quiet) QUIET=1 ;;
     --help|-h) sed -n '2,$p' "$0" | awk '/^#/{print; next} /^$/{print; next} {exit}' | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "install-hooks.sh: unknown option '$arg'" >&2; exit 2 ;;
   esac
 done
+if [ "$CHECK" -eq 1 ] && { [ "$PRINT" -eq 1 ] || [ "$FORCE" -eq 1 ]; }; then
+  echo "install-hooks.sh: --check reports and writes nothing; it cannot be combined with --print or --force." >&2
+  exit 2
+fi
+if [ "$QUIET" -eq 1 ] && [ "$CHECK" -eq 0 ]; then
+  echo "install-hooks.sh: --quiet only applies to --check." >&2
+  exit 2
+fi
+
+# Under --check: no git command takes an optional lock. None runs today; the
+# variable is set before any could (git's spelling of --no-optional-locks).
+[ "$CHECK" -eq 1 ] && export GIT_OPTIONAL_LOCKS=0
+
+# --check keeps the real stdout on fd 3 for the records and sends every
+# human-readable line to /dev/null, as install.sh --check does.
+REPORT=""
+[ "$CHECK" -eq 1 ] && exec 3>&1 >/dev/null
+
+# record <family> <status> <path> <detail> — one line: a TAB, LF or CR in a
+# field (the detail can be a command read from the project's settings)
+# becomes a space, so it cannot split the record into forged ones
+# (SEC-IAENG-355-02).
+record() {
+  local f3="${3//$'\t'/ }" detail="${4//$'\t'/ }"
+  f3="${f3//$'\n'/ }"; f3="${f3//$'\r'/ }"
+  detail="${detail//$'\n'/ }"; detail="${detail//$'\r'/ }"
+  REPORT="$REPORT$1"$'\t'"$2"$'\t'"$f3"$'\t'"$detail"$'\n'
+}
+check_fault() { record "$1" fault "$2" "$3"; echo "install-hooks.sh: $3" >&2; }
+
+# check_report — prints the records (under --quiet the actionable ones) and
+# the closing line on fd 3, then exits 1 (a fault), 3 (drift) or 0.
+check_report() {
+  local actionable="" faults=0 _fam _st _rest _me
+  while IFS=$'\t' read -r _fam _st _rest; do
+    case "$_st" in
+      fault) faults=$((faults + 1)); actionable="$actionable$_fam"$'\t'"$_st"$'\t'"$_rest"$'\n' ;;
+      absent|missing|disabled) actionable="$actionable$_fam"$'\t'"$_st"$'\t'"$_rest"$'\n' ;;
+    esac
+  done <<< "$REPORT"
+  [ "$QUIET" -eq 1 ] && [ -z "$actionable" ] && exit 0
+  _me="${0//$'\t'/ }"; _me="${_me//$'\n'/ }"
+  {
+    if [ "$QUIET" -eq 1 ]; then printf '%s' "$actionable"; else printf '%s' "$REPORT"; fi
+    # The script's path reaches awk through the environment, not -v, which
+    # would decode its backslashes.
+    IAENG_ME="$_me" awk -F '\t' '
+      NF == 0 { next }
+      { n[$1]++; s[$1 FS $2]++; if ($2 ~ /^(absent|missing|disabled|fault)$/) act++; if ($2 == "fault") f++ }
+      function part(fam, label, statuses,   k, i, out, sep, st) {
+        out = n[fam] + 0 " " label
+        k = split(statuses, st, " ")
+        sep = ": "
+        for (i = 1; i <= k; i++) if (s[fam FS st[i]]) { out = out sep s[fam FS st[i]] " " st[i]; sep = ", " }
+        return out
+      }
+      END {
+        line = "# install-hooks.sh --check: " (act + 0) " to act on. " part("settings", "settings item(s)", "current absent customized disabled fault")
+        line = line "; " part("hook", "hook entries", "present absent near-miss unchecked fault")
+        line = line "; " part("gitattributes", ".gitattributes rule(s)", "present missing")
+        line = line "; " (f + 0) " fault(s)."
+        if (s["settings" FS "absent"] || s["hook" FS "absent"] || s["gitattributes" FS "missing"])
+          line = line " absent/missing: re-run " ENVIRON["IAENG_ME"] " without --force; it adds them and keeps every entry already there."
+        if (s["hook" FS "near-miss"])
+          line = line " near-miss: check each is not a weakened copy; the framework entry runs beside it."
+        if (s["settings" FS "disabled"])
+          line = line " disabled: \"disableAllHooks\": true switches off every hook, the guards included; remove it there for them to run."
+        if (f) line = line " fault: read the fault record(s); nothing is current until they are fixed."
+        print line
+      }' <<< "$REPORT"
+  } >&3
+  [ "$faults" -gt 0 ] && exit 1
+  [ -n "$actionable" ] && exit 3
+  exit 0
+}
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 PROJECT="$(pwd)"
 EXAMPLE="$HERE/settings.example.json"
-[ -f "$EXAMPLE" ] || { echo "install-hooks.sh: $EXAMPLE is missing" >&2; exit 1; }
+if [ ! -f "$EXAMPLE" ]; then
+  [ "$CHECK" -eq 1 ] && { check_fault framework "$EXAMPLE" "$EXAMPLE is missing"; check_report; }
+  echo "install-hooks.sh: $EXAMPLE is missing" >&2; exit 1
+fi
 
 # Framework root relative to the project: the directory three levels above
 # this script (Adapters/ai-runtimes/claude-code), made relative to $PROJECT.
@@ -89,6 +199,7 @@ while :; do
 done
 unset _probe _rel _parent
 if [ -z "$ROOT" ]; then
+  [ "$CHECK" -eq 1 ] && { check_fault framework "$FW_ABS" "the framework ($FW_ABS) is not inside the project ($PROJECT); run from the project root"; check_report; }
   echo "install-hooks.sh: the framework ($FW_ABS) is not inside the project ($PROJECT); run from the project root" >&2
   exit 1
 fi
@@ -96,7 +207,12 @@ fi
 # The hook scripts must be executable for the Bash invocation to be moot and
 # for a direct invocation to work; check, do not assume.
 for h in "$HERE"/hooks/*.sh; do
-  [ -x "$h" ] || { echo "install-hooks.sh: $h is not executable — run: chmod +x $HERE/hooks/*.sh" >&2; exit 1; }
+  [ -x "$h" ] && continue
+  if [ "$CHECK" -eq 1 ]; then
+    check_fault framework "$h" "$h is not executable — run: chmod +x $HERE/hooks/*.sh"
+  else
+    echo "install-hooks.sh: $h is not executable — run: chmod +x $HERE/hooks/*.sh" >&2; exit 1
+  fi
 done
 
 RENDERED="$(sed "s#__IAENG_ROOT__#$ROOT#g" "$EXAMPLE")"
@@ -151,9 +267,22 @@ warn_if_hooks_disabled() {
 # it. Written out here rather than sourced from a shared file: this script is
 # a control path (Adapters/scripts/check-control-paths.sh), and a file it
 # sources would have to be one too.
+#
+# Only a CR that ends a line is dropped before the match, never one inside a
+# line (SEC-IAENG-353-01); read into the shell and matched there as a whole
+# line, so no pipe can fail the match with SIGPIPE and no grep that drops a
+# CR on its own (Git for Windows') decides it. One predicate, for the write
+# path and for --check.
+LF_RULE="/.claude/settings.json text eol=lf"
+lf_rule_present() {
+  local content
+  [ -f "$PROJECT/.gitattributes" ] || return 1
+  content="$(sed $'s/\r$//' "$PROJECT/.gitattributes")"
+  [[ $'\n'"$content"$'\n' == *$'\n'"$LF_RULE"$'\n'* ]]
+}
 ensure_lf_rule() {
-  local rule="/.claude/settings.json text eol=lf" attr="$PROJECT/.gitattributes" sep=""
-  if [ -f "$attr" ] && tr -d '\r' < "$attr" | grep -qxF "$rule"; then
+  local rule="$LF_RULE" attr="$PROJECT/.gitattributes" sep=""
+  if lf_rule_present; then
     return 0
   fi
   # Read before the append starts: a last line without its newline gets one.
@@ -181,26 +310,24 @@ finish() {
   return "$rc"
 }
 
-if [ -f "$DEST" ] && [ "$FORCE" -eq 0 ]; then
-  if [ "$(cat "$DEST")" = "$RENDERED" ]; then
-    echo "= $DEST already current"
-    finish; exit $?
-  fi
-  merge_by_hand() {
-    echo "! $DEST exists and differs, and $1. Not changed." >&2
-    echo "  Merge the 'hooks' block from: $0 --print" >&2
-    echo "  or re-run with --force to replace the file (review its other settings first)." >&2
-    warn_if_hooks_disabled
-    exit 1
-  }
-  # A link is refused, not merged through: writing the merge would replace
-  # the link with a regular file and detach it from what it points at.
-  [ -L "$DEST" ] && merge_by_hand "it is a symbolic link (a merge would replace the link with a file)"
-  command -v jq >/dev/null 2>&1 || merge_by_hand "jq is not installed to merge into it"
-  # One JSON object, or nothing is touched. tr: jq on Windows writes CRLF.
-  jq -es 'length == 1 and (.[0] | type == "object") and ((.[0].hooks // {}) | type == "object")' "$DEST" >/dev/null 2>&1 \
-    || merge_by_hand "it is not one JSON object with an object 'hooks'"
-  # PRESENT MEANS EXACTLY THE FRAMEWORK'S ENTRY (PR #239 security review, F1;
+# THE DECISIONS, ONE DEFINITION EACH. The write path below and --check call
+# the same three functions, so --check reports what a run would decide.
+#
+# settings_current: the file is the template rendered for this project. A CR
+# that ends a line is not a difference (a core.autocrlf checkout of the same
+# file); a CR inside a line is one (SEC-IAENG-353-01).
+settings_current() { [ "$(sed $'s/\r$//' "$DEST")" = "$RENDERED" ]; }
+# settings_mergeable: one JSON object with an object 'hooks', or nothing is
+# touched.
+settings_mergeable() {
+  jq -es 'length == 1 and (.[0] | type == "object") and ((.[0].hooks // {}) | type == "object")' "$DEST" >/dev/null 2>&1
+}
+# merge_settings: the settings on stdin, merged with the template; prints
+# {m: merged settings, a: added, p: present, w: near misses}. tr: jq on
+# Windows writes CRLF; its JSON escapes a CR inside a string, so only line
+# endings are removed.
+#
+# PRESENT MEANS EXACTLY THE FRAMEWORK'S ENTRY (PR #239 security review, F1;
   # issue #241, L1). A template group is present only when a group under the
   # same event has the same matcher and holds each of the template's hook
   # entries equal in EVERY field — command, type, timeout and any other, in
@@ -212,9 +339,9 @@ if [ -f "$DEST" ] && [ "$FORCE" -eq 0 ]; then
   # runtime goes on as if it had not blocked — is not the guard: the
   # framework's entry is appended beside it (a hook run twice is harmless) and
   # the other one is reported as a near miss for the project to check, naming
-  # the fields that differ when its command is the template's.
-  # Result: {m: merged settings, a: added, p: present, w: near misses}.
-  MERGED="$(jq --argjson tpl "$RENDERED" '
+# the fields that differ when its command is the template's.
+merge_settings() {
+  jq --argjson tpl "$RENDERED" '
     def norm: gsub("[$][{]CLAUDE_PROJECT_DIR[}]"; "$CLAUDE_PROJECT_DIR") | gsub("/[.]/"; "/");
     def nentry: if type == "object" and (.command | type) == "string" then .command |= norm else . end;
     def nentries: [.hooks[]? | nentry];
@@ -243,8 +370,70 @@ if [ -f "$DEST" ] && [ "$FORCE" -eq 0 ]; then
              | ($grp | where($ev)) + ": " + $c
                + (if $same == null then ""
                   else "  (the framework command; differs in: " + (differ($same; $hn) | join(", ")) + ")"
-                  end) ]' "$DEST" 2>/dev/null | tr -d '\r')" \
-    || merge_by_hand "the merge failed"
+                  end) ]' 2>/dev/null | tr -d '\r'
+}
+
+# --check: the decisions above, recorded; nothing below it runs.
+if [ "$CHECK" -eq 1 ]; then
+  REL_DEST=".claude/settings.json"
+  MERGED=""
+  if [ ! -f "$DEST" ]; then
+    record settings absent "$REL_DEST" "a run writes it from settings.example.json"
+  elif settings_current; then
+    record settings current "$REL_DEST" "the template, rendered for framework root $ROOT"
+    if ! command -v jq >/dev/null 2>&1; then
+      record hook unchecked "$REL_DEST" "jq is not installed: the entries are not listed"
+    elif ! MERGED="$(merge_settings < "$DEST")"; then
+      MERGED=""; check_fault hook "$REL_DEST" "the merge computation failed"
+    fi
+  elif [ -L "$DEST" ]; then
+    check_fault settings "$REL_DEST" "it is a symbolic link; a run refuses to merge through it"
+  elif ! command -v jq >/dev/null 2>&1; then
+    check_fault settings "$REL_DEST" "jq is not installed to read it"
+  elif ! settings_mergeable; then
+    check_fault settings "$REL_DEST" "it is not one JSON object with an object 'hooks'"
+  elif MERGED="$(merge_settings < "$DEST")"; then
+    record settings customized "$REL_DEST" "the project's own settings, with the framework's entries checked one by one"
+  else
+    MERGED=""; check_fault settings "$REL_DEST" "the merge computation failed"
+  fi
+  if [ -n "$MERGED" ]; then
+    while IFS=$'\t' read -r _st _d; do
+      [ -n "$_st" ] && record hook "$_st" "$REL_DEST" "$_d"
+    done < <(printf '%s\n' "$MERGED" \
+      | jq -r 'def flat: gsub("[\t\n\r]"; " ");
+               (.p[] | "present\t" + flat), (.a[] | "absent\t" + flat), (.w[] | "near-miss\t" + flat)' 2>/dev/null \
+      | sed $'s/\r$//')
+  fi
+  while IFS= read -r _f; do
+    [ -n "$_f" ] && record settings disabled "$_f" '"disableAllHooks": true'
+  done <<< "$(hooks_disabled_in)"
+  if lf_rule_present; then
+    record gitattributes present .gitattributes "$LF_RULE"
+  else
+    record gitattributes missing .gitattributes "$LF_RULE"
+  fi
+  check_report
+fi
+
+if [ -f "$DEST" ] && [ "$FORCE" -eq 0 ]; then
+  if settings_current; then
+    echo "= $DEST already current"
+    finish; exit $?
+  fi
+  merge_by_hand() {
+    echo "! $DEST exists and differs, and $1. Not changed." >&2
+    echo "  Merge the 'hooks' block from: $0 --print" >&2
+    echo "  or re-run with --force to replace the file (review its other settings first)." >&2
+    warn_if_hooks_disabled
+    exit 1
+  }
+  # A link is refused, not merged through: writing the merge would replace
+  # the link with a regular file and detach it from what it points at.
+  [ -L "$DEST" ] && merge_by_hand "it is a symbolic link (a merge would replace the link with a file)"
+  command -v jq >/dev/null 2>&1 || merge_by_hand "jq is not installed to merge into it"
+  settings_mergeable || merge_by_hand "it is not one JSON object with an object 'hooks'"
+  MERGED="$(merge_settings < "$DEST")" || merge_by_hand "the merge failed"
   ADDED="$(printf '%s\n' "$MERGED" | jq -r '.a[]' | tr -d '\r')"
   PRESENT="$(printf '%s\n' "$MERGED" | jq -r '.p[]' | tr -d '\r')"
   NEAR="$(printf '%s\n' "$MERGED" | jq -r '.w[]' | tr -d '\r')"
