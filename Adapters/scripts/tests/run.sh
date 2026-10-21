@@ -7054,6 +7054,268 @@ expect_output "1 git hook problem(s)"
 expect_output "core.hooksPath now shadows"
 expect_no_output "differ from the framework's Adapter" "no differing-file wording when no file differs"
 
+section "install-hooks.sh / install-skills.sh --check — the same decisions, reported, nothing written (WU-IAENG-357)"
+
+# The runtime installers' own decisions, read and never applied: the jq merge
+# computation that defines "present exactly", and the skills' diff -r. Same
+# record format, closing line and exit codes as install.sh --check.
+HK_357="./ia-engineering/Adapters/ai-runtimes/claude-code/install-hooks.sh"
+SK_357="./ia-engineering/Adapters/ai-runtimes/claude-code/install-skills.sh"
+HOOKS_RULE_357="/.claude/settings.json text eol=lf"
+SKILLS_RULE_357="/.claude/skills/** text eol=lf"
+
+# expect_empty_357 <description> — the previous command printed nothing.
+expect_empty_357() {
+  TOTAL=$((TOTAL + 1))
+  if [ -z "$LAST_OUTPUT" ]; then
+    [ -n "$VERBOSE" ] && printf '   ok   %s\n' "$1"
+    return 0
+  fi
+  printf '   FAIL %s\n' "$1"
+  printf '%s\n' "$LAST_OUTPUT" | sed 's/^/        | /'; FAILED=$((FAILED + 1))
+  return 1
+}
+
+# same_snapshot_357 <before> <after> <description>
+same_snapshot_357() {
+  TOTAL=$((TOTAL + 1))
+  if [ "$1" = "$2" ]; then
+    [ -n "$VERBOSE" ] && printf '   ok   %s\n' "$3"
+    return 0
+  fi
+  printf '   FAIL %s\n' "$3"
+  diff <(printf '%s\n' "$1") <(printf '%s\n' "$2") | sed 's/^/        | /'; FAILED=$((FAILED + 1))
+  return 1
+}
+
+# jq_edit_357 <jq program> — rewrites .claude/settings.json; only the
+# line-ending CR of jq's output on Windows is dropped.
+jq_edit_357() {
+  jq "$1" .claude/settings.json | sed $'s/\r$//' > settings.tmp && mv settings.tmp .claude/settings.json
+}
+
+# --- never installed: absent and missing, nothing written -----------------------
+adopter_353 chk-357
+SNAP_357A="$(snapshot_353)"
+expect 3 "install-hooks.sh --check without a settings.json is drift (exit 3)" -- bash "$HK_357" --check
+expect_output "settings${T}absent${T}.claude/settings.json${T}a run writes it from settings.example.json"
+expect_output "gitattributes${T}missing${T}.gitattributes${T}$HOOKS_RULE_357"
+expect_output "# install-hooks.sh --check: 2 to act on. 1 settings item(s): 1 absent; 0 hook entries; 1 .gitattributes rule(s): 1 missing; 0 fault(s). absent/missing: re-run $HK_357 without --force"
+expect 3 "install-skills.sh --check without skills is drift (exit 3)" -- bash "$SK_357" --check
+expect_output "skill${T}absent${T}.claude/skills/dashboard${T}ia-engineering/Adapters/ai-runtimes/claude-code/skills/dashboard"
+expect_output "skill${T}absent${T}.claude/skills/create-project${T}"
+expect_output "gitattributes${T}missing${T}.gitattributes${T}$SKILLS_RULE_357"
+expect_output "# install-skills.sh --check: 3 to act on. 2 skill(s): 2 absent; 1 .gitattributes rule(s): 1 missing; 0 fault(s). absent/missing: re-run $SK_357 without --force"
+expect 3 "install-hooks.sh --check --quiet keeps the drift" -- bash "$HK_357" --check --quiet
+expect_output "settings${T}absent${T}"
+expect 3 "install-skills.sh --check --quiet keeps the drift" -- bash "$SK_357" --check --quiet
+expect_output "skill${T}absent${T}.claude/skills/dashboard"
+TOTAL=$((TOTAL + 1))
+if [ -e .claude ] || [ -e .gitattributes ]; then
+  printf '   FAIL --check wrote .claude or .gitattributes into a never-installed project\n'; FAILED=$((FAILED + 1))
+else
+  [ -n "$VERBOSE" ] && printf '   ok   --check wrote no .claude and no .gitattributes\n'
+fi
+same_snapshot_357 "$SNAP_357A" "$(snapshot_353)" "read-only: four --check runs left a never-installed project identical"
+
+# --- installed and committed: current, --quiet silent ---------------------------
+bash "$HK_357" >/dev/null 2>&1
+bash "$SK_357" >/dev/null 2>&1
+commit_353 "chore(adopt): install the runtime hooks and skills"
+expect 0 "install-hooks.sh --check on an installed project exits 0" -- bash "$HK_357" --check
+expect_output "settings${T}current${T}.claude/settings.json${T}the template, rendered for framework root ia-engineering"
+expect_output "hook${T}present${T}.claude/settings.json${T}PreToolUse [Bash]: block-escape-hatches.sh"
+expect_output "hook${T}present${T}.claude/settings.json${T}Stop: dashboard-refresh.sh"
+expect_output "# install-hooks.sh --check: 0 to act on. 1 settings item(s): 1 current; 6 hook entries: 6 present; 1 .gitattributes rule(s): 1 present; 0 fault(s)."
+expect 0 "install-hooks.sh --check --quiet on an installed project exits 0" -- bash "$HK_357" --check --quiet
+expect_empty_357 "install-hooks.sh --check --quiet prints nothing when nothing needs acting on"
+expect 0 "install-skills.sh --check on an installed project exits 0" -- bash "$SK_357" --check
+expect_output "skill${T}current${T}.claude/skills/dashboard${T}ia-engineering/Adapters/ai-runtimes/claude-code/skills/dashboard"
+expect_output "# install-skills.sh --check: 0 to act on. 2 skill(s): 2 current; 1 .gitattributes rule(s): 1 present; 0 fault(s)."
+expect 0 "install-skills.sh --check --quiet on an installed project exits 0" -- bash "$SK_357" --check --quiet
+expect_empty_357 "install-skills.sh --check --quiet prints nothing when nothing needs acting on"
+
+# A CRLF checkout of the same settings.json is current, on both paths: a real
+# run says "already current" and leaves the bytes alone.
+awk 'BEGIN { ORS = "\r\n" } { print }' .claude/settings.json > settings.tmp && mv settings.tmp .claude/settings.json
+TOTAL=$((TOTAL + 1))
+if [ "$(tr -cd '\r' < .claude/settings.json | wc -c)" -gt 0 ]; then
+  [ -n "$VERBOSE" ] && printf '   ok   the fixture settings.json is CRLF\n'
+else
+  printf '   FAIL the fixture settings.json is not CRLF, so the CRLF case tests nothing\n'; FAILED=$((FAILED + 1))
+fi
+CRLF_SUM_357="$(md5sum < .claude/settings.json)"
+expect 0 "a CRLF settings.json is current (exit 0)" -- bash "$HK_357" --check
+expect_output "settings${T}current${T}.claude/settings.json"
+expect 0 "a real run on the CRLF copy exits 0" -- bash "$HK_357"
+expect_output "already current"
+TOTAL=$((TOTAL + 1))
+if [ "$(md5sum < .claude/settings.json)" = "$CRLF_SUM_357" ]; then
+  [ -n "$VERBOSE" ] && printf '   ok   a real run left the CRLF settings.json byte-identical\n'
+else
+  printf '   FAIL a real run rewrote the CRLF settings.json\n'; FAILED=$((FAILED + 1))
+fi
+git checkout -q -- .claude/settings.json
+
+# A bare CR inside a line is not a line ending (SEC-IAENG-353-01): the file is
+# not the template, even though JSON reads that CR as whitespace.
+awk '!done && /": / { sub(/": /, "\":\r "); done = 1 } { print }' .claude/settings.json > settings.tmp && mv settings.tmp .claude/settings.json
+expect 0 "a bare CR inside a line: every entry still present (exit 0)" -- bash "$HK_357" --check
+expect_output "settings${T}customized${T}.claude/settings.json"
+expect_no_output "settings${T}current${T}" "a bare CR inside a line is not called current"
+git checkout -q -- .claude/settings.json
+
+# The LF rule in a CRLF .gitattributes is found. A line after both rules, so
+# neither is the last line, whose CRLF Git Bash's $(...) strips by itself.
+printf '*.bin binary\n' >> .gitattributes
+awk 'BEGIN { ORS = "\r\n" } { print }' .gitattributes > ga.tmp && mv ga.tmp .gitattributes
+expect 0 "the LF rule in a CRLF .gitattributes is present (exit 0)" -- bash "$HK_357" --check
+expect_output "gitattributes${T}present${T}.gitattributes${T}$HOOKS_RULE_357"
+expect 0 "the skills' LF rule in a CRLF .gitattributes is present (exit 0)" -- bash "$SK_357" --check
+expect_output "gitattributes${T}present${T}.gitattributes${T}$SKILLS_RULE_357"
+git checkout -q -- .gitattributes
+
+# --- one cause at a time: each case's exit code and count are its own -----------
+expect 0 "the installed project is current before each drift" -- bash "$HK_357" --check --quiet
+
+jq_edit_357 '.hooks.Stop |= map(select([.hooks[].command] | any(test("dashboard-refresh")) | not))'
+expect 3 "a missing framework entry alone is drift (exit 3)" -- bash "$HK_357" --check
+expect_output "settings${T}customized${T}.claude/settings.json"
+expect_output "hook${T}absent${T}.claude/settings.json${T}Stop: dashboard-refresh.sh"
+expect_output "# install-hooks.sh --check: 1 to act on. 1 settings item(s): 1 customized; 6 hook entries: 5 present, 1 absent; 1 .gitattributes rule(s): 1 present; 0 fault(s). absent/missing:"
+expect 3 "--check --quiet keeps the missing entry" -- bash "$HK_357" --check --quiet
+expect_output "hook${T}absent${T}.claude/settings.json${T}Stop: dashboard-refresh.sh"
+expect_no_output "${T}present${T}" "--check --quiet leaves out the present entries"
+expect_no_output "${T}customized${T}" "--check --quiet leaves out a customized settings file"
+git checkout -q -- .claude/settings.json
+
+jq_edit_357 '.hooks.PreToolUse |= map(if .matcher == "Bash" then .hooks[0].command += " || true" else . end)'
+expect 3 "a guard neutered with || true: its framework entry is absent (exit 3)" -- bash "$HK_357" --check
+expect_output "hook${T}absent${T}.claude/settings.json${T}PreToolUse [Bash]: block-escape-hatches.sh"
+expect_output "hook${T}near-miss${T}.claude/settings.json${T}PreToolUse [Bash]: "
+expect_output 'block-escape-hatches.sh" || true'
+git checkout -q -- .claude/settings.json
+
+jq_edit_357 '.hooks.PreToolUse += [.hooks.PreToolUse[] | select(.matcher == "Bash") | .hooks[0].timeout = 1]'
+expect 0 "a near miss beside the framework's own entry is information, not drift (exit 0)" -- bash "$HK_357" --check
+expect_output "hook${T}near-miss${T}.claude/settings.json${T}PreToolUse [Bash]: "
+expect_output "(the framework command; differs in: timeout)"
+expect_output "# install-hooks.sh --check: 0 to act on. 1 settings item(s): 1 customized; 7 hook entries: 6 present, 1 near-miss;"
+expect_output "near-miss: check each is not a weakened copy"
+expect 0 "--check --quiet is silent on a near miss alone" -- bash "$HK_357" --check --quiet
+expect_empty_357 "--check --quiet prints nothing for a near miss alone"
+git checkout -q -- .claude/settings.json
+
+# A command read from the project's settings cannot forge records.
+FORGED_357="$(printf 'true hooks/stop-gate.sh\tfault\tFORGED\nsettings\tcurrent\tFORGED')"
+export FORGED_357
+jq_edit_357 '.hooks.Stop += [{"hooks": [{"type": "command", "command": env.FORGED_357}]}]'
+unset FORGED_357
+expect 0 "a near-miss command holding TAB and LF is still one record (exit 0)" -- bash "$HK_357" --check
+expect_output "hook${T}near-miss${T}.claude/settings.json${T}Stop: true hooks/stop-gate.sh fault FORGED settings current FORGED"
+expect_no_output "fault${T}FORGED" "no forged fault record from a TAB or LF in a command"
+expect_no_output "settings${T}current${T}FORGED" "no forged settings record either"
+git checkout -q -- .claude/settings.json
+
+printf '{"disableAllHooks": true}\n' > .claude/settings.local.json
+expect 3 "disableAllHooks in settings.local.json alone is drift (exit 3)" -- bash "$HK_357" --check
+expect_output "settings${T}current${T}.claude/settings.json"
+expect_output "settings${T}disabled${T}.claude/settings.local.json${T}\"disableAllHooks\": true"
+expect_output "# install-hooks.sh --check: 1 to act on. 2 settings item(s): 1 current, 1 disabled; 6 hook entries: 6 present;"
+expect_output "disabled: \"disableAllHooks\": true switches off every hook"
+expect 3 "--check --quiet keeps the switch" -- bash "$HK_357" --check --quiet
+expect_output "settings${T}disabled${T}.claude/settings.local.json"
+rm .claude/settings.local.json
+
+grep -vxF "$HOOKS_RULE_357" .gitattributes > ga.tmp && mv ga.tmp .gitattributes
+expect 3 "a missing settings.json LF rule alone is drift (exit 3)" -- bash "$HK_357" --check
+expect_output "gitattributes${T}missing${T}.gitattributes${T}$HOOKS_RULE_357"
+expect_output "# install-hooks.sh --check: 1 to act on."
+expect 0 "install-skills.sh --check, whose own rule is there, still exits 0" -- bash "$SK_357" --check
+git checkout -q -- .gitattributes
+grep -vxF "$SKILLS_RULE_357" .gitattributes > ga.tmp && mv ga.tmp .gitattributes
+expect 3 "a missing skills LF rule alone is drift (exit 3)" -- bash "$SK_357" --check
+expect_output "gitattributes${T}missing${T}.gitattributes${T}$SKILLS_RULE_357"
+expect_output "# install-skills.sh --check: 1 to act on. 2 skill(s): 2 current; 1 .gitattributes rule(s): 1 missing; 0 fault(s). absent/missing:"
+git checkout -q -- .gitattributes
+
+echo "edited by the project" >> .claude/skills/dashboard/SKILL.md
+expect 3 "an edited skill alone is drift (exit 3)" -- bash "$SK_357" --check
+expect_output "skill${T}differs${T}.claude/skills/dashboard${T}ia-engineering/Adapters/ai-runtimes/claude-code/skills/dashboard"
+expect_output "# install-skills.sh --check: 1 to act on. 2 skill(s): 1 current, 1 differs; 1 .gitattributes rule(s): 1 present; 0 fault(s). differs: diff -r"
+expect 3 "install-skills.sh --check --quiet keeps the edited skill" -- bash "$SK_357" --check --quiet
+expect_output "skill${T}differs${T}.claude/skills/dashboard"
+expect_no_output "${T}current${T}" "install-skills.sh --check --quiet leaves out what is current"
+expect 0 "a real run makes the same decision: the edited skill is left untouched" -- bash "$SK_357"
+expect_output "left untouched"
+git checkout -q -- .claude/skills
+rm -r .claude/skills/create-project
+expect 3 "a removed skill alone is drift (exit 3)" -- bash "$SK_357" --check
+expect_output "skill${T}absent${T}.claude/skills/create-project"
+expect_output "# install-skills.sh --check: 1 to act on. 2 skill(s): 1 current, 1 absent;"
+git checkout -q -- .claude/skills
+
+# --- read-only with every kind of drift at once -----------------------------------
+jq_edit_357 '.hooks.PreToolUse |= map(if .matcher == "Bash" then .hooks[0].command += " || true" else . end)'
+printf '{"disableAllHooks": true}\n' > .claude/settings.local.json
+grep -vxF "$HOOKS_RULE_357" .gitattributes | grep -vxF "$SKILLS_RULE_357" > ga.tmp && mv ga.tmp .gitattributes
+echo "edited by the project" >> .claude/skills/dashboard/SKILL.md
+rm -r .claude/skills/create-project
+SNAP_357B="$(snapshot_353)"
+same_snapshot_357 "$SNAP_357B" "$(snapshot_353)" "the snapshot itself writes nothing (two in a row are identical)"
+expect 3 "install-hooks.sh --check over every kind of drift (exit 3)" -- bash "$HK_357" --check
+expect_output "# install-hooks.sh --check: 3 to act on."
+expect 3 "install-hooks.sh --check --quiet over every kind of drift (exit 3)" -- bash "$HK_357" --check --quiet
+expect 3 "install-skills.sh --check over every kind of drift (exit 3)" -- bash "$SK_357" --check
+expect_output "# install-skills.sh --check: 3 to act on."
+expect 3 "install-skills.sh --check --quiet over every kind of drift (exit 3)" -- bash "$SK_357" --check --quiet
+same_snapshot_357 "$SNAP_357B" "$(snapshot_353)" "read-only: tree, .git, index, refs, config and objects unchanged by four --check runs over drift"
+rm .claude/settings.local.json
+git checkout -q -- .claude .gitattributes
+
+# --- faults: never read as current ------------------------------------------------
+printf '{ "hooks": { "Stop": [ }' > .claude/settings.json
+expect 1 "a settings.json that is not JSON is a fault (exit 1)" -- bash "$HK_357" --check
+expect_output "settings${T}fault${T}.claude/settings.json${T}it is not one JSON object with an object 'hooks'"
+expect_output "1 fault(s). fault: read the fault record(s)"
+expect 1 "--check --quiet keeps the fault" -- bash "$HK_357" --check --quiet
+expect_output "settings${T}fault${T}"
+git checkout -q -- .claude/settings.json
+
+jq '.hooks.Stop = []' .claude/settings.json | sed $'s/\r$//' > "$WORK/link-357.json"
+rm .claude/settings.json
+MSYS=winsymlinks:sys ln -s "$WORK/link-357.json" .claude/settings.json 2>/dev/null
+if [ -L .claude/settings.json ]; then
+  expect 1 "a symlinked settings.json is a fault (exit 1), as a run refuses it" -- bash "$HK_357" --check
+  expect_output "settings${T}fault${T}.claude/settings.json${T}it is a symbolic link"
+  rm .claude/settings.json
+else
+  skip 2 "install-hooks.sh --check on a symlinked settings.json: ln -s failed on this platform -- not a fix defect."
+fi
+git checkout -q -- .claude/settings.json
+
+mv ia-engineering/Adapters/ai-runtimes/claude-code/skills skills.moved
+expect 1 "install-skills.sh --check with no skills to compare is a fault (exit 1)" -- bash "$SK_357" --check
+expect_output "skill${T}fault${T}(none)${T}"
+mv skills.moved ia-engineering/Adapters/ai-runtimes/claude-code/skills
+
+# --- usage errors -----------------------------------------------------------------
+expect 2 "install-hooks.sh --check --print is a usage error" -- bash "$HK_357" --check --print
+expect 2 "install-hooks.sh --check --force is a usage error" -- bash "$HK_357" --check --force
+expect 2 "install-hooks.sh --quiet without --check is a usage error" -- bash "$HK_357" --quiet
+expect 2 "install-skills.sh --check --list is a usage error" -- bash "$SK_357" --check --list
+expect 2 "install-skills.sh --check --force is a usage error" -- bash "$SK_357" --check --force
+expect 2 "install-skills.sh --quiet without --check is a usage error" -- bash "$SK_357" --quiet
+
+# --- the framework checkout itself: a skill for projects is not-applicable --------
+new_repo fc-357
+cp -R "$SCRIPTS/.." ./Adapters
+mkdir -p Core && : > Core/AI_MANIFEST.md
+expect 3 "install-skills.sh --check in the framework checkout (exit 3: /dashboard absent)" -- bash Adapters/ai-runtimes/claude-code/install-skills.sh --check
+expect_output "skill${T}not-applicable${T}.claude/skills/create-project${T}not for the framework checkout"
+expect_output "skill${T}absent${T}.claude/skills/dashboard${T}Adapters/ai-runtimes/claude-code/skills/dashboard"
+expect_no_output "skill${T}absent${T}.claude/skills/create-project" "a skill for projects is not called absent in the framework checkout"
+
 # --------------------------------------------------------------- verdict ----
 
 cd "$HERE" || exit 1
