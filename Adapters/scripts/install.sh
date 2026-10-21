@@ -82,30 +82,47 @@
 #   gitattributes  present | missing          (detail: the rule)
 #   gitignore      present | missing          (detail: the rule)
 #   directory      present | absent
-#   git-hooks      unchecked                  (see below)
+#   git-hooks      current | absent | differs   (path core.hooksPath; detail:
+#                                                the value a run would set)
+#                  current | not-executable     (path: each framework hook)
+#                  shadowed                     (path: the .git/hooks holding
+#                                                project hooks a run would
+#                                                stop git from running)
+#                  unchecked                    (the commit probes, below)
+#   todo           placeholder                (a next step for the project, as
+#                                              a real run's `>` line: never
+#                                              drift, never in the exit code)
 #   any family     fault                      (detail: what went wrong)
 #
-# ACTIONABLE means absent, differs, missing or fault. Without --quiet every
+# ACTIONABLE means absent, differs, missing, not-executable, shadowed or
+# fault. Without --quiet every
 # record is printed; with it, only the actionable ones. Either way a closing
 # `#` line gives the counts per family, the number to act on, and the remedy
 # for each kind — unless --quiet found nothing to act on, when the output is
 # empty. Exit codes, stable for a calling hook:
 #
 #   0  every item evaluated, nothing to act on
-#   3  every item evaluated, drift found (absent, differs or missing)
+#   3  every item evaluated, drift found (absent, differs, missing,
+#      not-executable or shadowed)
 #   1  a fault: something could not be evaluated (a template missing from
 #      the framework, not a git repository, ...) — never read as current
 #   2  usage error (--check cannot be combined with --dry-run or --force,
 #      which describe writes; --quiet needs --check)
 #
+# The git hooks section (WU-IAENG-355) makes the write path's decisions and
+# reads only: `git config` is read, never set, and nothing is chmod-ed. A
+# shadowed .git/hooks is a `fault` on a real run, which then goes on to set
+# core.hooksPath; --check calls it `shadowed`, because it was evaluated and
+# needs action (drift, exit 3), and exit 1 means something could not be
+# evaluated.
+#
 # What --check does NOT evaluate, and says so with an `unchecked` record
 # rather than leaving it out (Adapters/README.md, the Check Convention, rule
-# 1): the git hooks section (core.hooksPath, executable hooks, hooks shadowed
-# in .git/hooks), and the commit probes, which run the hooks and write a blob
-# into the object store — skipped exactly as --dry-run skips them. The
-# closing line counts them as "not checked" and --quiet does not repeat them:
-# they are the same two lines on every run, and a hook that prints the same
-# lines every session teaches its reader to skip it.
+# 1): the commit probes, which run the hooks and write a blob into the object
+# store — skipped exactly as --dry-run skips them — and, under --no-hooks, the
+# hooks section. --quiet does not repeat the line: it is the same on every
+# run, and a hook that prints the same lines every session teaches its reader
+# to skip it.
 #
 # Read-only is a tested claim (Adapters/scripts/tests/run.sh, WU-IAENG-353:
 # the working tree, every file under .git, the index, refs, local config and
@@ -387,11 +404,10 @@ echo
 # --- Git hooks -------------------------------------------------------------
 
 echo "Git hooks"
-if [ "$CHECK" -eq 1 ]; then
-  # Not compared yet, and said rather than left out: an absent line would
-  # read as "nothing to report" (the Check Convention, rule 1).
-  record git-hooks unchecked core.hooksPath "not compared by --check: core.hooksPath, executable hooks and hooks shadowed in .git/hooks; install.sh --dry-run shows what a run would change"
-elif [ "$NO_HOOKS" -eq 1 ]; then
+if [ "$NO_HOOKS" -eq 1 ]; then
+  # Said rather than left out: an absent line would read as "nothing to
+  # report" (the Check Convention, rule 1).
+  [ "$CHECK" -eq 1 ] && record git-hooks unchecked core.hooksPath "skipped (--no-hooks)"
   say "skipped (--no-hooks)"
 else
   HOOKS_DIR="$HOOKS_REL/Adapters/git-hooks"
@@ -417,13 +433,25 @@ else
       EXISTING="$(find "$REAL_HOOKS" -maxdepth 1 -type f ! -name '*.sample' 2>/dev/null \
                     | wc -l | tr -d ' ')"
       if [ "$EXISTING" -gt 0 ]; then
-        fault git-hooks "$REAL_HOOKS" "$EXISTING hook(s) already in $REAL_HOOKS. Setting core.hooksPath makes git ignore that directory entirely, so those hooks would stop running silently. Move them into $HOOKS_DIR (or into a directory of your own that also contains the framework's hooks) before continuing."
+        if [ "$CHECK" -eq 1 ]; then
+          record git-hooks shadowed "$REAL_HOOKS" "$EXISTING hook(s) there would stop running once core.hooksPath points at $HOOKS_DIR; move them into $HOOKS_DIR (or into a directory of your own that also contains the framework's hooks) first"
+        else
+          fault git-hooks "$REAL_HOOKS" "$EXISTING hook(s) already in $REAL_HOOKS. Setting core.hooksPath makes git ignore that directory entirely, so those hooks would stop running silently. Move them into $HOOKS_DIR (or into a directory of your own that also contains the framework's hooks) before continuing."
+        fi
       fi
     fi
     if [ "$CURRENT" = "$HOOKS_DIR" ]; then
+      record git-hooks current core.hooksPath "$HOOKS_DIR"
       same "core.hooksPath = $HOOKS_DIR"
     else
-      if run git config --local core.hooksPath "$HOOKS_DIR"; then
+      if [ -z "$CURRENT" ]; then
+        record git-hooks absent core.hooksPath "$HOOKS_DIR"
+      else
+        record git-hooks differs core.hooksPath "$HOOKS_DIR (set to: $CURRENT)"
+      fi
+      if [ "$CHECK" -eq 1 ]; then
+        :
+      elif run git config --local core.hooksPath "$HOOKS_DIR"; then
         did "core.hooksPath = $HOOKS_DIR${CURRENT:+ (was: $CURRENT)}"
       else
         fault git-hooks core.hooksPath "could not set core.hooksPath"
@@ -433,8 +461,11 @@ else
     # A hook that is not executable is a hook git skips without complaint.
     for h in "$PROJECT/$HOOKS_DIR"/*; do
       [ -f "$h" ] || continue
-      if [ ! -x "$h" ]; then
-        run chmod +x "$h" && did "chmod +x $(basename "$h")"
+      if [ -x "$h" ]; then
+        record git-hooks current "$HOOKS_DIR/${h##*/}" executable
+      else
+        record git-hooks not-executable "$HOOKS_DIR/${h##*/}" "git skips a hook that is not executable"
+        [ "$CHECK" -eq 1 ] || { run chmod +x "$h" && did "chmod +x $(basename "$h")"; }
       fi
     done
   fi
@@ -468,6 +499,7 @@ if [ -d "$FRAMEWORK/Adapters/github/ISSUE_TEMPLATE" ]; then
       install_file "$t" ".github/ISSUE_TEMPLATE/$base" customized
       if [ -f ".github/ISSUE_TEMPLATE/$base" ] \
          && grep -q 'OWNER/REPO' ".github/ISSUE_TEMPLATE/$base"; then
+        record todo placeholder ".github/ISSUE_TEMPLATE/$base" "replace the OWNER/REPO placeholders with this project's own owner and name"
         todo "Replace the OWNER/REPO placeholders in .github/ISSUE_TEMPLATE/config.yml with this project's own owner and name. The Adapter ships them deliberately; until they are replaced, the Questions and Security Vulnerability contact links point at a repository that does not exist."
       fi
     else
@@ -798,7 +830,7 @@ if [ "$CHECK" -eq 1 ]; then
   ACTIONABLE=""
   while IFS=$'\t' read -r _fam _status _rest; do
     case "$_status" in
-      absent|differs|missing|fault) ACTIONABLE="$ACTIONABLE$_fam"$'\t'"$_status"$'\t'"$_rest"$'\n' ;;
+      absent|differs|missing|not-executable|shadowed|fault) ACTIONABLE="$ACTIONABLE$_fam"$'\t'"$_status"$'\t'"$_rest"$'\n' ;;
     esac
   done <<< "$REPORT"
   ACTIONABLE="${ACTIONABLE%$'\n'}"
@@ -813,7 +845,7 @@ if [ "$CHECK" -eq 1 ]; then
     fi
     awk -F '\t' -v rel="$HOOKS_REL" '
       NF == 0 { next }
-      { n[$1]++; s[$1 FS $2]++; if ($2 ~ /^(absent|differs|missing|fault)$/) act++ }
+      { n[$1]++; s[$1 FS $2]++; if ($2 ~ /^(absent|differs|missing|not-executable|shadowed|fault)$/) act++ }
       function part(fam, label, statuses,   k, i, out, sep, st) {
         out = n[fam] + 0 " " label
         k = split(statuses, st, " ")
@@ -826,13 +858,18 @@ if [ "$CHECK" -eq 1 ]; then
         line = line "; " part("gitattributes", ".gitattributes rule(s)", "present missing")
         line = line "; " part("gitignore", ".gitignore rule(s)", "present missing")
         line = line "; " part("directory", "directory", "present absent")
-        line = line "; " (s["git-hooks" FS "unchecked"] + 0) " not checked (git-hooks)"
+        line = line "; " part("git-hooks", "git hook item(s)", "current absent differs not-executable shadowed unchecked fault")
         f = 0; for (key in s) if (key ~ (FS "fault$")) f += s[key]
         line = line "; " f " fault(s)."
+        if (n["todo"]) line = line " " n["todo"] " todo(s) for the project, not drift."
         if (s["file" FS "absent"] || s["gitattributes" FS "missing"] || s["gitignore" FS "missing"] || s["directory" FS "absent"])
           line = line " absent/missing: re-run " rel "/Adapters/scripts/install.sh without --force; it adds them and overwrites nothing."
         if (s["file" FS "differs"])
           line = line " differs: diff <source> <path>; copy the source over a copy the project never edited, never --force."
+        if (s["git-hooks" FS "absent"] || s["git-hooks" FS "differs"] || s["git-hooks" FS "not-executable"])
+          line = line " git-hooks: re-run " rel "/Adapters/scripts/install.sh; it sets core.hooksPath and makes the framework hooks executable."
+        if (s["git-hooks" FS "shadowed"])
+          line = line " shadowed: move the project hooks out of .git/hooks first, or git stops running them."
         if (f) line = line " fault: read the fault record(s); nothing is current until they are fixed."
         print line
       }' <<< "$REPORT"

@@ -6771,7 +6771,7 @@ expect_output "file${T}absent${T}.github/workflows/control-path-guard.yml${T}ia-
 expect_output "gitattributes${T}missing${T}.gitattributes${T}/Registry/work-units.yml text eol=lf"
 expect_output "gitignore${T}missing${T}.gitignore${T}.env"
 expect_output "directory${T}absent${T}local_test_data/"
-expect_output "git-hooks${T}unchecked${T}core.hooksPath"
+expect_output "git-hooks${T}absent${T}core.hooksPath${T}ia-engineering/Adapters/git-hooks"
 expect_output "git-hooks${T}unchecked${T}commit probes"
 expect_output "8 file(s) compared: 8 absent"
 expect_output "re-run ia-engineering/Adapters/scripts/install.sh without --force"
@@ -6805,7 +6805,9 @@ CRLF_SUM_353="$(md5sum < .github/workflows/data-policy.yml)"
 CHK_T0="$(date +%s%N)"
 expect 0 "--check on a current project exits 0" -- bash "$INST_353" --check
 CHK_T1="$(date +%s%N)"
-expect_output "# install.sh --check: 0 to act on. 8 file(s) compared: 8 current; 8 .gitattributes rule(s): 8 present; 6 .gitignore rule(s): 6 present; 1 directory: 1 present; 2 not checked (git-hooks); 0 fault(s)."
+expect_output "# install.sh --check: 0 to act on. 8 file(s) compared: 8 current; 8 .gitattributes rule(s): 8 present; 6 .gitignore rule(s): 6 present; 1 directory: 1 present; 5 git hook item(s): 4 current, 1 unchecked; 0 fault(s)."
+expect_output "todo${T}placeholder${T}.github/ISSUE_TEMPLATE/config.yml"
+expect_output "1 todo(s) for the project, not drift."
 expect_output "file${T}current${T}.github/workflows/data-policy.yml${T}ia-engineering/Adapters/github-actions/data-policy.yml"
 expect 0 "--check --quiet on a current project exits 0" -- bash "$INST_353" --check --quiet
 TOTAL=$((TOTAL + 1))
@@ -6876,6 +6878,7 @@ expect 3 "--check reports drift (exit 3)" -- bash "$INST_353" --check
 expect_output "file${T}differs${T}.github/workflows/pr-validation.yml${T}ia-engineering/Adapters/github-actions/pr-validation.yml"
 expect_output "file${T}absent${T}.github/workflows/control-path-guard.yml"
 expect_output "file${T}customized${T}.github/ISSUE_TEMPLATE/config.yml"
+expect_no_output "${T}placeholder${T}" "a replaced OWNER/REPO placeholder leaves no todo record (issue #274)"
 expect_output "gitattributes${T}missing${T}.gitattributes${T}/Registry/work-units.yml text eol=lf"
 expect_output "gitignore${T}missing${T}.gitignore${T}.env"
 expect_output "# install.sh --check: 4 to act on. 8 file(s) compared: 5 current, 1 absent, 1 differs, 1 customized; 8 .gitattributes rule(s): 7 present, 1 missing; 6 .gitignore rule(s): 5 present, 1 missing;"
@@ -6913,6 +6916,80 @@ expect 1 "a template missing from the framework is a fault (exit 1), not drift" 
 expect_output "file${T}fault${T}.github/workflows/data-policy.yml"
 expect 1 "the bootstrap --check passes the fault on (exit 1 over 3)" -- bash "$BOOT_353" --check --quiet
 mv data-policy.moved ia-engineering/Adapters/github-actions/data-policy.yml
+
+section "install.sh --check — git hooks: core.hooksPath, executable, shadowed, no probe (WU-IAENG-355)"
+
+# The write path's own decisions, read and never applied: no `git config`
+# write, no chmod, and the commit probes stay skipped.
+adopter_353 chk-hooks
+expect 3 "an unset core.hooksPath is drift (exit 3)" -- bash "$INST_353" --check
+expect_output "git-hooks${T}absent${T}core.hooksPath${T}ia-engineering/Adapters/git-hooks"
+expect_output "git-hooks${T}current${T}ia-engineering/Adapters/git-hooks/commit-msg${T}executable"
+expect_output "5 git hook item(s): 3 current, 1 absent, 1 unchecked"
+expect_output "git-hooks: re-run ia-engineering/Adapters/scripts/install.sh; it sets core.hooksPath"
+expect_no_output "${T}shadowed${T}" "only sample hooks in .git/hooks: nothing is shadowed"
+
+# A wrong value, a project hook core.hooksPath would shadow, and a framework
+# hook that is not executable. The extra hook has no shebang, so it is not
+# executable under Git for Windows either, where chmod -x does not stick.
+git config core.hooksPath .githooks
+printf '#!/bin/sh\nexit 0\n' > .git/hooks/post-checkout
+chmod +x .git/hooks/post-checkout
+printf 'exit 0\n' > ia-engineering/Adapters/git-hooks/post-merge
+TOTAL=$((TOTAL + 1))
+if [ -x ia-engineering/Adapters/git-hooks/post-merge ]; then
+  printf '   FAIL the fixture hook is executable, so the not-executable case tests nothing\n'; FAILED=$((FAILED + 1))
+else
+  [ -n "$VERBOSE" ] && printf '   ok   the fixture hook is not executable\n'
+fi
+SNAP_H0="$(snapshot_353)"
+expect 3 "a wrong core.hooksPath, a shadowed hook and a non-executable hook are drift (exit 3)" -- bash "$INST_353" --check
+expect_output "git-hooks${T}differs${T}core.hooksPath${T}ia-engineering/Adapters/git-hooks (set to: .githooks)"
+expect_output ".git/hooks${T}1 hook(s) there would stop running once core.hooksPath points at ia-engineering/Adapters/git-hooks"
+expect_output "git-hooks${T}not-executable${T}ia-engineering/Adapters/git-hooks/post-merge"
+expect_output "7 git hook item(s): 3 current, 1 differs, 1 not-executable, 1 shadowed, 1 unchecked"
+expect_output "shadowed: move the project hooks out of .git/hooks first"
+expect 3 "--check --quiet keeps all three" -- bash "$INST_353" --check --quiet
+expect_output "git-hooks${T}differs${T}core.hooksPath"
+expect_output "git-hooks${T}shadowed${T}"
+expect_output "git-hooks${T}not-executable${T}"
+expect_no_output "git-hooks${T}fault${T}" "a shadowed hook is drift under --check, not a fault"
+expect 3 "the bootstrap --check passes git-hooks drift on (exit 3)" -- bash "$BOOT_353" --check --quiet
+SNAP_H1="$(snapshot_353)"
+TOTAL=$((TOTAL + 1))
+if [ "$SNAP_H0" = "$SNAP_H1" ] && [ "$(git config --get core.hooksPath)" = ".githooks" ] \
+   && [ ! -x ia-engineering/Adapters/git-hooks/post-merge ]; then
+  [ -n "$VERBOSE" ] && printf '   ok   read-only: core.hooksPath, the hooks, .git and the tree unchanged by three --check runs\n'
+else
+  printf '   FAIL --check changed the git hooks state\n'
+  diff <(printf '%s\n' "$SNAP_H0") <(printf '%s\n' "$SNAP_H1") | sed 's/^/        | /'; FAILED=$((FAILED + 1))
+fi
+rm ia-engineering/Adapters/git-hooks/post-merge
+
+expect 3 "--check --no-hooks says the hooks were not checked" -- bash "$INST_353" --check --no-hooks
+expect_output "git-hooks${T}unchecked${T}core.hooksPath${T}skipped (--no-hooks)"
+
+# Every git command --check runs carries GIT_OPTIONAL_LOCKS=0, so none can
+# refresh the index. Seen through a wrapper that logs the variable and then
+# runs the real git; the outer environment's value is removed first.
+LOCKS_355="$WORK/locks-355"
+mkdir -p "$LOCKS_355"
+REAL_GIT_355="$(command -v git)"
+cat > "$LOCKS_355/git" <<EOF
+#!/usr/bin/env bash
+printf '%s %s\n' "\${GIT_OPTIONAL_LOCKS:-unset}" "\$1" >> "$LOCKS_355/log"
+exec "$REAL_GIT_355" "\$@"
+EOF
+chmod +x "$LOCKS_355/git"
+: > "$LOCKS_355/log"
+expect 3 "--check runs through the logging git wrapper" -- env -u GIT_OPTIONAL_LOCKS PATH="$LOCKS_355:$PATH" bash "$INST_353" --check
+TOTAL=$((TOTAL + 1))
+if [ "$(grep -c . "$LOCKS_355/log")" -ge 3 ] && ! grep -qv '^0 ' "$LOCKS_355/log"; then
+  [ -n "$VERBOSE" ] && printf '   ok   every git command under --check ran with GIT_OPTIONAL_LOCKS=0\n'
+else
+  printf '   FAIL a git command under --check ran without GIT_OPTIONAL_LOCKS=0 (or none was logged)\n'
+  sed 's/^/        | /' "$LOCKS_355/log"; FAILED=$((FAILED + 1))
+fi
 
 section "setup-project-bootstrap.sh — the closing message names its cause (WU-IAENG-353, issue #262)"
 
