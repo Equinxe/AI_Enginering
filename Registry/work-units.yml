@@ -1381,6 +1381,12 @@ work_units:
     milestone: Adoption
     delivers: Standards/TESTING_STANDARD.md, Workflows/CODE_REVIEW.md, Workflows/FEATURE_DEVELOPMENT.md, CHANGELOG.md, Registry/work-units.yml
 
+  - id: WU-IAENG-355
+    employee: DevOps Engineer
+    title: The git hooks part of install.sh --check (plan of 20 Oct 2026, WU-2) - the write path's own hooks decisions reported, never applied - core.hooksPath current, absent or differs, each framework hook current or not-executable, project hooks in .git/hooks that core.hooksPath would shadow reported shadowed (drift, exit 3) where a real run faults; git config read, never set, nothing chmod-ed, commit probes still skipped and unchecked, --no-hooks unchecked; a test proves every git command under --check carries GIT_OPTIONAL_LOCKS=0; the OWNER/REPO placeholder todo is recorded under --check, never drift (#274)
+    milestone: Adoption
+    delivers: Adapters/scripts/install.sh, Adapters/scripts/tests/run.sh, CHANGELOG.md, Registry/work-units.yml
+
   - id: WU-IAENG-356
     employee: Technical Lead
     title: The templates ask for Falsifiability (plan of 20 Oct 2026, WU-2) - Work Unit and Employee Brief criteria carry "fails if: ___", the brief's test item "and each was seen red"; each Test Plan case has Fails if and Seen red by; the Work Unit Report's Gate Evidence has a Falsification block; the three Pull Request templates, kept identical, gain a seen-red checklist item; every addition points to Standards/TESTING_STANDARD.md (Falsifiability) without restating it, and Adapters/README.md Check Convention rule 4 now does the same (issue #277)

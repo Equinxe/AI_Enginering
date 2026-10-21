@@ -11,6 +11,7 @@ This project follows Semantic Versioning, extended with an informal 4th segment 
 ### Added
 
 - `install.sh --check` and `setup-project-bootstrap.sh --check` — the installers' own decisions, reported instead of applied: one tab-separated record per managed file (`current`, `absent`, `differs`, `customized`), `.gitattributes` and `.gitignore` rule, the local data directory and each project-owned file, a closing count line with the remedy for each kind, exit 0 nothing to act on / 3 drift / 1 a fault / 2 usage, and `--quiet`, silent when there is nothing to do. Strictly read-only, proven by a before/after snapshot of the working tree, every file under `.git`, status, local config, refs and object count; the git hooks section and the commit probes are reported `unchecked`, never left out. A building block for the upcoming drift check, not a flag to type (WU-IAENG-353)
+- `install.sh --check` now checks the git hooks it used to report `unchecked`: `core.hooksPath` (`current`, `absent`, or `differs`, with the value found), each framework hook (`current` or `not-executable`), and project hooks in `.git/hooks` that `core.hooksPath` would stop git from running (`shadowed`). These are the decisions a real run makes, read and never applied: no `git config` write, no `chmod`, and no probe. The commit probes stay `unchecked`. A test proves that every git command under `--check` carries `GIT_OPTIONAL_LOCKS=0`. The OWNER/REPO placeholder in the issue-template config is now a `todo` record, which never counts as drift (#274) (WU-IAENG-355)
 
 ### Changed
 
