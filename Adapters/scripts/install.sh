@@ -332,10 +332,16 @@ install_file() {
   # which normalizes it on commit; calling it `differs` would send its reader to
   # review a diff that is all carriage returns, on every run. The exact compare
   # comes first, so the normalized one costs a fork only when the bytes differ.
+  #
+  # Only a CR that ends a line is dropped, never a bare one inside a line: YAML
+  # reads a lone CR as a line break, so a CR mid-line can hide a whole line of
+  # a control workflow from a reviewer, and `tr -d '\r'` would have called
+  # that copy current (SEC-IAENG-353-01). The CR is passed as a real byte
+  # ($'...'), because BSD sed does not read `\r` as one.
   if [ ! -f "$dest" ]; then
     state=absent
   elif diff -q "$src" "$dest" > /dev/null 2>&1 \
-       || cmp -s <(tr -d '\r' < "$src") <(tr -d '\r' < "$dest"); then
+       || cmp -s <(sed $'s/\r$//' "$src") <(sed $'s/\r$//' "$dest"); then
     state=current
   elif [ "$kind" = "customized" ]; then
     state=customized

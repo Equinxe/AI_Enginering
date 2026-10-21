@@ -6840,6 +6840,17 @@ else
   printf '   FAIL a real run rewrote the CRLF copy\n'; FAILED=$((FAILED + 1))
 fi
 
+# SEC-IAENG-353-01: a bare CR INSIDE a line is not a line ending. YAML reads it
+# as a line break, so splitting an existing line with one CR, and adding no
+# other byte, turns the tail of a comment into a line of YAML that a
+# reviewer's editor does not show. Deleting every CR made that copy current.
+awk '!done && / / { sub(/ /, "\r "); done = 1 } { print }' \
+  ia-engineering/Adapters/github-actions/framework-validation.yml > cr.tmp \
+  && mv cr.tmp .github/workflows/framework-validation.yml
+expect 3 "a bare CR inside a line is drift (exit 3), not a line ending" -- bash "$INST_353" --check --quiet
+expect_output "file${T}differs${T}.github/workflows/framework-validation.yml"
+cp ia-engineering/Adapters/github-actions/framework-validation.yml .github/workflows/framework-validation.yml
+
 # --- drift of every kind, staged, unstaged, untracked and ignored --------------
 printf '# a local edit\n' >> .github/workflows/pr-validation.yml
 git add .github/workflows/pr-validation.yml
