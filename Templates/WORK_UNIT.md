@@ -56,7 +56,7 @@ What the engineer needs to understand before starting — without reading the en
 
 The Work Unit is complete when ALL of the following are true:
 
-- [ ] [Criterion 1 — measurable and verifiable]
+- [ ] [Criterion 1 — measurable; fails if: ___ (`Standards/TESTING_STANDARD.md`, Falsifiability)]
 - [ ] [Criterion 2]
 - [ ] [Criterion 3]
 - [ ] Tests are written and passing.
@@ -115,7 +115,7 @@ Example: `feat(auth): add POST /auth/login endpoint with JWT response`
 | Context | States the "why" — links to requirements | Missing links, assumes knowledge the engineer does not have |
 | Inputs | Prerequisites — what must be true before starting | Listing tools instead of dependencies, incomplete checklist |
 | Outputs | Deliverables — what the engineer must produce | Missing tests or documentation outputs |
-| Definition of Done | Verifiable completion criteria | Subjective criteria ("code is clean"), missing review step, missing the Work Unit Report — every item here becomes a row in that report, so an item nobody can verify produces a row nobody can fill |
+| Definition of Done | Verifiable completion criteria | A criterion with no "fails if", or one that names the test instead of the system's behaviour (`Standards/TESTING_STANDARD.md`, Falsifiability); subjective criteria ("code is clean"), missing review step, missing the Work Unit Report — every item here becomes a row in that report, so an item nobody can verify produces a row nobody can fill |
 | Standards | Applicable standards for this task | Empty or generic — list only the standards that actually apply |
 | Expected Commit | The commit message format for this Work Unit | Missing scope, not following Conventional Commits format |
 
@@ -137,7 +137,7 @@ The `milestone` field of a registry entry names the release or iteration the Wor
 
 Owner: IA Engineering
 
-Version: 0.0.7
+Version: 0.0.8
 
 Status: Draft
 

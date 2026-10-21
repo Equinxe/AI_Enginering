@@ -78,9 +78,9 @@ What you must deliver:
 
 You are done when ALL of the following are true:
 
-- [ ] [Criterion 1]
-- [ ] [Criterion 2]
-- [ ] Tests are written and passing.
+- [ ] [Criterion 1 — fails if: ___]
+- [ ] [Criterion 2 — fails if: ___]
+- [ ] Tests are written and passing, and each was seen red (`Standards/TESTING_STANDARD.md`, Falsifiability).
 - [ ] Pull Request is open and assigned to the Code Reviewer.
 - [ ] Your commit follows the Commit Standard: `[type](scope): description`
 - [ ] Your Work Unit Report is written — see below. Without it this Work Unit is not done.
@@ -184,7 +184,7 @@ A brief that is too long is as harmful as one that is too short. The Main Agent'
 
 Owner: IA Engineering
 
-Version: 0.0.8
+Version: 0.0.9
 
 Status: Draft
 

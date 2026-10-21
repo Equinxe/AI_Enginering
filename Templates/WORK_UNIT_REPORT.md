@@ -67,6 +67,14 @@ summarised. Trimmed to the lines that carry the verdict.]
 [e.g. the final summary line of the test runner — "42 passed in 3.1s"]
 ```
 
+**Falsification**
+```
+[Each new or changed test that guards a criterion or a fix, seen red as
+`Standards/TESTING_STANDARD.md` (Falsifiability) requires: the mutant or the
+base commit, the command, the failing line, then the green run on the real
+code — or "not applicable — no executable behaviour"]
+```
+
 **Lint / static analysis**
 ```
 [e.g. "Your code has been rated at 10.00/10" or "All checks passed"]
@@ -132,7 +140,7 @@ the session.]
 | Executed at | The tier the Work Unit ran at, and the runtime's own model identifier | Copying the brief's Execution tier instead of reporting the runtime model actually used; leaving the model blank |
 | Verdict | One word the Main Agent can act on | "Mostly done"; a paragraph; a verdict that contradicts the DoD table |
 | What Was NOT Done | Makes omission visible | Left empty — silence reads as "everything", which is the failure this template exists to prevent |
-| Gate Evidence | Pasted output, checkable | Paraphrase ("tests green"); output from a previous run; output from a different branch |
+| Gate Evidence | Pasted output, checkable | Paraphrase ("tests green"); a Falsification block with only the green run, or a red run caused by something other than the criterion; output from a previous run; output from a different branch |
 | Deviations | Transparency | Unreported changes of approach discovered later in review |
 | Risk Record | Auditability | Missing for a Medium action; `decided_by=self` on a High |
 | Open Risks | Durability of findings | Findings noted here but never filed as Issues |
@@ -171,7 +179,7 @@ In either case the report is a file or a PR body, not a message in a conversatio
 
 Owner: IA Engineering
 
-Version: 0.0.13
+Version: 0.0.14
 
 Status: Draft
 
