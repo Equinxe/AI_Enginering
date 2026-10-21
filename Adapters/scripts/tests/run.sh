@@ -6948,7 +6948,9 @@ expect_output "git-hooks${T}differs${T}core.hooksPath${T}ia-engineering/Adapters
 expect_output ".git/hooks${T}1 hook(s) there would stop running once core.hooksPath points at ia-engineering/Adapters/git-hooks"
 expect_output "git-hooks${T}not-executable${T}ia-engineering/Adapters/git-hooks/post-merge"
 expect_output "7 git hook item(s): 3 current, 1 differs, 1 not-executable, 1 shadowed, 1 unchecked"
-expect_output "shadowed: move the project hooks out of .git/hooks first"
+expect_output "git-hooks${T}shadowed${T}.git/hooks${T}"
+# The hooks a re-run would silence are named before the re-run remedy.
+expect_output "shadowed: move the project hooks out of .git/hooks first, or git stops running them. core.hooksPath: move any hooks the project keeps in .githooks out first, or git stops running them. git-hooks: then re-run"
 expect 3 "--check --quiet keeps all three" -- bash "$INST_353" --check --quiet
 expect_output "git-hooks${T}differs${T}core.hooksPath"
 expect_output "git-hooks${T}shadowed${T}"
@@ -6990,6 +6992,38 @@ else
   printf '   FAIL a git command under --check ran without GIT_OPTIONAL_LOCKS=0 (or none was logged)\n'
   sed 's/^/        | /' "$LOCKS_355/log"; FAILED=$((FAILED + 1))
 fi
+
+# SEC-IAENG-355-02: git config decodes \t and \n in a value, so a crafted
+# core.hooksPath must not split its record into forged ones.
+git config core.hooksPath "$(printf 'x\tfile\tcurrent\tFORGED\nfault\tfake')"
+expect 3 "a core.hooksPath holding TAB and LF is still one differs record" -- bash "$INST_353" --check
+expect_output "git-hooks${T}differs${T}core.hooksPath${T}ia-engineering/Adapters/git-hooks (set to: x file current FORGED fault fake)"
+expect_no_output "fault${T}fake" "no forged record from a TAB or LF in a git config value"
+expect_no_output "file${T}current${T}FORGED" "no forged file record either"
+git config --unset core.hooksPath
+
+# --- hooks-only drift: an installed project whose files are all current -------
+# Every other drift case also has absent or differing files, which give exit 3
+# on their own; here the hooks are the only cause, so the exit code and the
+# count are theirs.
+adopter_353 chk-hooks-only
+bash "$BOOT_353" generic >/dev/null 2>&1
+commit_353 "chore(adopt): install the Adapters"
+expect 0 "the installed project is current before the hooks drift" -- bash "$INST_353" --check --quiet
+printf 'exit 0\n' > ia-engineering/Adapters/git-hooks/post-merge
+expect 3 "a non-executable framework hook alone is drift (exit 3)" -- bash "$INST_353" --check
+expect_output "# install.sh --check: 1 to act on."
+expect_output "git-hooks${T}not-executable${T}ia-engineering/Adapters/git-hooks/post-merge"
+expect 3 "--check --quiet keeps it" -- bash "$INST_353" --check --quiet
+expect_output "git-hooks${T}not-executable${T}ia-engineering/Adapters/git-hooks/post-merge"
+rm ia-engineering/Adapters/git-hooks/post-merge
+git config core.hooksPath .githooks
+printf '#!/bin/sh\nexit 0\n' > .git/hooks/post-checkout
+chmod +x .git/hooks/post-checkout
+expect 3 "a wrong core.hooksPath and a shadowed hook alone are drift (exit 3)" -- bash "$INST_353" --check
+expect_output "# install.sh --check: 2 to act on."
+expect 3 "--check --quiet keeps the shadowed hook" -- bash "$INST_353" --check --quiet
+expect_output "git-hooks${T}shadowed${T}.git/hooks${T}"
 
 section "setup-project-bootstrap.sh — the closing message names its cause (WU-IAENG-353, issue #262)"
 

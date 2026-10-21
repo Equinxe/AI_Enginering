@@ -292,8 +292,14 @@ fi
 #
 # Built without a subshell: --check runs inside session hooks with a time
 # budget, and on Git for Windows every fork costs tens of milliseconds.
+#
+# A TAB or LF in the detail would split one record into several, and the
+# detail can carry a value read from git config, which decodes \t and \n
+# escapes (SEC-IAENG-355-02): both become spaces, so a record is one line.
 record() {
-  local line="$1"$'\t'"$2"$'\t'"$3"$'\t'"$4"
+  local detail="${4//$'\t'/ }"
+  detail="${detail//$'\n'/ }"
+  local line="$1"$'\t'"$2"$'\t'"$3"$'\t'"$detail"
   REPORT="$REPORT$line
 "
   if [ "$CHECK" -eq 0 ] && [ -n "${IAENG_INSTALL_REPORT:-}" ]; then
@@ -434,7 +440,8 @@ else
                     | wc -l | tr -d ' ')"
       if [ "$EXISTING" -gt 0 ]; then
         if [ "$CHECK" -eq 1 ]; then
-          record git-hooks shadowed "$REAL_HOOKS" "$EXISTING hook(s) there would stop running once core.hooksPath points at $HOOKS_DIR; move them into $HOOKS_DIR (or into a directory of your own that also contains the framework's hooks) first"
+          # Project-relative when git can say so, like every other record path.
+          record git-hooks shadowed "$(git rev-parse --git-dir)/hooks" "$EXISTING hook(s) there would stop running once core.hooksPath points at $HOOKS_DIR; move them into $HOOKS_DIR (or into a directory of your own that also contains the framework's hooks) first"
         else
           fault git-hooks "$REAL_HOOKS" "$EXISTING hook(s) already in $REAL_HOOKS. Setting core.hooksPath makes git ignore that directory entirely, so those hooks would stop running silently. Move them into $HOOKS_DIR (or into a directory of your own that also contains the framework's hooks) before continuing."
         fi
@@ -843,7 +850,10 @@ if [ "$CHECK" -eq 1 ]; then
     else
       printf '%s' "$REPORT"
     fi
-    awk -F '\t' -v rel="$HOOKS_REL" '
+    # The configured hooks directory reaches awk through the environment, not
+    # -v, which would decode its backslashes; TAB and LF already flattened.
+    _now="${CURRENT:-}"; _now="${_now//$'\t'/ }"; _now="${_now//$'\n'/ }"
+    IAENG_HOOKS_NOW="$_now" awk -F '\t' -v rel="$HOOKS_REL" '
       NF == 0 { next }
       { n[$1]++; s[$1 FS $2]++; if ($2 ~ /^(absent|differs|missing|not-executable|shadowed|fault)$/) act++ }
       function part(fam, label, statuses,   k, i, out, sep, st) {
@@ -866,10 +876,15 @@ if [ "$CHECK" -eq 1 ]; then
           line = line " absent/missing: re-run " rel "/Adapters/scripts/install.sh without --force; it adds them and overwrites nothing."
         if (s["file" FS "differs"])
           line = line " differs: diff <source> <path>; copy the source over a copy the project never edited, never --force."
+        # The hooks a re-run would silence come first, so the re-run remedy is
+        # never read before them (SEC-IAENG-355-01, interim: issue #280).
+        first = 0
+        if (s["git-hooks" FS "shadowed"]) {
+          line = line " shadowed: move the project hooks out of .git/hooks first, or git stops running them."; first = 1 }
+        if (s["git-hooks" FS "differs"]) {
+          line = line " core.hooksPath: move any hooks the project keeps in " ENVIRON["IAENG_HOOKS_NOW"] " out first, or git stops running them."; first = 1 }
         if (s["git-hooks" FS "absent"] || s["git-hooks" FS "differs"] || s["git-hooks" FS "not-executable"])
-          line = line " git-hooks: re-run " rel "/Adapters/scripts/install.sh; it sets core.hooksPath and makes the framework hooks executable."
-        if (s["git-hooks" FS "shadowed"])
-          line = line " shadowed: move the project hooks out of .git/hooks first, or git stops running them."
+          line = line " git-hooks: " (first ? "then " : "") "re-run " rel "/Adapters/scripts/install.sh; it sets core.hooksPath and makes the framework hooks executable."
         if (f) line = line " fault: read the fault record(s); nothing is current until they are fixed."
         print line
       }' <<< "$REPORT"
