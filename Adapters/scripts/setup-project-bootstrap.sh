@@ -45,6 +45,7 @@
 #
 # Usage:
 #   ./setup-project-bootstrap.sh <stack> [--dry-run] [--force]
+#   ./setup-project-bootstrap.sh [<stack>] --check [--quiet]
 #     where <stack> is one of: node | web | python | go | jvm | dotnet | php | generic
 #
 #     `web` is a static front end (React, Vue, Svelte, Astro, a site
@@ -52,6 +53,22 @@
 #     server, with no Node in the runtime image. It is the one stack that
 #     cannot be inferred, because a site and a server both have
 #     package.json — which is why the chosen stack is recorded.
+#
+# --check (WU-IAENG-353) writes nothing. It runs `install.sh --check` (its
+# records, its closing `#` line and its exit code, documented in install.sh's
+# header), then adds one record per file this script owns:
+#
+#   project-file TAB present|absent TAB <path> TAB <detail>
+#
+# Those files are the project's own once written (an existing one is left
+# untouched without --force), so presence is this script's whole decision and
+# the whole check: `absent` is drift (re-run this script without --force),
+# `present` is not compared with anything. A second `#` line counts them.
+# The stack is optional under --check, since no project-owned file is
+# compared with a stack template. --quiet prints nothing when nothing needs
+# acting on. Exit: 0 nothing to act on, 3 drift, 1 a fault (the worse of the
+# two halves wins: 1 over 3 over 0), 2 usage. It is a building block for the
+# drift checks that run on their own in a session, not a flag to type.
 
 set -euo pipefail
 
@@ -59,10 +76,14 @@ VALID_STACKS="node web python go jvm dotnet php generic"
 
 STACK=""
 PASSTHROUGH=()
+CHECK=0
+QUIET=0
 
 for arg in "$@"; do
   case "$arg" in
     --dry-run|--force) PASSTHROUGH+=("$arg") ;;
+    --check) CHECK=1 ;;
+    --quiet) QUIET=1 ;;
     --help|-h)
       sed -n '2,$p' "$0" | awk '/^#/{print; next} /^$/{print; next} {exit}'
       exit 0
@@ -81,22 +102,34 @@ for arg in "$@"; do
   esac
 done
 
-if [ -z "$STACK" ]; then
+if [ "$CHECK" -eq 1 ] && [ "${#PASSTHROUGH[@]}" -gt 0 ]; then
+  echo "Error: --check reports and writes nothing; it cannot be combined with --dry-run or --force." >&2
+  exit 2
+fi
+if [ "$QUIET" -eq 1 ] && [ "$CHECK" -eq 0 ]; then
+  echo "Error: --quiet only applies to --check." >&2
+  exit 2
+fi
+
+if [ -z "$STACK" ] && [ "$CHECK" -eq 0 ]; then
   echo "Usage: $0 <stack> [--dry-run] [--force]   (stack: $VALID_STACKS)" >&2
   exit 1
 fi
 
-# Validate the requested stack against the known set.
-case " $VALID_STACKS " in
-  *" $STACK "*) ;;
-  *)
-    echo "Error: unknown stack '$STACK'. Expected one of: $VALID_STACKS" >&2
-    echo "  Workflows/PROJECT_BOOTSTRAP.md's Escalation table covers this case:" >&2
-    echo "  a stack outside the list above uses the Generic fallback" >&2
-    echo "  template as a starting point, with any gaps documented." >&2
-    exit 1
-    ;;
-esac
+# Validate the requested stack against the known set. An empty stack reaches
+# here only under --check (refused above otherwise), which needs none.
+if [ -n "$STACK" ]; then
+  case " $VALID_STACKS " in
+    *" $STACK "*) ;;
+    *)
+      echo "Error: unknown stack '$STACK'. Expected one of: $VALID_STACKS" >&2
+      echo "  Workflows/PROJECT_BOOTSTRAP.md's Escalation table covers this case:" >&2
+      echo "  a stack outside the list above uses the Generic fallback" >&2
+      echo "  template as a starting point, with any gaps documented." >&2
+      exit 1
+      ;;
+  esac
+fi
 
 # Resolve the Adapters directory relative to this script, so the script works
 # regardless of the caller's current directory.
@@ -154,6 +187,65 @@ for arg in "${PASSTHROUGH[@]+"${PASSTHROUGH[@]}"}"; do
   [ "$arg" = "--dry-run" ] && DRY_RUN=1
 done
 
+# The files this script owns, named once: the write steps below and --check
+# both read these names, so the check cannot drift from what is written.
+CI_BUILD_TEST_FILE=".github/workflows/ci-build-test.yml"
+GHCR_PUBLISH_FILE=".github/workflows/ghcr-publish.yml"
+STACK_FILE=".ia-engineering/stack"
+RISK_MAP_FILE=".ia-engineering/risk-map.yml"
+WU_REGISTRY_FILE="Registry/work-units.yml"
+DOCKERFILE_FILE="Dockerfile"
+PROJECT_OWNED_FILES="$CI_BUILD_TEST_FILE $GHCR_PUBLISH_FILE $STACK_FILE $RISK_MAP_FILE $WU_REGISTRY_FILE $DOCKERFILE_FILE"
+
+# --- --check: report, write nothing (WU-IAENG-353) --------------------------
+# The decision for each project-owned file is presence alone (each write step
+# below leaves an existing file untouched without --force), so presence is
+# what is reported. The host-agnostic half is install.sh's own --check: the
+# same records, the same exit codes, nothing re-implemented here.
+if [ "$CHECK" -eq 1 ]; then
+  INSTALL_ARGS=(--check)
+  [ "$QUIET" -eq 1 ] && INSTALL_ARGS+=(--quiet)
+  INSTALL_RC=0
+  "$SCRIPT_DIR/install.sh" "${INSTALL_ARGS[@]}" || INSTALL_RC=$?
+
+  # Built in the shell, without a subshell per file: this runs inside session
+  # hooks with a time budget, and every fork is slow on Git for Windows.
+  OWN_PRESENT=""
+  OWN_ABSENT_ROWS=""
+  OWN_ABSENT=0
+  OWN_TOTAL=0
+  for f in $PROJECT_OWNED_FILES; do
+    OWN_TOTAL=$((OWN_TOTAL + 1))
+    if [ -f "$f" ]; then
+      OWN_PRESENT="${OWN_PRESENT}project-file"$'\t'"present"$'\t'"$f"$'\t'"project-owned once written; presence only"$'\n'
+    else
+      OWN_ABSENT=$((OWN_ABSENT + 1))
+      OWN_ABSENT_ROWS="${OWN_ABSENT_ROWS}project-file"$'\t'"absent"$'\t'"$f"$'\t'"written by setup-project-bootstrap.sh; re-run it without --force"$'\n'
+    fi
+  done
+  if [ "$QUIET" -eq 0 ] || [ "$OWN_ABSENT" -gt 0 ]; then
+    if [ "$QUIET" -eq 1 ]; then
+      printf '%s' "$OWN_ABSENT_ROWS"
+    else
+      printf '%s%s' "$OWN_PRESENT" "$OWN_ABSENT_ROWS"
+    fi
+    LINE="# setup-project-bootstrap.sh --check: $OWN_ABSENT to act on. $OWN_TOTAL project-owned file(s): $((OWN_TOTAL - OWN_ABSENT)) present, $OWN_ABSENT absent."
+    if [ "$OWN_ABSENT" -gt 0 ]; then
+      LINE="$LINE absent: re-run $(relpath "$(pwd)" "$SCRIPT_DIR")/setup-project-bootstrap.sh <stack> without --force; it writes what is absent and overwrites nothing."
+    fi
+    printf '%s\n' "$LINE"
+  fi
+
+  # The worse half wins: a fault (1) over drift (3) over nothing to act on (0).
+  if [ "$INSTALL_RC" -ne 0 ] && [ "$INSTALL_RC" -ne 3 ]; then
+    exit "$INSTALL_RC"
+  fi
+  if [ "$INSTALL_RC" -eq 3 ] || [ "$OWN_ABSENT" -gt 0 ]; then
+    exit 3
+  fi
+  exit 0
+fi
+
 echo "IA Engineering — project bootstrap (stack: $STACK)"
 echo
 
@@ -179,9 +271,19 @@ echo
 # `|| true` was load-bearing only because of `set -euo pipefail`: the goal is
 # to survive the failure and finish the stack-specific half, not to forget it.
 # A hook problem should not stop the Dockerfile being installed.
+#
+# install.sh also appends one record per decision to INSTALL_REPORT (the
+# --check record format, documented in its header). The closing message reads
+# it to name the files that differ and to keep the hook wording for real hook
+# faults (issue #262): before, any non-zero exit was blamed on the hooks,
+# including a run whose only problem was two Adapter files that differed and
+# whose own hook verification had passed. Kept outside the project.
 echo "--- Host-agnostic Adapters (install.sh) ---"
+INSTALL_REPORT="$(mktemp)"
+trap 'rm -f "$INSTALL_REPORT"' EXIT
 INSTALL_RC=0
-IAENG_FROM_BOOTSTRAP=1 "$SCRIPT_DIR/install.sh" ${PASSTHROUGH[@]+"${PASSTHROUGH[@]}"} || INSTALL_RC=$?
+IAENG_FROM_BOOTSTRAP=1 IAENG_INSTALL_REPORT="$INSTALL_REPORT" \
+  "$SCRIPT_DIR/install.sh" ${PASSTHROUGH[@]+"${PASSTHROUGH[@]}"} || INSTALL_RC=$?
 echo
 
 # 2. Stack-dependent CI and container publishing.
@@ -211,8 +313,8 @@ copy_into() {
   echo "  + $dest"
 }
 
-copy_into "$ADAPTERS_DIR/github-actions/ci-build-test.yml" ".github/workflows/ci-build-test.yml"
-copy_into "$ADAPTERS_DIR/github-actions/ghcr-publish.yml" ".github/workflows/ghcr-publish.yml"
+copy_into "$ADAPTERS_DIR/github-actions/ci-build-test.yml" "$CI_BUILD_TEST_FILE"
+copy_into "$ADAPTERS_DIR/github-actions/ghcr-publish.yml" "$GHCR_PUBLISH_FILE"
 
 # THE STACK IS RECORDED, NOT LEFT TO BE GUESSED LATER.
 #
@@ -233,7 +335,7 @@ copy_into "$ADAPTERS_DIR/github-actions/ghcr-publish.yml" ".github/workflows/ghc
 # .ia-engineering/Registry/employees.yml, which the Employee Trailer check
 # unions in. Only SESSION_STATE.md is gitignored. So this file belongs there
 # and must be COMMITTED — a declaration CI cannot read declares nothing.
-STACK_FILE=".ia-engineering/stack"
+# (STACK_FILE is named with the other project-owned files near the top.)
 if [ -f "$STACK_FILE" ] && ! printf '%s\n' "${PASSTHROUGH[@]+"${PASSTHROUGH[@]}"}" | grep -qx -- '--force'; then
   echo "  ! $STACK_FILE already exists (declares '$(tr -d '[:space:]' < "$STACK_FILE")') — left untouched." >&2
   echo "    Re-run with --force to change the declared stack." >&2
@@ -261,7 +363,7 @@ fi
 # and check-risk-map.sh will list the unaccounted categories by name until the
 # project searches for each one. An honest incomplete map that says what is
 # missing beats a complete-looking one that guesses.
-RISK_MAP_FILE=".ia-engineering/risk-map.yml"
+# (RISK_MAP_FILE is named with the other project-owned files near the top.)
 if [ -f "$RISK_MAP_FILE" ] && ! printf '%s\n' "${PASSTHROUGH[@]+"${PASSTHROUGH[@]}"}" | grep -qx -- '--force'; then
   echo "  ! $RISK_MAP_FILE already exists — left untouched. It is the project's own" >&2
   echo "    classification; re-run with --force to replace it with the starter." >&2
@@ -359,7 +461,7 @@ fi
 # be a registered Work Unit that nobody performed, which is the false pass this
 # file exists to prevent. A bare `work_units:` key (not `[]`) so entries can be
 # appended beneath it as valid YAML.
-WU_REGISTRY_FILE="Registry/work-units.yml"
+# (WU_REGISTRY_FILE is named with the other project-owned files near the top.)
 if [ -f "$WU_REGISTRY_FILE" ] && ! printf '%s\n' "${PASSTHROUGH[@]+"${PASSTHROUGH[@]}"}" | grep -qx -- '--force'; then
   echo "  ! $WU_REGISTRY_FILE already exists — left untouched (the project's own)." >&2
   WU_REGISTRY_NOTE="already present, left untouched (the project's own)"
@@ -400,13 +502,13 @@ if [ ! -f "$DOCKERFILE_SRC" ]; then
   echo "Error: no starter Dockerfile for stack '$STACK' at $DOCKERFILE_SRC" >&2
   exit 1
 fi
-if [ -f Dockerfile ] && ! printf '%s\n' "${PASSTHROUGH[@]+"${PASSTHROUGH[@]}"}" | grep -qx -- '--force'; then
+if [ -f "$DOCKERFILE_FILE" ] && ! printf '%s\n' "${PASSTHROUGH[@]+"${PASSTHROUGH[@]}"}" | grep -qx -- '--force'; then
   echo "  ! ./Dockerfile already exists — left untouched. A bootstrapped project" >&2
   echo "    gets a starter Dockerfile; an existing one is the project's own and" >&2
   echo "    overwriting it silently would discard real work. Re-run with --force" >&2
   echo "    to replace it with the $STACK starter." >&2
 else
-  copy_into "$DOCKERFILE_SRC" "./Dockerfile"
+  copy_into "$DOCKERFILE_SRC" "./$DOCKERFILE_FILE"
 fi
 echo
 
@@ -444,14 +546,51 @@ echo
 # reader to confirm, so a failure in either half is named here rather than left
 # for them to notice — and the exit status carries it, so a wrapper or CI job
 # sees it too.
+#
+# Each cause is named from install.sh's records, and only the causes that
+# occurred are described (issue #262). A non-zero exit with no recorded cause
+# is said as such, never explained away (the Check Convention, rule 1).
 if [ "$INSTALL_RC" -ne 0 ]; then
+  FORCED=0
+  printf '%s\n' "${PASSTHROUGH[@]+"${PASSTHROUGH[@]}"}" | grep -qx -- '--force' && FORCED=1
+  # Under --force a differing file was overwritten, not left behind.
+  DIFFERS_ROWS=""
+  if [ "$FORCED" -eq 0 ]; then
+    DIFFERS_ROWS="$(awk -F '\t' '$1 == "file" && $2 == "differs" { print $3 "\t" $4 }' "$INSTALL_REPORT")"
+  fi
+  HOOK_FAULTS="$(awk -F '\t' '$1 == "git-hooks" && $2 == "fault"' "$INSTALL_REPORT" | grep -c . || true)"
+  OTHER_FAULTS="$(awk -F '\t' '$1 != "git-hooks" && $2 == "fault" { print $3 ": " $4 }' "$INSTALL_REPORT")"
+  CHECK_CMD="./$(relpath "$(pwd)" "$SCRIPT_DIR")/setup-project-bootstrap.sh --check"
+
   echo "--- Problems reported ---" >&2
-  echo "  install.sh exited $INSTALL_RC: the host-agnostic half needs attention." >&2
-  echo "  Scroll up to its warnings. The two that matter most are pre-existing" >&2
-  echo "  hooks in .git/hooks that core.hooksPath now shadows, and a commit-msg" >&2
-  echo "  hook that is installed but not enforcing. The stack Adapters above" >&2
-  echo "  were installed regardless — a hook problem is not a reason to skip" >&2
-  echo "  the Dockerfile." >&2
+  echo "  install.sh exited $INSTALL_RC. The stack Adapters above were installed regardless." >&2
+  if [ -n "$DIFFERS_ROWS" ]; then
+    echo "  $(printf '%s\n' "$DIFFERS_ROWS" | grep -c .) installed file(s) differ from the framework's Adapter and were left untouched:" >&2
+    while IFS=$'\t' read -r dest src; do
+      echo "    $dest" >&2
+      echo "      review: diff $src $dest" >&2
+    done <<< "$DIFFERS_ROWS"
+    echo "  For each one: if this project never edited it, copy the Adapter over it" >&2
+    echo "  (cp <source> <path>); if it did, keep it and carry the upstream change in" >&2
+    echo "  by hand. --force is the wrong tool for one file: it replaces every managed" >&2
+    echo "  file at once, this project's own Dockerfile, Risk Map, stack declaration" >&2
+    echo "  and Work Unit registry included. To list them again without writing" >&2
+    echo "  anything: $CHECK_CMD" >&2
+  fi
+  if [ "$HOOK_FAULTS" -gt 0 ]; then
+    echo "  $HOOK_FAULTS git hook problem(s): see the '!' lines under Git hooks and" >&2
+    echo "  Verification above. The two that matter most are pre-existing hooks in" >&2
+    echo "  .git/hooks that core.hooksPath now shadows, and a commit-msg hook that is" >&2
+    echo "  installed but not enforcing." >&2
+  fi
+  if [ -n "$OTHER_FAULTS" ]; then
+    echo "  Other problem(s):" >&2
+    printf '%s\n' "$OTHER_FAULTS" | sed 's/^/    /' >&2
+  fi
+  if [ -z "$DIFFERS_ROWS" ] && [ "$HOOK_FAULTS" -eq 0 ] && [ -z "$OTHER_FAULTS" ]; then
+    echo "  install.sh recorded no cause for this exit status: scroll up to its" >&2
+    echo "  '!' lines. Nothing here is known to be current." >&2
+  fi
   echo >&2
   echo "Review the copied workflows and ./Dockerfile, then commit them." >&2
   exit "$INSTALL_RC"

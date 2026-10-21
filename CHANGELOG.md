@@ -6,6 +6,17 @@ This project follows Semantic Versioning, extended with an informal 4th segment 
 
 ---
 
+## [Unreleased] - Adoption
+
+### Added
+
+- `install.sh --check` and `setup-project-bootstrap.sh --check` — the installers' own decisions, reported instead of applied: one tab-separated record per managed file (`current`, `absent`, `differs`, `customized`), `.gitattributes` and `.gitignore` rule, the local data directory and each project-owned file, a closing count line with the remedy for each kind, exit 0 nothing to act on / 3 drift / 1 a fault / 2 usage, and `--quiet`, silent when there is nothing to do. Strictly read-only, proven by a before/after snapshot of the working tree, every file under `.git`, status, local config, refs and object count; the git hooks section and the commit probes are reported `unchecked`, never left out. A building block for the upcoming drift check, not a flag to type (WU-IAENG-353)
+
+### Fixed
+
+- The bootstrap's closing message names its cause from install.sh's records: the installed files that differ from the Adapter, each with its `diff` command and why `--force` is the wrong tool for one file, and the git hook wording only when a hook check really failed — a re-run whose only problem was two differing Adapters was blamed on the hooks (#262, WU-IAENG-353)
+- An installed copy that differs from its Adapter only by CRLF line endings is `already current`, not `differs from the Adapter` (WU-IAENG-353)
+
 ## [0.0.14] - Precision
 
 ### Added
