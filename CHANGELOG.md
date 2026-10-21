@@ -15,6 +15,7 @@ This project follows Semantic Versioning, extended with an informal 4th segment 
 ### Changed
 
 - `Standards/TESTING_STANDARD.md` requires every test to be seen to fail (Falsifiability, 0.0.3): each acceptance criterion states "This fails if ___" against an observable behaviour; each new or changed test that guards a criterion or a fix is seen red once — against the base commit, a hand mutant in a disposable copy, or a mutation-testing tool — and the red run must fail on the behaviour the criterion names, so a test already red for another reason does not count; the evidence is pasted in the Work Unit Report. A run stopped by its time limit is red only when the criterion names termination or time; an equivalent mutant is replaced or the criterion declared not falsifiable. No mutation-score threshold, not retroactive. `Workflows/CODE_REVIEW.md` Step 3 makes missing, tautological or over-determined red-run evidence a blocking finding; `Workflows/FEATURE_DEVELOPMENT.md` Step 7 has QA replay one red run per criterion (WU-IAENG-354)
+- The templates ask for what Falsifiability requires and point to it rather than restate it: `Templates/WORK_UNIT.md` and `Templates/EMPLOYEE_BRIEF.md` write each criterion as "fails if: ___" or "not falsifiable: <reason>" and the brief's test item adds "and each was seen red"; `Templates/TEST_PLAN.md` gives each test case **Fails if** and **Seen red by**; `Templates/WORK_UNIT_REPORT.md` adds a **Falsification** block to Gate Evidence; the three Pull Request templates, still identical, gain a seen-red checklist item. `Adapters/README.md` Check Convention rule 4 points to the Standard instead of restating the practice (#277, WU-IAENG-356)
 
 ### Fixed
 
@@ -23,7 +24,7 @@ This project follows Semantic Versioning, extended with an informal 4th segment 
 
 ### Notes
 
-**Upgrading from v0.0.14.** The Testing Standard's Falsifiability section applies to Work Units opened after WU-IAENG-354 is merged; existing tests need no red run. It adds no tool and no CI change (WU-IAENG-354).
+**Upgrading from v0.0.14.** The Testing Standard's Falsifiability section applies to Work Units opened after WU-IAENG-354 is merged; existing tests need no red run. It adds no tool and no CI change (WU-IAENG-354). The Pull Request template gains one checklist item: an installed `.github/PULL_REQUEST_TEMPLATE.md` now differs from its Adapter; copy the Adapter over it by hand (WU-IAENG-356).
 
 ## [0.0.14] - Precision
 

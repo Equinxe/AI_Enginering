@@ -96,7 +96,7 @@ Every check in `scripts/validate-framework.sh`, every script in `scripts/`, and 
 1. **An unevaluated condition is a failure, not a pass.** If a check could not run — missing input, moved directory, a pattern that matched nothing — it says so. "Nothing objected" is not "everything passed".
 2. **Exceptions are named allow-lists, never fall-throughs.** Name the exempt thing, never express the exemption as a property of absence itself, because that quietly exempts everything else that goes missing later.
 3. **Every set-iterating check reports its denominator.** Carry a count, fail at zero, print the count on the passing line. A verdict drawn from an empty set is indistinguishable from one drawn from a complete set.
-4. **A claim about how a mechanism behaves is a testable claim** — what it selects, what it accepts, what it costs, which direction it fails in. Write the claim with the test that establishes it, or do not write it. When the mechanism chooses among alternatives, enumerate the alternatives *before* testing: two of three agreeing is not a result, and the case worth running is the one that would show the claim false.
+4. **A claim about how a mechanism behaves is a testable claim** — what it selects, what it accepts, what it costs, which direction it fails in. Write the claim with the test that establishes it, or do not write it; that test is seen to fail as `Standards/TESTING_STANDARD.md` (Falsifiability) requires. When the mechanism chooses among alternatives, enumerate the alternatives *before* testing: two of three agreeing is not a result.
 
 A **caller** that discards a check's exit status breaks rule 1 as surely as a check that never ran.
 
@@ -144,7 +144,7 @@ A passing Adapter check means the work is correctly *shaped*. It says nothing ab
 
 Owner: IA Engineering
 
-Version: 0.0.9
+Version: 0.0.10
 
 Status: Draft
 
