@@ -12,10 +12,18 @@ This project follows Semantic Versioning, extended with an informal 4th segment 
 
 - `install.sh --check` and `setup-project-bootstrap.sh --check` — the installers' own decisions, reported instead of applied: one tab-separated record per managed file (`current`, `absent`, `differs`, `customized`), `.gitattributes` and `.gitignore` rule, the local data directory and each project-owned file, a closing count line with the remedy for each kind, exit 0 nothing to act on / 3 drift / 1 a fault / 2 usage, and `--quiet`, silent when there is nothing to do. Strictly read-only, proven by a before/after snapshot of the working tree, every file under `.git`, status, local config, refs and object count; the git hooks section and the commit probes are reported `unchecked`, never left out. A building block for the upcoming drift check, not a flag to type (WU-IAENG-353)
 
+### Changed
+
+- `Standards/TESTING_STANDARD.md` requires every test to be seen to fail (Falsifiability, 0.0.3): each acceptance criterion states "This fails if ___" against an observable behaviour; each new or changed test that guards a criterion or a fix is seen red once — against the base commit, a hand mutant in a disposable copy, or a mutation-testing tool — and the red run must fail on the behaviour the criterion names, so a test already red for another reason does not count; the evidence is pasted in the Work Unit Report. No mutation-score threshold, not retroactive. `Workflows/CODE_REVIEW.md` Step 3 makes missing, tautological or over-determined red-run evidence a blocking finding; `Workflows/FEATURE_DEVELOPMENT.md` Step 7 has QA replay one red run per criterion (WU-IAENG-354)
+
 ### Fixed
 
 - The bootstrap's closing message names its cause from install.sh's records: the installed files that differ from the Adapter, each with its `diff` command and why `--force` is the wrong tool for one file, and the git hook wording only when a hook check really failed — a re-run whose only problem was two differing Adapters was blamed on the hooks (#262, WU-IAENG-353)
 - An installed copy that differs from its Adapter only by CRLF line endings is `already current`, not `differs from the Adapter` (WU-IAENG-353)
+
+### Notes
+
+**Upgrading from v0.0.14.** The Testing Standard's Falsifiability section applies to tests added or changed from v0.0.15 on; existing tests need no red run. It adds no tool and no CI change (WU-IAENG-354).
 
 ## [0.0.14] - Precision
 

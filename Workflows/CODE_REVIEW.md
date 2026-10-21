@@ -78,6 +78,7 @@ If the PR description is absent or insufficient: request the author to complete 
 2. Verify tests cover edge cases and failure paths, not just the happy path.
 3. Confirm tests are deterministic — no flaky or time-dependent assertions.
 4. Verify test coverage does not regress.
+5. Verify the red-run evidence `Standards/TESTING_STANDARD.md` (Falsifiability) requires for each new or changed test: its "fails if" names an observable behaviour of the system, and its red run fails on that behaviour. A missing red run, a tautological "fails if" (such as "fails if the test fails"), or an over-determined red run is a blocking finding.
 
 If tests are missing or insufficient: this is a blocking issue. Request changes.
 
@@ -207,10 +208,10 @@ Recorded because each was learned by getting it wrong at least once, in this fra
 
 1. **Read the description before any file.** The review is of the change against its stated intent; without the intent there is nothing to review against.
 2. **Verify claims against the repository, not against the description.** "Tests pass" is checked by the CI log or by running them. "No trailers on these commits" was once reported on four commits that each carried one.
-3. **A test that cannot fail is not a test.** For every new test, ask what change to the code would make it red. If nothing would, it is a fixture.
+3. **A test that cannot fail is not a test.** For every new test, ask what change to the code would make it red. If nothing would, it is a fixture. The evidence this requires is set by `Standards/TESTING_STANDARD.md` (Falsifiability) and checked at Step 3, item 5.
 4. **Review what is absent.** The file that should have changed and did not; the test that should exist; the migration without a rollback; the documentation the change made stale. Diffs show additions; defects hide in omissions.
 5. **Count the things prose counts.** "Six checks", "three rules", "42 Employees" — every literal count in the changed documents is checked against the set it counts. They drift every time the set grows.
-6. **Run the falsifier.** When the author claims a mechanism behaves a certain way, enumerate what else it could do, then test the alternative. A claim that "splitting the trailers buys nothing" was accepted until the measurement showed 28 of 30 commits parsed only when split.
+6. **Run the falsifier.** When the author claims a mechanism behaves a certain way, enumerate what else it could do, then test the alternative. A claim that "splitting the trailers buys nothing" was accepted until the measurement showed 28 of 30 commits parsed only when split. For a test, the falsifier is the red run `Standards/TESTING_STANDARD.md` (Falsifiability) requires.
 7. **Severity follows consequence, not effort.** A one-character fix to an authorization check is `[critical]`; a two-hundred-line renaming is `[minor]`. Never let the size of the fix set the label.
 8. **Give direction, not a replacement.** A review comment that rewrites the author's code has stopped reviewing and started implementing — and the rewrite is now unreviewed.
 9. **Re-review only the new diff, but re-anchor every old finding.** Re-reading the whole PR each round is waste; losing a finding because its line moved is a defect shipped.
@@ -274,7 +275,7 @@ This workflow is complete when:
 
 Owner: IA Engineering
 
-Version: 0.0.8
+Version: 0.0.9
 
 Status: Draft
 
