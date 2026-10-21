@@ -150,7 +150,7 @@ This step runs when the Pull Request changes executable behaviour, and is skippe
 A Pull Request **changes executable behaviour** when it changes anything a program runs or parses to decide what it does: code, scripts, hooks, CI workflows, tooling, generator inputs (such as `.ia-engineering/tier-map`), or the structure of a `Registry/` file. Prose in any directory (Core, Standards, Governance, Workflows, Templates, Employees, Examples, documentation), and new or edited `Registry/` entries that keep the file's existing structure, do not. When unclear, it changes executable behaviour: QA runs.
 
 1. Pull the feature branch.
-2. Validate the implementation against the acceptance criteria defined in the Work Unit.
+2. Validate the implementation against the acceptance criteria defined in the Work Unit, and for each falsifiable criterion replay at least one red run the Work Unit Report pastes (`Standards/TESTING_STANDARD.md`, Falsifiability): a sample, not every test. A replay that does not fail as reported is a defect.
 3. Execute the test plan for the feature.
 4. Report findings:
    - If all criteria pass: sign off.
@@ -235,7 +235,7 @@ The two entries are deliberately parallel. `Workflows/CODE_REVIEW.md` treats the
 
 Owner: IA Engineering
 
-Version: 0.0.12
+Version: 0.0.13
 
 Status: Draft
 
