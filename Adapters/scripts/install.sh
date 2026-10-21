@@ -55,19 +55,83 @@
 #   --dry-run     print every action without performing it
 #   --no-hooks    skip hook configuration (CI/templates only)
 #   --force       overwrite existing files that differ from the Adapter
+#   --check       report what each install decision finds, write nothing
+#   --quiet       with --check: print nothing at all when nothing needs acting on
 #   --help
 #
 # Run from the root of the project being set up.
+#
+# --check (WU-IAENG-353): THE SAME DECISIONS, REPORTED INSTEAD OF APPLIED.
+#
+# A building block for the drift checks that run on their own in a session
+# (session start, end of turn), not a flag anyone is expected to type. Hence
+# a stable record format, stable exit codes, and --quiet, which is silent
+# when there is nothing to do. A person can still run it; the output is the
+# same records.
+#
+# Each decision below (install_file, the .gitattributes rules, the .gitignore
+# rules, the local data directory) records the state it found, as one line
+# per item, and in --check mode that is all it does. There is no second list
+# of managed files and no second comparison: a file --check calls `differs`
+# is the file a real run would leave untouched and warn about. The record:
+#
+#   <family> TAB <status> TAB <path> TAB <framework source or detail>
+#
+#   file           current | absent | differs | customized
+#                  (current: identical to the Adapter, line endings aside)
+#   gitattributes  present | missing          (detail: the rule)
+#   gitignore      present | missing          (detail: the rule)
+#   directory      present | absent
+#   git-hooks      unchecked                  (see below)
+#   any family     fault                      (detail: what went wrong)
+#
+# ACTIONABLE means absent, differs, missing or fault. Without --quiet every
+# record is printed; with it, only the actionable ones. Either way a closing
+# `#` line gives the counts per family, the number to act on, and the remedy
+# for each kind — unless --quiet found nothing to act on, when the output is
+# empty. Exit codes, stable for a calling hook:
+#
+#   0  every item evaluated, nothing to act on
+#   3  every item evaluated, drift found (absent, differs or missing)
+#   1  a fault: something could not be evaluated (a template missing from
+#      the framework, not a git repository, ...) — never read as current
+#   2  usage error (--check cannot be combined with --dry-run or --force,
+#      which describe writes; --quiet needs --check)
+#
+# What --check does NOT evaluate, and says so with an `unchecked` record
+# rather than leaving it out (Adapters/README.md, the Check Convention, rule
+# 1): the git hooks section (core.hooksPath, executable hooks, hooks shadowed
+# in .git/hooks), and the commit probes, which run the hooks and write a blob
+# into the object store — skipped exactly as --dry-run skips them. The
+# closing line counts them as "not checked" and --quiet does not repeat them:
+# they are the same two lines on every run, and a hook that prints the same
+# lines every session teaches its reader to skip it.
+#
+# Read-only is a tested claim (Adapters/scripts/tests/run.sh, WU-IAENG-353:
+# the working tree, every file under .git, the index, refs, local config and
+# the object count are identical before and after). Every write below is
+# gated by the mode, run() refuses outright in it, and git is told not to
+# take optional locks (GIT_OPTIONAL_LOCKS=0, git's own equivalent of
+# `git --no-optional-locks`), so nothing refreshes the index.
+#
+# IAENG_INSTALL_REPORT=<file>: a real run (or --dry-run) appends the same
+# records to that file. setup-project-bootstrap.sh reads it to name the
+# files that differ and to tell a hook fault from a differing file in its
+# closing message (issue #262).
 
 set -uo pipefail
 
 DRY_RUN=0
 NO_HOOKS=0
 FORCE=0
+CHECK=0
+QUIET=0
 
 for arg in "$@"; do
   case "$arg" in
     --dry-run) DRY_RUN=1 ;;
+    --check) CHECK=1 ;;
+    --quiet) QUIET=1 ;;
     --no-hooks) NO_HOOKS=1 ;;
     --force) FORCE=1 ;;
     --help|-h)
@@ -80,6 +144,21 @@ for arg in "$@"; do
       ;;
   esac
 done
+
+if [ "$CHECK" -eq 1 ] && { [ "$DRY_RUN" -eq 1 ] || [ "$FORCE" -eq 1 ]; }; then
+  echo "install.sh: --check reports and writes nothing; it cannot be combined with --dry-run or --force." >&2
+  exit 2
+fi
+if [ "$QUIET" -eq 1 ] && [ "$CHECK" -eq 0 ]; then
+  echo "install.sh: --quiet only applies to --check." >&2
+  exit 2
+fi
+
+# Before the first git command: under --check no git command may take an
+# optional lock, the one that refreshes the index as a side effect included.
+# The variable is git's own spelling of `git --no-optional-locks`, and it
+# reaches every git command below, however it is invoked.
+[ "$CHECK" -eq 1 ] && export GIT_OPTIONAL_LOCKS=0
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 FRAMEWORK="$(cd "$SCRIPT_DIR/../.." && pwd)"
@@ -180,7 +259,42 @@ warn() { PROBLEMS=$((PROBLEMS + 1)); printf '  ! %s\n' "$1" >&2; }
 # into a blocker unless benign is defined first.
 todo() { ACTIONS=$((ACTIONS + 1)); printf '  > %s\n' "$1"; }
 
+# --check sends the human-readable output (every echo, say, same, did and todo
+# below) to /dev/null and keeps the real stdout on fd 3 for the records, so
+# the report is the records alone and no output line needs its own guard.
+# Faults still reach stderr through warn.
+REPORT=""
+if [ "$CHECK" -eq 1 ]; then
+  exec 3>&1 >/dev/null
+fi
+
+# record <family> <status> <path> <detail> — the state one decision found.
+# Kept in REPORT, which --check prints at the end (all of it, or under
+# --quiet the actionable part), and appended to $IAENG_INSTALL_REPORT on a
+# run that names one.
+#
+# Built without a subshell: --check runs inside session hooks with a time
+# budget, and on Git for Windows every fork costs tens of milliseconds.
+record() {
+  local line="$1"$'\t'"$2"$'\t'"$3"$'\t'"$4"
+  REPORT="$REPORT$line
+"
+  if [ "$CHECK" -eq 0 ] && [ -n "${IAENG_INSTALL_REPORT:-}" ]; then
+    printf '%s\n' "$line" >> "$IAENG_INSTALL_REPORT"
+  fi
+}
+
+# fault <family> <path> <message> — a warn that is also a record, so a caller
+# can tell a hook fault from a file that differs without parsing prose.
+fault() { record "$1" fault "$2" "$3"; warn "$3"; }
+
 run() {
+  # Belt and braces: every write is already gated by the mode, but a write
+  # added later through run() must not reach the disk under --check either.
+  if [ "$CHECK" -eq 1 ]; then
+    fault internal "$*" "--check refused to run a write: $*"
+    return 1
+  fi
   if [ "$DRY_RUN" -eq 1 ]; then
     printf '  [dry-run] %s\n' "$*"
     return 0
@@ -199,33 +313,62 @@ run() {
 # Reporting it as a problem on every run would train the reader to ignore the
 # script's warnings, which is how a real warning gets missed.
 install_file() {
-  local src="$1" dest="$2" kind="${3:-strict}"
+  local src="$1" dest="$2" kind="${3:-strict}" state shown
+
+  # The source as the project reaches it, e.g. ia-engineering/Adapters/...,
+  # so a record can be acted on from the project root on any machine.
+  shown="${src#"$FRAMEWORK"/}"
+  [ "$shown" != "$src" ] && shown="$HOOKS_REL/$shown"
 
   if [ ! -f "$src" ]; then
-    warn "$src is missing from the framework — nothing to install at $dest"
+    fault file "$dest" "$src is missing from the framework — nothing to install at $dest"
     return
   fi
 
-  if [ -f "$dest" ]; then
-    if diff -q "$src" "$dest" > /dev/null 2>&1; then
+  # The decision, made once. --check stops after recording it.
+  #
+  # Line endings are not a difference. A copy checked out as CRLF (core.autocrlf
+  # on Windows, before the /.github/** LF rule existed) is the same file to git,
+  # which normalizes it on commit; calling it `differs` would send its reader to
+  # review a diff that is all carriage returns, on every run. The exact compare
+  # comes first, so the normalized one costs a fork only when the bytes differ.
+  if [ ! -f "$dest" ]; then
+    state=absent
+  elif diff -q "$src" "$dest" > /dev/null 2>&1 \
+       || cmp -s <(tr -d '\r' < "$src") <(tr -d '\r' < "$dest"); then
+    state=current
+  elif [ "$kind" = "customized" ]; then
+    state=customized
+  else
+    state=differs
+  fi
+  record file "$state" "$dest" "$shown"
+  [ "$CHECK" -eq 1 ] && return
+
+  case "$state" in
+    current)
       same "$dest (already current)"
       return
-    fi
-    if [ "$kind" = "customized" ] && [ "$FORCE" -eq 0 ]; then
-      same "$dest (customized for this project, left alone)"
-      return
-    fi
-    if [ "$FORCE" -eq 0 ]; then
-      warn "$dest exists and differs from the Adapter — left untouched. Review 'diff $src $dest', then re-run with --force to overwrite."
-      return
-    fi
-  fi
+      ;;
+    customized)
+      if [ "$FORCE" -eq 0 ]; then
+        same "$dest (customized for this project, left alone)"
+        return
+      fi
+      ;;
+    differs)
+      if [ "$FORCE" -eq 0 ]; then
+        warn "$dest exists and differs from the Adapter — left untouched. Review 'diff $src $dest', then re-run with --force to overwrite."
+        return
+      fi
+      ;;
+  esac
 
   run mkdir -p "$(dirname "$dest")"
   if run cp "$src" "$dest"; then
     did "$dest"
   else
-    warn "failed to write $dest"
+    fault file "$dest" "failed to write $dest"
   fi
 }
 
@@ -238,13 +381,17 @@ echo
 # --- Git hooks -------------------------------------------------------------
 
 echo "Git hooks"
-if [ "$NO_HOOKS" -eq 1 ]; then
+if [ "$CHECK" -eq 1 ]; then
+  # Not compared yet, and said rather than left out: an absent line would
+  # read as "nothing to report" (the Check Convention, rule 1).
+  record git-hooks unchecked core.hooksPath "not compared by --check: core.hooksPath, executable hooks and hooks shadowed in .git/hooks; install.sh --dry-run shows what a run would change"
+elif [ "$NO_HOOKS" -eq 1 ]; then
   say "skipped (--no-hooks)"
 else
   HOOKS_DIR="$HOOKS_REL/Adapters/git-hooks"
 
   if [ ! -d "$PROJECT/$HOOKS_DIR" ]; then
-    warn "$HOOKS_DIR does not exist — cannot point core.hooksPath at it"
+    fault git-hooks "$HOOKS_DIR" "$HOOKS_DIR does not exist — cannot point core.hooksPath at it"
   else
     CURRENT="$(git config --local core.hooksPath || true)"
 
@@ -264,7 +411,7 @@ else
       EXISTING="$(find "$REAL_HOOKS" -maxdepth 1 -type f ! -name '*.sample' 2>/dev/null \
                     | wc -l | tr -d ' ')"
       if [ "$EXISTING" -gt 0 ]; then
-        warn "$EXISTING hook(s) already in $REAL_HOOKS. Setting core.hooksPath makes git ignore that directory entirely, so those hooks would stop running silently. Move them into $HOOKS_DIR (or into a directory of your own that also contains the framework's hooks) before continuing."
+        fault git-hooks "$REAL_HOOKS" "$EXISTING hook(s) already in $REAL_HOOKS. Setting core.hooksPath makes git ignore that directory entirely, so those hooks would stop running silently. Move them into $HOOKS_DIR (or into a directory of your own that also contains the framework's hooks) before continuing."
       fi
     fi
     if [ "$CURRENT" = "$HOOKS_DIR" ]; then
@@ -273,7 +420,7 @@ else
       if run git config --local core.hooksPath "$HOOKS_DIR"; then
         did "core.hooksPath = $HOOKS_DIR${CURRENT:+ (was: $CURRENT)}"
       else
-        warn "could not set core.hooksPath"
+        fault git-hooks core.hooksPath "could not set core.hooksPath"
       fi
     fi
 
@@ -322,7 +469,7 @@ if [ -d "$FRAMEWORK/Adapters/github/ISSUE_TEMPLATE" ]; then
     fi
   done
 else
-  warn "Adapters/github/ISSUE_TEMPLATE/ is missing from the framework"
+  fault file ".github/ISSUE_TEMPLATE/" "Adapters/github/ISSUE_TEMPLATE/ is missing from the framework"
 fi
 echo
 
@@ -368,15 +515,24 @@ FRAMEWORK_ONLY_ATTR_RULES="/Adapters/** text eol=lf
 # .gitattributes, reporting $2 as the "nothing to do" message. Shared by both
 # branches below so the append/dry-run/report logic exists once.
 append_gitattributes_rules() {
-  local rules="$1" same_msg="$2" missing=""
+  local rules="$1" same_msg="$2" missing="" content=""
+  # Read once and matched in the shell, as `grep -F` matched it before: the
+  # rule anywhere in the file. One read instead of one grep per rule keeps
+  # --check inside a hook's time budget on Git for Windows.
+  [ -f .gitattributes ] && content="$(< .gitattributes)"
   while IFS= read -r rule; do
-    if [ ! -f .gitattributes ] || ! grep -qF "$rule" .gitattributes; then
+    if [ ! -f .gitattributes ] || [[ "$content" != *"$rule"* ]]; then
       missing="$missing$rule
 "
+      record gitattributes missing .gitattributes "$rule"
+    else
+      record gitattributes present .gitattributes "$rule"
     fi
-  done < <(printf '%s\n' "$rules")
+  done <<< "$rules"
 
-  if [ -z "$missing" ]; then
+  if [ "$CHECK" -eq 1 ]; then
+    return
+  elif [ -z "$missing" ]; then
     same "$same_msg"
   elif [ "$DRY_RUN" -eq 1 ]; then
     printf '  [dry-run] append to .gitattributes:\n'
@@ -417,15 +573,27 @@ IGNORE_RULES="$LOCAL_DATA_DIR/
 .env
 .ia-engineering/SESSION_STATE.md"
 
+# ignore_has <rule> — true when .gitignore has the rule as a whole line, as
+# `grep -qxF` decided before; the file is read once (IGNORE_CONTENT), not once
+# per rule, for the same time budget as the .gitattributes rules above.
+IGNORE_CONTENT=""
+[ -f .gitignore ] && IGNORE_CONTENT=$'\n'"$(< .gitignore)"$'\n'
+ignore_has() { [ -f .gitignore ] && [[ "$IGNORE_CONTENT" == *$'\n'"$1"$'\n'* ]]; }
+
 MISSING_IGNORES=""
 while IFS= read -r rule; do
-  if [ ! -f .gitignore ] || ! grep -qxF "$rule" .gitignore; then
+  if ! ignore_has "$rule"; then
     MISSING_IGNORES="$MISSING_IGNORES$rule
 "
+    record gitignore missing .gitignore "$rule"
+  else
+    record gitignore present .gitignore "$rule"
   fi
-done < <(printf '%s\n' "$IGNORE_RULES")
+done <<< "$IGNORE_RULES"
 
-if [ -z "$MISSING_IGNORES" ]; then
+if [ "$CHECK" -eq 1 ]; then
+  :
+elif [ -z "$MISSING_IGNORES" ]; then
   same ".gitignore (data-protection rules already present)"
 elif [ "$DRY_RUN" -eq 1 ]; then
   printf '  [dry-run] append to .gitignore:\n'
@@ -445,7 +613,12 @@ fi
 # The pre-commit hook refuses the local data directory but cannot create it;
 # a developer who has nowhere sanctioned to put a real file will put it
 # somewhere unsanctioned.
-if [ -d "$LOCAL_DATA_DIR" ]; then
+DATA_DIR_STATE=absent
+[ -d "$LOCAL_DATA_DIR" ] && DATA_DIR_STATE=present
+record directory "$DATA_DIR_STATE" "$LOCAL_DATA_DIR/" "the local data directory (Standards/DATA_PROTECTION_STANDARD.md)"
+if [ "$CHECK" -eq 1 ]; then
+  :
+elif [ "$DATA_DIR_STATE" = present ]; then
   same "$LOCAL_DATA_DIR/ exists"
 else
   run mkdir -p "$LOCAL_DATA_DIR" && did "$LOCAL_DATA_DIR/ created (gitignored; the only place for real data on this machine)"
@@ -484,14 +657,22 @@ ARTIFACT_IGNORE_RULES=".claude/agents/
 .ia-engineering/usage/"
 
 MISSING_ARTIFACT_IGNORES=""
+# Re-read: the data-protection block above may have just appended to it.
+IGNORE_CONTENT=""
+[ -f .gitignore ] && IGNORE_CONTENT=$'\n'"$(< .gitignore)"$'\n'
 while IFS= read -r rule; do
-  if [ ! -f .gitignore ] || ! grep -qxF "$rule" .gitignore; then
+  if ! ignore_has "$rule"; then
     MISSING_ARTIFACT_IGNORES="$MISSING_ARTIFACT_IGNORES$rule
 "
+    record gitignore missing .gitignore "$rule"
+  else
+    record gitignore present .gitignore "$rule"
   fi
-done < <(printf '%s\n' "$ARTIFACT_IGNORE_RULES")
+done <<< "$ARTIFACT_IGNORE_RULES"
 
-if [ -z "$MISSING_ARTIFACT_IGNORES" ]; then
+if [ "$CHECK" -eq 1 ]; then
+  :
+elif [ -z "$MISSING_ARTIFACT_IGNORES" ]; then
   same ".gitignore (generated/runtime-artifact rules already present)"
 elif [ "$DRY_RUN" -eq 1 ]; then
   printf '  [dry-run] append to .gitignore:\n'
@@ -538,7 +719,9 @@ if [ -f "$(git rev-parse --git-path MERGE_HEAD 2>/dev/null || echo /nonexistent)
   MERGE_IN_PROGRESS=1
 fi
 
-if [ "$DRY_RUN" -eq 1 ]; then
+if [ "$CHECK" -eq 1 ]; then
+  record git-hooks unchecked "commit probes" "skipped by --check, as by --dry-run: the probes run the hooks and write a blob into the object store"
+elif [ "$DRY_RUN" -eq 1 ]; then
   say "skipped (dry run)"
 elif [ "$NO_HOOKS" -eq 1 ]; then
   say "hooks not installed — nothing to verify"
@@ -551,19 +734,19 @@ elif [ "$MERGE_IN_PROGRESS" -eq 1 ]; then
 else
   HOOK="$PROJECT/$(git config --local core.hooksPath || echo '.git/hooks')/commit-msg"
   if [ ! -x "$HOOK" ]; then
-    warn "commit-msg hook is not executable at $HOOK"
+    fault git-hooks "$HOOK" "commit-msg hook is not executable at $HOOK"
   else
     PROBE="$(mktemp)"
     printf 'chore(install): probe\n\nEmployee: DevOps Engineer\n' > "$PROBE"
     if "$HOOK" "$PROBE" > /dev/null 2>&1; then
       say "commit-msg hook accepts a valid Employee trailer"
     else
-      warn "the commit-msg hook rejected a well-formed probe commit. It usually means it cannot resolve Registry/employees.yml. Run: $HOOK $PROBE"
+      fault git-hooks "$HOOK" "the commit-msg hook rejected a well-formed probe commit. It usually means it cannot resolve Registry/employees.yml. Run: $HOOK $PROBE"
     fi
 
     printf 'chore(install): probe\n\nEmployee: executor\n' > "$PROBE"
     if "$HOOK" "$PROBE" > /dev/null 2>&1; then
-      warn "the commit-msg hook ACCEPTED 'Employee: executor', which is a tool label and not an Employee. The hook is installed but not enforcing — check that it resolves the roster."
+      fault git-hooks "$HOOK" "the commit-msg hook ACCEPTED 'Employee: executor', which is a tool label and not an Employee. The hook is installed but not enforcing — check that it resolves the roster."
     else
       say "commit-msg hook rejects a generic tool label"
     fi
@@ -576,7 +759,7 @@ else
   # scanner and that the scanner refuses, rather than that a file was copied.
   PRE_COMMIT="$PROJECT/$(git config --local core.hooksPath || echo '.git/hooks')/pre-commit"
   if [ ! -x "$PRE_COMMIT" ]; then
-    warn "pre-commit hook is not executable at $PRE_COMMIT"
+    fault git-hooks "$PRE_COMMIT" "pre-commit hook is not executable at $PRE_COMMIT"
   else
     PROBE_INDEX="$(mktemp)"
     rm -f "$PROBE_INDEX"
@@ -587,7 +770,7 @@ else
     GIT_INDEX_FILE="$PROBE_INDEX" git update-index --add \
       --cacheinfo "100644,$PROBE_BLOB,iaeng-install-probe.xlsx"
     if GIT_INDEX_FILE="$PROBE_INDEX" "$PRE_COMMIT" > /dev/null 2>&1; then
-      warn "the pre-commit hook ACCEPTED a staged .xlsx document. The hook is installed but not enforcing — check that it resolves Adapters/scripts/data-policy-scan.sh."
+      fault git-hooks "$PRE_COMMIT" "the pre-commit hook ACCEPTED a staged .xlsx document. The hook is installed but not enforcing — check that it resolves Adapters/scripts/data-policy-scan.sh."
     else
       say "pre-commit hook refuses a staged document (Standards/DATA_PROTECTION_STANDARD.md)"
     fi
@@ -597,6 +780,61 @@ fi
 echo
 
 # --- Result ----------------------------------------------------------------
+
+# --check closes with the count per family (the Check Convention, rule 3), the
+# number to act on and the remedy for each kind, then exits 0 (nothing to act
+# on), 3 (drift) or 1 (a fault) — the codes in the header.
+if [ "$CHECK" -eq 1 ]; then
+  if [[ "$REPORT" != *$'\n'file$'\t'* && "$REPORT" != file$'\t'* ]]; then
+    # Zero files compared is the absence of evidence, never a clean report.
+    fault file "(none)" "no managed file was compared: the framework's Adapter list is empty or unreadable"
+  fi
+  ACTIONABLE=""
+  while IFS=$'\t' read -r _fam _status _rest; do
+    case "$_status" in
+      absent|differs|missing|fault) ACTIONABLE="$ACTIONABLE$_fam"$'\t'"$_status"$'\t'"$_rest"$'\n' ;;
+    esac
+  done <<< "$REPORT"
+  ACTIONABLE="${ACTIONABLE%$'\n'}"
+  if [ "$QUIET" -eq 1 ] && [ -z "$ACTIONABLE" ]; then
+    exit 0
+  fi
+  {
+    if [ "$QUIET" -eq 1 ]; then
+      printf '%s\n' "$ACTIONABLE"
+    else
+      printf '%s' "$REPORT"
+    fi
+    awk -F '\t' -v rel="$HOOKS_REL" '
+      NF == 0 { next }
+      { n[$1]++; s[$1 FS $2]++; if ($2 ~ /^(absent|differs|missing|fault)$/) act++ }
+      function part(fam, label, statuses,   k, i, out, sep, st) {
+        out = n[fam] + 0 " " label
+        k = split(statuses, st, " ")
+        sep = ": "
+        for (i = 1; i <= k; i++) if (s[fam FS st[i]]) { out = out sep s[fam FS st[i]] " " st[i]; sep = ", " }
+        return out
+      }
+      END {
+        line = "# install.sh --check: " (act + 0) " to act on. " part("file", "file(s) compared", "current absent differs customized fault")
+        line = line "; " part("gitattributes", ".gitattributes rule(s)", "present missing")
+        line = line "; " part("gitignore", ".gitignore rule(s)", "present missing")
+        line = line "; " part("directory", "directory", "present absent")
+        line = line "; " (s["git-hooks" FS "unchecked"] + 0) " not checked (git-hooks)"
+        f = 0; for (key in s) if (key ~ (FS "fault$")) f += s[key]
+        line = line "; " f " fault(s)."
+        if (s["file" FS "absent"] || s["gitattributes" FS "missing"] || s["gitignore" FS "missing"] || s["directory" FS "absent"])
+          line = line " absent/missing: re-run " rel "/Adapters/scripts/install.sh without --force; it adds them and overwrites nothing."
+        if (s["file" FS "differs"])
+          line = line " differs: diff <source> <path>; copy the source over a copy the project never edited, never --force."
+        if (f) line = line " fault: read the fault record(s); nothing is current until they are fixed."
+        print line
+      }' <<< "$REPORT"
+  } >&3
+  [ "$PROBLEMS" -gt 0 ] && exit 1
+  [ -n "$ACTIONABLE" ] && exit 3
+  exit 0
+fi
 
 echo "Result"
 printf '  %s installed/updated, %s already current' "$CHANGED" "$SKIPPED"

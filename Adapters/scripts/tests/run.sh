@@ -6694,6 +6694,239 @@ else
   FAILED=$((FAILED + 1))
 fi
 
+# ------------------------------------- install.sh --check (WU-IAENG-353) ----
+#
+# The adopter here is the real shape: the framework is a SUBMODULE at
+# ia-engineering/, added with `git submodule add` from a framework repository
+# built out of this checkout's own Adapters/ and Registry/. Not `ln -s`, which
+# Git for Windows turns into a deep copy, and not a mock: install.sh, the
+# bootstrap and the installed hooks are the shipped ones.
+
+section "install.sh --check — the same decisions, reported, nothing written (WU-IAENG-353)"
+
+new_repo fw-353
+cp -R "$SCRIPTS/.." ./Adapters
+cp -R "$SCRIPTS/../../Registry" ./Registry
+git add -A && git commit -q -m "framework fixture"
+FW_353="$PWD"
+
+# adopter_353 <name> — a project with the fixture framework as a submodule,
+# committed; leaves the shell inside it.
+adopter_353() {
+  new_repo "$1"
+  git -c protocol.file.allow=always submodule add -q "$FW_353" ia-engineering >/dev/null 2>&1
+  git commit -q -m "chore(adopt): add the framework submodule"
+}
+
+# commit_353 <subject> — a commit the INSTALLED hooks accept.
+commit_353() {
+  git add -A
+  git commit -q -m "$1
+
+Employee: DevOps Engineer"
+}
+
+# snapshot_353 — everything a write could touch: every file under .git
+# (index, refs, config, objects, the submodule's own git dir), the working
+# tree, status with ignored files, local config, refs and the object count.
+# Status runs without optional locks so the snapshot cannot refresh the index
+# it is about to compare.
+snapshot_353() {
+  {
+    echo "== .git"; find .git -type f -exec md5sum {} + | LC_ALL=C sort -k2
+    echo "== tree"; find . -path ./.git -prune -o -type f -exec md5sum {} + | LC_ALL=C sort -k2
+    echo "== status"; git --no-optional-locks status --porcelain --ignored
+    echo "== config"; git config --local --list
+    echo "== refs"; git for-each-ref
+    echo "== objects"; git count-objects -v
+  } 2>&1
+}
+
+# expect_no_output <text> <description> — the previous output must NOT
+# contain the text.
+expect_no_output() {
+  TOTAL=$((TOTAL + 1))
+  if grep -qF -- "$1" <<< "$LAST_OUTPUT"; then
+    printf '   FAIL %s\n' "$2"
+    printf '%s\n' "$LAST_OUTPUT" | grep -F -- "$1" | sed 's/^/        | /'
+    FAILED=$((FAILED + 1))
+    return 1
+  fi
+  [ -n "$VERBOSE" ] && printf '   ok   %s\n' "$2"
+  return 0
+}
+
+INST_353="./ia-engineering/Adapters/scripts/install.sh"
+BOOT_353="./ia-engineering/Adapters/scripts/setup-project-bootstrap.sh"
+T=$'\t'
+
+# --- a project never installed: everything absent or missing, nothing written --
+adopter_353 chk-fresh
+expect 3 "--check on a never-installed project reports drift (exit 3)" -- bash "$INST_353" --check
+expect_output "file${T}absent${T}.github/workflows/control-path-guard.yml${T}ia-engineering/Adapters/github-actions/control-path-guard.yml"
+expect_output "gitattributes${T}missing${T}.gitattributes${T}/Registry/work-units.yml text eol=lf"
+expect_output "gitignore${T}missing${T}.gitignore${T}.env"
+expect_output "directory${T}absent${T}local_test_data/"
+expect_output "git-hooks${T}unchecked${T}core.hooksPath"
+expect_output "git-hooks${T}unchecked${T}commit probes"
+expect_output "8 file(s) compared: 8 absent"
+expect_output "re-run ia-engineering/Adapters/scripts/install.sh without --force"
+TOTAL=$((TOTAL + 1))
+if [ -e .github ] || [ -e .gitattributes ] || [ -e .gitignore ] || [ -e local_test_data ] \
+   || git config --local core.hooksPath >/dev/null; then
+  printf '   FAIL --check wrote into a never-installed project\n'; FAILED=$((FAILED + 1))
+else
+  [ -n "$VERBOSE" ] && printf '   ok   --check wrote nothing into a never-installed project\n'
+fi
+
+# --- installed and committed: everything current, --quiet says nothing ---------
+expect 0 "a first bootstrap succeeds" -- bash "$BOOT_353" generic
+commit_353 "chore(adopt): install the Adapters"
+
+# One installed copy checked out with CRLF line endings, as core.autocrlf
+# leaves it on Windows: the same file to git, so `current`, never `differs`.
+# Left uncommitted; every assertion below about a current project covers it.
+awk 'BEGIN { ORS = "\r\n" } { print }' .github/workflows/data-policy.yml > crlf.tmp \
+  && mv crlf.tmp .github/workflows/data-policy.yml
+TOTAL=$((TOTAL + 1))
+# Counted with tr, not grep: Git for Windows' grep drops a CR before matching.
+if [ "$(tr -cd '\r' < .github/workflows/data-policy.yml | wc -c)" -gt 0 ]; then
+  [ -n "$VERBOSE" ] && printf '   ok   the fixture copy really has CRLF line endings\n'
+else
+  printf '   FAIL the fixture copy has no CR, so the CRLF cases below test nothing\n'; FAILED=$((FAILED + 1))
+fi
+CRLF_SUM_353="$(md5sum < .github/workflows/data-policy.yml)"
+
+CHK_T0="$(date +%s%N)"
+expect 0 "--check on a current project exits 0" -- bash "$INST_353" --check
+CHK_T1="$(date +%s%N)"
+expect_output "# install.sh --check: 0 to act on. 8 file(s) compared: 8 current; 8 .gitattributes rule(s): 8 present; 6 .gitignore rule(s): 6 present; 1 directory: 1 present; 2 not checked (git-hooks); 0 fault(s)."
+expect_output "file${T}current${T}.github/workflows/data-policy.yml${T}ia-engineering/Adapters/github-actions/data-policy.yml"
+expect 0 "--check --quiet on a current project exits 0" -- bash "$INST_353" --check --quiet
+TOTAL=$((TOTAL + 1))
+if [ -z "$LAST_OUTPUT" ]; then
+  [ -n "$VERBOSE" ] && printf '   ok   --check --quiet prints nothing when nothing needs acting on\n'
+else
+  printf '   FAIL --check --quiet printed on a current project\n'
+  printf '%s\n' "$LAST_OUTPUT" | sed 's/^/        | /'; FAILED=$((FAILED + 1))
+fi
+expect 0 "the bootstrap --check --quiet on a current project exits 0" -- bash "$BOOT_353" --check --quiet
+TOTAL=$((TOTAL + 1))
+if [ -z "$LAST_OUTPUT" ]; then
+  [ -n "$VERBOSE" ] && printf '   ok   the bootstrap --check --quiet prints nothing either\n'
+else
+  printf '   FAIL the bootstrap --check --quiet printed on a current project\n'
+  printf '%s\n' "$LAST_OUTPUT" | sed 's/^/        | /'; FAILED=$((FAILED + 1))
+fi
+expect 0 "the bootstrap --check needs no stack" -- bash "$BOOT_353" --check
+expect_output "project-file${T}present${T}Registry/work-units.yml"
+expect_output "# setup-project-bootstrap.sh --check: 0 to act on. 6 project-owned file(s): 6 present, 0 absent."
+printf '   info install.sh --check took %s ms on a current project\n' "$(( (CHK_T1 - CHK_T0) / 1000000 ))"
+
+# The write path makes the same decision: the CRLF copy is already current,
+# so a real run neither warns about it nor rewrites it.
+expect 0 "a real run on the current project exits 0" -- bash "$INST_353"
+expect_output ".github/workflows/data-policy.yml (already current)"
+expect_no_output "data-policy.yml exists and differs" "a real run does not call the CRLF copy different"
+TOTAL=$((TOTAL + 1))
+if [ "$(md5sum < .github/workflows/data-policy.yml)" = "$CRLF_SUM_353" ]; then
+  [ -n "$VERBOSE" ] && printf '   ok   a real run left the CRLF copy byte-identical\n'
+else
+  printf '   FAIL a real run rewrote the CRLF copy\n'; FAILED=$((FAILED + 1))
+fi
+
+# --- drift of every kind, staged, unstaged, untracked and ignored --------------
+printf '# a local edit\n' >> .github/workflows/pr-validation.yml
+git add .github/workflows/pr-validation.yml
+rm .github/workflows/control-path-guard.yml
+sed -i 's/OWNER\/REPO/acme\/widget/g' .github/ISSUE_TEMPLATE/config.yml
+grep -vxF '/Registry/work-units.yml text eol=lf' .gitattributes > attrs.tmp && mv attrs.tmp .gitattributes
+grep -vxF '.env' .gitignore > ign.tmp && mv ign.tmp .gitignore
+rm Dockerfile
+echo untracked > untracked.txt
+echo real > local_test_data/real.csv
+
+SNAP_A="$(snapshot_353)"
+SNAP_B="$(snapshot_353)"
+TOTAL=$((TOTAL + 1))
+if [ "$SNAP_A" = "$SNAP_B" ]; then
+  [ -n "$VERBOSE" ] && printf '   ok   the snapshot itself writes nothing (two in a row are identical)\n'
+else
+  printf '   FAIL the snapshot is not stable, so it cannot prove anything\n'
+  diff <(printf '%s\n' "$SNAP_A") <(printf '%s\n' "$SNAP_B") | sed 's/^/        | /'; FAILED=$((FAILED + 1))
+fi
+
+expect 3 "--check reports drift (exit 3)" -- bash "$INST_353" --check
+expect_output "file${T}differs${T}.github/workflows/pr-validation.yml${T}ia-engineering/Adapters/github-actions/pr-validation.yml"
+expect_output "file${T}absent${T}.github/workflows/control-path-guard.yml"
+expect_output "file${T}customized${T}.github/ISSUE_TEMPLATE/config.yml"
+expect_output "gitattributes${T}missing${T}.gitattributes${T}/Registry/work-units.yml text eol=lf"
+expect_output "gitignore${T}missing${T}.gitignore${T}.env"
+expect_output "# install.sh --check: 4 to act on. 8 file(s) compared: 5 current, 1 absent, 1 differs, 1 customized; 8 .gitattributes rule(s): 7 present, 1 missing; 6 .gitignore rule(s): 5 present, 1 missing;"
+expect_output "differs: diff <source> <path>"
+expect 3 "--check --quiet reports the same drift (exit 3)" -- bash "$INST_353" --check --quiet
+expect_output "file${T}differs${T}.github/workflows/pr-validation.yml"
+expect_output "4 to act on."
+expect_no_output "${T}current${T}" "--check --quiet leaves out what is current"
+expect_no_output "${T}unchecked${T}" "--check --quiet leaves out the unchecked lines it repeats every run"
+expect_no_output "${T}customized${T}" "--check --quiet leaves out a customized file, which needs no action"
+expect 3 "the bootstrap --check reports both halves (exit 3)" -- bash "$BOOT_353" generic --check
+expect_output "file${T}differs${T}.github/workflows/pr-validation.yml"
+expect_output "project-file${T}absent${T}Dockerfile"
+expect_output "# setup-project-bootstrap.sh --check: 1 to act on. 6 project-owned file(s): 5 present, 1 absent."
+expect 3 "the bootstrap --check --quiet still reports drift" -- bash "$BOOT_353" --check --quiet
+expect_output "project-file${T}absent${T}Dockerfile"
+
+SNAP_C="$(snapshot_353)"
+TOTAL=$((TOTAL + 1))
+if [ "$SNAP_A" = "$SNAP_C" ]; then
+  [ -n "$VERBOSE" ] && printf '   ok   read-only: tree, .git, index, refs, config and objects unchanged by six --check runs\n'
+else
+  printf '   FAIL --check changed the project\n'
+  diff <(printf '%s\n' "$SNAP_A") <(printf '%s\n' "$SNAP_C") | sed 's/^/        | /'; FAILED=$((FAILED + 1))
+fi
+
+# --- usage errors, and a fault that is never read as current -------------------
+expect 2 "--check --force is a usage error" -- bash "$INST_353" --check --force
+expect 2 "--check --dry-run is a usage error" -- bash "$INST_353" --check --dry-run
+expect 2 "--quiet without --check is a usage error" -- bash "$INST_353" --quiet
+expect 2 "the bootstrap --check --force is a usage error" -- bash "$BOOT_353" generic --check --force
+expect 2 "the bootstrap --quiet without --check is a usage error" -- bash "$BOOT_353" generic --quiet
+mv ia-engineering/Adapters/github-actions/data-policy.yml data-policy.moved
+expect 1 "a template missing from the framework is a fault (exit 1), not drift" -- bash "$INST_353" --check --quiet
+expect_output "file${T}fault${T}.github/workflows/data-policy.yml"
+expect 1 "the bootstrap --check passes the fault on (exit 1 over 3)" -- bash "$BOOT_353" --check --quiet
+mv data-policy.moved ia-engineering/Adapters/github-actions/data-policy.yml
+
+section "setup-project-bootstrap.sh — the closing message names its cause (WU-IAENG-353, issue #262)"
+
+# DEF-IAENG-REL014-02: a re-run whose only problem is Adapter files that differ
+# used to be blamed on the hooks, while its own hook verification had passed.
+adopter_353 boot-262-differs
+bash "$BOOT_353" generic >/dev/null 2>&1
+commit_353 "chore(adopt): install the Adapters"
+printf '# a local edit\n' >> .github/workflows/pr-validation.yml
+printf '\na local line\n' >> .github/PULL_REQUEST_TEMPLATE.md
+commit_353 "chore(ci): edit two installed Adapters"
+expect 1 "a re-run with two differing Adapters exits 1" -- bash "$BOOT_353" generic
+expect_output "2 installed file(s) differ from the framework's Adapter and were left untouched:"
+expect_output "      review: diff ia-engineering/Adapters/github-actions/pr-validation.yml .github/workflows/pr-validation.yml"
+expect_output "    .github/PULL_REQUEST_TEMPLATE.md"
+expect_output "--force is the wrong tool for one file"
+expect_output "setup-project-bootstrap.sh --check"
+expect_output "commit-msg hook accepts a valid Employee trailer"
+expect_no_output "git hook problem" "no hook wording when no hook failed"
+expect_no_output "core.hooksPath now shadows" "the old hook explanation is gone when no hook failed"
+
+# A real hook fault: a project hook in .git/hooks that core.hooksPath shadows.
+adopter_353 boot-262-hooks
+printf '#!/bin/sh\nexit 0\n' > .git/hooks/post-checkout
+chmod +x .git/hooks/post-checkout
+expect 1 "a first bootstrap over a shadowed project hook exits 1" -- bash "$BOOT_353" generic
+expect_output "1 git hook problem(s)"
+expect_output "core.hooksPath now shadows"
+expect_no_output "differ from the framework's Adapter" "no differing-file wording when no file differs"
+
 # --------------------------------------------------------------- verdict ----
 
 cd "$HERE" || exit 1
