@@ -6707,6 +6707,10 @@ section "install.sh --check — the same decisions, reported, nothing written (W
 new_repo fw-353
 cp -R "$SCRIPTS/.." ./Adapters
 cp -R "$SCRIPTS/../../Registry" ./Registry
+# The framework's own line-ending rules, as the real submodule carries them.
+# Without them a core.autocrlf=true machine checks the submodule out CRLF,
+# and the CRLF case below compares a CRLF copy with a CRLF template.
+cp "$SCRIPTS/../../.gitattributes" ./.gitattributes
 git add -A && git commit -q -m "framework fixture"
 FW_353="$PWD"
 
@@ -6790,10 +6794,11 @@ awk 'BEGIN { ORS = "\r\n" } { print }' .github/workflows/data-policy.yml > crlf.
   && mv crlf.tmp .github/workflows/data-policy.yml
 TOTAL=$((TOTAL + 1))
 # Counted with tr, not grep: Git for Windows' grep drops a CR before matching.
-if [ "$(tr -cd '\r' < .github/workflows/data-policy.yml | wc -c)" -gt 0 ]; then
-  [ -n "$VERBOSE" ] && printf '   ok   the fixture copy really has CRLF line endings\n'
+if [ "$(tr -cd '\r' < .github/workflows/data-policy.yml | wc -c)" -gt 0 ] \
+   && [ "$(tr -cd '\r' < ia-engineering/Adapters/github-actions/data-policy.yml | wc -c)" -eq 0 ]; then
+  [ -n "$VERBOSE" ] && printf '   ok   the fixture copy is CRLF and its template is LF\n'
 else
-  printf '   FAIL the fixture copy has no CR, so the CRLF cases below test nothing\n'; FAILED=$((FAILED + 1))
+  printf '   FAIL the fixture copy is not CRLF over an LF template, so the CRLF cases below test nothing\n'; FAILED=$((FAILED + 1))
 fi
 CRLF_SUM_353="$(md5sum < .github/workflows/data-policy.yml)"
 
