@@ -14,7 +14,7 @@ This project follows Semantic Versioning, extended with an informal 4th segment 
 
 ### Changed
 
-- `Standards/TESTING_STANDARD.md` requires every test to be seen to fail (Falsifiability, 0.0.3): each acceptance criterion states "This fails if ___" against an observable behaviour; each new or changed test that guards a criterion or a fix is seen red once — against the base commit, a hand mutant in a disposable copy, or a mutation-testing tool — and the red run must fail on the behaviour the criterion names, so a test already red for another reason does not count; the evidence is pasted in the Work Unit Report. No mutation-score threshold, not retroactive. `Workflows/CODE_REVIEW.md` Step 3 makes missing, tautological or over-determined red-run evidence a blocking finding; `Workflows/FEATURE_DEVELOPMENT.md` Step 7 has QA replay one red run per criterion (WU-IAENG-354)
+- `Standards/TESTING_STANDARD.md` requires every test to be seen to fail (Falsifiability, 0.0.3): each acceptance criterion states "This fails if ___" against an observable behaviour; each new or changed test that guards a criterion or a fix is seen red once — against the base commit, a hand mutant in a disposable copy, or a mutation-testing tool — and the red run must fail on the behaviour the criterion names, so a test already red for another reason does not count; the evidence is pasted in the Work Unit Report. A run stopped by its time limit is red only when the criterion names termination or time; an equivalent mutant is replaced or the criterion declared not falsifiable. No mutation-score threshold, not retroactive. `Workflows/CODE_REVIEW.md` Step 3 makes missing, tautological or over-determined red-run evidence a blocking finding; `Workflows/FEATURE_DEVELOPMENT.md` Step 7 has QA replay one red run per criterion (WU-IAENG-354)
 
 ### Fixed
 
@@ -23,7 +23,7 @@ This project follows Semantic Versioning, extended with an informal 4th segment 
 
 ### Notes
 
-**Upgrading from v0.0.14.** The Testing Standard's Falsifiability section applies to tests added or changed from v0.0.15 on; existing tests need no red run. It adds no tool and no CI change (WU-IAENG-354).
+**Upgrading from v0.0.14.** The Testing Standard's Falsifiability section applies to Work Units opened after WU-IAENG-354 is merged; existing tests need no red run. It adds no tool and no CI change (WU-IAENG-354).
 
 ## [0.0.14] - Precision
 

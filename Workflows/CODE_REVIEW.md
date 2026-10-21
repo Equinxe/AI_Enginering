@@ -78,7 +78,7 @@ If the PR description is absent or insufficient: request the author to complete 
 2. Verify tests cover edge cases and failure paths, not just the happy path.
 3. Confirm tests are deterministic — no flaky or time-dependent assertions.
 4. Verify test coverage does not regress.
-5. Verify the red-run evidence `Standards/TESTING_STANDARD.md` (Falsifiability) requires for each new or changed test: its "fails if" names an observable behaviour of the system, and its red run fails on that behaviour. A missing red run, a tautological "fails if" (such as "fails if the test fails"), or an over-determined red run is a blocking finding.
+5. Verify the red-run evidence for each test within the scope of `Standards/TESTING_STANDARD.md` (Falsifiability, item 7): its "fails if" names an observable behaviour of the system, and its red run fails on that behaviour. A missing red run, a tautological "fails if" (such as "fails if the test fails"), or an over-determined red run is a blocking finding.
 
 If tests are missing or insufficient: this is a blocking issue. Request changes.
 
