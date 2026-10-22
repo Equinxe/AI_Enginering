@@ -7316,6 +7316,434 @@ expect_output "skill${T}not-applicable${T}.claude/skills/create-project${T}not f
 expect_output "skill${T}absent${T}.claude/skills/dashboard${T}Adapters/ai-runtimes/claude-code/skills/dashboard"
 expect_no_output "skill${T}absent${T}.claude/skills/create-project" "a skill for projects is not called absent in the framework checkout"
 
+# ------------------------- check-framework-drift.sh (WU-IAENG-358) ----
+#
+# The bench the plan names (§9): a framework repository with two tags where
+# the templates change, and adopters with it as a real submodule, on v1 then
+# v2. v1 is the v0.0.13 shape of DEF-IAENG-REL014-01: no control-path-guard
+# template (and an install.sh that does not install it), an older
+# pr-validation.yml and an older /dashboard skill.
+
+section "check-framework-drift.sh — version, stale or modified, broken paths, read-only (WU-IAENG-358)"
+
+DRIFT_358="./ia-engineering/Adapters/scripts/check-framework-drift.sh"
+V1_358="$WORK/v1-358"
+mkdir -p "$V1_358"
+
+new_repo fw-358
+cp -R "$SCRIPTS/.." ./Adapters
+cp -R "$SCRIPTS/../../Registry" ./Registry
+cp "$SCRIPTS/../../.gitattributes" ./.gitattributes
+head -n 60 Adapters/github-actions/pr-validation.yml > "$V1_358/pr-validation.yml"
+head -n 8 Adapters/ai-runtimes/claude-code/skills/dashboard/SKILL.md > "$V1_358/SKILL.md"
+cp "$V1_358/pr-validation.yml" Adapters/github-actions/pr-validation.yml
+cp "$V1_358/SKILL.md" Adapters/ai-runtimes/claude-code/skills/dashboard/SKILL.md
+rm Adapters/github-actions/control-path-guard.yml
+sed '/control-path-guard.yml/d' "$SCRIPTS/install.sh" > Adapters/scripts/install.sh
+git add -A && git commit -q -m "v1: the v0.0.13 shape" && git tag v1
+cp -R "$SCRIPTS/.." ./Adapters
+git add -A && git commit -q -m "v2: the templates change" && git tag v2
+FW_358="$PWD"
+FW_URL_358="file://$PWD"
+if FW_W_358="$(pwd -W 2>/dev/null)"; then FW_URL_358="file:///$FW_W_358"; fi
+
+# adopter_358 <name> <ref> [--depth 1] — the fixture framework as a
+# submodule checked out at <ref> and committed; leaves the shell inside it.
+adopter_358() {
+  local name="$1" ref="$2"; shift 2
+  new_repo "$name"
+  if [ "${1:-}" = "--depth" ]; then
+    git -c protocol.file.allow=always submodule add -q --depth 1 "$FW_URL_358" ia-engineering >/dev/null 2>&1
+  else
+    git -c protocol.file.allow=always submodule add -q "$FW_358" ia-engineering >/dev/null 2>&1
+    git -C ia-engineering checkout -q "$ref"
+  fi
+  git add -A && git commit -q -m "chore(adopt): add the framework submodule at $ref"
+}
+
+# install_358 — every installer, as an adopter runs them.
+install_358() {
+  bash ./ia-engineering/Adapters/scripts/setup-project-bootstrap.sh generic >/dev/null 2>&1
+  bash ./ia-engineering/Adapters/ai-runtimes/claude-code/install-hooks.sh >/dev/null 2>&1
+  bash ./ia-engineering/Adapters/ai-runtimes/claude-code/install-skills.sh >/dev/null 2>&1
+}
+
+# fields_358 — every record line of the previous output has four fields.
+fields_358() {
+  TOTAL=$((TOTAL + 1))
+  if [ -z "$(printf '%s\n' "$LAST_OUTPUT" | awk -F'\t' '!/^#/ && NF != 4')" ]; then
+    [ -n "$VERBOSE" ] && printf '   ok   %s\n' "$1"
+    return 0
+  fi
+  printf '   FAIL %s\n' "$1"
+  printf '%s\n' "$LAST_OUTPUT" | awk -F'\t' '!/^#/ && NF != 4' | sed 's/^/        | /'; FAILED=$((FAILED + 1))
+  return 1
+}
+
+# --- the framework repository itself: not applicable -------------------------
+cd "$FW_358" || exit 1
+expect 0 "in the framework repository, --strict still exits 0" -- bash Adapters/scripts/check-framework-drift.sh --strict --format tsv
+expect_output "version${T}not-applicable${T}.${T}this is the framework repository itself"
+expect_no_output "file${T}" "no file is compared in the framework repository"
+
+# --- usage ---------------------------------------------------------------------
+expect 64 "an unknown option is a usage error (64)" -- bash Adapters/scripts/check-framework-drift.sh --bogus
+expect 64 "--format takes text or tsv only (64)" -- bash Adapters/scripts/check-framework-drift.sh --format xml
+
+# --- DEF-01 replayed: installed at v1, the registry absent, then upgraded ------
+adopter_358 drift-def01 v1
+install_358
+rm Registry/work-units.yml
+commit_353 "chore(adopt): install the Adapters at v1"
+
+expect 0 "on v1, without --strict, drift still exits 0" -- bash "$DRIFT_358" --format tsv
+expect_output "version${T}tagged${T}ia-engineering${T}v1 ("
+expect_output "version${T}behind${T}ia-engineering${T}last tag known locally: v2, 1 tag(s) behind."
+expect_output "version${T}recorded${T}ia-engineering${T}"
+fields_358 "every tsv record has four fields (on v1)"
+
+git -C ia-engineering checkout -q v2
+expect 0 "an upgrade checked out but not committed" -- bash "$DRIFT_358" --format tsv
+expect_output "version${T}uncommitted${T}ia-engineering${T}the checkout is not the commit the project recorded (gitlink +)"
+git add ia-engineering && commit_353 "chore(adopt): upgrade the framework to v2"
+
+expect 1 "DEF-01: after the upgrade, --strict reports drift (exit 1)" -- bash "$DRIFT_358" --format tsv --strict
+expect_output "version${T}tagged${T}ia-engineering${T}v2 ("
+expect_output "version${T}latest${T}ia-engineering${T}last tag known locally: v2 (0 tag(s) behind)"
+expect_output "version${T}recorded${T}ia-engineering${T}"
+expect_output "file${T}absent${T}Registry/work-units.yml${T}re-run ia-engineering/Adapters/scripts/setup-project-bootstrap.sh generic without --force"
+expect_output "file${T}absent${T}.github/workflows/control-path-guard.yml${T}re-run"
+expect_output "file${T}stale${T}.github/workflows/pr-validation.yml${T}never edited, an earlier version of the template: cp ia-engineering/Adapters/github-actions/pr-validation.yml .github/workflows/pr-validation.yml"
+expect_output "config${T}stale${T}.claude/skills/dashboard${T}never edited, an earlier version of the skill: cp -R ia-engineering/Adapters/ai-runtimes/claude-code/skills/dashboard/. .claude/skills/dashboard/"
+expect_output "file${T}current${T}.github/workflows/data-policy.yml${T}"
+expect_output "file${T}project-owned${T}.ia-engineering/risk-map.yml${T}"
+expect_output "config${T}present${T}.gitattributes: /Registry/work-units.yml text eol=lf${T}"
+expect_output "# check-framework-drift: 4 to act on, 0 indeterminate. 3 version item(s): 1 tagged, 1 latest, 1 recorded. 14 file(s) compared: 6 current, 2 absent, 1 stale, 5 project-owned."
+expect_output "7 command path(s): 7 ok."
+expect_output "path${T}ok${T}ia-engineering/Adapters/ai-runtimes/claude-code/hooks/session-start.sh${T}"
+fields_358 "every tsv record has four fields (DEF-01)"
+T0_358="$(date +%s%N)"
+expect 0 "the text format reports the same, and exits 0 without --strict" -- bash "$DRIFT_358"
+printf '   info check-framework-drift.sh took %s ms on the DEF-01 adopter\n' "$(( ($(date +%s%N) - T0_358) / 1000000 ))"
+expect_output "  file    stale          .github/workflows/pr-validation.yml"
+expect_output "          -> never edited, an earlier version of the template: cp "
+
+# --- stale or modified: line endings, a CR inside a line, an edit ---------------
+sed 's/$/\r/' .github/workflows/pr-validation.yml > crlf.tmp && mv crlf.tmp .github/workflows/pr-validation.yml
+TOTAL=$((TOTAL + 1))
+# Read by bash, not grep: Git for Windows' grep drops a CR on its own.
+CRLF_358="$(< .github/workflows/pr-validation.yml)"
+if [[ "$CRLF_358" == *$'\r'* ]]; then
+  [ -n "$VERBOSE" ] && printf '   ok   the fixture stale copy is CRLF\n'
+else
+  printf '   FAIL the fixture stale copy is not CRLF\n'; FAILED=$((FAILED + 1))
+fi
+expect 1 "a CRLF copy of an earlier template is still stale" -- bash "$DRIFT_358" --format tsv --strict
+expect_output "file${T}stale${T}.github/workflows/pr-validation.yml${T}"
+cp "$V1_358/pr-validation.yml" .github/workflows/pr-validation.yml
+sed '3s/ /\r /' "$V1_358/pr-validation.yml" > cr.tmp && mv cr.tmp .github/workflows/pr-validation.yml
+expect 1 "a CR inside a line is content: modified, never stale" -- bash "$DRIFT_358" --format tsv --strict
+expect_output "file${T}modified${T}.github/workflows/pr-validation.yml${T}edited by the project, or the template was renamed: review diff ia-engineering/Adapters/github-actions/pr-validation.yml .github/workflows/pr-validation.yml; never --force"
+cp "$V1_358/pr-validation.yml" .github/workflows/pr-validation.yml
+echo "# the project's own line" >> .github/workflows/pr-validation.yml
+expect 1 "an edited copy is modified" -- bash "$DRIFT_358" --format tsv --strict
+expect_output "file${T}modified${T}.github/workflows/pr-validation.yml${T}"
+echo "# the project's own line" >> .claude/skills/dashboard/SKILL.md
+expect 1 "an edited skill is modified" -- bash "$DRIFT_358" --format tsv --strict
+expect_output "config${T}modified${T}.claude/skills/dashboard${T}edited by the project: review diff -r"
+cp "$V1_358/pr-validation.yml" .github/workflows/pr-validation.yml
+cp "$V1_358/SKILL.md" .claude/skills/dashboard/SKILL.md
+sed 's|OWNER/REPO|acme/widget|g' .github/ISSUE_TEMPLATE/config.yml > cfg.tmp && mv cfg.tmp .github/ISSUE_TEMPLATE/config.yml
+expect 1 "a file the project is expected to edit is customized, information only" -- bash "$DRIFT_358" --format tsv --strict
+expect_output "file${T}customized${T}.github/ISSUE_TEMPLATE/config.yml${T}expected to differ"
+expect_output "# check-framework-drift: 4 to act on, 0 indeterminate."
+git checkout -q -- .github/ISSUE_TEMPLATE/config.yml
+
+# --- the framework off a tag ----------------------------------------------------------
+# On a side branch of the framework, so the adopters below still see v2 as
+# the tip of main.
+git -C "$FW_358" checkout -q -b side-358
+git -C "$FW_358" commit -q --allow-empty -m "after v2"
+git -C "$FW_358" checkout -q main
+git -C ia-engineering fetch -q origin side-358
+git -C ia-engineering checkout -q FETCH_HEAD
+expect 0 "a checkout between tags" -- bash "$DRIFT_358" --format tsv
+expect_output "version${T}untagged${T}ia-engineering${T}v2-1-g"
+expect_output "not on a tag; nearest tag v2"
+git -C ia-engineering checkout -q v2
+
+# --- read-only: every kind of drift at once, and --remote ------------------------
+# A tag the adopter has never fetched, so --remote has something to find.
+git -C "$FW_358" tag v3 v2
+SNAP_358A="$(snapshot_353)"
+SNAP_358B="$(snapshot_353)"
+same_snapshot_357 "$SNAP_358A" "$SNAP_358B" "the drift snapshot is stable without a run"
+expect 0 "--remote asks the framework's remote for its tags" -- bash "$DRIFT_358" --format tsv --remote
+expect_output "version${T}behind-remote${T}ia-engineering${T}last tag on the remote: v3; known locally: v2."
+bash "$DRIFT_358" >/dev/null 2>&1
+bash "$DRIFT_358" --format tsv --strict >/dev/null 2>&1
+same_snapshot_357 "$SNAP_358A" "$(snapshot_353)" "read-only: three runs, --remote included, left the adopter identical (refs, index, config, objects, tree)"
+expect 0 "without --remote nothing asks the remote" -- bash "$DRIFT_358" --format tsv
+expect_no_output "version${T}behind-remote" "no remote record without --remote"
+
+# Every git command the check and its installers run carries
+# GIT_OPTIONAL_LOCKS=0, and none fetches, writes an object or sets config.
+LOCKS_358="$WORK/locks-358"
+mkdir -p "$LOCKS_358"
+REAL_GIT_358="$(command -v git)"
+cat > "$LOCKS_358/git" <<EOF
+#!/usr/bin/env bash
+printf '%s %s\n' "\${GIT_OPTIONAL_LOCKS:-unset}" "\$*" >> "$LOCKS_358/log"
+exec "$REAL_GIT_358" "\$@"
+EOF
+chmod +x "$LOCKS_358/git"
+: > "$LOCKS_358/log"
+expect 0 "the check runs through the logging git wrapper" -- env -u GIT_OPTIONAL_LOCKS PATH="$LOCKS_358:$PATH" bash "$DRIFT_358" --remote
+TOTAL=$((TOTAL + 1))
+if [ "$(grep -c . "$LOCKS_358/log")" -ge 10 ] && ! grep -qv '^0 ' "$LOCKS_358/log"; then
+  [ -n "$VERBOSE" ] && printf '   ok   every git command ran with GIT_OPTIONAL_LOCKS=0\n'
+else
+  printf '   FAIL a git command ran without GIT_OPTIONAL_LOCKS=0 (or too few were logged)\n'
+  sed 's/^/        | /' "$LOCKS_358/log"; FAILED=$((FAILED + 1))
+fi
+TOTAL=$((TOTAL + 1))
+# A config write names a value after its key, or a write option.
+CFG_WRITES_358="$(awk '{ for (i = 2; i <= NF; i++) if ($i == "config") {
+    n = 0; w = 0
+    for (j = i + 1; j <= NF; j++) {
+      if ($j ~ /^--(add|unset|unset-all|replace-all|rename-section|remove-section|edit)$/) w = 1
+      else if ($j !~ /^-/) n++
+    }
+    if (n >= 2 || w) print; break } }' "$LOCKS_358/log")"
+if grep -E -- ' (fetch|pull|update-index|add|commit|tag|update-ref)( |$)| hash-object.* -w| -w( |$)' "$LOCKS_358/log" \
+   || [ -n "$CFG_WRITES_358" ]; then
+  printf '   FAIL a git command that writes ran under the check\n'
+  grep -E -- ' (fetch|pull|config|hash-object|update-index|add|commit|tag|update-ref)' "$LOCKS_358/log" | sed 's/^/        | /'; FAILED=$((FAILED + 1))
+else
+  [ -n "$VERBOSE" ] && printf '   ok   no fetch, no hash-object -w, no config write, no ref write\n'
+fi
+git -C "$FW_358" tag -d v3 >/dev/null
+
+# --- D: every command path resolved, never run ------------------------------------
+mkdir -p .claude/hooks
+printf '#!/usr/bin/env bash\ntouch "%s/RAN"\n' "$PWD" > .claude/hooks/mine.sh
+cat > .claude/settings.local.json <<'EOF'
+{"hooks": {"Stop": [{"hooks": [
+  {"type": "command", "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/mine.sh\""},
+  {"type": "command", "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/gone.sh"},
+  {"type": "command", "command": "jq -n 1"},
+  {"type": "command", "command": "bash -c 'echo inline'"},
+  {"type": "command", "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/x\u001b[31m\tFORGED\nfile\tcurrent.sh\""}
+]}]}}
+EOF
+expect 1 "a broken path in settings.local.json is drift" -- bash "$DRIFT_358" --format tsv --strict
+expect_output "path${T}ok${T}.claude/hooks/mine.sh${T}"
+expect_output "path${T}broken${T}.claude/hooks/gone.sh${T}not found; named by .claude/settings.local.json (hooks.Stop.0.hooks.1.command)."
+expect_output "path${T}unresolved${T}jq${T}a command looked up on PATH"
+expect_output "path${T}unresolved${T}(inline code)${T}"
+expect_output "path${T}broken${T}.claude/hooks/x [31m FORGED file current.sh${T}"
+expect_no_output $'\e' "no ESC from a command reaches the output (SEC-IAENG-357-01)"
+expect_no_output "file${T}current.sh" "no forged record from an LF in a command"
+fields_358 "every tsv record has four fields (forged command)"
+TOTAL=$((TOTAL + 1))
+if [ -e RAN ]; then
+  printf '   FAIL a command from settings.local.json was executed\n'; FAILED=$((FAILED + 1))
+else
+  [ -n "$VERBOSE" ] && printf '   ok   no command from the settings was executed\n'
+fi
+rm .claude/settings.local.json
+
+# A hook script deleted from the framework, then the submodule moved.
+mv ia-engineering/Adapters/ai-runtimes/claude-code/hooks/stop-gate.sh stop-gate.moved
+expect 1 "a framework hook script that is gone is a broken path" -- bash "$DRIFT_358" --format tsv --strict
+expect_output "path${T}broken${T}ia-engineering/Adapters/ai-runtimes/claude-code/hooks/stop-gate.sh${T}not found; named by .claude/settings.json"
+mv stop-gate.moved ia-engineering/Adapters/ai-runtimes/claude-code/hooks/stop-gate.sh
+mv ia-engineering ia-moved
+expect 0 "a renamed submodule breaks every framework path" -- bash ./ia-moved/Adapters/scripts/check-framework-drift.sh --format tsv
+expect_output "path${T}broken${T}ia-engineering/Adapters/ai-runtimes/claude-code/hooks/session-start.sh${T}"
+expect_output "path${T}broken${T}ia-engineering/Adapters/git-hooks${T}core.hooksPath names a directory that does not exist"
+mv ia-moved ia-engineering
+
+# --- no jq: indeterminate, with its cause (issue #282) -----------------------------
+# PATH without jq: each directory that holds it is replaced by a copy of its
+# other entries as links, so nothing else disappears.
+NOJQ_358=""
+_n358=0
+IFS=: read -ra _dirs358 <<< "$PATH"
+for _d358 in "${_dirs358[@]}"; do
+  if [ -e "$_d358/jq" ] || [ -e "$_d358/jq.exe" ]; then
+    _n358=$((_n358 + 1)); mkdir -p "$WORK/nojq-358-$_n358"
+    for _f358 in "$_d358"/*; do
+      case "${_f358##*/}" in jq|jq.exe) ;; *) ln -s "$_f358" "$WORK/nojq-358-$_n358/" 2>/dev/null ;; esac
+    done
+    NOJQ_358="$NOJQ_358${NOJQ_358:+:}$WORK/nojq-358-$_n358"
+  else
+    NOJQ_358="$NOJQ_358${NOJQ_358:+:}$_d358"
+  fi
+done
+TOTAL=$((TOTAL + 1))
+if PATH="$NOJQ_358" command -v jq >/dev/null 2>&1; then
+  printf '   FAIL the fixture PATH still finds jq\n'; FAILED=$((FAILED + 1))
+else
+  [ -n "$VERBOSE" ] && printf '   ok   the fixture PATH has no jq\n'
+fi
+expect 2 "without jq, --strict says indeterminate (exit 2)" -- env PATH="$NOJQ_358" bash "$DRIFT_358" --format tsv --strict
+expect_output "path${T}indeterminate${T}.claude/settings.json${T}jq is not installed: the commands in this file are not resolved"
+expect_output "config${T}indeterminate${T}hook entries${T}jq is not installed"
+
+# --- shallow: stale or modified cannot be told -------------------------------------
+adopter_358 drift-shallow v2 --depth 1
+TOTAL=$((TOTAL + 1))
+if [ "$(git -C ia-engineering rev-parse --is-shallow-repository)" = true ]; then
+  [ -n "$VERBOSE" ] && printf '   ok   the fixture submodule is shallow\n'
+else
+  printf '   FAIL the fixture submodule is not shallow\n'; FAILED=$((FAILED + 1))
+fi
+bash ./ia-engineering/Adapters/scripts/setup-project-bootstrap.sh generic >/dev/null 2>&1
+cp "$V1_358/pr-validation.yml" .github/workflows/pr-validation.yml
+expect 2 "a shallow framework gives indeterminate, never stale (exit 2)" -- bash "$DRIFT_358" --format tsv --strict
+expect_output "file${T}indeterminate${T}.github/workflows/pr-validation.yml${T}the framework history is shallow"
+expect_no_output "file${T}stale${T}" "nothing is called stale from a shallow history"
+
+# --- never installed: absent settings.json is not clean (issue #282) ---------------
+adopter_358 drift-fresh v2
+expect 1 "a never-installed adopter is drift" -- bash "$DRIFT_358" --format tsv --strict
+expect_output "config${T}absent${T}.claude/settings.json${T}"
+expect_output "config${T}not-evaluated${T}hook entries${T}settings.json is absent"
+expect_output "file${T}absent${T}.github/workflows/pr-validation.yml${T}"
+expect_no_output "path${T}" "no settings file, no command path"
+expect_output "0 command path(s): none."
+
+# --- one cause at a time, after a clean guard ----------------------------------------
+adopter_358 drift-clean v2
+install_358
+commit_353 "chore(adopt): install the Adapters at v2"
+expect 0 "a fully installed adopter at its last tag: --strict exits 0" -- bash "$DRIFT_358" --format tsv --strict
+expect_output "# check-framework-drift: 0 to act on, 0 indeterminate."
+cp "$V1_358/pr-validation.yml" .github/workflows/pr-validation.yml
+expect 1 "one stale file alone is drift (exit 1)" -- bash "$DRIFT_358" --format tsv --strict
+expect_output "# check-framework-drift: 1 to act on, 0 indeterminate."
+expect_output "file${T}stale${T}.github/workflows/pr-validation.yml"
+git checkout -q -- .github/workflows/pr-validation.yml
+echo '{"hooks": {"Stop": [{"hooks": [{"type": "command", "command": "bash .claude/hooks/gone.sh"}]}]}}' > .claude/settings.local.json
+expect 1 "one broken path alone is drift (exit 1)" -- bash "$DRIFT_358" --format tsv --strict
+expect_output "# check-framework-drift: 1 to act on, 0 indeterminate."
+expect_output "path${T}broken${T}.claude/hooks/gone.sh${T}"
+rm .claude/settings.local.json
+expect 0 "clean again once the cause is gone" -- bash "$DRIFT_358" --format tsv --strict
+
+# settings_358 <jq program> — rewrites .claude/settings.json; only the
+# line-ending CR of jq's output on Windows is dropped.
+settings_358() {
+  jq "$1" .claude/settings.json | sed $'s/\r$//' > settings.tmp && mv settings.tmp .claude/settings.json
+}
+
+# Each cause below alone, on the clean adopter, then undone.
+settings_358 '.hooks.Stop |= map(select([.hooks[].command] | any(test("stop-gate")) | not))'
+expect 1 "one missing framework hook entry alone is drift (exit 1)" -- bash "$DRIFT_358" --format tsv --strict
+expect_output "config${T}absent${T}hook: Stop: stop-gate.sh${T}re-run ia-engineering/Adapters/ai-runtimes/claude-code/install-hooks.sh: it merges the missing entry"
+expect_output "# check-framework-drift: 1 to act on, 0 indeterminate."
+git checkout -q -- .claude/settings.json
+
+settings_358 '.hooks.PreToolUse |= map(if .matcher == "Bash" then .hooks[0].command += " || true" else . end)'
+expect 1 "a guard neutered with || true: the entry is absent, and the near miss is said (exit 1)" -- bash "$DRIFT_358" --format tsv --strict
+expect_output "config${T}near-miss${T}hook: PreToolUse [Bash]: "
+expect_output "${T}information: the framework's own entry runs beside it"
+expect_output "config${T}absent${T}hook: PreToolUse [Bash]: block-escape-hatches.sh${T}"
+expect_output "# check-framework-drift: 1 to act on, 0 indeterminate."
+git checkout -q -- .claude/settings.json
+
+echo '{"disableAllHooks": true}' > .claude/settings.local.json
+expect 1 "disableAllHooks in settings.local.json alone is drift (exit 1)" -- bash "$DRIFT_358" --format tsv --strict
+expect_output "config${T}disabled${T}.claude/settings.local.json${T}\"disableAllHooks\": true turns every hook off"
+expect_output "# check-framework-drift: 1 to act on, 0 indeterminate."
+rm .claude/settings.local.json
+
+rm .github/workflows/data-policy.yml
+expect 1 "one absent file alone is drift (exit 1)" -- bash "$DRIFT_358" --format tsv --strict
+expect_output "file${T}absent${T}.github/workflows/data-policy.yml${T}re-run ia-engineering/Adapters/scripts/setup-project-bootstrap.sh generic without --force"
+expect_output "# check-framework-drift: 1 to act on, 0 indeterminate."
+git checkout -q -- .github/workflows/data-policy.yml
+
+echo "# the project's own line" >> .github/workflows/framework-validation.yml
+expect 1 "one modified file alone is drift (exit 1)" -- bash "$DRIFT_358" --format tsv --strict
+expect_output "file${T}modified${T}.github/workflows/framework-validation.yml${T}"
+expect_output "# check-framework-drift: 1 to act on, 0 indeterminate."
+git checkout -q -- .github/workflows/framework-validation.yml
+
+# A template with no committed history: indeterminate, never modified.
+echo "a template never committed" > ia-engineering/Adapters/github/ISSUE_TEMPLATE/extra.md
+echo "the project's copy" > .github/ISSUE_TEMPLATE/extra.md
+expect 2 "a template with no history gives indeterminate, never modified (exit 2)" -- bash "$DRIFT_358" --format tsv --strict
+expect_output "file${T}indeterminate${T}.github/ISSUE_TEMPLATE/extra.md${T}the template Adapters/github/ISSUE_TEMPLATE/extra.md has no committed history"
+expect_no_output "file${T}modified${T}.github/ISSUE_TEMPLATE/extra.md" "no conclusion from a template without history"
+rm ia-engineering/Adapters/github/ISSUE_TEMPLATE/extra.md .github/ISSUE_TEMPLATE/extra.md
+
+# A framework whose installers report no managed file at all: the empty
+# family is indeterminate, never a clean one (the Check Convention, rule 3).
+sed -i "s/^record() {\$/record() { [ \"\$1\" = file ] \\&\\& return 0/" ia-engineering/Adapters/scripts/install.sh
+sed -i 's/^PROJECT_OWNED_FILES=.*/PROJECT_OWNED_FILES=""/' ia-engineering/Adapters/scripts/setup-project-bootstrap.sh
+expect 2 "no file record at all is indeterminate (exit 2)" -- bash "$DRIFT_358" --format tsv --strict
+expect_output "file${T}indeterminate${T}(none)${T}no managed file was reported"
+expect_output "1 file(s) compared: 1 indeterminate."
+git -C ia-engineering checkout -q -- Adapters/scripts/install.sh Adapters/scripts/setup-project-bootstrap.sh
+
+# Valid hooks that only a shell can read are unresolved, never broken; a
+# network path is never stat-ed (SEC-IAENG-358-02).
+cat > .claude/settings.local.json <<'EOF'
+{"hooks": {"Stop": [{"hooks": [
+  {"type": "command", "command": "bash -lc \"echo x\""},
+  {"type": "command", "command": "sh -ec \"echo x\""},
+  {"type": "command", "command": "python3 -m pkg"},
+  {"type": "command", "command": "deno run x.ts"},
+  {"type": "command", "command": "node --require=./preload.js app.js"},
+  {"type": "command", "command": "bash //srv.invalid/share/x.sh"},
+  {"type": "command", "command": "\\\\\\\\srv.invalid\\\\share\\\\x.sh"},
+  {"type": "command", "command": "bash '/\\srv.invalid\\share\\x.sh'"},
+  {"type": "command", "command": "bash '\\/srv.invalid/share/x.sh'"},
+  {"type": "command", "command": "bash -O extglob .claude/hooks/x.sh"}
+]}]}}
+EOF
+expect 0 "valid hook forms a shell reads are not drift (exit 0)" -- bash "$DRIFT_358" --format tsv --strict
+expect_output "path${T}unresolved${T}(inline code)${T}the shell runs inline code (-lc)"
+expect_output "path${T}unresolved${T}(inline code)${T}the shell runs inline code (-ec)"
+expect_output "path${T}unresolved${T}-m${T}"
+expect_output "path${T}unresolved${T}run${T}not a script path"
+expect_output "path${T}unresolved${T}--require=./preload.js${T}an interpreter option"
+expect_output "path${T}unresolved${T}//srv.invalid/share/x.sh${T}a network path: never touched"
+expect_output "path${T}unresolved${T}\\\\srv.invalid\\share\\x.sh${T}a network path: never touched"
+expect_output "path${T}unresolved${T}/\\srv.invalid\\share\\x.sh${T}a network path: never touched"
+expect_output "path${T}unresolved${T}\\/srv.invalid/share/x.sh${T}a network path: never touched"
+expect_output "path${T}unresolved${T}(none)${T}a shell option this check does not interpret (-O)"
+expect_no_output "path${T}broken" "no valid hook form is called broken"
+rm .claude/settings.local.json
+
+# Inside double quotes a backslash before an ordinary character is kept, as
+# bash keeps it.
+cat > .claude/settings.local.json <<'EOF'
+{"hooks": {"Stop": [{"hooks": [{"type": "command", "command": "bash \".claude/hooks/\\gone.sh\""}]}]}}
+EOF
+expect 1 "a backslash inside double quotes stays in the path" -- bash "$DRIFT_358" --format tsv --strict
+expect_output "path${T}broken${T}.claude/hooks/\\gone.sh${T}not found"
+rm .claude/settings.local.json
+
+# core.hooksPath read as git reads it: a network value is never stat-ed, and
+# a C1 control (CSI, \xc2\x9b) never reaches the output (SEC-IAENG-358-01).
+HP0_358="$(git config --get core.hooksPath)"
+# MSYS_NO_PATHCONV: Git Bash would otherwise rewrite the // argument.
+MSYS_NO_PATHCONV=1 git config core.hooksPath //srv.invalid/hooks
+expect 1 "a network core.hooksPath is unresolved, not stat-ed" -- bash "$DRIFT_358" --format tsv --strict
+expect_output "path${T}unresolved${T}//srv.invalid/hooks${T}core.hooksPath is a network path"
+MSYS_NO_PATHCONV=1 git config core.hooksPath '/\srv.invalid\hooks'
+expect 1 "a core.hooksPath that starts with a slash and a backslash is a network path too" -- bash "$DRIFT_358" --format tsv --strict
+expect_output "path${T}unresolved${T}/\\srv.invalid\\hooks${T}core.hooksPath is a network path"
+git config core.hooksPath "$(printf 'x\302\23331mY')"
+expect 1 "a core.hooksPath holding a C1 control is flattened" -- bash "$DRIFT_358" --format tsv --strict
+expect_output "path${T}broken${T}x 31mY${T}"
+expect_no_output "$(printf '\302\233')" "no C1 control from a git config value reaches the output"
+git config core.hooksPath "$HP0_358"
+expect 0 "clean once more after every single cause" -- bash "$DRIFT_358" --format tsv --strict
+
 # --------------------------------------------------------------- verdict ----
 
 cd "$HERE" || exit 1
