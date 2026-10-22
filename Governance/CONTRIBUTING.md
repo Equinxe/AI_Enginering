@@ -6,7 +6,7 @@
 
 This document defines how a change to the IA Engineering framework itself gets proposed, reviewed, and landed — whether the proposer is a new contributor, a Director running a different project on this framework, or an Employee that discovered a gap while doing unrelated work.
 
-This is not about contributing to a project that *uses* IA Engineering. It is about contributing to the framework repository itself: `Core/`, `Standards/`, `Employees/`, `Workflows/`, `Templates/`, `Examples/`, `Governance/`, `Prompts/`, `Adapters/`.
+This is not about contributing to a project that *uses* IA Engineering. It is about contributing to the framework repository itself: `Core/`, `Standards/`, `Employees/`, `Workflows/`, `Templates/`, `Examples/`, `Governance/`, `Registry/`, `Prompts/`, `Adapters/`.
 
 This document does not redefine how Git, commits, branches, or Pull Requests work in this repository — `Standards/GIT_STANDARD.md`, `Standards/BRANCH_STANDARD.md`, `Standards/COMMIT_STANDARD.md`, and `Standards/PULL_REQUEST_STANDARD.md` already own that. Read all four before proposing any change. This document covers what those four do not: **how much process a given kind of change requires**, and **how the specific document types unique to this framework (Employees, Workflows, Templates, Standards, Core conduct documents) get proposed and reviewed.**
 
