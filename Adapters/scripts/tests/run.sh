@@ -181,17 +181,34 @@ skip() {
   return 0
 }
 
-# not_applicable <n> <reason...> — records <n> checks whose premise is a
-# property of the filesystem that no platform in CI provides and no fix can
-# break: a case-folding filesystem on Linux. Reported and counted as skipped,
-# like `skip`, but never refused under CI=true, because there it is the
+# not_applicable <n> <key> <reason...> — records <n> checks whose premise is
+# a property of the filesystem that no platform in CI provides and no fix can
+# break: a case-folding filesystem on Linux. Reported apart from skips in the
+# Result line, and not refused under CI=true, because there it is the
 # expected outcome, not a symptom. Anything a fix could cause (a failed
 # `ln -s`, a missing tool) is a `skip`, never this (WU-IAENG-363).
+#
+# That rule is enforced, not only written: <key> must be on NA_ALLOWED, the
+# closed list below, or the call is a FAILED check on every platform, CI
+# included. A new use is therefore a reviewed edit of this list, never a
+# quiet green.
+NA_ALLOWED="case-folded-path"
+NOT_APPLICABLE=0
+NA_REASONS=""
 not_applicable() {
-  local n="$1"; shift
-  SKIPPED=$((SKIPPED + n))
-  SKIP_REASONS="${SKIP_REASONS:+$SKIP_REASONS; }$*"
-  printf '   SKIP (%s not applicable) %s\n' "$n" "$*"
+  local n="$1" key="$2"; shift 2
+  case " $NA_ALLOWED " in
+    *" $key "*) ;;
+    *)
+      TOTAL=$((TOTAL + n))
+      FAILED=$((FAILED + n))
+      printf '   FAIL (not_applicable refused: "%s" is not on NA_ALLOWED) %s\n' "$key" "$*"
+      return 1
+      ;;
+  esac
+  NOT_APPLICABLE=$((NOT_APPLICABLE + n))
+  NA_REASONS="${NA_REASONS:+$NA_REASONS; }$*"
+  printf '   N/A  (%s not applicable) %s\n' "$n" "$*"
   return 0
 }
 
@@ -204,15 +221,17 @@ not_applicable() {
 # checks, or a nested `if` with no `else skip` whose case vanishes from both
 # TOTAL and SKIPPED where its precondition is false, as on MSYS where `ln -s`
 # copies instead of linking. block_end compares what the path that ran
-# accounted for (TOTAL plus SKIPPED, so a nested skip counts) against <n>, and
-# a difference is a FAILED check everywhere, CI included: it is a defect of
-# this suite, deterministic, and never a platform limitation.
+# accounted for (TOTAL plus SKIPPED plus NOT_APPLICABLE, so a nested skip
+# counts) against <n>, and a difference is a FAILED check everywhere, CI
+# included: it is a defect of this suite, deterministic, and never a platform
+# limitation. A block still open when the verdict is reached fails too.
 #
 # The skip path takes its count from $BLOCK_N, so the number is written once.
 BLOCK_N=""
 BLOCK_LABEL=""
 BLOCK_T0=0
 BLOCK_S0=0
+BLOCK_A0=0
 block_begin() {
   if [ -n "$BLOCK_N" ]; then
     printf '   FAIL (block) block_begin "%s" inside the open block "%s"\n' "$2" "$BLOCK_LABEL"
@@ -222,6 +241,7 @@ block_begin() {
   BLOCK_LABEL="$2"
   BLOCK_T0=$TOTAL
   BLOCK_S0=$SKIPPED
+  BLOCK_A0=$NOT_APPLICABLE
 }
 block_end() {
   if [ -z "$BLOCK_N" ]; then
@@ -229,7 +249,7 @@ block_end() {
     TOTAL=$((TOTAL + 1)); FAILED=$((FAILED + 1))
     return 1
   fi
-  local got=$(( TOTAL - BLOCK_T0 + SKIPPED - BLOCK_S0 )) want="$BLOCK_N" label="$BLOCK_LABEL"
+  local got=$(( TOTAL - BLOCK_T0 + SKIPPED - BLOCK_S0 + NOT_APPLICABLE - BLOCK_A0 )) want="$BLOCK_N" label="$BLOCK_LABEL"
   BLOCK_N=""
   BLOCK_LABEL=""
   if [ "$got" -ne "$want" ]; then
@@ -3555,13 +3575,19 @@ if ln -s "$FRAMEWORK_ROOT" ia-engineering 2>/dev/null; then
   # meaningful where the filesystem folds case. The spelling exists only there
   # (this run never creates it), so its existence is the premise; where it is
   # absent, as on Linux CI, the case is not applicable and is counted as such.
+  # The premise is the same directory under another spelling, so -ef is
+  # required too: an upper-cased path that exists but is another directory is
+  # a broken fixture, a FAIL, never "not applicable".
   ALT_CASE="$(dirname "$PROJ_REAL")/$(basename "$PROJ_REAL" | tr '[:lower:]' '[:upper:]')"
-  if [ -d "$ALT_CASE" ]; then
+  if [ -d "$ALT_CASE" ] && [ "$ALT_CASE" -ef "$PROJ_REAL" ]; then
     cd "$ALT_CASE" || exit 1
     expect 0 "install-hooks.sh accepts a differently-cased spelling of the project path" -- bash "$HOOKS_320" --print
     cd "$PROJ_REAL" || exit 1
+  elif [ -d "$ALT_CASE" ]; then
+    TOTAL=$((TOTAL + 1)); FAILED=$((FAILED + 1))
+    printf '   FAIL install-hooks.sh case-folded project path: %s exists but is not the same directory as %s\n' "$ALT_CASE" "$PROJ_REAL"
   else
-    not_applicable 1 "install-hooks.sh case-folded project path: this filesystem does not fold case."
+    not_applicable 1 case-folded-path "install-hooks.sh case-folded project path: this filesystem does not fold case."
   fi
 
   # Not inside the project is still refused.
@@ -7854,18 +7880,23 @@ expect 0 "clean once more after every single cause" -- bash "$DRIFT_358" --forma
 # --------------------------------------------------------------- verdict ----
 
 cd "$HERE" || exit 1
+
+# A block_begin whose block_end was lost would otherwise go unchecked when no
+# later block_begin follows it (WU-IAENG-363).
+if [ -n "$BLOCK_N" ]; then
+  printf '   FAIL (block) "%s" is still open at the verdict: its block_end is missing\n' "$BLOCK_LABEL"
+  TOTAL=$((TOTAL + 1)); FAILED=$((FAILED + 1))
+fi
+
 printf '\n'
+# Skipped and not-applicable checks are reported apart: a skip is a platform
+# limitation a fix could hide behind, a not-applicable a premise on NA_ALLOWED.
+NOT_RUN=""
+[ "$SKIPPED" -gt 0 ] && NOT_RUN=", $SKIPPED skipped ($SKIP_REASONS)"
+[ "$NOT_APPLICABLE" -gt 0 ] && NOT_RUN="$NOT_RUN, $NOT_APPLICABLE not applicable ($NA_REASONS)"
 if [ "$FAILED" -eq 0 ]; then
-  if [ "$SKIPPED" -gt 0 ]; then
-    printf 'Result: %s checks passed, %s skipped (%s).\n' "$TOTAL" "$SKIPPED" "$SKIP_REASONS"
-  else
-    printf 'Result: %s checks passed.\n' "$TOTAL"
-  fi
+  printf 'Result: %s checks passed%s.\n' "$TOTAL" "$NOT_RUN"
   exit 0
 fi
-if [ "$SKIPPED" -gt 0 ]; then
-  printf 'Result: %s of %s checks FAILED (%s skipped: %s).\n' "$FAILED" "$TOTAL" "$SKIPPED" "$SKIP_REASONS"
-else
-  printf 'Result: %s of %s checks FAILED.\n' "$FAILED" "$TOTAL"
-fi
+printf 'Result: %s of %s checks FAILED%s.\n' "$FAILED" "$TOTAL" "$NOT_RUN"
 exit 1
