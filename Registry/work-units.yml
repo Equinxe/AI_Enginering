@@ -1434,6 +1434,12 @@ work_units:
     milestone: Adoption
     delivers: Adapters/scripts/tests/run.sh, CHANGELOG.md, Registry/work-units.yml
 
+  - id: WU-IAENG-366
+    employee: Platform Engineer
+    title: One record sanitiser in the four TSV emitters (cleanup plan of 22 Oct 2026, Phase 1 item 6) - install.sh flattened TAB and LF in the detail only, install-hooks.sh and install-skills.sh TAB, LF and CR in fields 3 and 4, check-framework-drift.sh every control character and the UTF-8 C1 pairs in fields 2 to 4; all four now carry the same flat() block, byte-identical because none sources another (install-hooks.sh sources nothing by design), applied to fields 2 to 4 and to the free text of each closing line (the framework path and the configured hooks directory in install.sh, both through the environment, the script path in the runtime installers); a contract test feeds one hostile string (TAB, LF, CR, ESC, DEL, C2 80, C2 9B, C2 9F, C2 85, a kept NBSP, e acute, em dash) to each script's own record function under the C locale and a checked C.UTF-8 and asserts the same two four-field records, and compares the four blocks; install.sh --check is driven end to end with a hostile core.hooksPath and a hostile framework path (SEC-IAENG-355-02, SEC-IAENG-357-01, SEC-IAENG-358-01, SEC-IAENG-366-01)
+    milestone: Adoption
+    delivers: Adapters/scripts/install.sh, Adapters/ai-runtimes/claude-code/install-hooks.sh, Adapters/ai-runtimes/claude-code/install-skills.sh, Adapters/scripts/check-framework-drift.sh, Adapters/scripts/tests/run.sh, CHANGELOG.md, Registry/work-units.yml
+
   - id: WU-IAENG-364
     employee: Test Automation Engineer
     title: The escape-hatch hook tests prove their own rule (issue #275 item 4; plan of 22 Oct 2026, Phase 1 #5) - an expect_hint case reaches the -c write mark of the hooksPath rule (block-escape-hatches.sh, the HOOKSPATH_REAL_WRITE set after WRITE_HOOKSPATH_VIA_C), which no case reached; escape-hatch-cases.tsv gains an optional third column, a reason substring the refusal must contain, legal on block cases only and required to name exactly one of the hook's reasons; it is filled for the block cases that more than one rule refuses; the ten exact duplicate cases are removed; the hook itself is unchanged
