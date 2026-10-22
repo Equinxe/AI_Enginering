@@ -1409,3 +1409,9 @@ work_units:
     title: One size limit for a Pull Request (cleanup plan of 22 Oct 2026, Phase 1 item 1) - the PR Size Guidelines table of Templates/PULL_REQUEST.md blocked a Pull Request above 800 changed lines, against the 1,500-line limit of Standards/PULL_REQUEST_STANDARD.md (Reviewability) and the template's own checklist; the table is removed and the section points to the Standard, which alone defines the limit, what it counts and the size/approved override; the two installed Pull Request templates carry no size table and keep the same 1,500-line checklist item
     milestone: Adoption
     delivers: Templates/PULL_REQUEST.md, CHANGELOG.md, Registry/work-units.yml
+
+  - id: WU-IAENG-363
+    employee: Test Automation Engineer
+    title: The check-script suite counts what it runs (plan of 22 Oct 2026, Phase 1 item 4; issue #275 items 1, 2, 3 and 5) - block_begin <n> / block_end declare the size of every block that runs only when ln -s works, the skip path takes its count from the declaration, and a block whose path that ran accounts for a different number is a FAILED check everywhere, CI included; the install.sh adopter block no longer holds a framework-only check its skip forgot; the symlinked and case-folded install-hooks.sh cases are counted as skipped or not applicable instead of vanishing; the workflow guard's job-name case is counted when it passes; the IAENG_REGISTRY_WORK_UNITS case says what it tests, and three new cases read an existing file, its precedence over Registry/work-units.yml and the fallback when it names a missing one
+    milestone: Adoption
+    delivers: Adapters/scripts/tests/run.sh, CHANGELOG.md, Registry/work-units.yml
