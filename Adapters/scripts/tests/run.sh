@@ -26,7 +26,10 @@
 # a suite that reports "all passed" without saying how many is not evidence
 # (Adapters/README.md, The Check Convention, rule 3). A check that is skipped
 # for a genuine platform limitation is reported too (WU-IAENG-300): it is
-# never folded into "passed" and never silently absent from the total.
+# never folded into "passed" and never silently absent from the total. A
+# block that runs only where a precondition holds declares its size with
+# block_begin, and a path that accounts for a different number of checks
+# fails the run (WU-IAENG-363).
 
 set -uo pipefail
 
@@ -175,6 +178,85 @@ skip() {
   SKIPPED=$((SKIPPED + n))
   SKIP_REASONS="${SKIP_REASONS:+$SKIP_REASONS; }$reason"
   printf '   SKIP (%s skipped) %s\n' "$n" "$reason"
+  return 0
+}
+
+# not_applicable <n> <key> <reason...> — records <n> checks whose premise is
+# a property of the filesystem that no platform in CI provides and no fix can
+# break: a case-folding filesystem on Linux. Reported apart from skips in the
+# Result line, and not refused under CI=true, because there it is the
+# expected outcome, not a symptom. Anything a fix could cause (a failed
+# `ln -s`, a missing tool) is a `skip`, never this (WU-IAENG-363).
+#
+# That rule is enforced, not only written: <key> must be on NA_ALLOWED, the
+# closed list below, or the call is a FAILED check on every platform, CI
+# included. A new use is therefore a reviewed edit of this list, never a
+# quiet green.
+NA_ALLOWED="case-folded-path"
+NOT_APPLICABLE=0
+NA_REASONS=""
+not_applicable() {
+  local n="$1" key="$2"; shift 2
+  case " $NA_ALLOWED " in
+    *" $key "*) ;;
+    *)
+      TOTAL=$((TOTAL + n))
+      FAILED=$((FAILED + n))
+      printf '   FAIL (not_applicable refused: "%s" is not on NA_ALLOWED) %s\n' "$key" "$*"
+      return 1
+      ;;
+  esac
+  NOT_APPLICABLE=$((NOT_APPLICABLE + n))
+  NA_REASONS="${NA_REASONS:+$NA_REASONS; }$*"
+  printf '   N/A  (%s not applicable) %s\n' "$n" "$*"
+  return 0
+}
+
+# block_begin <n> <label> ... block_end — the declared size of a block whose
+# checks run only when a precondition holds (WU-IAENG-363, issue #275).
+#
+# Such a block has two paths: the checks, or `skip "$BLOCK_N" ...` when the
+# precondition fails. Each path must account for the same <n> checks, or the
+# denominator of a run depends on the platform: a `skip 5` in front of six
+# checks, or a nested `if` with no `else skip` whose case vanishes from both
+# TOTAL and SKIPPED where its precondition is false, as on MSYS where `ln -s`
+# copies instead of linking. block_end compares what the path that ran
+# accounted for (TOTAL plus SKIPPED plus NOT_APPLICABLE, so a nested skip
+# counts) against <n>, and a difference is a FAILED check everywhere, CI
+# included: it is a defect of this suite, deterministic, and never a platform
+# limitation. A block still open when the verdict is reached fails too.
+#
+# The skip path takes its count from $BLOCK_N, so the number is written once.
+BLOCK_N=""
+BLOCK_LABEL=""
+BLOCK_T0=0
+BLOCK_S0=0
+BLOCK_A0=0
+block_begin() {
+  if [ -n "$BLOCK_N" ]; then
+    printf '   FAIL (block) block_begin "%s" inside the open block "%s"\n' "$2" "$BLOCK_LABEL"
+    TOTAL=$((TOTAL + 1)); FAILED=$((FAILED + 1))
+  fi
+  BLOCK_N="$1"
+  BLOCK_LABEL="$2"
+  BLOCK_T0=$TOTAL
+  BLOCK_S0=$SKIPPED
+  BLOCK_A0=$NOT_APPLICABLE
+}
+block_end() {
+  if [ -z "$BLOCK_N" ]; then
+    printf '   FAIL (block) block_end with no open block\n'
+    TOTAL=$((TOTAL + 1)); FAILED=$((FAILED + 1))
+    return 1
+  fi
+  local got=$(( TOTAL - BLOCK_T0 + SKIPPED - BLOCK_S0 + NOT_APPLICABLE - BLOCK_A0 )) want="$BLOCK_N" label="$BLOCK_LABEL"
+  BLOCK_N=""
+  BLOCK_LABEL=""
+  if [ "$got" -ne "$want" ]; then
+    printf '   FAIL (block size) %s: declares %s checks, the path that ran accounted for %s\n' "$label" "$want" "$got"
+    TOTAL=$((TOTAL + 1)); FAILED=$((FAILED + 1))
+    return 1
+  fi
   return 0
 }
 
@@ -1273,6 +1355,7 @@ section "install.sh — adopter ignore rules and framework-only eol rules (WU-IA
 FRAMEWORK_ROOT="$(cd "$SCRIPTS/../.." && pwd)"
 
 new_repo inst-adopter
+block_begin 5 "install.sh adopter ignore/eol rules"
 if ln -s "$FRAMEWORK_ROOT" ia-engineering 2>/dev/null; then
   bash ./ia-engineering/Adapters/scripts/install.sh >/dev/null 2>&1
 
@@ -1318,20 +1401,22 @@ if ln -s "$FRAMEWORK_ROOT" ia-engineering 2>/dev/null; then
     printf '   FAIL adopter .gitattributes is missing the /.github/** rule\n'
     FAILED=$((FAILED + 1))
   fi
-
-  # The framework repository's OWN .gitattributes governs itself and is not
-  # rewritten by an adopter install — it must already carry the framework-only
-  # rules that the adopter above correctly did not get.
-  TOTAL=$((TOTAL + 1))
-  if grep -qF '/Adapters/**' "$FRAMEWORK_ROOT/.gitattributes" \
-     && grep -qF '/Registry/**' "$FRAMEWORK_ROOT/.gitattributes"; then
-    [ -n "$VERBOSE" ] && printf '   ok   the framework own .gitattributes carries /Adapters/** and /Registry/**\n'
-  else
-    printf '   FAIL the framework own .gitattributes is missing /Adapters/** or /Registry/**\n'
-    FAILED=$((FAILED + 1))
-  fi
 else
-  skip 5 "install.sh adopter ignore/eol rules: ln -s failed on this platform (no admin rights / Developer Mode off) -- not a fix defect."
+  skip "$BLOCK_N" "install.sh adopter ignore/eol rules: ln -s failed on this platform (no admin rights / Developer Mode off) -- not a fix defect."
+fi
+block_end
+
+# The framework repository's OWN .gitattributes governs itself and is not
+# rewritten by an adopter install — it must already carry the framework-only
+# rules that the adopter above correctly did not get. It reads the framework
+# checkout only, so it needs no link and runs on every platform.
+TOTAL=$((TOTAL + 1))
+if grep -qF '/Adapters/**' "$FRAMEWORK_ROOT/.gitattributes" \
+   && grep -qF '/Registry/**' "$FRAMEWORK_ROOT/.gitattributes"; then
+  [ -n "$VERBOSE" ] && printf '   ok   the framework own .gitattributes carries /Adapters/** and /Registry/**\n'
+else
+  printf '   FAIL the framework own .gitattributes is missing /Adapters/** or /Registry/**\n'
+  FAILED=$((FAILED + 1))
 fi
 
 # ------------------------------------ setup-project-bootstrap.sh symlink ----
@@ -1346,6 +1431,7 @@ fi
 section "setup-project-bootstrap.sh — link-safe bootstrap hint (WU-IAENG-296)"
 
 new_repo bs-symlink
+block_begin 2 "setup-project-bootstrap.sh link-safe hint"
 if ln -s "$FRAMEWORK_ROOT" ia-engineering 2>/dev/null; then
   OUT="$(bash ./ia-engineering/Adapters/scripts/setup-project-bootstrap.sh generic --dry-run 2>&1)"
 
@@ -1367,8 +1453,9 @@ if ln -s "$FRAMEWORK_ROOT" ia-engineering 2>/dev/null; then
     [ -n "$VERBOSE" ] && printf '   ok   the branch-protection hint did not resolve to a ../physical-target path\n'
   fi
 else
-  skip 2 "setup-project-bootstrap.sh link-safe hint: ln -s failed on this platform (no admin rights / Developer Mode off) -- not a fix defect."
+  skip "$BLOCK_N" "setup-project-bootstrap.sh link-safe hint: ln -s failed on this platform (no admin rights / Developer Mode off) -- not a fix defect."
 fi
+block_end
 
 # ------------------------------------------------- generate-agents.sh -------
 #
@@ -3212,8 +3299,13 @@ sed -E '/^  review-recorded:/,/^    steps:/{/contents: read/d}' "$SCRIPTS/../git
 printf 'permissions:\n  issues: read\n\njobs:\n  a:\n    steps:\n      - uses: actions/checkout@v4\n' > "$WORK/wfp-mut/workflow-level-without-contents.yml"
 wfp_expect 1 "guard rejects the mutant: a job block without contents: read" "$WORK/wfp-mut/job-without-contents.yml"
 wfp_expect 1 "guard rejects the mutant: an inherited workflow block without contents: read" "$WORK/wfp-mut/workflow-level-without-contents.yml"
-if [ "$(wfp_guard "$WORK/wfp-mut/job-without-contents.yml")" != "job review-recorded: checks out but its permissions lack contents: read" ]; then
-  TOTAL=$((TOTAL + 1)); FAILED=$((FAILED + 1)); printf '   FAIL the guard names the offending job\n'
+# Counted whether it passes or fails (issue #275): it used to add to TOTAL
+# only on failure, so a green run reported one check fewer than a red one.
+TOTAL=$((TOTAL + 1))
+if [ "$(wfp_guard "$WORK/wfp-mut/job-without-contents.yml")" = "job review-recorded: checks out but its permissions lack contents: read" ]; then
+  [ -n "$VERBOSE" ] && printf '   ok   the guard names the offending job\n'
+else
+  FAILED=$((FAILED + 1)); printf '   FAIL the guard names the offending job\n'
 fi
 
 # ------------------------------------- check-control-paths.sh (WU-IAENG-309) --
@@ -3542,8 +3634,29 @@ BASE="$(git rev-parse HEAD)"
 commit_with "feat: anything" "Work Unit: WU-QA-1"
 expect 1 "the framework root with no registry fails closed" -- bash Adapters/scripts/check-work-units.sh "$BASE" HEAD
 expect_output "Could not locate Registry/work-units.yml"
-expect 1 "IAENG_REGISTRY_WORK_UNITS naming a missing file fails closed" -- \
+
+# IAENG_REGISTRY_WORK_UNITS, as the script header states: an existing file it
+# names is read, and overrides Registry/work-units.yml; a missing one is not a
+# registry, and the search falls back to Registry/work-units.yml. The first
+# case below used to be labelled "naming a missing file fails closed" and
+# passed only because this fixture has no Registry/ (issue #275, item 5): no
+# case read the file the variable names.
+expect 1 "IAENG_REGISTRY_WORK_UNITS naming a missing file, with no Registry/ to fall back to, fails closed" -- \
   env IAENG_REGISTRY_WORK_UNITS=/nonexistent/devops320.yml bash Adapters/scripts/check-work-units.sh "$BASE" HEAD
+expect_output "Could not locate Registry/work-units.yml"
+printf 'work_units:\n  - id: WU-QA-1\n' > "$WORK/env-registry-363.yml"
+expect 0 "IAENG_REGISTRY_WORK_UNITS naming an existing file is read" -- \
+  env IAENG_REGISTRY_WORK_UNITS="$WORK/env-registry-363.yml" bash Adapters/scripts/check-work-units.sh "$BASE" HEAD
+expect_output "Registry: $WORK/env-registry-363.yml"
+mkdir -p Registry && printf 'work_units:\n  - id: WU-QA-2\n' > Registry/work-units.yml
+expect 0 "an existing IAENG_REGISTRY_WORK_UNITS file overrides Registry/work-units.yml" -- \
+  env IAENG_REGISTRY_WORK_UNITS="$WORK/env-registry-363.yml" bash Adapters/scripts/check-work-units.sh "$BASE" HEAD
+expect_output "Registry: $WORK/env-registry-363.yml"
+expect 1 "IAENG_REGISTRY_WORK_UNITS naming a missing file falls back to Registry/work-units.yml" -- \
+  env IAENG_REGISTRY_WORK_UNITS=/nonexistent/devops320.yml bash Adapters/scripts/check-work-units.sh "$BASE" HEAD
+expect_output "Registry: Registry/work-units.yml"
+expect_output "claims 'WU-QA-1', which is not in Registry/work-units.yml"
+rm -rf Registry
 
 # The framework's own behaviour is unchanged: run from the framework root it
 # reads its own registry.
@@ -3560,6 +3673,7 @@ fi
 section "setup-project-bootstrap.sh / install.sh — registry, LF rules, summary (WU-IAENG-320)"
 
 new_repo boot-320
+block_begin 12 "bootstrap registry/LF/summary"
 if ln -s "$FRAMEWORK_ROOT" ia-engineering 2>/dev/null; then
   BOOT_OUT="$(bash ./ia-engineering/Adapters/scripts/setup-project-bootstrap.sh generic 2>&1)"
 
@@ -3605,19 +3719,23 @@ if ln -s "$FRAMEWORK_ROOT" ia-engineering 2>/dev/null; then
   expect 0 "install.sh run on its own succeeds" -- bash ./ia-engineering/Adapters/scripts/install.sh
   expect_output "setup-project-bootstrap.sh <stack>"
 else
-  skip 12 "bootstrap registry/LF/summary: ln -s failed on this platform (no admin rights / Developer Mode off) -- not a fix defect."
+  skip "$BLOCK_N" "bootstrap registry/LF/summary: ln -s failed on this platform (no admin rights / Developer Mode off) -- not a fix defect."
 fi
+block_end
 
 section "install-hooks.sh — framework-inside-project by identity, not spelling (WU-IAENG-320, DEF-14)"
 
 new_repo hooks-320
+block_begin 6 "install-hooks.sh inside-project detection"
 if ln -s "$FRAMEWORK_ROOT" ia-engineering 2>/dev/null; then
   HOOKS_320="$PWD/ia-engineering/Adapters/ai-runtimes/claude-code/install-hooks.sh"
   expect 0 "install-hooks.sh finds the framework inside the project" -- bash "$HOOKS_320" --print
   expect_output 'ia-engineering/Adapters'
 
   # The project reached through a symlink: its logical path is spelled
-  # differently from the one the framework was located by.
+  # differently from the one the framework was located by. Where `ln -s`
+  # copies instead of linking (MSYS without winsymlinks), the case has no
+  # premise and is recorded as skipped, never left out of the count.
   PROJ_REAL="$PWD"
   PROJ_LINK="$WORK/hooks-320-link"
   rm -rf "$PROJ_LINK"
@@ -3625,15 +3743,27 @@ if ln -s "$FRAMEWORK_ROOT" ia-engineering 2>/dev/null; then
     cd "$PROJ_LINK" || exit 1
     expect 0 "install-hooks.sh accepts the project reached through a symlinked path" -- bash "$HOOKS_320" --print
     cd "$PROJ_REAL" || exit 1
+  else
+    skip 1 "install-hooks.sh symlinked project path: ln -s did not create a symbolic link on this platform -- not a fix defect."
   fi
 
   # A differently-cased spelling of the same directory (Windows, macOS): only
-  # meaningful where the filesystem folds case, and a no-op where it does not.
+  # meaningful where the filesystem folds case. The spelling exists only there
+  # (this run never creates it), so its existence is the premise; where it is
+  # absent, as on Linux CI, the case is not applicable and is counted as such.
+  # The premise is the same directory under another spelling, so -ef is
+  # required too: an upper-cased path that exists but is another directory is
+  # a broken fixture, a FAIL, never "not applicable".
   ALT_CASE="$(dirname "$PROJ_REAL")/$(basename "$PROJ_REAL" | tr '[:lower:]' '[:upper:]')"
-  if [ "$ALT_CASE" != "$PROJ_REAL" ] && [ -d "$ALT_CASE" ] && [ "$ALT_CASE" -ef "$PROJ_REAL" ]; then
+  if [ -d "$ALT_CASE" ] && [ "$ALT_CASE" -ef "$PROJ_REAL" ]; then
     cd "$ALT_CASE" || exit 1
     expect 0 "install-hooks.sh accepts a differently-cased spelling of the project path" -- bash "$HOOKS_320" --print
     cd "$PROJ_REAL" || exit 1
+  elif [ -d "$ALT_CASE" ]; then
+    TOTAL=$((TOTAL + 1)); FAILED=$((FAILED + 1))
+    printf '   FAIL install-hooks.sh case-folded project path: %s exists but is not the same directory as %s\n' "$ALT_CASE" "$PROJ_REAL"
+  else
+    not_applicable 1 case-folded-path "install-hooks.sh case-folded project path: this filesystem does not fold case."
   fi
 
   # Not inside the project is still refused.
@@ -3641,8 +3771,9 @@ if ln -s "$FRAMEWORK_ROOT" ia-engineering 2>/dev/null; then
   expect 1 "install-hooks.sh still refuses a framework that is not inside the project" -- bash "$HOOKS_320" --print
   expect_output "is not inside the project"
 else
-  skip 2 "install-hooks.sh inside-project detection: ln -s failed on this platform (no admin rights / Developer Mode off) -- not a fix defect."
+  skip "$BLOCK_N" "install-hooks.sh inside-project detection: ln -s failed on this platform (no admin rights / Developer Mode off) -- not a fix defect."
 fi
+block_end
 
 # ------------------- validate-framework.sh short-circuit safety (WU-IAENG-319) --
 #
@@ -7461,13 +7592,15 @@ git checkout -q -- .claude/settings.json
 jq '.hooks.Stop = []' .claude/settings.json | sed $'s/\r$//' > "$WORK/link-357.json"
 rm .claude/settings.json
 MSYS=winsymlinks:sys ln -s "$WORK/link-357.json" .claude/settings.json 2>/dev/null
+block_begin 2 "install-hooks.sh --check on a symlinked settings.json"
 if [ -L .claude/settings.json ]; then
   expect 1 "a symlinked settings.json is a fault (exit 1), as a run refuses it" -- bash "$HK_357" --check
   expect_output "settings${T}fault${T}.claude/settings.json${T}it is a symbolic link"
   rm .claude/settings.json
 else
-  skip 2 "install-hooks.sh --check on a symlinked settings.json: ln -s failed on this platform -- not a fix defect."
+  skip "$BLOCK_N" "install-hooks.sh --check on a symlinked settings.json: ln -s failed on this platform -- not a fix defect."
 fi
+block_end
 git checkout -q -- .claude/settings.json
 
 mv ia-engineering/Adapters/ai-runtimes/claude-code/skills skills.moved
@@ -8043,18 +8176,23 @@ rm -rf "$LINK_ADOPTER_362"
 # --------------------------------------------------------------- verdict ----
 
 cd "$HERE" || exit 1
+
+# A block_begin whose block_end was lost would otherwise go unchecked when no
+# later block_begin follows it (WU-IAENG-363).
+if [ -n "$BLOCK_N" ]; then
+  printf '   FAIL (block) "%s" is still open at the verdict: its block_end is missing\n' "$BLOCK_LABEL"
+  TOTAL=$((TOTAL + 1)); FAILED=$((FAILED + 1))
+fi
+
 printf '\n'
+# Skipped and not-applicable checks are reported apart: a skip is a platform
+# limitation a fix could hide behind, a not-applicable a premise on NA_ALLOWED.
+NOT_RUN=""
+[ "$SKIPPED" -gt 0 ] && NOT_RUN=", $SKIPPED skipped ($SKIP_REASONS)"
+[ "$NOT_APPLICABLE" -gt 0 ] && NOT_RUN="$NOT_RUN, $NOT_APPLICABLE not applicable ($NA_REASONS)"
 if [ "$FAILED" -eq 0 ]; then
-  if [ "$SKIPPED" -gt 0 ]; then
-    printf 'Result: %s checks passed, %s skipped (%s).\n' "$TOTAL" "$SKIPPED" "$SKIP_REASONS"
-  else
-    printf 'Result: %s checks passed.\n' "$TOTAL"
-  fi
+  printf 'Result: %s checks passed%s.\n' "$TOTAL" "$NOT_RUN"
   exit 0
 fi
-if [ "$SKIPPED" -gt 0 ]; then
-  printf 'Result: %s of %s checks FAILED (%s skipped: %s).\n' "$FAILED" "$TOTAL" "$SKIPPED" "$SKIP_REASONS"
-else
-  printf 'Result: %s of %s checks FAILED.\n' "$FAILED" "$TOTAL"
-fi
+printf 'Result: %s of %s checks FAILED%s.\n' "$FAILED" "$TOTAL" "$NOT_RUN"
 exit 1
