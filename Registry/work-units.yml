@@ -1404,6 +1404,18 @@ work_units:
     milestone: Adoption
     delivers: Adapters/scripts/check-framework-drift.sh, Adapters/scripts/tests/run.sh, CHANGELOG.md, Registry/work-units.yml
 
+  - id: WU-IAENG-360
+    employee: Technical Writer
+    title: One size limit for a Pull Request (cleanup plan of 22 Oct 2026, Phase 1 item 1) - the PR Size Guidelines table of Templates/PULL_REQUEST.md blocked a Pull Request above 800 changed lines, against the 1,500-line limit of Standards/PULL_REQUEST_STANDARD.md (Reviewability) and the template's own checklist; the table is removed and the section points to the Standard, which alone defines the limit, what it counts and the size/approved override; the two installed Pull Request templates carry no size table and keep the same 1,500-line checklist item
+    milestone: Adoption
+    delivers: Templates/PULL_REQUEST.md, CHANGELOG.md, Registry/work-units.yml
+
+  - id: WU-IAENG-362
+    employee: Platform Engineer
+    title: install.sh recognises the framework repository by identity, not spelling (plan of 22 Oct 2026, Phase 1 #3) - the two sites that decided "this is the framework repository" by comparing FRAMEWORK and PROJECT as strings (the framework-only .gitattributes rules, the adopter next steps) now read one answer, HOOKS_REL = "." from the existing -ef walk, so a framework repository invoked through a differently-cased or symlinked path is no longer installed as an adopter; tests through a differently-cased path (case-folding filesystem) and a symlinked path (real symlinks), with the adopter still an adopter
+    milestone: Adoption
+    delivers: Adapters/scripts/install.sh, Adapters/scripts/tests/run.sh, CHANGELOG.md, Registry/work-units.yml
+
   - id: WU-IAENG-364
     employee: Test Automation Engineer
     title: The escape-hatch hook tests prove their own rule (issue #275 item 4; plan of 22 Oct 2026, Phase 1 #5) - an expect_hint case reaches the -c write mark of the hooksPath rule (block-escape-hatches.sh, the HOOKSPATH_REAL_WRITE set after WRITE_HOOKSPATH_VIA_C), which no case reached; escape-hatch-cases.tsv gains an optional third column, a reason substring the refusal must contain, legal on block cases only and required to name exactly one of the hook's reasons; it is filled for the block cases that more than one rule refuses; the ten exact duplicate cases are removed; the hook itself is unchanged
