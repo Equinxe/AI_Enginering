@@ -320,8 +320,9 @@ fi
 # space: a record is one line and carries no terminal escape.
 # The C1 controls (U+0080-U+009F, CSI among them) are UTF-8 pairs \xc2\x80 to
 # \xc2\x9f: a pair becomes one space. A lone byte in that range is part of
-# another character and is left alone (SEC-IAENG-358-01). The result is the
-# same under the C locale and a UTF-8 one.
+# another character and is left alone (SEC-IAENG-358-01). For these the
+# result is the same under the C locale and a UTF-8 one; a UTF-8 locale also
+# flattens a few other code points, U+2028 and U+2029 among them.
 C1_LEAD=$'\xc2'
 flat() {
   FLAT="${1//[[:cntrl:]]/ }"
@@ -882,10 +883,12 @@ if [ "$CHECK" -eq 1 ]; then
     else
       printf '%s' "$REPORT"
     fi
-    # The configured hooks directory reaches awk through the environment, not
-    # -v, which would decode its backslashes; flattened as a record field is.
+    # The framework's path and the configured hooks directory reach awk
+    # through the environment, not -v, which would decode their backslashes;
+    # each is flattened as a record field is (SEC-IAENG-366-01).
+    flat "$HOOKS_REL"; _rel_flat="$FLAT"
     flat "${CURRENT:-}"
-    IAENG_HOOKS_NOW="$FLAT" awk -F '\t' -v rel="$HOOKS_REL" '
+    IAENG_REL="$_rel_flat" IAENG_HOOKS_NOW="$FLAT" awk -F '\t' '
       NF == 0 { next }
       { n[$1]++; s[$1 FS $2]++; if ($2 ~ /^(absent|differs|missing|not-executable|shadowed|fault)$/) act++ }
       function part(fam, label, statuses,   k, i, out, sep, st) {
@@ -905,7 +908,7 @@ if [ "$CHECK" -eq 1 ]; then
         line = line "; " f " fault(s)."
         if (n["todo"]) line = line " " n["todo"] " todo(s) for the project, not drift."
         if (s["file" FS "absent"] || s["gitattributes" FS "missing"] || s["gitignore" FS "missing"] || s["directory" FS "absent"])
-          line = line " absent/missing: re-run " rel "/Adapters/scripts/install.sh without --force; it adds them and overwrites nothing."
+          line = line " absent/missing: re-run " ENVIRON["IAENG_REL"] "/Adapters/scripts/install.sh without --force; it adds them and overwrites nothing."
         if (s["file" FS "differs"])
           line = line " differs: diff <source> <path>; copy the source over a copy the project never edited, never --force."
         # The hooks a re-run would silence come first, so the re-run remedy is
@@ -916,7 +919,7 @@ if [ "$CHECK" -eq 1 ]; then
         if (s["git-hooks" FS "differs"]) {
           line = line " core.hooksPath: move any hooks the project keeps in " ENVIRON["IAENG_HOOKS_NOW"] " out first, or git stops running them."; first = 1 }
         if (s["git-hooks" FS "absent"] || s["git-hooks" FS "differs"] || s["git-hooks" FS "not-executable"])
-          line = line " git-hooks: " (first ? "then " : "") "re-run " rel "/Adapters/scripts/install.sh; it sets core.hooksPath and makes the framework hooks executable."
+          line = line " git-hooks: " (first ? "then " : "") "re-run " ENVIRON["IAENG_REL"] "/Adapters/scripts/install.sh; it sets core.hooksPath and makes the framework hooks executable."
         if (f) line = line " fault: read the fault record(s); nothing is current until they are fixed."
         print line
       }' <<< "$REPORT"

@@ -157,8 +157,9 @@ ROWS=""
 # space: a record is one line and carries no terminal escape.
 # The C1 controls (U+0080-U+009F, CSI among them) are UTF-8 pairs \xc2\x80 to
 # \xc2\x9f: a pair becomes one space. A lone byte in that range is part of
-# another character and is left alone (SEC-IAENG-358-01). The result is the
-# same under the C locale and a UTF-8 one.
+# another character and is left alone (SEC-IAENG-358-01). For these the
+# result is the same under the C locale and a UTF-8 one; a UTF-8 locale also
+# flattens a few other code points, U+2028 and U+2029 among them.
 C1_LEAD=$'\xc2'
 flat() {
   FLAT="${1//[[:cntrl:]]/ }"
