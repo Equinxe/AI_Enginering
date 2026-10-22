@@ -192,30 +192,58 @@ if [ -n "$DRIFT_SH" ] && [ -f "$DRIFT_SH" ] && ! [ "$ROOT" -ef "$BASE" ]; then
   case "$ROOT" in "$BASE"/*) DRIFT_SHOWN="${ROOT#"$BASE"/}" ;; esac
   DRIFT_SHOWN="${DRIFT_SHOWN#./}"
   DRIFT_RUN="bash $DRIFT_SHOWN/Adapters/scripts/check-framework-drift.sh"
+  # The user's cache directory, or, when that lies inside the project (a
+  # $HOME that is itself a repository, a dev container), a per-user one in
+  # $TMPDIR; never one inside the project (lib.sh, iaeng_cache_dir). The
+  # script applies the same rule again, and trusts the directory only when
+  # the user alone can write it (SEC-IAENG-359-01, -03).
   DRIFT_CACHE=""
+  D_PRIMARY=""
   if [ -n "${XDG_CACHE_HOME:-}" ]; then
-    DRIFT_CACHE="$XDG_CACHE_HOME/ia-engineering"
+    D_PRIMARY="$XDG_CACHE_HOME/ia-engineering"
   elif [ -n "${HOME:-}" ]; then
-    DRIFT_CACHE="$HOME/.cache/ia-engineering"
+    D_PRIMARY="$HOME/.cache/ia-engineering"
   fi
-  case "$DRIFT_CACHE" in /*|[A-Za-z]:[/\\]*) ;; *) DRIFT_CACHE="" ;; esac
+  for d_c in "$D_PRIMARY" "${TMPDIR:-/tmp}/ia-engineering-${EUID:-0}"; do
+    if [ -n "$d_c" ] && iaeng_cache_dir "$d_c" "$BASE" DRIFT_CACHE; then
+      break
+    fi
+  done
   case "$BASE" in
     /*|[A-Za-z]:*) DRIFT_KEY="$BASE" ;;
     *) DRIFT_KEY="$PWD/$BASE" ;;
   esac
   DRIFT_SAID="${DRIFT_CACHE:+$DRIFT_CACHE/said-${DRIFT_KEY//[^A-Za-z0-9._-]/_}}"
 
-  # drift_once <line> — prints it unless it is the line said last time.
+  # drift_once <line> — prints it unless it is the line said last time. The
+  # memory is read only when the user alone could have written it, and
+  # written through a new file renamed into place: never through a link.
   drift_once() {
     local prev=""
-    if [ -n "$DRIFT_SAID" ] && [ -f "$DRIFT_SAID" ]; then
+    if [ -n "$DRIFT_SAID" ] && [ -f "$DRIFT_SAID" ] \
+       && ! iaeng_untrusted "$DRIFT_CACHE" "$DRIFT_SAID"; then
       IFS= read -r prev < "$DRIFT_SAID" || true
     fi
     [ "$prev" = "$1" ] && return 0
     printf '%s\n\n' "$1"
-    if [ -n "$DRIFT_SAID" ]; then
-      mkdir -p "$DRIFT_CACHE" 2>/dev/null && printf '%s\n' "$1" > "$DRIFT_SAID" 2>/dev/null
+    [ -n "$DRIFT_SAID" ] && [ ! -L "$DRIFT_SAID" ] || return 0
+    if [ ! -d "$DRIFT_CACHE" ]; then
+      mkdir -p "${DRIFT_CACHE%/*}" 2>/dev/null
+      mkdir -m 700 "$DRIFT_CACHE" 2>/dev/null
     fi
+    if [ -d "$DRIFT_CACHE" ] && ! iaeng_untrusted "$DRIFT_CACHE"; then
+      { (umask 077; printf '%s\n' "$1" > "$DRIFT_SAID.$$.tmp") \
+          && mv -f "$DRIFT_SAID.$$.tmp" "$DRIFT_SAID"; } 2>/dev/null
+      [ -e "$DRIFT_SAID.$$.tmp" ] && rm -f "$DRIFT_SAID.$$.tmp" 2>/dev/null
+    fi
+    return 0
+  }
+  # d_cap <text> — D_CAPPED: the text cut at 160 bytes. Every free-text
+  # field printed here was read from the check or its cache, and becomes the
+  # session's context: none can carry more than that (SEC-IAENG-359-01).
+  d_cap() {
+    D_CAPPED="$1"
+    [ "${#D_CAPPED}" -gt 160 ] && D_CAPPED="${D_CAPPED:0:160}..."
     return 0
   }
 
@@ -237,32 +265,48 @@ if [ -n "$DRIFT_SH" ] && [ -f "$DRIFT_SH" ] && ! [ "$ROOT" -ef "$BASE" ]; then
         # One line per family. Every field arrives flattened: the script
         # turns each control character into a space (SEC-IAENG-357-01).
         D_VER=""; D_ABS=(); D_DIF=(); D_BRK=(); D_FILES=0; D_INDET=""; D_ACT=""; D_SUM=0
+        # The version line is built from fixed words, the tag and the count
+        # alone: no text of the record (or of a cache) reaches it.
+        D_RE_BEHIND='^last tag known locally: ([A-Za-z0-9._/+-]{1,64}), ([0-9]{1,4}) tag\(s\) behind'
         while IFS=$'\t' read -r d_f d_s d_p d_r; do
           case "$d_f" in
             '# check-framework-drift:'*)
               D_SUM=1
-              D_ACT="${d_f#'# check-framework-drift: '}"; D_ACT="${D_ACT%% to act on*}" ;;
+              D_ACT="${d_f#'# check-framework-drift: '}"; D_ACT="${D_ACT%% to act on*}"
+              case "$D_ACT" in ''|*[!0-9]*) D_ACT="" ;; esac ;;
             ''|'#'*) ;;
             *)
               [ "$d_f" = file ] && D_FILES=$((D_FILES + 1))
               case "$d_f:$d_s" in
-                version:behind|version:uncommitted|version:uninitialized)
-                  D_VER="${D_VER:+$D_VER; }${d_r%%. *}" ;;
+                version:behind)
+                  if [[ "$d_r" =~ $D_RE_BEHIND ]]; then
+                    D_VER="${D_VER:+$D_VER; }last tag known locally: ${BASH_REMATCH[1]}, ${BASH_REMATCH[2]} tag(s) behind"
+                  else
+                    D_VER="${D_VER:+$D_VER; }behind the last tag known locally"
+                  fi ;;
+                version:uncommitted)
+                  D_VER="${D_VER:+$D_VER; }the checkout is not the commit the project recorded (gitlink +): an upgrade not committed" ;;
+                version:uninitialized)
+                  D_VER="${D_VER:+$D_VER; }the submodule is not initialized (gitlink -)" ;;
                 file:absent) D_ABS+=("$d_p") ;;
                 file:differs|file:stale|file:modified) D_DIF+=("$d_p") ;;
-                path:broken) d_r="${d_r%%;*}"; D_BRK+=("$d_p (${d_r%%:*})") ;;
-                *:indeterminate) [ -z "$D_INDET" ] && D_INDET="$d_p: ${d_r%%. *}" ;;
+                path:broken) d_r="${d_r%%;*}"; d_cap "${d_r%%:*}"; D_BRK+=("$d_p ($D_CAPPED)") ;;
+                *:indeterminate)
+                  if [ -z "$D_INDET" ]; then
+                    d_cap "$d_p"; D_INDET="$D_CAPPED"
+                    d_cap "${d_r%%. *}"; D_INDET="$D_INDET: $D_CAPPED"
+                  fi ;;
               esac ;;
           esac
         done <<< "$DRIFT_OUT"
         # d_list <max> <items...> — "a, b, c and 2 more"; a name read from
-        # the project is cut at 160 bytes, so no line can flood the context.
+        # the project is cut at 160 bytes (d_cap), so no line floods the context.
         d_list() {
           local max="$1" out="" i=0 x; shift
           for x in "$@"; do
             i=$((i + 1))
-            [ "${#x}" -gt 160 ] && x="${x:0:160}..."
-            [ "$i" -le "$max" ] && out="${out:+$out, }$x"
+            d_cap "$x"
+            [ "$i" -le "$max" ] && out="${out:+$out, }$D_CAPPED"
           done
           [ "$i" -gt "$max" ] && out="$out and $((i - max)) more"
           printf '%s' "$out"

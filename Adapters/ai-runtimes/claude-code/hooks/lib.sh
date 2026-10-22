@@ -211,3 +211,48 @@ iaeng_ymd_from_header_date() {
   monnum="$(iaeng_month_num "$mon")" || return 1
   printf '%s-%s-%s' "$year" "$monnum" "$(iaeng_zeropad2 "$day")"
 }
+
+# --- The drift cache directory (WU-IAENG-359) -------------------------------
+# session-start.sh keeps check-framework-drift.sh --quick's result, and what
+# it has already said once, in a user-level directory. The rule is the
+# script's own (cache_dir_canon and untrusted in check-framework-drift.sh,
+# which sources nothing): never inside the project, resolved through symbolic
+# links and without . or .., and used only when the user alone could have
+# written it (SEC-IAENG-359-01, -03).
+
+# iaeng_cache_dir <dir> <project> <var> — sets the variable named <var> to
+# <dir> made canonical (links resolved in the part that exists), and returns
+# non-zero, leaving <var> alone, when <dir> is not absolute, has a . or ..
+# component, cannot be resolved, or is the project or inside it. One fork.
+iaeng_cache_dir() {
+  local p="${1%/}" proj="$2" tail="" n canon
+  case "$p" in /*|[A-Za-z]:[/\\]*) ;; *) return 1 ;; esac
+  case "/$p/" in */../*|*/./*) return 1 ;; esac
+  while [ ! -d "$p" ]; do
+    n="${p%/*}"
+    { [ -z "$n" ] || [ "$n" = "$p" ]; } && return 1
+    case "$n" in */*) ;; *) n="$n/" ;; esac
+    tail="${p##*/}${tail:+/$tail}"
+    p="$n"
+  done
+  canon="$(cd -P "$p" 2>/dev/null && pwd -P)" || return 1
+  p="$canon"
+  while :; do
+    [ "$p" -ef "$proj" ] && return 1
+    n="${p%/*}"
+    { [ -z "$n" ] || [ "$n" = "$p" ]; } && break
+    p="$n"
+  done
+  printf -v "$3" '%s' "$canon${tail:+/$tail}"
+}
+
+# iaeng_untrusted <path>... — true when any path is not owned by the user, is
+# a symbolic link, or is group- or world-writable. Each path is absolute.
+iaeng_untrusted() {
+  local p bad
+  for p in "$@"; do
+    { [ -O "$p" ] && [ ! -L "$p" ]; } || return 0
+  done
+  bad="$(find "$@" -prune \( -perm -020 -o -perm -002 \) -print 2>/dev/null)" || return 0
+  [ -n "$bad" ]
+}

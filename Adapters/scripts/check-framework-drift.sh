@@ -116,6 +116,17 @@
 # still absent, and none is newer than the kept result (one `find -newer`):
 # an unchanged project costs a stat, not a check. A result with an
 # indeterminate item is never kept. Without --cache-dir nothing is written.
+# A file counts as changed when its mtime OR its inode change time is newer
+# (content copied under an old mtime, a mode change). The cache is used only
+# when the user alone could have written it; see THE CACHE IS TRUSTED below.
+#
+# Declared limits of what the kept result watches: core.hooksPath is watched
+# in the project's config, ~/.gitconfig and $XDG_CONFIG_HOME/git/config, not
+# in the system gitconfig, include.path / includeIf targets, config.worktree
+# or GIT_CONFIG_GLOBAL; tags in packed-refs, refs/tags/ and reftable/, not a
+# tag nested under refs/tags/<dir>/; and the framework's templates, install.sh
+# and the bootstrap, not other uncommitted edits in the framework checkout.
+# Any of those changed: run the full check (the session line names it).
 #
 # The summary line carries the denominators (the Check Convention, rule 3):
 # "14 file(s) compared: 11 current, 1 absent, 1 stale, 1 modified", and the
@@ -173,6 +184,9 @@ if [ -n "$CACHE_DIR" ]; then
   case "$CACHE_DIR" in
     /*|[A-Za-z]:[/\\]*) ;;
     *) echo "check-framework-drift.sh: --cache-dir takes an absolute directory" >&2; exit 64 ;;
+  esac
+  case "/$CACHE_DIR/" in
+    */../*|*/./*) echo "check-framework-drift.sh: --cache-dir takes a directory without . or .. components" >&2; exit 64 ;;
   esac
 fi
 [ "$QUICK" -eq 1 ] && [ "$REMOTE" -eq 1 ] && { echo "check-framework-drift.sh: --quick never asks the remote" >&2; exit 64; }
@@ -308,6 +322,53 @@ CACHE_MAGIC="iaeng-drift-cache 1"
 STAMP=""
 WATCH=()
 
+# THE CACHE IS TRUSTED ONLY WHEN THE USER ALONE COULD HAVE WRITTEN IT
+# (SEC-IAENG-359-01). Its text becomes an agent session's context, and its
+# watch lines become find arguments, so a cache another account can write is
+# not a cache: the directory is made 0700, and the directory and each file
+# read must be owned by this user, not a symbolic link, and neither group-
+# nor world-writable, or nothing is replayed (the run computes, as cold).
+# On Git for Windows (noacl) every file reads as the user's and 0644/0755.
+
+# untrusted <path>... — true when any path fails the rule above.
+untrusted() {
+  local p bad
+  for p in "$@"; do
+    { [ -O "$p" ] && [ ! -L "$p" ]; } || return 0
+  done
+  # Each path is absolute (callers pass CACHE_DIR and files in it).
+  bad="$(find "$@" -prune \( -perm -020 -o -perm -002 \) -print 2>/dev/null)" || return 0
+  [ -n "$bad" ]
+}
+
+# cache_dir_canon — CACHE_DIR made canonical, or emptied (no cache) when it
+# has a . or .. component, cannot be resolved, or is the project or inside
+# it (SEC-IAENG-359-03). Symbolic links are resolved in the part that exists
+# (cd -P), so neither a link nor a .. can lead back into the project; the
+# part that does not exist yet cannot be the project. session-start.sh's
+# lib.sh iaeng_cache_dir applies the same rule to the directory it chooses:
+# no new file is sourced by this control-path script.
+cache_dir_canon() {
+  local p="${CACHE_DIR%/}" tail="" n canon
+  case "/$p/" in */../*|*/./*) CACHE_DIR=""; return ;; esac
+  while [ ! -d "$p" ]; do
+    n="${p%/*}"
+    { [ -z "$n" ] || [ "$n" = "$p" ]; } && { CACHE_DIR=""; return; }
+    case "$n" in */*) ;; *) n="$n/" ;; esac
+    tail="${p##*/}${tail:+/$tail}"
+    p="$n"
+  done
+  canon="$(cd -P "$p" 2>/dev/null && pwd -P)" || { CACHE_DIR=""; return; }
+  p="$canon"
+  while :; do
+    [ "$p" -ef "$PROJECT" ] && { CACHE_DIR=""; return; }
+    n="${p%/*}"
+    { [ -z "$n" ] || [ "$n" = "$p" ]; } && break
+    p="$n"
+  done
+  CACHE_DIR="$canon${tail:+/$tail}"
+}
+
 # watch_add <path> — a file the --quick result is read from, made absolute.
 watch_add() {
   [ "$CACHE_STATE" = miss ] || return 0
@@ -322,9 +383,10 @@ watch_add() {
 # changed; its rows are recorded. keep=1 adds its watched files to WATCH, so
 # a result built on a replayed segment watches them too.
 cache_replay() {
-  local file="$1" keep="$2" line tag a b c d rows="" ended=0 newer p
+  local file="$1" keep="$2" line tag a b c d rows="" ended=0 newer p wset=$'\n'
   local -a present=() listed=()
   [ -f "$file" ] && [ ! -L "$file" ] || return 1
+  untrusted "$CACHE_DIR" "$file" && return 1
   {
     IFS= read -r line && [ "$line" = "$CACHE_MAGIC" ] || return 1
     IFS= read -r line && [ "$line" = "project"$'\t'"$PROJECT" ] || return 1
@@ -332,23 +394,47 @@ cache_replay() {
     while IFS=$'\t' read -r tag a b c d; do
       case "$tag" in
         watch)
+          # Every line is checked before any reaches find (SEC-IAENG-359-04,
+          # CWE-88): a watch path is absolute, so it never begins with - ( !
+          # and cannot be read as a find primary (-exec, -delete, -fprint);
+          # a network path is never touched. One bad line, no replay.
+          case "$a" in 0|1) ;; *) return 1 ;; esac
+          case "$b" in
+            [/\\][/\\]*) return 1 ;;
+            /*|[A-Za-z]:[/\\]*) ;;
+            *) return 1 ;;
+          esac
           if [ -e "$b" ] || [ -L "$b" ]; then
             [ "$a" = 1 ] || return 1
             present+=("$b")
           else
             [ "$a" = 0 ] || return 1
           fi
-          listed+=("$b") ;;
-        row) rows="$rows$a"$'\t'"$b"$'\t'"$c"$'\t'"$d"$'\n' ;;
+          listed+=("$b")
+          wset="$wset$b"$'\n' ;;
+        row)
+          # A row about a file or a resolved path is replayed only if the
+          # result watched that path: a hand-written cache that reports a
+          # file current without watching it is not a result.
+          case "$a:$b" in
+            file:*|path:ok|path:broken)
+              case "$c" in /*|[A-Za-z]:[/\\]*) p="$c" ;; *) p="$PROJECT/$c" ;; esac
+              [[ "$wset" == *$'\n'"$p"$'\n'* ]] || return 1 ;;
+          esac
+          rows="$rows$a"$'\t'"$b"$'\t'"$c"$'\t'"$d"$'\n' ;;
         end) ended=1; break ;;
         *) return 1 ;;
       esac
     done
   } < "$file"
   [ "$ended" -eq 1 ] || return 1
-  # Every path is absolute (watch_add), so none can be read as an option.
+  # Every path was checked absolute above, so none can be read as an option.
+  # Content changed under an old mtime (cp -p, rsync -a, unzip, a copy in
+  # Explorer) or a mode changed (chmod a-r) still moves the inode's change
+  # time, which no user can set back: -cnewer compares it with the kept
+  # result's mtime, the moment its run started (SEC-IAENG-359-02).
   if [ "${#present[@]}" -gt 0 ]; then
-    newer="$(find "${present[@]}" -prune -newer "$file" -print 2>/dev/null)" || return 1
+    newer="$(find "${present[@]}" -prune \( -newer "$file" -o -cnewer "$file" \) -print 2>/dev/null)" || return 1
     [ -z "$newer" ] || return 1
   fi
   while IFS=$'\t' read -r a b c d; do
@@ -444,14 +530,7 @@ if [ "$QUICK" -eq 1 ]; then
   read -r GL_MODE GL_SHA _ <<< "$(git ls-files -s -- "$REL" 2>/dev/null)"
   if [ -n "$CACHE_DIR" ] && [ "$FW_GIT" -eq 1 ]; then
     # Never inside the project: --quick writes nowhere the project can see.
-    _p="$CACHE_DIR"
-    while :; do
-      if [ "$_p" -ef "$PROJECT" ]; then CACHE_DIR=""; break; fi
-      _n="${_p%/*}"
-      { [ -z "$_n" ] || [ "$_n" = "$_p" ]; } && break
-      _p="$_n"
-    done
-    unset _p _n
+    cache_dir_canon
   fi
   if [ -n "$CACHE_DIR" ] && [ "$FW_GIT" -eq 1 ]; then
     CACHE_FILE="$CACHE_DIR/drift-${PROJECT//[^A-Za-z0-9._-]/_}.tsv"
@@ -463,14 +542,26 @@ if [ "$QUICK" -eq 1 ]; then
     fi
     ROWS=""
     CACHE_STATE=miss
-    if mkdir -p "$CACHE_DIR" 2>/dev/null && [ -d "$CACHE_DIR" ] && [ ! -L "$CACHE_DIR" ]; then
+    # The cache directory itself 0700, where the filesystem honours it (Git
+    # for Windows' noacl mount refuses the mode and still creates it: hence
+    # the -d test after, not &&). Its parents are ordinary user directories.
+    if [ ! -d "$CACHE_DIR" ]; then
+      mkdir -p "${CACHE_DIR%/*}" 2>/dev/null
+      mkdir -m 700 "$CACHE_DIR" 2>/dev/null
+    fi
+    if [ -d "$CACHE_DIR" ] && ! untrusted "$CACHE_DIR"; then
       STAMP="$CACHE_FILE.$$.stamp"
       { umask 077; : > "$STAMP"; } 2>/dev/null || STAMP=""
+    else
+      # Not the user's alone: nothing is read from it or written to it.
+      CACHE_STATE=refused
     fi
     watch_add "$SCRIPT_DIR/check-framework-drift.sh"
-    # Tags known locally: a fetch rewrites packed-refs or adds to refs/tags.
+    # Tags known locally: a fetch rewrites packed-refs, adds to refs/tags, or
+    # (reftable backend) rewrites reftable/.
     watch_add "$FW_GITDIR/packed-refs"
     watch_add "$FW_GITDIR/refs/tags"
+    watch_add "$FW_GITDIR/reftable"
   fi
 elif _top="$(git -C "$FRAMEWORK" rev-parse --show-toplevel 2>/dev/null)" && [ "$_top" -ef "$FRAMEWORK" ]; then
   FW_GIT=1
