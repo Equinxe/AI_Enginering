@@ -7632,6 +7632,109 @@ expect_output "path${T}broken${T}.claude/hooks/gone.sh${T}"
 rm .claude/settings.local.json
 expect 0 "clean again once the cause is gone" -- bash "$DRIFT_358" --format tsv --strict
 
+# settings_358 <jq program> — rewrites .claude/settings.json; only the
+# line-ending CR of jq's output on Windows is dropped.
+settings_358() {
+  jq "$1" .claude/settings.json | sed $'s/\r$//' > settings.tmp && mv settings.tmp .claude/settings.json
+}
+
+# Each cause below alone, on the clean adopter, then undone.
+settings_358 '.hooks.Stop |= map(select([.hooks[].command] | any(test("stop-gate")) | not))'
+expect 1 "one missing framework hook entry alone is drift (exit 1)" -- bash "$DRIFT_358" --format tsv --strict
+expect_output "config${T}absent${T}hook: Stop: stop-gate.sh${T}re-run ia-engineering/Adapters/ai-runtimes/claude-code/install-hooks.sh: it merges the missing entry"
+expect_output "# check-framework-drift: 1 to act on, 0 indeterminate."
+git checkout -q -- .claude/settings.json
+
+settings_358 '.hooks.PreToolUse |= map(if .matcher == "Bash" then .hooks[0].command += " || true" else . end)'
+expect 1 "a guard neutered with || true: the entry is absent, and the near miss is said (exit 1)" -- bash "$DRIFT_358" --format tsv --strict
+expect_output "config${T}near-miss${T}hook: PreToolUse [Bash]: "
+expect_output "${T}information: the framework's own entry runs beside it"
+expect_output "config${T}absent${T}hook: PreToolUse [Bash]: block-escape-hatches.sh${T}"
+expect_output "# check-framework-drift: 1 to act on, 0 indeterminate."
+git checkout -q -- .claude/settings.json
+
+echo '{"disableAllHooks": true}' > .claude/settings.local.json
+expect 1 "disableAllHooks in settings.local.json alone is drift (exit 1)" -- bash "$DRIFT_358" --format tsv --strict
+expect_output "config${T}disabled${T}.claude/settings.local.json${T}\"disableAllHooks\": true turns every hook off"
+expect_output "# check-framework-drift: 1 to act on, 0 indeterminate."
+rm .claude/settings.local.json
+
+rm .github/workflows/data-policy.yml
+expect 1 "one absent file alone is drift (exit 1)" -- bash "$DRIFT_358" --format tsv --strict
+expect_output "file${T}absent${T}.github/workflows/data-policy.yml${T}re-run ia-engineering/Adapters/scripts/setup-project-bootstrap.sh generic without --force"
+expect_output "# check-framework-drift: 1 to act on, 0 indeterminate."
+git checkout -q -- .github/workflows/data-policy.yml
+
+echo "# the project's own line" >> .github/workflows/framework-validation.yml
+expect 1 "one modified file alone is drift (exit 1)" -- bash "$DRIFT_358" --format tsv --strict
+expect_output "file${T}modified${T}.github/workflows/framework-validation.yml${T}"
+expect_output "# check-framework-drift: 1 to act on, 0 indeterminate."
+git checkout -q -- .github/workflows/framework-validation.yml
+
+# A template with no committed history: indeterminate, never modified.
+echo "a template never committed" > ia-engineering/Adapters/github/ISSUE_TEMPLATE/extra.md
+echo "the project's copy" > .github/ISSUE_TEMPLATE/extra.md
+expect 2 "a template with no history gives indeterminate, never modified (exit 2)" -- bash "$DRIFT_358" --format tsv --strict
+expect_output "file${T}indeterminate${T}.github/ISSUE_TEMPLATE/extra.md${T}the template Adapters/github/ISSUE_TEMPLATE/extra.md has no committed history"
+expect_no_output "file${T}modified${T}.github/ISSUE_TEMPLATE/extra.md" "no conclusion from a template without history"
+rm ia-engineering/Adapters/github/ISSUE_TEMPLATE/extra.md .github/ISSUE_TEMPLATE/extra.md
+
+# A framework whose installers report no managed file at all: the empty
+# family is indeterminate, never a clean one (the Check Convention, rule 3).
+sed -i "s/^record() {\$/record() { [ \"\$1\" = file ] \\&\\& return 0/" ia-engineering/Adapters/scripts/install.sh
+sed -i 's/^PROJECT_OWNED_FILES=.*/PROJECT_OWNED_FILES=""/' ia-engineering/Adapters/scripts/setup-project-bootstrap.sh
+expect 2 "no file record at all is indeterminate (exit 2)" -- bash "$DRIFT_358" --format tsv --strict
+expect_output "file${T}indeterminate${T}(none)${T}no managed file was reported"
+expect_output "1 file(s) compared: 1 indeterminate."
+git -C ia-engineering checkout -q -- Adapters/scripts/install.sh Adapters/scripts/setup-project-bootstrap.sh
+
+# Valid hooks that only a shell can read are unresolved, never broken; a
+# network path is never stat-ed (SEC-IAENG-358-02).
+cat > .claude/settings.local.json <<'EOF'
+{"hooks": {"Stop": [{"hooks": [
+  {"type": "command", "command": "bash -lc \"echo x\""},
+  {"type": "command", "command": "sh -ec \"echo x\""},
+  {"type": "command", "command": "python3 -m pkg"},
+  {"type": "command", "command": "deno run x.ts"},
+  {"type": "command", "command": "node --require=./preload.js app.js"},
+  {"type": "command", "command": "bash //srv.invalid/share/x.sh"},
+  {"type": "command", "command": "\\\\\\\\srv.invalid\\\\share\\\\x.sh"}
+]}]}}
+EOF
+expect 0 "valid hook forms a shell reads are not drift (exit 0)" -- bash "$DRIFT_358" --format tsv --strict
+expect_output "path${T}unresolved${T}(inline code)${T}the shell runs inline code (-lc)"
+expect_output "path${T}unresolved${T}(inline code)${T}the shell runs inline code (-ec)"
+expect_output "path${T}unresolved${T}-m${T}"
+expect_output "path${T}unresolved${T}run${T}not a script path"
+expect_output "path${T}unresolved${T}--require=./preload.js${T}an interpreter option"
+expect_output "path${T}unresolved${T}//srv.invalid/share/x.sh${T}a network path: never touched"
+expect_output "path${T}unresolved${T}\\\\srv.invalid\\share\\x.sh${T}a network path: never touched"
+expect_no_output "path${T}broken" "no valid hook form is called broken"
+rm .claude/settings.local.json
+
+# Inside double quotes a backslash before an ordinary character is kept, as
+# bash keeps it.
+cat > .claude/settings.local.json <<'EOF'
+{"hooks": {"Stop": [{"hooks": [{"type": "command", "command": "bash \".claude/hooks/\\gone.sh\""}]}]}}
+EOF
+expect 1 "a backslash inside double quotes stays in the path" -- bash "$DRIFT_358" --format tsv --strict
+expect_output "path${T}broken${T}.claude/hooks/\\gone.sh${T}not found"
+rm .claude/settings.local.json
+
+# core.hooksPath read as git reads it: a network value is never stat-ed, and
+# a C1 control (CSI, \xc2\x9b) never reaches the output (SEC-IAENG-358-01).
+HP0_358="$(git config --get core.hooksPath)"
+# MSYS_NO_PATHCONV: Git Bash would otherwise rewrite the // argument.
+MSYS_NO_PATHCONV=1 git config core.hooksPath //srv.invalid/hooks
+expect 1 "a network core.hooksPath is unresolved, not stat-ed" -- bash "$DRIFT_358" --format tsv --strict
+expect_output "path${T}unresolved${T}//srv.invalid/hooks${T}core.hooksPath is a network path"
+git config core.hooksPath "$(printf 'x\302\23331mY')"
+expect 1 "a core.hooksPath holding a C1 control is flattened" -- bash "$DRIFT_358" --format tsv --strict
+expect_output "path${T}broken${T}x 31mY${T}"
+expect_no_output "$(printf '\302\233')" "no C1 control from a git config value reaches the output"
+git config core.hooksPath "$HP0_358"
+expect 0 "clean once more after every single cause" -- bash "$DRIFT_358" --format tsv --strict
+
 # --------------------------------------------------------------- verdict ----
 
 cd "$HERE" || exit 1

@@ -72,7 +72,10 @@
 #
 # No fetch, no git config write, no `hash-object -w`, no commit probe;
 # GIT_OPTIONAL_LOCKS=0 (git's spelling of --no-optional-locks) for every git
-# command here and in the installers it runs; no temporary file at all.
+# command here and in the installers it runs; this script creates no
+# temporary file of its own (what the installers' --check do is theirs, and
+# is covered by the same snapshot test). GIT_TERMINAL_PROMPT=0: --remote
+# never prompts.
 # settings.json is parsed with jq, never evaluated. No network unless
 # --remote. The records it prints carry text read from the project (a
 # command, a git config value): every control character in them becomes a
@@ -118,6 +121,8 @@
 set -uo pipefail
 export LC_ALL=C
 export GIT_OPTIONAL_LOCKS=0
+# --remote must never stop to ask for credentials: it fails instead.
+export GIT_TERMINAL_PROMPT=0
 
 FORMAT=text
 STRICT=0
@@ -147,7 +152,14 @@ RUNTIME="$FRAMEWORK/Adapters/ai-runtimes/claude-code"
 ROWS=""
 # flat <text> — every control character (TAB, LF, CR, ESC, ...) becomes a
 # space: a record is one line and carries no terminal escape.
-flat() { FLAT="${1//[[:cntrl:]]/ }"; }
+# The C1 controls (U+0080-U+009F, CSI among them) are UTF-8 pairs \xc2\x80 to
+# \xc2\x9f: a pair becomes one space. A lone byte in that range is part of
+# another character and is left alone (SEC-IAENG-358-01).
+C1_LEAD=$'\xc2'
+flat() {
+  FLAT="${1//[[:cntrl:]]/ }"
+  FLAT="${FLAT//"$C1_LEAD"[$'\x80'-$'\x9f']/ }"
+}
 # rec <family> <status> <path> <remedy>
 rec() {
   local f2 f3 f4
@@ -357,6 +369,12 @@ classify() {
   fi
   if [[ "$blobs" == *" $h "* ]]; then
     CLASS=stale; WHY=""
+  elif [ -z "$blobs" ] && [ -e "$FRAMEWORK/$tpl" ]; then
+    # A template with no committed history (added to the checkout, never
+    # committed): nothing to compare against, so nothing is concluded. A
+    # path with no history AND no template is a file the project added to
+    # an installed skill, which is its own edit: modified.
+    CLASS=indeterminate; WHY="the template $tpl has no committed history in the framework checkout: stale or modified cannot be told"
   else
     CLASS=modified; WHY=""
   fi
@@ -487,12 +505,16 @@ words() {
       if [ "$c" = "'" ]; then q=""; else w="$w$c"; fi
       continue
     fi
+    if [ "$q" = '"' ]; then
+      # Inside double quotes a backslash escapes only $ ` " \ (as in bash);
+      # before anything else it is itself.
+      if [ "$c" = "\\" ] && [ $((i + 1)) -lt ${#s} ] && [[ "${s:i+1:1}" == [\$\`\"\\] ]]; then
+        i=$((i + 1)); w="$w${s:i:1}"
+      elif [ "$c" = '"' ]; then q=""; else w="$w$c"; fi
+      continue
+    fi
     if [ "$c" = "\\" ] && [ $((i + 1)) -lt ${#s} ]; then
       i=$((i + 1)); w="$w${s:i:1}"; have=1; continue
-    fi
-    if [ "$q" = '"' ]; then
-      if [ "$c" = '"' ]; then q=""; else w="$w$c"; fi
-      continue
     fi
     case "$c" in
       "'"|'"') q="$c"; have=1 ;;
@@ -517,24 +539,44 @@ resolve_command() {
       *) break ;;
     esac
   done
+  # When the script word cannot be told for sure, the answer is `unresolved`,
+  # never `broken`: a false `broken` sends its reader after a hook that works.
   case "${WORDS[k]:-}" in
-    bash|sh|zsh|dash|node|python|python3|py|pwsh|powershell|ruby|perl|deno|bun|*/bash|*/sh)
+    bash|sh|zsh|dash|*/bash|*/sh|*/zsh|*/dash)
+      # A shell: short flags may be combined (-lc, -ec); one that holds c runs
+      # inline code. -o/+o take an argument, and long options other than the
+      # three below are not known here: unresolved.
       k=$((k + 1))
       while [ "$k" -lt "$n" ]; do
         case "${WORDS[k]}" in
-          -c|-e|-Command|-command) RSTATUS=unresolved; RPATH="(inline code)"; RWHY="the command runs inline code, not a script file"; return ;;
-          -*) k=$((k + 1)) ;;
+          --login|--norc|--noprofile) k=$((k + 1)) ;;
+          -o|+o|--*) RSTATUS=unresolved; RPATH="(none)"; RWHY="a shell option this check does not interpret (${WORDS[k]})"; return ;;
+          -*c*|+*c*) RSTATUS=unresolved; RPATH="(inline code)"; RWHY="the shell runs inline code (${WORDS[k]}), not a script file"; return ;;
+          -[a-zA-Z]*|+[a-zA-Z]*) k=$((k + 1)) ;;
           *) break ;;
         esac
       done
       cand="${WORDS[k]:-}"
-      [ -n "$cand" ] || { RSTATUS=unresolved; RPATH="(none)"; RWHY="an interpreter with no script named"; return; }
+      [ -n "$cand" ] || { RSTATUS=unresolved; RPATH="(none)"; RWHY="a shell with no script named"; return; }
+      ;;
+    node|python|python3|py|pwsh|powershell|ruby|perl|deno|bun|*/node|*/python|*/python3)
+      # Any option (-m module, -c / -e code, -File, ...) or a subcommand
+      # (deno run, bun x) and the script word is not certain: unresolved.
+      k=$((k + 1))
+      cand="${WORDS[k]:-}"
+      case "$cand" in
+        -*|'') RSTATUS=unresolved; RPATH="${cand:-(none)}"; RWHY="an interpreter option or no script word: not resolved, never run"; return ;;
+      esac
+      case "$cand" in
+        */*|*.js|*.mjs|*.cjs|*.ts|*.py|*.rb|*.pl|*.ps1) ;;
+        *) RSTATUS=unresolved; RPATH="$cand"; RWHY="not a script path (a subcommand or a module): not resolved, never run"; return ;;
+      esac
       ;;
     '') RSTATUS=unresolved; RPATH="(none)"; RWHY="no command word"; return ;;
     *)
       cand="${WORDS[k]}"
       case "$cand" in
-        */*) ;;
+        */*|\\\\*) ;;
         *) RSTATUS=unresolved; RPATH="$cand"; RWHY="a command looked up on PATH, not a file path: not resolved"; return ;;
       esac ;;
   esac
@@ -543,6 +585,11 @@ resolve_command() {
   case "$cand" in
     *'$'*|*'`'*|*'*'*|*'?'*|'~'*)
       RSTATUS=unresolved; RPATH="$cand"; RWHY="the path needs a shell to expand it: not resolved, never run"; return ;;
+    # A network path is never stat-ed: on Windows that opens an SMB
+    # connection and can hand the user's NTLM hash to the named host
+    # (SEC-IAENG-358-02).
+    //*|\\\\*)
+      RSTATUS=unresolved; RPATH="$cand"; RWHY="a network path: never touched by this check"; return ;;
   esac
   case "$cand" in
     /*|[A-Za-z]:[/\\]*) RPATH="$cand" ;;
@@ -588,12 +635,18 @@ for SF in .claude/settings.json .claude/settings.local.json; do
   done <<< "$CMDS"
 done
 
-if HP="$(git config --get core.hooksPath 2>/dev/null)"; then
+# --type=path expands a leading ~ as git itself does when it runs the hooks.
+if HP="$(git config --type=path --get core.hooksPath 2>/dev/null)"; then
   case "$HP" in
     /*|[A-Za-z]:[/\\]*) HPA="$HP" ;;
     *) HPA="$PROJECT/$HP" ;;
   esac
-  if [ -d "$HPA" ]; then
+  case "$HP" in
+    //*|\\\\*) HPA="" ;;
+  esac
+  if [ -z "$HPA" ]; then
+    rec path unresolved "$HP" "core.hooksPath is a network path: never touched by this check"
+  elif [ -d "$HPA" ]; then
     rec path ok "$HP" ""
   else
     rec path broken "$HP" "core.hooksPath names a directory that does not exist: git runs no hook at all. Re-run $REL/Adapters/scripts/install.sh"
