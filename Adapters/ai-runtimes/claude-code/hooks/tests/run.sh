@@ -18,6 +18,17 @@
 # CASE FILE FORMAT — one case per line, TAB-separated:
 #   block<TAB><shell command>    the hook must refuse it (exit 2)
 #   allow<TAB><shell command>    the hook must permit it (exit 0)
+#   block<TAB><shell command><TAB><reason substring>
+#                                the hook must refuse it, and its
+#                                "iaeng: BLOCKED — " line must contain the
+#                                substring (fixed string, case-sensitive)
+# The third column is optional and only legal on a block case. It is for a
+# command that more than one rule refuses: an exit code alone stays 2 when the
+# rule the case is about is broken and another rule still fires, so the case
+# proves nothing about its own rule (Standards/TESTING_STANDARD.md,
+# Falsifiability item 3). The hook exits at its FIRST refusal, so the substring
+# must name the first rule that fires. It must also occur in exactly one reason
+# of the hook's source, or it would not tell the rules apart; both are checked.
 # Blank lines and lines beginning with # are ignored. The commands live in a
 # FILE rather than in a command line on purpose: a corpus full of escape
 # hatches, typed into a terminal, is refused by the very hook under test.
@@ -61,24 +72,46 @@ CASES="$HERE/escape-hatch-cases.tsv"
 [ -f "$CASES" ] || { echo "run.sh: $CASES is missing" >&2; exit 2; }
 
 echo "== block-escape-hatches.sh"
+# The hook's reason texts, one per line: the first argument of every
+# iaeng_block and the hooksPath rule's HOOKSPATH_REASON assignments, without the
+# Standard reference that follows (one rule has both on a line). A reason
+# substring must occur in exactly one of them, or it would pass whichever of two
+# rules fired.
+HOOK_REASONS="$(sed -nE -e 's/^[[:space:]]*iaeng_block "([^"]*)".*/\1/p' \
+  -e 's/^[[:space:]]*HOOKSPATH_REASON="([^"]*)".*/\1/p' "$HOOK")"
+[ "$(printf '%s\n' "$HOOK_REASONS" | grep -c .)" -ge 2 ] \
+  || { echo "run.sh: no refusal reasons could be read from $HOOK" >&2; exit 2; }
 cases_run=0
-while IFS=$'\t' read -r want cmd; do
+while IFS=$'\t' read -r want cmd reason; do
   case "${want:-}" in ''|'#'*) continue ;; esac
   [ -n "${cmd:-}" ] || continue
   cases_run=$((cases_run + 1))
   TOTAL=$((TOTAL + 1))
 
-  printf '%s' "$(jq -n --arg c "$cmd" '{tool_name:"Bash",tool_input:{command:$c}}')" \
-    | bash "$HOOK" >/dev/null 2>/dev/null
+  err="$(printf '%s' "$(jq -n --arg c "$cmd" '{tool_name:"Bash",tool_input:{command:$c}}')" \
+    | bash "$HOOK" 2>&1 >/dev/null)"
   rc=$?
   got=allow
   [ "$rc" -eq 2 ] && got=block
 
-  if [ "$got" = "$want" ]; then
-    [ "$VERBOSE" -eq 1 ] && printf '   ok    [%s] %s\n' "$want" "$cmd"
-  else
+  if [ "$got" != "$want" ]; then
     FAILED=$((FAILED + 1))
     printf '   FAIL  want=%-5s got=%-5s (exit %s)  %s\n' "$want" "$got" "$rc" "$cmd"
+  elif [ -n "${reason:-}" ] && [ "$want" != block ]; then
+    FAILED=$((FAILED + 1))
+    printf '   FAIL  a reason column on an allow case (only a block case has one)  %s\n' "$cmd"
+  elif [ -n "${reason:-}" ] \
+       && [ "$(grep -cF -- "$reason" <<< "$HOOK_REASONS")" -ne 1 ]; then
+    FAILED=$((FAILED + 1))
+    printf '   FAIL  reason "%s" is in %s of the hook'"'"'s reasons, want exactly 1  %s\n' \
+      "$reason" "$(grep -cF -- "$reason" <<< "$HOOK_REASONS")" "$cmd"
+  elif [ -n "${reason:-}" ] \
+       && ! sed -n 's/^iaeng: BLOCKED — //p' <<< "$err" | grep -qF -- "$reason"; then
+    FAILED=$((FAILED + 1))
+    printf '   FAIL  want reason "%s", got "%s"  %s\n' \
+      "$reason" "$(sed -n 's/^iaeng: BLOCKED — //p' <<< "$err")" "$cmd"
+  else
+    [ "$VERBOSE" -eq 1 ] && printf '   ok    [%s] %s\n' "$want" "$cmd"
   fi
 done < "$CASES"
 
@@ -162,6 +195,13 @@ expect_hint "hooksPath: a legacy read beside a real set gets no read hint (one m
   'cd "/x" && git config core.hooksPath && git config core.hooksPath /dev/null' 0
 expect_hint "hooksPath: a legacy read beside a -c write gets no read hint" \
   'cd "/x" && git config core.hooksPath; git -c core.hooksPath=/dev/null commit' 0
+# The case above is a write by its own shape (`commit` is not a read), so the hook
+# marks it a real write before it looks at the -c. Here the -c write rides on a
+# segment that IS a read (`config --get`): the read exemption passes it, and only
+# the -c check marks the real write. Without that mark the hint would be printed
+# for a command that disables the hooks (issue #275, item 4; WU-IAENG-364).
+expect_hint "hooksPath: a legacy read beside a -c write layered under a --get read gets no read hint" \
+  'cd "/x" && git config core.hooksPath; git -c core.hooksPath=/dev/null config --get core.hooksPath' 0
 expect_rc "inline-suppression: refuses a directive in code" 2 "$HOOKS/block-inline-suppression.sh" "$PAY_CODE"
 expect_rc "inline-suppression: allows it in documentation"  0 "$HOOKS/block-inline-suppression.sh" "$PAY_DOC"
 
