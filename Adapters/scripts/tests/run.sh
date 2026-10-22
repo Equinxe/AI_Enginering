@@ -7744,6 +7744,115 @@ expect_no_output "$(printf '\302\233')" "no C1 control from a git config value r
 git config core.hooksPath "$HP0_358"
 expect 0 "clean once more after every single cause" -- bash "$DRIFT_358" --format tsv --strict
 
+# ------------- install.sh: the framework repository by identity (WU-IAENG-362) --
+#
+# install.sh decided "this is the framework repository" by comparing
+# "$FRAMEWORK" and "$PROJECT" as strings. FRAMEWORK keeps the spelling the
+# script was invoked by; PROJECT comes from git, which reports the directory's
+# own. Invoked as /c/developpement/ai_enginering/... on Windows, or through a
+# symlinked path anywhere, the framework repository was installed as an
+# adopter: the adopter's eol rules instead of /Adapters/** and /Registry/**,
+# and adopter next steps printed. Each other spelling is tried only where the
+# platform has it: a case-folding filesystem (Windows, macOS) or a real
+# symlink (Linux CI). No platform lacks both in practice; one that does
+# reports the four checks as a skip, never as passed.
+
+section "install.sh — the framework repository by identity, not spelling (WU-IAENG-362)"
+
+INST_362="Adapters/scripts/install.sh"
+NOT_INSTALLED_362="Not installed by this script, by design:"
+
+# fw_362 — a fresh framework repository built from this checkout's Adapters/
+# and Registry/, with no .gitattributes, so whatever install.sh appends is
+# visible. Leaves the shell inside it; FW_362 is its path as git reports it.
+fw_362() {
+  new_repo fw-362
+  cp -R "$SCRIPTS/.." ./Adapters
+  cp -R "$SCRIPTS/../../Registry" ./Registry
+  git add -A && git commit -q -m "framework fixture"
+  FW_362="$PWD"
+}
+
+# framework_362 <how> — the run that just ended treated the repository as the
+# framework itself: the framework-only rules, no adopter-only rule, no
+# adopter next steps.
+framework_362() {
+  TOTAL=$((TOTAL + 1))
+  if grep -qxF '/Adapters/** text eol=lf' .gitattributes 2>/dev/null \
+     && grep -qxF '/Registry/** text eol=lf' .gitattributes; then
+    [ -n "$VERBOSE" ] && printf '   ok   %s: the framework-only /Adapters/** and /Registry/** rules\n' "$1"
+  else
+    printf '   FAIL %s: .gitattributes lacks the framework-only /Adapters/** or /Registry/** rule\n' "$1"
+    sed 's/^/        | /' .gitattributes 2>/dev/null
+    FAILED=$((FAILED + 1))
+  fi
+  TOTAL=$((TOTAL + 1))
+  if grep -qxF '/Dockerfile text eol=lf' .gitattributes 2>/dev/null; then
+    printf '   FAIL %s: .gitattributes got the adopter-only /Dockerfile rule\n' "$1"
+    FAILED=$((FAILED + 1))
+  else
+    [ -n "$VERBOSE" ] && printf '   ok   %s: no adopter-only rule\n' "$1"
+  fi
+  expect_no_output "$NOT_INSTALLED_362" "$1: no adopter next steps are printed"
+}
+
+# The spelling git reports: the control, right before and after the fix.
+fw_362
+expect 0 "install.sh in the framework repository, invoked by its own spelling" -- bash "$FW_362/$INST_362"
+framework_362 "same spelling"
+
+RAN_362=0
+
+# A differently-cased spelling of the same directory (Windows, macOS).
+fw_362
+ALT_362="$(dirname "$FW_362")/$(basename "$FW_362" | tr '[:lower:]' '[:upper:]')"
+if [ "$ALT_362" != "$FW_362" ] && [ -d "$ALT_362" ] && [ "$ALT_362" -ef "$FW_362" ]; then
+  RAN_362=1
+  expect 0 "install.sh in the framework repository, invoked through a differently-cased path" -- bash "$ALT_362/$INST_362"
+  framework_362 "differently-cased path"
+fi
+
+# A symlinked spelling (Linux, macOS; Windows with native symlinks). `[ -L ]`
+# because Git for Windows turns `ln -s` into a deep copy, which is another
+# directory and would test nothing.
+fw_362
+LINK_362="$WORK/fw-362-link"
+rm -rf "$LINK_362"
+if ln -s "$FW_362" "$LINK_362" 2>/dev/null && [ -L "$LINK_362" ]; then
+  RAN_362=1
+  expect 0 "install.sh in the framework repository, invoked through a symlinked path" -- bash "$LINK_362/$INST_362"
+  framework_362 "symlinked path"
+fi
+rm -rf "$LINK_362"
+
+if [ "$RAN_362" -eq 0 ]; then
+  skip 4 "install.sh framework detection under another spelling: this platform has neither a case-folding filesystem nor real symlinks -- not a fix defect."
+fi
+
+# An adopter is still an adopter: the framework copied inside a project, by
+# its own spelling and, where the filesystem folds case, by another.
+new_repo adopter-362
+mkdir -p ia-engineering
+cp -R "$SCRIPTS/.." ia-engineering/Adapters
+cp -R "$SCRIPTS/../../Registry" ia-engineering/Registry
+ADOPTER_362="$PWD"
+expect 0 "install.sh in an adopting project" -- bash "./ia-engineering/$INST_362"
+expect_output "$NOT_INSTALLED_362"
+TOTAL=$((TOTAL + 1))
+if grep -qxF '/Dockerfile text eol=lf' .gitattributes 2>/dev/null \
+   && ! grep -qF '/Adapters/**' .gitattributes; then
+  [ -n "$VERBOSE" ] && printf '   ok   the adopter gets the adopter rules and no /Adapters/** rule\n'
+else
+  printf '   FAIL the adopter .gitattributes is not the adopter one\n'
+  sed 's/^/        | /' .gitattributes 2>/dev/null
+  FAILED=$((FAILED + 1))
+fi
+ALT_ADOPTER_362="$ADOPTER_362/IA-ENGINEERING"
+if [ -d "$ALT_ADOPTER_362" ] && [ "$ALT_ADOPTER_362" -ef "$ADOPTER_362/ia-engineering" ]; then
+  expect 0 "install.sh in an adopting project, invoked through a differently-cased path" -- bash "$ALT_ADOPTER_362/$INST_362"
+  expect_output "$NOT_INSTALLED_362"
+fi
+
 # --------------------------------------------------------------- verdict ----
 
 cd "$HERE" || exit 1
