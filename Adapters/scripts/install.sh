@@ -611,7 +611,7 @@ append_gitattributes_rules() {
   fi
 }
 
-if [ "$FRAMEWORK_IS_PROJECT" -eq 1 ]; then
+if [ "$FRAMEWORK" = "$PROJECT" ]; then
   append_gitattributes_rules "$FRAMEWORK_ONLY_ATTR_RULES" \
     ".gitattributes (framework repository governs its own paths)"
 else
@@ -928,7 +928,7 @@ if [ "$ACTIONS" -gt 0 ] && [ "$PROBLEMS" -eq 0 ]; then
   echo "  faults — this run succeeded and exits 0."
 fi
 
-if [ "$FRAMEWORK_IS_PROJECT" -eq 0 ]; then
+if [ "$FRAMEWORK" != "$PROJECT" ]; then
   echo
   echo "Not installed by this script, by design:"
   echo "  Branch protection   ./$HOOKS_REL/Adapters/scripts/setup-branch-protection.sh"
