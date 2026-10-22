@@ -97,16 +97,9 @@ Work Unit: [WU-ID]
 
 ---
 
-# PR Size Guidelines
+# PR Size
 
-| Size | Lines changed | Guidance |
-|---|---|---|
-| Small | < 100 | Ideal. Fast to review, low risk. |
-| Medium | 100–400 | Acceptable. Split if possible. |
-| Large | 400–800 | Requires justification. Consider splitting. |
-| Extra large | > 800 | Block. Must be split into smaller PRs before review. |
-
-A PR that is too large to review carefully is a PR that will be approved without being reviewed. Keep PRs small.
+The size limit, what it counts, and the `size/approved` override are defined once, in `Standards/PULL_REQUEST_STANDARD.md` (Reviewability). The checklist item above restates the limit so an author can tick it; this template sets no other size rule.
 
 ---
 
@@ -114,7 +107,7 @@ A PR that is too large to review carefully is a PR that will be approved without
 
 Owner: IA Engineering
 
-Version: 0.0.6
+Version: 0.0.7
 
 Status: Draft
 

@@ -1403,3 +1403,9 @@ work_units:
     title: check-framework-drift.sh (plan of 20 Oct 2026, WU-4) - orchestrates the four installer --check modes and adds the framework version (pinned commit and tag, last tag known locally, tags behind, gitlink + and -, --remote by git ls-remote), the stale or modified classification of every differing file and skill (line-ending CR dropped, git hash-object --stdin without -w against every blob the template has had; shallow or copied framework is indeterminate), and every command path of settings.json and settings.local.json resolved and never run, plus core.hooksPath; text or tsv, a denominator summary line, exit 0 by default, --strict 1 drift and 2 indeterminate; not applicable in the framework repository; no-jq and an absent settings.json are never clean (#282); read-only proven by a snapshot and a logging git wrapper
     milestone: Adoption
     delivers: Adapters/scripts/check-framework-drift.sh, Adapters/scripts/tests/run.sh, CHANGELOG.md, Registry/work-units.yml
+
+  - id: WU-IAENG-360
+    employee: Technical Writer
+    title: One size limit for a Pull Request (cleanup plan of 22 Oct 2026, Phase 1 item 1) - the PR Size Guidelines table of Templates/PULL_REQUEST.md blocked a Pull Request above 800 changed lines, against the 1,500-line limit of Standards/PULL_REQUEST_STANDARD.md (Reviewability) and the template's own checklist; the table is removed and the section points to the Standard, which alone defines the limit, what it counts and the size/approved override; the two installed Pull Request templates carry no size table and keep the same 1,500-line checklist item
+    milestone: Adoption
+    delivers: Templates/PULL_REQUEST.md, CHANGELOG.md, Registry/work-units.yml
