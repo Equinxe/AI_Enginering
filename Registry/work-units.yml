@@ -1404,6 +1404,12 @@ work_units:
     milestone: Adoption
     delivers: Adapters/scripts/check-framework-drift.sh, Adapters/scripts/tests/run.sh, CHANGELOG.md, Registry/work-units.yml
 
+  - id: WU-IAENG-360
+    employee: Technical Writer
+    title: One size limit for a Pull Request (cleanup plan of 22 Oct 2026, Phase 1 item 1) - the PR Size Guidelines table of Templates/PULL_REQUEST.md blocked a Pull Request above 800 changed lines, against the 1,500-line limit of Standards/PULL_REQUEST_STANDARD.md (Reviewability) and the template's own checklist; the table is removed and the section points to the Standard, which alone defines the limit, what it counts and the size/approved override; the two installed Pull Request templates carry no size table and keep the same 1,500-line checklist item
+    milestone: Adoption
+    delivers: Templates/PULL_REQUEST.md, CHANGELOG.md, Registry/work-units.yml
+
   - id: WU-IAENG-361
     employee: DevOps Engineer
     title: The Control Path Guard's decision moved out of its workflow (plan of 22 Oct 2026, Phase 1 item 2) - the head-SHA race checks, the listing reconciled with changed_files, the matcher's verdict and the Director's label as the last event on this head move from inline shell in control-path-guard.yml to Adapters/scripts/check-control-path-approval.sh, run from the BASE checkout beside check-control-paths.sh, inputs by environment, verdict by exit code with the same messages; the locate step requires both scripts and fails closed on a base without it; the .github copy stays byte-identical; a CHANGED_FILES that is not a count, or an empty REPO, PR_NUMBER or APPROVAL_LABEL, now fails closed instead of skipping the size and count guards; lab tests with a stubbed gh and the real matcher, old against new diffed case by case, 15 hand mutants seen red

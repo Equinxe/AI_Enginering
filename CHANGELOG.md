@@ -26,6 +26,7 @@ This project follows Semantic Versioning, extended with an informal 4th segment 
 - The bootstrap's closing message names its cause from install.sh's records: the installed files that differ from the Adapter, each with its `diff` command and why `--force` is the wrong tool for one file, and the git hook wording only when a hook check really failed — a re-run whose only problem was two differing Adapters was blamed on the hooks (#262, WU-IAENG-353)
 - An installed copy that differs from its Adapter only by CRLF line endings is `already current`, not `differs from the Adapter` (WU-IAENG-353)
 - install-hooks.sh calls a CRLF checkout of the template's `settings.json` `already current`. Before, it merged it and found every entry present; the file is left byte-identical either way. Both runtime installers now find their `.gitattributes` LF rule with only a line-ending CR dropped, never a CR inside a line (SEC-IAENG-353-01) (WU-IAENG-357)
+- `Templates/PULL_REQUEST.md` no longer blocks a Pull Request above 800 changed lines. Its size table contradicted the 1,500-line limit of `Standards/PULL_REQUEST_STANDARD.md` (Reviewability) and the template's own checklist; the section now points to the Standard, which alone defines the limit, what it counts and the `size/approved` override. The two installed Pull Request templates had no table and are unchanged (WU-IAENG-360)
 
 ### Notes
 
