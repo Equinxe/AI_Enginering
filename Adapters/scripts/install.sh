@@ -293,13 +293,29 @@ fi
 # Built without a subshell: --check runs inside session hooks with a time
 # budget, and on Git for Windows every fork costs tens of milliseconds.
 #
-# A TAB or LF in the detail would split one record into several, and the
-# detail can carry a value read from git config, which decodes \t and \n
-# escapes (SEC-IAENG-355-02): both become spaces, so a record is one line.
+# A TAB or LF in a field would split one record into several, and a field
+# can carry a value read from git config, which decodes \t and \n escapes
+# (SEC-IAENG-355-02), the git directory, or a command line (fault from run).
+# flat() flattens fields 2 to 4; field 1, the family, is always a literal.
+# >>> record sanitiser — byte-identical in install.sh, install-hooks.sh,
+# install-skills.sh and check-framework-drift.sh: none of them sources
+# another, and Adapters/scripts/tests/run.sh compares the four (WU-IAENG-366).
+# flat <text> — every control character (TAB, LF, CR, ESC, ...) becomes a
+# space: a record is one line and carries no terminal escape.
+# The C1 controls (U+0080-U+009F, CSI among them) are UTF-8 pairs \xc2\x80 to
+# \xc2\x9f: a pair becomes one space. A lone byte in that range is part of
+# another character and is left alone (SEC-IAENG-358-01). The result is the
+# same under the C locale and a UTF-8 one.
+C1_LEAD=$'\xc2'
+flat() {
+  FLAT="${1//[[:cntrl:]]/ }"
+  FLAT="${FLAT//"$C1_LEAD"[$'\x80'-$'\x9f']/ }"
+}
+# <<< record sanitiser
 record() {
-  local detail="${4//$'\t'/ }"
-  detail="${detail//$'\n'/ }"
-  local line="$1"$'\t'"$2"$'\t'"$3"$'\t'"$detail"
+  local f2 f3 f4 line
+  flat "$2"; f2="$FLAT"; flat "$3"; f3="$FLAT"; flat "$4"; f4="$FLAT"
+  line="$1"$'\t'"$f2"$'\t'"$f3"$'\t'"$f4"
   REPORT="$REPORT$line
 "
   if [ "$CHECK" -eq 0 ] && [ -n "${IAENG_INSTALL_REPORT:-}" ]; then
@@ -851,9 +867,9 @@ if [ "$CHECK" -eq 1 ]; then
       printf '%s' "$REPORT"
     fi
     # The configured hooks directory reaches awk through the environment, not
-    # -v, which would decode its backslashes; TAB and LF already flattened.
-    _now="${CURRENT:-}"; _now="${_now//$'\t'/ }"; _now="${_now//$'\n'/ }"
-    IAENG_HOOKS_NOW="$_now" awk -F '\t' -v rel="$HOOKS_REL" '
+    # -v, which would decode its backslashes; flattened as a record field is.
+    flat "${CURRENT:-}"
+    IAENG_HOOKS_NOW="$FLAT" awk -F '\t' -v rel="$HOOKS_REL" '
       NF == 0 { next }
       { n[$1]++; s[$1 FS $2]++; if ($2 ~ /^(absent|differs|missing|not-executable|shadowed|fault)$/) act++ }
       function part(fam, label, statuses,   k, i, out, sep, st) {

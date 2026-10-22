@@ -1409,3 +1409,9 @@ work_units:
     title: One size limit for a Pull Request (cleanup plan of 22 Oct 2026, Phase 1 item 1) - the PR Size Guidelines table of Templates/PULL_REQUEST.md blocked a Pull Request above 800 changed lines, against the 1,500-line limit of Standards/PULL_REQUEST_STANDARD.md (Reviewability) and the template's own checklist; the table is removed and the section points to the Standard, which alone defines the limit, what it counts and the size/approved override; the two installed Pull Request templates carry no size table and keep the same 1,500-line checklist item
     milestone: Adoption
     delivers: Templates/PULL_REQUEST.md, CHANGELOG.md, Registry/work-units.yml
+
+  - id: WU-IAENG-366
+    employee: Platform Engineer
+    title: One record sanitiser in the four TSV emitters (cleanup plan of 22 Oct 2026, Phase 1 item 6) - install.sh flattened TAB and LF in the detail only, install-hooks.sh and install-skills.sh TAB, LF and CR in fields 3 and 4, check-framework-drift.sh every control character and the UTF-8 C1 pairs in fields 2 to 4; all four now carry the same flat() block, byte-identical because none sources another (install-hooks.sh sources nothing by design), applied to fields 2 to 4 and to the free text of each closing line (the configured hooks directory, the script path); a contract test feeds one hostile string (TAB, LF, CR, ESC, DEL, C2 9B, C2 85, e acute, em dash) to each script's own record function under the C locale and C.UTF-8 and asserts the same two four-field records, and compares the four blocks (SEC-IAENG-355-02, SEC-IAENG-357-01, SEC-IAENG-358-01)
+    milestone: Adoption
+    delivers: Adapters/scripts/install.sh, Adapters/ai-runtimes/claude-code/install-hooks.sh, Adapters/ai-runtimes/claude-code/install-skills.sh, Adapters/scripts/check-framework-drift.sh, Adapters/scripts/tests/run.sh, CHANGELOG.md, Registry/work-units.yml
