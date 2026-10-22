@@ -1410,6 +1410,18 @@ work_units:
     milestone: Adoption
     delivers: Templates/PULL_REQUEST.md, CHANGELOG.md, Registry/work-units.yml
 
+  - id: WU-IAENG-361
+    employee: DevOps Engineer
+    title: The Control Path Guard's decision moved out of its workflow (plan of 22 Oct 2026, Phase 1 item 2) - the head-SHA race checks, the listing reconciled with changed_files, the matcher's verdict and the Director's label as the last event on this head move from inline shell in control-path-guard.yml to Adapters/scripts/check-control-path-approval.sh, run from the BASE checkout beside check-control-paths.sh, inputs by environment, verdict by exit code with the same messages; the locate step requires both scripts and fails closed on a base without it; the .github copy stays byte-identical; a CHANGED_FILES that is not a count, or an empty REPO, PR_NUMBER or APPROVAL_LABEL, now fails closed instead of skipping the size and count guards; lab tests with a stubbed gh and the real matcher, old against new diffed case by case, 15 hand mutants seen red
+    milestone: Adoption
+    delivers: Adapters/scripts/check-control-path-approval.sh, Adapters/github-actions/control-path-guard.yml, .github/workflows/control-path-guard.yml, Adapters/scripts/tests/run.sh, Adapters/README.md, CHANGELOG.md, Registry/work-units.yml
+
+  - id: WU-IAENG-362
+    employee: Platform Engineer
+    title: install.sh recognises the framework repository by identity, not spelling (plan of 22 Oct 2026, Phase 1 #3) - the two sites that decided "this is the framework repository" by comparing FRAMEWORK and PROJECT as strings (the framework-only .gitattributes rules, the adopter next steps) now read one answer, HOOKS_REL = "." from the existing -ef walk, so a framework repository invoked through a differently-cased or symlinked path is no longer installed as an adopter; tests through a differently-cased path (case-folding filesystem) and a symlinked path (real symlinks), with the adopter still an adopter
+    milestone: Adoption
+    delivers: Adapters/scripts/install.sh, Adapters/scripts/tests/run.sh, CHANGELOG.md, Registry/work-units.yml
+
   - id: WU-IAENG-365
     employee: Platform Engineer
     title: An exported CDPATH no longer moves a script's own directory (cleanup plan of 22 Oct 2026, Phase 1 item 7) - every relative cd in Adapters/ now runs as CDPATH='' cd --, the form check-employee-trailers.sh already used; with CDPATH=.:<dir> exported, bash's cd printed the directory it found, so SCRIPT_DIR held the path twice on two lines and every sibling path built from it was wrong, and with a same-named directory under a CDPATH entry the cd landed in the wrong tree; the 9 SCRIPT_DIR sites named by the plan, release.sh host_dir, the runtime installers, the pre-commit and inline-suppression hooks, check-inline-suppression.sh, check-risk-map.sh's cd to a caller-given root, generate-agents.sh --project and --roster, open-dashboard.sh and the HERE of the three test runners; a test runs install.sh --check, install-hooks.sh --check, generate-agents.sh --print-tier-map, validate-framework.sh and check-risk-map.sh under both CDPATH orders and requires the same exit and output as without it
