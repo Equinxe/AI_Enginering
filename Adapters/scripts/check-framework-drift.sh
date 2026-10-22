@@ -74,7 +74,8 @@
 # GIT_OPTIONAL_LOCKS=0 (git's spelling of --no-optional-locks) for every git
 # command here and in the installers it runs; this script creates no
 # temporary file of its own (what the installers' --check do is theirs, and
-# is covered by the same snapshot test). GIT_TERMINAL_PROMPT=0: --remote
+# is covered by the same snapshot test), and writes nothing at all but the
+# --quick result in a --cache-dir outside the project. GIT_TERMINAL_PROMPT=0: --remote
 # never prompts.
 # settings.json is parsed with jq, never evaluated. No network unless
 # --remote. The records it prints carry text read from the project (a
@@ -95,7 +96,37 @@
 #   --strict            exit 1 on drift, 2 when something is indeterminate
 #                       (2 wins: an incomplete evaluation is not a verdict)
 #   --remote            also ask the framework's remote for its tags
+#   --quick             the session-start form (below): A, B unclassified, D
+#   --cache-dir DIR     --quick only, absolute: keep the --quick result there
 #   --help
+#
+# --QUICK (WU-IAENG-359, the adopter drift plan §3.2)
+#
+# session-start.sh runs it on every session, under a time limit, and prints a
+# line only for what is actionable. It covers A (version), B counted by the
+# installers' plain diff — `differs`, not classified: telling stale from
+# modified reads the framework's history, which is what costs — and D (paths).
+# C is not evaluated; a `config not-evaluated` record says so. Measured on
+# Windows (Git Bash), a full run takes 3 to 7 s, too slow for a session start.
+#
+# With --cache-dir, the result is kept in DIR (a user-level directory: never
+# inside the project, refused there) with the list of every file it was read
+# from. The next --quick replays it when the framework commit and the
+# recorded gitlink are the same, every one of those files is still present or
+# still absent, and none is newer than the kept result (one `find -newer`):
+# an unchanged project costs a stat, not a check. A result with an
+# indeterminate item is never kept. Without --cache-dir nothing is written.
+# A file counts as changed when its mtime OR its inode change time is newer
+# (content copied under an old mtime, a mode change). The cache is used only
+# when the user alone could have written it; see THE CACHE IS TRUSTED below.
+#
+# Declared limits of what the kept result watches: core.hooksPath is watched
+# in the project's config, ~/.gitconfig and $XDG_CONFIG_HOME/git/config, not
+# in the system gitconfig, include.path / includeIf targets, config.worktree
+# or GIT_CONFIG_GLOBAL; tags in packed-refs, refs/tags/ and reftable/, not a
+# tag nested under refs/tags/<dir>/; and the framework's templates, install.sh
+# and the bootstrap, not other uncommitted edits in the framework checkout.
+# Any of those changed: run the full check (the session line names it).
 #
 # The summary line carries the denominators (the Check Convention, rule 3):
 # "14 file(s) compared: 11 current, 1 absent, 1 stale, 1 modified", and the
@@ -127,12 +158,16 @@ export GIT_TERMINAL_PROMPT=0
 FORMAT=text
 STRICT=0
 REMOTE=0
+QUICK=0
+CACHE_DIR=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --format) FORMAT="${2:-}"; shift ;;
     --format=*) FORMAT="${1#--format=}" ;;
     --strict) STRICT=1 ;;
     --remote) REMOTE=1 ;;
+    --quick) QUICK=1 ;;
+    --cache-dir) CACHE_DIR="${2:-}"; [ -n "$CACHE_DIR" ] || CACHE_DIR="(empty)"; shift ;;
     --help|-h) sed -n '2,$p' "$0" | awk '/^#/{print; next} {exit}' | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "check-framework-drift.sh: unknown option '$1' (try --help)" >&2; exit 64 ;;
   esac
@@ -142,6 +177,19 @@ case "$FORMAT" in
   text|tsv) ;;
   *) echo "check-framework-drift.sh: --format takes text or tsv" >&2; exit 64 ;;
 esac
+if [ -n "$CACHE_DIR" ]; then
+  # A relative directory would be read against the project: the result
+  # would be written inside it.
+  [ "$QUICK" -eq 1 ] || { echo "check-framework-drift.sh: --cache-dir goes with --quick only" >&2; exit 64; }
+  case "$CACHE_DIR" in
+    /*|[A-Za-z]:[/\\]*) ;;
+    *) echo "check-framework-drift.sh: --cache-dir takes an absolute directory" >&2; exit 64 ;;
+  esac
+  case "/$CACHE_DIR/" in
+    */../*|*/./*) echo "check-framework-drift.sh: --cache-dir takes a directory without . or .. components" >&2; exit 64 ;;
+  esac
+fi
+[ "$QUICK" -eq 1 ] && [ "$REMOTE" -eq 1 ] && { echo "check-framework-drift.sh: --quick never asks the remote" >&2; exit 64; }
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 FRAMEWORK="$(cd "$SCRIPT_DIR/../.." && pwd)"
@@ -193,7 +241,7 @@ finish() {
         noun["version"] = "version item(s)"; noun["file"] = "file(s) compared"
         noun["config"] = "config item(s)"; noun["path"] = "command path(s)"
         order["version"] = "tagged untagged latest behind remote-same behind-remote recorded uncommitted uninitialized not-a-submodule indeterminate"
-        order["file"] = "current absent stale modified customized project-owned indeterminate"
+        order["file"] = "current absent stale modified differs customized project-owned indeterminate"
         order["config"] = "current present absent missing differs stale modified customized near-miss not-executable shadowed disabled placeholder not-applicable skipped not-evaluated indeterminate"
         order["path"] = "ok broken unresolved indeterminate"
       }
@@ -221,6 +269,17 @@ finish() {
     done <<< "$ROWS"
   fi
   printf '%s\n' "$summary"
+  if [ "$QUICK" -eq 1 ]; then
+    # An incomplete evaluation is not a result to replay.
+    if [ "$CACHE_STATE" = miss ]; then
+      [ "$indet" -eq 0 ] && cache_write "$CACHE_FILE" "$ROWS" 0
+      # This run's stamp, and any left by a run the time limit cut.
+      for _s in "$CACHE_FILE".*.stamp; do
+        [ -e "$_s" ] && rm -f "$_s" 2>/dev/null
+      done
+    fi
+    printf '# --quick: cache %s%s\n' "$CACHE_STATE" "${B_REPLAYED:+, file records replayed}"
+  fi
 
   [ "$STRICT" -eq 1 ] || exit 0
   [ "$indet" -gt 0 ] && exit 2
@@ -233,6 +292,183 @@ not_applicable() {
   NA=1
   rec version not-applicable "." "$1"
   finish
+}
+
+# ------------------------------------------------- the --quick cache ---
+#
+# The kept result, one file per project in --cache-dir:
+#   iaeng-drift-cache 1
+#   project TAB <project path>
+#   key TAB <framework commit> <recorded gitlink>
+#   watch TAB 1|0 TAB <absolute path>       present (1) or absent (0) then
+#   row TAB <family> TAB <status> TAB <path> TAB <remedy>
+#   end
+# Its mtime is set to the moment the run that wrote it STARTED (touch -r of a
+# stamp made first), so a file edited while that run read it is newer.
+# Every row is flattened again when it is replayed: the file is read as data.
+#
+# B, the installers' records, costs most of a cold run (about 1.1 s of 1.6 s
+# on Windows). It is also kept on its own, in the same format, as soon as it
+# is complete (B_FILE): a run cut by session-start's time limit after B still
+# leaves it, so the next session finishes within the limit and keeps the
+# whole result; and an edit to settings.json does not run B again.
+
+CACHE_STATE=off
+CACHE_FILE=""
+B_FILE=""
+B_REPLAYED=""
+CACHE_KEY=""
+CACHE_MAGIC="iaeng-drift-cache 1"
+STAMP=""
+WATCH=()
+
+# THE CACHE IS TRUSTED ONLY WHEN THE USER ALONE COULD HAVE WRITTEN IT
+# (SEC-IAENG-359-01). Its text becomes an agent session's context, and its
+# watch lines become find arguments, so a cache another account can write is
+# not a cache: the directory is made 0700, and the directory and each file
+# read must be owned by this user, not a symbolic link, and neither group-
+# nor world-writable, or nothing is replayed (the run computes, as cold).
+# On Git for Windows (noacl) every file reads as the user's and 0644/0755.
+
+# untrusted <path>... — true when any path fails the rule above.
+untrusted() {
+  local p bad
+  for p in "$@"; do
+    { [ -O "$p" ] && [ ! -L "$p" ]; } || return 0
+  done
+  # Each path is absolute (callers pass CACHE_DIR and files in it).
+  bad="$(find "$@" -prune \( -perm -020 -o -perm -002 \) -print 2>/dev/null)" || return 0
+  [ -n "$bad" ]
+}
+
+# cache_dir_canon — CACHE_DIR made canonical, or emptied (no cache) when it
+# has a . or .. component, cannot be resolved, or is the project or inside
+# it (SEC-IAENG-359-03). Symbolic links are resolved in the part that exists
+# (cd -P), so neither a link nor a .. can lead back into the project; the
+# part that does not exist yet cannot be the project. session-start.sh's
+# lib.sh iaeng_cache_dir applies the same rule to the directory it chooses:
+# no new file is sourced by this control-path script.
+cache_dir_canon() {
+  local p="${CACHE_DIR%/}" tail="" n canon
+  case "/$p/" in */../*|*/./*) CACHE_DIR=""; return ;; esac
+  while [ ! -d "$p" ]; do
+    n="${p%/*}"
+    { [ -z "$n" ] || [ "$n" = "$p" ]; } && { CACHE_DIR=""; return; }
+    case "$n" in */*) ;; *) n="$n/" ;; esac
+    tail="${p##*/}${tail:+/$tail}"
+    p="$n"
+  done
+  canon="$(cd -P "$p" 2>/dev/null && pwd -P)" || { CACHE_DIR=""; return; }
+  p="$canon"
+  while :; do
+    [ "$p" -ef "$PROJECT" ] && { CACHE_DIR=""; return; }
+    n="${p%/*}"
+    { [ -z "$n" ] || [ "$n" = "$p" ]; } && break
+    p="$n"
+  done
+  CACHE_DIR="$canon${tail:+/$tail}"
+}
+
+# watch_add <path> — a file the --quick result is read from, made absolute.
+watch_add() {
+  [ "$CACHE_STATE" = miss ] || return 0
+  case "$1" in
+    ''|[/\\][/\\]*) return 0 ;;
+    /*|[A-Za-z]:[/\\]*) WATCH+=("$1") ;;
+    *) WATCH+=("$PROJECT/$1") ;;
+  esac
+}
+
+# cache_replay <file> <keep> — the kept result, when nothing it was read from
+# changed; its rows are recorded. keep=1 adds its watched files to WATCH, so
+# a result built on a replayed segment watches them too.
+cache_replay() {
+  local file="$1" keep="$2" line tag a b c d rows="" ended=0 newer p wset=$'\n'
+  local -a present=() listed=()
+  [ -f "$file" ] && [ ! -L "$file" ] || return 1
+  untrusted "$CACHE_DIR" "$file" && return 1
+  {
+    IFS= read -r line && [ "$line" = "$CACHE_MAGIC" ] || return 1
+    IFS= read -r line && [ "$line" = "project"$'\t'"$PROJECT" ] || return 1
+    IFS= read -r line && [ "$line" = "key"$'\t'"$CACHE_KEY" ] || return 1
+    while IFS=$'\t' read -r tag a b c d; do
+      case "$tag" in
+        watch)
+          # Every line is checked before any reaches find (SEC-IAENG-359-04,
+          # CWE-88): a watch path is absolute, so it never begins with - ( !
+          # and cannot be read as a find primary (-exec, -delete, -fprint);
+          # a network path is never touched. One bad line, no replay.
+          case "$a" in 0|1) ;; *) return 1 ;; esac
+          case "$b" in
+            [/\\][/\\]*) return 1 ;;
+            /*|[A-Za-z]:[/\\]*) ;;
+            *) return 1 ;;
+          esac
+          if [ -e "$b" ] || [ -L "$b" ]; then
+            [ "$a" = 1 ] || return 1
+            present+=("$b")
+          else
+            [ "$a" = 0 ] || return 1
+          fi
+          listed+=("$b")
+          wset="$wset$b"$'\n' ;;
+        row)
+          # A row about a file or a resolved path is replayed only if the
+          # result watched that path: a hand-written cache that reports a
+          # file current without watching it is not a result.
+          case "$a:$b" in
+            file:*|path:ok|path:broken)
+              case "$c" in /*|[A-Za-z]:[/\\]*) p="$c" ;; *) p="$PROJECT/$c" ;; esac
+              [[ "$wset" == *$'\n'"$p"$'\n'* ]] || return 1 ;;
+          esac
+          rows="$rows$a"$'\t'"$b"$'\t'"$c"$'\t'"$d"$'\n' ;;
+        end) ended=1; break ;;
+        *) return 1 ;;
+      esac
+    done
+  } < "$file"
+  [ "$ended" -eq 1 ] || return 1
+  # Every path was checked absolute above, so none can be read as an option.
+  # Content changed under an old mtime (cp -p, rsync -a, unzip, a copy in
+  # Explorer) or a mode changed (chmod a-r) still moves the inode's change
+  # time, which no user can set back: -cnewer compares it with the kept
+  # result's mtime, the moment its run started (SEC-IAENG-359-02).
+  if [ "${#present[@]}" -gt 0 ]; then
+    newer="$(find "${present[@]}" -prune \( -newer "$file" -o -cnewer "$file" \) -print 2>/dev/null)" || return 1
+    [ -z "$newer" ] || return 1
+  fi
+  while IFS=$'\t' read -r a b c d; do
+    [ -n "$a" ] && rec "$a" "$b" "$c" "$d"
+  done <<< "$rows"
+  if [ "$keep" -eq 1 ]; then
+    for p in ${listed[@]+"${listed[@]}"}; do WATCH+=("$p"); done
+  fi
+  return 0
+}
+
+# cache_write <file> <rows> <first> — keeps the rows and the files they were
+# read from (WATCH from index <first>), stamped with the run's start.
+cache_write() {
+  local file="$1" rows="$2" first="$3" tmp="$1.$$.tmp" l i
+  [ -n "$STAMP" ] && [ -f "$STAMP" ] || return 0
+  {
+    printf '%s\n' "$CACHE_MAGIC" "project"$'\t'"$PROJECT" "key"$'\t'"$CACHE_KEY"
+    for (( i = first; i < ${#WATCH[@]}; i++ )); do
+      if [ -e "${WATCH[i]}" ] || [ -L "${WATCH[i]}" ]; then
+        printf 'watch\t1\t%s\n' "${WATCH[i]}"
+      else
+        printf 'watch\t0\t%s\n' "${WATCH[i]}"
+      fi
+    done
+    while IFS= read -r l; do
+      [ -n "$l" ] && printf 'row\t%s\n' "$l"
+    done <<< "$rows"
+    printf 'end\n'
+  } > "$tmp" 2>/dev/null \
+    && touch -r "$STAMP" "$tmp" 2>/dev/null \
+    && mv -f "$tmp" "$file" 2>/dev/null
+  [ -e "$tmp" ] && rm -f "$tmp" 2>/dev/null
+  return 0
 }
 
 # ------------------------------------------------------- where we are ---
@@ -281,15 +517,114 @@ BOOTSTRAP_CMD="$REL/Adapters/scripts/setup-project-bootstrap.sh $STACK"
 # the PROJECT's repository and read the wrong history.
 FW_GIT=0
 FW_SHALLOW=false
-if _top="$(git -C "$FRAMEWORK" rev-parse --show-toplevel 2>/dev/null)" && [ "$_top" -ef "$FRAMEWORK" ]; then
+if [ "$QUICK" -eq 1 ]; then
+  # One git command for the checkout, its git directory and its commit. On
+  # Git for Windows every fork costs 50 to 90 ms: --quick counts them.
+  # --quick reads no history, so shallow does not matter to it.
+  if _q="$(git -C "$FRAMEWORK" rev-parse --show-toplevel --absolute-git-dir HEAD 2>/dev/null)"; then
+    { IFS= read -r _top; IFS= read -r FW_GITDIR; IFS= read -r FW_HEAD; } <<< "$_q"
+    [ "$_top" -ef "$FRAMEWORK" ] && [ -n "$FW_HEAD" ] && FW_GIT=1
+  fi
+  # The gitlink the project recorded: "160000 <sha> <stage>TAB<path>".
+  GL_MODE=""; GL_SHA=""
+  read -r GL_MODE GL_SHA _ <<< "$(git ls-files -s -- "$REL" 2>/dev/null)"
+  if [ -n "$CACHE_DIR" ] && [ "$FW_GIT" -eq 1 ]; then
+    # Never inside the project: --quick writes nowhere the project can see.
+    cache_dir_canon
+  fi
+  if [ -n "$CACHE_DIR" ] && [ "$FW_GIT" -eq 1 ]; then
+    CACHE_FILE="$CACHE_DIR/drift-${PROJECT//[^A-Za-z0-9._-]/_}.tsv"
+    B_FILE="$CACHE_DIR/drift-${PROJECT//[^A-Za-z0-9._-]/_}.files.tsv"
+    CACHE_KEY="$FW_HEAD ${GL_MODE:--}:${GL_SHA:--}"
+    if cache_replay "$CACHE_FILE" 0; then
+      CACHE_STATE=hit
+      finish
+    fi
+    ROWS=""
+    CACHE_STATE=miss
+    # The cache directory itself 0700, where the filesystem honours it (Git
+    # for Windows' noacl mount refuses the mode and still creates it: hence
+    # the -d test after, not &&). Its parents are ordinary user directories.
+    if [ ! -d "$CACHE_DIR" ]; then
+      mkdir -p "${CACHE_DIR%/*}" 2>/dev/null
+      mkdir -m 700 "$CACHE_DIR" 2>/dev/null
+    fi
+    if [ -d "$CACHE_DIR" ] && ! untrusted "$CACHE_DIR"; then
+      STAMP="$CACHE_FILE.$$.stamp"
+      { umask 077; : > "$STAMP"; } 2>/dev/null || STAMP=""
+    else
+      # Not the user's alone: nothing is read from it or written to it.
+      CACHE_STATE=refused
+    fi
+    watch_add "$SCRIPT_DIR/check-framework-drift.sh"
+    # Tags known locally: a fetch rewrites packed-refs, adds to refs/tags, or
+    # (reftable backend) rewrites reftable/.
+    watch_add "$FW_GITDIR/packed-refs"
+    watch_add "$FW_GITDIR/refs/tags"
+    watch_add "$FW_GITDIR/reftable"
+  fi
+elif _top="$(git -C "$FRAMEWORK" rev-parse --show-toplevel 2>/dev/null)" && [ "$_top" -ef "$FRAMEWORK" ]; then
   FW_GIT=1
   FW_SHALLOW="$(git -C "$FRAMEWORK" rev-parse --is-shallow-repository 2>/dev/null || echo unknown)"
 fi
+
+# quick_version — A in two git commands at most: the tags and their commits
+# in one for-each-ref, the gitlink from the ls-files above. The records and
+# their remedies are the full run's.
+quick_version() {
+  local t o p n=0 exact="" base="" last="" behind=-1 desc short="${FW_HEAD:0:7}"
+  local -a tags=()
+  while IFS=$'\t' read -r t o p; do
+    [ -n "$t" ] || continue
+    tags+=("$t")
+    [ -z "$last" ] && last="$t"
+    if [ -z "$exact" ] && { [ "$o" = "$FW_HEAD" ] || [ "$p" = "$FW_HEAD" ]; }; then
+      exact="$t"
+    fi
+  done < <(git -C "$FRAMEWORK" for-each-ref --sort=-v:refname --format='%(refname:short)%09%(objectname)%09%(*objectname)' refs/tags 2>/dev/null)
+  if [ -n "$exact" ]; then
+    rec version tagged "$REL" "$exact ($short)"
+    base="$exact"
+  elif desc="$(git -C "$FRAMEWORK" describe --tags HEAD 2>/dev/null)"; then
+    base="${desc%-*-g*}"
+    rec version untagged "$REL" "$desc: not on a tag; nearest tag $base"
+  else
+    rec version untagged "$REL" "$short: no tag is reachable from this commit"
+  fi
+  if [ -z "$last" ]; then
+    rec version indeterminate "$REL" "no tag is known locally; nothing to count from"
+  elif [ -z "$base" ]; then
+    rec version indeterminate "$REL" "last tag known locally: $last; the checkout descends from no tag, so tags behind cannot be counted"
+  else
+    for t in "${tags[@]}"; do
+      [ "$t" = "$base" ] && { behind=$n; break; }
+      n=$((n + 1))
+    done
+    if [ "$behind" -eq 0 ]; then
+      rec version latest "$REL" "last tag known locally: $last (0 tag(s) behind)"
+    elif [ "$behind" -gt 0 ]; then
+      rec version behind "$REL" "last tag known locally: $last, $behind tag(s) behind. Upgrade: git -C $REL checkout $last, read the 'Upgrading from' notes (git -C $REL show $last:CHANGELOG.md), commit the gitlink, then run this check again"
+    else
+      rec version indeterminate "$REL" "the nearest tag $base is not among the tags known locally"
+    fi
+  fi
+  if [ "$GL_MODE" = 160000 ]; then
+    if [ "$GL_SHA" = "$FW_HEAD" ]; then
+      rec version recorded "$REL" "the checkout is the commit the project recorded"
+    else
+      rec version uncommitted "$REL" "the checkout is not the commit the project recorded (gitlink +): an upgrade not committed. git add $REL and commit it, or git submodule update to go back"
+    fi
+  else
+    rec version not-a-submodule "$REL" "the framework is not recorded as a submodule (a copied or linked reference): no gitlink to compare"
+  fi
+}
 
 # ------------------------------------------------------- A. version ---
 
 if [ "$FW_GIT" -eq 0 ]; then
   rec version indeterminate "$REL" "the framework copy is not its own git checkout: no commit, tag or history to read"
+elif [ "$QUICK" -eq 1 ]; then
+  quick_version
 else
   HEAD_SHA="$(git -C "$FRAMEWORK" rev-parse --short HEAD 2>/dev/null)"
   if EXACT="$(git -C "$FRAMEWORK" describe --tags --exact-match HEAD 2>/dev/null)"; then
@@ -393,15 +728,38 @@ run_check() {
 }
 
 BOOT_FAULT=0
-run_check setup-project-bootstrap.sh bash "$SCRIPT_DIR/setup-project-bootstrap.sh" --check
+B_DONE=0
+B_ROWS0=${#ROWS}
+B_WATCH0=${#WATCH[@]}
+if [ "$CACHE_STATE" = miss ] && cache_replay "$B_FILE" 1; then
+  # The installers' records, kept by an earlier run: nothing to run again.
+  B_DONE=1
+  B_REPLAYED=1
+  CHECK_OUT=""; CHECK_RC=0
+else
+  watch_add "$SCRIPT_DIR/setup-project-bootstrap.sh"
+  watch_add "$SCRIPT_DIR/install.sh"
+  watch_add .ia-engineering/stack
+  run_check setup-project-bootstrap.sh bash "$SCRIPT_DIR/setup-project-bootstrap.sh" --check
+fi
 while IFS=$'\t' read -r fam st path detail; do
   case "$fam" in ''|'#'*) continue ;; esac
   [ "$st" = fault ] && BOOT_FAULT=1
+  if [ "$QUICK" -eq 1 ]; then
+    # --quick keeps the files (B) and leaves the rest (C) to a full run.
+    case "$fam" in file|project-file) ;; *) continue ;; esac
+    watch_add "$path"
+    [ "$fam" = file ] && watch_add "$detail"
+  fi
   case "$fam:$st" in
     file:current) rec file current "$path" "" ;;
     file:absent) rec file absent "$path" "re-run $BOOTSTRAP_CMD without --force: it writes what is absent and overwrites nothing" ;;
     file:customized) rec file customized "$path" "expected to differ: the project edits it after install" ;;
     file:differs)
+      if [ "$QUICK" -eq 1 ]; then
+        rec file differs "$path" "differs from $detail, line endings aside; --quick reads no history: run $REL/Adapters/scripts/check-framework-drift.sh to tell stale (copy it) from modified (review it)"
+        continue
+      fi
       classify "$path" "${detail#"$REL"/}"
       case "$CLASS" in
         stale) rec file stale "$path" "never edited, an earlier version of the template: cp $detail $path" ;;
@@ -430,11 +788,17 @@ done <<< "$CHECK_OUT"
 if [ "$CHECK_RC" -eq 1 ] && [ "$BOOT_FAULT" -eq 0 ]; then
   rec config indeterminate setup-project-bootstrap.sh "setup-project-bootstrap.sh --check exited 1 without a fault record"
 fi
+# B kept on its own, now: a run cut after this point still leaves it.
+if [ "$CACHE_STATE" = miss ] && [ "$B_DONE" -eq 0 ] \
+   && [[ "${ROWS:B_ROWS0}" != *$'\t'indeterminate$'\t'* ]]; then
+  cache_write "$B_FILE" "${ROWS:B_ROWS0}" "$B_WATCH0"
+fi
 
 # .claude/settings.json and its hook entries.
 SETTINGS_ABSENT=0
 HOOK_ENTRIES=0
-run_check install-hooks.sh bash "$RUNTIME/install-hooks.sh" --check
+CHECK_OUT=""
+[ "$QUICK" -eq 1 ] || run_check install-hooks.sh bash "$RUNTIME/install-hooks.sh" --check
 while IFS=$'\t' read -r fam st path detail; do
   case "$fam" in ''|'#'*) continue ;; esac
   case "$fam:$st" in
@@ -458,7 +822,8 @@ if [ "$SETTINGS_ABSENT" -eq 1 ] && [ "$HOOK_ENTRIES" -eq 0 ]; then
   rec config not-evaluated "hook entries" "settings.json is absent, so no framework hook entry is installed; the absent settings record above is the drift"
 fi
 
-run_check install-skills.sh bash "$RUNTIME/install-skills.sh" --check
+CHECK_OUT=""
+[ "$QUICK" -eq 1 ] || run_check install-skills.sh bash "$RUNTIME/install-skills.sh" --check
 while IFS=$'\t' read -r fam st path detail; do
   case "$fam" in ''|'#'*) continue ;; esac
   case "$fam:$st" in
@@ -609,6 +974,7 @@ resolve_command() {
 }
 
 for SF in .claude/settings.json .claude/settings.local.json; do
+  watch_add "$SF"
   [ -e "$SF" ] || [ -L "$SF" ] || continue
   if [ -L "$SF" ]; then
     rec path indeterminate "$SF" "a symbolic link: not followed, its commands are not resolved"
@@ -628,6 +994,7 @@ for SF in .claude/settings.json .claude/settings.local.json; do
   while IFS=$'\t' read -r WHERE CMD; do
     [ -z "$WHERE" ] && continue
     resolve_command "$CMD"
+    case "$RSTATUS" in ok|broken) watch_add "$RPATH" ;; esac
     case "$RSTATUS" in
       ok) rec path ok "$RPATH" "" ;;
       broken) rec path broken "$RPATH" "$RWHY; named by $SF ($WHERE). The hook fails (exit 127) and its guard is silently gone: restore the file, or fix the entry (re-run $REL/Adapters/ai-runtimes/claude-code/install-hooks.sh for the framework's)" ;;
@@ -636,6 +1003,15 @@ for SF in .claude/settings.json .claude/settings.local.json; do
   done <<< "$CMDS"
 done
 
+# Where core.hooksPath is read from, for the --quick result: the project's
+# config and the user's.
+if [ "$CACHE_STATE" = miss ]; then
+  if _gd="$(git rev-parse --git-common-dir 2>/dev/null)"; then watch_add "$_gd/config"; fi
+  if [ -n "${HOME:-}" ]; then watch_add "$HOME/.gitconfig"; fi
+  _xdg="${XDG_CONFIG_HOME:-${HOME:+$HOME/.config}}"
+  if [ -n "$_xdg" ]; then watch_add "$_xdg/git/config"; fi
+  unset _gd _xdg
+fi
 # --type=path expands a leading ~ as git itself does when it runs the hooks.
 if HP="$(git config --type=path --get core.hooksPath 2>/dev/null)"; then
   case "$HP" in
@@ -645,6 +1021,7 @@ if HP="$(git config --type=path --get core.hooksPath 2>/dev/null)"; then
   case "$HP" in
     [/\\][/\\]*) HPA="" ;;
   esac
+  watch_add "$HPA"
   if [ -z "$HPA" ]; then
     rec path unresolved "$HP" "core.hooksPath is a network path: never touched by this check"
   elif [ -d "$HPA" ]; then
@@ -652,6 +1029,11 @@ if HP="$(git config --type=path --get core.hooksPath 2>/dev/null)"; then
   else
     rec path broken "$HP" "core.hooksPath names a directory that does not exist: git runs no hook at all. Re-run $REL/Adapters/scripts/install.sh"
   fi
+fi
+
+# An empty family is never a clean one (the Check Convention, rule 3).
+if [ "$QUICK" -eq 1 ]; then
+  rec config not-evaluated "(--quick)" "hook entries, skills, git hooks and .gitattributes are checked by a run without --quick: $REL/Adapters/scripts/check-framework-drift.sh"
 fi
 
 finish

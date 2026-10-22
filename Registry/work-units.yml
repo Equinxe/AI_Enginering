@@ -1404,6 +1404,12 @@ work_units:
     milestone: Adoption
     delivers: Adapters/scripts/check-framework-drift.sh, Adapters/scripts/tests/run.sh, CHANGELOG.md, Registry/work-units.yml
 
+  - id: WU-IAENG-359
+    employee: Platform Engineer
+    title: Framework drift at session start (plan of 20 Oct 2026, WU-5; the Director's requirement of 21 Oct 2026 - checks run on their own in the session, silent when current) - session-start.sh runs check-framework-drift.sh --quick (A version, B files by the installers' plain diff, D hook command paths; C not evaluated, said) and prints at most three lines, one per family, only for what is actionable, each naming the command to run; the result is kept in a user-level cache (never in the project) and replayed while the framework commit, the recorded gitlink and every file it was read from are unchanged; bounded by timeout (TERM 2.8 s, KILL 0.2 s later), the installers' records kept on their own so a cut run still progresses, an overrun, a fault or an incomplete check said once; never run in the framework repository; the hook always exits 0; read-only proven by snapshots
+    milestone: Adoption
+    delivers: Adapters/ai-runtimes/claude-code/hooks/session-start.sh, Adapters/ai-runtimes/claude-code/hooks/lib.sh, Adapters/scripts/check-framework-drift.sh, Adapters/ai-runtimes/claude-code/hooks/tests/drift.sh, Adapters/ai-runtimes/claude-code/hooks/tests/run.sh, Adapters/ai-runtimes/claude-code/hooks/README.md, CHANGELOG.md, Registry/work-units.yml
+
   - id: WU-IAENG-360
     employee: Technical Writer
     title: One size limit for a Pull Request (cleanup plan of 22 Oct 2026, Phase 1 item 1) - the PR Size Guidelines table of Templates/PULL_REQUEST.md blocked a Pull Request above 800 changed lines, against the 1,500-line limit of Standards/PULL_REQUEST_STANDARD.md (Reviewability) and the template's own checklist; the table is removed and the section points to the Standard, which alone defines the limit, what it counts and the size/approved override; the two installed Pull Request templates carry no size table and keep the same 1,500-line checklist item
