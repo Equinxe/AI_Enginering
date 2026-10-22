@@ -8147,6 +8147,7 @@ expect_no_output "$(printf '\302\233')" "no C1 control from the framework path r
 # is used only where a directory of exactly that name can be made.
 ESC_DIR_366="fw$(printf '\033')[31mE"'\n'"X"
 mkdir -p "$WORK/probe-366" && mkdir "$WORK/probe-366/$ESC_DIR_366" 2>/dev/null
+block_begin 4 "install.sh --check with ESC and a backslash in the framework path"
 if [ "$(ls "$WORK/probe-366" 2>/dev/null)" = "$ESC_DIR_366" ]; then
   new_repo adopter-366-esc
   expect 0 "git takes a framework path holding ESC and a backslash as a submodule path" -- \
@@ -8156,8 +8157,9 @@ if [ "$(ls "$WORK/probe-366" 2>/dev/null)" = "$ESC_DIR_366" ]; then
   expect_output "absent/missing: re-run fw [31mE\\nX/Adapters/scripts/install.sh without --force"
   expect_no_output $'\e' "no ESC from the framework path reaches install.sh --check output"
 else
-  skip 4 "install.sh --check with ESC and a backslash in the framework path: this file system cannot hold that name -- not a fix defect."
+  skip "$BLOCK_N" "install.sh --check with ESC and a backslash in the framework path: this file system cannot hold that name -- not a fix defect."
 fi
+block_end
 
 # ------------- install.sh: the framework repository by identity (WU-IAENG-362) --
 #
