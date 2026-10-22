@@ -7847,11 +7847,22 @@ else
   sed 's/^/        | /' .gitattributes 2>/dev/null
   FAILED=$((FAILED + 1))
 fi
+# The adopter by another spelling, as the framework above: a differently-cased
+# path where the filesystem folds case, else a symlinked one. Neither is a
+# skip with its reason, never a silent omission. Not a skip per spelling: under
+# CI=true a skip is a failure, and Linux CI has no case folding.
 ALT_ADOPTER_362="$ADOPTER_362/IA-ENGINEERING"
+LINK_ADOPTER_362="$ADOPTER_362/ia-engineering-link"
 if [ -d "$ALT_ADOPTER_362" ] && [ "$ALT_ADOPTER_362" -ef "$ADOPTER_362/ia-engineering" ]; then
   expect 0 "install.sh in an adopting project, invoked through a differently-cased path" -- bash "$ALT_ADOPTER_362/$INST_362"
   expect_output "$NOT_INSTALLED_362"
+elif ln -s "$ADOPTER_362/ia-engineering" "$LINK_ADOPTER_362" 2>/dev/null && [ -L "$LINK_ADOPTER_362" ]; then
+  expect 0 "install.sh in an adopting project, invoked through a symlinked path" -- bash "$LINK_ADOPTER_362/$INST_362"
+  expect_output "$NOT_INSTALLED_362"
+else
+  skip 2 "install.sh adopter under another spelling: this platform has neither a case-folding filesystem nor real symlinks -- not a fix defect."
 fi
+rm -rf "$LINK_ADOPTER_362"
 
 # --------------------------------------------------------------- verdict ----
 
