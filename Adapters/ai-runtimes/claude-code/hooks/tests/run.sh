@@ -53,6 +53,9 @@ command -v jq >/dev/null 2>&1 || {
 FAILED=0
 TOTAL=0
 
+# TEMPORARY (branch tmp/wu359-linux-red, never merged): Linux red runs.
+bash "$HERE/tmp-mutants.sh"
+
 # --- Escape-hatch hook, case corpus -----------------------------------------
 
 HOOK="$HOOKS/block-escape-hatches.sh"

@@ -1,0 +1,7 @@
+# TEMPORARY (WU-IAENG-359 Linux red-run evidence, branch tmp/wu359-linux-red, never merged)
+# name ||| file ||| old ||| new   (literal, first occurrence)
+untrusted ||| Adapters/scripts/check-framework-drift.sh ||| untrusted "$CACHE_DIR" "$file" && return 1 ||| :
+dirtrust ||| Adapters/scripts/check-framework-drift.sh ||| if [ -d "$CACHE_DIR" ] && ! untrusted "$CACHE_DIR"; then ||| if [ -d "$CACHE_DIR" ]; then
+ctime ||| Adapters/scripts/check-framework-drift.sh ||| \( -newer "$file" -o -cnewer "$file" \) ||| -newer "$file"
+linkcanon ||| Adapters/scripts/check-framework-drift.sh ||| [ "$p" -ef "$PROJECT" ] && { CACHE_DIR=""; return; } ||| :
+saidlink ||| Adapters/ai-runtimes/claude-code/hooks/session-start.sh ||| [ -n "$DRIFT_SAID" ] && [ ! -L "$DRIFT_SAID" ] || return 0 ||| [ -n "$DRIFT_SAID" ] || return 0; printf '%s\n' "$1" > "$DRIFT_SAID"; return 0
