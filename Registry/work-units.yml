@@ -1404,6 +1404,12 @@ work_units:
     milestone: Adoption
     delivers: Adapters/scripts/check-framework-drift.sh, Adapters/scripts/tests/run.sh, CHANGELOG.md, Registry/work-units.yml
 
+  - id: WU-IAENG-359
+    employee: Platform Engineer
+    title: Framework drift at session start (plan of 20 Oct 2026, WU-5; the Director's requirement of 21 Oct 2026 - checks run on their own in the session, silent when current) - session-start.sh runs check-framework-drift.sh --quick (A version, B files by the installers' plain diff, D hook command paths; C not evaluated, said) and prints at most three lines, one per family, only for what is actionable, each naming the command to run; the result is kept in a user-level cache (never in the project) and replayed while the framework commit, the recorded gitlink and every file it was read from are unchanged; bounded by timeout (TERM 2.8 s, KILL 0.2 s later), the installers' records kept on their own so a cut run still progresses, an overrun, a fault or an incomplete check said once; never run in the framework repository; the hook always exits 0; read-only proven by snapshots
+    milestone: Adoption
+    delivers: Adapters/ai-runtimes/claude-code/hooks/session-start.sh, Adapters/ai-runtimes/claude-code/hooks/lib.sh, Adapters/scripts/check-framework-drift.sh, Adapters/ai-runtimes/claude-code/hooks/tests/drift.sh, Adapters/ai-runtimes/claude-code/hooks/tests/run.sh, Adapters/ai-runtimes/claude-code/hooks/README.md, CHANGELOG.md, Registry/work-units.yml
+
   - id: WU-IAENG-360
     employee: Technical Writer
     title: One size limit for a Pull Request (cleanup plan of 22 Oct 2026, Phase 1 item 1) - the PR Size Guidelines table of Templates/PULL_REQUEST.md blocked a Pull Request above 800 changed lines, against the 1,500-line limit of Standards/PULL_REQUEST_STANDARD.md (Reviewability) and the template's own checklist; the table is removed and the section points to the Standard, which alone defines the limit, what it counts and the size/approved override; the two installed Pull Request templates carry no size table and keep the same 1,500-line checklist item
@@ -1421,6 +1427,12 @@ work_units:
     title: install.sh recognises the framework repository by identity, not spelling (plan of 22 Oct 2026, Phase 1 #3) - the two sites that decided "this is the framework repository" by comparing FRAMEWORK and PROJECT as strings (the framework-only .gitattributes rules, the adopter next steps) now read one answer, HOOKS_REL = "." from the existing -ef walk, so a framework repository invoked through a differently-cased or symlinked path is no longer installed as an adopter; tests through a differently-cased path (case-folding filesystem) and a symlinked path (real symlinks), with the adopter still an adopter
     milestone: Adoption
     delivers: Adapters/scripts/install.sh, Adapters/scripts/tests/run.sh, CHANGELOG.md, Registry/work-units.yml
+
+  - id: WU-IAENG-363
+    employee: Test Automation Engineer
+    title: The check-script suite counts what it runs (plan of 22 Oct 2026, Phase 1 item 4; issue #275 items 1, 2, 3 and 5) - block_begin <n> / block_end declare the size of every block that runs only when ln -s works, the skip path takes its count from the declaration, and a block whose path that ran accounts for a different number, or a block left open at the verdict, is a FAILED check everywhere, CI included; not applicable is reported apart from skipped and allowed only for a key on the closed NA_ALLOWED list (the case-folded path, whose premise now requires -ef); the install.sh adopter block no longer holds a framework-only check its skip forgot; the symlinked and case-folded install-hooks.sh cases are counted as skipped or not applicable instead of vanishing; the workflow guard's job-name case is counted when it passes; the IAENG_REGISTRY_WORK_UNITS case says what it tests, and three new cases read an existing file, its precedence over Registry/work-units.yml and the fallback when it names a missing one
+    milestone: Adoption
+    delivers: Adapters/scripts/tests/run.sh, CHANGELOG.md, Registry/work-units.yml
 
   - id: WU-IAENG-365
     employee: Platform Engineer

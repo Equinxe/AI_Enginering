@@ -302,7 +302,9 @@ ss_repo() {
 # ss_run <dir> <hook> [stdin]  — sets SS_OUT (stdout+stderr) and SS_RC.
 ss_run() {
   local dir="$1" hook="$2" stdin="${3:-{\}}"
-  SS_OUT="$( (export CLAUDE_PROJECT_DIR="$dir"; printf '%s' "$stdin" | bash "$hook") 2>&1 )"
+  # XDG_CACHE_HOME: session-start.sh keeps its drift result in the user's
+  # cache (WU-IAENG-359); a test run must never write there.
+  SS_OUT="$( (export CLAUDE_PROJECT_DIR="$dir" XDG_CACHE_HOME="$SSBASE/cache"; printf '%s' "$stdin" | bash "$hook") 2>&1 )"
   SS_RC=$?
 }
 
@@ -632,6 +634,25 @@ else
   echo "   FAIL  tests/dashboard.sh reported no counts (exit $DASH_RC) — it could not run"
 fi
 rm -f "$DASH_COUNTS"
+
+# --- Framework drift at session start (WU-IAENG-359) -------------------------
+# Its own file too (tests/drift.sh), counted here the same way.
+DRIFT_COUNTS="$(mktemp "${TMPDIR:-/tmp}/iaeng-drift-counts.XXXXXX")"
+IAENG_HOOK_TESTS_COUNTS="$DRIFT_COUNTS" bash "$HERE/drift.sh" ${DASH_ARGS[@]+"${DASH_ARGS[@]}"}
+DRIFT_RC=$?
+if read -r DRIFT_TOTAL DRIFT_FAILED < "$DRIFT_COUNTS" 2>/dev/null \
+    && [[ "$DRIFT_TOTAL" =~ ^[0-9]+$ ]] && [[ "$DRIFT_FAILED" =~ ^[0-9]+$ ]] && [ "$DRIFT_TOTAL" -gt 0 ]; then
+  TOTAL=$((TOTAL + DRIFT_TOTAL))
+  FAILED=$((FAILED + DRIFT_FAILED))
+  if [ "$DRIFT_RC" -ne 0 ] && [ "$DRIFT_FAILED" -eq 0 ]; then
+    TOTAL=$((TOTAL + 1)); FAILED=$((FAILED + 1))
+    echo "   FAIL  tests/drift.sh exited $DRIFT_RC with no failed check counted"
+  fi
+else
+  TOTAL=$((TOTAL + 1)); FAILED=$((FAILED + 1))
+  echo "   FAIL  tests/drift.sh reported no counts (exit $DRIFT_RC) — it could not run"
+fi
+rm -f "$DRIFT_COUNTS"
 
 # --- Verdict ----------------------------------------------------------------
 
