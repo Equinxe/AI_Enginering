@@ -6232,7 +6232,7 @@ EOF
 # out of every later `git add -A`.
 printf 'z-notes.md\napp.py\n' > .git/carry-order.txt
 git config include.path carry-hostile.gitconfig
-cd templates || exit 1
+CDPATH='' cd -- templates || exit 1
 expect 0 "hostile diff/merge config, from a subdirectory: the honest merge still carries over" -- \
   bash "$CARRY" "$CO_A" "$CO_OK" --base develop
 expect 0 "hostile config: the ID-ordered resolution still carries over" -- \
@@ -7809,9 +7809,21 @@ same_without_cdpath_365 0 "generate-agents.sh --print-tier-map" \
   -- bash ia-engineering/Adapters/ai-runtimes/generate-agents.sh --print-tier-map
 # validate-framework.sh names the root it resolved; the fixture holds no
 # Employees, so it fails (exit 1), but on the submodule, not elsewhere.
-expect 1 "validate-framework.sh, CDPATH=.:<decoy> exported: validates the framework it sits in" \
-  -- env CDPATH=".:$DECOY_365" bash ia-engineering/Adapters/scripts/validate-framework.sh
-expect_output "Repository: $ADOPTER_365/ia-engineering"
+for cp_365 in ".:$DECOY_365" "$DECOY_365:."; do
+  expect 1 "validate-framework.sh, CDPATH=$cp_365 exported: validates the framework it sits in" \
+    -- env CDPATH="$cp_365" bash ia-engineering/Adapters/scripts/validate-framework.sh
+  expect_output "Repository: $ADOPTER_365/ia-engineering"
+done
+
+# check-risk-map.sh takes the project root as an argument, often relative.
+# A plain `cd "$ROOT"` reads CDPATH too: it printed the directory into the
+# report, or, with the decoy first, checked the decoy (no map) instead.
+risk_project rm-cdpath-365; sound_risk_map
+mkdir -p "$DECOY_365/rm-cdpath-365"
+cd "$WORK" || exit 1
+same_without_cdpath_365 0 "check-risk-map.sh on a relative project root" \
+  -- bash "$SCRIPTS/check-risk-map.sh" rm-cdpath-365
+expect_output "Risk Map is sound"
 
 # --------------------------------------------------------------- verdict ----
 

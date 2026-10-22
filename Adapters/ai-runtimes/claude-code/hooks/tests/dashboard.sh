@@ -55,7 +55,7 @@ for arg in "$@"; do
   esac
 done
 
-HERE="$(cd "$(dirname "$0")" && pwd)"
+HERE="$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)"
 HOOKS="$(cd "$HERE/.." && pwd)"
 CC="$(cd "$HOOKS/.." && pwd)"
 FRAMEWORK="$(cd "$CC/../../.." && pwd)"

@@ -103,7 +103,9 @@ if [ ! -d "$ROOT" ]; then
   err "no such directory: $ROOT"
   exit 1
 fi
-cd "$ROOT" || exit 1
+# The root is the caller's, often relative: an exported CDPATH must neither
+# redirect this cd nor print into the output.
+CDPATH='' cd -- "$ROOT" || exit 1
 
 MAP=".ia-engineering/risk-map.yml"
 if [ ! -f "$MAP" ]; then
