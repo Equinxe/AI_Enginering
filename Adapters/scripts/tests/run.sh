@@ -7307,6 +7307,14 @@ expect 3 "a core.hooksPath holding TAB and LF is still one differs record" -- ba
 expect_output "git-hooks${T}differs${T}core.hooksPath${T}ia-engineering/Adapters/git-hooks (set to: x file current FORGED fault fake)"
 expect_no_output "fault${T}fake" "no forged record from a TAB or LF in a git config value"
 expect_no_output "file${T}current${T}FORGED" "no forged file record either"
+# ESC and a C1 control (CSI, \xc2\x9b) become spaces too, in the record and
+# in the closing line's remedy (WU-IAENG-366).
+git config core.hooksPath "$(printf 'x\033[31mY\302\23331mZ')"
+expect 3 "a core.hooksPath holding ESC and a C1 control is flattened" -- bash "$INST_353" --check
+expect_output "git-hooks${T}differs${T}core.hooksPath${T}ia-engineering/Adapters/git-hooks (set to: x [31mY 31mZ)"
+expect_output "move any hooks the project keeps in x [31mY 31mZ out first"
+expect_no_output $'\e' "no ESC from a git config value reaches install.sh --check output"
+expect_no_output "$(printf '\302\233')" "no C1 control from a git config value reaches install.sh --check output"
 git config --unset core.hooksPath
 
 # --- hooks-only drift: an installed project whose files are all current -------
@@ -8052,6 +8060,106 @@ expect_output "path${T}broken${T}x 31mY${T}"
 expect_no_output "$(printf '\302\233')" "no C1 control from a git config value reaches the output"
 git config core.hooksPath "$HP0_358"
 expect 0 "clean once more after every single cause" -- bash "$DRIFT_358" --format tsv --strict
+
+section "record sanitiser — one rule in the four TSV emitters (WU-IAENG-366)"
+
+# install.sh, install-hooks.sh, install-skills.sh and check-framework-drift.sh
+# each keep their own copy of flat(), because none of them sources another.
+# The contract: the four copies are byte-identical, and each script's own
+# record function, fed the same hostile string in fields 2 to 4, writes the
+# same records, under the C locale and a UTF-8 one. The expected text is
+# written out here, not computed with flat(), so four copies that agree on a
+# wrong rule still fail.
+REC_366="$WORK/rec-366"; mkdir -p "$REC_366"
+# TAB, LF, CR, ESC, DEL, a C1 CSI (\xc2\x9b) and NEL (\xc2\x85), both ends of
+# the C1 range (\xc2\x80, \xc2\x9f), then UTF-8 that must survive: the first
+# code point past C1 (NBSP, \xc2\xa0), an e acute and an em dash.
+HOSTILE_366="$(printf 'a\tb\nc\rd\033[31me\177f\302\23331mg\302\205h\302\200j\302\237k\302\240l \303\251 \342\200\224 i')"
+FLAT_366="$(printf 'a b c d [31me f 31mg h j k\302\240l \303\251 \342\200\224 i')"
+WANT_366="$REC_366/want"
+printf 'fam\t%s\t%s\t%s\nfam\tst\tp\td\n' "$FLAT_366" "$FLAT_366" "$FLAT_366" > "$WANT_366"
+sed -n '/^# >>> record sanitiser/,/^# <<< record sanitiser/p' "$SCRIPTS/install.sh" > "$REC_366/ref"
+
+# A feeder script, not a shell function: a function reached only through
+# `expect` is reported unreachable by shellcheck (SC2317), as the pre-push
+# feeder above explains.
+#   rec-366.sh block <script> <ref>      the script's sanitiser block is <ref>
+#   rec-366.sh records <script> <fn> <locale> <hostile> <want>
+#       the script's own block and record function, fed <hostile> in fields
+#       2 to 4, then a plain record, write <want>: two records, four fields.
+cat > "$REC_366/rec-366.sh" <<'FEED'
+set -u
+out="$(mktemp)"
+trap 'rm -f "$out" "$out.fn" "$out.err"' EXIT
+sed -n '/^# >>> record sanitiser/,/^# <<< record sanitiser/p' "$2" > "$out.fn"
+if [ "$1" = block ]; then
+  [ -s "$out.fn" ] || { echo "no record sanitiser block in $2"; exit 1; }
+  diff "$3" "$out.fn" || exit 1
+  exit 0
+fi
+sed -n "/^$3() {/,/^}/p" "$2" >> "$out.fn"
+# stderr is kept apart: the records are stdout alone. A UTF-8 locale that
+# is not one here (e acute is not one character) fails, never passes as C.
+LC_ALL="$4" H="$5" FN="$out.fn" REC="$3" bash -c '
+  set -u; CHECK=1; REPORT=""; ROWS=""
+  case "$LC_ALL" in
+    *UTF-8) e="$(printf "\303\251")"; [ "${#e}" -eq 1 ] || exit 9 ;;
+  esac
+  . "$FN"
+  "$REC" fam "$H" "$H" "$H"
+  "$REC" fam st p d
+  printf "%s%s" "$REPORT" "$ROWS"' > "$out" 2> "$out.err"
+if [ $? -eq 9 ]; then
+  echo "LC_ALL=$4 is not a UTF-8 locale on this platform:"; cat "$out.err"; exit 1
+fi
+if ! cmp -s "$6" "$out"; then
+  echo "records differ from the expected ones:"; od -c "$out" | head -20; exit 1
+fi
+[ "$(wc -l < "$out")" -eq 2 ] || { echo "not two records"; exit 1; }
+awk -F '\t' 'NF != 4 { exit 1 }' "$out" || { echo "a record without four fields"; exit 1; }
+FEED
+for F_366 in "$SCRIPTS/install.sh" \
+             "$SCRIPTS/../ai-runtimes/claude-code/install-hooks.sh" \
+             "$SCRIPTS/../ai-runtimes/claude-code/install-skills.sh" \
+             "$SCRIPTS/check-framework-drift.sh"; do
+  B_366="$(basename "$F_366")"
+  FN_366=record; [ "$B_366" = check-framework-drift.sh ] && FN_366=rec
+  expect 0 "$B_366: the record sanitiser block is byte-identical to install.sh's" -- bash "$REC_366/rec-366.sh" block "$F_366" "$REC_366/ref"
+  for LOC_366 in C C.UTF-8; do
+    expect 0 "$B_366: $FN_366 flattens every control, C1 pairs included, keeps é and the em dash ($LOC_366)" -- bash "$REC_366/rec-366.sh" records "$F_366" "$FN_366" "$LOC_366" "$HOSTILE_366" "$WANT_366"
+  done
+done
+
+# SEC-IAENG-366-01: the framework's path inside the project reaches the
+# install.sh --check closing line. It is the project's choice (a submodule
+# path), so it is flattened and goes to awk through the environment, where
+# its backslashes are not decoded. A C1 control is a legal file name
+# character everywhere, NTFS included.
+C1_DIR_366="ia$(printf '\302\233')31mC1"
+new_repo adopter-366-c1
+git -c protocol.file.allow=always submodule add -q "$FW_353" "$C1_DIR_366" >/dev/null 2>&1
+git commit -q -m "chore(adopt): add the framework submodule"
+expect 3 "a framework path holding a C1 control: install.sh --check runs" -- bash "./$C1_DIR_366/Adapters/scripts/install.sh" --check
+expect_output "absent/missing: re-run ia 31mC1/Adapters/scripts/install.sh without --force"
+expect_no_output "$(printf '\302\233')" "no C1 control from the framework path reaches install.sh --check output"
+# ESC and a backslash escape: Linux and macOS file names can hold both;
+# NTFS refuses them, and MSYS reads a backslash as a separator, so the name
+# is used only where a directory of exactly that name can be made.
+ESC_DIR_366="fw$(printf '\033')[31mE"'\n'"X"
+mkdir -p "$WORK/probe-366" && mkdir "$WORK/probe-366/$ESC_DIR_366" 2>/dev/null
+block_begin 4 "install.sh --check with ESC and a backslash in the framework path"
+if [ "$(ls "$WORK/probe-366" 2>/dev/null)" = "$ESC_DIR_366" ]; then
+  new_repo adopter-366-esc
+  expect 0 "git takes a framework path holding ESC and a backslash as a submodule path" -- \
+    git -c protocol.file.allow=always submodule add -q "$FW_353" "$ESC_DIR_366"
+  git commit -q -m "chore(adopt): add the framework submodule"
+  expect 3 "a framework path holding ESC and a backslash escape: install.sh --check runs" -- bash "./$ESC_DIR_366/Adapters/scripts/install.sh" --check
+  expect_output "absent/missing: re-run fw [31mE\\nX/Adapters/scripts/install.sh without --force"
+  expect_no_output $'\e' "no ESC from the framework path reaches install.sh --check output"
+else
+  skip "$BLOCK_N" "install.sh --check with ESC and a backslash in the framework path: this file system cannot hold that name -- not a fix defect."
+fi
+block_end
 
 # ------------- install.sh: the framework repository by identity (WU-IAENG-362) --
 #

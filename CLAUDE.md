@@ -50,6 +50,7 @@ Lower levels extend upper levels. They never contradict them.
 - `Core/AGENT_CHAINS.md` — the named Agent Chains
 - `Core/EMPLOYEE_SELECTION.md` — per-Employee dispatch triggers
 - `Core/CAPABILITY_TIERS.md` — execution tiers
+- `Core/CONTEXT_BUDGET.md` — how much context the framework takes before a Work Unit begins
 
 ---
 

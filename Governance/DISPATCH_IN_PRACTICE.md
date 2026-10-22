@@ -6,7 +6,7 @@
 
 `Core/ORCHESTRATION.md` defines the dispatch protocol and `Core/EMPLOYEE_SELECTION.md` names the trigger for each of the 42 Employees. Both are correct. This document is neither: it records **what actually happens when the protocol is run**, and only where practice and the documents differ.
 
-It is deliberately short. This corpus is checked by sixteen mechanical sections and not one of them can read a sentence, so every page of prose is a page that can go stale unnoticed — the Release Chain example drifted from `Workflows/RELEASE.md` within hours of that Workflow changing, twice in one morning. A long "how it really works" document would be the same defect at greater length.
+It is deliberately short. This corpus is checked by twenty-two mechanical sections and not one of them can read a sentence, so every page of prose is a page that can go stale unnoticed — the Release Chain example drifted from `Workflows/RELEASE.md` within hours of that Workflow changing, twice in one morning. A long "how it really works" document would be the same defect at greater length.
 
 **Where this disagrees with `Core/ORCHESTRATION.md`, that document is right and this one is a defect.**
 

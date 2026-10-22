@@ -106,13 +106,29 @@ fi
 REPORT=""
 [ "$CHECK" -eq 1 ] && exec 3>&1 >/dev/null
 
-# record <family> <status> <path> <detail> — one line: a TAB, LF or CR in a
-# field becomes a space, so a directory name cannot split the record.
+# record <family> <status> <path> <detail> — one line: flat() flattens
+# fields 2 to 4, so a directory name can neither split the record nor carry
+# a terminal escape. Field 1 is a literal.
+# >>> record sanitiser — byte-identical in install.sh, install-hooks.sh,
+# install-skills.sh and check-framework-drift.sh: none of them sources
+# another, and Adapters/scripts/tests/run.sh compares the four (WU-IAENG-366).
+# flat <text> — every control character (TAB, LF, CR, ESC, ...) becomes a
+# space: a record is one line and carries no terminal escape.
+# The C1 controls (U+0080-U+009F, CSI among them) are UTF-8 pairs \xc2\x80 to
+# \xc2\x9f: a pair becomes one space. A lone byte in that range is part of
+# another character and is left alone (SEC-IAENG-358-01). For these the
+# result is the same under the C locale and a UTF-8 one; a UTF-8 locale also
+# flattens a few other code points, U+2028 and U+2029 among them.
+C1_LEAD=$'\xc2'
+flat() {
+  FLAT="${1//[[:cntrl:]]/ }"
+  FLAT="${FLAT//"$C1_LEAD"[$'\x80'-$'\x9f']/ }"
+}
+# <<< record sanitiser
 record() {
-  local f3="${3//$'\t'/ }" detail="${4//$'\t'/ }"
-  f3="${f3//$'\n'/ }"; f3="${f3//$'\r'/ }"
-  detail="${detail//$'\n'/ }"; detail="${detail//$'\r'/ }"
-  REPORT="$REPORT$1"$'\t'"$2"$'\t'"$f3"$'\t'"$detail"$'\n'
+  local f2 f3 f4
+  flat "$2"; f2="$FLAT"; flat "$3"; f3="$FLAT"; flat "$4"; f4="$FLAT"
+  REPORT="$REPORT$1"$'\t'"$f2"$'\t'"$f3"$'\t'"$f4"$'\n'
 }
 
 # check_report — prints the records (under --quiet the actionable ones) and
@@ -126,7 +142,7 @@ check_report() {
     esac
   done <<< "$REPORT"
   [ "$QUIET" -eq 1 ] && [ -z "$actionable" ] && exit 0
-  _me="${0//$'\t'/ }"; _me="${_me//$'\n'/ }"
+  flat "$0"; _me="$FLAT"
   {
     if [ "$QUIET" -eq 1 ]; then printf '%s' "$actionable"; else printf '%s' "$REPORT"; fi
     # The script's path reaches awk through the environment, not -v, which
