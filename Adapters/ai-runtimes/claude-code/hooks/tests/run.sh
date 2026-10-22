@@ -433,12 +433,17 @@ STALEHDR="$(ss_repo stale-header)"
 echo '_Last updated: 1 January 2020, morning by Tester_' > "$STALEHDR/.ia-engineering/SESSION_STATE.md"
 touch "$STALEHDR/.ia-engineering/SESSION_STATE.md"
 
-# "big": current header and mtime, body over the 15,000-character budget.
+# "big": a SESSION_STATE of about 80,000 characters. The file has no size
+# limit (Director decision, 22 October 2026: it is the agent's memory and
+# may keep history), so the hook must not warn about its size — and must
+# still read it to the end: the Next Step sits after the long history.
 BIG="$(ss_repo big)"
 {
   echo '_Last updated: 24 September 2026, afternoon by Tester_'
   echo '## Where the Project Stands'
-  yes 'padding padding padding padding padding' | head -n 400
+  yes 'padding padding padding padding padding' | head -n 2000
+  echo '## Next Step'
+  echo 'resume after a very long history'
 } > "$BIG/.ia-engineering/SESSION_STATE.md"
 touch "$BIG/.ia-engineering/SESSION_STATE.md"
 
@@ -566,10 +571,10 @@ ss_run "$UNPARSABLE" "$SESSTART" ''
 ss_check_has  "session-start: reports an unparsable header rather than staying silent" yes "no parsable date found"
 
 ss_run "$BIG" "$SESSTART" ''
-ss_check_has  "session-start: warns when SESSION_STATE exceeds the size budget" yes "15,000-character budget"
-
-ss_run "$FRESH" "$SESSTART" ''
-ss_check_has  "session-start: no size warning when SESSION_STATE is small" no "15,000-character budget"
+ss_check_has  "session-start: no size warning for an ~80,000-character SESSION_STATE (no size limit)" no "character budget"
+ss_check_has  "session-start: no character-count warning of any size for a long SESSION_STATE" no " characters (Core/CONTEXT_BUDGET.md"
+ss_check_has  "session-start: a long SESSION_STATE is still read — its header is printed" yes "Last updated: 24 September 2026"
+ss_check_has  "session-start: a long SESSION_STATE is still read to the end — its Next Step is printed" yes "resume after a very long history"
 
 ss_run "$SKEW" "$SESSTART" ''
 ss_check_has  "session-start: no behind-warning when HEAD has a future committer date (clock skew)" no "behind the repository"

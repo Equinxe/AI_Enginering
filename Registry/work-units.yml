@@ -1439,3 +1439,9 @@ work_units:
     title: The escape-hatch hook tests prove their own rule (issue #275 item 4; plan of 22 Oct 2026, Phase 1 #5) - an expect_hint case reaches the -c write mark of the hooksPath rule (block-escape-hatches.sh, the HOOKSPATH_REAL_WRITE set after WRITE_HOOKSPATH_VIA_C), which no case reached; escape-hatch-cases.tsv gains an optional third column, a reason substring the refusal must contain, legal on block cases only and required to name exactly one of the hook's reasons; it is filled for the block cases that more than one rule refuses; the ten exact duplicate cases are removed; the hook itself is unchanged
     milestone: Adoption
     delivers: Adapters/ai-runtimes/claude-code/hooks/tests/run.sh, Adapters/ai-runtimes/claude-code/hooks/tests/escape-hatch-cases.tsv, CHANGELOG.md, Registry/work-units.yml
+
+  - id: WU-IAENG-368
+    employee: Platform Engineer
+    title: SESSION_STATE.md has no size limit (Director decision of 22 Oct 2026 - it is the agent's memory and the one file that may be very long) - session-start.sh no longer warns above 15,000 characters and still prints the header, Next Step and Blocked on; Templates/SESSION_STATE.md drops the size budget and the obligation to prune the Journal, states the file may keep its history, and keeps the snapshot rule for Where the Project Stands and Next Step; the hooks README says two warnings, not three; an ~80,000-character fixture must produce no size warning and still be read to its last section, seen red against the old hook
+    milestone: Adoption
+    delivers: Adapters/ai-runtimes/claude-code/hooks/session-start.sh, Adapters/ai-runtimes/claude-code/hooks/tests/run.sh, Adapters/ai-runtimes/claude-code/hooks/README.md, Templates/SESSION_STATE.md, CHANGELOG.md, Registry/work-units.yml
