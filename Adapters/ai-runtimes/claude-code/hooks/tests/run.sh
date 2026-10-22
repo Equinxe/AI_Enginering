@@ -445,6 +445,7 @@ BIG="$(ss_repo big)"
   echo '## Next Step'
   echo 'resume after a very long history'
 } > "$BIG/.ia-engineering/SESSION_STATE.md"
+BIG_CHARS="$(wc -c < "$BIG/.ia-engineering/SESSION_STATE.md" | tr -d '[:space:]')"
 touch "$BIG/.ia-engineering/SESSION_STATE.md"
 
 # "dirty": stale SESSION_STATE, plus an uncommitted change to a tracked file —
@@ -573,6 +574,7 @@ ss_check_has  "session-start: reports an unparsable header rather than staying s
 ss_run "$BIG" "$SESSTART" ''
 ss_check_has  "session-start: no size warning for an ~80,000-character SESSION_STATE (no size limit)" no "character budget"
 ss_check_has  "session-start: no character-count warning of any size for a long SESSION_STATE" no " characters (Core/CONTEXT_BUDGET.md"
+ss_check_has  "session-start: the long SESSION_STATE's size ($BIG_CHARS characters) is not reported" no "$BIG_CHARS"
 ss_check_has  "session-start: a long SESSION_STATE is still read — its header is printed" yes "Last updated: 24 September 2026"
 ss_check_has  "session-start: a long SESSION_STATE is still read to the end — its Next Step is printed" yes "resume after a very long history"
 
