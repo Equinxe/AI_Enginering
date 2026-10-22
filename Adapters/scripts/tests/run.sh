@@ -7698,7 +7698,10 @@ cat > .claude/settings.local.json <<'EOF'
   {"type": "command", "command": "deno run x.ts"},
   {"type": "command", "command": "node --require=./preload.js app.js"},
   {"type": "command", "command": "bash //srv.invalid/share/x.sh"},
-  {"type": "command", "command": "\\\\\\\\srv.invalid\\\\share\\\\x.sh"}
+  {"type": "command", "command": "\\\\\\\\srv.invalid\\\\share\\\\x.sh"},
+  {"type": "command", "command": "bash '/\\srv.invalid\\share\\x.sh'"},
+  {"type": "command", "command": "bash '\\/srv.invalid/share/x.sh'"},
+  {"type": "command", "command": "bash -O extglob .claude/hooks/x.sh"}
 ]}]}}
 EOF
 expect 0 "valid hook forms a shell reads are not drift (exit 0)" -- bash "$DRIFT_358" --format tsv --strict
@@ -7709,6 +7712,9 @@ expect_output "path${T}unresolved${T}run${T}not a script path"
 expect_output "path${T}unresolved${T}--require=./preload.js${T}an interpreter option"
 expect_output "path${T}unresolved${T}//srv.invalid/share/x.sh${T}a network path: never touched"
 expect_output "path${T}unresolved${T}\\\\srv.invalid\\share\\x.sh${T}a network path: never touched"
+expect_output "path${T}unresolved${T}/\\srv.invalid\\share\\x.sh${T}a network path: never touched"
+expect_output "path${T}unresolved${T}\\/srv.invalid/share/x.sh${T}a network path: never touched"
+expect_output "path${T}unresolved${T}(none)${T}a shell option this check does not interpret (-O)"
 expect_no_output "path${T}broken" "no valid hook form is called broken"
 rm .claude/settings.local.json
 
@@ -7728,6 +7734,9 @@ HP0_358="$(git config --get core.hooksPath)"
 MSYS_NO_PATHCONV=1 git config core.hooksPath //srv.invalid/hooks
 expect 1 "a network core.hooksPath is unresolved, not stat-ed" -- bash "$DRIFT_358" --format tsv --strict
 expect_output "path${T}unresolved${T}//srv.invalid/hooks${T}core.hooksPath is a network path"
+MSYS_NO_PATHCONV=1 git config core.hooksPath '/\srv.invalid\hooks'
+expect 1 "a core.hooksPath that starts with a slash and a backslash is a network path too" -- bash "$DRIFT_358" --format tsv --strict
+expect_output "path${T}unresolved${T}/\\srv.invalid\\hooks${T}core.hooksPath is a network path"
 git config core.hooksPath "$(printf 'x\302\23331mY')"
 expect 1 "a core.hooksPath holding a C1 control is flattened" -- bash "$DRIFT_358" --format tsv --strict
 expect_output "path${T}broken${T}x 31mY${T}"

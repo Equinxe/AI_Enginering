@@ -544,13 +544,13 @@ resolve_command() {
   case "${WORDS[k]:-}" in
     bash|sh|zsh|dash|*/bash|*/sh|*/zsh|*/dash)
       # A shell: short flags may be combined (-lc, -ec); one that holds c runs
-      # inline code. -o/+o take an argument, and long options other than the
+      # inline code. -o/+o and -O/+O take an argument, and long options other than the
       # three below are not known here: unresolved.
       k=$((k + 1))
       while [ "$k" -lt "$n" ]; do
         case "${WORDS[k]}" in
           --login|--norc|--noprofile) k=$((k + 1)) ;;
-          -o|+o|--*) RSTATUS=unresolved; RPATH="(none)"; RWHY="a shell option this check does not interpret (${WORDS[k]})"; return ;;
+          -o|+o|-O|+O|--*) RSTATUS=unresolved; RPATH="(none)"; RWHY="a shell option this check does not interpret (${WORDS[k]})"; return ;;
           -*c*|+*c*) RSTATUS=unresolved; RPATH="(inline code)"; RWHY="the shell runs inline code (${WORDS[k]}), not a script file"; return ;;
           -[a-zA-Z]*|+[a-zA-Z]*) k=$((k + 1)) ;;
           *) break ;;
@@ -587,8 +587,9 @@ resolve_command() {
       RSTATUS=unresolved; RPATH="$cand"; RWHY="the path needs a shell to expand it: not resolved, never run"; return ;;
     # A network path is never stat-ed: on Windows that opens an SMB
     # connection and can hand the user's NTLM hash to the named host
-    # (SEC-IAENG-358-02).
-    //*|\\\\*)
+    # (SEC-IAENG-358-02). Windows reads / and \ alike, so any two of them
+    # in any order (//, \\, /\, \/) open a UNC path.
+    [/\\][/\\]*)
       RSTATUS=unresolved; RPATH="$cand"; RWHY="a network path: never touched by this check"; return ;;
   esac
   case "$cand" in
@@ -642,7 +643,7 @@ if HP="$(git config --type=path --get core.hooksPath 2>/dev/null)"; then
     *) HPA="$PROJECT/$HP" ;;
   esac
   case "$HP" in
-    //*|\\\\*) HPA="" ;;
+    [/\\][/\\]*) HPA="" ;;
   esac
   if [ -z "$HPA" ]; then
     rec path unresolved "$HP" "core.hooksPath is a network path: never touched by this check"
