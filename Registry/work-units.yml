@@ -1403,3 +1403,9 @@ work_units:
     title: check-framework-drift.sh (plan of 20 Oct 2026, WU-4) - orchestrates the four installer --check modes and adds the framework version (pinned commit and tag, last tag known locally, tags behind, gitlink + and -, --remote by git ls-remote), the stale or modified classification of every differing file and skill (line-ending CR dropped, git hash-object --stdin without -w against every blob the template has had; shallow or copied framework is indeterminate), and every command path of settings.json and settings.local.json resolved and never run, plus core.hooksPath; text or tsv, a denominator summary line, exit 0 by default, --strict 1 drift and 2 indeterminate; not applicable in the framework repository; no-jq and an absent settings.json are never clean (#282); read-only proven by a snapshot and a logging git wrapper
     milestone: Adoption
     delivers: Adapters/scripts/check-framework-drift.sh, Adapters/scripts/tests/run.sh, CHANGELOG.md, Registry/work-units.yml
+
+  - id: WU-IAENG-364
+    employee: Test Automation Engineer
+    title: The escape-hatch hook tests prove their own rule (issue #275 item 4; plan of 22 Oct 2026, Phase 1 #5) - an expect_hint case reaches the -c write mark of the hooksPath rule (block-escape-hatches.sh, the HOOKSPATH_REAL_WRITE set after WRITE_HOOKSPATH_VIA_C), which no case reached; escape-hatch-cases.tsv gains an optional third column, a reason substring the refusal must contain, legal on block cases only and required to name exactly one of the hook's reasons; it is filled for the block cases that more than one rule refuses; the ten exact duplicate cases are removed; the hook itself is unchanged
+    milestone: Adoption
+    delivers: Adapters/ai-runtimes/claude-code/hooks/tests/run.sh, Adapters/ai-runtimes/claude-code/hooks/tests/escape-hatch-cases.tsv, CHANGELOG.md, Registry/work-units.yml
