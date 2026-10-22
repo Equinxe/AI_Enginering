@@ -142,7 +142,7 @@ fi
 # below to print a path the reader can act on, and a project sees its own
 # framework checkout by the link name, not by wherever that link happens to
 # point on this machine.
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 ADAPTERS_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 # Computes a relative path from directory $1 to path $2 by comparing path

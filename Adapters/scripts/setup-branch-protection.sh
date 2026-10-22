@@ -49,7 +49,7 @@
 
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 
 # THIS SCRIPT IS THE GITHUB IMPLEMENTATION, and now establishes that before it
 # acts. The host is resolved here; what to do about a different one is decided

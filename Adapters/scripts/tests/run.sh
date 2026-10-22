@@ -33,7 +33,7 @@ set -uo pipefail
 VERBOSE=""
 [ "${1:-}" = "--verbose" ] && VERBOSE=1
 
-HERE="$(cd "$(dirname "$0")" && pwd)"
+HERE="$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)"
 SCRIPTS="$(cd "$HERE/.." && pwd)"
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
@@ -7743,6 +7743,75 @@ expect_output "path${T}broken${T}x 31mY${T}"
 expect_no_output "$(printf '\302\233')" "no C1 control from a git config value reaches the output"
 git config core.hooksPath "$HP0_358"
 expect 0 "clean once more after every single cause" -- bash "$DRIFT_358" --format tsv --strict
+
+section "an exported CDPATH does not move a script's own directory (WU-IAENG-365)"
+
+# Every script finds its siblings with SCRIPT_DIR="$(cd "$(dirname ...)" &&
+# pwd)". When the dirname is relative and does not start with ".", bash's cd
+# searches CDPATH first, and when a CDPATH entry matches it prints the new
+# directory on stdout. With CDPATH=.:<x> exported the value captured is the
+# directory twice, on two lines, and every path built from it is wrong; with
+# <x> first and a same-named directory under it, cd lands in the wrong tree.
+# `CDPATH=''` on the cd (the form check-employee-trailers.sh uses) turns both
+# off. The scripts are called as `bash ia-engineering/...`, the form CDPATH
+# applies to: the `./ia-engineering/...` form of the cases above never
+# consults it, which is why none of them saw this.
+#
+# The test: a script run with CDPATH exported behaves exactly as without it,
+# same exit, same output, from a project that holds the same-named directory
+# both where it should and under a CDPATH decoy.
+
+new_repo fw-365
+cp -R "$SCRIPTS/.." ./Adapters
+cp -R "$SCRIPTS/../../Registry" ./Registry
+cp "$SCRIPTS/../../.gitattributes" ./.gitattributes
+git add -A && git commit -q -m "framework fixture"
+FW_365="$PWD"
+new_repo adopter-365
+git -c protocol.file.allow=always submodule add -q "$FW_365" ia-engineering >/dev/null 2>&1
+git commit -q -m "chore(adopt): add the framework submodule"
+ADOPTER_365="$PWD"
+# The decoy carries the same relative directories, empty: a cd redirected
+# into it finds no sibling script.
+DECOY_365="$WORK/cdpath-decoy-365"
+mkdir -p "$DECOY_365/ia-engineering/Adapters/scripts" \
+         "$DECOY_365/ia-engineering/Adapters/ai-runtimes/claude-code"
+
+# same_without_cdpath_365 <want-exit> <description> -- <command...> — the
+# command exits <want-exit> with CDPATH unset, then exits the same and prints
+# the same output under each exported CDPATH order.
+same_without_cdpath_365() {
+  local want="$1" desc="$2" base cp
+  shift 2
+  [ "$1" = "--" ] && shift
+  expect "$want" "$desc, CDPATH unset" -- env -u CDPATH "$@" || return 1
+  base="$LAST_OUTPUT"
+  for cp in ".:$DECOY_365" "$DECOY_365:."; do
+    expect "$want" "$desc, CDPATH=$cp exported: same exit" -- env CDPATH="$cp" "$@"
+    TOTAL=$((TOTAL + 1))
+    if [ "$LAST_OUTPUT" = "$base" ]; then
+      [ -n "$VERBOSE" ] && printf '   ok   %s, CDPATH=%s exported: same output\n' "$desc" "$cp"
+    else
+      printf '   FAIL %s, CDPATH=%s exported: output differs from the run without it\n' "$desc" "$cp"
+      diff <(printf '%s\n' "$base") <(printf '%s\n' "$LAST_OUTPUT") | sed 's/^/        | /'
+      FAILED=$((FAILED + 1))
+    fi
+  done
+}
+
+cd "$ADOPTER_365" || exit 1
+same_without_cdpath_365 3 "install.sh --check on a never-installed project" \
+  -- bash ia-engineering/Adapters/scripts/install.sh --check
+expect_output "git-hooks${T}absent${T}core.hooksPath${T}ia-engineering/Adapters/git-hooks"
+same_without_cdpath_365 3 "install-hooks.sh --check on a never-installed project" \
+  -- bash ia-engineering/Adapters/ai-runtimes/claude-code/install-hooks.sh --check
+same_without_cdpath_365 0 "generate-agents.sh --print-tier-map" \
+  -- bash ia-engineering/Adapters/ai-runtimes/generate-agents.sh --print-tier-map
+# validate-framework.sh names the root it resolved; the fixture holds no
+# Employees, so it fails (exit 1), but on the submodule, not elsewhere.
+expect 1 "validate-framework.sh, CDPATH=.:<decoy> exported: validates the framework it sits in" \
+  -- env CDPATH=".:$DECOY_365" bash ia-engineering/Adapters/scripts/validate-framework.sh
+expect_output "Repository: $ADOPTER_365/ia-engineering"
 
 # --------------------------------------------------------------- verdict ----
 

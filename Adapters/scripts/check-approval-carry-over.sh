@@ -268,7 +268,7 @@ command -v git > /dev/null 2>&1 || cannot_decide "git is not on PATH"
 git() { command git -c core.commitGraph=false "$@"; }
 git rev-parse --git-dir > /dev/null 2>&1 || cannot_decide "not inside a git repository"
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)" \
+SCRIPT_DIR="$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)" \
   || cannot_decide "cannot locate the directory of this script"
 [ -f "$SCRIPT_DIR/merge-classify.sh" ] \
   || cannot_decide "merge-classify.sh not found beside this script ($(q "$SCRIPT_DIR")): git's own merge is defined there"

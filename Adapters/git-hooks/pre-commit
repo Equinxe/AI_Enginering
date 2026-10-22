@@ -33,7 +33,7 @@ set -euo pipefail
 # assumes. Fail closed if none resolves: a data-protection hook that silently
 # does nothing is worse than no hook, because it is trusted.
 
-HOOK_DIR="$(cd "$(dirname "$0")" && pwd)"
+HOOK_DIR="$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)"
 SCANNER=""
 for candidate in \
   "$HOOK_DIR/../scripts" \

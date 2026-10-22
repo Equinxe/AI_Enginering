@@ -158,7 +158,7 @@ check_report() {
   exit 0
 }
 
-HERE="$(cd "$(dirname "$0")" && pwd)"
+HERE="$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)"
 PROJECT="$(pwd)"
 SRC="$HERE/skills"
 

@@ -143,7 +143,7 @@ case "$FORMAT" in
   *) echo "check-framework-drift.sh: --format takes text or tsv" >&2; exit 64 ;;
 esac
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 FRAMEWORK="$(cd "$SCRIPT_DIR/../.." && pwd)"
 RUNTIME="$FRAMEWORK/Adapters/ai-runtimes/claude-code"
 
