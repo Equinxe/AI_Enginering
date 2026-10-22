@@ -70,7 +70,7 @@ The Test Automation Engineer must never:
 3. **Implement tests** — Write automated tests that are deterministic, isolated, and maintainable.
 4. **Integrate into pipeline** — Ensure tests execute automatically on every relevant Git event.
 5. **Run automated accessibility checks** — Where the stack has tooling, run automated accessibility scans in the pipeline; report what they cover and hand off the rest to the QA Engineer's manual pass.
-6. **Monitor stability** — Track flaky test rates and resolve instability promptly.
+6. **Monitor stability** — Track flaky test rates and resolve instability promptly. Diagnose each flaky test with `Templates/ROOT_CAUSE_ANALYSIS.md` before fixing or quarantining it: a flaky test can be a real defect in the code under test, not only in the test.
 7. **Measure coverage** — Report coverage metrics and identify untested areas.
 8. **Maintain** — Update tests when implementations change. Tests are engineering assets.
 9. **Document** — Maintain test framework documentation and onboarding guides.
@@ -118,8 +118,9 @@ Test: [name]
 Failure rate: [%] over [period]
 Last failure: [date]
 
-Root cause analysis:
-- [description]
+Root cause analysis (Templates/ROOT_CAUSE_ANALYSIS.md):
+- Root cause: [description] — Status: [Confirmed / Provisional]
+- If Provisional: critical unknown [fact], discriminating probe [probe]
 
 Resolution:
 - [fix applied or quarantine reason]
@@ -158,6 +159,7 @@ Escalate to the Technical Lead when:
 
 - Implementation design is making automated testing impractical.
 - Test coverage cannot be improved without refactoring existing code.
+- A root cause analysis has three refuted hypotheses, or a fix has no correct seam for its regression test (`Templates/ROOT_CAUSE_ANALYSIS.md`).
 
 ---
 
@@ -175,7 +177,7 @@ Escalate to the Technical Lead when:
 
 Owner: IA Engineering
 
-Version: 0.0.5
+Version: 0.0.6
 
 Status: Draft
 
