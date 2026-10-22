@@ -250,6 +250,22 @@ if [ -z "$HOOKS_REL" ]; then
   exit 1
 fi
 
+# Whether this run installs into the framework repository itself, read from
+# the walk above: HOOKS_REL is "." exactly when the framework and the project
+# are the same directory by device and inode. Both places that act on it (the
+# framework-only .gitattributes rules, the adopter's next steps) read this one
+# answer. They used to compare "$FRAMEWORK" and "$PROJECT" as strings, the
+# question the walk was written to stop asking: run as
+# /c/developpement/ai_enginering/Adapters/scripts/install.sh, the framework
+# repository differed from its own `pwd` only in case and was installed as an
+# adopter — the adopter's eol rules, none of /Adapters/** and /Registry/**,
+# and next steps that do not apply to it (WU-IAENG-362).
+if [ "$HOOKS_REL" = . ]; then
+  FRAMEWORK_IS_PROJECT=1
+else
+  FRAMEWORK_IS_PROJECT=0
+fi
+
 CHANGED=0
 SKIPPED=0
 PROBLEMS=0
@@ -546,7 +562,7 @@ echo "Line endings"
 # it does not create an Adapters/ or Registry/ directory in the project being
 # set up, so an adopting project has nothing at either path for a
 # .gitattributes rule to match. Only /.github/** is meaningful there. The two
-# framework-only rules are appended only when FRAMEWORK = PROJECT below, i.e.
+# framework-only rules are appended only when FRAMEWORK_IS_PROJECT below, i.e.
 # only when this script installs into the framework repository itself, which
 # is where /Adapters/** and /Registry/** actually exist.
 #
@@ -611,7 +627,7 @@ append_gitattributes_rules() {
   fi
 }
 
-if [ "$FRAMEWORK" = "$PROJECT" ]; then
+if [ "$FRAMEWORK_IS_PROJECT" -eq 1 ]; then
   append_gitattributes_rules "$FRAMEWORK_ONLY_ATTR_RULES" \
     ".gitattributes (framework repository governs its own paths)"
 else
@@ -928,7 +944,7 @@ if [ "$ACTIONS" -gt 0 ] && [ "$PROBLEMS" -eq 0 ]; then
   echo "  faults — this run succeeded and exits 0."
 fi
 
-if [ "$FRAMEWORK" != "$PROJECT" ]; then
+if [ "$FRAMEWORK_IS_PROJECT" -eq 0 ]; then
   echo
   echo "Not installed by this script, by design:"
   echo "  Branch protection   ./$HOOKS_REL/Adapters/scripts/setup-branch-protection.sh"

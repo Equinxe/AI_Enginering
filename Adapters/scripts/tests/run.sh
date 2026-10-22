@@ -3276,6 +3276,182 @@ expect 1 "a newline before a real control path still flags it (-z)" -- "${CP_RUN
 expect 1 "one control path among many NUL-delimited names (-z)" -- "${CP_RUN[@]}" 'a b\0-x\0Adapters/git-hooks/pre-push\0c\0' -z
 expect 2 "an unknown option is a usage error" -- "${CP_RUN[@]}" 'a\n' --bogus
 
+# ------------------------ check-control-path-approval.sh (WU-IAENG-361) --
+#
+# The Control Path Guard's decision, which lived as inline shell in
+# control-path-guard.yml until WU-IAENG-361. The script reads the PR through
+# `gh api`, and that API is the one thing stubbed: a PATH shim answers its two
+# reads (the PR head, the file listing) from files and logs every call. The
+# matcher it runs is the real check-control-paths.sh beside it. Every refusal
+# is asserted on its message, not only on its exit code.
+
+CHECK_CPA="$SCRIPTS/check-control-path-approval.sh"
+CPA_BIN="$WORK/cpa-bin"
+CPA_DATA="$WORK/cpa-data"
+mkdir -p "$CPA_BIN"
+cat > "$CPA_BIN/gh" <<'FAKEGH'
+#!/usr/bin/env bash
+# Fake gh. `api repos/R/pulls/N --jq .head.sha` prints the next line of
+# $CPA_DATA/heads; `api repos/R/pulls/N/files --paginate` prints
+# $CPA_DATA/files.json, or fails when $CPA_DATA/files.fail exists.
+printf '%s\n' "$*" >> "$CPA_DATA/calls"
+[ "${1:-}" = api ] || exit 90
+case "${2:-}" in
+  */files)
+    [ -e "$CPA_DATA/files.fail" ] && { echo "gh: HTTP 502" >&2; exit 1; }
+    cat "$CPA_DATA/files.json" ;;
+  *)
+    n=$(( $(cat "$CPA_DATA/n") + 1 ))
+    echo "$n" > "$CPA_DATA/n"
+    sed -n "${n}p" "$CPA_DATA/heads" ;;
+esac
+FAKEGH
+chmod +x "$CPA_BIN/gh"
+
+CPA_H1="$(printf '%040d' 0 | tr 0 a)"
+CPA_H2="$(printf '%040d' 0 | tr 0 b)"
+CPA_OK='control-change/approved'
+
+# cpa_api <files-json> <head-before> [<head-after>] — resets the fake API.
+cpa_api() {
+  rm -rf "$CPA_DATA"
+  mkdir -p "$CPA_DATA"
+  printf '%s' "$1" > "$CPA_DATA/files.json"
+  printf '%s\n' "$2" "${3:-$2}" > "$CPA_DATA/heads"
+  echo 0 > "$CPA_DATA/n"
+  : > "$CPA_DATA/calls"
+}
+
+# cpa_calls <expected-calls-joined-by-|> <description>
+cpa_calls() {
+  TOTAL=$((TOTAL + 1))
+  if [ "$(tr '\n' '|' < "$CPA_DATA/calls")" = "$1" ]; then
+    [ -n "$VERBOSE" ] && printf '   ok   %s\n' "$2"
+    return 0
+  fi
+  printf '   FAIL %s\n' "$2"
+  sed 's/^/        | /' "$CPA_DATA/calls"
+  FAILED=$((FAILED + 1))
+  return 1
+}
+
+# The event as the workflow's env: block passes it: a push (synchronize) by the
+# Director on head H1 of a PR changing 2 files. A case appends the assignments
+# it changes; for env, the later one wins. CPA_BASE leaves DIRECTOR_LOGIN unset.
+CPA_BASE=(env -u DIRECTOR_LOGIN PATH="$CPA_BIN:$PATH" CPA_DATA="$CPA_DATA" GH_TOKEN=unused
+  REPO=o/r PR_NUMBER=7 CHANGED_FILES=2 ACTION=synchronize LABEL_ADDED= SENDER=dir
+  EVENT_HEAD="$CPA_H1" LABELS_JSON='[]' APPROVAL_LABEL="$CPA_OK")
+CPA_ENV=("${CPA_BASE[@]}" DIRECTOR_LOGIN=dir)
+CPA_PLAIN='[{"filename":"src/a.c"},{"filename":"README.md"}]'
+CPA_CTRL='[{"filename":"src/a.c"},{"filename":".github/workflows/x.yml"}]'
+CPA_HEAD="api repos/o/r/pulls/7 --jq .head.sha|"
+CPA_LIST="api repos/o/r/pulls/7/files --paginate|"
+CPA_LAST="needs '$CPA_OK' applied by the Director (dir) as the LAST event on this head"
+
+section "check-control-path-approval.sh — the Control Path Guard's decision (WU-IAENG-361)"
+
+cpa_api "$CPA_PLAIN" "$CPA_H1"
+expect 0 "no control path touched passes" -- "${CPA_ENV[@]}" bash "$CHECK_CPA"
+expect_output "No control path is touched."
+expect_output "none of the 2 changed paths"
+cpa_calls "$CPA_HEAD$CPA_LIST$CPA_HEAD" "the head is read before and after the listing, in that order"
+
+cpa_api '[{"filename":"src/a.c"}][{"filename":"README.md"},{"filename":"docs/x.md"}]' "$CPA_H1"
+expect 0 "a paginated listing is counted across its pages" -- "${CPA_ENV[@]}" CHANGED_FILES=3 bash "$CHECK_CPA"
+expect_output "none of the 3 changed paths"
+
+# Happy path: this event IS the Director applying the approval label.
+cpa_api "$CPA_CTRL" "$CPA_H1"
+expect 0 "the Director applying the label as this event passes" -- "${CPA_ENV[@]}" \
+  ACTION=labeled LABEL_ADDED="$CPA_OK" LABELS_JSON="[\"$CPA_OK\"]" bash "$CHECK_CPA"
+expect_output "::notice::Control paths are touched and the Director (dir) has just applied '$CPA_OK' to this head. Passing."
+expect_output "control path touched: .github/workflows/x.yml"
+
+cpa_api "$CPA_CTRL" "$CPA_H1"
+expect 1 "a control path touched with no approval fails" -- "${CPA_ENV[@]}" bash "$CHECK_CPA"
+expect_output "$CPA_LAST"
+
+# Label not last: the approval label is on the PR, but this event is not the
+# Director applying it.
+cpa_api "$CPA_CTRL" "$CPA_H1"
+expect 1 "another label added after the approval voids it" -- "${CPA_ENV[@]}" \
+  ACTION=labeled LABEL_ADDED=bug LABELS_JSON="[\"$CPA_OK\",\"bug\"]" bash "$CHECK_CPA"
+expect_output "$CPA_LAST"
+cpa_api "$CPA_CTRL" "$CPA_H1"
+expect 1 "another label removed after the approval voids it" -- "${CPA_ENV[@]}" \
+  ACTION=unlabeled LABEL_ADDED=bug LABELS_JSON="[\"$CPA_OK\"]" bash "$CHECK_CPA"
+expect_output "$CPA_LAST"
+cpa_api "$CPA_CTRL" "$CPA_H1"
+expect 1 "a push after the approval voids it" -- "${CPA_ENV[@]}" \
+  LABELS_JSON="[\"$CPA_OK\"]" bash "$CHECK_CPA"
+expect_output "$CPA_LAST"
+cpa_api "$CPA_CTRL" "$CPA_H1"
+expect 1 "a labeled event whose label is no longer on the PR fails" -- "${CPA_ENV[@]}" \
+  ACTION=labeled LABEL_ADDED="$CPA_OK" LABELS_JSON='[]' bash "$CHECK_CPA"
+expect_output "$CPA_LAST"
+
+cpa_api "$CPA_CTRL" "$CPA_H1"
+expect 1 "the approval label applied by someone else fails" -- "${CPA_ENV[@]}" \
+  ACTION=labeled LABEL_ADDED="$CPA_OK" LABELS_JSON="[\"$CPA_OK\"]" SENDER=someone bash "$CHECK_CPA"
+expect_output "$CPA_LAST"
+
+cpa_api "$CPA_CTRL" "$CPA_H1"
+expect 1 "an empty Director login fails closed" -- "${CPA_ENV[@]}" DIRECTOR_LOGIN= \
+  ACTION=labeled LABEL_ADDED="$CPA_OK" LABELS_JSON="[\"$CPA_OK\"]" SENDER= bash "$CHECK_CPA"
+expect_output "the repository variable IAENG_DIRECTOR_LOGIN is not set, so no approval can be recognised"
+cpa_api "$CPA_CTRL" "$CPA_H1"
+expect 1 "an unset Director login fails closed" -- "${CPA_BASE[@]}" bash "$CHECK_CPA"
+expect_output "the repository variable IAENG_DIRECTOR_LOGIN is not set, so no approval can be recognised"
+
+cpa_api "$CPA_PLAIN" "$CPA_H2"
+expect 1 "a head moved before the listing fails closed" -- "${CPA_ENV[@]}" bash "$CHECK_CPA"
+expect_output "The PR head moved since this event ($CPA_H1 -> $CPA_H2). Failing closed"
+cpa_calls "$CPA_HEAD" "nothing is listed once the head has moved"
+cpa_api "$CPA_PLAIN" "$CPA_H1" "$CPA_H2"
+expect 1 "a head moved during the listing fails closed" -- "${CPA_ENV[@]}" bash "$CHECK_CPA"
+expect_output "The PR head moved while its files were being listed ($CPA_H1 -> $CPA_H2). Failing closed."
+
+cpa_api "$CPA_PLAIN" "$CPA_H1"
+expect 1 "a listing shorter than changed_files fails closed" -- "${CPA_ENV[@]}" CHANGED_FILES=3 bash "$CHECK_CPA"
+expect_output "The API listed 2 files but the PR reports 3. Refusing to guess."
+cpa_api "$CPA_PLAIN" "$CPA_H1"
+expect 1 "3000 changed files cannot be listed and fail" -- "${CPA_ENV[@]}" CHANGED_FILES=3000 bash "$CHECK_CPA"
+expect_output "This PR changes 3000 files; the API lists at most 3000"
+cpa_api "$CPA_PLAIN" "$CPA_H1"
+expect 1 "an event head that is not a full SHA fails closed" -- "${CPA_ENV[@]}" EVENT_HEAD=abc123 bash "$CHECK_CPA"
+expect_output "The event carries no valid head SHA. Failing closed."
+cpa_api "$CPA_PLAIN" "$CPA_H1"
+touch "$CPA_DATA/files.fail"
+expect 1 "a failed listing fails closed" -- "${CPA_ENV[@]}" bash "$CHECK_CPA"
+expect_output_absent "No control path is touched."
+
+cpa_api '[{"filename":"src/x.sh","previous_filename":"Adapters/scripts/x.sh"}]' "$CPA_H1"
+expect 1 "a file renamed OUT of a control path is caught" -- "${CPA_ENV[@]}" CHANGED_FILES=1 bash "$CHECK_CPA"
+expect_output "control path touched: Adapters/scripts/x.sh"
+cpa_api '[{"filename":".github/workflows/::error::x"}]' "$CPA_H1"
+expect 1 "a file name cannot inject a workflow command" -- "${CPA_ENV[@]}" CHANGED_FILES=1 bash "$CHECK_CPA"
+expect_output "control path touched: .github/workflows/: :error: :x"
+
+# Inputs no GitHub event lacks, refused rather than read as a pass: inside `if`,
+# `[ x -ge 3000 ]` on a non-integer is false, which skipped the size and count
+# guards in the inline version.
+cpa_api "$CPA_PLAIN" "$CPA_H1"
+expect 1 "a CHANGED_FILES that is not a count fails closed" -- "${CPA_ENV[@]}" CHANGED_FILES=two bash "$CHECK_CPA"
+expect_output "CHANGED_FILES is not a file count"
+cpa_api "$CPA_PLAIN" "$CPA_H1"
+expect 1 "an empty REPO fails closed" -- "${CPA_ENV[@]}" REPO= bash "$CHECK_CPA"
+expect_output "REPO is not set"
+
+# The matcher's own failure is not a verdict. A copy of the script beside a
+# matcher that exits 2.
+mkdir -p "$WORK/cpa-broken"
+cp "$CHECK_CPA" "$WORK/cpa-broken/"
+printf '#!/usr/bin/env bash\nexit 2\n' > "$WORK/cpa-broken/check-control-paths.sh"
+chmod +x "$WORK/cpa-broken/check-control-paths.sh"
+cpa_api "$CPA_CTRL" "$CPA_H1"
+expect 1 "a matcher failure fails closed" -- "${CPA_ENV[@]}" bash "$WORK/cpa-broken/check-control-path-approval.sh"
+expect_output "check-control-paths.sh failed (exit 2). Failing closed."
+
 # ------------------------- adopter registry and install (WU-IAENG-320) --------
 #
 # DEF-1/12/13/14 of the 2 Oct 2026 adoption test (issue #181). A consumer
@@ -7813,6 +7989,126 @@ for F_366 in "$SCRIPTS/install.sh" \
     expect 0 "$B_366: $FN_366 flattens every control, C1 pairs included, keeps é and the em dash ($LOC_366)" -- bash "$REC_366/rec-366.sh" records "$F_366" "$FN_366" "$LOC_366" "$HOSTILE_366" "$WANT_366"
   done
 done
+
+# ------------- install.sh: the framework repository by identity (WU-IAENG-362) --
+#
+# install.sh decided "this is the framework repository" by comparing
+# "$FRAMEWORK" and "$PROJECT" as strings. FRAMEWORK keeps the spelling the
+# script was invoked by; PROJECT comes from git, which reports the directory's
+# own. Invoked as /c/developpement/ai_enginering/... on Windows, or through a
+# symlinked path anywhere, the framework repository was installed as an
+# adopter: the adopter's eol rules instead of /Adapters/** and /Registry/**,
+# and adopter next steps printed. Each other spelling is tried only where the
+# platform has it: a case-folding filesystem (Windows, macOS) or a real
+# symlink (Linux CI). No platform lacks both in practice; one that does
+# reports the four checks as a skip, never as passed.
+
+section "install.sh — the framework repository by identity, not spelling (WU-IAENG-362)"
+
+INST_362="Adapters/scripts/install.sh"
+NOT_INSTALLED_362="Not installed by this script, by design:"
+
+# fw_362 — a fresh framework repository built from this checkout's Adapters/
+# and Registry/, with no .gitattributes, so whatever install.sh appends is
+# visible. Leaves the shell inside it; FW_362 is its path as git reports it.
+fw_362() {
+  new_repo fw-362
+  cp -R "$SCRIPTS/.." ./Adapters
+  cp -R "$SCRIPTS/../../Registry" ./Registry
+  git add -A && git commit -q -m "framework fixture"
+  FW_362="$PWD"
+}
+
+# framework_362 <how> — the run that just ended treated the repository as the
+# framework itself: the framework-only rules, no adopter-only rule, no
+# adopter next steps.
+framework_362() {
+  TOTAL=$((TOTAL + 1))
+  if grep -qxF '/Adapters/** text eol=lf' .gitattributes 2>/dev/null \
+     && grep -qxF '/Registry/** text eol=lf' .gitattributes; then
+    [ -n "$VERBOSE" ] && printf '   ok   %s: the framework-only /Adapters/** and /Registry/** rules\n' "$1"
+  else
+    printf '   FAIL %s: .gitattributes lacks the framework-only /Adapters/** or /Registry/** rule\n' "$1"
+    sed 's/^/        | /' .gitattributes 2>/dev/null
+    FAILED=$((FAILED + 1))
+  fi
+  TOTAL=$((TOTAL + 1))
+  if grep -qxF '/Dockerfile text eol=lf' .gitattributes 2>/dev/null; then
+    printf '   FAIL %s: .gitattributes got the adopter-only /Dockerfile rule\n' "$1"
+    FAILED=$((FAILED + 1))
+  else
+    [ -n "$VERBOSE" ] && printf '   ok   %s: no adopter-only rule\n' "$1"
+  fi
+  expect_no_output "$NOT_INSTALLED_362" "$1: no adopter next steps are printed"
+}
+
+# The spelling git reports: the control, right before and after the fix.
+fw_362
+expect 0 "install.sh in the framework repository, invoked by its own spelling" -- bash "$FW_362/$INST_362"
+framework_362 "same spelling"
+
+RAN_362=0
+
+# A differently-cased spelling of the same directory (Windows, macOS).
+fw_362
+ALT_362="$(dirname "$FW_362")/$(basename "$FW_362" | tr '[:lower:]' '[:upper:]')"
+if [ "$ALT_362" != "$FW_362" ] && [ -d "$ALT_362" ] && [ "$ALT_362" -ef "$FW_362" ]; then
+  RAN_362=1
+  expect 0 "install.sh in the framework repository, invoked through a differently-cased path" -- bash "$ALT_362/$INST_362"
+  framework_362 "differently-cased path"
+fi
+
+# A symlinked spelling (Linux, macOS; Windows with native symlinks). `[ -L ]`
+# because Git for Windows turns `ln -s` into a deep copy, which is another
+# directory and would test nothing.
+fw_362
+LINK_362="$WORK/fw-362-link"
+rm -rf "$LINK_362"
+if ln -s "$FW_362" "$LINK_362" 2>/dev/null && [ -L "$LINK_362" ]; then
+  RAN_362=1
+  expect 0 "install.sh in the framework repository, invoked through a symlinked path" -- bash "$LINK_362/$INST_362"
+  framework_362 "symlinked path"
+fi
+rm -rf "$LINK_362"
+
+if [ "$RAN_362" -eq 0 ]; then
+  skip 4 "install.sh framework detection under another spelling: this platform has neither a case-folding filesystem nor real symlinks -- not a fix defect."
+fi
+
+# An adopter is still an adopter: the framework copied inside a project, by
+# its own spelling and, where the filesystem folds case, by another.
+new_repo adopter-362
+mkdir -p ia-engineering
+cp -R "$SCRIPTS/.." ia-engineering/Adapters
+cp -R "$SCRIPTS/../../Registry" ia-engineering/Registry
+ADOPTER_362="$PWD"
+expect 0 "install.sh in an adopting project" -- bash "./ia-engineering/$INST_362"
+expect_output "$NOT_INSTALLED_362"
+TOTAL=$((TOTAL + 1))
+if grep -qxF '/Dockerfile text eol=lf' .gitattributes 2>/dev/null \
+   && ! grep -qF '/Adapters/**' .gitattributes; then
+  [ -n "$VERBOSE" ] && printf '   ok   the adopter gets the adopter rules and no /Adapters/** rule\n'
+else
+  printf '   FAIL the adopter .gitattributes is not the adopter one\n'
+  sed 's/^/        | /' .gitattributes 2>/dev/null
+  FAILED=$((FAILED + 1))
+fi
+# The adopter by another spelling, as the framework above: a differently-cased
+# path where the filesystem folds case, else a symlinked one. Neither is a
+# skip with its reason, never a silent omission. Not a skip per spelling: under
+# CI=true a skip is a failure, and Linux CI has no case folding.
+ALT_ADOPTER_362="$ADOPTER_362/IA-ENGINEERING"
+LINK_ADOPTER_362="$ADOPTER_362/ia-engineering-link"
+if [ -d "$ALT_ADOPTER_362" ] && [ "$ALT_ADOPTER_362" -ef "$ADOPTER_362/ia-engineering" ]; then
+  expect 0 "install.sh in an adopting project, invoked through a differently-cased path" -- bash "$ALT_ADOPTER_362/$INST_362"
+  expect_output "$NOT_INSTALLED_362"
+elif ln -s "$ADOPTER_362/ia-engineering" "$LINK_ADOPTER_362" 2>/dev/null && [ -L "$LINK_ADOPTER_362" ]; then
+  expect 0 "install.sh in an adopting project, invoked through a symlinked path" -- bash "$LINK_ADOPTER_362/$INST_362"
+  expect_output "$NOT_INSTALLED_362"
+else
+  skip 2 "install.sh adopter under another spelling: this platform has neither a case-folding filesystem nor real symlinks -- not a fix defect."
+fi
+rm -rf "$LINK_ADOPTER_362"
 
 # --------------------------------------------------------------- verdict ----
 
