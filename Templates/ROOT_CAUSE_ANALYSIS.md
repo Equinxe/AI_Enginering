@@ -18,7 +18,7 @@ The failure this template prevents is the jump from a symptom to a favourite exp
 
 # Official References
 
-This template orchestrates the official methods below, cited by reference. Three rules are framework practice, not taken from any of them: the six-level evidence ladder, the three-refutation circuit breaker, and the single instrumentation tag. They are adapted from the open-source oh-my-claudecode tracer and debugger agents.
+This template orchestrates the official methods below, cited by reference. Three rules are framework practice, not taken from any of them: the six-level evidence ladder, the three-refutation circuit breaker, and the single instrumentation tag. They are adapted from open-source agent tooling for tracing and debugging.
 
 - IEEE Std 1044-2009, *IEEE Standard Classification for Software Anomalies* — the vocabulary for recording an anomaly: the failure is what was observed, the defect is what caused it. Until the analysis is Confirmed, a named defect is a hypothesis.
 - ISTQB Glossary — *error*, *defect*, *failure*, *root cause*, *root cause analysis*.
