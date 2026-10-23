@@ -613,6 +613,42 @@ rm -f "$CLAUDETEMPLATE/Core/MAIN_AGENT_CONDUCT.md"
 ss_run "$CLAUDETEMPLATE" "$SESSTART" ''
 ss_check_has  "session-start: root found but MAIN_AGENT_CONDUCT.md absent — no Main Agent pointer" no "The Main Agent follows"
 
+# --- Every SessionStart source, the same read-first context (WU-IAENG-373) ---
+# /clear starts a new session (payload "source": "clear"); it must get what a
+# startup gets — SESSION_STATE read, its Next Step printed — not a shorter or
+# different context. The payload is the one Claude Code sends, per source;
+# the output is compared whole, so any branch on the source would show.
+{
+  echo '# SESSION STATE — test'
+  echo '_Last updated: 24 September 2026, afternoon by Tester_'
+  echo '## Next Step'
+  echo 'resume the Work Unit after /clear'
+} > "$FRESH/.ia-engineering/SESSION_STATE.md"
+touch "$FRESH/.ia-engineering/SESSION_STATE.md"
+ss_payload() { printf '{"session_id":"t","transcript_path":"/nonexistent","cwd":"%s","hook_event_name":"SessionStart","source":"%s"}' "$FRESH" "$1"; }
+ss_run "$FRESH" "$SESSTART" "$(ss_payload startup)"
+SS_STARTUP_OUT="$SS_OUT"
+ss_check_has  "session-start: source startup — SESSION_STATE's Next Step is printed" yes "resume the Work Unit after /clear"
+ss_run "$FRESH" "$SESSTART" "$(ss_payload clear)"
+ss_check_rc   "session-start: source clear — exits 0" 0
+ss_check_has  "session-start: source clear — SESSION_STATE's Next Step is printed" yes "resume the Work Unit after /clear"
+TOTAL=$((TOTAL + 1))
+if [ "$SS_OUT" = "$SS_STARTUP_OUT" ]; then
+  [ "$VERBOSE" -eq 1 ] && printf '   ok    %s\n' "session-start: source clear — output identical to startup"
+else
+  FAILED=$((FAILED + 1))
+  printf '   FAIL  %s\n' "session-start: source clear — output identical to startup"
+  diff <(printf '%s\n' "$SS_STARTUP_OUT") <(printf '%s\n' "$SS_OUT") | head -10 | sed 's/^/         /'
+fi
+for ss_src in resume compact; do
+  ss_run "$FRESH" "$SESSTART" "$(ss_payload "$ss_src")"
+  TOTAL=$((TOTAL + 1))
+  if [ "$SS_OUT" != "$SS_STARTUP_OUT" ]; then
+    FAILED=$((FAILED + 1))
+    printf '   FAIL  %s\n' "session-start: source $ss_src — output identical to startup"
+  fi
+done
+
 # --- Tier map in force (WU-IAENG-336, issue #212) ------------------------
 # A Main Agent applying a Lightweight Tier Override in a project whose
 # tier-map gave every tier claude-opus-5-5 dispatched with "sonnet": nothing
