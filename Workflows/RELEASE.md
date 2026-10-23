@@ -27,6 +27,7 @@ It governs every step from the version bump through release branch creation, tag
 | Director | Final approval to merge release into `main` |
 | Technical Lead | Resolves last-minute technical issues found during release testing |
 | Observability Engineer | Confirms production health during post-release verification |
+| Scrum Master | Runs the release retrospective (Step 11) |
 
 ---
 
@@ -216,6 +217,33 @@ The release branch `release/vX.X.X` is **never deleted**. It serves as a permane
 
 ---
 
+## Step 11 — Release retrospective
+
+**Actor:** Scrum Master. The Director decides on each line.
+
+A release is the point where the lessons of a whole milestone can be seen together. Read one report at a time, a missing check looks like bad luck; read across a release, the same friction shows up in four Work Units. This step collects both and sends each one to the place that owns its fix.
+
+1. **Collect the lessons.** Gather every `LESSON:` line from the Work Unit Reports of the Work Units this release shipped — the Work Units registered against its milestone in `Registry/work-units.yml`, whose reports are their Pull Request descriptions (`Templates/WORK_UNIT_REPORT.md`, Lessons → Location). Merge duplicates, keeping every source.
+2. **Collect the frictions, with evidence.** A friction is something that cost the release time or a correction: a check that failed for a reason the author could have known earlier, a review that went more than one round on the same point, a Director correction, an escalation, a brief that lacked what the Employee needed, a step done by hand that could have been run. Each one cites its evidence — a Pull Request, a review comment, a CI run, a commit, an Issue. A friction no one can point to is an opinion, and stays out of the record.
+3. **File each friction to the surface that owns its fix.** One of four:
+
+   | Surface | When it owns the fix | Example |
+   |---|---|---|
+   | Deterministic check | A script, hook, or CI job could have refused the mistake before review | a validator section, a commit-msg rule |
+   | Instruction | The rule exists nowhere an Employee reads, or is worded two ways — an Employee definition, a Standard, a Workflow, a Template | a missing Definition of Done item |
+   | Tool | The runtime, an Adapter, or the host got in the way | an installer that cannot be re-run |
+   | Missing information | The rule was right but the Employee did not have the fact — the brief, the session state, the project context | a brief that omitted the base branch |
+
+   Where a check and an instruction could both fix it, propose the check: an instruction can be skipped, a check cannot. Each friction is filed as an Issue that names its surface and its evidence (`Core/MAIN_AGENT_CONDUCT.md`, Durable Tracking of Findings). The Scrum Master classifies; it does not choose the fix's design, which stays with the Employee that owns the surface.
+4. **Present to the Director.** One list: each lesson with its proposed location, each friction with its surface and Issue. The Director accepts or refuses each line. An accepted line becomes a Work Unit or stays an Issue for the next milestone. A refused line keeps its reason in the record, so the next retrospective does not raise it again without saying what changed.
+5. **Record.** The retrospective is an Issue titled `Release retrospective vX.X.X`, holding the two lists, the evidence, and the Director's decision on each line. A conversation is not a record.
+
+This step does not replace the Sprint Retrospective (`Workflows/SPRINT_CEREMONY.md`, Ceremony 4), which commits the team to one improvement for the next sprint. The release retrospective files every friction it can evidence; which of them become work is the Director's choice in item 4.
+
+**Output:** The `Release retrospective vX.X.X` Issue, every friction filed to its surface, and the Director's decision recorded on each line.
+
+---
+
 # Exit Criteria
 
 This workflow is complete when:
@@ -226,6 +254,7 @@ This workflow is complete when:
 - `develop` contains `main`'s tip, carried back by the Step 8 Pull Request. This is required on every release, not only when a defect fix was applied directly to the release branch — Step 6 always leaves a merge commit on `main` that `develop` would otherwise never see.
 - `release/vX.X.X` branch is preserved on remote.
 - Post-release health is confirmed.
+- The release retrospective is recorded, with the Director's decision on each line (Step 11).
 
 ---
 
@@ -244,6 +273,8 @@ This workflow is complete when:
 - Feature Development Workflow
 - Hotfix Workflow
 - Incident Response Workflow
+- Sprint Ceremony Workflow
+- Architecture Decision Workflow
 
 ---
 
@@ -251,7 +282,7 @@ This workflow is complete when:
 
 Owner: IA Engineering
 
-Version: 0.0.12
+Version: 0.0.13
 
 Status: Draft
 

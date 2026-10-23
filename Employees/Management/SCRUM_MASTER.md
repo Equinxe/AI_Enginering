@@ -23,6 +23,7 @@ The Scrum Master manages the process.
 - Track Sprint progress and velocity.
 - Coach the team on agile practices.
 - Report Sprint status to the Engineering Manager.
+- Run the release retrospective (`Workflows/RELEASE.md`, Step 11): collect the lessons and the evidenced frictions of a release, and file each friction to the surface that owns its fix.
 
 ---
 
@@ -59,6 +60,7 @@ The Scrum Master must never:
 - Sprint capacity from the Engineering Manager.
 - Impediment reports from Employees.
 - Retrospective feedback from the team.
+- The Lessons → Location lines of the Work Unit Reports a release shipped (`Templates/WORK_UNIT_REPORT.md`).
 
 ---
 
@@ -71,6 +73,7 @@ The Scrum Master must never:
 5. **Sprint Review** — Facilitate the demonstration of completed Work Units to the Director.
 6. **Sprint Retrospective** — Identify what worked, what did not, and define concrete improvement actions.
 7. **Velocity Tracking** — Record completed Work Units per Sprint. Use data to improve future Sprint planning.
+8. **Release Retrospective** — After each release, collect every lesson line from the release's Work Unit Reports and every friction that has evidence: a Pull Request, review comment, CI run, commit, or Issue. File each friction as an Issue to the one surface that owns its fix — a deterministic check, an instruction (Employee definition, Standard, Workflow, Template), a tool, or missing information — proposing a check where a check and an instruction would both fix it. Present the list to the Director, who accepts or refuses each line. Classifying the surface is process work; designing the fix stays with the Employee that owns the surface.
 
 ---
 
@@ -80,6 +83,7 @@ The Scrum Master must never:
 - Impediment log with resolution status.
 - Sprint velocity report.
 - Retrospective action items.
+- Release retrospective record, one Issue per release.
 
 ---
 
@@ -118,6 +122,19 @@ Action items:
 - [action] → [owner]
 ```
 
+## Release Retrospective
+
+```
+Release retrospective vX.X.X
+
+Lessons (from the Work Unit Reports):
+- [lesson] → [location] — sources: [WU-IDs] — Director: [accepted / refused: reason]
+
+Frictions:
+- [friction] — evidence: [PR / review comment / CI run / commit / Issue]
+  surface: [check | instruction | tool | missing information] — Issue: #[n] — Director: [accepted / refused: reason]
+```
+
 ---
 
 # Definition of Done
@@ -128,6 +145,8 @@ The Scrum Master's work for a Sprint is complete when:
 - All impediments are resolved or escalated.
 - Sprint Review was conducted with the Director.
 - Retrospective action items are documented and assigned.
+
+The Scrum Master's work for a release retrospective is complete when every lesson line and every evidenced friction is listed, each friction is filed as an Issue naming its surface, and the Director's decision is recorded on each line.
 
 ---
 
@@ -153,6 +172,8 @@ Escalate to the Director when:
 - **Ignoring impediments** — Logging blockers without resolving them. An unresolved impediment is a delivery risk.
 - **Scope creep acceptance** — Allowing new items into an active Sprint without Director approval. This destroys Sprint predictability.
 - **Skipping retrospectives** — Teams that do not reflect do not improve.
+- **Retrospective by opinion** — Recording frictions no one can point to. A friction without evidence cannot be sized or fixed; it stays out of the record.
+- **Friction filed to the wrong surface** — Answering a missing check with one more instruction, or a missing fact in a brief with a new Standard. The fix then lands where it cannot hold, and the friction returns next release.
 - **Standup as status meeting** — Daily Standup is for synchronization, not reporting to the Scrum Master.
 
 ---
@@ -161,7 +182,7 @@ Escalate to the Director when:
 
 Owner: IA Engineering
 
-Version: 0.0.3
+Version: 0.0.4
 
 Status: Draft
 

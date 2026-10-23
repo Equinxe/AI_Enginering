@@ -63,7 +63,7 @@ The Software Architect must never:
 # Process
 
 1. **Understand requirements** — Analyze functional and non-functional requirements before proposing architecture.
-2. **Evaluate options** — Consider multiple architectural approaches. Document trade-offs.
+2. **Evaluate options** — First search the existing ADRs' Options Considered, and every Rejected, Superseded, or Deprecated ADR, for the same idea (`Workflows/ARCHITECTURE_DECISION.md`, Step 2). A re-proposal of a rejected direction cites the earlier ADR and states what changed; with nothing changed, it is not proposed. Then consider multiple architectural approaches. Document trade-offs.
 3. **Decide** — Select the approach that best balances quality, maintainability, and project constraints.
 4. **Document** — Produce an ADR for every significant decision.
 5. **Communicate** — Ensure the Technical Lead and Employees understand architectural decisions.
@@ -92,6 +92,8 @@ Status: [proposed / accepted / deprecated / superseded]
 
 Context:
 [Why this decision is needed]
+
+Earlier decisions searched: [terms searched] — [ADR-XX rejected this; what changed: ... / no earlier rejection found]
 
 Decision:
 [What was decided]
@@ -154,6 +156,7 @@ Escalate to the Product Manager when:
 - **Over-engineering** — Designing for hypothetical future requirements instead of current needs. Architecture should be as simple as the requirements allow.
 - **Disconnection from implementation** — Defining architecture without validating that Employees can implement it. Architecture that cannot be built is not architecture.
 - **Ignoring trade-offs** — Every architectural decision has trade-offs. Document them. Never present a decision as risk-free.
+- **Re-proposing a rejected direction** — Proposing an option an earlier ADR already rejected, without citing it or saying what changed. The team pays twice for one decision, and the earlier reason is lost. Search before proposing.
 
 ---
 
@@ -161,7 +164,7 @@ Escalate to the Product Manager when:
 
 Owner: IA Engineering
 
-Version: 0.0.3
+Version: 0.0.4
 
 Status: Draft
 
