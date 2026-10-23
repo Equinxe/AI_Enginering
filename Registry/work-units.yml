@@ -1490,9 +1490,9 @@ work_units:
 
   - id: WU-IAENG-378
     employee: Platform Engineer
-    title: Reserved 23 Oct 2026 before dispatch (WU-IAENG-381) - changelog fragments (Release Manager study of 23 Oct 2026, option 1) - one changelog.d/ fragment per Work Unit, assembled into CHANGELOG.md by release.sh at the version bump, and the validate-framework.sh rules for fragment names and headings
+    title: Changelog fragments (Release Manager study of 23 Oct 2026, option 1, approved by the Director 23 Oct 2026) - one changelog.d/ fragment per Work Unit, parsed by one shared Adapters/scripts/changelog-fragment.awk; release.sh assemble folds them into CHANGELOG.md at the version bump by category then Work Unit id and deletes them; release.sh check condition 5 requires every milestone Work Unit to have a fragment or a line in its CHANGELOG.md section; validate-framework.sh section 23 checks fragment names and headings and warns on a Pull Request whose Work Unit adds none
     milestone: Adoption
-    delivers: planned - changelog.d/, Adapters/scripts/release.sh, Adapters/scripts/validate-framework.sh, Adapters/scripts/tests/run.sh, CHANGELOG.md, Registry/work-units.yml
+    delivers: changelog.d/README.md, changelog.d/WU-IAENG-378.md, Adapters/scripts/changelog-fragment.awk, Adapters/scripts/release.sh, Adapters/scripts/validate-framework.sh, Adapters/scripts/tests/run.sh, Adapters/README.md, Workflows/RELEASE.md, Workflows/CODE_REVIEW.md, Registry/work-units.yml
 
   - id: WU-IAENG-379
     employee: Platform Engineer

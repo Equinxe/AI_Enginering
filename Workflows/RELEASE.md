@@ -55,7 +55,7 @@ Run `Adapters/scripts/release.sh check` from `develop`. It is read-only.
 | 2 | CI/CD is green on `develop` | **Yes** — the latest run's conclusion |
 | 3 | No open critical or high defects remain | **Reported, not failed** — see below |
 | 4 | The release version number and codename are agreed | **Partly** — `VERSION.md`'s version is read and compared against the one being asked about; whether that version and codename are the *agreed* ones is a Director judgment no script can make |
-| 5 | Pending `CHANGELOG.md` entries account for every significant change | **Partly** — the section's presence and size are checked; whether its content is complete is a reading task |
+| 5 | Pending changelog entries account for every significant change | **Partly** — every Work Unit registered against the milestone must have a fragment in `changelog.d/` (an entry, or `No changelog entry: <reason>`), or be named in the final parenthesised group of a line of the milestone's `CHANGELOG.md` section; after Step 2, a fragment still in `changelog.d/` fails. The section's presence and size are checked too. Whether each entry says the right thing is a reading task |
 
 The script additionally checks the current branch, working-tree cleanliness, sync with the remote, and `Adapters/scripts/validate-framework.sh`.
 
@@ -77,12 +77,15 @@ The version bump is a normal Work Unit merged into `develop` through the standar
 
 1. Branch from the latest `develop` (for example `chore/release-vX.X.X-bump`).
 2. Update VERSION.md to the new version number and codename.
-3. Update CHANGELOG.md to finalize the entries for this release.
-4. Commit following the Commit Standard.
-5. Open a Pull Request to `develop`.
-6. Merge the PR once CI passes.
+3. Run `Adapters/scripts/release.sh assemble`. It folds every changelog fragment in `changelog.d/` into the `## [Unreleased]` section of CHANGELOG.md, by category then Work Unit id, below the entries already there, and deletes the fragments. It refuses, changing nothing, if a fragment is malformed. `changelog.d/README.md` describes the fragments.
+4. Update CHANGELOG.md to finalize the entries for this release, and rename `## [Unreleased]` to the version.
+5. Commit following the Commit Standard: VERSION.md, CHANGELOG.md and the fragment deletions in the one bump commit.
+6. Open a Pull Request to `develop`.
+7. Merge the PR once CI passes.
 
 This is why the release branch created in Step 3 needs no separate version-bump commit: the bump already lives on `develop`.
+
+Work Units do not edit CHANGELOG.md: each adds its fragment, `changelog.d/<Work Unit id>.md`, so two Pull Requests never conflict on the same category. This step is the one place the fragments become CHANGELOG.md.
 
 **Output:** `develop` carries the final VERSION.md and CHANGELOG.md for this release.
 
@@ -251,7 +254,7 @@ This workflow is complete when:
 
 Owner: IA Engineering
 
-Version: 0.0.12
+Version: 0.0.13
 
 Status: Draft
 

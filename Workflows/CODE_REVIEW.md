@@ -125,7 +125,7 @@ If the Pull Request makes a change to an Employee definition (`Employees/`) or t
 
 1. Verify public interfaces are documented.
 2. Verify complex or non-obvious logic has an explanatory comment.
-3. Verify the CHANGELOG or relevant documentation is updated if the PR introduces a user-visible change.
+3. Verify the PR adds its changelog fragment, `changelog.d/<Work Unit id>.md` (`changelog.d/README.md`), and updates the relevant documentation if it introduces a user-visible change. The PR does not edit `CHANGELOG.md`; the fragment is assembled into it at the release.
 
 **Output:** Documentation assessment.
 
@@ -275,7 +275,7 @@ This workflow is complete when:
 
 Owner: IA Engineering
 
-Version: 0.0.9
+Version: 0.0.10
 
 Status: Draft
 

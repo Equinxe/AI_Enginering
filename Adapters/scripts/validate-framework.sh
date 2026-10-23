@@ -707,8 +707,14 @@ while IFS= read -r ref; do
 # because there an unstaged NEW document is exactly the omission to report.
 # The difference is the subject: that check asks "is the inventory complete",
 # this one asks "does the committed corpus hang together".
+#
+# The changelog fragments, changelog.d/WU-*.md, are excluded for CHANGELOG.md's
+# reason: each is a CHANGELOG.md entry waiting for the version bump, and an
+# entry about a rename names the old path. Checking a fragment today would
+# fail the same sentence that passes once release.sh assemble has moved it
+# into CHANGELOG.md. changelog.d/README.md is not an entry, and stays checked.
 done < <(git ls-files '*.md' \
-           | grep -v -e '^CHANGELOG\.md$' -e '/TROUBLESHOOTING\.md$' \
+           | grep -v -e '^CHANGELOG\.md$' -e '/TROUBLESHOOTING\.md$' -e '^changelog\.d/WU-' \
            | xargs -r grep -hoE "$REF_PATTERN" \
            | tr -d "$BT" | sort -u)
 
@@ -771,11 +777,15 @@ fi
 # Omitting the exclusion swapped one false positive for another: the first
 # version of this fix flagged `.github` on every run, which is the same defect
 # it was written to remove.
+#
+# changelog.d/ is excluded by name, for the same reason: it holds the pending
+# entries of CHANGELOG.md (section 23), release bookkeeping beside a file the
+# listing does not name either, not a part of the framework a reader adopts.
 if git rev-parse --git-dir > /dev/null 2>&1; then
-  TOP_DIRS="$(git ls-files | awk -F/ 'NF > 1 && $1 !~ /^\./ { print $1 }' | sort -u)"
+  TOP_DIRS="$(git ls-files | awk -F/ 'NF > 1 && $1 !~ /^\./ && $1 != "changelog.d" { print $1 }' | sort -u)"
 else
   TOP_DIRS="$(find . -maxdepth 1 -type d \
-    -not -name '.' -not -name '.git' -not -name '.github' -not -name '.omc' -not -name '.claude' \
+    -not -name '.' -not -name '.git' -not -name '.github' -not -name '.omc' -not -name '.claude' -not -name 'changelog.d' \
     | sed 's|^\./||' | sort)"
 fi
 
@@ -2187,6 +2197,137 @@ elif [ "$chain_status" -eq 0 ] && [ "$chain_fails" -eq 0 ]; then
   pass "all $chain_total chain diagrams match Registry/chains.yml step for step ($chain_steps steps compared)"
 elif [ "$chain_fails" -eq 0 ]; then
   fail "the chain diagram comparison failed without naming a difference" "chain_diagram_drift exited $chain_status after comparing $chain_total chains. Reported rather than passed."
+fi
+
+# ==========================================================================
+section "23. Changelog fragments (changelog.d/)"
+# ==========================================================================
+# Each Work Unit's changelog entry is a fragment, changelog.d/<Work Unit
+# id>.md, which Adapters/scripts/release.sh assemble folds into CHANGELOG.md
+# at the version bump (Workflows/RELEASE.md Step 2). Two Pull Requests that
+# each append to the same CHANGELOG.md category conflict; two that each add
+# their own fragment do not (Release Manager study of 23 Oct 2026, option 1).
+#
+# A malformed fragment found at the bump is found by the wrong person, weeks
+# after its author moved on. This section finds it on the Pull Request that
+# adds it, with the parser assemble uses, Adapters/scripts/
+# changelog-fragment.awk, so the two cannot disagree on what a fragment is:
+#
+#   - every entry of changelog.d/ other than README.md is a file named
+#     <Work Unit id>.md — assemble refuses to run while anything else is there;
+#   - that id is registered in Registry/work-units.yml;
+#   - the content is an entry under Keep a Changelog's six headings only, each
+#     with a bullet, or the single line "No changelog entry: <reason>".
+#
+# THE DENOMINATOR MAY BE ZERO. Rule 3 asks a set-iterating check to fail at
+# zero, because an empty set usually means the input moved. Here the set is a
+# queue: assemble empties it at every release, and right after Step 2 zero
+# fragments is the correct state. What would mean "the input moved" — the
+# directory, its README.md, the parser or the registry missing — is a failure
+# of its own below, so a zero count is reported with its number, not passed
+# blind.
+#
+# The function prints the section 22 records: "fail<TAB>message<TAB>detail"
+# per problem and a closing "total<TAB>n".
+changelog_fragment_check() {
+  local dir="$1" registry="$2" parser="$3"
+  local f base id n=0 registered
+  if [ ! -d "$dir" ]; then
+    printf 'fail\t%s/ is missing\tWorkflows/RELEASE.md Step 2 assembles the changelog from it. Without it no fragment can be checked, and an unevaluated condition is not a pass.\n' "$dir"
+    return 1
+  fi
+  if [ ! -f "$parser" ]; then
+    printf 'fail\t%s is missing\tIt is the one definition of a fragment, shared with release.sh assemble. Nothing was checked.\n' "$parser"
+    return 1
+  fi
+  if [ ! -f "$registry" ]; then
+    printf 'fail\t%s is missing\tA fragment is named after a registered Work Unit. Nothing was checked.\n' "$registry"
+    return 1
+  fi
+  if [ ! -f "$dir/README.md" ]; then
+    printf 'fail\t%s/README.md is missing\tIt is where an author learns the fragment format.\n' "$dir"
+  fi
+  registered="$(grep -E '^  - id: ' "$registry" | sed 's/^  - id: //' | tr -d '\015')"
+  while IFS= read -r f; do
+    [ -n "$f" ] || continue
+    base="${f##*/}"
+    [ "$base" = "README.md" ] && continue
+    if [ ! -f "$f" ] || ! [[ "$base" =~ ^WU-[A-Za-z0-9]+-[0-9]+\.md$ ]]; then
+      printf 'fail\t%s is not a fragment\t%s/ holds README.md and files named <Work Unit id>.md, nothing else; release.sh assemble refuses to run while anything else is there.\n' "$f" "$dir"
+      continue
+    fi
+    n=$((n + 1))
+    id="${base%.md}"
+    if ! grep -qxF -- "$id" <<< "$registered"; then
+      printf 'fail\t%s names %s, which %s does not register\tA fragment is the changelog entry of one registered Work Unit: register it, or rename the fragment to the Work Unit it belongs to.\n' "$f" "$id" "$registry"
+    fi
+    awk -v id="$id" -f "$parser" "$f" \
+      | awk -F'\t' -v f="$f" '$1 == "ERROR" { printf "fail\t%s line %s: %s\tThe format is in changelog.d/README.md. release.sh assemble refuses a malformed fragment at the version bump.\n", f, $2, $3 }'
+  done < <(find "$dir" -mindepth 1 -maxdepth 1 | LC_ALL=C sort)
+  printf 'total\t%d\n' "$n"
+}
+
+frag_out="$(changelog_fragment_check changelog.d Registry/work-units.yml Adapters/scripts/changelog-fragment.awk)"
+frag_total=""
+frag_fails=0
+while IFS=$'\t' read -r verdict message detail; do
+  case "$verdict" in
+    "") ;;
+    fail) frag_fails=$((frag_fails + 1)); fail "$message" "$detail" ;;
+    total) frag_total="$message" ;;
+    *) frag_fails=$((frag_fails + 1)); fail "changelog_fragment_check printed a record this section cannot read" "$verdict $message" ;;
+  esac
+done <<< "$frag_out"
+if [ "$frag_fails" -eq 0 ] && [ -z "$frag_total" ]; then
+  fail "the changelog fragment check produced no verdict" "changelog_fragment_check stopped without its closing 'total' record. Nothing was checked, which is not a pass."
+elif [ "$frag_fails" -eq 0 ]; then
+  pass "changelog.d/: $frag_total fragment(s), each named after a registered Work Unit, with Keep a Changelog headings only"
+fi
+
+# EARLY WARNING, on a Pull Request only, and never a failure.
+#
+# Condition 5 of release.sh check fails a release whose Work Unit has no
+# fragment, but the release is weeks after the Pull Request, and the author is
+# the one who knows what the entry should say. So the Pull Request that
+# carries a Work Unit's trailer and adds no changelog.d/<id>.md, and does not
+# edit CHANGELOG.md either (the way entries were written before fragments), is
+# told so here, as a warning annotation.
+#
+# A warning and not a failure: a Work Unit spread over several Pull Requests
+# has its fragment in one of them, and a back-merge carries trailers whose
+# fragments were assembled long ago. Neither is wrong, and a check that fails
+# on correct Pull Requests teaches people to ignore it. The gate is condition 5.
+#
+# Only where this repository IS the one under review — the framework's own CI.
+# In an adopting project this script validates the framework inside the
+# project's ia-engineering/ directory, and the Pull Request's trailers name
+# the project's Work Units, whose changelog is the project's business.
+changelog_fragment_advisory() {
+  local dir="$1" base="$2" head="$3" id
+  git rev-parse -q --verify "$base^{commit}" > /dev/null 2>&1 || return 2
+  git rev-parse -q --verify "$head^{commit}" > /dev/null 2>&1 || return 2
+  [ -z "$(git diff --name-only "$base...$head" -- CHANGELOG.md 2>/dev/null)" ] || return 0
+  while IFS= read -r id; do
+    [ -n "$id" ] || continue
+    [ -f "$dir/$id.md" ] || printf '%s\n' "$id"
+  done < <(git log --no-merges --format=%B "$base..$head" 2>/dev/null \
+             | awk '/^Work Unit: / { id = $0; sub(/^Work Unit: /, "", id); gsub(/\015/, "", id); print id }' \
+             | LC_ALL=C sort -u)
+}
+
+if [ -n "${GITHUB_BASE_REF:-}" ] && [ -n "${GITHUB_WORKSPACE:-}" ] && [ "$GITHUB_WORKSPACE" -ef "$ROOT" ]; then
+  frag_adv="$(changelog_fragment_advisory changelog.d "origin/$GITHUB_BASE_REF" HEAD)"
+  frag_adv_status=$?
+  if [ "$frag_adv_status" -eq 2 ]; then
+    printf '   --    changelog fragment early warning not evaluated: origin/%s or HEAD is not a commit here\n' "$GITHUB_BASE_REF"
+    echo "::warning::Changelog fragment early warning not evaluated: origin/$GITHUB_BASE_REF or HEAD could not be read. release.sh check condition 5 still applies at the release."
+  else
+    while IFS= read -r id; do
+      [ -n "$id" ] || continue
+      printf '   note  %s has no changelog.d/%s.md in this Pull Request\n' "$id" "$id"
+      echo "::warning::$id has no changelog.d/$id.md and this Pull Request does not edit CHANGELOG.md. Add the fragment (changelog.d/README.md), or 'No changelog entry: <reason>'; release.sh check condition 5 blocks the release without one."
+    done <<< "$frag_adv"
+  fi
 fi
 
 # ==========================================================================
