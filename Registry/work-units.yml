@@ -1452,6 +1452,12 @@ work_units:
     milestone: Adoption
     delivers: Adapters/README.md, CLAUDE.md, Prompts/README.md, Prompts/.gitkeep, Governance/CONTRIBUTING.md, Governance/DISPATCH_IN_PRACTICE.md, CHANGELOG.md, Registry/work-units.yml
 
+  - id: WU-IAENG-369
+    employee: Prompt Engineer
+    title: Root Cause Analysis template (OMC comparison of 22 Oct 2026, item 1; approved by the Director 22 Oct) - Templates/ROOT_CAUSE_ANALYSIS.md adapted from the oh-my-claudecode tracer and debugger prompts, read as data; observation apart from interpretation and redacted before entry, 3 to 5 hypotheses ranked before testing across frames, evidence for and against graded on a six-level ladder, a refutation pass against the favourite, Confirmed only on controlled reproduction else the critical unknown and the discriminating probe, one DEBUG tag for temporary instrumentation removed before commit, the fix's regression test seen red per Falsifiability or the missing seam reported as the finding, three refuted hypotheses escalate to the Technical Lead; official methods cited by reference (IEEE 1044, ISTQB Glossary, SRE book Effective Troubleshooting, Ishikawa, 5 Whys); pointers from Workflows/INCIDENT_RESPONSE.md, Templates/INCIDENT_REPORT.md and the Test Automation Engineer, SRE Engineer and Technical Lead definitions; no Core change
+    milestone: Adoption
+    delivers: Templates/ROOT_CAUSE_ANALYSIS.md, Templates/INCIDENT_REPORT.md, Workflows/INCIDENT_RESPONSE.md, Employees/Quality/TEST_AUTOMATION_ENGINEER.md, Employees/DevOps/SRE_ENGINEER.md, Employees/Management/TECHNICAL_LEAD.md, VERSION.md, README.md, CHANGELOG.md, Registry/work-units.yml
+
   - id: WU-IAENG-370
     employee: Technical Writer
     title: AMELIORATION.md, the Director's working document in French (request of 22 Oct 2026) - fourteen strengths of our workflow, each naming the peer it beats and our evidence; twenty-nine weaknesses in one table (weakness and evidence, who does better among Kevin, Yoann, OMC and shipyard, what they do, a lead for us, governance cost, priority against the target of an operational framework in mid to late November 2026, follow-up); two weaknesses already closed since the 20 Oct reviews, struck with their PRs; what we do not adopt and why; how each line becomes a Work Unit or an issue and is struck with its PR number. Sources are the local peer reviews of 20 and 22 Oct 2026 and the cleanup plan, re-measured on develop d3ce687. Referenced from neither README.md nor CLAUDE.md; where to reference it is left to the Director

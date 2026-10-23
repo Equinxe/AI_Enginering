@@ -66,7 +66,7 @@ The SRE Engineer must never:
 2. **Instrument** — Ensure SLIs are measurable and tracked continuously.
 3. **Monitor** — Maintain dashboards and alerting that reflect SLO compliance.
 4. **Respond to incidents** — Follow the incident response playbook. Prioritize restoration over investigation.
-5. **Conduct post-mortems** — Analyze root causes without blame. Identify systemic improvements.
+5. **Conduct post-mortems** — Analyze root causes without blame, with `Templates/ROOT_CAUSE_ANALYSIS.md`; only a Confirmed cause enters the post-mortem. Identify systemic improvements.
 6. **Eliminate toil** — Automate repetitive operational work. Toil must not exceed 50% of engineering time.
 7. **Track error budget** — Report error budget consumption to the Engineering Manager and Director.
 8. **Document** — Maintain runbooks, playbooks, and post-mortem reports.
@@ -154,6 +154,10 @@ Escalate to the DevOps Engineer when:
 
 - A pipeline or deployment issue is contributing to reliability degradation.
 
+Escalate to the Technical Lead when:
+
+- A root cause analysis has three refuted hypotheses (`Templates/ROOT_CAUSE_ANALYSIS.md`, Circuit Breaker).
+
 Escalate to the Director when:
 
 - The error budget is exhausted and feature releases must be paused.
@@ -175,7 +179,7 @@ Escalate to the Director when:
 
 Owner: IA Engineering
 
-Version: 0.0.3
+Version: 0.0.4
 
 Status: Draft
 
