@@ -124,13 +124,15 @@ chmod +x "$T/bin/timeout"
 HOOK_PATH="$T/bin:$PATH"
 # HOOK_ENV — extra NAME=value words for the next hook runs (empty by default).
 HOOK_ENV=()
+# HOOK_STDIN — the payload on the hook's stdin (empty by default).
+HOOK_STDIN=""
 
 # hook <project> — runs session-start.sh as Claude Code does. Sets OUT (stdout
 # and stderr), RC, MS (elapsed), DRIFT (the drift lines alone) and NDRIFT.
 hook() {
   local t0
   t0="$(now_ms)"
-  OUT="$( (cd "$1" && printf '' | env CLAUDE_PROJECT_DIR="$1" PATH="$HOOK_PATH" ${HOOK_ENV[@]+"${HOOK_ENV[@]}"} bash "$HOOKS/session-start.sh") 2>&1 )"
+  OUT="$( (cd "$1" && printf '%s' "$HOOK_STDIN" | env CLAUDE_PROJECT_DIR="$1" PATH="$HOOK_PATH" ${HOOK_ENV[@]+"${HOOK_ENV[@]}"} bash "$HOOKS/session-start.sh") 2>&1 )"
   RC=$?
   MS=$(( $(now_ms) - t0 ))
   DRIFT="$(printf '%s\n' "$OUT" | grep '^IA Engineering drift' || true)"
@@ -286,6 +288,12 @@ hook "$AD"
 expect_lines 1 "an absent file alone: one line"
 expect_drift "1 of 14 framework-managed file(s) to act on (absent: Registry/work-units.yml)" "the absent file is named, with the count"
 expect_drift "$RUN_CMD, which tells a stale file (copy it) from a modified one (review it)" "the absent-file line names the full command"
+# /clear starts a new session (WU-IAENG-373): the same drift line as startup.
+HOOK_STDIN='{"hook_event_name":"SessionStart","source":"clear"}'
+hook "$AD"
+HOOK_STDIN=""
+expect_lines 1 "#373: source clear, an absent file: the same one line"
+expect_drift "1 of 14 framework-managed file(s) to act on (absent: Registry/work-units.yml)" "#373: source clear: the absent file is named"
 # Put back with an OLD mtime: only the presence check can see it came back.
 mv "$T/work-units.yml" Registry/work-units.yml
 touch -t 202001010000 Registry/work-units.yml
