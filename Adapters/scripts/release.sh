@@ -206,38 +206,62 @@ milestone_section() {
 # The Work Unit ids a CHANGELOG.md section accounts for, read from stdin.
 #
 # A Work Unit counts when it is named in the FINAL parenthesised group of a
-# bullet line or of a bullet's indented continuation — "... (#262,
-# WU-IAENG-353)" — which is the convention every CHANGELOG.md line of this
-# repository follows and the one the assembler enforces. A mention anywhere
-# else does not count: the [Unreleased] bullet that documents the up-front
-# reservation names WU-IAENG-376 to WU-IAENG-380 in its text, and none of those
-# Work Units has an entry. Counting a mention would report them accounted for.
+# BULLET — the last line of a "- " item and its indented continuations —
+# "... (#262, WU-IAENG-353)". That is the convention every CHANGELOG.md line
+# of this repository follows, and the place the assembler puts the id: it
+# appends it to the bullet's last line (changelog-fragment.awk, flush). A
+# mention anywhere else does not count: the [Unreleased] bullet that
+# documents the up-front reservation names WU-IAENG-376 to WU-IAENG-380 in its
+# text, and none of those Work Units has an entry. Nor does the final group of
+# a wrapped bullet's FIRST line, which is a mention like any other.
+#
+# Ceiling, stated rather than hidden: any id in that final group counts, so
+# "(follow-up of WU-IAENG-9)" accounts for WU-IAENG-9. The parser reads the
+# group the same way, and a group naming two Work Units is this changelog's
+# convention for a shared entry.
 #
 # An exemption assembled from a "No changelog entry:" fragment is the comment
-# line "<!-- No changelog entry (<id>): <reason> -->", and counts too.
+# line "<!-- No changelog entry (<id>): <reason> -->", and counts only in that
+# exact shape: one id, a non-empty reason, and the closing "-->" on the same
+# line. An unclosed one hides the rest of the section in the published notes,
+# and one with no reason is the silent omission this condition exists to
+# catch (SEC-IAENG-378-01, N1).
 section_accounted_ids() {
   awk '
-    { gsub(/\015/, "") }
-    /^<!-- No changelog entry \(/ {
-      id = $0
-      sub(/^<!-- No changelog entry \(/, "", id)
-      sub(/\).*$/, "", id)
-      print id
-      next
-    }
-    /^(- |[ \t])/ {
-      line = $0
+    function item_end(    line, i, open, grp) {
+      line = last
+      last = ""
+      if (line == "") return
       sub(/[ \t]+$/, "", line)
-      if (substr(line, length(line), 1) != ")") next
+      if (substr(line, length(line), 1) != ")") return
       open = 0
       for (i = length(line); i > 0; i--) if (substr(line, i, 1) == "(") { open = i; break }
-      if (!open) next
+      if (!open) return
       grp = substr(line, open + 1, length(line) - open - 1)
       while (match(grp, /WU-[A-Za-z0-9]+-[0-9]+/)) {
         print substr(grp, RSTART, RLENGTH)
         grp = substr(grp, RSTART + RLENGTH)
       }
     }
+    { gsub(/\015/, "") }
+    /^<!-- No changelog entry \(/ {
+      item_end()
+      rest = substr($0, length("<!-- No changelog entry (") + 1)
+      close_at = index(rest, "): ")
+      if (close_at == 0) next
+      id = substr(rest, 1, close_at - 1)
+      reason = substr(rest, close_at + 3)
+      if (id !~ /^WU-[A-Za-z0-9]+-[0-9]+$/) next
+      if (substr(reason, length(reason) - 3) != " -->") next
+      reason = substr(reason, 1, length(reason) - 4)
+      if (reason !~ /[^ \t]/ || index(reason, "--") > 0) next
+      print id
+      next
+    }
+    /^- / { item_end(); last = $0; next }
+    /^[ \t]+[^ \t]/ { if (last != "") last = $0; next }
+    { item_end() }
+    END { item_end() }
   ' | sort -u
 }
 
@@ -747,7 +771,9 @@ cmd_assemble() {
     [ -n "$f" ] || continue
     base="${f##*/}"
     [ "$base" = "README.md" ] && continue
-    if [ -f "$f" ] && [[ "$base" =~ ^WU-[A-Za-z0-9]+-[0-9]+\.md$ ]]; then
+    # Regular files only: a symbolic link would be read from outside
+    # changelog.d/ and only the link deleted (SEC-IAENG-378-01, N2).
+    if [ ! -L "$f" ] && [ -f "$f" ] && [[ "$base" =~ ^WU-[A-Za-z0-9]+-[0-9]+\.md$ ]]; then
       ids="$ids${base%.md}"$'\n'
     else
       strays="$strays$f "
@@ -769,12 +795,21 @@ cmd_assemble() {
   # By the number of the id, then the id: WU-IAENG-1000 after WU-IAENG-999.
   ids="$(printf '%s' "$ids" | awk -F- '{ print $NF "\t" $0 }' | LC_ALL=C sort -t "$(printf '\t')" -k1,1n -k2,2 | cut -f2)"
 
-  local records parsed errors="" id n_frag=0 n_exempt=0
+  local records parsed parse_status errors="" id n_frag=0 n_exempt=0
   records="$(mktemp)"
   while IFS= read -r id; do
     [ -n "$id" ] || continue
     n_frag=$((n_frag + 1))
-    parsed="$(awk -v id="$id" -f "$FRAGMENT_PARSER" "$FRAGMENT_DIR/$id.md")"
+    # A parse that succeeds always prints at least one ENTRY, EXEMPT or ERROR
+    # record. A parser that exits non-zero or prints none did not read the
+    # fragment, and assembling it would delete the fragment with nothing
+    # added — so it refuses the run like a malformed fragment.
+    parsed="$(awk -v id="$id" -f "$FRAGMENT_PARSER" "$FRAGMENT_DIR/$id.md" 2>/dev/null)"
+    parse_status=$?
+    if [ "$parse_status" -ne 0 ] || ! grep -qE '^(ENTRY|EXEMPT|ERROR)'$'\t' <<< "$parsed"; then
+      errors="$errors  $FRAGMENT_DIR/$id.md: the fragment parser did not run (exit $parse_status) or printed no record ($FRAGMENT_PARSER)"$'\n'
+      continue
+    fi
     if grep -q '^ERROR' <<< "$parsed"; then
       errors="$errors$(awk -F'\t' -v f="$FRAGMENT_DIR/$id.md" '$1 == "ERROR" { printf "  %s line %s: %s\n", f, $2, $3 }' <<< "$parsed")"$'\n'
       continue
@@ -800,16 +835,31 @@ cmd_assemble() {
   if [ "$(head -n 1 CHANGELOG.md | tr -cd '\r' | wc -c | tr -d ' ')" -gt 0 ]; then
     eol=$'\r'
   fi
-  order="$(awk -v list=1 -f "$FRAGMENT_PARSER" < /dev/null | tr '\n' ' ')"
+  order="$(awk -v list=1 -f "$FRAGMENT_PARSER" < /dev/null 2>/dev/null | tr '\n' ' ')"
+  if [ "$(printf '%s' "$order" | wc -w | tr -d ' ')" -ne 6 ]; then
+    rm -f "$records"
+    echo "release.sh: refusing — $FRAGMENT_PARSER did not list the six categories; nothing was changed." >&2
+    return 1
+  fi
   out="$(mktemp)"
 
   if ! awk -v recs="$records" -v order="$order" -v eol="$eol" '
     function emit(s) { printf "%s%s\n", s, eol }
-    function trimmed(key, n,    a, b, j) {
-      a = 1; b = n
-      while (a <= b && body[key, a] ~ /^[ \t]*$/) a++
-      while (b >= a && body[key, b] ~ /^[ \t]*$/) b--
-      for (j = a; j <= b; j++) emit(body[key, j])
+    # One subsection: its heading, the lines already there (blank lines at
+    # either end trimmed), then the lines the fragments add to it. When the text
+    # already there ends in prose rather than a bullet — the upgrade-note
+    # paragraph under ### Notes — a blank line separates the two, so the
+    # first new bullet does not read as the paragraph continuing.
+    function subsection(c,    a, b, j) {
+      emit("### " c)
+      emit("")
+      a = 1; b = bn[c]
+      while (a <= b && body[c, a] ~ /^[ \t]*$/) a++
+      while (b >= a && body[c, b] ~ /^[ \t]*$/) b--
+      for (j = a; j <= b; j++) emit(body[c, j])
+      if (addn[c] > 0 && a <= b && body[c, b] !~ /^(- |[ \t])/) emit("")
+      for (j = 1; j <= addn[c]; j++) emit(addl[c, j])
+      emit("")
     }
     function rebuild(    i, j, c, a, b) {
       emit(heading)
@@ -820,21 +870,17 @@ cmd_assemble() {
       if (a <= b) { for (j = a; j <= b; j++) emit(pre[j]); emit("") }
       for (i = 1; i <= ncat; i++) {
         c = CAT[i]
-        if (!((c in has) || addn[c] > 0)) continue
-        emit("### " c)
-        emit("")
-        trimmed(c, bn[c])
-        for (j = 1; j <= addn[c]; j++) emit(addl[c, j])
-        emit("")
+        if ((c in has) || addn[c] > 0) subsection(c)
       }
+      # The other headings already in the section, in their order. ### Notes
+      # is one of them when the section has upgrade notes, and receives the
+      # Notes bullets of the fragments; when it has none, a ### Notes is added
+      # after everything else.
       for (i = 1; i <= nsub; i++) {
         c = SUB[i]
-        if (c in canon) continue
-        emit("### " c)
-        emit("")
-        trimmed(c, bn[c])
-        emit("")
+        if (!(c in canon)) subsection(c)
       }
+      if (!("Notes" in has) && addn["Notes"] > 0) subsection("Notes")
       for (i = 1; i <= nex; i++) emit(ex[i])
       if (nex > 0) emit("")
     }
@@ -875,8 +921,29 @@ cmd_assemble() {
 
   # cat over the file rather than mv, so the file keeps its own mode and is
   # never absent for an instant.
-  cat "$out" > CHANGELOG.md
-  rm -f "$out"
+  #
+  # CHECKED, and before any fragment is deleted. This script runs without
+  # `set -e`, so an unchecked write that failed — a read-only file, a file
+  # an editor holds open on Windows, a full disk — went on to delete every
+  # fragment and exit 0, and the fragments were the only copy of those
+  # entries outside git history. Found in review of PR #313. A write that
+  # failed part-way is undone from the copy taken before it, and the read-back
+  # comparison catches a write that reported success and is not what was meant.
+  local backup
+  backup="$(mktemp)"
+  if ! cp CHANGELOG.md "$backup"; then
+    rm -f "$records" "$out" "$backup"
+    echo "release.sh: refusing — CHANGELOG.md could not be copied before the write; nothing was changed." >&2
+    return 1
+  fi
+  if ! cat "$out" > CHANGELOG.md 2>/dev/null || ! cmp -s "$out" CHANGELOG.md; then
+    cat "$backup" > CHANGELOG.md 2>/dev/null
+    rm -f "$records" "$out" "$backup"
+    echo "release.sh: refusing — CHANGELOG.md could not be written. No fragment was deleted." >&2
+    echo "  Make it writable (read-only, or held open by another program?) and run this again." >&2
+    return 1
+  fi
+  rm -f "$out" "$backup"
 
   local summary
   summary="$(awk -F'\t' -v order="$order" '
@@ -885,10 +952,17 @@ cmd_assemble() {
   ' "$records")"
   rm -f "$records"
 
+  local not_deleted=""
   while IFS= read -r id; do
     [ -n "$id" ] || continue
-    rm -f -- "$FRAGMENT_DIR/$id.md"
+    rm -f -- "$FRAGMENT_DIR/$id.md" 2>/dev/null
+    [ -e "$FRAGMENT_DIR/$id.md" ] && not_deleted="$not_deleted$FRAGMENT_DIR/$id.md "
   done <<< "$ids"
+  if [ -n "$not_deleted" ]; then
+    echo "release.sh: CHANGELOG.md is assembled, but these fragments could not be deleted: $not_deleted" >&2
+    echo "  Delete them by hand before committing, or they will be assembled a second time." >&2
+    return 1
+  fi
 
   echo "   Assembled $n_frag fragment(s) into [Unreleased]: ${summary:-no entry lines, }$n_exempt exemption(s)."
   echo "   Deleted: $(printf '%s' "$ids" | tr '\n' ' ')"

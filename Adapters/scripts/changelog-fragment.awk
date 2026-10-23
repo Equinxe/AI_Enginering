@@ -28,8 +28,9 @@
 # When any ERROR is printed, nothing else is: a refused fragment yields no
 # entries, so a caller cannot assemble half of one.
 #
-# With -v list=1 it prints the allowed categories, one per line, in the order
-# a CHANGELOG.md section lists them, and reads nothing.
+# With -v list=1 it prints the six Keep a Changelog categories, one per line,
+# in the order a CHANGELOG.md section lists them, and reads nothing. Notes is
+# allowed in a fragment but is not in that list: it follows the six.
 #
 # THE FORMAT
 #
@@ -37,7 +38,10 @@
 #
 #   An entry: one or more "### <Category>" headings, each followed by at least
 #   one "- " bullet. A bullet may continue on lines that start with a space or
-#   a tab. The categories are Keep a Changelog 1.1.0's six, nothing else.
+#   a tab. The categories are Keep a Changelog 1.1.0's six, plus "### Notes"
+#   for an upgrade note, a bullet like any other (Director, 23 Oct 2026). No
+#   line holds "<!--" or "-->", and none starts its text with "<"
+#   (html_hazard below).
 #
 #   An exemption: the single line "No changelog entry: <reason>", for a Work
 #   Unit that changes nothing a reader of the changelog needs to know. The
@@ -55,6 +59,11 @@
 BEGIN {
   NCAT = split("Added Changed Deprecated Removed Fixed Security", CATS, " ")
   for (i = 1; i <= NCAT; i++) ALLOWED[CATS[i]] = 1
+  # Upgrade notes (Director decision of 23 Oct 2026: "a dedicated bullet
+  # filed under Notes"). Allowed in a fragment, bullets only like the six,
+  # and NOT in the list below: it is not a Keep a Changelog category, and
+  # the assembler places it after the six, under the section's ### Notes.
+  ALLOWED["Notes"] = 1
   if (list) {
     for (i = 1; i <= NCAT; i++) print CATS[i]
     done = 1
@@ -106,6 +115,30 @@ function flush(    j) {
   nbuf = 0
 }
 
+# SEC-IAENG-378-01. A bullet is rendered as Markdown in CHANGELOG.md and in
+# the GitHub Release notes. "<!--" with no closing "-->" opens an HTML comment
+# that swallows every later line of the section, and the assembler emits
+# Security last, so one fragment could hide every Security entry after it
+# while condition 5 still reports them accounted for. A line that starts with
+# "<" can open an HTML block (<script>, <pre>, <details>) with the same effect.
+# Both are refused; "-->" too, since it can close the exemption comments the
+# assembler writes. Inline HTML elsewhere in a line (`<kbd>` in code spans,
+# a "<" mid-sentence) opens no block and stays allowed.
+function html_hazard(line,    t) {
+  if (index(line, "<!--") > 0 || index(line, "-->") > 0) {
+    err("an HTML comment marker ('<!--' or '-->') would hide the rest of the section in the published notes")
+    return 1
+  }
+  t = line
+  sub(/^- /, "", t)
+  sub(/^[ \t]+/, "", t)
+  if (substr(t, 1, 1) == "<") {
+    err("the text starts with '<', which can open an HTML block that hides the rest of the section in the published notes")
+    return 1
+  }
+  return 0
+}
+
 function close_heading() {
   flush()
   if (cat != "" && items[cat] == 0) err("'### " cat "' has no '- ' bullet under it")
@@ -121,7 +154,7 @@ function close_heading() {
   sub(/[ \t]+$/, "", h)
   headings++
   if (!(h in ALLOWED)) {
-    err("'### " h "' is not an allowed heading: Added, Changed, Deprecated, Removed, Fixed or Security")
+    err("'### " h "' is not an allowed heading: Added, Changed, Deprecated, Removed, Fixed, Security, or Notes for an upgrade note")
     cat = ""
     skipping = 1
     next
@@ -165,12 +198,14 @@ cat == "" {
 
 /^- / {
   flush()
+  html_hazard($0)
   buf[++nbuf] = $0
   items[cat]++
   next
 }
 
 /^[ \t]/ {
+  html_hazard($0)
   if (nbuf == 0) err("an indented line with no '- ' bullet above it")
   else buf[++nbuf] = $0
   next

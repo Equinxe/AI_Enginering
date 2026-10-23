@@ -127,7 +127,10 @@ If the Pull Request makes a change to an Employee definition (`Employees/`) or t
 
 1. Verify public interfaces are documented.
 2. Verify complex or non-obvious logic has an explanatory comment.
-3. Verify the PR adds its changelog fragment, `changelog.d/<Work Unit id>.md` (`changelog.d/README.md`), and updates the relevant documentation if it introduces a user-visible change. The PR does not edit `CHANGELOG.md`; the fragment is assembled into it at the release.
+3. Verify the changelog and the documentation:
+   - **In a repository that keeps changelog fragments** (it has a `changelog.d/` directory, as the IA Engineering framework repository does): every Work Unit's PR adds exactly one fragment, `changelog.d/<Work Unit id>.md`, whether or not the change is user-visible. When nothing user-visible changed, the fragment is the single line `No changelog entry: <reason>`. The PR does not edit `CHANGELOG.md`; the fragment is assembled into it at the release. `changelog.d/README.md` gives the format.
+   - **Otherwise**: the PR updates `CHANGELOG.md` if it introduces a user-visible change.
+   - **In both cases**: the PR updates the relevant documentation if it introduces a user-visible change.
 
 **Output:** Documentation assessment.
 
@@ -279,7 +282,7 @@ This workflow is complete when:
 
 Owner: IA Engineering
 
-Version: 0.0.10
+Version: 0.0.11
 
 Status: Draft
 

@@ -8433,8 +8433,19 @@ printf '### Added\n\n- x\n' > "$FRAG_FIX/changelog.d/WU-T-9.md"
 frag_case "a fragment of an unregistered Work Unit" "names WU-T-9, which $FRAG_FIX/work-units.yml does not register"
 
 frag_fixture
-printf '### Notes\n\n- x\n' > "$FRAG_FIX/changelog.d/WU-T-2.md"
-frag_case "a heading outside Keep a Changelog's six" "'### Notes' is not an allowed heading"
+printf '### Upgrade\n\n- x\n' > "$FRAG_FIX/changelog.d/WU-T-2.md"
+frag_case "a heading outside Keep a Changelog's six and Notes" "'### Upgrade' is not an allowed heading"
+
+# An upgrade note is a bullet under ### Notes (Director, 23 Oct 2026).
+frag_fixture
+printf '### Notes\n\n- re-run install.sh after upgrading\n' > "$FRAG_FIX/changelog.d/WU-T-2.md"
+expect 0 "fragments: an upgrade note under ### Notes passes" -- \
+  bash "$FRAG_HARNESS" changelog_fragment_check "$FRAG_FIX/changelog.d" "$FRAG_FIX/work-units.yml" "$FRAG_PARSER"
+expect_output "total${FRAG_TAB}2"
+expect_output_absent "fail${FRAG_TAB}"
+frag_fixture
+printf '### Notes\n\nAn upgrade paragraph, not a bullet.\n' > "$FRAG_FIX/changelog.d/WU-T-2.md"
+frag_case "an upgrade note that is prose, not a bullet" "neither a '- ' bullet nor an indented continuation"
 
 frag_fixture
 printf '## Added\n\n- x\n' > "$FRAG_FIX/changelog.d/WU-T-2.md"
@@ -8477,6 +8488,42 @@ rm -rf "$FRAG_FIX/changelog.d"
 expect 1 "fragments: a missing changelog.d/ fails, not passes" -- \
   bash "$FRAG_HARNESS" changelog_fragment_check "$FRAG_FIX/changelog.d" "$FRAG_FIX/work-units.yml" "$FRAG_PARSER"
 expect_output "changelog.d/ is missing"
+
+# SEC-IAENG-378-01: an HTML comment opener in a bullet or a continuation line
+# hides every later entry of the section in the published notes, Security
+# included. So does a line that opens an HTML block. All three are refused.
+frag_fixture
+printf '### Added\n\n- a minor wording fix\n  <!--\n' > "$FRAG_FIX/changelog.d/WU-T-2.md"
+frag_case "an HTML comment opener on a continuation line (SEC-IAENG-378-01)" "an HTML comment marker"
+frag_fixture
+printf '### Added\n\n- a fix <!-- hidden\n' > "$FRAG_FIX/changelog.d/WU-T-2.md"
+frag_case "an HTML comment opener inside a bullet (SEC-IAENG-378-01)" "an HTML comment marker"
+frag_fixture
+printf '### Added\n\n- <details>\n' > "$FRAG_FIX/changelog.d/WU-T-2.md"
+frag_case "a bullet that opens an HTML block (SEC-IAENG-378-01)" "starts with '<'"
+
+# A symbolic link is not a fragment (SEC-IAENG-378-01, N2).
+block_begin 2 "fragments: a symlinked fragment"
+frag_fixture
+printf '### Added\n\n- x\n' > "$FRAG_FIX/target.md"
+if ln -s "$FRAG_FIX/target.md" "$FRAG_FIX/changelog.d/WU-T-2.md" 2>/dev/null && [ -L "$FRAG_FIX/changelog.d/WU-T-2.md" ]; then
+  frag_case "a symlinked fragment" "$FRAG_FIX/changelog.d/WU-T-2.md is not a fragment"
+else
+  skip "$BLOCK_N" "fragments: a symlinked fragment -- this platform has no real symlinks, not a fix defect."
+fi
+block_end
+
+# A parser that does not run, or runs and prints no record, is a failure and
+# not a clean fragment: a correct parse always prints ENTRY, EXEMPT or ERROR.
+printf 'BEGIN {\n' > "$WORK/frag-parser-broken.awk"
+printf 'BEGIN { exit 0 }\n' > "$WORK/frag-parser-silent.awk"
+frag_fixture
+expect 0 "fragments: a parser with a syntax error is reported" -- \
+  bash "$FRAG_HARNESS" changelog_fragment_check "$FRAG_FIX/changelog.d" "$FRAG_FIX/work-units.yml" "$WORK/frag-parser-broken.awk"
+expect_output "the fragment parser did not run"
+expect 0 "fragments: a parser that prints no record is reported" -- \
+  bash "$FRAG_HARNESS" changelog_fragment_check "$FRAG_FIX/changelog.d" "$FRAG_FIX/work-units.yml" "$WORK/frag-parser-silent.awk"
+expect_output "the fragment parser did not run"
 
 # --- release.sh in a real repository: a copy of release.sh and the parser,
 # a registry of the Testing milestone, and a CHANGELOG.md with entries written
@@ -8522,7 +8569,7 @@ EOF
 # id appended where a bullet lacks it, the exemption as a comment at the end.
 frag_release_repo frag-assemble
 printf '  - id: WU-T-10\n    employee: Release Manager\n    title: t\n    milestone: Testing\n' >> Registry/work-units.yml
-printf '### Added\n\n- added by ten\n' > changelog.d/WU-T-10.md
+printf '### Notes\n\n- run the installer again after upgrading\n\n### Added\n\n- added by ten\n' > changelog.d/WU-T-10.md
 printf '### Security\n\n- a security fix (#5)\n\n### Added\n\n- added by two\n  continued\n' > changelog.d/WU-T-2.md
 printf 'No changelog entry: tests only\n' > changelog.d/WU-T-3.md
 cat > "$WORK/frag-expected.md" <<'EOF'
@@ -8549,6 +8596,8 @@ Intro.
 
 A note that stays after the six categories.
 
+- run the installer again after upgrading (WU-T-10)
+
 <!-- No changelog entry (WU-T-3): tests only -->
 
 ## [0.0.1] - Earlier
@@ -8559,7 +8608,7 @@ A note that stays after the six categories.
 EOF
 expect 0 "assemble: three fragments fold into [Unreleased]" -- bash Adapters/scripts/release.sh assemble
 expect_output "Assembled 3 fragment(s)"
-expect 0 "assemble: CHANGELOG.md is exactly the expected assembly (category order, Work Unit order, ids, exemption)" -- \
+expect 0 "assemble: CHANGELOG.md is exactly the expected assembly (category order, Work Unit order, ids, upgrade note under Notes after its prose, exemption)" -- \
   diff "$WORK/frag-expected.md" CHANGELOG.md
 expect 0 "assemble: the assembled fragments are deleted and README.md is kept" -- \
   test ! -e changelog.d/WU-T-2.md -a ! -e changelog.d/WU-T-3.md -a ! -e changelog.d/WU-T-10.md -a -f changelog.d/README.md
@@ -8567,6 +8616,42 @@ cp CHANGELOG.md "$WORK/frag-after.md"
 expect 0 "assemble: a second run with no fragment changes nothing" -- bash Adapters/scripts/release.sh assemble
 expect_output "No fragment in changelog.d/"
 expect 0 "assemble: the second run left CHANGELOG.md byte-identical" -- cmp -s "$WORK/frag-after.md" CHANGELOG.md
+
+# An upgrade note when the section has no ### Notes yet: one is added, after
+# the six categories.
+frag_release_repo frag-assemble-newnotes
+awk '/^### Notes$/ { skip = 1; next } /^## \[0\.0\.1\]/ { skip = 0 } !skip' CHANGELOG.md > CHANGELOG.tmp && mv CHANGELOG.tmp CHANGELOG.md
+printf '### Notes\n\n- the config key moved\n\n### Fixed\n\n- a fix\n' > changelog.d/WU-T-2.md
+cat > "$WORK/frag-expected-notes.md" <<'EOF'
+# Changelog
+
+Intro.
+
+---
+
+## [Unreleased] - Testing
+
+### Added
+
+- an entry written before fragments, which names WU-T-3 in its text (WU-T-1)
+
+### Fixed
+
+- a fix (WU-T-2)
+
+### Notes
+
+- the config key moved (WU-T-2)
+
+## [0.0.1] - Earlier
+
+### Added
+
+- the first release (WU-T-0)
+EOF
+expect 0 "assemble: an upgrade note with no ### Notes in the section" -- bash Adapters/scripts/release.sh assemble
+expect 0 "assemble: a ### Notes is added after the six categories, holding the upgrade note" -- \
+  diff "$WORK/frag-expected-notes.md" CHANGELOG.md
 
 # CRLF: a Windows checkout of CHANGELOG.md keeps CRLF on every line, new ones
 # included — the rewrite is not a whole-file line-ending change.
@@ -8584,9 +8669,9 @@ expect 0 "assemble: the CRLF fragment's bullet is in the Fixed section" -- grep 
 frag_release_repo frag-assemble-bad
 cp CHANGELOG.md "$WORK/frag-before.md"
 printf '### Added\n\n- fine\n' > changelog.d/WU-T-2.md
-printf '### Notes\n\n- not a Keep a Changelog heading\n' > changelog.d/WU-T-3.md
+printf '### Upgrade\n\n- not an allowed heading\n' > changelog.d/WU-T-3.md
 expect 1 "assemble: a malformed fragment refuses the run" -- bash Adapters/scripts/release.sh assemble
-expect_output "changelog.d/WU-T-3.md line 1: '### Notes' is not an allowed heading"
+expect_output "changelog.d/WU-T-3.md line 1: '### Upgrade' is not an allowed heading"
 expect 0 "assemble: the refused run left CHANGELOG.md unchanged" -- cmp -s "$WORK/frag-before.md" CHANGELOG.md
 expect 0 "assemble: the refused run deleted no fragment, the valid one included" -- test -f changelog.d/WU-T-2.md -a -f changelog.d/WU-T-3.md
 
@@ -8602,6 +8687,58 @@ sed 's/^## \[Unreleased\] - Testing$/## [0.0.2] - Testing/' CHANGELOG.md > CHANG
 printf '### Added\n\n- fine\n' > changelog.d/WU-T-2.md
 expect 1 "assemble: no [Unreleased] section refuses the run" -- bash Adapters/scripts/release.sh assemble
 expect_output "has no '## [Unreleased]' section"
+
+# frag_untouched <description> <fragment...> — CHANGELOG.md is byte-identical
+# to the copy taken before the run, and every fragment named is still there.
+frag_untouched() {
+  local desc="$1" ok=0 f
+  shift
+  cmp -s "$WORK/frag-before.md" CHANGELOG.md || ok=1
+  for f in "$@"; do [ -f "$f" ] || ok=1; done
+  expect 0 "$desc" -- test "$ok" -eq 0
+}
+
+# SEC-IAENG-378-01: a fragment that would hide the rest of the section.
+frag_release_repo frag-assemble-comment
+cp CHANGELOG.md "$WORK/frag-before.md"
+printf '### Added\n\n- a minor wording fix\n  <!--\n' > changelog.d/WU-T-2.md
+printf '### Security\n\n- a security fix\n' > changelog.d/WU-T-3.md
+expect 1 "assemble: a fragment with an HTML comment opener refuses the run (SEC-IAENG-378-01)" -- bash Adapters/scripts/release.sh assemble
+expect_output "changelog.d/WU-T-2.md line 4: an HTML comment marker"
+frag_untouched "assemble: the comment refusal left CHANGELOG.md unchanged and deleted nothing" \
+  changelog.d/WU-T-2.md changelog.d/WU-T-3.md
+
+# A parser that does not run, or prints nothing, refuses the run: before, the
+# fragment was deleted with nothing added.
+frag_release_repo frag-assemble-parser
+cp CHANGELOG.md "$WORK/frag-before.md"
+printf '### Added\n\n- fine\n' > changelog.d/WU-T-2.md
+cp "$WORK/frag-parser-broken.awk" Adapters/scripts/changelog-fragment.awk
+expect 1 "assemble: a parser with a syntax error refuses the run" -- bash Adapters/scripts/release.sh assemble
+expect_output "the fragment parser did not run"
+cp "$WORK/frag-parser-silent.awk" Adapters/scripts/changelog-fragment.awk
+expect 1 "assemble: a parser that prints no record refuses the run" -- bash Adapters/scripts/release.sh assemble
+expect_output "the fragment parser did not run"
+frag_untouched "assemble: the parser refusals left CHANGELOG.md unchanged and deleted nothing" \
+  changelog.d/WU-T-2.md
+
+# A CHANGELOG.md that cannot be written refuses the run and deletes nothing:
+# before, the fragments were deleted and the run exited 0.
+block_begin 3 "assemble: an unwritable CHANGELOG.md"
+frag_release_repo frag-assemble-readonly
+cp CHANGELOG.md "$WORK/frag-before.md"
+printf '### Added\n\n- fine\n' > changelog.d/WU-T-2.md
+chmod a-w CHANGELOG.md
+if [ ! -w CHANGELOG.md ]; then
+  expect 1 "assemble: an unwritable CHANGELOG.md refuses the run" -- bash Adapters/scripts/release.sh assemble
+  expect_output "CHANGELOG.md could not be written"
+  frag_untouched "assemble: the write refusal deleted no fragment and left CHANGELOG.md unchanged" \
+    changelog.d/WU-T-2.md
+else
+  skip "$BLOCK_N" "assemble: an unwritable CHANGELOG.md -- chmod a-w leaves it writable here (running as root), not a fix defect."
+fi
+chmod u+w CHANGELOG.md
+block_end
 
 # --- release.sh check, condition 5. The other conditions fail in a fixture
 # (no host, no validator, not develop), so the exit is 1 throughout and each
@@ -8635,6 +8772,19 @@ git add -A && git commit -q -m "fixture: late fragment"
 expect 1 "condition 5: a fragment left after the bump fails" -- \
   bash Adapters/scripts/release.sh check --milestone Testing
 expect_output "fragments not assembled into '## [0.0.2] - Testing': WU-T-2"
+
+# Accounting is by bullet: a wrapped bullet's id is the final group of its
+# LAST line, as the assembler writes it. An exemption comment counts only with
+# a reason and its closing "-->" (SEC-IAENG-378-01, N1): an unclosed one hides
+# the rest of the section.
+frag_release_repo frag-cond5-bullet
+awk '/^## \[0\.0\.1\]/ { print "<!-- No changelog entry (WU-T-2):  -->"; print "<!-- No changelog entry (WU-T-2): a reason, never closed"; print "" }
+     { print }
+     /^- an entry written before fragments/ { print "- a wrapped bullet that cites (WU-T-3)"; print "  and continues (WU-T-1)" }' CHANGELOG.md > CHANGELOG.tmp && mv CHANGELOG.tmp CHANGELOG.md
+git add -A && git commit -q -m "fixture"
+expect 1 "condition 5: a wrapped bullet's first-line group, an empty-reason and an unclosed exemption count for nothing" -- \
+  bash Adapters/scripts/release.sh check --milestone Testing
+expect_output "2 of 3 Work Units for 'Testing' have no changelog fragment, entry or exemption: WU-T-2 WU-T-3"
 
 frag_release_repo frag-cond5-nodir
 rm -rf changelog.d

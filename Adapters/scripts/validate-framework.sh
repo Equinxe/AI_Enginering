@@ -2216,8 +2216,10 @@ section "23. Changelog fragments (changelog.d/)"
 #   - every entry of changelog.d/ other than README.md is a file named
 #     <Work Unit id>.md — assemble refuses to run while anything else is there;
 #   - that id is registered in Registry/work-units.yml;
-#   - the content is an entry under Keep a Changelog's six headings only, each
-#     with a bullet, or the single line "No changelog entry: <reason>".
+#   - the content is an entry under Keep a Changelog's six headings, plus
+#     "### Notes" for an upgrade note, each with a bullet and no HTML that
+#     could hide text, or the single line "No changelog entry: <reason>";
+#   - the parser ran and printed a record (a silent parser is no pass).
 #
 # THE DENOMINATOR MAY BE ZERO. Rule 3 asks a set-iterating check to fail at
 # zero, because an empty set usually means the input moved. Here the set is a
@@ -2231,7 +2233,7 @@ section "23. Changelog fragments (changelog.d/)"
 # per problem and a closing "total<TAB>n".
 changelog_fragment_check() {
   local dir="$1" registry="$2" parser="$3"
-  local f base id n=0 registered
+  local f base id n=0 registered parsed status
   if [ ! -d "$dir" ]; then
     printf 'fail\t%s/ is missing\tWorkflows/RELEASE.md Step 2 assembles the changelog from it. Without it no fragment can be checked, and an unevaluated condition is not a pass.\n' "$dir"
     return 1
@@ -2252,8 +2254,11 @@ changelog_fragment_check() {
     [ -n "$f" ] || continue
     base="${f##*/}"
     [ "$base" = "README.md" ] && continue
-    if [ ! -f "$f" ] || ! [[ "$base" =~ ^WU-[A-Za-z0-9]+-[0-9]+\.md$ ]]; then
-      printf 'fail\t%s is not a fragment\t%s/ holds README.md and files named <Work Unit id>.md, nothing else; release.sh assemble refuses to run while anything else is there.\n' "$f" "$dir"
+    # A symbolic link is refused even when it points at a valid fragment:
+    # assemble reads through it and deletes only the link, so the content
+    # would come from outside changelog.d/ (SEC-IAENG-378-01, N2).
+    if [ -L "$f" ] || [ ! -f "$f" ] || ! [[ "$base" =~ ^WU-[A-Za-z0-9]+-[0-9]+\.md$ ]]; then
+      printf 'fail\t%s is not a fragment\t%s/ holds README.md and regular files named <Work Unit id>.md, nothing else, no symbolic link; release.sh assemble refuses to run while anything else is there.\n' "$f" "$dir"
       continue
     fi
     n=$((n + 1))
@@ -2261,8 +2266,17 @@ changelog_fragment_check() {
     if ! grep -qxF -- "$id" <<< "$registered"; then
       printf 'fail\t%s names %s, which %s does not register\tA fragment is the changelog entry of one registered Work Unit: register it, or rename the fragment to the Work Unit it belongs to.\n' "$f" "$id" "$registry"
     fi
-    awk -v id="$id" -f "$parser" "$f" \
-      | awk -F'\t' -v f="$f" '$1 == "ERROR" { printf "fail\t%s line %s: %s\tThe format is in changelog.d/README.md. release.sh assemble refuses a malformed fragment at the version bump.\n", f, $2, $3 }'
+    # A parse that succeeds always prints at least one ENTRY, EXEMPT or ERROR
+    # record: an empty fragment is itself an ERROR. A parser that exits
+    # non-zero, or prints no record, did not evaluate the fragment, and an
+    # unevaluated fragment is a failure, never a clean one.
+    parsed="$(awk -v id="$id" -f "$parser" "$f" 2>/dev/null)"
+    status=$?
+    if [ "$status" -ne 0 ] || ! grep -qE '^(ENTRY|EXEMPT|ERROR)'$'\t' <<< "$parsed"; then
+      printf 'fail\t%s: the fragment parser did not run (exit %s) or printed no record\t%s is the one definition of a fragment. Nothing was evaluated, which is not a pass.\n' "$f" "$status" "$parser"
+      continue
+    fi
+    awk -F'\t' -v f="$f" '$1 == "ERROR" { printf "fail\t%s line %s: %s\tThe format is in changelog.d/README.md. release.sh assemble refuses a malformed fragment at the version bump.\n", f, $2, $3 }' <<< "$parsed"
   done < <(find "$dir" -mindepth 1 -maxdepth 1 | LC_ALL=C sort)
   printf 'total\t%d\n' "$n"
 }
@@ -2281,7 +2295,7 @@ done <<< "$frag_out"
 if [ "$frag_fails" -eq 0 ] && [ -z "$frag_total" ]; then
   fail "the changelog fragment check produced no verdict" "changelog_fragment_check stopped without its closing 'total' record. Nothing was checked, which is not a pass."
 elif [ "$frag_fails" -eq 0 ]; then
-  pass "changelog.d/: $frag_total fragment(s), each named after a registered Work Unit, with Keep a Changelog headings only"
+  pass "changelog.d/: $frag_total fragment(s), each named after a registered Work Unit, with Keep a Changelog headings or an upgrade note only"
 fi
 
 # EARLY WARNING, on a Pull Request only, and never a failure.
