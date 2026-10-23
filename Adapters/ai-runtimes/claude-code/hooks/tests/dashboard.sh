@@ -410,13 +410,23 @@ fi
 jq --arg m "$SS_OLD" '.hooks.SessionStart[0].matcher = $m | .hooks.SessionStart[0].hooks += [{"type":"command","command":"bash ./tools/my-start.sh"}]' \
   "$T/rendered.json" | tr -d '\r' > "$SET"
 inst
-if [ "$INST_RC" -eq 0 ] && [ "$(ss_groups | tr '\n' ' ')" = "$SS_OLD#2 $SS_NEW#1 " ]; then ok "#373: the earlier matcher, with the project's own hook in the group — the group kept as it is, the current entry added"; else bad "#373: the earlier matcher, with the project's own hook in the group — the group kept as it is, the current entry added" "groups: $(ss_groups | tr '\n' ' ')"; fi
+if [ "$INST_RC" -eq 0 ] && [ "$(ss_groups | tr '\n' ' ')" = "$SS_OLD#2 $SS_NEW#1 " ] && grep -qF "SessionStart [$SS_OLD]: " "$T/inst.err"; then ok "#373: the earlier matcher, with the project's own hook in the group — the group kept as it is, the current entry added, near miss reported"; else bad "#373: the earlier matcher, with the project's own hook in the group — the group kept as it is, the current entry added, near miss reported" "groups: $(ss_groups | tr '\n' ' ') err: $(head -c 300 "$T/inst.err")"; fi
 # (c) the earlier entry AND the current one: nothing duplicated, nothing removed.
 jq --arg m "$SS_OLD" '.hooks.SessionStart = [(.hooks.SessionStart[0] | .matcher = $m)] + .hooks.SessionStart' \
   "$T/rendered.json" | tr -d '\r' > "$SET"
 cp "$SET" "$T/ss-both.json"
 inst
-if [ "$INST_RC" -eq 0 ] && cmp -s "$SET" "$T/ss-both.json" && [ "$(ss_groups | tr '\n' ' ')" = "$SS_OLD#1 $SS_NEW#1 " ]; then ok "#373: the earlier entry beside the current one — the file left byte-identical (no second current group)"; else bad "#373: the earlier entry beside the current one — the file left byte-identical (no second current group)" "groups: $(ss_groups | tr '\n' ' ') out: $(cat "$T/inst.out")"; fi
+if [ "$INST_RC" -eq 0 ] && cmp -s "$SET" "$T/ss-both.json" && [ "$(ss_groups | tr '\n' ' ')" = "$SS_OLD#1 $SS_NEW#1 " ] && grep -qF "SessionStart [$SS_OLD]: " "$T/inst.err"; then ok "#373: the earlier entry beside the current one — the file left byte-identical (no second current group), near miss reported"; else bad "#373: the earlier entry beside the current one — the file left byte-identical (no second current group), near miss reported" "groups: $(ss_groups | tr '\n' ' ') out: $(cat "$T/inst.out") err: $(head -c 300 "$T/inst.err")"; fi
+# (e) the earlier group, exactly the template's entries, plus one key of its own.
+jq --arg m "$SS_OLD" '.hooks.SessionStart[0].matcher = $m | .hooks.SessionStart[0]["$comment"] = "the project'"'"'s note"' \
+  "$T/rendered.json" | tr -d '\r' > "$SET"
+inst
+if [ "$INST_RC" -eq 0 ] && [ "$(ss_groups | tr '\n' ' ')" = "$SS_OLD#1 $SS_NEW#1 " ] && [ "$(jq -r '.hooks.SessionStart[0]["$comment"]' "$SET" | tr -d '\r')" = "the project's note" ] \
+    && grep -qF "SessionStart [$SS_OLD]: " "$T/inst.err"; then
+  ok "#373: the earlier group with a key of its own (\$comment) — kept as it is, the current entry added beside it, near miss reported"
+else
+  bad "#373: the earlier group with a key of its own (\$comment) — kept as it is, the current entry added beside it, near miss reported" "groups: $(ss_groups | tr '\n' ' ') err: $(head -c 300 "$T/inst.err")"
+fi
 # (d) another matcher altogether (the project's choice): kept, current added.
 jq '.hooks.SessionStart[0].matcher = "startup"' "$T/rendered.json" | tr -d '\r' > "$SET"
 inst

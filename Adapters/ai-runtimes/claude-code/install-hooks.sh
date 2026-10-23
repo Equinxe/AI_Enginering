@@ -246,7 +246,9 @@ RENDERED="$(sed "s#__IAENG_ROOT__#$ROOT#g" "$EXAMPLE")"
 # beside it and both would fire on every event they share — the hooks
 # reference says a handler defined in several settings FILES runs once, and
 # nothing of two groups in one file. Any other group is the project's and is
-# never rewritten. Add a line here whenever a template matcher changes.
+# never rewritten. Add a line here whenever a template matcher changes, and
+# set every existing line's "to" to the new matcher too: a line whose "to" is
+# no longer a template matcher is skipped, and its adopters get the near miss.
 #   SessionStart: "clear" added, so /clear starts with the read-first context.
 SUPERSEDED='{"SessionStart":[{"from":"startup|resume|compact","to":"startup|resume|clear|compact"}]}'
 
@@ -519,7 +521,7 @@ if [ -f "$DEST" ] && [ "$FORCE" -eq 0 ]; then
   if [ -z "$UPDATED" ]; then
     echo "+ $DEST: merged (framework root: $ROOT); every entry already in it is kept."
   else
-    echo "+ $DEST: merged (framework root: $ROOT); every entry already in it is kept, but the framework's own earlier entries, whose matcher is updated in place."
+    echo "+ $DEST: merged (framework root: $ROOT); the framework's earlier entries had their matcher updated in place, and every other entry is kept as it was."
   fi
   [ -z "$ADDED" ] || printf '%s\n' "$ADDED" | sed 's/^/    added:   /'
   [ -z "$UPDATED" ] || printf '%s\n' "$UPDATED" | sed 's/^/    updated: /'

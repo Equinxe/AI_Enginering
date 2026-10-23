@@ -628,24 +628,19 @@ touch "$FRESH/.ia-engineering/SESSION_STATE.md"
 ss_payload() { printf '{"session_id":"t","transcript_path":"/nonexistent","cwd":"%s","hook_event_name":"SessionStart","source":"%s"}' "$FRESH" "$1"; }
 ss_run "$FRESH" "$SESSTART" "$(ss_payload startup)"
 SS_STARTUP_OUT="$SS_OUT"
+ss_check_rc   "session-start: source startup — exits 0" 0
 ss_check_has  "session-start: source startup — SESSION_STATE's Next Step is printed" yes "resume the Work Unit after /clear"
-ss_run "$FRESH" "$SESSTART" "$(ss_payload clear)"
-ss_check_rc   "session-start: source clear — exits 0" 0
-ss_check_has  "session-start: source clear — SESSION_STATE's Next Step is printed" yes "resume the Work Unit after /clear"
-TOTAL=$((TOTAL + 1))
-if [ "$SS_OUT" = "$SS_STARTUP_OUT" ]; then
-  [ "$VERBOSE" -eq 1 ] && printf '   ok    %s\n' "session-start: source clear — output identical to startup"
-else
-  FAILED=$((FAILED + 1))
-  printf '   FAIL  %s\n' "session-start: source clear — output identical to startup"
-  diff <(printf '%s\n' "$SS_STARTUP_OUT") <(printf '%s\n' "$SS_OUT") | head -10 | sed 's/^/         /'
-fi
-for ss_src in resume compact; do
+for ss_src in clear resume compact; do
   ss_run "$FRESH" "$SESSTART" "$(ss_payload "$ss_src")"
+  ss_check_rc   "session-start: source $ss_src — exits 0" 0
+  ss_check_has  "session-start: source $ss_src — SESSION_STATE's Next Step is printed" yes "resume the Work Unit after /clear"
   TOTAL=$((TOTAL + 1))
-  if [ "$SS_OUT" != "$SS_STARTUP_OUT" ]; then
+  if [ "$SS_OUT" = "$SS_STARTUP_OUT" ]; then
+    [ "$VERBOSE" -eq 1 ] && printf '   ok    %s\n' "session-start: source $ss_src — output identical to startup"
+  else
     FAILED=$((FAILED + 1))
     printf '   FAIL  %s\n' "session-start: source $ss_src — output identical to startup"
+    diff <(printf '%s\n' "$SS_STARTUP_OUT") <(printf '%s\n' "$SS_OUT") | head -10 | sed 's/^/         /'
   fi
 done
 
