@@ -177,7 +177,7 @@ fi
 # reaches every git command below, however it is invoked.
 [ "$CHECK" -eq 1 ] && export GIT_OPTIONAL_LOCKS=0
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 FRAMEWORK="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
 if ! PROJECT="$(git rev-parse --show-toplevel 2>/dev/null)"; then

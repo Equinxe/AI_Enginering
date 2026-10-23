@@ -247,7 +247,7 @@ if [ -n "$DRIFT_SH" ] && [ -f "$DRIFT_SH" ] && ! [ "$ROOT" -ef "$BASE" ]; then
   else
     DRIFT_ARGS=(--quick --format tsv)
     [ -n "$DRIFT_CACHE" ] && DRIFT_ARGS+=(--cache-dir "$DRIFT_CACHE")
-    DRIFT_OUT="$(cd "$BASE" 2>/dev/null && "$DRIFT_TO" -k 0.2 2.8 bash "$DRIFT_SH" "${DRIFT_ARGS[@]}" </dev/null 2>/dev/null)"
+    DRIFT_OUT="$(CDPATH='' cd -- "$BASE" 2>/dev/null && "$DRIFT_TO" -k 0.2 2.8 bash "$DRIFT_SH" "${DRIFT_ARGS[@]}" </dev/null 2>/dev/null)"
     DRIFT_RC=$?
     case "$DRIFT_RC" in
       0)

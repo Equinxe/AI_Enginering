@@ -101,7 +101,7 @@ esac
 TOP="$(git rev-parse --show-toplevel 2>/dev/null)" || nothing "not inside a git work tree"
 cd "$TOP" || nothing "cannot enter the work tree root"
 
-PATTERNS_FILE="$(cd "$(dirname "$0")" && pwd)/suppression-patterns.tsv"
+PATTERNS_FILE="$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)/suppression-patterns.tsv"
 ALLOW_FILE=".ia-engineering/suppression.allow"
 
 WORK="$(mktemp -d)" || nothing "cannot create a scratch directory"

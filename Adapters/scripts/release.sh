@@ -59,7 +59,7 @@
 
 set -uo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 cd "$ROOT" || exit 2
 
@@ -87,7 +87,7 @@ current_version() {
 # site means a second forge adds one directory and changes nothing in this file.
 host_dir() {
   local root host
-  root="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  root="$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
   if [ ! -x "$root/resolve-host.sh" ]; then
     echo "resolve-host.sh is missing beside this script" >&2
     return 1

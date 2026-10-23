@@ -191,7 +191,7 @@ if [ -n "$CACHE_DIR" ]; then
 fi
 [ "$QUICK" -eq 1 ] && [ "$REMOTE" -eq 1 ] && { echo "check-framework-drift.sh: --quick never asks the remote" >&2; exit 64; }
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 FRAMEWORK="$(cd "$SCRIPT_DIR/../.." && pwd)"
 RUNTIME="$FRAMEWORK/Adapters/ai-runtimes/claude-code"
 

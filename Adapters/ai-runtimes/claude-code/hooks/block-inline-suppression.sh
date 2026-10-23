@@ -101,7 +101,7 @@ iaeng_canon() {
   printf '%s' "${r:-/}"
 }
 
-HOOK_DIR="$(cd "$(dirname "$0")" && pwd)"
+HOOK_DIR="$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)"
 PATTERNS="$HOOK_DIR/../../../scripts/suppression-patterns.tsv"
 if [ -n "$FILE" ]; then
   CANON="$(iaeng_canon "$FILE" "$(iaeng_field '.cwd')")"

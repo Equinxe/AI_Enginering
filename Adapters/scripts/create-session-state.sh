@@ -55,7 +55,7 @@
 
 set -uo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 FRAMEWORK_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 TEMPLATE="$FRAMEWORK_ROOT/Templates/SESSION_STATE.md"
 REL=".ia-engineering/SESSION_STATE.md"
