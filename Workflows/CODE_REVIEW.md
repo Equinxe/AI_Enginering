@@ -49,7 +49,8 @@ Before this workflow begins:
 
 1. Read the PR description completely before opening any file.
 2. Identify the linked Work Unit and its Definition of Done.
-3. Confirm the PR scope matches the stated intent — nothing more, nothing less.
+3. Before opening any file, write the pre-commitment predictions (`Employees/Specialized/CODE_REVIEWER.md`, Process, step 2).
+4. Confirm the PR scope matches the stated intent — nothing more, nothing less.
 
 If the PR description is absent or insufficient: request the author to complete it before proceeding. Do not review an undescribed PR.
 
@@ -114,6 +115,7 @@ If the Pull Request makes a change to an Employee definition (`Employees/`) or t
 2. Verify the Code Quality Standard is respected.
 3. Check that no dead code, commented-out code, or debug statements are included.
 4. Verify that complexity is justified — no unnecessary abstractions.
+5. Apply the Minimal Code checklist, and what it never trims (`Employees/Specialized/CODE_REVIEWER.md`, Minimal Code).
 
 **Output:** Quality assessment.
 
@@ -156,6 +158,8 @@ If the Pull Request makes a change to an Employee definition (`Employees/`) or t
 - **Escalate** — security or architecture issue requires specialist review before a decision can be made.
 
 Document the decision with a summary comment stating **what was reviewed** — which files, which lenses (Steps 2–6), which claims in the description were verified against the repository — and what the blocking conditions are (if any). A review that found nothing states what it looked at; "LGTM" with no denominator is not a decision, it is an absence of one.
+
+Before deciding, the Code Reviewer self-audits its findings; an open question that came from a critical or major finding stays an approval condition until answered. It then gives Standards conformance and Intent a verdict each: an axis fails exactly when it carries an unresolved critical or major finding, so both pass exactly when this Step's Approve holds (`Employees/Specialized/CODE_REVIEWER.md`, Process, step 10, and Two Axes).
 
 **Output:** PR approved, changes requested, or escalated.
 
