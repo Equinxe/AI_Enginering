@@ -267,6 +267,8 @@ This rule has no size or convenience exception:
 
 Nothing else is covered. These stay dispatched as this section says: a merge into `main` or into a release branch, a release or hotfix back-merge into `develop` (the Release Manager's), a tag, a release, merging `develop` into an open Pull Request's branch, and any merge that needs conflict resolution (the authoring Employee's). A merge that fails is reported, not retried another way.
 
+This exception is a standing authorisation (`Standards/RISK_STANDARD.md`, Standing Authorisations): its source is above, its scope is `develop`, and its preconditions are the three conditions. It is reviewed at each release approval (`Workflows/RELEASE.md` Step 5). The Director revokes or narrows it by saying so. From that moment the Main Agent dispatches these merges again, and records the revocation as a deviation until this section is amended.
+
 ---
 
 # Communication Rules
@@ -279,6 +281,19 @@ It must:
 - avoid unnecessary verbosity;
 - request missing information before execution;
 - clearly indicate blockers.
+
+---
+
+# Presenting a Decision to the Director
+
+A Gate (`Core/GLOSSARY.md`) is only as sound as the question put to the Director at it. This section governs the form of that question at the Plan step (`Core/ORCHESTRATION.md`, Step 3), at every Workflow gate, and in every escalation. It adds, removes, and moves no gate.
+
+1. **The Director signs between alternatives, never on a single proposal.** Each decision carries at least two options, one of which may be "not now". Each option states what it costs and what it rules out, and the Main Agent recommends one, with its reason. A single proposal leaves only approve or refuse, and hides the choice already made.
+2. **The decision is restated before it is signed.** One sentence in `Core/GLOSSARY.md` terms: which Work Units, which Employees, which gate is passed, which Risk Tier, and what becomes irreversible. The approval covers that sentence. Anything outside it is not approved (`Standards/RISK_STANDARD.md`: confirmation names the action).
+3. **Questions arrive in one numbered batch, each with a recommended answer**, so the Director can reply "1: recommended, 2: B". An unanswered question is not answered by its recommendation: the work that depends on it waits.
+4. **Work that is not blocked continues.** While the Director decides, the Main Agent keeps dispatching, within an approved plan, the Work Units that no open question blocks, and states which Work Units wait on which question. The Decision Tree's stop (`Core/DECISION_TREE.md`) applies to the work that needs the answer, never to work that does not, and no work starts on an assumed answer.
+
+**Relation to the closest rules.** The escalation block (`Standards/RISK_STANDARD.md`) remains the form of a High or Critical escalation; this section places it among alternatives and in a batch. Autonomous Release Execution (above) governs pacing between gates; item 4 governs work beside a pending gate, and never passes one.
 
 ---
 
@@ -332,7 +347,7 @@ A successful execution is one where:
 
 # Document Metadata
 
-Version: 0.0.8
+Version: 0.0.9
 
 Status: Stable
 

@@ -16,8 +16,12 @@
 # re-run adds nothing; an entry that only names a framework hook script —
 # another matcher, an "|| true", an echo, the exact command with another
 # timeout — does not count, the framework's entry is added beside it, and the
-# other one is reported for the project to check. The report lists what was
-# added and what was found present, nothing more, plus a warning when the
+# other one is reported for the project to check. One exception: the
+# framework's OWN earlier entry, exactly — a group whose matcher is one the
+# framework used before (SUPERSEDED below) and whose entries are exactly the
+# template's, nothing else in it — has its matcher updated in place, since
+# appending beside it would run the hook twice (WU-IAENG-373). The report
+# lists what was added, updated and found present, nothing more, plus a warning when the
 # project's settings switch every hook off ("disableAllHooks": true), which
 # this script reports and never changes. The file is rewritten by jq, so its
 # formatting is normalised (two-space indent); its content is kept. Without jq, when the
@@ -166,7 +170,7 @@ check_report() {
         line = line "; " part("gitattributes", ".gitattributes rule(s)", "present missing")
         line = line "; " (f + 0) " fault(s)."
         if (s["settings" FS "absent"] || s["hook" FS "absent"] || s["gitattributes" FS "missing"])
-          line = line " absent/missing: re-run " ENVIRON["IAENG_ME"] " without --force; it adds them and keeps every entry already there."
+          line = line " absent/missing: re-run " ENVIRON["IAENG_ME"] " without --force; it adds them and keeps every entry already there, except an earlier framework entry, whose matcher it updates in place."
         if (s["hook" FS "near-miss"])
           line = line " near-miss: check each is not a weakened copy; the framework entry runs beside it."
         if (s["settings" FS "disabled"])
@@ -231,6 +235,22 @@ for h in "$HERE"/hooks/*.sh; do
 done
 
 RENDERED="$(sed "s#__IAENG_ROOT__#$ROOT#g" "$EXAMPLE")"
+
+# THE FRAMEWORK'S EARLIER MATCHERS (WU-IAENG-373), per event: "from" is a
+# matcher a previous settings.example.json carried, "to" the template's
+# current one for the same entries. A project group under that event whose
+# matcher is exactly "from", which holds exactly the template group's entries
+# (the project directory's spelling aside) and has no other key, is the
+# framework's own entry from that version: merge_settings changes its matcher
+# to "to" and nothing else. Without this, the current group would be appended
+# beside it and both would fire on every event they share — the hooks
+# reference says a handler defined in several settings FILES runs once, and
+# nothing of two groups in one file. Any other group is the project's and is
+# never rewritten. Add a line here whenever a template matcher changes, and
+# set every existing line's "to" to the new matcher too: a line whose "to" is
+# no longer a template matcher is skipped, and its adopters get the near miss.
+#   SessionStart: "clear" added, so /clear starts with the read-first context.
+SUPERSEDED='{"SessionStart":[{"from":"startup|resume|compact","to":"startup|resume|clear|compact"}]}'
 
 if [ "$PRINT" -eq 1 ]; then
   printf '%s\n' "$RENDERED"
@@ -355,24 +375,47 @@ settings_mergeable() {
   # framework's entry is appended beside it (a hook run twice is harmless) and
   # the other one is reported as a near miss for the project to check, naming
 # the fields that differ when its command is the template's.
+#
+# THE FRAMEWORK'S OWN EARLIER ENTRY IS UPDATED, NOT DOUBLED (WU-IAENG-373).
+# Before anything else, a group that is exactly the framework's entry under
+# a SUPERSEDED "from" matcher has its matcher set to "to", unless the current
+# entry is already held under "to" (then nothing is rewritten and the earlier
+# group stays a near miss). The rest runs on the updated file, so the updated
+# group is neither added again nor a near miss; it is reported in u, and not
+# in p, which lists only what the file held before the run.
 merge_settings() {
-  jq --argjson tpl "$RENDERED" '
+  jq --argjson tpl "$RENDERED" --argjson sup "$SUPERSEDED" '
     def norm: gsub("[$][{]CLAUDE_PROJECT_DIR[}]"; "$CLAUDE_PROJECT_DIR") | gsub("/[.]/"; "/");
     def nentry: if type == "object" and (.command | type) == "string" then .command |= norm else . end;
     def nentries: [.hooks[]? | nentry];
     def scripts: [.hooks[]?.command // "" | strings | scan("hooks/([A-Za-z0-9._-]+[.]sh)") | .[0]];
     def where($ev): $ev + (if (.matcher // "") != "" then " [" + .matcher + "]" else "" end);
     def differ($a; $b): [[$a, $b][] | keys[]] | unique | map(select(. as $k | $a[$k] != $b[$k]));
-    . as $cur
+    def holds($want): nentries as $have | all($want[]; . as $w | any($have[]; . == $w));
+    def earlier($from; $want): type == "object" and (keys == ["hooks", "matcher"])
+      and .matcher == $from and (.hooks | type) == "array" and nentries == $want;
+    . as $orig
+    | (reduce ($sup | to_entries[]) as $s ({c: $orig, u: []};
+        reduce $s.value[] as $r (.;
+          ([$tpl.hooks[$s.key][]? | select((.matcher // null) == $r.to)] | first) as $tg
+          | if $tg == null or ((.c.hooks[$s.key] // null) | type) != "array" then .
+            else ($tg | nentries) as $want
+            | if (any(.c.hooks[$s.key][]; earlier($r.from; $want)) | not)
+                 or any(.c.hooks[$s.key][]; type == "object" and (.matcher // null) == $r.to and holds($want))
+              then .
+              else .c.hooks[$s.key] |= map(if earlier($r.from; $want) then .matcher = $r.to else . end)
+                | .u += [{l: ($tg | where($s.key) + ": " + (scripts | join(", "))), from: $r.from}]
+              end
+            end))) as $up
+    | $up.c as $cur
     | ([$tpl.hooks[][] | scripts[]] | unique) as $names
-    | reduce ($tpl.hooks | to_entries[]) as $e ({m: ., a: [], p: []};
+    | reduce ($tpl.hooks | to_entries[]) as $e ({m: $cur, a: [], p: [], u: $up.u};
         reduce $e.value[] as $g (.;
           ($g | nentries) as $want
           | ($g | where($e.key) + ": " + (scripts | join(", "))) as $label
-          | if any($cur.hooks[$e.key][]?;
-                   (.matcher // null) == ($g.matcher // null)
-                   and (nentries as $have | all($want[]; . as $w | any($have[]; . == $w))))
-            then .p += [$label]
+          | if any($cur.hooks[$e.key][]?; (.matcher // null) == ($g.matcher // null) and holds($want))
+            then (if any($orig.hooks[$e.key][]?; (.matcher // null) == ($g.matcher // null) and holds($want))
+                  then .p += [$label] else . end)
             else .m.hooks[$e.key] = ((.m.hooks[$e.key] // []) + [$g]) | .a += [$label]
             end))
     | .w = [ $cur.hooks | to_entries[] | .key as $ev | .value[]? | . as $grp
@@ -417,7 +460,9 @@ if [ "$CHECK" -eq 1 ]; then
       [ -n "$_st" ] && record hook "$_st" "$REL_DEST" "$_d"
     done < <(printf '%s\n' "$MERGED" \
       | jq -r 'def flat: gsub("[\t\n\r]"; " ");
-               (.p[] | "present\t" + flat), (.a[] | "absent\t" + flat), (.w[] | "near-miss\t" + flat)' 2>/dev/null \
+               (.p[] | "present\t" + flat), (.a[] | "absent\t" + flat),
+               (.u[] | "absent\t" + (.l + "  (a run updates the framework\u0027s earlier entry under [" + .from + "] in place)" | flat)),
+               (.w[] | "near-miss\t" + flat)' 2>/dev/null \
       | sed $'s/\r$//')
   fi
   while IFS= read -r _f; do
@@ -452,6 +497,7 @@ if [ -f "$DEST" ] && [ "$FORCE" -eq 0 ]; then
   ADDED="$(printf '%s\n' "$MERGED" | jq -r '.a[]' | tr -d '\r')"
   PRESENT="$(printf '%s\n' "$MERGED" | jq -r '.p[]' | tr -d '\r')"
   NEAR="$(printf '%s\n' "$MERGED" | jq -r '.w[]' | tr -d '\r')"
+  UPDATED="$(printf '%s\n' "$MERGED" | jq -r '.u[] | .l + "  (matcher was [" + .from + "])"' | tr -d '\r')"
   if [ -n "$NEAR" ]; then
     {
       echo "! $DEST: these commands name a framework hook script but are not the framework's entry"
@@ -461,7 +507,7 @@ if [ -f "$DEST" ] && [ "$FORCE" -eq 0 ]; then
       printf '%s\n' "$NEAR" | sed 's/^/    /'
     } >&2
   fi
-  if [ -z "$ADDED" ]; then
+  if [ -z "$ADDED" ] && [ -z "$UPDATED" ]; then
     echo "= $DEST: every IA Engineering hook entry is present exactly; left as it is."
     printf '%s\n' "$PRESENT" | sed 's/^/    present: /'
     finish; exit $?
@@ -472,8 +518,13 @@ if [ -f "$DEST" ] && [ "$FORCE" -eq 0 ]; then
     merge_by_hand "the merged file could not be written"
   fi
   mv -f "$TMP" "$DEST" || { rm -f "$TMP"; merge_by_hand "the merged file could not replace it"; }
-  echo "+ $DEST: merged (framework root: $ROOT); every entry already in it is kept."
-  printf '%s\n' "$ADDED" | sed 's/^/    added:   /'
+  if [ -z "$UPDATED" ]; then
+    echo "+ $DEST: merged (framework root: $ROOT); every entry already in it is kept."
+  else
+    echo "+ $DEST: merged (framework root: $ROOT); the framework's earlier entries had their matcher updated in place, and every other entry is kept as it was."
+  fi
+  [ -z "$ADDED" ] || printf '%s\n' "$ADDED" | sed 's/^/    added:   /'
+  [ -z "$UPDATED" ] || printf '%s\n' "$UPDATED" | sed 's/^/    updated: /'
   [ -z "$PRESENT" ] || printf '%s\n' "$PRESENT" | sed 's/^/    present: /'
   finish; rc=$?
   echo "  Review the diff, commit it, and restart the Claude Code session for the hooks to load."

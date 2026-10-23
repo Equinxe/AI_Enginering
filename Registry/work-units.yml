@@ -1496,9 +1496,9 @@ work_units:
 
   - id: WU-IAENG-376
     employee: Prompt Engineer
-    title: Reserved 23 Oct 2026 before dispatch (WU-IAENG-381) - the Director-approved Core and Standards texts of 23 Oct 2026, part 1 - standing authorisations (a subsection of Standards/RISK_STANDARD.md and one paragraph of Core/MAIN_AGENT_CONDUCT.md, Git Execution via Named Employee) and Presenting a Decision to the Director (a new section of Core/MAIN_AGENT_CONDUCT.md)
+    title: The Director-approved Core and Standards texts of 23 Oct 2026, part 1 (reserved by WU-IAENG-381), committed verbatim - Standing Authorisations, a new subsection of Standards/RISK_STANDARD.md (0.0.15) after The Risk Record (a general go-ahead holds only when written with six fields - source, scope, permitted actions, preconditions, exceptions, review and revocation; it never lowers a tier; a failed precondition voids it for that action; one that relaxes a control is a deviation recorded in SESSION_STATE, never in the repository it weakens; every action under it names it); one paragraph in Core/MAIN_AGENT_CONDUCT.md (0.0.9), Git Execution via Named Employee, naming the 1 Oct develop-merge exception a standing authorisation, reviewed at each release approval and revocable by the Director's word; and a new section, Presenting a Decision to the Director (alternatives, never a single proposal; the decision restated before it is signed; questions in one numbered batch with recommended answers; unblocked work continues within an approved plan), with the Director's decided insertion of "within an approved plan" in item 4 and the option note removed; Core/MAIN_AGENT_CONDUCT.md added to the Risk Standard's Referenced By; text 1-C, the 23 Oct label-suspension deviation, stays in SESSION_STATE and is not committed
     milestone: Adoption
-    delivers: planned - Standards/RISK_STANDARD.md, Core/MAIN_AGENT_CONDUCT.md, CHANGELOG.md, Registry/work-units.yml
+    delivers: Standards/RISK_STANDARD.md, Core/MAIN_AGENT_CONDUCT.md, CHANGELOG.md, Registry/work-units.yml
 
   - id: WU-IAENG-377
     employee: Technical Lead
@@ -1529,6 +1529,12 @@ work_units:
     title: Reserve Work Units 376 to 380 and document up-front reservation (Director decision of 23 Oct 2026, changelog study option 2b) - the five Work Units of the 23 Oct plans registered in one bookkeeping Pull Request before their dispatch, so each Work Unit's own Pull Request edits only its own entry; Workflows/FEATURE_DEVELOPMENT.md Step 4 (0.0.14) says a plan's Work Units may be reserved this way and that a reserved Work Unit not delivered is moved or removed at release (release.sh condition 1)
     milestone: Adoption
     delivers: Registry/work-units.yml, Workflows/FEATURE_DEVELOPMENT.md, CHANGELOG.md
+
+  - id: WU-IAENG-373
+    employee: Platform Engineer
+    title: SessionStart fires on /clear (compaction work, step 1, AMELIORATION.md W2b; approved by the Director 23 Oct 2026) - the SessionStart matcher of settings.example.json and of the framework's own .claude/settings.json becomes startup|resume|clear|compact, so a session started by /clear gets the read-first context, SESSION_STATE and the drift check, as a startup does; session-start.sh reads no source and is unchanged; install-hooks.sh updates the framework's earlier entry in place - a SessionStart group whose matcher is exactly startup|resume|compact and whose entries are exactly the template's, nothing else in it - by changing its matcher alone, instead of appending a second group beside it that would run session-start.sh twice; any other group is the project's and is never rewritten (near miss, current entry added beside it, as before); --check reports the entry absent with the in-place update named, never as a near miss; tests prove every source gets the startup output (seen red against two hand mutants), the drift line on clear, the template matcher and the upgrade with its five refusals, each check seen red on its own guard (base commit or a hand mutant); fork is left out, a forked session carrying its parent transcript
+    milestone: Adoption
+    delivers: Adapters/ai-runtimes/claude-code/settings.example.json, .claude/settings.json, Adapters/ai-runtimes/claude-code/install-hooks.sh, Adapters/ai-runtimes/claude-code/hooks/session-start.sh, Adapters/ai-runtimes/claude-code/hooks/README.md, Adapters/ai-runtimes/claude-code/TROUBLESHOOTING.md, Adapters/ai-runtimes/claude-code/hooks/tests/run.sh, Adapters/ai-runtimes/claude-code/hooks/tests/dashboard.sh, Adapters/ai-runtimes/claude-code/hooks/tests/drift.sh, CHANGELOG.md, Registry/work-units.yml
 
   - id: WU-IAENG-374
     employee: Data Scientist
