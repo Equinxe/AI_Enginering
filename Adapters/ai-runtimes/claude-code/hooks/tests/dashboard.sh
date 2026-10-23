@@ -355,6 +355,83 @@ inst
 if [ "$INST_RC" -eq 0 ] && grep -q "every IA Engineering hook entry is present exactly" "$T/inst.out" && cmp -s "$SET" "$T/merged.json"; then ok "re-run after a merge: exit 0, nothing added, byte-identical"; else bad "re-run after a merge: exit 0, nothing added, byte-identical"; fi
 if [ ! -s "$T/inst.err" ]; then ok "re-run after a merge: no near-miss warning"; else bad "re-run after a merge: no near-miss warning" "$(head -c 300 "$T/inst.err")"; fi
 
+# SESSIONSTART FIRES ON /clear TOO (WU-IAENG-373). Claude Code starts a new
+# session on /clear with source "clear", which the SessionStart matcher must
+# name or the session starts without the read-first context. An adopter whose
+# file holds the framework's earlier entry, exactly, gets its matcher updated
+# in place: appending the current entry beside it would leave two groups
+# running session-start.sh on startup, resume and compact (the hooks
+# reference says a handler defined in several settings FILES runs once; it
+# says nothing of two groups in one file). Anything other than that exact
+# earlier entry is the project's, and is left as it is.
+SS_OLD='startup|resume|compact'
+SS_NEW='startup|resume|clear|compact'
+TPL_SS_M="$(jq -r '.hooks.SessionStart[0].matcher' "$TPL" | tr -d '\r')"
+if [ "$TPL_SS_M" = "$SS_NEW" ]; then ok "#373: the template's SessionStart matcher is $SS_NEW (clear included)"; else bad "#373: the template's SessionStart matcher is $SS_NEW (clear included)" "got: $TPL_SS_M"; fi
+# ss_groups — the SessionStart groups of $SET, as "matcher|count-of-entries" lines.
+ss_groups() { jq -r '.hooks.SessionStart[] | "\(.matcher // "")#\(.hooks | length)"' "$SET" | tr -d '\r'; }
+# The earlier file: the template of WU-IAENG-372 and before, the project's own entries kept.
+jq --arg m "$SS_OLD" '.hooks.SessionStart[0].matcher = $m
+    | .hooks.PreToolUse += [{"matcher":"Read","hooks":[{"type":"command","command":"bash ./tools/my-own-hook.sh"}]}]
+    | .env = {"FOO":"1"}' "$T/rendered.json" | tr -d '\r' > "$SET"
+cp "$SET" "$T/ss-old.json"
+inst --check
+if [ "$INST_RC" -eq 3 ] && grep -qF "hook	absent	.claude/settings.json	SessionStart [$SS_NEW]: session-start.sh" "$T/inst.out" \
+    && grep -qF "a run updates the framework's earlier entry under [$SS_OLD] in place" "$T/inst.out"; then
+  ok "#373: --check on the earlier entry — drift (exit 3), the entry absent, the in-place update named"
+else
+  bad "#373: --check on the earlier entry — drift (exit 3), the entry absent, the in-place update named" "rc=$INST_RC $(cat "$T/inst.out")"
+fi
+if grep -q "near-miss" "$T/inst.out"; then bad "#373: --check — the framework's own earlier entry is not reported as a near miss" "$(grep near-miss "$T/inst.out")"; else ok "#373: --check — the framework's own earlier entry is not reported as a near miss"; fi
+inst
+if [ "$INST_RC" -eq 0 ] && [ "$(ss_groups)" = "$SS_NEW#1" ]; then ok "#373: the earlier entry — upgraded in place: one SessionStart group, matcher $SS_NEW"; else bad "#373: the earlier entry — upgraded in place: one SessionStart group, matcher $SS_NEW" "rc=$INST_RC groups: $(ss_groups | tr '\n' ' ')"; fi
+if grep -qF "updated: SessionStart [$SS_NEW]: session-start.sh" "$T/inst.out" && ! grep -q "^ *added: " "$T/inst.out"; then ok "#373: ... reported as updated, nothing reported as added"; else bad "#373: ... reported as updated, nothing reported as added" "$(cat "$T/inst.out")"; fi
+if [ ! -s "$T/inst.err" ]; then ok "#373: ... and no near-miss warning"; else bad "#373: ... and no near-miss warning" "$(head -c 300 "$T/inst.err")"; fi
+if [ "$(jq -S --arg m "$SS_NEW" '.hooks.SessionStart[0].matcher = $m' "$T/ss-old.json" | tr -d '\r')" = "$(jq -S . "$SET" | tr -d '\r')" ]; then ok "#373: ... the matcher is the only change (the project's own entries, env, every other hook kept)"; else bad "#373: ... the matcher is the only change (the project's own entries, env, every other hook kept)"; fi
+cp "$SET" "$T/ss-upgraded.json"
+inst
+if [ "$INST_RC" -eq 0 ] && grep -q "present exactly" "$T/inst.out" && cmp -s "$SET" "$T/ss-upgraded.json"; then ok "#373: re-run after the upgrade — present exactly, byte-identical"; else bad "#373: re-run after the upgrade — present exactly, byte-identical" "$(cat "$T/inst.out")"; fi
+inst --check
+if [ "$INST_RC" -eq 0 ]; then ok "#373: --check after the upgrade — nothing to act on (exit 0)"; else bad "#373: --check after the upgrade — nothing to act on (exit 0)" "rc=$INST_RC $(cat "$T/inst.out")"; fi
+
+# Not the framework's exact earlier entry: never rewritten. The current entry
+# is added beside it and the other one is reported, as for any near miss.
+# (a) the earlier matcher with another timeout;
+jq --arg m "$SS_OLD" '.hooks.SessionStart[0].matcher = $m | .hooks.SessionStart[0].hooks[0].timeout = 1' \
+  "$T/rendered.json" | tr -d '\r' > "$SET"
+inst
+if [ "$INST_RC" -eq 0 ] && [ "$(ss_groups | tr '\n' ' ')" = "$SS_OLD#1 $SS_NEW#1 " ] && [ "$(jq -r '.hooks.SessionStart[0].hooks[0].timeout' "$SET" | tr -d '\r')" = 1 ] \
+    && grep -qF "SessionStart [$SS_OLD]: " "$T/inst.err"; then
+  ok "#373: the earlier matcher with another timeout — kept as it is, the current entry added beside it, near miss reported"
+else
+  bad "#373: the earlier matcher with another timeout — kept as it is, the current entry added beside it, near miss reported" "groups: $(ss_groups | tr '\n' ' ') err: $(head -c 300 "$T/inst.err")"
+fi
+# (b) the earlier matcher, the group also holding the project's own hook;
+jq --arg m "$SS_OLD" '.hooks.SessionStart[0].matcher = $m | .hooks.SessionStart[0].hooks += [{"type":"command","command":"bash ./tools/my-start.sh"}]' \
+  "$T/rendered.json" | tr -d '\r' > "$SET"
+inst
+if [ "$INST_RC" -eq 0 ] && [ "$(ss_groups | tr '\n' ' ')" = "$SS_OLD#2 $SS_NEW#1 " ] && grep -qF "SessionStart [$SS_OLD]: " "$T/inst.err"; then ok "#373: the earlier matcher, with the project's own hook in the group — the group kept as it is, the current entry added, near miss reported"; else bad "#373: the earlier matcher, with the project's own hook in the group — the group kept as it is, the current entry added, near miss reported" "groups: $(ss_groups | tr '\n' ' ') err: $(head -c 300 "$T/inst.err")"; fi
+# (c) the earlier entry AND the current one: nothing duplicated, nothing removed.
+jq --arg m "$SS_OLD" '.hooks.SessionStart = [(.hooks.SessionStart[0] | .matcher = $m)] + .hooks.SessionStart' \
+  "$T/rendered.json" | tr -d '\r' > "$SET"
+cp "$SET" "$T/ss-both.json"
+inst
+if [ "$INST_RC" -eq 0 ] && cmp -s "$SET" "$T/ss-both.json" && [ "$(ss_groups | tr '\n' ' ')" = "$SS_OLD#1 $SS_NEW#1 " ] && grep -qF "SessionStart [$SS_OLD]: " "$T/inst.err"; then ok "#373: the earlier entry beside the current one — the file left byte-identical (no second current group), near miss reported"; else bad "#373: the earlier entry beside the current one — the file left byte-identical (no second current group), near miss reported" "groups: $(ss_groups | tr '\n' ' ') out: $(cat "$T/inst.out") err: $(head -c 300 "$T/inst.err")"; fi
+# (e) the earlier group, exactly the template's entries, plus one key of its own.
+jq --arg m "$SS_OLD" '.hooks.SessionStart[0].matcher = $m | .hooks.SessionStart[0]["$comment"] = "the project'"'"'s note"' \
+  "$T/rendered.json" | tr -d '\r' > "$SET"
+inst
+if [ "$INST_RC" -eq 0 ] && [ "$(ss_groups | tr '\n' ' ')" = "$SS_OLD#1 $SS_NEW#1 " ] && [ "$(jq -r '.hooks.SessionStart[0]["$comment"]' "$SET" | tr -d '\r')" = "the project's note" ] \
+    && grep -qF "SessionStart [$SS_OLD]: " "$T/inst.err"; then
+  ok "#373: the earlier group with a key of its own (\$comment) — kept as it is, the current entry added beside it, near miss reported"
+else
+  bad "#373: the earlier group with a key of its own (\$comment) — kept as it is, the current entry added beside it, near miss reported" "groups: $(ss_groups | tr '\n' ' ') err: $(head -c 300 "$T/inst.err")"
+fi
+# (d) another matcher altogether (the project's choice): kept, current added.
+jq '.hooks.SessionStart[0].matcher = "startup"' "$T/rendered.json" | tr -d '\r' > "$SET"
+inst
+if [ "$INST_RC" -eq 0 ] && [ "$(ss_groups | tr '\n' ' ')" = "startup#1 $SS_NEW#1 " ] && ! grep -q "updated: " "$T/inst.out"; then ok "#373: a matcher that was never the framework's (startup) — not rewritten, the current entry added"; else bad "#373: a matcher that was never the framework's (startup) — not rewritten, the current entry added" "groups: $(ss_groups | tr '\n' ' ')"; fi
+
 # PRESENCE IS EXACT (PR #239 security review, F1). The template commands:
 TPL_ESC="$(jq -r '.hooks.PreToolUse[] | select(.matcher == "Bash") | .hooks[0].command' "$T/rendered.json" | tr -d '\r')"
 TPL_SUP="$(jq -r '.hooks.PreToolUse[] | select(.matcher == "Edit|Write|MultiEdit") | .hooks[0].command' "$T/rendered.json" | tr -d '\r')"

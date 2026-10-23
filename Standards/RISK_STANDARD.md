@@ -117,6 +117,24 @@ RISK: <hazard> | tier=<Low|Medium|High|Critical> | mitigation=<...> | decided_by
 
 `decided_by=self` is valid for Low and Medium only. For High and Critical it names the Director and the confirmation is quoted.
 
+## Standing Authorisations
+
+A standing authorisation is a Director decision given once for a class of actions, so that each action in the class does not need its own confirmation. It is the only form a general go-ahead may take, and it holds only when it is written with all six fields below. A go-ahead recalled from a conversation, or kept in one agent's memory, is not one.
+
+| Field | States |
+|---|---|
+| Source | the Director, the date, and the words given — directly, never relayed by an agent |
+| Scope | the artifacts, branches, or paths it covers, and nothing else |
+| Permitted actions | each action, by name |
+| Preconditions | the facts that must hold, checked on the current state immediately before each action |
+| Exceptions | what it does not cover, even inside its scope |
+| Review and revocation | when it is reviewed, and what ends it: a date, an event, or the Director's word |
+
+1. **It never lowers a tier.** It may cover Low and Medium actions, whose preconditions serve as the stated mitigation. It never replaces the confirmation of a High or Critical action, which names one action every time.
+2. **A precondition that does not hold voids it for that action.** The Employee does not act, and reports which fact failed. A precondition is never taken from memory or from an earlier state.
+3. **Where it is written follows what it does.** One that grants authority in every project is written in the Core document that governs that authority (`Core/MAIN_AGENT_CONDUCT.md`, Git Execution via Named Employee, for merges into `develop`). One that relaxes a control is a deviation. It is recorded with the same six fields in the project's `.ia-engineering/SESSION_STATE.md` (Governance Deviations in Force), because a description of a relaxed control does not belong in the repository it weakens (`Standards/DATA_PROTECTION_STANDARD.md`). Its restoration condition is its revocation field.
+4. **Every action taken under it names it** where the action is recorded: the Pull Request, the Work Unit Report, or a Risk Record as `decided_by=Director (standing, <date>)`.
+
 ## Three Scales, and Saying Which One
 
 Three different things in this framework are scored, and all three use words like "high".
@@ -199,7 +217,9 @@ Three catalogs give default tiers for hazards every project meets. They are **st
 | Hazard | Default tier | Control |
 |---|---|---|
 | Force-push to a protected branch | **Critical** | Forbidden by `Standards/GIT_STANDARD.md`; the `pre-push` Adapter blocks it. Confirm even with `--force-with-lease`. |
-| History rewrite, `reset --hard`, `clean -f`, branch deletion, discarding uncommitted work | **High** | Forbidden without explicit Director instruction. Prefer a new branch or a single-path checkout. |
+| History rewrite, `reset --hard`, `clean -f`, discarding uncommitted work | **High** | Forbidden without explicit Director instruction. Prefer a new branch or a single-path checkout. |
+| Deleting a branch whose head is not an ancestor of `develop` or `main` as the remote holds them: work on no protected branch, which includes every `spike/*` branch | **High** | Forbidden without explicit Director instruction. Merge or push the work first, or keep the branch. |
+| Deleting a branch other than `main`, `develop` or `release/*` whose head is an ancestor of `develop` or `main` as the remote holds them, checked after a fetch, immediately before the deletion | **Low** | Nothing is lost: every commit stays on a protected branch, and the name can be recreated from its head. `main`, `develop` and `release/*` are never deleted (`Standards/BRANCH_STANDARD.md`). |
 | Deleting tracked content | **High** | Inspect the target first. If it contradicts how it was described, or the Employee did not create it, surface it instead of deleting. |
 | Destructive schema migration | **Critical** | Requires a proven rollback path before applying. |
 | A commit that may carry a secret or real data | **Critical** | Never commit. `Standards/DATA_PROTECTION_STANDARD.md` governs; the `pre-commit` Adapter refuses. |
@@ -310,7 +330,7 @@ The product catalog is included because the most expensive failures in software 
 
 Owner: IA Engineering
 
-Version: 0.0.14
+Version: 0.0.16
 
 Status: Draft
 
@@ -322,6 +342,7 @@ Depends On:
 
 - STANDARDS_FIRST.md
 - GIT_STANDARD.md
+- BRANCH_STANDARD.md
 - DATA_PROTECTION_STANDARD.md
 
 Referenced By:
@@ -329,6 +350,7 @@ Referenced By:
 - `Core/AGENT_CONDUCT.md`
 - `Core/CONTEXT_BUDGET.md`
 - `Core/GLOSSARY.md`
+- `Core/MAIN_AGENT_CONDUCT.md`
 - `Core/ORCHESTRATION.md`
 - `Templates/DOMAIN_EMPLOYEE.md`
 - `Templates/EMPLOYEE_BRIEF.md`
