@@ -398,6 +398,15 @@ if [ -n "$LIST_ONLY" ]; then
   exit 0
 fi
 
+# The shape filters that need no credential pattern, shared by both jq
+# programs below: --context-series's and the aggregate's (JQ_SHAPES). One
+# copy, so hardening one hardens both (code review of PR #314, CR-374-03).
+JQ_PLAIN_SHAPES="$(cat <<'JQ'
+def id_shape: if type == "string" and test("^[A-Za-z0-9_-]{1,128}$") then . else "" end;
+def count: (numbers | select(. >= 0) | floor) // 0;
+JQ
+)"
+
 # --- --context-series (WU-IAENG-374) -----------------------------------------
 #
 # Three passes, each one process over all the files it needs: an awk that
@@ -493,9 +502,8 @@ AWK
   #   B <n> <epoch> <trigger> <pre> <post> <duration-ms>
   # The message id is used to deduplicate and is never printed.
   local jq_series
-  jq_series="$(cat <<'JQ'
-def count: (numbers | select(. >= 0) | floor) // 0;
-def id_shape: if type == "string" and test("^[A-Za-z0-9_-]{1,128}$") then . else "" end;
+  jq_series="$JQ_PLAIN_SHAPES
+$(cat <<'JQ'
 def epoch: if type == "string" and test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?Z$")
            then (.[0:19] + "Z" | try fromdateiso8601 catch null) else null end;
 foreach inputs as $l ({n: "", line: null};
@@ -820,14 +828,13 @@ SECRET_RE='AKIA[0-9A-Z]{12}|ASIA[0-9A-Z]{12}|gh[pousr]_[A-Za-z0-9]{16}|xox[baprs
 # The shared shape filters (F1, F2, F6). `$secret` is a jq variable. The
 # credential test runs BEFORE the shape test, so a token with a character the
 # shape refuses (hf_..., npm_...) still reports as redacted, not unrecognised.
-JQ_SHAPES="$(cat <<'JQ'
+JQ_SHAPES="$JQ_PLAIN_SHAPES
+$(cat <<'JQ'
 def agent_shape: if type != "string" then "(unrecognised)" elif test($secret) then "(redacted)"
                  elif test("^[A-Za-z0-9][A-Za-z0-9:._@/-]{0,63}$") then . else "(unrecognised)" end;
 def model_shape: if type != "string" then "(unrecognised)" elif test($secret) then "(redacted)"
                  elif test("^[A-Za-z0-9][A-Za-z0-9:._@/\\[\\]-]{0,63}$") then . else "(unrecognised)" end;
-def id_shape: if type == "string" and test("^[A-Za-z0-9_-]{1,128}$") then . else "" end;
 def day_shape: if type == "string" and (.[0:10] | test("^[0-9]{4}-[0-9]{2}-[0-9]{2}$")) then .[0:10] else "unknown" end;
-def count: (numbers | select(. >= 0) | floor) // 0;
 JQ
 )"
 

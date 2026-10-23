@@ -8536,6 +8536,37 @@ expect_output "sim${T}30${T}1${T}500000${T}445000${T}265000${T}"
 expect 0 "context-simulate --write 2: a 1-hour cache write" -- bash "$SIM" --post 50000 --thresholds 70 --reps 50 --write 2 "$SA374"
 expect_output "sim${T}default${T}0${T}2100000${T}300000${T}"
 expect 2 "context-simulate: --write-model takes scaled or fixed" -- bash "$SIM" --write-model both "$SA374"
+# CR-374-01: P and S by default, with no --post. P is the median occupancy
+# of the first call after the real compactions (auto and manual), S their
+# median postTokens; a compaction with nothing after it (0) is left out.
+#   odd:  occ-after 30000 50000 10000 (and 0)  -> P 30000; post 7000 9000 8000 (and 0) -> S 8000
+#   even: occ-after 10000 20000 40000 80000    -> P (20000 + 40000) / 2 = 30000
+#         post 1000 3000 5000 9000             -> S (3000 + 5000) / 2 = 4000
+SO374="$WORK/sim-374-odd.tsv"
+printf '%s\n' \
+  "ctx-call${T}eeeeeeeeeeeeeeee${T}1${T}1790848800${T}1000${T}0${T}1000${T}0${T}0${T}0" \
+  "ctx-compact${T}eeeeeeeeeeeeeeee${T}1790848801${T}1${T}900000${T}7000${T}1000${T}0${T}900000${T}30000" \
+  "ctx-compact${T}eeeeeeeeeeeeeeee${T}1790848802${T}2${T}900000${T}9000${T}1000${T}0${T}900000${T}50000" \
+  "ctx-compact${T}eeeeeeeeeeeeeeee${T}1790848803${T}1${T}900000${T}8000${T}1000${T}0${T}900000${T}10000" \
+  "ctx-compact${T}eeeeeeeeeeeeeeee${T}1790848804${T}1${T}900000${T}0${T}1000${T}0${T}900000${T}0" > "$SO374"
+expect 0 "context-simulate: P and S by default, an odd count" -- bash "$SIM" --thresholds 30 --reps 40 "$SO374"
+expect_output "sim-input${T}1${T}0${T}1${T}1${T}1.0${T}4${T}30000${T}8000${T}0"
+SE374="$WORK/sim-374-even.tsv"
+{
+  printf 'ctx-call\teeeeeeeeeeeeeeee\t1\t1790848800\t1000\t0\t1000\t0\t0\t0\n'
+  for v_374 in 1:10000:1000 2:20000:3000 3:40000:5000 4:80000:9000; do
+    IFS=: read -r j_374 a_374 p_374 <<< "$v_374"
+    printf 'ctx-compact\teeeeeeeeeeeeeeee\t%d\t1\t900000\t%d\t1000\t0\t900000\t%d\n' "$((1790848800 + j_374))" "$p_374" "$a_374"
+  done
+} > "$SE374"
+expect 0 "context-simulate: P and S by default, an even count" -- bash "$SIM" --thresholds 30 --reps 40 "$SE374"
+expect_output "sim-input${T}1${T}0${T}1${T}1${T}1.0${T}4${T}30000${T}4000${T}0"
+# CR-374-04: a FILE that cannot be read is an error (1), not a usage error;
+# fewer than 40 resamples would print an interval that rests on none.
+expect 1 "context-simulate: a missing FILE is an error, not a usage error" -- bash "$SIM" "$WORK/sim-374-absent.tsv"
+expect_output "cannot read"
+expect 2 "context-simulate: --reps under 40 is refused" -- bash "$SIM" --reps 1 "$SA374"
+expect_output "--reps takes 40 to 20000 resamples"
 # SEC-IAENG-374-01: a series that cost nothing (every count 0) has no saving
 # to divide by; it reports 0, it does not abort.
 printf 'ctx-call\tdddddddddddddddd\t1\t1790848800\t0\t0\t0\t0\t0\t0\n' > "$WORK/sim-374-zero.tsv"

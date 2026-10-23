@@ -79,8 +79,8 @@ This is the Director's working pattern, and the reason the gate fails. The work 
 | Window in use | **1,000,000 tokens.** Eight sessions peaked above 790,000 and one compaction read 1,011,821, impossible in a 200k window |
 | Auto compactions | **24** (trigger `auto` in the runtime's `compact_boundary` entry). Manual: **8** |
 | Occupancy when auto compaction fired (`preTokens`) | median **968,011** (96.8 %); quartiles 967,047 to 970,583; min 848,341, max 1,011,821 |
-| Summary size (`postTokens`) | median **16,150**; quartiles 14,836 to 20,037 |
-| Occupancy of the first call after (P below) | median **66,064**; quartiles 57,196 to 76,507 |
+| Summary size (`postTokens`), auto | median **16,150**; quartiles 14,836 to 20,037 (over all 32 compactions: 15,379, the simulator's S) |
+| Occupancy of the first call after, auto | median **66,064**; quartiles 57,196 to 76,507 (over all 32: 67,406, the simulator's P) |
 | Duration of an auto compaction | median **111 s**; quartiles 70 s to 166 s; max 221 s |
 | Manual compactions, occupancy | 293,448 to 955,875, median 411,330 |
 | Occupancy drops of more than half (≥ 20k tokens) | 31, **every one at a recorded compaction**: the drop detector and the runtime's own record agree, 31 of 31 |
@@ -116,14 +116,14 @@ The plan's rule for WU-E is "only if WU-A shows ≥ 1 compaction/week during an 
 
 - Each call adds to the simulated occupancy what it added to the real one.
 - The call right after a real compaction adds nothing. In the simulated world, the threshold fired earlier.
-- At T, the occupancy becomes P, the measured median 66,064.
+- At T, the occupancy becomes P. P is **67,406**: the median occupancy of the first call after a real compaction, over all 32 (auto and manual; 66,064 for auto alone, as in the measured table), as `sim-input` prints it.
 - A call costs its simulated occupancy times its own real blended rate, so a real cache miss stays a miss. The call after a simulated compaction rewrites the whole context at 1.25.
-- A compaction costs R × the occupancy it read, plus O × the summary, taken as the median `postTokens`.
+- A compaction costs R × the occupancy it read, plus O × the summary S. S is **15,379**: the median `postTokens` over the same 32 compactions (16,150 for auto alone).
 
 **Prices.** Costs are in units of the input-token price. Claude Opus 5.5 lists $4 per million input tokens, $20 output (O = 5), $5 for a 5-minute cache write (1.25) and **$0.20 for a cache read: R = 0.05, not the 0.1 the plan assumed**. 0.1 is the multiplier of the older models (Opus 5, 4.x), kept here as a sensitivity case. Source: Anthropic, *Pricing* and *Prompt caching*, `https://platform.claude.com/docs/en/about-claude/pricing` and `https://platform.claude.com/docs/en/build-with-claude/prompt-caching`, as cached by the `claude-api` reference on 6 October 2026. On a subscription these are API-equivalent costs, not a bill.
 
 ```bash
-bash $C/context-simulate.sh /tmp/ctx-900.tsv                       # base: P = 66,064, R = 0.05
+bash $C/context-simulate.sh /tmp/ctx-900.tsv                       # base: P = 67,406, S = 15,379, R = 0.05
 bash $C/context-simulate.sh --thresholds 95,96,97,98 /tmp/ctx-900.tsv  # validation
 bash $C/context-simulate.sh --post-scale 0.5 /tmp/ctx-900.tsv      # sensitivity
 bash $C/context-simulate.sh --post-scale 2 /tmp/ctx-900.tsv
@@ -160,13 +160,13 @@ The default row counts real compactions, auto and manual. Its "in flight" counts
 
 ## Validation
 
-Replayed at T = 97 %, the observed default, the model should reproduce the real sessions. It gives 27 compactions against 32 real, and 8.06 B context tokens against 7.69 B (+4.8 %, cost +5.8 %). The gap has a known cause. The model treats every real compaction as one the threshold makes unnecessary, including the 8 **manual** ones (at 293k to 956k), which the Director would still make under any T. So the simulated occupancy is a little too high at every T, and **the savings above are understated by up to about 5 points**. On this repository's two sessions alone (L3, L8), whose compactions were all automatic, the replay at 97 % gives the same 7 compactions, context tokens within 0.9 % and context cost within 0.1 %.
+Replayed at T = 97 %, the observed default, the model should reproduce the real sessions. It gives 27 compactions against 32 real, and 8.06 B context tokens against 7.69 B (+4.8 %, cost +5.8 %). The gap has a known cause. The model treats every real compaction as one the threshold makes unnecessary, including the 8 **manual** ones (at 293k to 956k), which the Director would still make under any T. So the simulated occupancy is a little too high at every T, and **the savings above are understated by up to about 5 points**. The model finds "the call right after a real compaction" from the occupancy drops at a boundary: 31 of the 32 compactions have one, so one real compaction is not neutralised in the replay. Its effect is that of a 33rd manual compaction, the same small understatement (code review of PR #314, CR-374-05). On this repository's two sessions alone (L3, L8), whose compactions were all automatic, the replay at 97 % gives the same 7 compactions, context tokens within 0.9 % and context cost within 0.1 %.
 
 ## Sensitivity
 
 Saving against the default (95 % interval):
 
-| T | P × 0.5 (33,703) | **base** (P 66,064, R 0.05) | P × 2 (134,813) | R = 0.1 | P × 2 and R = 0.1 |
+| T | P × 0.5 (33,703) | **base** (P 67,406, R 0.05) | P × 2 (134,813) | R = 0.1 | P × 2 and R = 0.1 |
 |---|---|---|---|---|---|
 | 80 % | 15.0 (10.0 to 19.1) | 11.9 (6.1 to 15.8) | 4.2 (−1.7 to 8.2) | 11.3 (5.7 to 14.8) | 4.2 (−1.2 to 7.7) |
 | 70 % | 23.3 (16.2 to 28.0) | 20.0 (12.1 to 24.6) | 13.8 (8.7 to 17.3) | 20.6 (12.7 to 24.9) | 14.4 (9.3 to 17.8) |
@@ -188,7 +188,7 @@ Saving against the default (95 % interval):
 
 The bias the review expected is real, but it does not run one way. With writes fixed, the saving falls at 30 and 40 % and **rises** at 60 to 80 %. Capping a real full rewrite at the simulated occupancy charges less there than the blended rate did. At 50 % the two agree within 0.3 points, and every case stays inside the envelope quoted above. 1-hour writes move nothing by more than 0.5 points. The collector does not yet split 5-minute from 1-hour writes (`usage.cache_creation`); that split is a follow-up.
 
-**Re-reading after a compaction.** An agent that lost its context reads files again, so occupancy grows faster after a compaction. That cost scales with the number of compactions, which the model does not otherwise capture. Measured: over the 20 calls after a real compaction, the median growth is **40,063 tokens**, against **31,054** for other 20-call windows: **9,009 more**. Over 50 calls it is 8,304 more (`recovery.sh` in the Appendix). That is about 14 % of P, well inside the P × 2 case, which bounds it.
+**Re-reading after a compaction.** An agent that lost its context reads files again, so occupancy grows faster after a compaction. That cost scales with the number of compactions, which the model does not otherwise capture. Measured: over the 20 calls after a real compaction, the median growth is **40,063 tokens**, against **31,054** for other 20-call windows: **9,009 more**. Over 50 calls it is 8,304 more (`recovery.sh` in the Appendix). That is about 13 % of P, well inside the P × 2 case, which bounds it.
 
 ## What the simulation says, read with its limits
 

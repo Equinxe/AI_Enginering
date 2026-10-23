@@ -67,7 +67,10 @@
 #   --write-model scaled (default) or fixed, as above
 #   --output      O (default 5: Claude Opus 5.5, $20 against $4)
 #   --long-min    tokens (default 300000)
-#   --reps        bootstrap resamples (default 2000)
+#   --reps        bootstrap resamples, 40 to 20000 (default 2000): 40 is the
+#                 least for both percentiles to fall on a real resample; the
+#                 resamples are sorted by insertion, O(reps^2) per T, hence
+#                 the ceiling
 #   --seed        (default 374)
 #   --thresholds  the T to simulate, percentages 1 to 99 separated by
 #                 commas (default 30,40,50,60,70,80)
@@ -79,7 +82,8 @@
 #              <in-flight-compactions-per-week> <saving-%> <ci-low-%> <ci-high-%> <saving-of-bill-%>
 #
 # T is a percentage, or "default" for the sessions as they ran. Exit 0, 1 on
-# input with no ctx-call record, 2 on a usage error.
+# a FILE that cannot be read or input with no ctx-call record, 2 on a usage
+# error.
 
 set -uo pipefail
 
@@ -132,6 +136,14 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 [ "$WINDOW" -gt 0 ] || { err "--window must be positive."; exit 2; }
+if [ "$REPS" -lt 40 ] || [ "$REPS" -gt 20000 ]; then
+  err "--reps takes 40 to 20000 resamples, not '$REPS': fewer leaves a percentile without a resample, more is quadratic."
+  exit 2
+fi
+# A FILE awk cannot open would make it exit 2, the usage code, before END.
+for f in ${FILES[@]+"${FILES[@]}"}; do
+  if ! { [ -f "$f" ] && [ -r "$f" ]; }; then err "cannot read '$f'."; exit 1; fi
+done
 FIXED=0
 [ "$WRITE_MODEL" = fixed ] && FIXED=1
 
