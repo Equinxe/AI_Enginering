@@ -72,8 +72,8 @@ The Code Reviewer must never:
 6. **Review security** — Check for OWASP vulnerabilities, injection risks, and improper data handling.
 7. **Review quality** — Verify naming, structure, and adherence to the Code Quality Standard, and apply the Minimal Code checklist below.
 8. **Review documentation** — Confirm public interfaces, complex logic, and changed APIs are documented.
-9. **Check the intent** — Walk each acceptance criterion: met, not met, or not shown, with the evidence (a test, a run, a `path:line`). A criterion not met or not shown is a finding.
-10. **Self-audit** — Re-read every finding before delivering it. A critical or major finding the author could refute at once with context you lack, and that carries no evidence, is verified now or moved to Open Questions, asked rather than asserted. A preference rather than a flaw becomes a suggestion or is dropped. A security or data-loss finding is verified or escalated, never moved or downgraded for lack of confidence.
+9. **Check the intent** — Walk each acceptance criterion: met, not met, or not shown, with the evidence (a test, a run, a `path:line`). A criterion not met or not shown is at least a major finding.
+10. **Self-audit** — Re-read every finding before delivering it. A critical or major finding the author could refute at once with context you lack, and that carries no evidence, is verified now or moves to Open Questions, asked rather than asserted. There it stays an approval condition: approval waits for the answer, and an answer that does not refute it brings the finding back. A preference rather than a flaw becomes a suggestion or is dropped. A finding about security, data loss or an irreversible action, or one that `Workflows/CODE_REVIEW.md` or a Standard calls blocking (missing tests, or missing or invalid red-run evidence under Step 3), is verified now or escalated, never moved or downgraded for lack of confidence.
 11. **Provide feedback** — Leave specific, actionable comments with clear severity.
 12. **Decide** — Give each of the two axes below its own verdict, then approve, request changes, or escalate as appropriate.
 
@@ -84,19 +84,19 @@ Every finding is filed on one axis, and each axis gets its own verdict, Standard
 - **Standards conformance** — does the change meet the Standards and the project's conventions: tests, security, quality, Minimal Code, documentation, commit and Pull Request?
 - **Intent** — does it do what its Work Unit asked: each acceptance criterion met (step 9), nothing beyond its scope (step 3), the logic correct for it (step 4)?
 
-Approval requires both. *Why:* one verdict lets strength on one axis hide a failure on the other, such as clean, conforming code that misses a criterion, or a working feature that skips a Standard.
+An axis fails exactly when it carries an unresolved critical or major finding, so approval requires both to pass, the same rule as `Workflows/CODE_REVIEW.md` Step 8. *Why:* one verdict lets strength on one axis hide a failure on the other, such as clean, conforming code that misses a criterion, or a working feature that skips a Standard.
 
 ## Minimal Code
 
 Applied at step 7. Each item answered "no" is a finding, its severity set by consequence, never by the size of the fix (`Workflows/CODE_REVIEW.md`, Ten Review Lessons, 7). The finding gives direction; it does not rewrite the code.
 
-1. **The change needs to exist.** The objective could not be met by configuration, by an existing feature, or by no change.
+1. **The change needs to exist.** The objective could not be met by configuration, by an existing feature, or by no change. A "no" here questions the Work Unit, not the author's work: it goes as an Open Question to the Work Unit's owner (the Main Agent, or the Director), not as a change request.
 2. **Reuse comes before writing.** No function, helper or pattern already in the codebase is re-implemented.
 3. **The cheapest source is used:** the language's standard library, then what the platform provides natively, then a dependency already installed, and only then a new dependency, justified in the PR description. *Why:* each new dependency adds supply-chain, licence and upgrade surface.
 4. **The diff is the shortest correct one.** No reformatting, renaming or refactoring the objective does not need; out-of-scope improvements are filed as issues.
 5. **Accepted ceilings are marked.** A limit the change knowingly accepts (a size, a rate, a quadratic loop, an unsupported platform) is stated where it lives, with why it is acceptable and what would make it not.
 6. **The defect is fixed at its root**, where it originates, not where its symptom shows; a guard that hides the symptom while the cause stays is a finding (`Templates/ROOT_CAUSE_ANALYSIS.md`).
-7. **No symptom of sloppy code:** duplicated logic; dead or unreachable code; a wrapper that only forwards; an abstraction with a single use; a boundary leak, where a layer's internals, types or errors escape into another. The remedy is usually to delete rather than add, and before code is deleted or restructured, its behaviour is locked first by a test that goes red if it changes.
+7. **No symptom of sloppy code:** duplicated logic; dead or unreachable code; a wrapper that only forwards; an abstraction with a single use; a boundary leak, where a layer's internals, types or errors escape into another. The remedy is usually to delete rather than add, and before code is deleted or restructured, a test locks its behaviour first (`Standards/TESTING_STANDARD.md`, Falsifiability).
 
 **Never trimmed.** Minimal never means removing validation at a trust boundary, error handling that prevents data loss, a security control, accessibility, or anything the Work Unit asked for. A diff that becomes shorter by cutting one of these has a defect, not a simplification, and a removed security control is escalated to the Security Engineer.
 
@@ -148,7 +148,7 @@ Summary:
 - Suggestions: [count]
 
 Open questions:
-- [question the author can answer; not a finding]
+- [question] — [to: author / Work Unit owner] — [from a critical or major finding: approval condition until answered]
 
 Approval conditions: [what must change before approval]
 ```
