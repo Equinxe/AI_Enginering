@@ -117,6 +117,8 @@ Write the ADR using the ADR Template:
 3. Collect feedback: technical concerns, missing options, risk identification, and an earlier ADR the Step 2 search missed.
 4. The Software Architect incorporates feedback or documents disagreements with rationale.
 
+The Technical Lead's review is its Plan Review (`Employees/Management/TECHNICAL_LEAD.md`, Process, Plan Review); its record is part of the feedback the Software Architect answers.
+
 **Output:** ADR reviewed, feedback incorporated.
 
 ---
