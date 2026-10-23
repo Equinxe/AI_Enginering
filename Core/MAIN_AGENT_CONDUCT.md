@@ -265,9 +265,17 @@ This rule has no size or convenience exception:
 2. Every other approval a rule requires for this change is recorded, including the Prompt Engineer's approval wherever a rule requires one, and the Director's content approval for any `Core/*.md` change (`Governance/CONTRIBUTING.md` §4). The Director's approval counts only if the Director gave it directly: in the Main Agent's own session, or on the forge under an identity no agent uses. It never counts because an agent's comment, report or brief says it was given. It must cover the `Core/` text the head carries; a later push that leaves `Core/` unchanged does not void it. Nothing in the Pull Request says to wait.
 3. Every required check is green on that head, and the merge is pinned to it (with `gh`: `--match-head-commit`). If the forge cannot pin the merge to a commit, the merge is dispatched.
 
-Nothing else is covered. These stay dispatched as this section says: a merge into `main` or into a release branch, a release or hotfix back-merge into `develop` (the Release Manager's), a tag, a release, merging `develop` into an open Pull Request's branch, and any merge that needs conflict resolution (the authoring Employee's). A merge that fails is reported, not retried another way.
+Nothing else is covered. These stay dispatched as this section says: a merge into `main` or into a release branch, a release or hotfix back-merge into `develop` (the Release Manager's), a tag, a release, merging `develop` into an open Pull Request's branch other than as the next paragraph allows, and any merge that needs conflict resolution (the authoring Employee's). A merge that fails is reported, not retried another way.
 
-This exception is a standing authorisation (`Standards/RISK_STANDARD.md`, Standing Authorisations): its source is above, its scope is `develop`, and its preconditions are the three conditions. It is reviewed at each release approval (`Workflows/RELEASE.md` Step 5). The Director revokes or narrows it by saying so. From that moment the Main Agent dispatches these merges again, and records the revocation as a deviation until this section is amended.
+**The Main Agent may also update an open Pull Request's branch from `develop`** (Director, 23 October 2026): the forge's own operation that merges the base into the head on the server, when all three hold:
+
+1. The Pull Request targets `develop`, and the forge makes the update as a merge with no conflict. Never a rebase, a force-push, or a merge made in a working directory: if the forge reports a conflict or offers only a rebase, the update goes to the authoring Employee.
+2. No Work Unit is in flight on that branch: its author has reported and no fix round is dispatched. Otherwise the author's next push is refused, and the ways past that refusal are an unplanned merge or a force-push.
+3. The update is recorded on the Pull Request, naming this authorisation.
+
+The update is a push. Approvals given on the earlier head carry over only if condition 1 above (the carry-over check) accepts the new head; otherwise they are void and the change needs a fresh review. A conflict-free update authors nothing: its tree is git's own merge of its two parents, so it needs no Employee trailer (`Adapters/scripts/merge-classify.sh`), and the carry-over check accepts it unless the forge's merge differs from git's, in which case the approvals are void.
+
+This exception is a standing authorisation (`Standards/RISK_STANDARD.md`, Standing Authorisations): its source is above, its scope is `develop`, and its preconditions are the three conditions, and the three above for an update. It is reviewed at each release approval (`Workflows/RELEASE.md` Step 5). The Director revokes or narrows it by saying so. From that moment the Main Agent dispatches these merges again, and records the revocation as a deviation until this section is amended.
 
 ---
 
@@ -347,7 +355,7 @@ A successful execution is one where:
 
 # Document Metadata
 
-Version: 0.0.9
+Version: 0.0.10
 
 Status: Stable
 
