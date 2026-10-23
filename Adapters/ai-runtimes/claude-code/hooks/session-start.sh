@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# IA Engineering — Claude Code SessionStart hook (matcher: startup|resume|compact)
+# IA Engineering — Claude Code SessionStart hook (matcher: startup|resume|clear|compact)
 #
 # Mechanically enforces Core/AGENT_CONDUCT.md, Read First: whatever this hook
 # prints to stdout is added to the model's context at the start of the
