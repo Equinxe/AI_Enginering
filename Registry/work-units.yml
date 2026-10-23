@@ -1452,6 +1452,12 @@ work_units:
     milestone: Adoption
     delivers: Adapters/README.md, CLAUDE.md, Prompts/README.md, Prompts/.gitkeep, Governance/CONTRIBUTING.md, Governance/DISPATCH_IN_PRACTICE.md, CHANGELOG.md, Registry/work-units.yml
 
+  - id: WU-IAENG-368
+    employee: Platform Engineer
+    title: SESSION_STATE.md has no size limit (Director decision of 22 Oct 2026 - it is the agent's memory and the one file that may be very long) - session-start.sh no longer warns above 15,000 characters and still prints the header, Next Step and Blocked on; Templates/SESSION_STATE.md drops the size budget and the obligation to prune the Journal, states the file may keep its history, and keeps the snapshot rule for Where the Project Stands and Next Step; the hooks README says two warnings, not three; an ~80,000-character fixture must produce no size warning and still be read to its last section, seen red against the old hook
+    milestone: Adoption
+    delivers: Adapters/ai-runtimes/claude-code/hooks/session-start.sh, Adapters/ai-runtimes/claude-code/hooks/tests/run.sh, Adapters/ai-runtimes/claude-code/hooks/README.md, Templates/SESSION_STATE.md, CHANGELOG.md, Registry/work-units.yml
+
   - id: WU-IAENG-369
     employee: Prompt Engineer
     title: Root Cause Analysis template (OMC comparison of 22 Oct 2026, item 1; approved by the Director 22 Oct) - Templates/ROOT_CAUSE_ANALYSIS.md adapted from the oh-my-claudecode tracer and debugger prompts, read as data; observation apart from interpretation and redacted before entry, 3 to 5 hypotheses ranked before testing across frames, evidence for and against graded on a six-level ladder, a refutation pass against the favourite, Confirmed only on controlled reproduction else the critical unknown and the discriminating probe, one DEBUG tag for temporary instrumentation removed before commit, the fix's regression test seen red per Falsifiability or the missing seam reported as the finding, three refuted hypotheses escalate to the Technical Lead; official methods cited by reference (IEEE 1044, ISTQB Glossary, SRE book Effective Troubleshooting, Ishikawa, 5 Whys); pointers from Workflows/INCIDENT_RESPONSE.md, Templates/INCIDENT_REPORT.md and the Test Automation Engineer, SRE Engineer and Technical Lead definitions; no Core change
