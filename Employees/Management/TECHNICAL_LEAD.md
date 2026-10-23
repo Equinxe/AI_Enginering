@@ -23,6 +23,7 @@ The Technical Lead ensures it is applied correctly.
 - Mentor Employees on technical best practices.
 - Escalate architectural concerns to the Software Architect.
 - Report technical risks to the Engineering Manager.
+- Take over a root cause analysis whose circuit breaker has tripped (`Templates/ROOT_CAUSE_ANALYSIS.md`): question its frame rather than try a fourth variation, then redirect the analysis or escalate an architectural cause to the Software Architect.
 
 ---
 
@@ -61,6 +62,7 @@ The Technical Lead must never:
 - Implementation work from Employees.
 - Project Engineering Standards.
 - Technical questions and blockers from Employees.
+- Root cause analyses escalated after three refuted hypotheses, and missing test seams reported by them.
 
 ---
 
@@ -152,7 +154,7 @@ Escalate to the Engineering Manager when:
 
 Owner: IA Engineering
 
-Version: 0.0.3
+Version: 0.0.4
 
 Status: Draft
 
