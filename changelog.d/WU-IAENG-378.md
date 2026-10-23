@@ -2,7 +2,7 @@
 
 - Changelog fragments. A Work Unit's Pull Request adds `changelog.d/<Work Unit id>.md` instead of editing `CHANGELOG.md`, so two Pull Requests no longer conflict on the same category. A fragment holds Keep a Changelog headings with bullets, an upgrade note as a bullet under `### Notes`, or the single line `No changelog entry: <reason>`. `changelog.d/README.md` gives the format, and `Adapters/scripts/changelog-fragment.awk` is the one parser of it, used by both scripts below
 - `release.sh assemble` (`Workflows/RELEASE.md` Step 2) folds the fragments into the `[Unreleased]` section of `CHANGELOG.md`, by category then Work Unit id, below the bullets already there, adds the Work Unit id to any bullet without it, writes exemptions as hidden comments, and deletes the fragments. It commits nothing. It refuses, with nothing changed, if any fragment is malformed, a symbolic link or not a fragment, if the parser does not run, or if `CHANGELOG.md` cannot be written. A fragment line holding an HTML comment marker, or starting its text with an HTML tag, is malformed: it could hide the rest of the release notes, Security entries included (SEC-IAENG-378-01)
-- `validate-framework.sh` section 23: every fragment is named after a registered Work Unit and uses only the six Keep a Changelog headings. On a Pull Request to this repository it also warns, without failing, about a Work Unit trailer with no fragment and no edit of `CHANGELOG.md`
+- `validate-framework.sh` section 23: every fragment is named after a registered Work Unit and uses only the six Keep a Changelog headings and `### Notes` for an upgrade note. On a Pull Request to this repository it also warns, without failing, about a Work Unit trailer with no fragment and no edit of `CHANGELOG.md`
 
 ### Changed
 
