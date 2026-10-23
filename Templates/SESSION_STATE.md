@@ -34,15 +34,15 @@ Dates are absolute ("5 August 2026"), never relative ("yesterday", "today"). A r
 
 ## Snapshot Discipline
 
-This file is a **snapshot**, not a log. Each update **rewrites** "Where the Project Stands" and "Next Step" to reflect the state as of that update — it does not append a new paragraph under the old one and leave both standing. A reader opening the file mid-project should see only what is true now, not an accumulating history of what used to be true.
+The file's current-state sections are a **snapshot**, not a log. Each update **rewrites** "Where the Project Stands" and "Next Step" to reflect the state as of that update — it does not append a new paragraph under the old one and leave both standing. A reader opening those sections mid-project should see only what is true now, not an accumulating history of what used to be true; the history belongs in the Journal.
 
-The **Journal** is the one section allowed to grow — but even there, one line per day, not one line per action. When an old Journal entry's detail is no longer needed to resume work (the decision it records is final, or superseded), prune it: the detail is not lost, it already lives in git history, `Registry/work-units.yml`, and `CHANGELOG.md`. This file's job is to say where things stand today, not to be the project's permanent record.
+The **Journal** is where the history lives, and it is allowed to grow — one line per day, not one line per action. Old entries may stay: nothing requires pruning them (No Size Limit, below). What keeps the file usable on resume is that "Where the Project Stands" and "Next Step" say what is true now, not how short the file is.
 
 The `_Last updated:` header is refreshed — a fresh absolute date — on **every** edit, not only on the days a new Journal line is added. A header that stops moving while the body keeps changing is the specific failure this rule exists to prevent: on this repository the header read "9 September" for fifteen days while the file's content kept changing underneath it, and a new session would have trusted a fifteen-day-old header.
 
-**Size budget: 15,000 characters** (`wc -c .ia-engineering/SESSION_STATE.md`), per `Core/CONTEXT_BUDGET.md`'s measured baseline for a healthy file (≈6,500 characters) — a budget a little over twice that, meant to catch the file becoming a log before it reaches one. A file over budget is a signal to prune the Journal and the Errors/Traps sections, not to keep appending.
+**No Size Limit.** This file has no size limit, by Director decision (22 October 2026): it is the agent's memory of the project and of what was done, and it is the one file allowed to be very long and to keep its history. The snapshot rule above still holds for the current-state sections — "Where the Project Stands" and "Next Step" are rewritten, never appended to — but the file as a whole is not pruned to meet any character count, and no hook warns about its size.
 
-**Enforcement is mechanical where the runtime allows it.** The discipline above is universal — it holds regardless of which AI runtime drives the session. Its enforcement is runtime-specific: the Claude Code adapter's `session-start.sh` and `stop-gate.sh` warn (at session start) or block (at session end) when this file falls behind the repository, when its header was not refreshed, or when it exceeds the size budget — see `Adapters/ai-runtimes/claude-code/hooks/README.md`, SESSION_STATE Freshness. A runtime without an equivalent hook still owes the same discipline; it just holds itself to it without a mechanical check.
+**Enforcement is mechanical where the runtime allows it.** The discipline above is universal — it holds regardless of which AI runtime drives the session. Its enforcement is runtime-specific: the Claude Code adapter's `session-start.sh` and `stop-gate.sh` warn (at session start) or block (at session end) when this file falls behind the repository or when its header was not refreshed — see `Adapters/ai-runtimes/claude-code/hooks/README.md`, SESSION_STATE Freshness. A runtime without an equivalent hook still owes the same discipline; it just holds itself to it without a mechanical check.
 
 ---
 
@@ -146,7 +146,6 @@ restart service X without clearing cache Y".]
 | `Standards/DATA_PROTECTION_STANDARD.md` | Classifies operational state as protected content; the `pre-commit` Adapter refuses this file by name. |
 | `Core/MAIN_AGENT_CONDUCT.md` | Durable Tracking of Findings: a finding recorded here and nowhere else is not durable — file it as an Issue too. |
 | `Core/ORCHESTRATION.md` | Step 7 (Deliver) points here, before its closing Stop, for the Handoff to a New Conversation checklist above. |
-| `Core/CONTEXT_BUDGET.md` | Source of the 15,000-character size budget and the healthy-file baseline it is measured against (Snapshot Discipline, above). |
 | `Adapters/ai-runtimes/claude-code/hooks/README.md` | SESSION_STATE Freshness documents this runtime's mechanical enforcement of the Snapshot Discipline above — universal rule, runtime-specific check. |
 
 **Provenance.** The three-memory model and the never-committed rule are adapted from a sibling governance kit, where the rule was adopted after noticing that every project already gitignored this file without any text requiring it — the practitioners had reached the conclusion before the standard did.
@@ -157,7 +156,7 @@ restart service X without clearing cache Y".]
 
 Owner: IA Engineering
 
-Version: 0.0.13
+Version: 0.0.14
 
 Status: Draft
 

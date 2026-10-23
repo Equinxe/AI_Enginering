@@ -99,21 +99,10 @@ if [ -f "$STATE" ]; then
     fi
   fi
 
-  # --- Warning 3: size ----------------------------------------------------
-  # Loaded on every resume (this hook prints it, unabridged, into context),
-  # so its size is occupation paid on every session, not just its author's —
-  # see Core/CONTEXT_BUDGET.md, rule 3 ("read what you will not use") and its
-  # own measured baseline for this file (6,456 characters). 15,000 characters
-  # (~3.75k tokens at the ~4 chars/token estimate CONTEXT_BUDGET.md uses) is
-  # a little over twice that healthy baseline, and well under the ~36,000
-  # characters / 224 lines this file had grown to when this Work Unit was
-  # opened — chosen as a threshold that catches "becoming a log" before it
-  # reaches "is one". Measured in characters; this is an estimate, not a
-  # token count.
-  STATE_CHARS="$(wc -c < "$STATE" | tr -d '[:space:]')"
-  if [ -n "$STATE_CHARS" ] && iaeng_is_int "$STATE_CHARS" && [ "$STATE_CHARS" -gt 15000 ]; then
-    echo "     WARNING: SESSION_STATE.md is $STATE_CHARS characters (Core/CONTEXT_BUDGET.md: measured in characters, ~4 chars/token estimate) — over the 15,000-character budget and loaded on every resume. Prune \"Where the Project Stands\" and \"Next Step\" to a snapshot; history belongs in git or the Journal, not here."
-  fi
+  # No size check. SESSION_STATE.md has no size limit, by Director decision
+  # (22 October 2026): it is the agent's memory of what was done, and the
+  # one file allowed to grow long and keep its history. The 15,000-character
+  # warning that stood here (WU-IAENG-287) was removed by WU-IAENG-368.
 else
   if [ -n "$ROOT" ] && [ -f "$ROOT/Templates/SESSION_STATE.md" ]; then
     echo "  2. .ia-engineering/SESSION_STATE.md does not exist. Create it before any other action with $ROOT/Adapters/scripts/create-session-state.sh, which writes the Template block of $ROOT/Templates/SESSION_STATE.md with today's date (after the project's first commit); it is gitignored and refused by the pre-commit hook."
