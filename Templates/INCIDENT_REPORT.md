@@ -62,7 +62,7 @@ Follow the Incident Response Workflow when responding to a production incident.
 
 ### Root Cause
 
-[The confirmed root cause of the incident. Not a hypothesis — this is written after investigation is complete.
+[The confirmed root cause of the incident. Not a hypothesis — this is written after investigation is complete, from a Root Cause Analysis record (Templates/ROOT_CAUSE_ANALYSIS.md) whose status is Confirmed.
 
 Use the "5 Whys" format if helpful:
 - Why did X fail? Because Y.
