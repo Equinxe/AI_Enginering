@@ -136,7 +136,7 @@ workflows:
     file: Workflows/RELEASE.md
     category: Release
     chain: Release Chain
-    step_count: 10
+    step_count: 11
     steps:
       - n: 1
         actor: Release Manager
@@ -169,6 +169,9 @@ workflows:
       - n: 10
         actor: Release Manager
         step: Preserve the release branch — never deleted
+      - n: 11
+        actor: Scrum Master
+        step: Release retrospective — lessons and evidenced frictions from named sources, each with the surface that owns its fix, in one Issue the Director decides in one pass; an Issue per accepted line, recorded before the next milestone is planned
     gates:
       - step: 5
         approver: Director
@@ -288,7 +291,7 @@ workflows:
         step: Identify the decision, confirm it meets the ADR threshold
       - n: 2
         actor: Software Architect
-        step: Research options — at least two must be evaluated
+        step: Research options — first search earlier ADRs' Options Considered for a rejection of the same idea; at least two must be evaluated
       - n: 3
         actor: Software Architect
         step: Draft the ADR

@@ -124,6 +124,25 @@ the session.]
 
 ---
 
+### Lessons → Location
+
+[What did this Work Unit teach about how work is done here — in this project,
+or in the framework it follows?
+One line per lesson, each naming the place that would keep it, in this order
+of preference — a check holds where a sentence can be skipped:]
+
+LESSON: [what was learned] → check: [script or hook, and what it would refuse]
+LESSON: [what was learned] → standard: [Standard, Workflow, or Employee file, and the clause]
+LESSON: [what was learned] → glossary: [term to add or sharpen]
+LESSON: [what was learned] → adr: [decision, or a rejected direction to record under Options Considered]
+LESSON: [what was learned] → claude-md: [one hot entry every session must see first]
+LESSON: [what was learned] → none: [why no location fits — one-off, already covered by <file>, too early to generalise]
+
+[Or: "None." A lesson with no location carries its reason; a bare "none"
+is refused like a bare "Done".]
+
+---
+
 ### Definition of Done — Item by Item
 
 | DoD item (from the brief) | Met? | Evidence |
@@ -131,6 +150,24 @@ the session.]
 | [item 1] | yes / no | [pointer to the evidence section above, or the reason it is unmet] |
 | [item 2] | yes / no | ... |
 ```
+
+---
+
+# Lessons → Location
+
+The Open Risks section tracks gaps in **this** work. Lessons → Location tracks what this work taught about **how work is done** — a check that was missing, a term two Employees read differently, a direction that was tried and failed. Without a named place, a lesson stays in one report and is learned again in the next.
+
+Rules for the block:
+
+- **Every line is a proposal, not a change.** The Employee does not write to the named location in this Work Unit unless its brief covers that file. The Director may refuse any line; the refusal and its reason are kept in the release retrospective record (`Workflows/RELEASE.md`, Step 11), so the lesson is not raised again without saying what changed.
+- **A location is named precisely enough to act on** — the script and what it would refuse, the file and its clause, the term. "Improve the docs" is not a location.
+- **Prefer a check to an instruction.** A deterministic check in a script or hook cannot be forgotten; a sentence in a Standard can. Name a Standard clause when no check can express the rule, and the Glossary when the lesson is that a word was read two ways.
+- **A rejected direction is a lesson too.** Recording it as a rejected option in an ADR is what lets the next proposal find it (`Workflows/ARCHITECTURE_DECISION.md`, Step 2).
+- **`CLAUDE.md` is the last resort.** It is read into every session (`Core/CONTEXT_BUDGET.md`), so each line there costs every session. It takes only the few rules a session must see before its first action; anything that fits a check, a Standard, or an ADR goes there instead.
+- **"No location" needs a reason.** "None — one-off, the cause was a typo in the brief" is a decision; "none" alone is not.
+- **"None." is a valid block.** Most Work Units teach nothing new, and inventing a lesson to fill the section is worse than leaving it at "None."
+
+Accepted lines become Work Units or Issues; this block is their source, not their record.
 
 ---
 
@@ -145,6 +182,7 @@ the session.]
 | Deviations | Transparency | Unreported changes of approach discovered later in review |
 | Risk Record | Auditability | Missing for a Medium action; `decided_by=self` on a High |
 | Open Risks | Durability of findings | Findings noted here but never filed as Issues |
+| Lessons → Location | Closes the learning loop | "Improve the docs" as a location; a bare "none" with no reason; a Standard clause proposed where a check would hold; a lesson invented to fill the section |
 | DoD table | Traceability to the brief | Items reworded from the brief so they are easier to satisfy |
 
 ---
@@ -170,9 +208,11 @@ In either case the report is a file or a PR body, not a message in a conversatio
 | `Core/MAIN_AGENT_CONDUCT.md` | Verification Over Waiting: the report is evidence, and the Main Agent re-verifies it directly. Durable Tracking of Findings: every open item becomes an Issue. |
 | `Standards/RISK_STANDARD.md` | Defines the Risk Record line. |
 | `Standards/PULL_REQUEST_STANDARD.md` | Governs the report when it takes the form of a PR description. |
+| `Workflows/RELEASE.md` | Step 11, the release retrospective, collects every Lessons → Location line from the release's reports and records the Director's decision on each. |
+| `Workflows/ARCHITECTURE_DECISION.md` | Step 2 searches earlier ADRs for a rejected option before a proposal; a lesson recorded as a rejected direction is what that search finds. |
 | `Standards/COMMIT_STANDARD.md` | Defines the optional runtime attribution trailer — if the runtime adds one to the commit, it names the same model this field's "runtime model" half reports. |
 
-**Provenance.** The "a bare Done is a failure" rule and the pasted-evidence requirement are adapted from a sibling governance corpus, where they were written after delegated agents repeatedly returned one-word completions that concealed unfinished work and unverified claims.
+**Provenance.** The "a bare Done is a failure" rule and the pasted-evidence requirement are adapted from a sibling governance corpus, where they were written after delegated agents repeatedly returned one-word completions that concealed unfinished work and unverified claims. The Lessons → Location block is adapted from the close-out pass of an open-source agent delivery toolkit, which sends each lesson to a named home or a reasoned refusal.
 
 ---
 
@@ -180,7 +220,7 @@ In either case the report is a file or a PR body, not a message in a conversatio
 
 Owner: IA Engineering
 
-Version: 0.0.14
+Version: 0.0.15
 
 Status: Draft
 
