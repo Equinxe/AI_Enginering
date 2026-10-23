@@ -66,7 +66,7 @@ Status
 
 ---
 
-### Templates (13)
+### Templates (14)
 
 - [x] Work Unit
 - [x] Work Unit Report
@@ -81,6 +81,7 @@ Status
 - [x] Session State
 - [x] Domain Employee
 - [x] Risk Map
+- [x] Root Cause Analysis
 
 ---
 
