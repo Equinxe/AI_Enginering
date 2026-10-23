@@ -21,9 +21,15 @@
 # model whose multipliers are the ones given:
 #
 #   a call       its simulated occupancy times the call's REAL blended rate,
-#                (input + 1.25 cache_creation + R cache_read) / occupancy,
+#                (input + C cache_creation + R cache_read) / occupancy,
 #                so a real cache miss stays a miss; right after a simulated
-#                compaction, the whole occupancy is written: 1.25 per token
+#                compaction, the whole occupancy is written: C per token.
+#                That scales a call's cache write with the simulated
+#                occupancy, right for a rewrite after the cache expired and
+#                too low for the new content of a turn, which is the same at
+#                any T. --write-model fixed is the other bound: the call's
+#                real input and cache write in tokens (each capped at the
+#                simulated occupancy), the rest of the occupancy read at R.
 #   a compaction R times the occupancy summarised (read from the cache) plus
 #                O times the summary written, taken as S, the median
 #                postTokens of the real compactions (an upper bound: it also
@@ -31,7 +37,7 @@
 #   default      the real calls at their real costs, plus each real
 #                compaction's summary request priced the same way
 #
-# R is the cache-read multiplier, O the output one. Output tokens of ordinary
+# R is the cache-read multiplier, C the cache-write one, O the output one. Output tokens of ordinary
 # calls are the same under every T; they are reported apart, so a saving can
 # be read against the context cost alone or against the whole bill.
 #
@@ -48,14 +54,17 @@
 # USAGE
 #
 #   context-simulate.sh [--window N] [--post N] [--post-scale X]
-#                       [--cache-read X] [--output X] [--long-min N]
-#                       [--reps N] [--seed N] [--thresholds LIST] [FILE...]
+#                       [--cache-read X] [--write X] [--write-model scaled|fixed]
+#                       [--output X] [--long-min N] [--reps N] [--seed N]
+#                       [--thresholds LIST] [FILE...]
 #
 #   --window      the context window, tokens (default 1000000)
 #   --post        P, tokens; default: the median occupancy of the first call
 #                 after the real compactions in the input
 #   --post-scale  multiplies P (sensitivity; default 1)
 #   --cache-read  R (default 0.05: Claude Opus 5.5, $0.20 against $4 input)
+#   --write       C (default 1.25: a 5-minute cache write; 2 for a 1-hour one)
+#   --write-model scaled (default) or fixed, as above
 #   --output      O (default 5: Claude Opus 5.5, $20 against $4)
 #   --long-min    tokens (default 300000)
 #   --reps        bootstrap resamples (default 2000)
@@ -76,13 +85,15 @@ set -uo pipefail
 
 err() { printf 'context-simulate: ERROR: %s\n' "$1" >&2; }
 usage() {
-  echo "Usage: $0 [--window N] [--post N] [--post-scale X] [--cache-read X] [--output X] [--long-min N] [--reps N] [--seed N] [--thresholds LIST] [FILE...]" >&2
+  echo "Usage: $0 [--window N] [--post N] [--post-scale X] [--cache-read X] [--write X] [--write-model scaled|fixed] [--output X] [--long-min N] [--reps N] [--seed N] [--thresholds LIST] [FILE...]" >&2
 }
 
 WINDOW=1000000
 POST=""
 POST_SCALE=1
 CACHE_READ=0.05
+WRITE_MULT=1.25
+WRITE_MODEL=scaled
 OUTPUT_MULT=5
 LONG_MIN=300000
 REPS=2000
@@ -100,11 +111,16 @@ while [ "$#" -gt 0 ]; do
         --reps) REPS="$2" ;; --seed) SEED="$2" ;;
       esac
       shift 2 ;;
-    --post-scale|--cache-read|--output)
+    --post-scale|--cache-read|--write|--output)
       [ "$#" -ge 2 ] || { usage; exit 2; }; dec_arg "$1" "$2"
       case "$1" in
         --post-scale) POST_SCALE="$2" ;; --cache-read) CACHE_READ="$2" ;; --output) OUTPUT_MULT="$2" ;;
+        --write) WRITE_MULT="$2" ;;
       esac
+      shift 2 ;;
+    --write-model)
+      [ "$#" -ge 2 ] || { usage; exit 2; }
+      case "$2" in scaled|fixed) WRITE_MODEL="$2" ;; *) err "--write-model is scaled or fixed, not '$2'."; exit 2 ;; esac
       shift 2 ;;
     --thresholds)
       [ "$#" -ge 2 ] || { usage; exit 2; }
@@ -116,9 +132,12 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 [ "$WINDOW" -gt 0 ] || { err "--window must be positive."; exit 2; }
+FIXED=0
+[ "$WRITE_MODEL" = fixed ] && FIXED=1
 
 awk -F '\t' -v W="$WINDOW" -v PFIX="$POST" -v PSCALE="$POST_SCALE" -v R="$CACHE_READ" \
-    -v O="$OUTPUT_MULT" -v LMIN="$LONG_MIN" -v REPS="$REPS" -v SEED="$SEED" -v TLIST="$THRESHOLDS" '
+    -v O="$OUTPUT_MULT" -v LMIN="$LONG_MIN" -v REPS="$REPS" -v SEED="$SEED" -v TLIST="$THRESHOLDS" \
+    -v C="$WRITE_MULT" -v FIXED="$FIXED" '
   function num(s) { return (s ~ /^[0-9]+$/) ? s + 0 : 0 }
   { sub(/\r$/, "") }
   # Records are filed under their session. A session found in two inputs (one
@@ -149,20 +168,27 @@ awk -F '\t' -v W="$WINDOW" -v PFIX="$POST" -v PSCALE="$POST_SCALE" -v R="$CACHE_
     next
   }
   function sortn(a, m,   i, j, v) { for (i = 2; i <= m; i++) { v = a[i]; for (j = i - 1; j >= 1 && a[j] > v; j--) a[j + 1] = a[j]; a[j + 1] = v } }
-  function rate(i, k) { return occ[i, k] > 0 ? (in_[i, k] + 1.25 * cc[i, k] + R * cr[i, k]) / occ[i, k] : 0 }
+  function rate(i, k) { return occ[i, k] > 0 ? (in_[i, k] + C * cc[i, k] + R * cr[i, k]) / occ[i, k] : 0 }
+  # --write-model fixed: call kk real input and cache write, in tokens, each
+  # capped at the simulated occupancy s; the rest of s is read from the cache.
+  function fixedcost(i, kk, s,   a, w) {
+    a = (in_[i, kk] < s) ? in_[i, kk] : s
+    w = (cc[i, kk] < s - a) ? cc[i, kk] : s - a
+    return a + C * w + R * (s - a - w)
+  }
   # Simulates threshold fraction f on session i; fills CT (tokens), CC (call
   # cost), CK (compaction cost), CN (compactions), CF (in flight).
   # The call right after a real compaction paid a cache rewrite the simulated
   # world does not have: it is priced at the rate of the call before it.
-  function sim(i, f,   thr, k, s, d, jc, lo, rk) {
+  function sim(i, f,   thr, k, s, d, jc, lo, rk, kr) {
     CT = 0; CC = 0; CK = 0; CN = 0; CF = 0
     thr = f * W
     for (k = 1; k <= n[i]; k++) {
-      jc = 0; rk = rate(i, k)
+      jc = 0; rk = rate(i, k); kr = k
       if (k == 1) s = occ[i, k]
       else {
         d = occ[i, k] - occ[i, k - 1]
-        if ((key[i], t[i, k]) in realafter) { d = 0; rk = rate(i, k - 1) }
+        if ((key[i], t[i, k]) in realafter) { d = 0; rk = rate(i, k - 1); kr = k - 1 }
         s += d
         if (d < 0) { lo = (P < occ[i, k]) ? P : occ[i, k]; if (s < lo) s = lo }
       }
@@ -171,12 +197,12 @@ awk -F '\t' -v W="$WINDOW" -v PFIX="$POST" -v PSCALE="$POST_SCALE" -v R="$CACHE_
         s = P; jc = 1
       }
       CT += s
-      CC += jc ? 1.25 * s : s * rk
+      CC += jc ? C * s : (FIXED ? fixedcost(i, kr, s) : s * rk)
     }
   }
   function real(i,   k) {
     CT = 0; CC = 0
-    for (k = 1; k <= n[i]; k++) { CT += occ[i, k]; CC += in_[i, k] + 1.25 * cc[i, k] + R * cr[i, k] }
+    for (k = 1; k <= n[i]; k++) { CT += occ[i, k]; CC += in_[i, k] + C * cc[i, k] + R * cr[i, k] }
   }
   END {
     if (ns == 0) { print "context-simulate: no ctx-call record in the input" > "/dev/stderr"; exit 1 }
@@ -209,8 +235,9 @@ awk -F '\t' -v W="$WINDOW" -v PFIX="$POST" -v PSCALE="$POST_SCALE" -v R="$CACHE_
     for (x = 1; x <= nT; x++) {
       f = TS[x] / 100; aN = 0; aT = 0; aC = 0; aK = 0; aF = 0
       for (i = 1; i <= ns; i++) { sim(i, f); sC[i] = CC + CK; aN += CN; aT += CT; aC += CC; aK += CK; aF += CF }
-      sav = 100 * (1 - (aC + aK) / totD)
-      bill = 100 * (totD - aC - aK) / (totD + outcost)
+      # A series that cost nothing has no saving to report (SEC-IAENG-374-01).
+      sav = (totD > 0) ? 100 * (1 - (aC + aK) / totD) : 0
+      bill = (totD + outcost > 0) ? 100 * (totD - aC - aK) / (totD + outcost) : 0
       # Percentile bootstrap over sessions.
       srand(SEED + x)
       for (r = 1; r <= REPS; r++) {

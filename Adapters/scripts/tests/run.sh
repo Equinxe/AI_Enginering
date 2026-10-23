@@ -8392,6 +8392,7 @@ cat > "$UT374/OBS374-SENTINEL-SESSION.jsonl" <<'JSONL'
 {"type":"assistant","timestamp":"2026-10-01T10:21:00Z","message":{"id":"msg_3","model":"claude-test-1","content":[],"usage":{"input_tokens":3,"output_tokens":5,"cache_creation_input_tokens":25000,"cache_read_input_tokens":0}}}
 {"type":"assistant","isSidechain":true,"timestamp":"2026-10-01T10:30:00Z","message":{"id":"msg_side","model":"claude-test-1","content":[],"usage":{"input_tokens":999999,"output_tokens":1,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}
 {"type":"assistant","timestamp":"OBS374-SENTINEL-TIME","message":{"id":"msg_badtime","model":"claude-test-1","content":[],"usage":{"input_tokens":888888,"output_tokens":1,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}
+{"type":"assistant","timestamp":"2026-13-45T25:61:61Z","message":{"id":"msg_baddate","model":"claude-test-1","content":[],"usage":{"input_tokens":777777,"output_tokens":1,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}
 {"type":"assistant","timestamp":"2026-10-01T11:00:00Z","message":{"id":"msg_4","model":"claude-test-1","content":[],"usage":{"input_tokens":1,"output_tokens":1,"cache_creation_input_tokens":1000,"cache_read_input_tokens":200000}}}
 {"type":"assistant","timestamp":"2026-10-01T11:05:00Z","message":{"id":"msg_5","model":"claude-test-1","content":[],"usage":{"input_tokens":"OBS374-SENTINEL-COUNT","output_tokens":1,"cache_creation_input_tokens":30000,"cache_read_input_tokens":0}}}
 {"type":"system","subtype":"compact_boundary","content":"OBS374-SENTINEL-MANUAL","timestamp":"2026-10-01T11:30:00Z","compactMetadata":{"trigger":"manual","preTokens":40000,"postTokens":9000,"durationMs":5000}}
@@ -8431,6 +8432,10 @@ expect_output "ctx-call${T}${H374}${T}5${T}1790852700${T}30000${T}0${T}30000${T}
 expect_output "ctx-call${T}${H374}${T}3${T}1790850060${T}25003${T}3${T}25000${T}0${T}5${T}1"
 expect_no_output "999999" "context-series: a sidechain line in the main transcript is not a Main Agent call"
 expect_no_output "888888" "context-series: a line whose timestamp is not a timestamp is not counted"
+# SEC-IAENG-374-01: a timestamp of the right shape that is no date (month 13,
+# hour 25) is skipped like a malformed one; it must not abort the run, which
+# the exit 0 above and the complete records here prove.
+expect_no_output "777777" "context-series: an impossible date of the right shape is skipped, not fatal"
 # The auto compaction: an Employee was active during its 60 seconds.
 expect_output "ctx-compact${T}${H374}${T}1790850000${T}1${T}310000${T}20000${T}60000${T}1${T}302005${T}25003"
 # The manual one, 20 minutes into the subagent's silence: none in flight.
@@ -8509,6 +8514,33 @@ expect 1 "context-simulate: no ctx-call record is an error" -- bash "$SIM" "$WOR
 expect_output "no ctx-call record in the input"
 expect 2 "context-simulate: a threshold of 100 is refused" -- bash "$SIM" --thresholds 30,100 "$SA374"
 expect_output "--thresholds takes percentages 1 to 99"
+
+# Session C writes 100k of new content on every call (occupancy 100k to
+# 400k). At T=30 it compacts at call 3; call 4 then holds 150k. Scaled, call
+# 4 pays its real blended rate, (1.25*100k + .05*300k) / 400k = .35, on
+# 150k = 52500; fixed, it pays its 100k write in full and reads the rest:
+# 1.25*100k + .05*50k = 127500. Calls 1 to 3 cost 125000 + 130000 + 62500
+# either way, so the totals are 370000 and 445000; the summary is
+# .05*300k + 5*50k = 265000.
+SC374="$WORK/sim-374-c.tsv"
+for k_374 in 1 2 3 4; do
+  printf 'ctx-call\tcccccccccccccccc\t%d\t%d\t%d\t0\t100000\t%d\t0\t0\n' "$k_374" "$((1790848800 + 60 * k_374))" "$((100000 * k_374))" "$((100000 * (k_374 - 1)))"
+done > "$SC374"
+expect 0 "context-simulate: cache writes scaled with occupancy" -- bash "$SIM" --post 50000 --thresholds 30 --reps 50 "$SC374"
+expect_output "sim${T}30${T}1${T}500000${T}370000${T}265000${T}"
+expect 0 "context-simulate --write-model fixed: the new content of a turn is written in full at any T" -- \
+  bash "$SIM" --post 50000 --thresholds 30 --reps 50 --write-model fixed "$SC374"
+expect_output "sim${T}30${T}1${T}500000${T}445000${T}265000${T}"
+# --write 2 (a 1-hour cache write): session A as it ran costs
+# 2*100k + .05*(200k+300k+400k+500k+600k) = 300000.
+expect 0 "context-simulate --write 2: a 1-hour cache write" -- bash "$SIM" --post 50000 --thresholds 70 --reps 50 --write 2 "$SA374"
+expect_output "sim${T}default${T}0${T}2100000${T}300000${T}"
+expect 2 "context-simulate: --write-model takes scaled or fixed" -- bash "$SIM" --write-model both "$SA374"
+# SEC-IAENG-374-01: a series that cost nothing (every count 0) has no saving
+# to divide by; it reports 0, it does not abort.
+printf 'ctx-call\tdddddddddddddddd\t1\t1790848800\t0\t0\t0\t0\t0\t0\n' > "$WORK/sim-374-zero.tsv"
+expect 0 "context-simulate: a series with zero cost is not a division by zero" -- bash "$SIM" --thresholds 30 --reps 50 "$WORK/sim-374-zero.tsv"
+expect_output "sim${T}30${T}0${T}0${T}0${T}0${T}0.00${T}0.00${T}0.0${T}0.0${T}0.0${T}0.0"
 
 # --------------------------------------------------------------- verdict ----
 

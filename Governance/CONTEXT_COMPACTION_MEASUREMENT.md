@@ -21,9 +21,13 @@ C=Adapters/ai-runtimes/claude-code
 for g in 300 900 3600; do
   for d in ~/.claude/projects/*/; do
     bash $C/usage-collect.sh --transcripts-dir "$d" --context-series --gap $g
+    rc=$?   # 0 read, 3 no transcript there; anything else must stop the run
+    [ "$rc" -eq 0 ] || [ "$rc" -eq 3 ] || { echo "collector exit $rc on $d" >&2; exit 1; }
   done > /tmp/ctx-$g.tsv
 done
 ```
+
+The exit code is checked because a failed read can still leave records on stdout: partial data must not pass silently (Security review of PR #314). The run behind this report, re-run with the check: 66 directories, 11 read (exit 0), 55 with no transcript (exit 3), none failed.
 
 **Check that counts (plan: "any non-numeric field emitted" fails).** It covers 18,761 records at gap 900, with 0 non-numeric fields:
 
@@ -102,7 +106,7 @@ By week (7-day blocks counted from Tuesday 22 September, 00:00 UTC). Rows: auto 
 
 The rate is not stationary. Since 22 September, the period of systematic Employee dispatch, the count is **8 of 14 auto compactions in 4.5 weeks: 1.8 per week (95 %: 0.77 to 3.5)**. Before that it was 1 of 10 in 3.7 weeks.
 
-The plan's rule for WU-E is "only if WU-A shows ≥ 1 compaction/week during an Employee in flight". **The point estimate meets it: 1.11 per week over the whole span, 1.8 per week since dispatch became systematic.** The whole-span interval still reaches below 1. Lowering the compaction threshold raises the count: the simulation below gives 3.6 per week at T = 50 %.
+The plan's rule for WU-E is "only if WU-A shows ≥ 1 compaction/week during an Employee in flight". **The point estimate meets it: 1.11 per week over the whole span, 1.8 per week since dispatch became systematic.** The whole-span interval still reaches below 1. Lowering the compaction threshold raises the number of compactions, and so the chances of one landing while an Employee works. The simulation's "in flight per week" column measures something wider, though (see the caveat under the base table), so it is no estimate of this rate.
 
 ---
 
@@ -124,6 +128,9 @@ bash $C/context-simulate.sh --thresholds 95,96,97,98 /tmp/ctx-900.tsv  # validat
 bash $C/context-simulate.sh --post-scale 0.5 /tmp/ctx-900.tsv      # sensitivity
 bash $C/context-simulate.sh --post-scale 2 /tmp/ctx-900.tsv
 bash $C/context-simulate.sh --cache-read 0.1 /tmp/ctx-900.tsv
+bash $C/context-simulate.sh --write-model fixed /tmp/ctx-900.tsv   # writes in absolute tokens
+bash $C/context-simulate.sh --write-model fixed --post-scale 2 /tmp/ctx-900.tsv
+bash $C/context-simulate.sh --write 2 /tmp/ctx-900.tsv             # 1-hour cache writes
 ```
 
 ## Base case
@@ -147,6 +154,10 @@ Columns:
 
 The default row counts real compactions, auto and manual. Its "in flight" counts both triggers (12 in 8.1 weeks). The WU-E figure above counts auto only.
 
+**The "in flight per week" column of the simulated rows over-counts, and must not be read as a WU-E rate** (Performance Engineer review of PR #314, F2). A simulated compaction is credited with the in-flight count of the call where it fires, and that count covers the whole interval since the previous call. While the Main Agent waits on an Employee it makes no call, so the call that receives the Employee's result always overlaps that Employee's last activity, even when the Employee has finished. The tell: at 80 % there is one compaction more than the default (33 against 32), yet the column rises 41 % (2.09 against 1.48). The measured WU-E figure uses each compaction's own window and is not affected. A point-in-time count for `ctx-call` is a follow-up.
+
+**Quote the envelope, not only the interval.** The bootstrap rests on 8 informative sessions, and a percentile bootstrap that small covers less than its nominal 95 %. The honest range for a threshold is the envelope across the sensitivity cases below: at 50 %, **27.8 to 45.3 %**; at 60 %, **18.2 to 37.6 %**.
+
 ## Validation
 
 Replayed at T = 97 %, the observed default, the model should reproduce the real sessions. It gives 27 compactions against 32 real, and 8.06 B context tokens against 7.69 B (+4.8 %, cost +5.8 %). The gap has a known cause. The model treats every real compaction as one the threshold makes unnecessary, including the 8 **manual** ones (at 293k to 956k), which the Director would still make under any T. So the simulated occupancy is a little too high at every T, and **the savings above are understated by up to about 5 points**. On this repository's two sessions alone (L3, L8), whose compactions were all automatic, the replay at 97 % gives the same 7 compactions, context tokens within 0.9 % and context cost within 0.1 %.
@@ -164,6 +175,19 @@ Saving against the default (95 % interval):
 | 40 % | 53.3 (49.2 to 56.0) | 48.7 (45.8 to 50.6) | 41.1 (37.3 to 43.7) | 49.5 (46.4 to 51.5) | 42.5 (39.0 to 44.9) |
 | 30 % | 62.8 (59.8 to 64.7) | 58.8 (55.8 to 60.9) | 48.5 (45.2 to 50.9) | 60.0 (56.8 to 61.9) | 51.0 (47.8 to 53.1) |
 
+**How cache writes are priced** (Performance Engineer review of PR #314, F1 and F3). The base model prices a simulated call at its real blended rate, so its cache write shrinks with the simulated occupancy. That is right for a rewrite after the cache expired, and too low for the new content of a turn, which is the same size at any T. `--write-model fixed` is the other bound: the call's real input and cache write in absolute tokens, each capped at the simulated occupancy, and the rest read at R. `--write 2` prices every write as a 1-hour one ($8 against $4).
+
+| T | **base** | writes fixed | writes fixed, P × 2 | 1-hour writes (2.0) |
+|---|---|---|---|---|
+| 80 % | 11.9 (6.1 to 15.8) | 16.7 (11.5 to 20.2) | 10.1 (5.4 to 13.3) | 12.4 (6.3 to 16.9) |
+| 70 % | 20.0 (12.1 to 24.6) | 24.2 (17.7 to 28.1) | 18.6 (14.6 to 21.5) | 19.6 (11.6 to 24.5) |
+| 60 % | 30.9 (24.9 to 35.3) | 33.1 (28.3 to 36.5) | 25.5 (21.4 to 28.2) | 31.0 (24.4 to 36.1) |
+| 50 % | 40.6 (36.4 to 43.4) | 40.9 (36.6 to 43.8) | 34.2 (30.0 to 37.3) | 40.6 (36.2 to 43.6) |
+| 40 % | 48.7 (45.8 to 50.6) | 48.0 (45.1 to 49.9) | 40.9 (37.3 to 43.4) | 48.4 (45.6 to 50.3) |
+| 30 % | 58.8 (55.8 to 60.9) | 56.8 (53.8 to 58.8) | 47.1 (43.9 to 49.4) | 58.6 (55.5 to 60.7) |
+
+The bias the review expected is real, but it does not run one way. With writes fixed, the saving falls at 30 and 40 % and **rises** at 60 to 80 %. Capping a real full rewrite at the simulated occupancy charges less there than the blended rate did. At 50 % the two agree within 0.3 points, and every case stays inside the envelope quoted above. 1-hour writes move nothing by more than 0.5 points. The collector does not yet split 5-minute from 1-hour writes (`usage.cache_creation`); that split is a follow-up.
+
 **Re-reading after a compaction.** An agent that lost its context reads files again, so occupancy grows faster after a compaction. That cost scales with the number of compactions, which the model does not otherwise capture. Measured: over the 20 calls after a real compaction, the median growth is **40,063 tokens**, against **31,054** for other 20-call windows: **9,009 more**. Over 50 calls it is 8,304 more (`recovery.sh` in the Appendix). That is about 14 % of P, well inside the P × 2 case, which bounds it.
 
 ## What the simulation says, read with its limits
@@ -180,7 +204,8 @@ Saving against the default (95 % interval):
 - **One machine, one Director, mostly one model.** Claude Opus 5.5 since 5 October. Earlier calls ran other models at R = 0.1; the R = 0.1 column covers that.
 - **Retention.** Sessions with no write for 30 days are gone, so the short sessions of late August and early September are missing. Long sessions are complete from their first day.
 - **"In flight" is inferred from timestamps,** not from the runtime's own dispatch state. An Employee waiting in silence longer than the gap counts as not in flight. Its count barely moves between 300 s and 3,600 s (8 against 9).
-- **The cost model** is in input-price units and assumes the 5-minute cache write (1.25). A 1-hour write (2.0) would raise every compaction's rewrite cost; that case was not run.
+- **The cost model** is in input-price units. How it prices cache writes is bounded by two models, scaled and fixed, and the 1-hour price was run as a case (see How cache writes are priced). Neither bound is the measured split between a turn's new content and a rewrite after expiry.
+- **The simulation compacts exactly at T.** WU-C is an alert: the Main Agent finishes its Work Unit before the Handoff, so the real Handoff comes at T plus an overshoot, and the realised saving at a given T will be lower than simulated. The D+14 trial measures the overshoot.
 - **Not measured:** context lost at a compaction, the Director's time per Handoff, and the latency of a compaction (median 111 s) as felt in a working session.
 
 ---
@@ -191,7 +216,22 @@ The plan makes this the stop point: with fewer than 10 long sessions, no default
 
 1. **Accept 8 long sessions as enough, explicitly.** The exploratory figures above then apply as they stand. Every case agrees that saving rises as T falls, at the price of more Handoffs per day: 1.8 per active day at 50 % against 1.0 today. Choosing T is a choice about interruptions, not about cost.
 2. **Wait for more long sessions and run the commands above again.** Retention removes L1 and L2 now, so 10 means four new long sessions. They arrive in bursts, so no date can be promised. It is unlikely before the operational target of mid to late November. Raising `cleanupPeriodDays` would keep transcripts longer, at the privacy cost of keeping them longer on disk.
-3. **Measure through the trial instead.** WU-B and WU-C ship with the alert switchable. The D+14 measurement planned for about 20 November, set against this report as baseline, then supplies the data this gate asked for.
+3. **Measure through the trial instead.** WU-B and WU-C ship with the alert switchable. The D+14 measurement planned for about 20 November, set against this report as baseline, then supplies the data this gate asked for. See the D+14 baseline below.
+
+## The D+14 baseline
+
+The trial will have fewer long sessions than this report, so the Performance Engineer's review of PR #314 proposes the **cycle** as its unit, not the session or the week, and **context cost per Main Agent call** as its metric. A cycle runs from one Handoff or compaction to the next. Totals per session or per week would mostly measure the workload. The WU-PM criterion "no state lost" is tracked beside it.
+
+The baseline is this report's **32 closed cycles** (each ending at a real compaction, 13,900 calls; the calls after a session's last compaction form an open cycle and are left out). Context cost per call, in input-price units (input + 1.25 cache write + 0.05 cache read):
+
+| | |
+|---|---|
+| Pooled (all 32 cycles) | **36,702** |
+| Per cycle, median | **34,143** |
+| Per cycle, quartiles | 25,658 to 39,714 |
+| Per cycle, min / max | 0 / 55,420 (the 0 is one cycle whose calls all report zero usage) |
+
+At D+14, the same collector and the same program (`cycles.sh` in the Appendix) are run on the trial's cycles, each ending at a Handoff or a compaction. The comparison is between the two per-cycle distributions.
 
 Independent of the gate:
 
@@ -261,6 +301,33 @@ awk -F '\t' -v N=20 '
       }
     }
     printf "after %d median %d; other %d median %d; excess %d\n", np, med(post, np), nb, med(base, nb), med(post, np) - med(base, nb)
+  }' /tmp/ctx-900.tsv
+```
+
+`cycles.sh` (the D+14 baseline: context cost per call for each cycle that ends at a real compaction):
+
+```bash
+awk -F '\t' '
+  function q(a, n, p,   i, j, v) {
+    for (i = 1; i <= n; i++) b[i] = a[i]
+    for (i = 2; i <= n; i++) { v = b[i]; for (j = i - 1; j >= 1 && b[j] > v; j--) b[j + 1] = b[j]; b[j + 1] = v }
+    i = int(p * n + 0.5); if (i < 1) i = 1; if (i > n) i = n
+    return b[i]
+  }
+  $1 == "ctx-call" && !(($2, $3) in seen) { seen[$2, $3] = 1; k = $3 + 0; t[$2, k] = $4; c[$2, k] = $6 + 1.25 * $7 + 0.05 * $8; if (k > n[$2]) n[$2] = k }
+  $1 == "ctx-compact" && !(($2, $3) in cs) { cs[$2, $3] = 1; m[$2]++; bt[$2, m[$2]] = $3 }
+  END {
+    for (s in m) {
+      for (x = 2; x <= m[s]; x++) { v = bt[s, x]; for (y = x - 1; y >= 1 && bt[s, y] > v; y--) bt[s, y + 1] = bt[s, y]; bt[s, y + 1] = v }
+      k = 1
+      for (j = 1; j <= m[s]; j++) {
+        cost = 0; calls = 0
+        while (k <= n[s] && t[s, k] <= bt[s, j]) { cost += c[s, k]; calls++; k++ }
+        if (calls > 0) { nc++; per[nc] = cost / calls; tc += cost; tn += calls }
+      }
+    }
+    printf "closed cycles %d, calls %d\n", nc, tn
+    printf "per call: pooled %.0f; median %.0f, quartiles %.0f to %.0f\n", tc / tn, q(per, nc, .5), q(per, nc, .25), q(per, nc, .75)
   }' /tmp/ctx-900.tsv
 ```
 

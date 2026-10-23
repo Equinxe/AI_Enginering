@@ -497,7 +497,7 @@ AWK
 def count: (numbers | select(. >= 0) | floor) // 0;
 def id_shape: if type == "string" and test("^[A-Za-z0-9_-]{1,128}$") then . else "" end;
 def epoch: if type == "string" and test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?Z$")
-           then (.[0:19] + "Z" | fromdateiso8601) else null end;
+           then (.[0:19] + "Z" | try fromdateiso8601 catch null) else null end;
 foreach inputs as $l ({n: "", line: null};
   if ($l | startswith("\u001eM ")) then {n: ($l[3:] | if test("^[0-9]{1,9}$") then . else "" end), line: null}
   else .line = $l end;
