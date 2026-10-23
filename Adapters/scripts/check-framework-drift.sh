@@ -198,16 +198,22 @@ RUNTIME="$FRAMEWORK/Adapters/ai-runtimes/claude-code"
 # ------------------------------------------------------------- records ---
 
 ROWS=""
+# >>> record sanitiser — byte-identical in install.sh, install-hooks.sh,
+# install-skills.sh and check-framework-drift.sh: none of them sources
+# another, and Adapters/scripts/tests/run.sh compares the four (WU-IAENG-366).
 # flat <text> — every control character (TAB, LF, CR, ESC, ...) becomes a
 # space: a record is one line and carries no terminal escape.
 # The C1 controls (U+0080-U+009F, CSI among them) are UTF-8 pairs \xc2\x80 to
 # \xc2\x9f: a pair becomes one space. A lone byte in that range is part of
-# another character and is left alone (SEC-IAENG-358-01).
+# another character and is left alone (SEC-IAENG-358-01). For these the
+# result is the same under the C locale and a UTF-8 one; a UTF-8 locale also
+# flattens a few other code points, U+2028 and U+2029 among them.
 C1_LEAD=$'\xc2'
 flat() {
   FLAT="${1//[[:cntrl:]]/ }"
   FLAT="${FLAT//"$C1_LEAD"[$'\x80'-$'\x9f']/ }"
 }
+# <<< record sanitiser
 # rec <family> <status> <path> <remedy>
 rec() {
   local f2 f3 f4
