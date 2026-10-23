@@ -1475,3 +1475,39 @@ work_units:
     title: AMELIORATION.md, the Director's working document in French (request of 22 Oct 2026) - fourteen strengths of our workflow, each naming the peer it beats and our evidence; twenty-nine weaknesses in one table (weakness and evidence, who does better among Kevin, Yoann, OMC and shipyard, what they do, a lead for us, governance cost, priority against the target of an operational framework in mid to late November 2026, follow-up); two weaknesses already closed since the 20 Oct reviews, struck with their PRs; what we do not adopt and why; how each line becomes a Work Unit or an issue and is struck with its PR number. Sources are the local peer reviews of 20 and 22 Oct 2026 and the cleanup plan, re-measured on develop d3ce687. Referenced from neither README.md nor CLAUDE.md; where to reference it is left to the Director
     milestone: Adoption
     delivers: AMELIORATION.md, CHANGELOG.md, Registry/work-units.yml
+
+  - id: WU-IAENG-376
+    employee: Prompt Engineer
+    title: Reserved 23 Oct 2026 before dispatch (WU-IAENG-381) - the Director-approved Core and Standards texts of 23 Oct 2026, part 1 - standing authorisations (a subsection of Standards/RISK_STANDARD.md and one paragraph of Core/MAIN_AGENT_CONDUCT.md, Git Execution via Named Employee) and Presenting a Decision to the Director (a new section of Core/MAIN_AGENT_CONDUCT.md)
+    milestone: Adoption
+    delivers: planned - Standards/RISK_STANDARD.md, Core/MAIN_AGENT_CONDUCT.md, CHANGELOG.md, Registry/work-units.yml
+
+  - id: WU-IAENG-377
+    employee: Technical Lead
+    title: Reserved 23 Oct 2026 before dispatch (WU-IAENG-381) - the Director-approved Standards texts of 23 Oct 2026, part 2 - Independent Oracle (Standards/TESTING_STANDARD.md) and Throwaway Prototype Branches, spike/* (Standards/BRANCH_STANDARD.md)
+    milestone: Adoption
+    delivers: planned - Standards/TESTING_STANDARD.md, Standards/BRANCH_STANDARD.md, CHANGELOG.md, Registry/work-units.yml
+
+  - id: WU-IAENG-378
+    employee: Platform Engineer
+    title: Reserved 23 Oct 2026 before dispatch (WU-IAENG-381) - changelog fragments (Release Manager study of 23 Oct 2026, option 1) - one changelog.d/ fragment per Work Unit, assembled into CHANGELOG.md by release.sh at the version bump, and the validate-framework.sh rules for fragment names and headings
+    milestone: Adoption
+    delivers: planned - changelog.d/, Adapters/scripts/release.sh, Adapters/scripts/validate-framework.sh, Adapters/scripts/tests/run.sh, CHANGELOG.md, Registry/work-units.yml
+
+  - id: WU-IAENG-379
+    employee: Platform Engineer
+    title: Reserved 23 Oct 2026 before dispatch (WU-IAENG-381) - context statusLine wrapper (compaction plan of 23 Oct 2026, WU-B) - a statusLine wrapper that writes the context occupancy percentage to a per-user file and chains the user's existing statusLine
+    milestone: Adoption
+    delivers: planned - a statusLine wrapper and its tests under Adapters/ai-runtimes/claude-code/, CHANGELOG.md, Registry/work-units.yml
+
+  - id: WU-IAENG-380
+    employee: Platform Engineer
+    title: Reserved 23 Oct 2026 before dispatch (WU-IAENG-381) - context alert hook (compaction plan of 23 Oct 2026, WU-C) - a hook that, once the context occupancy written by WU-IAENG-379 reaches the alert threshold, tells the Main Agent to run the Handoff checklist
+    milestone: Adoption
+    delivers: planned - a hook and its tests under Adapters/ai-runtimes/claude-code/hooks/, CHANGELOG.md, Registry/work-units.yml
+
+  - id: WU-IAENG-381
+    employee: Release Manager
+    title: Reserve Work Units 376 to 380 and document up-front reservation (Director decision of 23 Oct 2026, changelog study option 2b) - the five Work Units of the 23 Oct plans registered in one bookkeeping Pull Request before their dispatch, so each Work Unit's own Pull Request edits only its own entry; Workflows/FEATURE_DEVELOPMENT.md Step 4 (0.0.14) says a plan's Work Units may be reserved this way and that a reserved Work Unit not delivered is moved or removed at release (release.sh condition 1)
+    milestone: Adoption
+    delivers: Registry/work-units.yml, Workflows/FEATURE_DEVELOPMENT.md, CHANGELOG.md
