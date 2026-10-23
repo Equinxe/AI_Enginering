@@ -8362,6 +8362,154 @@ else
 fi
 rm -rf "$LINK_ADOPTER_362"
 
+# ------- usage-collect.sh --context-series: numbers only (WU-IAENG-374) -----
+#
+# The Main Agent's occupancy per call, its compactions and drops, and how many
+# subagents were active at each, for measuring a compaction threshold. The
+# fixture is synthetic. Every free-text field holds OBS374-SENTINEL, and so do
+# the session's file name, a model name, a timestamp and a token count: none
+# may reach the output, and every field after the record tag must be a number,
+# except the session, which must be 16 hex characters. Expected values are
+# written out from the fixture, not computed by the script under test.
+#
+#   epoch 1790848800 = 2026-10-01T10:00:00Z (date -u -d ... +%s)
+
+section "usage-collect.sh --context-series — numbers only (WU-IAENG-374)"
+
+UT374="$WORK/ctx-374"
+rm -rf "$UT374"
+mkdir -p "$UT374/OBS374-SENTINEL-SESSION/subagents" "$UT374/orphan-374/subagents"
+# Session 1. msg_1 is written on two lines and counts once. msg_5's input is
+# not a number (0) and its occupancy falls without a boundary: a rewind. The
+# sidechain line and the line with a malformed timestamp are not the Main
+# Agent's calls.
+cat > "$UT374/OBS374-SENTINEL-SESSION.jsonl" <<'JSONL'
+{"type":"user","timestamp":"2026-10-01T09:59:00Z","message":{"role":"user","content":"OBS374-SENTINEL-PROMPT"}}
+{"type":"assistant","timestamp":"2026-10-01T10:00:00.120Z","message":{"id":"msg_1","model":"claude-test-1","content":[{"type":"text","text":"OBS374-SENTINEL-REPLY"}],"usage":{"input_tokens":10,"output_tokens":50,"cache_creation_input_tokens":1000,"cache_read_input_tokens":100000}}}
+{"type":"assistant","timestamp":"2026-10-01T10:00:01.000Z","message":{"id":"msg_1","model":"claude-test-1","content":[{"type":"tool_use","id":"toolu_1","name":"Agent","input":{"subagent_type":"observability-engineer","prompt":"OBS374-SENTINEL-DISPATCH"}}],"usage":{"input_tokens":10,"output_tokens":50,"cache_creation_input_tokens":1000,"cache_read_input_tokens":100000}}}
+{"type":"assistant","timestamp":"2026-10-01T10:10:00Z","message":{"id":"msg_2","model":"OBS374-SENTINEL-MODEL","content":[{"type":"text","text":"OBS374-SENTINEL-TWO"}],"usage":{"input_tokens":5,"output_tokens":10,"cache_creation_input_tokens":2000,"cache_read_input_tokens":300000}}}
+{"type":"system","subtype":"compact_boundary","content":"OBS374-SENTINEL-SUMMARY","timestamp":"2026-10-01T10:20:00.000Z","compactMetadata":{"trigger":"auto","preTokens":310000,"postTokens":20000,"durationMs":60000,"preCompactDiscoveredTools":["OBS374-SENTINEL-TOOL"]}}
+{"type":"assistant","timestamp":"2026-10-01T10:21:00Z","message":{"id":"msg_3","model":"claude-test-1","content":[],"usage":{"input_tokens":3,"output_tokens":5,"cache_creation_input_tokens":25000,"cache_read_input_tokens":0}}}
+{"type":"assistant","isSidechain":true,"timestamp":"2026-10-01T10:30:00Z","message":{"id":"msg_side","model":"claude-test-1","content":[],"usage":{"input_tokens":999999,"output_tokens":1,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}
+{"type":"assistant","timestamp":"OBS374-SENTINEL-TIME","message":{"id":"msg_badtime","model":"claude-test-1","content":[],"usage":{"input_tokens":888888,"output_tokens":1,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}
+{"type":"assistant","timestamp":"2026-10-01T11:00:00Z","message":{"id":"msg_4","model":"claude-test-1","content":[],"usage":{"input_tokens":1,"output_tokens":1,"cache_creation_input_tokens":1000,"cache_read_input_tokens":200000}}}
+{"type":"assistant","timestamp":"2026-10-01T11:05:00Z","message":{"id":"msg_5","model":"claude-test-1","content":[],"usage":{"input_tokens":"OBS374-SENTINEL-COUNT","output_tokens":1,"cache_creation_input_tokens":30000,"cache_read_input_tokens":0}}}
+{"type":"system","subtype":"compact_boundary","content":"OBS374-SENTINEL-MANUAL","timestamp":"2026-10-01T11:30:00Z","compactMetadata":{"trigger":"manual","preTokens":40000,"postTokens":9000,"durationMs":5000}}
+JSONL
+# Its subagent: active 10:15-10:19:30, silent 80 minutes, then 11:40. With
+# the default 900-second gap that is two segments; with 7200, one.
+cat > "$UT374/OBS374-SENTINEL-SESSION/subagents/agent-a.jsonl" <<'JSONL'
+{"type":"user","isSidechain":true,"message":{"content":"OBS374-SENTINEL-BRIEF"},"timestamp":"2026-10-01T10:15:00.000Z"}
+{"type":"assistant","isSidechain":true,"message":{"content":[{"type":"text","text":"OBS374-SENTINEL-WORK"}]},"timestamp":"2026-10-01T10:18:00.000Z"}
+{"type":"assistant","isSidechain":true,"message":{"content":[]},"timestamp":"2026-10-01T10:19:30.000Z"}
+{"type":"assistant","isSidechain":true,"message":{"content":[]},"timestamp":"2026-10-01T11:40:00.000Z"}
+JSONL
+printf '%s\n' '{"agentType":"observability-engineer","description":"OBS374-SENTINEL-META"}' > "$UT374/OBS374-SENTINEL-SESSION/subagents/agent-a.meta.json"
+# A subagent file with no main session: listed, attributed to nothing.
+printf '%s\n' '{"type":"assistant","timestamp":"2026-10-01T10:19:00Z","message":{"content":[]}}' > "$UT374/orphan-374/subagents/agent-o.jsonl"
+# Session 2: a resumed copy of msg_1 (a duplicate, not counted again) and
+# one call of its own.
+cat > "$UT374/ctx-374-second.jsonl" <<'JSONL'
+{"type":"assistant","timestamp":"2026-10-02T09:00:00Z","message":{"id":"msg_1","model":"claude-test-1","content":[],"usage":{"input_tokens":10,"output_tokens":50,"cache_creation_input_tokens":1000,"cache_read_input_tokens":100000}}}
+{"type":"assistant","timestamp":"2026-10-02T09:01:00Z","message":{"id":"msg_6","model":"claude-test-1","content":[],"usage":{"input_tokens":7,"output_tokens":7,"cache_creation_input_tokens":7,"cache_read_input_tokens":7}}}
+JSONL
+
+H374="$(printf '%s' OBS374-SENTINEL-SESSION | sha256sum | cut -c1-16)"
+CS374="$WORK/ctx-374.out"
+expect 0 "context-series: reads a transcript directory" -- bash "$COLLECT" --transcripts-dir "$UT374" --context-series
+printf '%s\n' "$LAST_OUTPUT" > "$CS374"
+expect_output "ctx-source${T}2${T}2${T}6${T}2${T}900${T}1"
+expect_output "ctx-session${T}${H374}${T}5${T}1790848800${T}1790852700${T}302005${T}1000000${T}2${T}2${T}2"
+# The resumed copy of msg_1 stays with session 1, where it is earliest:
+# session 2 holds msg_6 alone (7 + 7 + 7), whatever the listing order.
+H374B="$(printf '%s' ctx-374-second | sha256sum | cut -c1-16)"
+expect_output "ctx-session${T}${H374B}${T}1${T}1790931660${T}1790931660${T}21${T}200000${T}0${T}0${T}0"
+# occupancy = input + cache_creation + cache_read, a two-line message once.
+expect_output "ctx-call${T}${H374}${T}1${T}1790848800${T}101010${T}10${T}1000${T}100000${T}50${T}0"
+expect_output "ctx-call${T}${H374}${T}5${T}1790852700${T}30000${T}0${T}30000${T}0${T}1${T}0"
+# msg_3 follows msg_2 by 11 minutes, across the subagent's first burst.
+expect_output "ctx-call${T}${H374}${T}3${T}1790850060${T}25003${T}3${T}25000${T}0${T}5${T}1"
+expect_no_output "999999" "context-series: a sidechain line in the main transcript is not a Main Agent call"
+expect_no_output "888888" "context-series: a line whose timestamp is not a timestamp is not counted"
+# The auto compaction: an Employee was active during its 60 seconds.
+expect_output "ctx-compact${T}${H374}${T}1790850000${T}1${T}310000${T}20000${T}60000${T}1${T}302005${T}25003"
+# The manual one, 20 minutes into the subagent's silence: none in flight.
+expect_output "ctx-compact${T}${H374}${T}1790854200${T}2${T}40000${T}9000${T}5000${T}0${T}30000${T}0"
+expect_output "ctx-drop${T}${H374}${T}1790850060${T}302005${T}25003${T}1${T}1"
+expect_output "ctx-drop${T}${H374}${T}1790852700${T}201001${T}30000${T}0${T}0"
+expect_no_output "OBS374-SENTINEL" "context-series privacy: no prompt, reply, model, summary, file name or meta text"
+expect_no_output "$UT374" "context-series privacy: no path"
+expect_no_output "ctx-374-second" "context-series privacy: no session file name"
+# A feeder script, not an inline awk program: shellcheck reads a quoted
+# argument to `expect` as shell text (SC2016).
+cat > "$WORK/fields-374.sh" <<'FEED'
+awk -F '\t' '
+  $1 !~ /^ctx-(source|session|call|compact|drop)$/ { print "unknown record: " NR; exit 1 }
+  { for (i = 2; i <= NF; i++) if ($i !~ /^[0-9]+$/ && !(i == 2 && $1 != "ctx-source" && $i ~ /^[0-9a-f]+$/ && length($i) == 16)) { print "record " NR " field " i " is not a number"; exit 1 } }
+  END { if (NR < 10) { print "only " NR " records"; exit 1 } }' "$1"
+FEED
+expect 0 "context-series: every field after the tag is a number, the session 16 hex characters" -- bash "$WORK/fields-374.sh" "$CS374"
+
+# --gap 7200 joins the subagent's two bursts: the manual compaction and the
+# rewind now fall inside its activity.
+expect 0 "context-series --gap 7200: runs" -- bash "$COLLECT" --transcripts-dir "$UT374" --context-series --gap 7200
+expect_output "ctx-compact${T}${H374}${T}1790854200${T}2${T}40000${T}9000${T}5000${T}1${T}30000${T}0"
+expect_output "ctx-drop${T}${H374}${T}1790852700${T}201001${T}30000${T}1${T}0"
+
+expect 2 "context-series: --gap takes seconds, not text" -- bash "$COLLECT" --transcripts-dir "$UT374" --context-series --gap 9x
+expect_output "--gap takes a number of seconds from 60 to 86400"
+expect 2 "context-series: --gap under a minute is refused" -- bash "$COLLECT" --transcripts-dir "$UT374" --context-series --gap 59
+expect 2 "context-series: no cache, so --cache-dir is refused" -- bash "$COLLECT" --transcripts-dir "$UT374" --context-series --cache-dir "$WORK/ctx-374-cache"
+expect_output "--context-series reads every transcript in full"
+
+# context-simulate.sh replays those records under a threshold. Session A
+# grows by 100k a call to 600k; at T=30 of a 1M window, with P = 50k, it
+# compacts at calls 3 and 6. Worked by hand, in input-price units (R 0.05,
+# O 5, a write 1.25):
+#   tokens  100k + 200k + 50k + 150k + 250k + 50k            = 800000
+#   calls   1.25*100k + .05*200k + 1.25*50k + .05*150k + .05*250k + 1.25*50k = 280000
+#   summary 2 x 5*50k + .05*300k + .05*350k                  = 532500
+#   default 1.25*100k + .05*(200k+300k+400k+500k+600k)       = 225000
+#   saving  1 - (280000 + 532500) / 225000                   = -261.1 %
+SIM="$SCRIPTS/../ai-runtimes/claude-code/context-simulate.sh"
+SA374="$WORK/sim-374-a.tsv"
+{
+  printf 'ctx-call\taaaaaaaaaaaaaaaa\t1\t1790848800\t100000\t0\t100000\t0\t0\t0\n'
+  for k_374 in 2 3 4 5; do
+    printf 'ctx-call\taaaaaaaaaaaaaaaa\t%d\t%d\t%d\t0\t0\t%d\t0\t0\n' "$k_374" "$((1790848800 + 60 * k_374))" "$((100000 * k_374))" "$((100000 * k_374))"
+  done
+  printf 'ctx-call\taaaaaaaaaaaaaaaa\t6\t1790849160\t600000\t0\t0\t600000\t0\t1\n'
+} > "$SA374"
+expect 0 "context-simulate: replays a series" -- bash "$SIM" --post 50000 --thresholds 30,70 --reps 50 "$SA374"
+expect_output "sim-input${T}1${T}1${T}6${T}1${T}1.0${T}0${T}50000${T}50000${T}0"
+expect_output "sim${T}default${T}0${T}2100000${T}225000${T}0${T}0.00${T}0.00${T}"
+# Two compactions, the second with an Employee in flight (call 6).
+expect_output "sim${T}30${T}2${T}800000${T}280000${T}532500${T}2.00${T}1.00${T}-261.1${T}-261.1${T}-261.1${T}-261.1"
+expect_output "sim${T}70${T}0${T}2100000${T}225000${T}0${T}0.00${T}0.00${T}0.0${T}"
+# The same session read from two directories is one session, not twelve calls.
+expect 0 "context-simulate: a session in two inputs" -- bash "$SIM" --post 50000 --thresholds 30 --reps 50 "$SA374" "$SA374"
+expect_output "sim-input${T}1${T}1${T}6${T}1${T}1.0${T}0${T}50000${T}50000${T}0"
+expect_output "sim${T}30${T}2${T}800000${T}280000${T}532500${T}"
+# Session B was compacted for real (460k -> 40k). In the simulated world
+# that compaction does not happen: the call after it adds nothing, so B
+# runs 400k, 450k, 450k, 470k and never reaches T=50.
+SB374="$WORK/sim-374-b.tsv"
+printf '%s\n' \
+  "ctx-call${T}bbbbbbbbbbbbbbbb${T}1${T}1790848800${T}400000${T}0${T}0${T}400000${T}0${T}0" \
+  "ctx-call${T}bbbbbbbbbbbbbbbb${T}2${T}1790848860${T}450000${T}0${T}0${T}450000${T}0${T}0" \
+  "ctx-call${T}bbbbbbbbbbbbbbbb${T}3${T}1790849000${T}40000${T}0${T}40000${T}0${T}0${T}0" \
+  "ctx-call${T}bbbbbbbbbbbbbbbb${T}4${T}1790849060${T}60000${T}0${T}0${T}60000${T}0${T}0" \
+  "ctx-compact${T}bbbbbbbbbbbbbbbb${T}1790848950${T}1${T}460000${T}20000${T}60000${T}0${T}450000${T}40000" \
+  "ctx-drop${T}bbbbbbbbbbbbbbbb${T}1790849000${T}450000${T}40000${T}0${T}1" > "$SB374"
+expect 0 "context-simulate: a series with a real compaction" -- bash "$SIM" --post 50000 --thresholds 50 --reps 50 "$SB374"
+expect_output "sim${T}default${T}1${T}950000${T}"
+expect_output "sim${T}50${T}0${T}1770000${T}"
+: > "$WORK/sim-374-empty.tsv"
+expect 1 "context-simulate: no ctx-call record is an error" -- bash "$SIM" "$WORK/sim-374-empty.tsv"
+expect_output "no ctx-call record in the input"
+expect 2 "context-simulate: a threshold of 100 is refused" -- bash "$SIM" --thresholds 30,100 "$SA374"
+expect_output "--thresholds takes percentages 1 to 99"
+
 # --------------------------------------------------------------- verdict ----
 
 cd "$HERE" || exit 1

@@ -108,6 +108,8 @@
 #
 #   usage-collect.sh (--project-dir DIR | --transcripts-dir DIR)
 #                    [--cache-dir DIR] [--listing-out FILE] [--list | --dirs]
+#   usage-collect.sh (--project-dir DIR | --transcripts-dir DIR)
+#                    --context-series [--gap SECONDS]
 #
 # --transcripts-dir replaces the slug resolution with an explicit directory.
 # --cache-dir keeps the per-file records between runs (see above). A cache
@@ -130,6 +132,44 @@
 #   call      <day> <model> <agent> <input> <output> <cache_creation> <cache_read> <calls>
 #   dispatch  <subagent_type> <requested-model> <count>
 #   spawn     <parent-agent> <subagent_type> <count>
+#
+# --context-series (WU-IAENG-374) prints, instead of the aggregate, the
+# MAIN AGENT's context occupancy call by call, for measuring when to compact
+# (Governance/CONTEXT_COMPACTION_MEASUREMENT.md). Every field after the record
+# tag is a number, except the session, which is the first 16 hex characters
+# of the SHA-256 of the session's transcript file name: no text, no path, no
+# model or agent name, no session id is ever printed.
+#
+#   ctx-source   <main-sessions> <subagent-files> <calls> <boundaries> <gap-s> <duplicate-calls>
+#   ctx-session  <session> <calls> <first-epoch> <last-epoch> <peak> <window-floor> <boundaries> <drops> <segments>
+#   ctx-call     <session> <seq> <epoch> <occupancy> <input> <cache_creation> <cache_read> <output> <in-flight>
+#   ctx-compact  <session> <epoch> <trigger> <pre> <post> <duration-ms> <in-flight> <occ-before> <occ-after>
+#   ctx-drop     <session> <epoch> <occ-before> <occ-after> <in-flight> <boundary>
+#
+# occupancy   input + cache_creation + cache_read of one API call: what the
+#             call sent, which is what the window held. A message written on
+#             several lines counts once; one found in several sessions (a
+#             resumed copy) belongs to the session where it is earliest, and
+#             is counted once in duplicate-calls.
+# window-floor 200000 when the session's peak fits that window, else 1000000:
+#             the smallest standard window that held the peak, a lower bound
+#             on the window in use, not a reading of it.
+# ctx-compact one per compact_boundary entry the runtime wrote. trigger is
+#             1 auto, 2 manual, 0 anything else; pre, post and duration are
+#             its compactMetadata numbers. occ-before and occ-after are the
+#             calls on either side.
+# ctx-drop    a call whose occupancy fell under half the previous one by
+#             20000 tokens or more: a compaction, or a rewind. boundary is 1
+#             when a compact_boundary lies between the two calls.
+# in-flight   how many of the session's subagent activity segments overlap
+#             the compaction (its duration before the boundary), the drop or
+#             the call (the time since the previous call). A segment is a run of a
+#             subagent file's entries with no silence longer than --gap
+#             seconds (900 by default). Only entry timestamps are read from a
+#             subagent file, never its content.
+#
+# A compaction or a drop reports the sessions' own numbers; what a threshold
+# would have changed is simulated from these records, not here.
 #
 # A `spawn` line counts the dispatches made from INSIDE a subagent's
 # transcript — a fork or a helper an Employee started for its own Work Unit —
@@ -160,7 +200,9 @@ umask 077
 
 usage() {
   echo "Usage: $0 (--project-dir DIR | --transcripts-dir DIR) [--cache-dir DIR] [--listing-out FILE] [--list | --dirs]" >&2
-  echo "  Prints aggregate Claude Code usage (tokens, models, dispatches) for a project." >&2
+  echo "       $0 (--project-dir DIR | --transcripts-dir DIR) --context-series [--gap SECONDS]" >&2
+  echo "  Prints aggregate Claude Code usage (tokens, models, dispatches) for a project," >&2
+  echo "  or, with --context-series, the Main Agent's context occupancy per call (numbers only)." >&2
 }
 
 PROJECT_DIR=""
@@ -169,6 +211,8 @@ CACHE_DIR=""
 LISTING_OUT=""
 LIST_ONLY=""
 DIRS_ONLY=""
+CONTEXT_SERIES=""
+GAP=900
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --project-dir) [ "$#" -ge 2 ] || { usage; exit 2; }; PROJECT_DIR="$2"; shift 2 ;;
@@ -177,10 +221,25 @@ while [ "$#" -gt 0 ]; do
     --listing-out) [ "$#" -ge 2 ] || { usage; exit 2; }; LISTING_OUT="$2"; shift 2 ;;
     --list) LIST_ONLY=1; shift ;;
     --dirs) DIRS_ONLY=1; shift ;;
+    --context-series) CONTEXT_SERIES=1; shift ;;
+    --gap)
+      [ "$#" -ge 2 ] || { usage; exit 2; }
+      # Seconds, 60 to 86400: an arithmetic operand and an awk number, so
+      # nothing but digits is accepted.
+      if ! [[ "$2" =~ ^[0-9]{2,5}$ ]] || [ "$((10#$2))" -lt 60 ] || [ "$((10#$2))" -gt 86400 ]; then
+        err "--gap takes a number of seconds from 60 to 86400, not '$2'."
+        exit 2
+      fi
+      GAP="$((10#$2))"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) err "unknown argument '$1'"; usage; exit 2 ;;
   esac
 done
+if [ -n "$CONTEXT_SERIES" ] && { [ -n "$LIST_ONLY" ] || [ -n "$DIRS_ONLY" ] || [ -n "$CACHE_DIR" ] || [ -n "$LISTING_OUT" ]; }; then
+  err "--context-series reads every transcript in full and takes no --cache-dir, --listing-out, --list or --dirs."
+  usage
+  exit 2
+fi
 
 if [ -z "$PROJECT_DIR" ] && [ -z "$TRANSCRIPTS_DIR" ]; then
   usage
@@ -337,6 +396,225 @@ fi
 if [ -n "$LIST_ONLY" ]; then
   printf '%s\n' "$LISTING"
   exit 0
+fi
+
+# --- --context-series (WU-IAENG-374) -----------------------------------------
+#
+# Three passes, each one process over all the files it needs: an awk that
+# reduces every subagent file to activity segments (entry timestamps only), an
+# awk that keeps a main session's assistant and compact_boundary lines for one
+# jq, and an awk that orders, deduplicates and prints numbers. No cache: it is
+# a measurement run, not a watch cycle. The session id never leaves this
+# function; the records carry a hash of it.
+#
+# Every emitted field is printed with %d or checked against ^[0-9a-f]{16}$
+# just before it is printed, so a field cannot carry text whatever the
+# transcript held.
+context_series() {
+  CS_WORK="$(mktemp -d "${TMPDIR:-/tmp}/iaeng-ctx.XXXXXX")" || { err "cannot create a temporary directory"; return 1; }
+  trap 'rm -rf "$CS_WORK"' EXIT
+  local size mt path n=0 nsub=0 mains=() subs=()
+  mkdir -p "$CS_WORK/h" || return 1
+  : > "$CS_WORK/map.tsv"
+  while IFS="$TAB" read -r size mt path; do
+    [ -n "$path" ] || continue
+    case "$path" in
+      */subagents/*.jsonl) subs+=("$path"); nsub=$((nsub + 1)) ;;
+      *.jsonl)
+        n=$((n + 1))
+        mains+=("$path")
+        printf '%s\t%s\n' "$path" "$n" >> "$CS_WORK/map.tsv"
+        # The file holds the session's file name; only its hash is printed.
+        path="${path##*/}"
+        printf '%s' "${path%.jsonl}" > "$CS_WORK/h/$n" ;;
+    esac
+  done <<< "$LISTING"
+  if [ "$n" -eq 0 ]; then
+    echo "usage-collect: $LOOKED holds no main-session transcript." >&2
+    return 3
+  fi
+
+  local hasher=()
+  if command -v sha256sum >/dev/null 2>&1; then hasher=(sha256sum)
+  elif command -v shasum >/dev/null 2>&1; then hasher=(shasum -a 256)
+  else err "--context-series needs sha256sum or shasum to hash session ids."; return 1
+  fi
+  # "<hash>  <dir>/h/<n>" -> "<n> TAB <first 16 hex>"; one process for all.
+  "${hasher[@]}" "$CS_WORK/h/"* | awk '{ h = $1; sub(/^\\/, "", h); f = $NF; sub(/.*\//, "", f)
+      if (f ~ /^[0-9]+$/ && h ~ /^[0-9a-f]+$/) print f "\t" substr(h, 1, 16) }' > "$CS_WORK/hash.tsv" || return 1
+
+  # Epoch seconds of "YYYY-MM-DDTHH:MM:SS", portable awk (no mktime):
+  # days from the civil date, Howard Hinnant's algorithm.
+  local awk_epoch
+  awk_epoch="$(cat <<'AWK'
+  function days(y, m, d,   era, yoe, doy) {
+    y -= (m <= 2); era = int((y >= 0 ? y : y - 399) / 400); yoe = y - era * 400
+    doy = int((153 * (m + (m > 2 ? -3 : 9)) + 2) / 5) + d - 1
+    return era * 146097 + yoe * 365 + int(yoe / 4) - int(yoe / 100) + doy - 719468
+  }
+  function ep(s) {
+    return days(substr(s, 1, 4) + 0, substr(s, 6, 2) + 0, substr(s, 9, 2) + 0) * 86400 \
+      + substr(s, 12, 2) * 3600 + substr(s, 15, 2) * 60 + substr(s, 18, 2)
+  }
+AWK
+)"
+
+  # Pass 1: subagent activity segments, "A <session-n> <start> <end>". The
+  # LAST timestamp on a line is taken, because the runtime writes the entry's
+  # own after its message; nothing else on the line is read.
+  : > "$CS_WORK/seg.tsv"
+  if [ "$nsub" -gt 0 ]; then
+    F_MAP="$CS_WORK/map.tsv" LC_ALL=C awk -v gap="$GAP" "$awk_epoch"'
+      BEGIN {
+        mapf = ENVIRON["F_MAP"]
+        while ((getline l < mapf) > 0) { i = index(l, "\t"); k = substr(l, 1, i - 1); sub(/\.jsonl$/, "", k); parent[k] = substr(l, i + 1) }
+      }
+      function flush() { if (cur != "" && s0 != "") print "A\t" cur "\t" s0 "\t" last; s0 = "" }
+      FNR == 1 { flush(); k = FILENAME; sub(/\/subagents\/[^\/]*$/, "", k); cur = (k in parent) ? parent[k] : "" }
+      {
+        line = $0; t = ""
+        while (match(line, /"timestamp":"[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]/)) {
+          t = substr(line, RSTART + 13, 19); line = substr(line, RSTART + RLENGTH)
+        }
+        if (t == "" || cur == "") next
+        e = ep(t)
+        if (s0 == "") { s0 = e; last = e; next }
+        if (e < last) next
+        if (e - last > gap) { print "A\t" cur "\t" s0 "\t" last; s0 = e }
+        last = e
+      }
+      END { flush() }
+    ' "${subs[@]}" > "$CS_WORK/seg.tsv" || return 1
+  fi
+
+  # Pass 2: a main session's assistant and compact_boundary lines, behind a
+  # marker naming the session's number; jq turns each into one record.
+  #   C <n> <epoch> <message-id> <input> <cache_creation> <cache_read> <output>
+  #   B <n> <epoch> <trigger> <pre> <post> <duration-ms>
+  # The message id is used to deduplicate and is never printed.
+  local jq_series
+  jq_series="$(cat <<'JQ'
+def count: (numbers | select(. >= 0) | floor) // 0;
+def id_shape: if type == "string" and test("^[A-Za-z0-9_-]{1,128}$") then . else "" end;
+def epoch: if type == "string" and test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?Z$")
+           then (.[0:19] + "Z" | fromdateiso8601) else null end;
+foreach inputs as $l ({n: "", line: null};
+  if ($l | startswith("\u001eM ")) then {n: ($l[3:] | if test("^[0-9]{1,9}$") then . else "" end), line: null}
+  else .line = $l end;
+  select(.line != null and .n != "") | .n as $n | .line
+  | fromjson? | select(type == "object" and .isSidechain != true)
+  | (.timestamp | epoch) as $t | select($t != null)
+  | if .type == "assistant" and (.message.usage? | type) == "object" and .message.model? != "<synthetic>" then
+      (.message.id | id_shape) as $id | select($id != "") | .message.usage as $u
+      | ["C", $n, $t, $id, ($u.input_tokens | count), ($u.cache_creation_input_tokens | count),
+         ($u.cache_read_input_tokens | count), ($u.output_tokens | count)] | @tsv
+    elif .type == "system" and .subtype == "compact_boundary" and (.compactMetadata | type) == "object" then
+      .compactMetadata as $c
+      | ["B", $n, $t, (if $c.trigger == "auto" then 1 elif $c.trigger == "manual" then 2 else 0 end),
+         ($c.preTokens | count), ($c.postTokens | count), ($c.durationMs | count)] | @tsv
+    else empty end)
+JQ
+)"
+
+  # Pass 3: order, deduplicate, detect, print. Records arrive in file order,
+  # which is time order within a session.
+  F_MAP="$CS_WORK/map.tsv" LC_ALL=C awk '
+    BEGIN { mapf = ENVIRON["F_MAP"]; while ((getline l < mapf) > 0) { i = index(l, "\t"); idx[substr(l, 1, i - 1)] = substr(l, i + 1) } }
+    FNR == 1 { print "\036M " idx[FILENAME] }
+    substr($0, 1, 1) != "\036" && ($0 ~ /"type": ?"assistant"/ || $0 ~ /"subtype": ?"compact_boundary"/) { print }
+  ' "${mains[@]}" \
+  | jq -n -R -r "$jq_series" \
+  | F_SEG="$CS_WORK/seg.tsv" F_HASH="$CS_WORK/hash.tsv" awk -F '\t' \
+      -v nmain="$n" -v nsub="$nsub" -v gap="$GAP" '
+    function num(s) { return (s ~ /^[0-9]+$/ && length(s) <= 15) ? s + 0 : 0 }
+    function okn(s) { return s ~ /^[0-9]+$/ && length(s) <= 9 }
+    # Segments of session s overlapping [a, b].
+    function inflight(s, a, b,   j, c) {
+      c = 0
+      for (j = 1; j <= nseg[s]; j++) if (ss[s, j] <= b && se[s, j] >= a) c++
+      return c
+    }
+    BEGIN {
+      segf = ENVIRON["F_SEG"]; hashf = ENVIRON["F_HASH"]
+      while ((getline l < hashf) > 0) { split(l, p, "\t"); if (okn(p[1]) && p[2] ~ /^[0-9a-f]+$/ && length(p[2]) == 16) H[p[1]] = p[2] }
+      while ((getline l < segf) > 0) {
+        split(l, p, "\t")
+        if (p[1] == "A" && okn(p[2])) { k = ++nseg[p[2]]; ss[p[2], k] = num(p[3]); se[p[2], k] = num(p[4]) }
+      }
+    }
+    { sub(/\r$/, "") }
+    # A message seen in several sessions (a resumed copy) belongs to the one
+    # where it is earliest, whatever order the files were listed in.
+    $1 == "C" && NF == 8 && okn($2) && $4 ~ /^[A-Za-z0-9_-]+$/ {
+      s = $2; id = $4; t = num($3)
+      if (!((s, id) in pos)) {
+        k = ++nc[s]; pos[s, id] = k; cid[s, k] = id; ct[s, k] = t
+        if (!(id in owner) || t < ownert[id]) { owner[id] = s; ownert[id] = t }
+        if (++nsess[id] == 2) dup++
+      }
+      k = pos[s, id]
+      for (f = 5; f <= 8; f++) { v = num($f); if (v > cv[s, k, f]) cv[s, k, f] = v }
+      next
+    }
+    $1 == "B" && NF == 7 && okn($2) {
+      s = $2; k = ++nb[s]; bounds++
+      bt[s, k] = num($3); btr[s, k] = ($4 == "1" || $4 == "2") ? $4 + 0 : 0
+      bpre[s, k] = num($5); bpost[s, k] = num($6); bdur[s, k] = num($7)
+    }
+    END {
+      calls = 0
+      for (s = 1; s <= nmain; s++) for (k = 1; k <= nc[s]; k++) if (owner[cid[s, k]] == s) calls++
+      printf "ctx-source\t%d\t%d\t%d\t%d\t%d\t%d\n", nmain, nsub, calls, bounds, gap, dup
+      for (s = 1; s <= nmain; s++) {
+        if (!(s in H)) continue
+        # The session own calls, in order: m of them, at tt[], occ[], val[].
+        h = H[s]; peak = 0; drops = 0; m = 0
+        for (k = 1; k <= nc[s]; k++) {
+          if (owner[cid[s, k]] != s) continue
+          m++; tt[m] = ct[s, k]
+          for (f = 5; f <= 8; f++) val[m, f] = cv[s, k, f]
+          occ[m] = val[m, 5] + val[m, 6] + val[m, 7]
+          if (occ[m] > peak) peak = occ[m]
+        }
+        if (m == 0) continue
+        out = ""
+        for (k = 1; k <= m; k++) {
+          out = out sprintf("ctx-call\t%s\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\n", h, k, tt[k], occ[k], val[k, 5], val[k, 6], val[k, 7], val[k, 8],
+            inflight(s, (k > 1 ? tt[k - 1] : tt[k]), tt[k]))
+          if (k > 1 && occ[k] * 2 < occ[k - 1] && occ[k - 1] - occ[k] >= 20000) {
+            hit = 0
+            for (j = 1; j <= nb[s]; j++) if (bt[s, j] >= tt[k - 1] && bt[s, j] <= tt[k]) hit = 1
+            out = out sprintf("ctx-drop\t%s\t%d\t%d\t%d\t%d\t%d\n", h, tt[k], occ[k - 1], occ[k], inflight(s, tt[k - 1], tt[k]), hit)
+            drops++
+          }
+        }
+        for (j = 1; j <= nb[s]; j++) {
+          before = 0; after = 0
+          for (k = 1; k <= m; k++) {
+            if (tt[k] <= bt[s, j]) before = occ[k]
+            else { after = occ[k]; break }
+          }
+          out = out sprintf("ctx-compact\t%s\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\n", h, bt[s, j], btr[s, j], bpre[s, j], bpost[s, j], bdur[s, j],
+            inflight(s, bt[s, j] - int(bdur[s, j] / 1000), bt[s, j]), before, after)
+        }
+        printf "ctx-session\t%s\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\n", h, m, tt[1], tt[m], peak,
+          (peak <= 200000 ? 200000 : 1000000), nb[s] + 0, drops, nseg[s] + 0
+        printf "%s", out
+        split("", occ); split("", tt); split("", val)
+      }
+    }
+  '
+  local stages="${PIPESTATUS[*]}"
+  if [ "${stages//[ 0]/}" != "" ]; then
+    err "reading the transcripts failed (stage exit codes: $stages)."
+    return 1
+  fi
+  return 0
+}
+
+if [ -n "$CONTEXT_SERIES" ]; then
+  context_series
+  exit $?
 fi
 
 # --- The cache ---------------------------------------------------------------
