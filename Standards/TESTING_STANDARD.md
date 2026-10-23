@@ -103,6 +103,15 @@ A test is trusted only once it has been seen to fail when the behaviour it guard
 6. **Runs are bounded.** A mutant run has a time limit. A run stopped by the limit is inconclusive, not red, unless the "fails if" names termination or time (a hang, a missed deadline); then it counts as red only if a rerun reproduces it. An equivalent mutant (no observable change) is declared and is not a red run: another mutant is written, or, when every mutant that realises the condition is equivalent, the criterion is declared "not falsifiable: <reason>" (item 1).
 7. **Scope.** The rule applies to Work Units opened after WU-IAENG-354 is merged. Item 1 applies to every such Work Unit. Items 2 to 6 apply when its change alters executable behaviour, as `Workflows/FEATURE_DEVELOPMENT.md` Step 7 defines it. The rule is not retroactive on existing tests and sets no mutation-score threshold.
 
+## Independent Oracle — The Expected Value Comes From Outside the Code
+
+A test oracle is the source of a test's expected result (ISO/IEC/IEEE 29119-1; ISTQB Glossary). Falsifiability shows that a test can fail; this section ensures that a passing test passes against the right value. A test whose expected value was copied from the code's own output also fails on a mutant, so its red run proves nothing about correctness: it pins whatever the code did, defect included.
+
+1. **The expected value comes from a source independent of the code under test**: the acceptance criterion or specification, a worked example computed by hand or by a reference implementation, a published standard, or vendor documentation. The test, or the Work Unit Report, names the source.
+2. **The code under test is never its own oracle.** A value obtained by running it, or recomputed in the test by the same logic, is not an expected value until a person has checked it against the specification and named that check. A baseline recorded before the change shows only that behaviour did not change: it is an oracle for a change that must preserve behaviour, never for a fix or a new behaviour.
+3. **A missing seam is a finding.** When the behaviour cannot be observed or controlled at the interface where it is specified (no injection point for a clock, a network call, or a file; no observable output), the Employee does not assert on whatever internal state is reachable instead. It files an Issue and declares "Falsifiability item 2 not met: no seam (#n)" under Deviations in the Work Unit Report, as `Templates/ROOT_CAUSE_ANALYSIS.md` does.
+4. **Scope.** As Falsifiability item 7, for Work Units opened after the Work Unit that adds this section is merged, when the change alters executable behaviour. Not retroactive.
+
 ---
 
 # Responsibilities
@@ -124,7 +133,8 @@ Do not:
 - disable tests without justification;
 - merge code that intentionally breaks existing tests;
 - write flaky or non-deterministic tests;
-- merge a test that was never seen to fail, where Falsifiability requires it.
+- merge a test that was never seen to fail, where Falsifiability requires it;
+- take a test's expected value from the code under test, where Independent Oracle applies.
 
 ---
 
@@ -153,7 +163,7 @@ Following this standard provides:
 
 Owner: IA Engineering
 
-Version: 0.0.3
+Version: 0.0.4
 
 Status: Draft
 
