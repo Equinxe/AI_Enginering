@@ -70,7 +70,7 @@ The Test Automation Engineer must never:
 3. **Implement tests** — Write automated tests that are deterministic, isolated, and maintainable.
 4. **Integrate into pipeline** — Ensure tests execute automatically on every relevant Git event.
 5. **Run automated accessibility checks** — Where the stack has tooling, run automated accessibility scans in the pipeline; report what they cover and hand off the rest to the QA Engineer's manual pass.
-6. **Monitor stability** — Track flaky test rates and resolve instability promptly. Diagnose each flaky test with `Templates/ROOT_CAUSE_ANALYSIS.md` before fixing or quarantining it: a flaky test can be a real defect in the code under test, not only in the test.
+6. **Monitor stability** — Track flaky test rates and resolve instability promptly. A flaky test that blocks the pipeline is quarantined first, as containment, once its failing output and logs are captured. Then diagnose it with `Templates/ROOT_CAUSE_ANALYSIS.md` before fixing it or taking it out of quarantine: a flaky test can be a real defect in the code under test, not only in the test.
 7. **Measure coverage** — Report coverage metrics and identify untested areas.
 8. **Maintain** — Update tests when implementations change. Tests are engineering assets.
 9. **Document** — Maintain test framework documentation and onboarding guides.

@@ -7,7 +7,7 @@
 A Root Cause Analysis records **why** a failure happened, as evidence a reviewer can check, before a fix is chosen. It is filled in by the Employee diagnosing the failure:
 
 - the SRE Engineer, during an incident (`Workflows/INCIDENT_RESPONSE.md`, Step 4);
-- the Test Automation Engineer, for a flaky test, before it is fixed or quarantined;
+- the Test Automation Engineer, for a flaky test, before it is fixed or taken out of quarantine (quarantine itself is containment and comes first when the test blocks the pipeline);
 - any Employee fixing a defect whose cause is not already proven by the first reading.
 
 The record goes into the artifact that needs the cause, not a directory of its own: the Root Cause section of the Incident Report (`Templates/INCIDENT_REPORT.md`, only once the status is Confirmed), the Flaky Test Report of the Test Automation Engineer, or the Work Unit Report of the fixing Work Unit.
@@ -18,7 +18,7 @@ The failure this template prevents is the jump from a symptom to a favourite exp
 
 # Official References
 
-This template orchestrates existing methods; it defines none of its own.
+This template orchestrates the official methods below, cited by reference. Three rules are framework practice, not taken from any of them: the six-level evidence ladder, the three-refutation circuit breaker, and the single instrumentation tag. They are adapted from the open-source oh-my-claudecode tracer and debugger agents.
 
 - IEEE Std 1044-2009, *IEEE Standard Classification for Software Anomalies* — the vocabulary for recording an anomaly: the failure is what was observed, the defect is what caused it. Until the analysis is Confirmed, a named defect is a hypothesis.
 - ISTQB Glossary — *error*, *defect*, *failure*, *root cause*, *root cause analysis*.
@@ -54,7 +54,7 @@ Two rules apply the ladder:
 
 Each step ends on its completion criterion. A step without its criterion met is not done, and the next step does not start.
 
-**1. Observe.** List what was seen, without interpretation. Each observation states what, where (file:line, log, metric, command and its output), and when (UTC). It contains no "because", "probably" or "seems": those belong to hypotheses. Capture the primary artifacts (logs, state, the failing output) before a retry, a restart or a containment step erases them, as long as capturing them does not delay containment. Before anything enters the record, replace secrets, credentials, tokens and personal identifiers with `<REDACTED>`, because a report is shared and committed (`Standards/DATA_PROTECTION_STANDARD.md`).
+**1. Observe.** List what was seen, without interpretation. Each observation states what, where (file:line, log, metric, command and its output), and when (UTC). It contains no "because", "probably" or "seems": those belong to hypotheses. Capture the primary artifacts (logs, state, the failing output) before a retry, a restart or a containment step erases them, as long as capturing them does not delay containment. Before anything enters the record, replace secrets, credentials, tokens and personal identifiers with `<REDACTED>`, because a report is shared and committed (`Standards/DATA_PROTECTION_STANDARD.md`). A cause that is a current, unfixed defensive weakness is not described in a committed record: it follows that Standard's section *Operational State Is Also Sensitive*, and the Security Engineer is engaged, as `Workflows/INCIDENT_RESPONSE.md`'s escalation table already requires.
 *Done when:* someone who disagrees with every hypothesis would still accept every line of the observation list, and nothing in it needs redacting.
 
 **2. Frame the question.** Write the one "why" this analysis answers: *Why does [observed behaviour] happen [under these conditions] [since when]?*
@@ -84,7 +84,7 @@ For each hypothesis, write what it **predicts**: what should be observable if it
 A hypothesis that survives only because nobody looked for evidence against it stays Provisional.
 *Done when:* the three questions are answered in the record and the leader either stands or is down-ranked.
 
-**6. Conclude.** The status is **Confirmed** only with Level 1 evidence for the surviving hypothesis. For a defect, that evidence is the regression test of Step 7. Otherwise the status is **Provisional**, and the record names:
+**6. Conclude.** The status is **Confirmed** only with Level 1 evidence for the surviving hypothesis. For a defect, when one hypothesis survives and the only Level 1 evidence still missing is the regression test, the status is **Confirmed pending Step 7**, and Step 7 settles it. Otherwise the status is **Provisional**, and the record names:
 
 - the **critical unknown**: the one missing fact that keeps the top two hypotheses apart;
 - the **discriminating probe**: the cheapest probe whose result differs between them, and what each result would mean.
@@ -94,8 +94,8 @@ An analysis never ends on "not sure". It ends on a cause, or on the probe to run
 
 **7. Prove the fix.** The regression test of the fix follows `Standards/TESTING_STANDARD.md`, Falsifiability: it is seen red against the pre-fix code (the base commit) and green on the fix, and the evidence is pasted. That red-then-green pair is the Level 1 evidence that confirms the cause.
 
-If no regression test can attach at a correct seam (the interface where the behaviour is specified), report the missing seam as the finding instead of testing through internals: file it as an Issue, record the criterion as "not falsifiable: no seam (#n)" (Falsifiability, item 1), and escalate the testability gap to the Technical Lead. A test forced through private state is coupled to the implementation and proves nothing about the behaviour.
-*Done when:* the red and green runs are pasted, or the missing seam is filed and linked.
+If no regression test can attach at a correct seam (the interface where the behaviour is specified), report the missing seam as the finding instead of testing through internals: file it as an Issue, and escalate the testability gap to the Technical Lead. A test forced through private state is coupled to the implementation and proves nothing about the behaviour. This is a shortfall, not an exemption. The Standard grants none for it, so the Work Unit Report declares "Falsifiability item 2 not met: no seam (#n)" under Deviations. The cause stays Provisional unless another Level 1 reproduction exists.
+*Done when:* the red and green runs are pasted, and the red-then-green pair sets the status to Confirmed. Otherwise the missing seam is filed, linked and declared as a deviation, and the status is Provisional or Confirmed by another Level 1 reproduction.
 
 **8. Clean up.** Remove every piece of tagged instrumentation before the commit. The search for the tag over the working tree (`git grep -n "DEBUG-<tag>"`) returns nothing, and its empty output is pasted.
 *Done when:* the empty search output is in the record.
@@ -104,9 +104,9 @@ If no regression test can attach at a correct seam (the interface where the beha
 
 # Circuit Breaker
 
-**After three refuted hypotheses, stop and escalate to the Technical Lead** with the record as it stands. A hypothesis counts as refuted when Level 1 or Level 2 evidence contradicts it.
+**After three refuted hypotheses in total, stop and escalate to the Technical Lead** with the record as it stands. A hypothesis counts as refuted when Level 1 or Level 2 evidence contradicts it. When every current hypothesis is refuted before the third refutation, the analysis returns to Step 3 for new ones, and the count carries over.
 
-Three refutations in a row usually mean the frame is wrong: the cause is elsewhere, or the observation is. A fourth variation of the same idea rarely succeeds. The Technical Lead questions the frame and either redirects the analysis or escalates an architectural cause to the Software Architect, following the Technical Lead's own Escalation Rules. When the analyst is the Technical Lead, the escalation goes to the Software Architect directly.
+Three refutations usually mean the frame is wrong: the cause is elsewhere, or the observation is. A fourth variation of the same idea rarely succeeds. The Technical Lead questions the frame and either redirects the analysis or escalates an architectural cause to the Software Architect, following the Technical Lead's own Escalation Rules. When the analyst is the Technical Lead, the escalation goes to the Software Architect directly.
 
 During an incident, the circuit breaker does not stop containment (`Workflows/INCIDENT_RESPONSE.md`, Step 5). The Incident Commander is told that the diagnosis has been escalated.
 
@@ -119,7 +119,7 @@ During an incident, the circuit breaker does not stop containment (`Workflows/IN
 
 **Analyst:** [Employee]
 **Date:** [YYYY-MM-DD]
-**Status:** [Open | Provisional | Confirmed | Escalated]
+**Status:** [Open | Provisional | Confirmed pending Step 7 | Confirmed | Escalated]
 **Instrumentation tag:** [DEBUG-xxxx]
 
 ---
@@ -160,7 +160,7 @@ Frames considered and found empty: [only if fewer than 3 hypotheses]
 ### 6. Conclusion
 
 **Root cause:** [the mechanism, at file:line where known]
-**Status:** [Confirmed — Level 1: what reproduced it | Provisional]
+**Status:** [Confirmed — Level 1: what reproduced it | Confirmed pending Step 7 | Provisional]
 **Critical unknown:** [Provisional only: the one fact that separates the top two hypotheses]
 **Discriminating probe:** [Provisional only: the cheapest probe, and what each result would mean]
 
@@ -172,7 +172,7 @@ Frames considered and found empty: [only if fewer than 3 hypotheses]
 
 or
 
-- Missing seam: [why no correct seam exists] — Issue #[n] — recorded as "not falsifiable: no seam (#n)"
+- Missing seam: [why no correct seam exists] — Issue #[n] — declared in the Work Unit Report under Deviations as "Falsifiability item 2 not met: no seam (#n)"
 
 ### 8. Cleanup
 
@@ -190,7 +190,7 @@ Refuted hypotheses: [n] of 3. [At 3: escalated to the Technical Lead on YYYY-MM-
 Use it:
 
 - in every incident diagnosis (`Workflows/INCIDENT_RESPONSE.md`, Step 4), and before the Root Cause section of an Incident Report is written;
-- for every flaky test, before it is fixed or quarantined;
+- for every flaky test, before it is fixed or taken out of quarantine. A flaky test that blocks the pipeline is quarantined first, as containment, once Step 1's artifacts are captured;
 - for a defect whose cause the first reading of the code and the error does not prove.
 
 It is not needed when the failure states its own cause and the next run confirms the fix, for example a compiler error naming the line and the missing symbol. The Level 1 evidence is already in hand.
