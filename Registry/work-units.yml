@@ -1481,3 +1481,39 @@ work_units:
     title: Lessons close-out and rejected-ideas check (OMC shipyard study of 22 Oct 2026, items 1 and 3; OMC comparison revision item 8; approved by the Director 23 Oct) - Templates/WORK_UNIT_REPORT.md gains a Lessons → Location block, each lesson sent to a check, a Standard clause, a Glossary term, an ADR including a rejected direction, or CLAUDE.md last, else a reasoned refusal, every line refusable by the Director and None. valid; Workflows/RELEASE.md Step 11, the release retrospective run by the Scrum Master, collects those lines and the evidenced frictions from named sources, with recurrence and what worked, names the surface that owns each fix (deterministic check, instruction, tool, missing information), records all of it in one Issue for the Director's one-pass decision, opens an Issue only per accepted line, and is recorded before the next milestone's first Work Unit is planned; the Software Architect's ADR format lists the Rejected status; Workflows/ARCHITECTURE_DECISION.md Step 2 and the Software Architect search earlier ADRs' Options Considered and Rejected, Superseded or Deprecated ADRs before proposing, a re-proposal states what changed; Registry/workflows.yml gives Release 11 steps; no Core change
     milestone: Adoption
     delivers: Templates/WORK_UNIT_REPORT.md, Workflows/RELEASE.md, Workflows/ARCHITECTURE_DECISION.md, Employees/Management/SCRUM_MASTER.md, Employees/Architecture/SOFTWARE_ARCHITECT.md, Registry/workflows.yml, CHANGELOG.md, Registry/work-units.yml
+
+  - id: WU-IAENG-376
+    employee: Prompt Engineer
+    title: Reserved 23 Oct 2026 before dispatch (WU-IAENG-381) - the Director-approved Core and Standards texts of 23 Oct 2026, part 1 - standing authorisations (a subsection of Standards/RISK_STANDARD.md and one paragraph of Core/MAIN_AGENT_CONDUCT.md, Git Execution via Named Employee) and Presenting a Decision to the Director (a new section of Core/MAIN_AGENT_CONDUCT.md)
+    milestone: Adoption
+    delivers: planned - Standards/RISK_STANDARD.md, Core/MAIN_AGENT_CONDUCT.md, CHANGELOG.md, Registry/work-units.yml
+
+  - id: WU-IAENG-377
+    employee: Technical Lead
+    title: Reserved 23 Oct 2026 before dispatch (WU-IAENG-381) - the Director-approved Standards texts of 23 Oct 2026, part 2 - Independent Oracle (Standards/TESTING_STANDARD.md) and Throwaway Prototype Branches, spike/* (Standards/BRANCH_STANDARD.md)
+    milestone: Adoption
+    delivers: planned - Standards/TESTING_STANDARD.md, Standards/BRANCH_STANDARD.md, CHANGELOG.md, Registry/work-units.yml
+
+  - id: WU-IAENG-378
+    employee: Platform Engineer
+    title: Reserved 23 Oct 2026 before dispatch (WU-IAENG-381) - changelog fragments (Release Manager study of 23 Oct 2026, option 1) - one changelog.d/ fragment per Work Unit, assembled into CHANGELOG.md by release.sh at the version bump, and the validate-framework.sh rules for fragment names and headings
+    milestone: Adoption
+    delivers: planned - changelog.d/, Adapters/scripts/release.sh, Adapters/scripts/validate-framework.sh, Adapters/scripts/tests/run.sh, CHANGELOG.md, Registry/work-units.yml
+
+  - id: WU-IAENG-379
+    employee: Platform Engineer
+    title: Reserved 23 Oct 2026 before dispatch (WU-IAENG-381) - context statusLine wrapper (compaction plan of 23 Oct 2026, WU-B) - a statusLine wrapper that writes the context occupancy percentage to a per-user file and chains the user's existing statusLine
+    milestone: Adoption
+    delivers: planned - a statusLine wrapper and its tests under Adapters/ai-runtimes/claude-code/, CHANGELOG.md, Registry/work-units.yml
+
+  - id: WU-IAENG-380
+    employee: Platform Engineer
+    title: Reserved 23 Oct 2026 before dispatch (WU-IAENG-381) - context alert hook (compaction plan of 23 Oct 2026, WU-C) - a hook that, once the context occupancy written by WU-IAENG-379 reaches the alert threshold, tells the Main Agent to run the Handoff checklist
+    milestone: Adoption
+    delivers: planned - a hook and its tests under Adapters/ai-runtimes/claude-code/hooks/, CHANGELOG.md, Registry/work-units.yml
+
+  - id: WU-IAENG-381
+    employee: Release Manager
+    title: Reserve Work Units 376 to 380 and document up-front reservation (Director decision of 23 Oct 2026, changelog study option 2b) - the five Work Units of the 23 Oct plans registered in one bookkeeping Pull Request before their dispatch, so each Work Unit's own Pull Request edits only its own entry; Workflows/FEATURE_DEVELOPMENT.md Step 4 (0.0.14) says a plan's Work Units may be reserved this way and that a reserved Work Unit not delivered is moved or removed at release (release.sh condition 1)
+    milestone: Adoption
+    delivers: Registry/work-units.yml, Workflows/FEATURE_DEVELOPMENT.md, CHANGELOG.md
