@@ -1496,9 +1496,9 @@ work_units:
 
   - id: WU-IAENG-376
     employee: Prompt Engineer
-    title: Reserved 23 Oct 2026 before dispatch (WU-IAENG-381) - the Director-approved Core and Standards texts of 23 Oct 2026, part 1 - standing authorisations (a subsection of Standards/RISK_STANDARD.md and one paragraph of Core/MAIN_AGENT_CONDUCT.md, Git Execution via Named Employee) and Presenting a Decision to the Director (a new section of Core/MAIN_AGENT_CONDUCT.md)
+    title: The Director-approved Core and Standards texts of 23 Oct 2026, part 1 (reserved by WU-IAENG-381), committed verbatim - Standing Authorisations, a new subsection of Standards/RISK_STANDARD.md (0.0.15) after The Risk Record (a general go-ahead holds only when written with six fields - source, scope, permitted actions, preconditions, exceptions, review and revocation; it never lowers a tier; a failed precondition voids it for that action; one that relaxes a control is a deviation recorded in SESSION_STATE, never in the repository it weakens; every action under it names it); one paragraph in Core/MAIN_AGENT_CONDUCT.md (0.0.9), Git Execution via Named Employee, naming the 1 Oct develop-merge exception a standing authorisation, reviewed at each release approval and revocable by the Director's word; and a new section, Presenting a Decision to the Director (alternatives, never a single proposal; the decision restated before it is signed; questions in one numbered batch with recommended answers; unblocked work continues within an approved plan), with the Director's decided insertion of "within an approved plan" in item 4 and the option note removed; Core/MAIN_AGENT_CONDUCT.md added to the Risk Standard's Referenced By; text 1-C, the 23 Oct label-suspension deviation, stays in SESSION_STATE and is not committed
     milestone: Adoption
-    delivers: planned - Standards/RISK_STANDARD.md, Core/MAIN_AGENT_CONDUCT.md, CHANGELOG.md, Registry/work-units.yml
+    delivers: Standards/RISK_STANDARD.md, Core/MAIN_AGENT_CONDUCT.md, CHANGELOG.md, Registry/work-units.yml
 
   - id: WU-IAENG-377
     employee: Technical Lead
