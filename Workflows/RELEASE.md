@@ -219,13 +219,19 @@ The release branch `release/vX.X.X` is **never deleted**. It serves as a permane
 
 ## Step 11 — Release retrospective
 
-**Actor:** Scrum Master. The Director decides on each line.
+**Actor:** Scrum Master, dispatched by the Main Agent once the release is tagged. The Director decides on every line, in one pass.
+
+**Bound:** one run per release, one list, recorded before the next milestone's first Work Unit is planned. The retrospective feeds that planning; recorded after it, it feeds nothing.
 
 A release is the point where the lessons of a whole milestone can be seen together. Read one report at a time, a missing check looks like bad luck; read across a release, the same friction shows up in four Work Units. This step collects both and sends each one to the place that owns its fix.
 
-1. **Collect the lessons.** Gather every `LESSON:` line from the Work Unit Reports of the Work Units this release shipped — the Work Units registered against its milestone in `Registry/work-units.yml`, whose reports are their Pull Request descriptions (`Templates/WORK_UNIT_REPORT.md`, Lessons → Location). Merge duplicates, keeping every source.
-2. **Collect the frictions, with evidence.** A friction is something that cost the release time or a correction: a check that failed for a reason the author could have known earlier, a review that went more than one round on the same point, a Director correction, an escalation, a brief that lacked what the Employee needed, a step done by hand that could have been run. Each one cites its evidence — a Pull Request, a review comment, a CI run, a commit, an Issue. A friction no one can point to is an opinion, and stays out of the record.
-3. **File each friction to the surface that owns its fix.** One of four:
+1. **Collect from named sources only.** The same release read twice must produce the same list, so the Scrum Master reads these, and nothing else:
+   - the `LESSON:` lines of the Work Unit Reports — the Pull Request descriptions of the Work Units registered against this milestone in `Registry/work-units.yml` (`Templates/WORK_UNIT_REPORT.md`, Lessons → Location);
+   - the review threads and the failed CI runs of the release's merged Pull Requests;
+   - the findings Issues opened during the milestone by adopting projects (in this repository, the `adoption-finding` Issues);
+   - the Director's corrections and escalations made during the milestone, as recorded in the Pull Requests, the Issues, and the session state.
+2. **Keep only what has evidence.** A friction is something that cost the release time or a correction: a check that failed for a reason the author could have known earlier, a review that went more than one round on the same point, a Director correction, an escalation, a brief that lacked what the Employee needed, a step done by hand that could have been run. Each one cites its evidence from the sources above. A friction no one can point to is an opinion, and stays out of the record. Merge duplicates and count them: each friction line says in how many Work Units it appeared, because a friction seen in four is worth more than one seen once. Note, too, what worked — a check or a practice that saved this release time — so it is kept rather than lost in a later clean-up.
+3. **Name the surface that owns each friction's fix.** One of four:
 
    | Surface | When it owns the fix | Example |
    |---|---|---|
@@ -234,13 +240,13 @@ A release is the point where the lessons of a whole milestone can be seen togeth
    | Tool | The runtime, an Adapter, or the host got in the way | an installer that cannot be re-run |
    | Missing information | The rule was right but the Employee did not have the fact — the brief, the session state, the project context | a brief that omitted the base branch |
 
-   Where a check and an instruction could both fix it, propose the check: an instruction can be skipped, a check cannot. Each friction is filed as an Issue that names its surface and its evidence (`Core/MAIN_AGENT_CONDUCT.md`, Durable Tracking of Findings). The Scrum Master classifies; it does not choose the fix's design, which stays with the Employee that owns the surface.
-4. **Present to the Director.** One list: each lesson with its proposed location, each friction with its surface and Issue. The Director accepts or refuses each line. An accepted line becomes a Work Unit or stays an Issue for the next milestone. A refused line keeps its reason in the record, so the next retrospective does not raise it again without saying what changed.
-5. **Record.** The retrospective is an Issue titled `Release retrospective vX.X.X`, holding the two lists, the evidence, and the Director's decision on each line. A conversation is not a record.
+   Where a check and an instruction could both fix it, propose the check: an instruction can be skipped, a check cannot. Where the owning surface is unclear, the line says so and the Director decides it; the Scrum Master does not guess. The Scrum Master classifies; it does not choose the fix's design, which stays with the Employee that owns the surface.
+4. **Record the list, then the Director decides in one pass.** Open one Issue titled `Release retrospective vX.X.X` holding every lesson line, every friction line with its evidence, recurrence count and surface, and the "what worked" lines. The Director accepts or refuses each line in that Issue. A conversation is not a record.
+5. **File only what was accepted.** For each accepted line, open one Issue naming its surface and evidence, and link it from the line (`Core/MAIN_AGENT_CONDUCT.md`, Durable Tracking of Findings); it becomes a Work Unit when the next milestone is planned. A refused line opens no Issue: it stays in the retrospective record with the Director's reason, so the next retrospective does not raise it again without saying what changed.
 
-This step does not replace the Sprint Retrospective (`Workflows/SPRINT_CEREMONY.md`, Ceremony 4), which commits the team to one improvement for the next sprint. The release retrospective files every friction it can evidence; which of them become work is the Director's choice in item 4.
+This step does not replace the Sprint Retrospective (`Workflows/SPRINT_CEREMONY.md`, Ceremony 4), which commits the team to one improvement for the next sprint. The release retrospective lists every friction it can evidence; which of them become work is the Director's choice in item 4.
 
-**Output:** The `Release retrospective vX.X.X` Issue, every friction filed to its surface, and the Director's decision recorded on each line.
+**Output:** The `Release retrospective vX.X.X` Issue, with the Director's decision on each line, one linked Issue per accepted line, recorded before the next milestone's first Work Unit is planned.
 
 ---
 
@@ -254,7 +260,7 @@ This workflow is complete when:
 - `develop` contains `main`'s tip, carried back by the Step 8 Pull Request. This is required on every release, not only when a defect fix was applied directly to the release branch — Step 6 always leaves a merge commit on `main` that `develop` would otherwise never see.
 - `release/vX.X.X` branch is preserved on remote.
 - Post-release health is confirmed.
-- The release retrospective is recorded, with the Director's decision on each line (Step 11).
+- The release retrospective is recorded, with the Director's decision on each line and an Issue for each accepted line, before the next milestone's first Work Unit is planned (Step 11).
 
 ---
 

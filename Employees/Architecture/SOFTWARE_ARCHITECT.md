@@ -88,7 +88,7 @@ The Software Architect must never:
 ```
 ADR-[project]-[number]: [title]
 Date: [date]
-Status: [proposed / accepted / deprecated / superseded]
+Status: [proposed / accepted / rejected / deprecated / superseded]
 
 Context:
 [Why this decision is needed]
