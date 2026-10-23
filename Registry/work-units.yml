@@ -1484,9 +1484,9 @@ work_units:
 
   - id: WU-IAENG-377
     employee: Technical Lead
-    title: Reserved 23 Oct 2026 before dispatch (WU-IAENG-381) - the Director-approved Standards texts of 23 Oct 2026, part 2 - Independent Oracle (Standards/TESTING_STANDARD.md) and Throwaway Prototype Branches, spike/* (Standards/BRANCH_STANDARD.md)
+    title: The Director-approved Standards texts of 23 Oct 2026, part 2 - Independent Oracle in the Testing Standard (the expected value comes from a source independent of the code under test, the code is never its own oracle, a baseline is an oracle only for behaviour-preserving changes, a missing seam is a finding; scope as Falsifiability item 7) and Throwaway Prototype Branches in the Branch Standard (spike/* prefix, answer recorded in the ADR, never merged, ends with its ADR or its Milestone, deletion a High action); one Forbidden Practice each; both at 0.0.4
     milestone: Adoption
-    delivers: planned - Standards/TESTING_STANDARD.md, Standards/BRANCH_STANDARD.md, CHANGELOG.md, Registry/work-units.yml
+    delivers: Standards/TESTING_STANDARD.md, Standards/BRANCH_STANDARD.md, CHANGELOG.md, Registry/work-units.yml
 
   - id: WU-IAENG-378
     employee: Platform Engineer
