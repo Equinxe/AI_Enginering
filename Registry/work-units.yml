@@ -1476,6 +1476,12 @@ work_units:
     milestone: Adoption
     delivers: AMELIORATION.md, CHANGELOG.md, Registry/work-units.yml
 
+  - id: WU-IAENG-375
+    employee: Technical Writer
+    title: Claude Code troubleshooting, compaction later than expected (compaction plan approved by the Director 23 Oct 2026, WU-D) - Adapters/ai-runtimes/claude-code/TROUBLESHOOTING.md, a runtime catalog kept apart from the runtime-neutral Governance/TROUBLESHOOTING.md by Principle X and using its four-field format; entry A gives five causes, each citing the official Claude Code page checked on 23 Oct 2026 (env-vars, model-config, settings-reference, context-window, hooks, statusline) - the default near 967K on native 1M models; when a changed value is read (the shell at startup, /autocompact in session, no page on /clear or on a mid-session autoCompactWindow edit); the variable over the flag over the per-model /autocompact window over autoCompactWindow; CLAUDE_AUTOCOMPACT_PCT_OVERRIDE as a percentage of the window that cannot raise it; DISABLE_AUTO_COMPACT against DISABLE_COMPACT; used_percentage against the full model window - with a remedy in Git Bash and PowerShell, and the SessionStart compact and clear re-injection as what limits the cost; Governance/TROUBLESHOOTING.md points to it
+    milestone: Adoption
+    delivers: Adapters/ai-runtimes/claude-code/TROUBLESHOOTING.md, Governance/TROUBLESHOOTING.md, CHANGELOG.md, Registry/work-units.yml
+
   - id: WU-IAENG-376
     employee: Prompt Engineer
     title: Reserved 23 Oct 2026 before dispatch (WU-IAENG-381) - the Director-approved Core and Standards texts of 23 Oct 2026, part 1 - standing authorisations (a subsection of Standards/RISK_STANDARD.md and one paragraph of Core/MAIN_AGENT_CONDUCT.md, Git Execution via Named Employee) and Presenting a Decision to the Director (a new section of Core/MAIN_AGENT_CONDUCT.md)

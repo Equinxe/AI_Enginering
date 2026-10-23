@@ -409,6 +409,7 @@ Do **not** use `git reset --hard origin/develop` or `git push --force`: both are
 - `Standards/COMMIT_STANDARD.md` — classes G and H
 - `Templates/WORK_UNIT_REPORT.md` — class P
 - `Templates/SESSION_STATE.md` — where a project's fresh incidents live before they generalise
+- `Adapters/ai-runtimes/claude-code/TROUBLESHOOTING.md` — failures specific to the Claude Code runtime, such as a compaction setting that seems ignored; kept out of this catalog by `Core/AI_MANIFEST.md`, Principle X
 
 ---
 
