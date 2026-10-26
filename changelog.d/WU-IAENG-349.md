@@ -1,0 +1,4 @@
+### Security
+
+- `block-escape-hatches.sh` closes the git config gaps of issue #236. A `GIT_CONFIG_KEY_` name with a variable or substituted index (`$i`, `${i}`, `$(...)`, a backtick) is refused in every form: inline, `export`, `declare -x`, `typeset`, `readonly`, `local` and `env`. So is a key built in pieces, by `+=` or `${GIT_CONFIG_KEY_0:=...}` (#258, WU-IAENG-349)
+- `commit.gpgsign`, `include.*`, `includeIf.*`, `alias.*` and `core.fsmonitor` are refused, case-insensitively and whatever the value, as a literal `GIT_CONFIG_KEY_<n>` value and as a `git -c` or `--config-env` key. Through `git -c`, `commit.gpgsign` still passes bare or as a literal true, and every `core.fsmonitor` value is refused, `false` included. Config read from a file (`GIT_CONFIG_GLOBAL`, `GIT_CONFIG_SYSTEM`, an include) is not covered: issue #245 (#258, WU-IAENG-349)
