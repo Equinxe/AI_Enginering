@@ -8368,6 +8368,671 @@ else
 fi
 rm -rf "$LINK_ADOPTER_362"
 
+# ------------------------------------ changelog fragments (WU-IAENG-378) ----
+#
+# Each Work Unit's changelog entry is a fragment, changelog.d/<id>.md, so two
+# Pull Requests no longer conflict on the same CHANGELOG.md category. Its
+# consumers are all run for real here: the validator's section 23 function
+# (extracted as section 22's is above) on fixtures and on the real directory;
+# release.sh assemble and release.sh check condition 5 in real repositories
+# that carry a copy of release.sh and the shared parser; the Pull Request
+# early warning on a real history.
+
+section "changelog fragments — validator section 23, release.sh assemble, condition 5 (WU-IAENG-378)"
+
+FRAG_TAB="$(printf '\t')"
+FRAG_PARSER="$SCRIPTS/changelog-fragment.awk"
+FRAG_HARNESS="$WORK/fragment-harness.sh"
+{
+  echo 'set -uo pipefail'
+  sed -n '/^changelog_fragment_check() {/,/^}/p' "$SCRIPTS/validate-framework.sh"
+  sed -n '/^changelog_fragment_advisory() {/,/^}/p' "$SCRIPTS/validate-framework.sh"
+  cat <<'HARNESS'
+fn="$1"; shift
+"$fn" "$@"
+HARNESS
+} > "$FRAG_HARNESS"
+
+expect 0 "fragments: changelog_fragment_check is extracted from the validator" -- \
+  grep -q '^changelog_fragment_check() {' "$FRAG_HARNESS"
+expect 0 "fragments: changelog_fragment_advisory is extracted from the validator" -- \
+  grep -q '^changelog_fragment_advisory() {' "$FRAG_HARNESS"
+
+# --- The real directory.
+FRAG_ROOT="$(cd "$SCRIPTS/../.." && pwd)"
+expect 0 "fragments: the real changelog.d/ passes against the real registry" -- \
+  bash "$FRAG_HARNESS" changelog_fragment_check "$FRAG_ROOT/changelog.d" "$FRAG_ROOT/Registry/work-units.yml" "$FRAG_PARSER"
+expect_output "total${FRAG_TAB}"
+expect_output_absent "fail${FRAG_TAB}"
+
+# --- Fixtures: a README, a registry of WU-T-1 and WU-T-2, a valid WU-T-1.
+FRAG_FIX="$WORK/fragments"
+frag_fixture() {
+  rm -rf "$FRAG_FIX"
+  mkdir -p "$FRAG_FIX/changelog.d"
+  echo "# Changelog Fragments" > "$FRAG_FIX/changelog.d/README.md"
+  printf 'work_units:\n  - id: WU-T-1\n    milestone: Testing\n  - id: WU-T-2\n    milestone: Testing\n' > "$FRAG_FIX/work-units.yml"
+  printf '### Added\n\n- a valid entry\n' > "$FRAG_FIX/changelog.d/WU-T-1.md"
+}
+# frag_case <description> <expected output> — the fixture must report it.
+frag_case() {
+  expect 0 "fragments: $1 is reported" -- \
+    bash "$FRAG_HARNESS" changelog_fragment_check "$FRAG_FIX/changelog.d" "$FRAG_FIX/work-units.yml" "$FRAG_PARSER"
+  expect_output "$2"
+}
+
+frag_fixture
+printf '### Fixed\r\n\r\n- a fix checked out CRLF\r\n  continued (#5)\r\n' > "$FRAG_FIX/changelog.d/WU-T-2.md"
+expect 0 "fragments: an entry and a CRLF entry pass" -- \
+  bash "$FRAG_HARNESS" changelog_fragment_check "$FRAG_FIX/changelog.d" "$FRAG_FIX/work-units.yml" "$FRAG_PARSER"
+expect_output "total${FRAG_TAB}2"
+expect_output_absent "fail${FRAG_TAB}"
+
+frag_fixture
+printf 'No changelog entry: tests only\n' > "$FRAG_FIX/changelog.d/WU-T-2.md"
+expect 0 "fragments: an exemption with a reason passes" -- \
+  bash "$FRAG_HARNESS" changelog_fragment_check "$FRAG_FIX/changelog.d" "$FRAG_FIX/work-units.yml" "$FRAG_PARSER"
+expect_output_absent "fail${FRAG_TAB}"
+
+frag_fixture
+printf '### Added\n\n- x\n' > "$FRAG_FIX/changelog.d/WU-T-9.md"
+frag_case "a fragment of an unregistered Work Unit" "names WU-T-9, which $FRAG_FIX/work-units.yml does not register"
+
+frag_fixture
+printf '### Upgrade\n\n- x\n' > "$FRAG_FIX/changelog.d/WU-T-2.md"
+frag_case "a heading outside Keep a Changelog's six and Notes" "'### Upgrade' is not an allowed heading"
+
+# An upgrade note is a bullet under ### Notes (Director, 23 Oct 2026).
+frag_fixture
+printf '### Notes\n\n- re-run install.sh after upgrading\n' > "$FRAG_FIX/changelog.d/WU-T-2.md"
+expect 0 "fragments: an upgrade note under ### Notes passes" -- \
+  bash "$FRAG_HARNESS" changelog_fragment_check "$FRAG_FIX/changelog.d" "$FRAG_FIX/work-units.yml" "$FRAG_PARSER"
+expect_output "total${FRAG_TAB}2"
+expect_output_absent "fail${FRAG_TAB}"
+frag_fixture
+printf '### Notes\n\nAn upgrade paragraph, not a bullet.\n' > "$FRAG_FIX/changelog.d/WU-T-2.md"
+frag_case "an upgrade note that is prose, not a bullet" "neither a '- ' bullet nor an indented continuation"
+
+frag_fixture
+printf '## Added\n\n- x\n' > "$FRAG_FIX/changelog.d/WU-T-2.md"
+frag_case "a level-2 heading" "only '### <Category>' headings are allowed"
+
+frag_fixture
+printf '### Added\n\n### Fixed\n\n- x\n' > "$FRAG_FIX/changelog.d/WU-T-2.md"
+frag_case "a heading with no bullet" "'### Added' has no '- ' bullet under it"
+
+frag_fixture
+printf '### Added\n\nA paragraph, not a bullet.\n' > "$FRAG_FIX/changelog.d/WU-T-2.md"
+frag_case "a paragraph under a heading" "neither a '- ' bullet nor an indented continuation"
+
+frag_fixture
+printf 'No changelog entry:\n' > "$FRAG_FIX/changelog.d/WU-T-2.md"
+frag_case "an exemption with no reason" "'No changelog entry:' gives no reason"
+
+frag_fixture
+printf 'No changelog entry: tests only\n### Added\n\n- x\n' > "$FRAG_FIX/changelog.d/WU-T-2.md"
+frag_case "an exemption beside an entry" "'No changelog entry:' must be the fragment's only line"
+
+frag_fixture
+: > "$FRAG_FIX/changelog.d/WU-T-2.md"
+frag_case "an empty fragment" "the fragment is empty"
+
+frag_fixture
+echo "notes" > "$FRAG_FIX/changelog.d/notes.txt"
+frag_case "a stray file" "$FRAG_FIX/changelog.d/notes.txt is not a fragment"
+
+frag_fixture
+printf '### Added\n\n- x\n' > "$FRAG_FIX/changelog.d/wu-t-2.md"
+frag_case "a lowercase fragment name" "$FRAG_FIX/changelog.d/wu-t-2.md is not a fragment"
+
+frag_fixture
+rm -f "$FRAG_FIX/changelog.d/README.md"
+frag_case "a missing README.md" "changelog.d/README.md is missing"
+
+frag_fixture
+rm -rf "$FRAG_FIX/changelog.d"
+expect 1 "fragments: a missing changelog.d/ fails, not passes" -- \
+  bash "$FRAG_HARNESS" changelog_fragment_check "$FRAG_FIX/changelog.d" "$FRAG_FIX/work-units.yml" "$FRAG_PARSER"
+expect_output "changelog.d/ is missing"
+
+# SEC-IAENG-378-01: an HTML comment opener in a bullet or a continuation line
+# hides every later entry of the section in the published notes, Security
+# included. So does a line that opens an HTML block. All three are refused.
+frag_fixture
+printf '### Added\n\n- a minor wording fix\n  <!--\n' > "$FRAG_FIX/changelog.d/WU-T-2.md"
+frag_case "an HTML comment opener on a continuation line (SEC-IAENG-378-01)" "an HTML comment marker"
+frag_fixture
+printf '### Added\n\n- a fix <!-- hidden\n' > "$FRAG_FIX/changelog.d/WU-T-2.md"
+frag_case "an HTML comment opener inside a bullet (SEC-IAENG-378-01)" "an HTML comment marker"
+frag_fixture
+printf '### Added\n\n- <details>\n' > "$FRAG_FIX/changelog.d/WU-T-2.md"
+frag_case "a bullet that opens an HTML block (SEC-IAENG-378-01)" "starts with '<'"
+
+# A symbolic link is not a fragment (SEC-IAENG-378-01, N2).
+block_begin 2 "fragments: a symlinked fragment"
+frag_fixture
+printf '### Added\n\n- x\n' > "$FRAG_FIX/target.md"
+if ln -s "$FRAG_FIX/target.md" "$FRAG_FIX/changelog.d/WU-T-2.md" 2>/dev/null && [ -L "$FRAG_FIX/changelog.d/WU-T-2.md" ]; then
+  frag_case "a symlinked fragment" "$FRAG_FIX/changelog.d/WU-T-2.md is not a fragment"
+else
+  skip "$BLOCK_N" "fragments: a symlinked fragment -- this platform has no real symlinks, not a fix defect."
+fi
+block_end
+
+# A parser that does not run, or runs and prints no record, is a failure and
+# not a clean fragment: a correct parse always prints ENTRY, EXEMPT or ERROR.
+printf 'BEGIN {\n' > "$WORK/frag-parser-broken.awk"
+printf 'BEGIN { exit 0 }\n' > "$WORK/frag-parser-silent.awk"
+frag_fixture
+expect 0 "fragments: a parser with a syntax error is reported" -- \
+  bash "$FRAG_HARNESS" changelog_fragment_check "$FRAG_FIX/changelog.d" "$FRAG_FIX/work-units.yml" "$WORK/frag-parser-broken.awk"
+expect_output "the fragment parser did not run"
+expect 0 "fragments: a parser that prints no record is reported" -- \
+  bash "$FRAG_HARNESS" changelog_fragment_check "$FRAG_FIX/changelog.d" "$FRAG_FIX/work-units.yml" "$WORK/frag-parser-silent.awk"
+expect_output "the fragment parser did not run"
+
+# --- release.sh in a real repository: a copy of release.sh and the parser,
+# a registry of the Testing milestone, and a CHANGELOG.md with entries written
+# before fragments existed. The first [Unreleased] bullet names WU-T-3 in its
+# text: a mention, not an entry.
+frag_release_repo() {
+  new_repo "$1"
+  mkdir -p Adapters/scripts changelog.d Registry
+  cp "$SCRIPTS/release.sh" "$FRAG_PARSER" Adapters/scripts/
+  echo "# Changelog Fragments" > changelog.d/README.md
+  echo "work_units:" > Registry/work-units.yml
+  local id
+  for id in WU-T-1 WU-T-2 WU-T-3; do
+    printf '  - id: %s\n    employee: Release Manager\n    title: t\n    milestone: Testing\n' "$id" >> Registry/work-units.yml
+  done
+  cat > CHANGELOG.md <<'EOF'
+# Changelog
+
+Intro.
+
+---
+
+## [Unreleased] - Testing
+
+### Added
+
+- an entry written before fragments, which names WU-T-3 in its text (WU-T-1)
+
+### Notes
+
+A note that stays after the six categories.
+
+## [0.0.1] - Earlier
+
+### Added
+
+- the first release (WU-T-0)
+EOF
+}
+
+# The assembly: categories in Keep a Changelog's order, Notes after them, the
+# existing bullet first, the fragments by Work Unit NUMBER (2 before 10), the
+# id appended where a bullet lacks it, the exemption as a comment at the end.
+frag_release_repo frag-assemble
+printf '  - id: WU-T-10\n    employee: Release Manager\n    title: t\n    milestone: Testing\n' >> Registry/work-units.yml
+printf '### Notes\n\n- run the installer again after upgrading\n\n### Added\n\n- added by ten\n' > changelog.d/WU-T-10.md
+printf '### Security\n\n- a security fix (#5)\n\n### Added\n\n- added by two\n  continued\n' > changelog.d/WU-T-2.md
+printf 'No changelog entry: tests only\n' > changelog.d/WU-T-3.md
+cat > "$WORK/frag-expected.md" <<'EOF'
+# Changelog
+
+Intro.
+
+---
+
+## [Unreleased] - Testing
+
+### Added
+
+- an entry written before fragments, which names WU-T-3 in its text (WU-T-1)
+- added by two
+  continued (WU-T-2)
+- added by ten (WU-T-10)
+
+### Security
+
+- a security fix (#5) (WU-T-2)
+
+### Notes
+
+A note that stays after the six categories.
+
+- run the installer again after upgrading (WU-T-10)
+
+<!-- No changelog entry (WU-T-3): tests only -->
+
+## [0.0.1] - Earlier
+
+### Added
+
+- the first release (WU-T-0)
+EOF
+expect 0 "assemble: three fragments fold into [Unreleased]" -- bash Adapters/scripts/release.sh assemble
+expect_output "Assembled 3 fragment(s)"
+expect 0 "assemble: CHANGELOG.md is exactly the expected assembly (category order, Work Unit order, ids, upgrade note under Notes after its prose, exemption)" -- \
+  diff "$WORK/frag-expected.md" CHANGELOG.md
+expect 0 "assemble: the assembled fragments are deleted and README.md is kept" -- \
+  test ! -e changelog.d/WU-T-2.md -a ! -e changelog.d/WU-T-3.md -a ! -e changelog.d/WU-T-10.md -a -f changelog.d/README.md
+cp CHANGELOG.md "$WORK/frag-after.md"
+expect 0 "assemble: a second run with no fragment changes nothing" -- bash Adapters/scripts/release.sh assemble
+expect_output "No fragment in changelog.d/"
+expect 0 "assemble: the second run left CHANGELOG.md byte-identical" -- cmp -s "$WORK/frag-after.md" CHANGELOG.md
+
+# An upgrade note when the section has no ### Notes yet: one is added, after
+# the six categories.
+frag_release_repo frag-assemble-newnotes
+awk '/^### Notes$/ { skip = 1; next } /^## \[0\.0\.1\]/ { skip = 0 } !skip' CHANGELOG.md > CHANGELOG.tmp && mv CHANGELOG.tmp CHANGELOG.md
+printf '### Notes\n\n- the config key moved\n\n### Fixed\n\n- a fix\n' > changelog.d/WU-T-2.md
+cat > "$WORK/frag-expected-notes.md" <<'EOF'
+# Changelog
+
+Intro.
+
+---
+
+## [Unreleased] - Testing
+
+### Added
+
+- an entry written before fragments, which names WU-T-3 in its text (WU-T-1)
+
+### Fixed
+
+- a fix (WU-T-2)
+
+### Notes
+
+- the config key moved (WU-T-2)
+
+## [0.0.1] - Earlier
+
+### Added
+
+- the first release (WU-T-0)
+EOF
+expect 0 "assemble: an upgrade note with no ### Notes in the section" -- bash Adapters/scripts/release.sh assemble
+expect 0 "assemble: a ### Notes is added after the six categories, holding the upgrade note" -- \
+  diff "$WORK/frag-expected-notes.md" CHANGELOG.md
+
+# CRLF: a Windows checkout of CHANGELOG.md keeps CRLF on every line, new ones
+# included — the rewrite is not a whole-file line-ending change.
+frag_release_repo frag-assemble-crlf
+awk '{ printf "%s\r\n", $0 }' CHANGELOG.md > CHANGELOG.crlf && mv CHANGELOG.crlf CHANGELOG.md
+printf '### Fixed\r\n\r\n- a fix\r\n' > changelog.d/WU-T-2.md
+expect 0 "assemble: a CRLF CHANGELOG.md and a CRLF fragment assemble" -- bash Adapters/scripts/release.sh assemble
+FRAG_CR="$(tr -cd '\r' < CHANGELOG.md | wc -c | tr -d ' ')"
+FRAG_LF="$(tr -cd '\n' < CHANGELOG.md | wc -c | tr -d ' ')"
+expect 0 "assemble: every line of the CRLF CHANGELOG.md still ends CRLF ($FRAG_CR CR, $FRAG_LF LF)" -- \
+  test "$FRAG_LF" -gt 0 -a "$FRAG_CR" = "$FRAG_LF"
+expect 0 "assemble: the CRLF fragment's bullet is in the Fixed section" -- grep -q '^- a fix (WU-T-2)' CHANGELOG.md
+
+# All or nothing: one malformed fragment refuses the run and changes nothing.
+frag_release_repo frag-assemble-bad
+cp CHANGELOG.md "$WORK/frag-before.md"
+printf '### Added\n\n- fine\n' > changelog.d/WU-T-2.md
+printf '### Upgrade\n\n- not an allowed heading\n' > changelog.d/WU-T-3.md
+expect 1 "assemble: a malformed fragment refuses the run" -- bash Adapters/scripts/release.sh assemble
+expect_output "changelog.d/WU-T-3.md line 1: '### Upgrade' is not an allowed heading"
+expect 0 "assemble: the refused run left CHANGELOG.md unchanged" -- cmp -s "$WORK/frag-before.md" CHANGELOG.md
+expect 0 "assemble: the refused run deleted no fragment, the valid one included" -- test -f changelog.d/WU-T-2.md -a -f changelog.d/WU-T-3.md
+
+frag_release_repo frag-assemble-stray
+printf '### Added\n\n- fine\n' > changelog.d/WU-T-2.md
+echo "draft" > changelog.d/draft.md
+expect 1 "assemble: a file that is not a fragment refuses the run" -- bash Adapters/scripts/release.sh assemble
+expect_output "holds entries that are not fragments: changelog.d/draft.md"
+expect 0 "assemble: the stray-file refusal deleted nothing" -- test -f changelog.d/WU-T-2.md
+
+frag_release_repo frag-assemble-nounreleased
+sed 's/^## \[Unreleased\] - Testing$/## [0.0.2] - Testing/' CHANGELOG.md > CHANGELOG.tmp && mv CHANGELOG.tmp CHANGELOG.md
+printf '### Added\n\n- fine\n' > changelog.d/WU-T-2.md
+expect 1 "assemble: no [Unreleased] section refuses the run" -- bash Adapters/scripts/release.sh assemble
+expect_output "has no '## [Unreleased]' section"
+
+# frag_untouched <description> <fragment...> — CHANGELOG.md is byte-identical
+# to the copy taken before the run, and every fragment named is still there.
+frag_untouched() {
+  local desc="$1" ok=0 f
+  shift
+  cmp -s "$WORK/frag-before.md" CHANGELOG.md || ok=1
+  for f in "$@"; do [ -f "$f" ] || ok=1; done
+  expect 0 "$desc" -- test "$ok" -eq 0
+}
+
+# SEC-IAENG-378-01: a fragment that would hide the rest of the section.
+frag_release_repo frag-assemble-comment
+cp CHANGELOG.md "$WORK/frag-before.md"
+printf '### Added\n\n- a minor wording fix\n  <!--\n' > changelog.d/WU-T-2.md
+printf '### Security\n\n- a security fix\n' > changelog.d/WU-T-3.md
+expect 1 "assemble: a fragment with an HTML comment opener refuses the run (SEC-IAENG-378-01)" -- bash Adapters/scripts/release.sh assemble
+expect_output "changelog.d/WU-T-2.md line 4: an HTML comment marker"
+frag_untouched "assemble: the comment refusal left CHANGELOG.md unchanged and deleted nothing" \
+  changelog.d/WU-T-2.md changelog.d/WU-T-3.md
+
+# A parser that does not run, or prints nothing, refuses the run: before, the
+# fragment was deleted with nothing added.
+frag_release_repo frag-assemble-parser
+cp CHANGELOG.md "$WORK/frag-before.md"
+printf '### Added\n\n- fine\n' > changelog.d/WU-T-2.md
+cp "$WORK/frag-parser-broken.awk" Adapters/scripts/changelog-fragment.awk
+expect 1 "assemble: a parser with a syntax error refuses the run" -- bash Adapters/scripts/release.sh assemble
+expect_output "the fragment parser did not run"
+cp "$WORK/frag-parser-silent.awk" Adapters/scripts/changelog-fragment.awk
+expect 1 "assemble: a parser that prints no record refuses the run" -- bash Adapters/scripts/release.sh assemble
+expect_output "the fragment parser did not run"
+frag_untouched "assemble: the parser refusals left CHANGELOG.md unchanged and deleted nothing" \
+  changelog.d/WU-T-2.md
+
+# A CHANGELOG.md that cannot be written refuses the run and deletes nothing:
+# before, the fragments were deleted and the run exited 0.
+block_begin 3 "assemble: an unwritable CHANGELOG.md"
+frag_release_repo frag-assemble-readonly
+cp CHANGELOG.md "$WORK/frag-before.md"
+printf '### Added\n\n- fine\n' > changelog.d/WU-T-2.md
+chmod a-w CHANGELOG.md
+if [ ! -w CHANGELOG.md ]; then
+  expect 1 "assemble: an unwritable CHANGELOG.md refuses the run" -- bash Adapters/scripts/release.sh assemble
+  expect_output "CHANGELOG.md could not be written"
+  frag_untouched "assemble: the write refusal deleted no fragment and left CHANGELOG.md unchanged" \
+    changelog.d/WU-T-2.md
+else
+  skip "$BLOCK_N" "assemble: an unwritable CHANGELOG.md -- chmod a-w leaves it writable here (running as root), not a fix defect."
+fi
+chmod u+w CHANGELOG.md
+block_end
+
+# --- release.sh check, condition 5. The other conditions fail in a fixture
+# (no host, no validator, not develop), so the exit is 1 throughout and each
+# case reads condition 5's own line.
+frag_release_repo frag-cond5
+printf '### Added\n\n- x\n' > changelog.d/WU-T-2.md
+git add -A && git commit -q -m "fixture"
+expect 1 "condition 5: a Work Unit with no fragment and only a mention in the section fails" -- \
+  bash Adapters/scripts/release.sh check --milestone Testing
+expect_output "1 of 3 Work Units for 'Testing' have no changelog fragment, entry or exemption: WU-T-3"
+
+printf 'No changelog entry: tests only\n' > changelog.d/WU-T-3.md
+git add -A && git commit -q -m "fixture: exemption"
+expect 1 "condition 5: with an exemption fragment for WU-T-3, all three are accounted for" -- \
+  bash Adapters/scripts/release.sh check --milestone Testing
+expect_output "all 3 Work Units for 'Testing' accounted for: 2 fragment(s) waiting in changelog.d/, 1 named in '## [Unreleased] - Testing'"
+expect_output_absent "have no changelog fragment"
+
+# Step 2 done: assembled, heading versioned. The fragments are gone and the
+# section now names all three — the exemption by its comment line.
+bash Adapters/scripts/release.sh assemble > /dev/null 2>&1
+sed 's/^## \[Unreleased\] - Testing$/## [0.0.2] - Testing/' CHANGELOG.md > CHANGELOG.tmp && mv CHANGELOG.tmp CHANGELOG.md
+git add -A && git commit -q -m "fixture: bump"
+expect 1 "condition 5: after the assembly and the bump, all three are named in the versioned section" -- \
+  bash Adapters/scripts/release.sh check --milestone Testing
+expect_output "all 3 Work Units for 'Testing' accounted for: 0 fragment(s) waiting in changelog.d/, 3 named in '## [0.0.2] - Testing'"
+
+# A fragment merged after the assembly will not ship in these notes.
+printf '### Fixed\n\n- late\n' > changelog.d/WU-T-2.md
+git add -A && git commit -q -m "fixture: late fragment"
+expect 1 "condition 5: a fragment left after the bump fails" -- \
+  bash Adapters/scripts/release.sh check --milestone Testing
+expect_output "fragments not assembled into '## [0.0.2] - Testing': WU-T-2"
+
+# Accounting is by bullet: a wrapped bullet's id is the final group of its
+# LAST line, as the assembler writes it. An exemption comment counts only with
+# a reason and its closing "-->" (SEC-IAENG-378-01, N1): an unclosed one hides
+# the rest of the section.
+frag_release_repo frag-cond5-bullet
+awk '/^## \[0\.0\.1\]/ { print "<!-- No changelog entry (WU-T-2):  -->"; print "<!-- No changelog entry (WU-T-2): a reason, never closed"; print "" }
+     { print }
+     /^- an entry written before fragments/ { print "- a wrapped bullet that cites (WU-T-3)"; print "  and continues (WU-T-1)" }' CHANGELOG.md > CHANGELOG.tmp && mv CHANGELOG.tmp CHANGELOG.md
+git add -A && git commit -q -m "fixture"
+expect 1 "condition 5: a wrapped bullet's first-line group, an empty-reason and an unclosed exemption count for nothing" -- \
+  bash Adapters/scripts/release.sh check --milestone Testing
+expect_output "2 of 3 Work Units for 'Testing' have no changelog fragment, entry or exemption: WU-T-2 WU-T-3"
+
+frag_release_repo frag-cond5-nodir
+rm -rf changelog.d
+git add -A && git commit -q -m "fixture"
+expect 1 "condition 5: a missing changelog.d/ is a failure, not a pass" -- \
+  bash Adapters/scripts/release.sh check --milestone Testing
+expect_output "FAIL  changelog.d/ is missing"
+
+# --- The Pull Request early warning, on a real history.
+new_repo frag-advisory
+FRAG_BASE="$(git rev-parse HEAD)"
+mkdir -p changelog.d
+printf '### Added\n\n- x\n' > changelog.d/WU-T-1.md
+commit_with "feat: one" "Work Unit: WU-T-1"
+commit_with "feat: two" "Work Unit: WU-T-2"
+commit_with "docs: quotes a trailer as an example" "    Work Unit: WU-T-4"
+expect 0 "early warning: runs on a real range" -- \
+  bash "$FRAG_HARNESS" changelog_fragment_advisory changelog.d "$FRAG_BASE" HEAD
+expect_output "WU-T-2"
+expect_output_absent "WU-T-1"
+expect_output_absent "WU-T-4"
+echo "# Changelog" > CHANGELOG.md
+commit_with "docs: the old way" "Work Unit: WU-T-2"
+expect 0 "early warning: a range that edits CHANGELOG.md warns about nothing" -- \
+  bash "$FRAG_HARNESS" changelog_fragment_advisory changelog.d "$FRAG_BASE" HEAD
+expect_output_absent "WU-T-2"
+expect 2 "early warning: an unknown base is 'not evaluated', not silence" -- \
+  bash "$FRAG_HARNESS" changelog_fragment_advisory changelog.d no-such-ref HEAD
+
+cd "$HERE" || exit 1
+
+# ------- usage-collect.sh --context-series: numbers only (WU-IAENG-374) -----
+#
+# The Main Agent's occupancy per call, its compactions and drops, and how many
+# subagents were active at each, for measuring a compaction threshold. The
+# fixture is synthetic. Every free-text field holds OBS374-SENTINEL, and so do
+# the session's file name, a model name, a timestamp and a token count: none
+# may reach the output, and every field after the record tag must be a number,
+# except the session, which must be 16 hex characters. Expected values are
+# written out from the fixture, not computed by the script under test.
+#
+#   epoch 1790848800 = 2026-10-01T10:00:00Z (date -u -d ... +%s)
+
+section "usage-collect.sh --context-series — numbers only (WU-IAENG-374)"
+
+UT374="$WORK/ctx-374"
+rm -rf "$UT374"
+mkdir -p "$UT374/OBS374-SENTINEL-SESSION/subagents" "$UT374/orphan-374/subagents"
+# Session 1. msg_1 is written on two lines and counts once. msg_5's input is
+# not a number (0) and its occupancy falls without a boundary: a rewind. The
+# sidechain line and the line with a malformed timestamp are not the Main
+# Agent's calls.
+cat > "$UT374/OBS374-SENTINEL-SESSION.jsonl" <<'JSONL'
+{"type":"user","timestamp":"2026-10-01T09:59:00Z","message":{"role":"user","content":"OBS374-SENTINEL-PROMPT"}}
+{"type":"assistant","timestamp":"2026-10-01T10:00:00.120Z","message":{"id":"msg_1","model":"claude-test-1","content":[{"type":"text","text":"OBS374-SENTINEL-REPLY"}],"usage":{"input_tokens":10,"output_tokens":50,"cache_creation_input_tokens":1000,"cache_read_input_tokens":100000}}}
+{"type":"assistant","timestamp":"2026-10-01T10:00:01.000Z","message":{"id":"msg_1","model":"claude-test-1","content":[{"type":"tool_use","id":"toolu_1","name":"Agent","input":{"subagent_type":"observability-engineer","prompt":"OBS374-SENTINEL-DISPATCH"}}],"usage":{"input_tokens":10,"output_tokens":50,"cache_creation_input_tokens":1000,"cache_read_input_tokens":100000}}}
+{"type":"assistant","timestamp":"2026-10-01T10:10:00Z","message":{"id":"msg_2","model":"OBS374-SENTINEL-MODEL","content":[{"type":"text","text":"OBS374-SENTINEL-TWO"}],"usage":{"input_tokens":5,"output_tokens":10,"cache_creation_input_tokens":2000,"cache_read_input_tokens":300000}}}
+{"type":"system","subtype":"compact_boundary","content":"OBS374-SENTINEL-SUMMARY","timestamp":"2026-10-01T10:20:00.000Z","compactMetadata":{"trigger":"auto","preTokens":310000,"postTokens":20000,"durationMs":60000,"preCompactDiscoveredTools":["OBS374-SENTINEL-TOOL"]}}
+{"type":"assistant","timestamp":"2026-10-01T10:21:00Z","message":{"id":"msg_3","model":"claude-test-1","content":[],"usage":{"input_tokens":3,"output_tokens":5,"cache_creation_input_tokens":25000,"cache_read_input_tokens":0}}}
+{"type":"assistant","isSidechain":true,"timestamp":"2026-10-01T10:30:00Z","message":{"id":"msg_side","model":"claude-test-1","content":[],"usage":{"input_tokens":999999,"output_tokens":1,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}
+{"type":"assistant","timestamp":"OBS374-SENTINEL-TIME","message":{"id":"msg_badtime","model":"claude-test-1","content":[],"usage":{"input_tokens":888888,"output_tokens":1,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}
+{"type":"assistant","timestamp":"2026-13-45T25:61:61Z","message":{"id":"msg_baddate","model":"claude-test-1","content":[],"usage":{"input_tokens":777777,"output_tokens":1,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}
+{"type":"assistant","timestamp":"2026-10-01T11:00:00Z","message":{"id":"msg_4","model":"claude-test-1","content":[],"usage":{"input_tokens":1,"output_tokens":1,"cache_creation_input_tokens":1000,"cache_read_input_tokens":200000}}}
+{"type":"assistant","timestamp":"2026-10-01T11:05:00Z","message":{"id":"msg_5","model":"claude-test-1","content":[],"usage":{"input_tokens":"OBS374-SENTINEL-COUNT","output_tokens":1,"cache_creation_input_tokens":30000,"cache_read_input_tokens":0}}}
+{"type":"system","subtype":"compact_boundary","content":"OBS374-SENTINEL-MANUAL","timestamp":"2026-10-01T11:30:00Z","compactMetadata":{"trigger":"manual","preTokens":40000,"postTokens":9000,"durationMs":5000}}
+JSONL
+# Its subagent: active 10:15-10:19:30, silent 80 minutes, then 11:40. With
+# the default 900-second gap that is two segments; with 7200, one.
+cat > "$UT374/OBS374-SENTINEL-SESSION/subagents/agent-a.jsonl" <<'JSONL'
+{"type":"user","isSidechain":true,"message":{"content":"OBS374-SENTINEL-BRIEF"},"timestamp":"2026-10-01T10:15:00.000Z"}
+{"type":"assistant","isSidechain":true,"message":{"content":[{"type":"text","text":"OBS374-SENTINEL-WORK"}]},"timestamp":"2026-10-01T10:18:00.000Z"}
+{"type":"assistant","isSidechain":true,"message":{"content":[]},"timestamp":"2026-10-01T10:19:30.000Z"}
+{"type":"assistant","isSidechain":true,"message":{"content":[]},"timestamp":"2026-10-01T11:40:00.000Z"}
+JSONL
+printf '%s\n' '{"agentType":"observability-engineer","description":"OBS374-SENTINEL-META"}' > "$UT374/OBS374-SENTINEL-SESSION/subagents/agent-a.meta.json"
+# A subagent file with no main session: listed, attributed to nothing.
+printf '%s\n' '{"type":"assistant","timestamp":"2026-10-01T10:19:00Z","message":{"content":[]}}' > "$UT374/orphan-374/subagents/agent-o.jsonl"
+# Session 2: a resumed copy of msg_1 (a duplicate, not counted again) and
+# one call of its own.
+cat > "$UT374/ctx-374-second.jsonl" <<'JSONL'
+{"type":"assistant","timestamp":"2026-10-02T09:00:00Z","message":{"id":"msg_1","model":"claude-test-1","content":[],"usage":{"input_tokens":10,"output_tokens":50,"cache_creation_input_tokens":1000,"cache_read_input_tokens":100000}}}
+{"type":"assistant","timestamp":"2026-10-02T09:01:00Z","message":{"id":"msg_6","model":"claude-test-1","content":[],"usage":{"input_tokens":7,"output_tokens":7,"cache_creation_input_tokens":7,"cache_read_input_tokens":7}}}
+JSONL
+
+H374="$(printf '%s' OBS374-SENTINEL-SESSION | sha256sum | cut -c1-16)"
+CS374="$WORK/ctx-374.out"
+expect 0 "context-series: reads a transcript directory" -- bash "$COLLECT" --transcripts-dir "$UT374" --context-series
+printf '%s\n' "$LAST_OUTPUT" > "$CS374"
+expect_output "ctx-source${T}2${T}2${T}6${T}2${T}900${T}1"
+expect_output "ctx-session${T}${H374}${T}5${T}1790848800${T}1790852700${T}302005${T}1000000${T}2${T}2${T}2"
+# The resumed copy of msg_1 stays with session 1, where it is earliest:
+# session 2 holds msg_6 alone (7 + 7 + 7), whatever the listing order.
+H374B="$(printf '%s' ctx-374-second | sha256sum | cut -c1-16)"
+expect_output "ctx-session${T}${H374B}${T}1${T}1790931660${T}1790931660${T}21${T}200000${T}0${T}0${T}0"
+# occupancy = input + cache_creation + cache_read, a two-line message once.
+expect_output "ctx-call${T}${H374}${T}1${T}1790848800${T}101010${T}10${T}1000${T}100000${T}50${T}0"
+expect_output "ctx-call${T}${H374}${T}5${T}1790852700${T}30000${T}0${T}30000${T}0${T}1${T}0"
+# msg_3 follows msg_2 by 11 minutes, across the subagent's first burst.
+expect_output "ctx-call${T}${H374}${T}3${T}1790850060${T}25003${T}3${T}25000${T}0${T}5${T}1"
+expect_no_output "999999" "context-series: a sidechain line in the main transcript is not a Main Agent call"
+expect_no_output "888888" "context-series: a line whose timestamp is not a timestamp is not counted"
+# SEC-IAENG-374-01: a timestamp of the right shape that is no date (month 13,
+# hour 25) is skipped like a malformed one; it must not abort the run, which
+# the exit 0 above and the complete records here prove.
+expect_no_output "777777" "context-series: an impossible date of the right shape is skipped, not fatal"
+# The auto compaction: an Employee was active during its 60 seconds.
+expect_output "ctx-compact${T}${H374}${T}1790850000${T}1${T}310000${T}20000${T}60000${T}1${T}302005${T}25003"
+# The manual one, 20 minutes into the subagent's silence: none in flight.
+expect_output "ctx-compact${T}${H374}${T}1790854200${T}2${T}40000${T}9000${T}5000${T}0${T}30000${T}0"
+expect_output "ctx-drop${T}${H374}${T}1790850060${T}302005${T}25003${T}1${T}1"
+expect_output "ctx-drop${T}${H374}${T}1790852700${T}201001${T}30000${T}0${T}0"
+expect_no_output "OBS374-SENTINEL" "context-series privacy: no prompt, reply, model, summary, file name or meta text"
+expect_no_output "$UT374" "context-series privacy: no path"
+expect_no_output "ctx-374-second" "context-series privacy: no session file name"
+# A feeder script, not an inline awk program: shellcheck reads a quoted
+# argument to `expect` as shell text (SC2016).
+cat > "$WORK/fields-374.sh" <<'FEED'
+awk -F '\t' '
+  $1 !~ /^ctx-(source|session|call|compact|drop)$/ { print "unknown record: " NR; exit 1 }
+  { for (i = 2; i <= NF; i++) if ($i !~ /^[0-9]+$/ && !(i == 2 && $1 != "ctx-source" && $i ~ /^[0-9a-f]+$/ && length($i) == 16)) { print "record " NR " field " i " is not a number"; exit 1 } }
+  END { if (NR < 10) { print "only " NR " records"; exit 1 } }' "$1"
+FEED
+expect 0 "context-series: every field after the tag is a number, the session 16 hex characters" -- bash "$WORK/fields-374.sh" "$CS374"
+
+# --gap 7200 joins the subagent's two bursts: the manual compaction and the
+# rewind now fall inside its activity.
+expect 0 "context-series --gap 7200: runs" -- bash "$COLLECT" --transcripts-dir "$UT374" --context-series --gap 7200
+expect_output "ctx-compact${T}${H374}${T}1790854200${T}2${T}40000${T}9000${T}5000${T}1${T}30000${T}0"
+expect_output "ctx-drop${T}${H374}${T}1790852700${T}201001${T}30000${T}1${T}0"
+
+expect 2 "context-series: --gap takes seconds, not text" -- bash "$COLLECT" --transcripts-dir "$UT374" --context-series --gap 9x
+expect_output "--gap takes a number of seconds from 60 to 86400"
+expect 2 "context-series: --gap under a minute is refused" -- bash "$COLLECT" --transcripts-dir "$UT374" --context-series --gap 59
+expect 2 "context-series: no cache, so --cache-dir is refused" -- bash "$COLLECT" --transcripts-dir "$UT374" --context-series --cache-dir "$WORK/ctx-374-cache"
+expect_output "--context-series reads every transcript in full"
+
+# context-simulate.sh replays those records under a threshold. Session A
+# grows by 100k a call to 600k; at T=30 of a 1M window, with P = 50k, it
+# compacts at calls 3 and 6. Worked by hand, in input-price units (R 0.05,
+# O 5, a write 1.25):
+#   tokens  100k + 200k + 50k + 150k + 250k + 50k            = 800000
+#   calls   1.25*100k + .05*200k + 1.25*50k + .05*150k + .05*250k + 1.25*50k = 280000
+#   summary 2 x 5*50k + .05*300k + .05*350k                  = 532500
+#   default 1.25*100k + .05*(200k+300k+400k+500k+600k)       = 225000
+#   saving  1 - (280000 + 532500) / 225000                   = -261.1 %
+SIM="$SCRIPTS/../ai-runtimes/claude-code/context-simulate.sh"
+SA374="$WORK/sim-374-a.tsv"
+{
+  printf 'ctx-call\taaaaaaaaaaaaaaaa\t1\t1790848800\t100000\t0\t100000\t0\t0\t0\n'
+  for k_374 in 2 3 4 5; do
+    printf 'ctx-call\taaaaaaaaaaaaaaaa\t%d\t%d\t%d\t0\t0\t%d\t0\t0\n' "$k_374" "$((1790848800 + 60 * k_374))" "$((100000 * k_374))" "$((100000 * k_374))"
+  done
+  printf 'ctx-call\taaaaaaaaaaaaaaaa\t6\t1790849160\t600000\t0\t0\t600000\t0\t1\n'
+} > "$SA374"
+expect 0 "context-simulate: replays a series" -- bash "$SIM" --post 50000 --thresholds 30,70 --reps 50 "$SA374"
+expect_output "sim-input${T}1${T}1${T}6${T}1${T}1.0${T}0${T}50000${T}50000${T}0"
+expect_output "sim${T}default${T}0${T}2100000${T}225000${T}0${T}0.00${T}0.00${T}"
+# Two compactions, the second with an Employee in flight (call 6).
+expect_output "sim${T}30${T}2${T}800000${T}280000${T}532500${T}2.00${T}1.00${T}-261.1${T}-261.1${T}-261.1${T}-261.1"
+expect_output "sim${T}70${T}0${T}2100000${T}225000${T}0${T}0.00${T}0.00${T}0.0${T}"
+# The same session read from two directories is one session, not twelve calls.
+expect 0 "context-simulate: a session in two inputs" -- bash "$SIM" --post 50000 --thresholds 30 --reps 50 "$SA374" "$SA374"
+expect_output "sim-input${T}1${T}1${T}6${T}1${T}1.0${T}0${T}50000${T}50000${T}0"
+expect_output "sim${T}30${T}2${T}800000${T}280000${T}532500${T}"
+# Session B was compacted for real (460k -> 40k). In the simulated world
+# that compaction does not happen: the call after it adds nothing, so B
+# runs 400k, 450k, 450k, 470k and never reaches T=50.
+SB374="$WORK/sim-374-b.tsv"
+printf '%s\n' \
+  "ctx-call${T}bbbbbbbbbbbbbbbb${T}1${T}1790848800${T}400000${T}0${T}0${T}400000${T}0${T}0" \
+  "ctx-call${T}bbbbbbbbbbbbbbbb${T}2${T}1790848860${T}450000${T}0${T}0${T}450000${T}0${T}0" \
+  "ctx-call${T}bbbbbbbbbbbbbbbb${T}3${T}1790849000${T}40000${T}0${T}40000${T}0${T}0${T}0" \
+  "ctx-call${T}bbbbbbbbbbbbbbbb${T}4${T}1790849060${T}60000${T}0${T}0${T}60000${T}0${T}0" \
+  "ctx-compact${T}bbbbbbbbbbbbbbbb${T}1790848950${T}1${T}460000${T}20000${T}60000${T}0${T}450000${T}40000" \
+  "ctx-drop${T}bbbbbbbbbbbbbbbb${T}1790849000${T}450000${T}40000${T}0${T}1" > "$SB374"
+expect 0 "context-simulate: a series with a real compaction" -- bash "$SIM" --post 50000 --thresholds 50 --reps 50 "$SB374"
+expect_output "sim${T}default${T}1${T}950000${T}"
+expect_output "sim${T}50${T}0${T}1770000${T}"
+: > "$WORK/sim-374-empty.tsv"
+expect 1 "context-simulate: no ctx-call record is an error" -- bash "$SIM" "$WORK/sim-374-empty.tsv"
+expect_output "no ctx-call record in the input"
+expect 2 "context-simulate: a threshold of 100 is refused" -- bash "$SIM" --thresholds 30,100 "$SA374"
+expect_output "--thresholds takes percentages 1 to 99"
+
+# Session C writes 100k of new content on every call (occupancy 100k to
+# 400k). At T=30 it compacts at call 3; call 4 then holds 150k. Scaled, call
+# 4 pays its real blended rate, (1.25*100k + .05*300k) / 400k = .35, on
+# 150k = 52500; fixed, it pays its 100k write in full and reads the rest:
+# 1.25*100k + .05*50k = 127500. Calls 1 to 3 cost 125000 + 130000 + 62500
+# either way, so the totals are 370000 and 445000; the summary is
+# .05*300k + 5*50k = 265000.
+SC374="$WORK/sim-374-c.tsv"
+for k_374 in 1 2 3 4; do
+  printf 'ctx-call\tcccccccccccccccc\t%d\t%d\t%d\t0\t100000\t%d\t0\t0\n' "$k_374" "$((1790848800 + 60 * k_374))" "$((100000 * k_374))" "$((100000 * (k_374 - 1)))"
+done > "$SC374"
+expect 0 "context-simulate: cache writes scaled with occupancy" -- bash "$SIM" --post 50000 --thresholds 30 --reps 50 "$SC374"
+expect_output "sim${T}30${T}1${T}500000${T}370000${T}265000${T}"
+expect 0 "context-simulate --write-model fixed: the new content of a turn is written in full at any T" -- \
+  bash "$SIM" --post 50000 --thresholds 30 --reps 50 --write-model fixed "$SC374"
+expect_output "sim${T}30${T}1${T}500000${T}445000${T}265000${T}"
+# --write 2 (a 1-hour cache write): session A as it ran costs
+# 2*100k + .05*(200k+300k+400k+500k+600k) = 300000.
+expect 0 "context-simulate --write 2: a 1-hour cache write" -- bash "$SIM" --post 50000 --thresholds 70 --reps 50 --write 2 "$SA374"
+expect_output "sim${T}default${T}0${T}2100000${T}300000${T}"
+expect 2 "context-simulate: --write-model takes scaled or fixed" -- bash "$SIM" --write-model both "$SA374"
+# CR-374-01: P and S by default, with no --post. P is the median occupancy
+# of the first call after the real compactions (auto and manual), S their
+# median postTokens; a compaction with nothing after it (0) is left out.
+#   odd:  occ-after 30000 50000 10000 (and 0)  -> P 30000; post 7000 9000 8000 (and 0) -> S 8000
+#   even: occ-after 10000 20000 40000 80000    -> P (20000 + 40000) / 2 = 30000
+#         post 1000 3000 5000 9000             -> S (3000 + 5000) / 2 = 4000
+SO374="$WORK/sim-374-odd.tsv"
+printf '%s\n' \
+  "ctx-call${T}eeeeeeeeeeeeeeee${T}1${T}1790848800${T}1000${T}0${T}1000${T}0${T}0${T}0" \
+  "ctx-compact${T}eeeeeeeeeeeeeeee${T}1790848801${T}1${T}900000${T}7000${T}1000${T}0${T}900000${T}30000" \
+  "ctx-compact${T}eeeeeeeeeeeeeeee${T}1790848802${T}2${T}900000${T}9000${T}1000${T}0${T}900000${T}50000" \
+  "ctx-compact${T}eeeeeeeeeeeeeeee${T}1790848803${T}1${T}900000${T}8000${T}1000${T}0${T}900000${T}10000" \
+  "ctx-compact${T}eeeeeeeeeeeeeeee${T}1790848804${T}1${T}900000${T}0${T}1000${T}0${T}900000${T}0" > "$SO374"
+expect 0 "context-simulate: P and S by default, an odd count" -- bash "$SIM" --thresholds 30 --reps 40 "$SO374"
+expect_output "sim-input${T}1${T}0${T}1${T}1${T}1.0${T}4${T}30000${T}8000${T}0"
+SE374="$WORK/sim-374-even.tsv"
+{
+  printf 'ctx-call\teeeeeeeeeeeeeeee\t1\t1790848800\t1000\t0\t1000\t0\t0\t0\n'
+  for v_374 in 1:10000:1000 2:20000:3000 3:40000:5000 4:80000:9000; do
+    IFS=: read -r j_374 a_374 p_374 <<< "$v_374"
+    printf 'ctx-compact\teeeeeeeeeeeeeeee\t%d\t1\t900000\t%d\t1000\t0\t900000\t%d\n' "$((1790848800 + j_374))" "$p_374" "$a_374"
+  done
+} > "$SE374"
+expect 0 "context-simulate: P and S by default, an even count" -- bash "$SIM" --thresholds 30 --reps 40 "$SE374"
+expect_output "sim-input${T}1${T}0${T}1${T}1${T}1.0${T}4${T}30000${T}4000${T}0"
+# CR-374-04: a FILE that cannot be read is an error (1), not a usage error;
+# fewer than 40 resamples would print an interval that rests on none.
+expect 1 "context-simulate: a missing FILE is an error, not a usage error" -- bash "$SIM" "$WORK/sim-374-absent.tsv"
+expect_output "cannot read"
+expect 2 "context-simulate: --reps under 40 is refused" -- bash "$SIM" --reps 1 "$SA374"
+expect_output "--reps takes 40 to 20000 resamples"
+# SEC-IAENG-374-01: a series that cost nothing (every count 0) has no saving
+# to divide by; it reports 0, it does not abort.
+printf 'ctx-call\tdddddddddddddddd\t1\t1790848800\t0\t0\t0\t0\t0\t0\n' > "$WORK/sim-374-zero.tsv"
+expect 0 "context-simulate: a series with zero cost is not a division by zero" -- bash "$SIM" --thresholds 30 --reps 50 "$WORK/sim-374-zero.tsv"
+expect_output "sim${T}30${T}0${T}0${T}0${T}0${T}0.00${T}0.00${T}0.0${T}0.0${T}0.0${T}0.0"
+
 # --------------------------------------------------------------- verdict ----
 
 cd "$HERE" || exit 1
