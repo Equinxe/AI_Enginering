@@ -42,10 +42,22 @@
 # Step 3 is a pure snapshot. Automating a commit-and-PR here would route around
 # the review path the workflow chose on purpose.
 #
+# `assemble` is the one subcommand that writes, and it writes only the working
+# tree of the bump branch: it folds the changelog.d/ fragments into
+# CHANGELOG.md and deletes them, and the Release Manager commits that inside
+# the Step 2 Work Unit. It commits nothing and opens nothing, for the reason
+# above.
+#
 # Usage:
 #   ./Adapters/scripts/release.sh check [version] [--milestone <name>]
 #       Step 1 readiness review. Reports every condition; exits 1 on any
 #       failure. Read-only — touches nothing.
+#
+#   ./Adapters/scripts/release.sh assemble
+#       Step 2: fold every changelog.d/ fragment into the [Unreleased]
+#       section of CHANGELOG.md, by category then Work Unit id, below the
+#       bullets already there, and delete the fragments. Commits nothing.
+#       Refuses, changing nothing, when a fragment is malformed.
 #
 #   ./Adapters/scripts/release.sh notes <version>
 #       Print that version's CHANGELOG.md section, exactly as Step 7 requires
@@ -146,6 +158,111 @@ milestone_released() {
     }
     END { exit found ? 0 : 1 }
   ' CHANGELOG.md
+}
+
+# --------------------------------------------------- changelog fragments ----
+#
+# One fragment per Work Unit, changelog.d/<Work Unit id>.md, instead of an
+# edit of CHANGELOG.md in every Work Unit's Pull Request. Two Pull Requests
+# that each append a line to the same CHANGELOG.md category conflict; two
+# that each add their own file do not. changelog.d/README.md is the format,
+# changelog-fragment.awk beside this script is the format as code.
+
+FRAGMENT_DIR="changelog.d"
+FRAGMENT_PARSER="$SCRIPT_DIR/changelog-fragment.awk"
+
+# The Work Unit ids registered against one milestone, sorted.
+milestone_wu_ids() {
+  awk -v m="$1" '
+    /^  - id: / { id = $0; sub(/^  - id: /, "", id); gsub(/\015/, "", id) }
+    /^    milestone: / { ms = $0; sub(/^    milestone: /, "", ms); gsub(/\015/, "", ms)
+                         if (ms == m && id != "") print id }
+  ' Registry/work-units.yml | sort -u
+}
+
+# The CHANGELOG.md section whose heading names the milestone, heading
+# included, carriage returns dropped. Before the bump that is
+# "## [Unreleased] - <milestone>"; after it, "## [x.y.z] - <milestone>". The
+# codename field is a list, read as milestone_released reads it: the whole
+# field first, then split on " & ".
+milestone_section() {
+  awk -v want="$1" '
+    { gsub(/\015/, "") }
+    /^## \[/ {
+      if (inside) exit
+      names = substr($0, 5)
+      names = substr(names, index(names, "]") + 1)
+      if (substr(names, 1, 3) != " - ") next
+      names = substr(names, 4)
+      hit = (names == want)
+      n = split(names, parts, / & /)
+      for (i = 1; i <= n; i++) if (parts[i] == want) hit = 1
+      if (hit) { inside = 1; print; next }
+    }
+    inside { print }
+  ' CHANGELOG.md
+}
+
+# The Work Unit ids a CHANGELOG.md section accounts for, read from stdin.
+#
+# A Work Unit counts when it is named in the FINAL parenthesised group of a
+# BULLET — the last line of a "- " item and its indented continuations —
+# "... (#262, WU-IAENG-353)". That is the convention every CHANGELOG.md line
+# of this repository follows, and the place the assembler puts the id: it
+# appends it to the bullet's last line (changelog-fragment.awk, flush). A
+# mention anywhere else does not count: the [Unreleased] bullet that
+# documents the up-front reservation names WU-IAENG-376 to WU-IAENG-380 in its
+# text, and none of those Work Units has an entry. Nor does the final group of
+# a wrapped bullet's FIRST line, which is a mention like any other.
+#
+# Ceiling, stated rather than hidden: any id in that final group counts, so
+# "(follow-up of WU-IAENG-9)" accounts for WU-IAENG-9. The parser reads the
+# group the same way, and a group naming two Work Units is this changelog's
+# convention for a shared entry.
+#
+# An exemption assembled from a "No changelog entry:" fragment is the comment
+# line "<!-- No changelog entry (<id>): <reason> -->", and counts only in that
+# exact shape: one id, a non-empty reason, and the closing "-->" on the same
+# line. An unclosed one hides the rest of the section in the published notes,
+# and one with no reason is the silent omission this condition exists to
+# catch (SEC-IAENG-378-01, N1).
+section_accounted_ids() {
+  awk '
+    function item_end(    line, i, open, grp) {
+      line = last
+      last = ""
+      if (line == "") return
+      sub(/[ \t]+$/, "", line)
+      if (substr(line, length(line), 1) != ")") return
+      open = 0
+      for (i = length(line); i > 0; i--) if (substr(line, i, 1) == "(") { open = i; break }
+      if (!open) return
+      grp = substr(line, open + 1, length(line) - open - 1)
+      while (match(grp, /WU-[A-Za-z0-9]+-[0-9]+/)) {
+        print substr(grp, RSTART, RLENGTH)
+        grp = substr(grp, RSTART + RLENGTH)
+      }
+    }
+    { gsub(/\015/, "") }
+    /^<!-- No changelog entry \(/ {
+      item_end()
+      rest = substr($0, length("<!-- No changelog entry (") + 1)
+      close_at = index(rest, "): ")
+      if (close_at == 0) next
+      id = substr(rest, 1, close_at - 1)
+      reason = substr(rest, close_at + 3)
+      if (id !~ /^WU-[A-Za-z0-9]+-[0-9]+$/) next
+      if (substr(reason, length(reason) - 3) != " -->") next
+      reason = substr(reason, 1, length(reason) - 4)
+      if (reason !~ /[^ \t]/ || index(reason, "--") > 0) next
+      print id
+      next
+    }
+    /^- / { item_end(); last = $0; next }
+    /^[ \t]+[^ \t]/ { if (last != "") last = $0; next }
+    { item_end() }
+    END { item_end() }
+  ' | sort -u
 }
 
 # ---------------------------------------------------------------- check ----
@@ -414,6 +531,76 @@ cmd_check() {
     fi
   fi
 
+  head2 "Changelog accounting"
+
+  # Workflows/RELEASE.md Step 1 condition 5: "Pending changelog entries account
+  # for every significant change."
+  #
+  # Until changelog fragments, this was only the section's presence and size
+  # (above), and its content was a reading task. A fragment per Work Unit makes
+  # the accounting mechanical: every Work Unit registered against the milestone
+  # must have a fragment waiting in changelog.d/ (an entry or a "No changelog
+  # entry:" exemption), or be accounted for in the milestone's CHANGELOG.md
+  # section already — the bullets written there before fragments existed, and
+  # everything the assembler wrote there at Step 2. Whether each entry SAYS the
+  # right thing is still a reading task; whether one EXISTS no longer is.
+  #
+  # After Step 2 the section is versioned and the fragments are gone. A
+  # fragment still in changelog.d/ for a Work Unit of a versioned section was
+  # merged after the assembly and will not ship in these notes, so it fails.
+  local cl_ids cl_section cl_heading cl_accounted cl_versioned=0
+  local cl_missing="" cl_unassembled="" cl_frag=0 cl_cited=0 cl_total=0
+  if [ -z "$codename" ]; then
+    if [ "$n_unreleased" = "0" ]; then
+      ok "no unreleased milestone — no Work Unit to account for"
+    else
+      bad "condition 5 not evaluated: the milestone under release is not known" "Work Unit completeness above says why. Without the milestone there is no set of Work Units to account for, and an unevaluated condition is not a met one."
+    fi
+  elif [ ! -f Registry/work-units.yml ] || [ ! -f CHANGELOG.md ]; then
+    bad "condition 5 not evaluated: Registry/work-units.yml or CHANGELOG.md is missing" "Both are needed to say which Work Units the milestone has and which are accounted for."
+  elif [ ! -d "$FRAGMENT_DIR" ]; then
+    bad "$FRAGMENT_DIR/ is missing" "Each Work Unit's changelog entry waits there until Step 2 assembles it (changelog.d/README.md). Without the directory no pending entry can be seen, and an unevaluated condition is not a met one."
+  else
+    cl_ids="$(milestone_wu_ids "$codename")"
+    cl_section="$(milestone_section "$codename")"
+    [ -n "$cl_section" ] || cl_section="$(changelog_section Unreleased | tr -d '\015')"
+    cl_heading="$(printf '%s\n' "$cl_section" | head -1)"
+    case "$cl_heading" in
+      "## [Unreleased]"*|"") cl_versioned=0 ;;
+      *) cl_versioned=1 ;;
+    esac
+    cl_accounted="$(printf '%s\n' "$cl_section" | section_accounted_ids)"
+    while IFS= read -r id; do
+      [ -n "$id" ] || continue
+      cl_total=$((cl_total + 1))
+      if [ -f "$FRAGMENT_DIR/$id.md" ]; then
+        if [ "$cl_versioned" -eq 1 ]; then
+          cl_unassembled="$cl_unassembled$id "
+        else
+          cl_frag=$((cl_frag + 1))
+        fi
+      elif grep -qxF "$id" <<< "$cl_accounted"; then
+        cl_cited=$((cl_cited + 1))
+      else
+        cl_missing="$cl_missing$id "
+      fi
+    done <<< "$cl_ids"
+
+    if [ "$cl_total" -eq 0 ]; then
+      bad "condition 5 not evaluated: no Work Units registered against milestone '$codename'" "The same gap Work Unit completeness reports above. Nothing was accounted for either way."
+    else
+      if [ -n "$cl_missing" ]; then
+        bad "$(echo "$cl_missing" | wc -w | tr -d ' ') of $cl_total Work Units for '$codename' have no changelog fragment, entry or exemption: $cl_missing" "Each is registered against this milestone, has no $FRAGMENT_DIR/<id>.md, and is not named in the final parenthesised group of any line of the '${cl_heading:-[Unreleased]}' section. Add the fragment — an entry, or 'No changelog entry: <reason>' — per changelog.d/README.md."
+      fi
+      if [ -n "$cl_unassembled" ]; then
+        bad "fragments not assembled into '${cl_heading}': $cl_unassembled" "The section is already versioned, so Step 2 ran before these were merged and they are not in the release notes. Move each entry into that section by hand, ending each line with its Work Unit id in parentheses, and delete the fragment in the same commit."
+      fi
+      if [ -z "$cl_missing" ] && [ -z "$cl_unassembled" ]; then
+        ok "all $cl_total Work Units for '$codename' accounted for: $cl_frag fragment(s) waiting in $FRAGMENT_DIR/, $cl_cited named in '${cl_heading:-[Unreleased]}'"
+      fi
+    fi
+  fi
+
   head2 "Continuous integration on $branch"
 
   # The host reports the conclusion; the RULE that only "success" is green
@@ -523,6 +710,266 @@ GATE
 
   [ "$FAILURES" -eq 0 ] || return 1
   return 0
+}
+
+# ------------------------------------------------------------- assemble ----
+#
+# Workflows/RELEASE.md Step 2: fold every fragment into the [Unreleased]
+# section and delete it, in the working tree, for the bump commit.
+#
+# The section is rebuilt category by category in Keep a Changelog's order
+# (Added, Changed, Deprecated, Removed, Fixed, Security). Under each, the
+# bullets already there come first — the entries written into CHANGELOG.md
+# before fragments existed, kept as they are — then the fragments' bullets,
+# by Work Unit id. A heading that is not one of the six (### Notes) keeps its
+# text and follows the six, in its original order. An exemption becomes the
+# comment line "<!-- No changelog entry (<id>): <reason> -->" at the end of the
+# section: invisible in the rendered release notes, and what lets condition 5
+# of `check` see the Work Unit accounted for once its fragment is gone.
+#
+# All or nothing. Every fragment is parsed before CHANGELOG.md is touched, and
+# one malformed fragment, or one file in changelog.d/ that is not a fragment,
+# refuses the whole run with nothing changed: half an assembly would leave
+# entries in two places, and a stray file would be left behind silently.
+#
+# Line endings: CHANGELOG.md is checked out CRLF on a Windows working tree with
+# core.autocrlf, LF elsewhere. Every line is read with its carriage return
+# dropped and written back with the ending the file had, so the rewrite does
+# not turn into a whole-file line-ending change.
+cmd_assemble() {
+  if [ "$#" -gt 0 ]; then
+    echo "Usage: $0 assemble" >&2
+    return 2
+  fi
+
+  echo "IA Engineering — assemble changelog fragments (Workflows/RELEASE.md Step 2)"
+
+  if [ ! -f "$FRAGMENT_PARSER" ]; then
+    echo "release.sh: refusing — $FRAGMENT_PARSER is missing." >&2
+    echo "  It is the one definition of a fragment, shared with validate-framework.sh." >&2
+    return 1
+  fi
+  if [ ! -f CHANGELOG.md ]; then
+    echo "release.sh: refusing — CHANGELOG.md is missing." >&2
+    return 1
+  fi
+  if [ ! -d "$FRAGMENT_DIR" ]; then
+    echo "release.sh: refusing — $FRAGMENT_DIR/ is missing." >&2
+    echo "  Fragments wait there until this step. See changelog.d/README.md." >&2
+    return 1
+  fi
+  if ! grep -qE '^## \[Unreleased\]' CHANGELOG.md; then
+    echo "release.sh: refusing — CHANGELOG.md has no '## [Unreleased]' section." >&2
+    echo "  Fragments are assembled into it, below the entries already there." >&2
+    echo "  Add '## [Unreleased] - <Codename>' above the latest version, then" >&2
+    echo "  run this again; rename it to the version after." >&2
+    return 1
+  fi
+
+  local f base ids="" strays=""
+  while IFS= read -r f; do
+    [ -n "$f" ] || continue
+    base="${f##*/}"
+    [ "$base" = "README.md" ] && continue
+    # Regular files only: a symbolic link would be read from outside
+    # changelog.d/ and only the link deleted (SEC-IAENG-378-01, N2).
+    if [ ! -L "$f" ] && [ -f "$f" ] && [[ "$base" =~ ^WU-[A-Za-z0-9]+-[0-9]+\.md$ ]]; then
+      ids="$ids${base%.md}"$'\n'
+    else
+      strays="$strays$f "
+    fi
+  done < <(find "$FRAGMENT_DIR" -mindepth 1 -maxdepth 1 2>/dev/null)
+
+  if [ -n "$strays" ]; then
+    echo "release.sh: refusing — $FRAGMENT_DIR/ holds entries that are not fragments: $strays" >&2
+    echo "  A fragment is a file named <Work Unit id>.md, for example" >&2
+    echo "  WU-IAENG-378.md. Rename or remove these; nothing was changed." >&2
+    return 1
+  fi
+
+  if [ -z "$ids" ]; then
+    echo "   No fragment in $FRAGMENT_DIR/. CHANGELOG.md is unchanged."
+    return 0
+  fi
+
+  # By the number of the id, then the id: WU-IAENG-1000 after WU-IAENG-999.
+  ids="$(printf '%s' "$ids" | awk -F- '{ print $NF "\t" $0 }' | LC_ALL=C sort -t "$(printf '\t')" -k1,1n -k2,2 | cut -f2)"
+
+  local records parsed parse_status errors="" id n_frag=0 n_exempt=0
+  records="$(mktemp)"
+  while IFS= read -r id; do
+    [ -n "$id" ] || continue
+    n_frag=$((n_frag + 1))
+    # A parse that succeeds always prints at least one ENTRY, EXEMPT or ERROR
+    # record. A parser that exits non-zero or prints none did not read the
+    # fragment, and assembling it would delete the fragment with nothing
+    # added — so it refuses the run like a malformed fragment.
+    parsed="$(awk -v id="$id" -f "$FRAGMENT_PARSER" "$FRAGMENT_DIR/$id.md" 2>/dev/null)"
+    parse_status=$?
+    if [ "$parse_status" -ne 0 ] || ! grep -qE '^(ENTRY|EXEMPT|ERROR)'$'\t' <<< "$parsed"; then
+      errors="$errors  $FRAGMENT_DIR/$id.md: the fragment parser did not run (exit $parse_status) or printed no record ($FRAGMENT_PARSER)"$'\n'
+      continue
+    fi
+    if grep -q '^ERROR' <<< "$parsed"; then
+      errors="$errors$(awk -F'\t' -v f="$FRAGMENT_DIR/$id.md" '$1 == "ERROR" { printf "  %s line %s: %s\n", f, $2, $3 }' <<< "$parsed")"$'\n'
+      continue
+    fi
+    if grep -q '^EXEMPT' <<< "$parsed"; then
+      n_exempt=$((n_exempt + 1))
+      awk -F'\t' -v id="$id" '$1 == "EXEMPT" { print "EXEMPT\t" id "\t" $2 }' <<< "$parsed" >> "$records"
+    else
+      # "ENTRY<TAB>" dropped: the record is <Category><TAB><line>.
+      awk '/^ENTRY\t/ { print substr($0, 7) }' <<< "$parsed" >> "$records"
+    fi
+  done <<< "$ids"
+
+  if [ -n "$errors" ]; then
+    rm -f "$records"
+    echo "release.sh: refusing — malformed fragments; nothing was changed:" >&2
+    printf '%s' "$errors" >&2
+    echo "  The format is changelog.d/README.md's." >&2
+    return 1
+  fi
+
+  local eol="" order out
+  if [ "$(head -n 1 CHANGELOG.md | tr -cd '\r' | wc -c | tr -d ' ')" -gt 0 ]; then
+    eol=$'\r'
+  fi
+  order="$(awk -v list=1 -f "$FRAGMENT_PARSER" < /dev/null 2>/dev/null | tr '\n' ' ')"
+  if [ "$(printf '%s' "$order" | wc -w | tr -d ' ')" -ne 6 ]; then
+    rm -f "$records"
+    echo "release.sh: refusing — $FRAGMENT_PARSER did not list the six categories; nothing was changed." >&2
+    return 1
+  fi
+  out="$(mktemp)"
+
+  if ! awk -v recs="$records" -v order="$order" -v eol="$eol" '
+    function emit(s) { printf "%s%s\n", s, eol }
+    # One subsection: its heading, the lines already there (blank lines at
+    # either end trimmed), then the lines the fragments add to it. When the text
+    # already there ends in prose rather than a bullet — the upgrade-note
+    # paragraph under ### Notes — a blank line separates the two, so the
+    # first new bullet does not read as the paragraph continuing.
+    function subsection(c,    a, b, j) {
+      emit("### " c)
+      emit("")
+      a = 1; b = bn[c]
+      while (a <= b && body[c, a] ~ /^[ \t]*$/) a++
+      while (b >= a && body[c, b] ~ /^[ \t]*$/) b--
+      for (j = a; j <= b; j++) emit(body[c, j])
+      if (addn[c] > 0 && a <= b && body[c, b] !~ /^(- |[ \t])/) emit("")
+      for (j = 1; j <= addn[c]; j++) emit(addl[c, j])
+      emit("")
+    }
+    function rebuild(    i, j, c, a, b) {
+      emit(heading)
+      a = 1; b = npre
+      while (a <= b && pre[a] ~ /^[ \t]*$/) a++
+      while (b >= a && pre[b] ~ /^[ \t]*$/) b--
+      emit("")
+      if (a <= b) { for (j = a; j <= b; j++) emit(pre[j]); emit("") }
+      for (i = 1; i <= ncat; i++) {
+        c = CAT[i]
+        if ((c in has) || addn[c] > 0) subsection(c)
+      }
+      # The other headings already in the section, in their order. ### Notes
+      # is one of them when the section has upgrade notes, and receives the
+      # Notes bullets of the fragments; when it has none, a ### Notes is added
+      # after everything else.
+      for (i = 1; i <= nsub; i++) {
+        c = SUB[i]
+        if (!(c in canon)) subsection(c)
+      }
+      if (!("Notes" in has) && addn["Notes"] > 0) subsection("Notes")
+      for (i = 1; i <= nex; i++) emit(ex[i])
+      if (nex > 0) emit("")
+    }
+    BEGIN {
+      ncat = split(order, CAT, " ")
+      for (i = 1; i <= ncat; i++) canon[CAT[i]] = 1
+      while ((getline r < recs) > 0) {
+        t = index(r, "\t"); kind = substr(r, 1, t - 1); rest = substr(r, t + 1)
+        if (kind == "EXEMPT") {
+          t = index(rest, "\t")
+          ex[++nex] = "<!-- No changelog entry (" substr(rest, 1, t - 1) "): " substr(rest, t + 1) " -->"
+        } else {
+          addl[kind, ++addn[kind]] = rest
+        }
+      }
+      state = 0
+    }
+    { line = $0; gsub(/\015/, "", line) }
+    state == 0 && line ~ /^## \[Unreleased\]/ { state = 1; heading = line; next }
+    state == 1 && line ~ /^## \[/ { rebuild(); state = 2; emit(line); next }
+    state == 1 && line ~ /^### / {
+      cur = substr(line, 5); sub(/[ \t]+$/, "", cur)
+      if (!(cur in has)) { has[cur] = 1; SUB[++nsub] = cur }
+      next
+    }
+    state == 1 {
+      if (nsub == 0) pre[++npre] = line
+      else body[cur, ++bn[cur]] = line
+      next
+    }
+    { emit(line) }
+    END { if (state == 1) rebuild() }
+  ' CHANGELOG.md > "$out"; then
+    rm -f "$records" "$out"
+    echo "release.sh: refusing — the CHANGELOG.md rewrite failed; nothing was changed." >&2
+    return 1
+  fi
+
+  # cat over the file rather than mv, so the file keeps its own mode and is
+  # never absent for an instant.
+  #
+  # CHECKED, and before any fragment is deleted. This script runs without
+  # `set -e`, so an unchecked write that failed — a read-only file, a file
+  # an editor holds open on Windows, a full disk — went on to delete every
+  # fragment and exit 0, and the fragments were the only copy of those
+  # entries outside git history. Found in review of PR #313. A write that
+  # failed part-way is undone from the copy taken before it, and the read-back
+  # comparison catches a write that reported success and is not what was meant.
+  local backup
+  backup="$(mktemp)"
+  if ! cp CHANGELOG.md "$backup"; then
+    rm -f "$records" "$out" "$backup"
+    echo "release.sh: refusing — CHANGELOG.md could not be copied before the write; nothing was changed." >&2
+    return 1
+  fi
+  if ! cat "$out" > CHANGELOG.md 2>/dev/null || ! cmp -s "$out" CHANGELOG.md; then
+    cat "$backup" > CHANGELOG.md 2>/dev/null
+    rm -f "$records" "$out" "$backup"
+    echo "release.sh: refusing — CHANGELOG.md could not be written. No fragment was deleted." >&2
+    echo "  Make it writable (read-only, or held open by another program?) and run this again." >&2
+    return 1
+  fi
+  rm -f "$out" "$backup"
+
+  local summary
+  summary="$(awk -F'\t' -v order="$order" '
+    $1 != "EXEMPT" { n[$1]++ }
+    END { k = split(order, c, " "); for (i = 1; i <= k; i++) if (n[c[i]]) printf "%s %s line(s), ", c[i], n[c[i]] }
+  ' "$records")"
+  rm -f "$records"
+
+  local not_deleted=""
+  while IFS= read -r id; do
+    [ -n "$id" ] || continue
+    rm -f -- "$FRAGMENT_DIR/$id.md" 2>/dev/null
+    [ -e "$FRAGMENT_DIR/$id.md" ] && not_deleted="$not_deleted$FRAGMENT_DIR/$id.md "
+  done <<< "$ids"
+  if [ -n "$not_deleted" ]; then
+    echo "release.sh: CHANGELOG.md is assembled, but these fragments could not be deleted: $not_deleted" >&2
+    echo "  Delete them by hand before committing, or they will be assembled a second time." >&2
+    return 1
+  fi
+
+  echo "   Assembled $n_frag fragment(s) into [Unreleased]: ${summary:-no entry lines, }$n_exempt exemption(s)."
+  echo "   Deleted: $(printf '%s' "$ids" | tr '\n' ' ')"
+  echo
+  echo "   Next, in the same Step 2 Work Unit: rename '## [Unreleased]' to the"
+  echo "   version, then commit CHANGELOG.md and the deletions together"
+  echo "   (git add CHANGELOG.md $FRAGMENT_DIR)."
 }
 
 # ---------------------------------------------------------------- notes ----
@@ -716,6 +1163,7 @@ case "${1:-check}" in
     done
     cmd_check "$CHECK_VERSION"
     ;;
+  assemble) shift; cmd_assemble "$@" ;;
   notes)   shift; cmd_notes "${1:-}" ;;
   publish) shift; cmd_publish "${1:-}" "${2:-}" ;;
   --help|-h|help)
@@ -723,7 +1171,7 @@ case "${1:-check}" in
     ;;
   *)
     echo "Unknown command: $1" >&2
-    echo "Usage: $0 {check [version] [--milestone <name>] | notes <version> | publish <version> [--confirm]}" >&2
+    echo "Usage: $0 {check [version] [--milestone <name>] | assemble | notes <version> | publish <version> [--confirm]}" >&2
     exit 2
     ;;
 esac
