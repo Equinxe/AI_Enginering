@@ -1457,6 +1457,87 @@ else
 fi
 block_end
 
+# ---------------------------- setup-branch-protection.sh (WU-IAENG-384) -----
+#
+# What the script SENDS, branch by branch. `gh` is the one thing stubbed: a
+# PATH shim answers the reads (the branch exists, no ruleset yet, automatic
+# head-branch deletion already off) and saves every `--input -` body to a file
+# named after the API path it was sent to. The payload under test is the one
+# the real script builds.
+#
+# The Director set develop to strict=false on 22 Oct 2026 while main and
+# release/* stay strict (issue #299). The script still sent strict=true for
+# develop, so a re-run silently put it back. These cases pin the per-branch
+# value, and that main and develop differ in nothing else.
+
+SBP="$SCRIPTS/setup-branch-protection.sh"
+SBP_BIN="$WORK/sbp-bin"
+SBP_DATA="$WORK/sbp-data"
+mkdir -p "$SBP_BIN" "$SBP_DATA"
+cat > "$SBP_BIN/gh" <<'FAKEGH'
+#!/usr/bin/env bash
+# Fake gh for setup-branch-protection.sh. A call with `--input -` saves its
+# body to $SBP_DATA/<api path with / as _>.json; the reads answer as a repo
+# whose branches exist, with no ruleset and auto-deletion already off.
+printf '%s\n' "$*" >> "$SBP_DATA/calls"
+[ "${1:-}" = api ] || exit 90
+case "$*" in
+  *"--input -"*)
+    for a in "$@"; do case "$a" in repos/*) p="$a" ;; esac; done
+    cat > "$SBP_DATA/$(printf '%s' "$p" | tr '/' '_').json" ;;
+  *".delete_branch_on_merge"*) echo false ;;
+  "api repos/o/r/rulesets -q "*) : ;;
+  "api repos/o/r/branches/"*) : ;;
+  *) echo "fake gh: unexpected call: $*" >&2; exit 91 ;;
+esac
+FAKEGH
+chmod +x "$SBP_BIN/gh"
+
+# sbp_payload <file> — the body with all whitespace removed, so a case can
+# match a key and its value whatever the heredoc's indentation.
+sbp_payload() { tr -d ' \t\r\n' < "$SBP_DATA/$1"; }
+
+# sbp_has <file> <needle> <description>
+sbp_has() {
+  TOTAL=$((TOTAL + 1))
+  if [ -f "$SBP_DATA/$1" ] && grep -qF -- "$2" <<< "$(sbp_payload "$1")"; then
+    [ -n "$VERBOSE" ] && printf '   ok   %s\n' "$3"
+    return 0
+  fi
+  printf '   FAIL %s\n' "$3"
+  if [ -f "$SBP_DATA/$1" ]; then sed 's/^/        | /' "$SBP_DATA/$1"; else printf '        | (no body was sent to %s)\n' "$1"; fi
+  FAILED=$((FAILED + 1))
+  return 1
+}
+
+section "setup-branch-protection.sh — strict per branch (WU-IAENG-384)"
+
+new_repo sbp
+mkdir -p .ia-engineering
+echo github > .ia-engineering/host
+expect 0 "setup-branch-protection.sh runs against the stubbed API" -- env PATH="$SBP_BIN:$PATH" SBP_DATA="$SBP_DATA" bash "$SBP" o/r
+SBP_MAIN=repos_o_r_branches_main_protection.json
+SBP_DEV=repos_o_r_branches_develop_protection.json
+sbp_has "$SBP_MAIN" '"required_status_checks":{"strict":true,' "main: strict is true (up to date with main before merging)"
+sbp_has "$SBP_DEV" '"required_status_checks":{"strict":false,' "develop: strict is false (Director, 22 Oct 2026)"
+sbp_has repos_o_r_rulesets.json '"strict_required_status_checks_policy":true,' "release/*: the ruleset stays strict"
+
+TOTAL=$((TOTAL + 1))
+if [ -f "$SBP_DATA/$SBP_MAIN" ] && [ -f "$SBP_DATA/$SBP_DEV" ] \
+  && [ "$(sbp_payload "$SBP_MAIN" | sed 's/"strict":[a-z]*,//')" = "$(sbp_payload "$SBP_DEV" | sed 's/"strict":[a-z]*,//')" ]; then
+  [ -n "$VERBOSE" ] && printf '   ok   main and develop payloads differ in strict alone\n'
+else
+  printf '   FAIL main and develop payloads differ in more than strict, or one was not sent\n'
+  FAILED=$((FAILED + 1))
+fi
+
+# Off GitHub the script configures nothing and prints the checklist a human
+# follows; that checklist must not tell them to make develop strict either.
+echo none > .ia-engineering/host
+expect 1 "setup-branch-protection.sh off GitHub prints the checklist and changes nothing" -- env PATH="$SBP_BIN:$PATH" SBP_DATA="$SBP_DATA" bash "$SBP"
+expect_output "require the branch to be up to date with its base before merging, on main"
+expect_output "and release/* only: NOT on develop"
+
 # ------------------------------------------------- generate-agents.sh -------
 #
 # generate-agents.sh lives under Adapters/ai-runtimes/, a sibling of
