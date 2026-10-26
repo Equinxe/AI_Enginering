@@ -60,9 +60,9 @@ Before this workflow begins:
 
 No hotfix work begins without this authorization.
 
-The authorization starts the hotfix; it is not the approval of its plan. The Main Agent plans the hotfix's Work Units as `Core/ORCHESTRATION.md` Step 3 defines them, and that plan is approved by the Director before Step 2 is dispatched. A plan that carries a Medium-or-higher action (`Standards/RISK_STANDARD.md`) goes through the Technical Lead's Plan Review first (`Employees/Management/TECHNICAL_LEAD.md`, Process, Plan Review). Urgency shortens neither.
+The authorization starts the hotfix; on its own it is not the approval of its plan. The Main Agent plans the hotfix's Work Units as `Core/ORCHESTRATION.md` Step 3 defines them, and the Director approves that plan before this workflow's Step 2 is dispatched. A plan that carries a Medium-or-higher action (`Standards/RISK_STANDARD.md`) goes through the Technical Lead's Plan Review first (`Employees/Management/TECHNICAL_LEAD.md`, Process, Plan Review). Planning and its Plan Review are not hotfix work: the Main Agent may present the plan, with its Plan Review record, together with the request for authorization, and the Director then authorizes the hotfix and approves its plan in one decision, recorded as both. Urgency shortens neither the plan nor its review.
 
-**Output:** Director authorization documented; the hotfix plan approved by the Director, with its Plan Review record when one is required.
+**Output:** Director authorization documented; the hotfix plan approved by the Director, in the same decision or after it, with its Plan Review record when one is required.
 
 ---
 
