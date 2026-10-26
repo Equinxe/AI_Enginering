@@ -816,6 +816,10 @@ while IFS=$'\t' read -r fam st path detail; do
     hook:absent) HOOK_ENTRIES=$((HOOK_ENTRIES + 1)); rec config absent "hook: $detail" "re-run $REL/Adapters/ai-runtimes/claude-code/install-hooks.sh: it merges the missing entry" ;;
     hook:near-miss) rec config near-miss "hook: $detail" "information: the framework's own entry runs beside it" ;;
     hook:unchecked) rec config indeterminate "hook entries" "$detail" ;;
+    statusline:present) rec config present "statusLine: $detail" "" ;;
+    statusline:absent) rec config absent "statusLine: $detail" "re-run $REL/Adapters/ai-runtimes/claude-code/install-hooks.sh: it installs the context statusLine, wrapping the project's own" ;;
+    statusline:near-miss) rec config near-miss "statusLine: $detail" "information: the project's own statusLine is kept; the context % is not recorded" ;;
+    statusline:shadowed) rec config shadowed "$path: statusLine $detail" "information: this developer's own statusLine runs instead" ;;
     gitattributes:present) rec config present "$path: $detail" "" ;;
     gitattributes:missing) rec config missing "$path: $detail" "re-run $REL/Adapters/ai-runtimes/claude-code/install-hooks.sh" ;;
     *:fault) rec config indeterminate "$path" "$detail" ;;

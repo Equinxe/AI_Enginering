@@ -26,6 +26,21 @@
 # framework's hooks does not delete its entry — a re-run adds it back — but
 # uses the hook's own switch where it has one (hooks/README.md).
 #
+# THE STATUS LINE IS INSTALLED BY DEFAULT AND NEVER HIDES ANOTHER (WU-IAENG-379,
+# Director decision of 23 Oct 2026). The template's "statusLine" runs
+# hooks/context-statusline.sh, which records the context % for the context
+# alert. A statusLine in the project's settings.json wins over the user's
+# own (settings precedence), so the script runs the user's ~/.claude one
+# itself. When the project's settings.json already has a statusLine of its
+# own, it is not replaced: its command is wrapped, the framework's command
+# followed by --chain and the project's command single-quoted, every other
+# field of it (padding, refreshInterval) kept; the exec form ("args") is
+# folded into that command. A statusLine already running the framework's
+# script, chained or not, is present and left alone. One that runs under
+# "shell": "powershell", or is not a command, is kept as it is and reported:
+# the context % is then not recorded. A statusLine in settings.local.json,
+# which wins over the project's, is reported and never changed.
+#
 # The project's .gitattributes gets the line "/.claude/settings.json text
 # eol=lf" when it does not have it yet (issue #242), so a clone with
 # core.autocrlf=true checks the file out as it was written; nothing else in
@@ -55,6 +70,10 @@
 #   hook           present | absent | near-miss | unchecked   (detail: the
 #                  template entry, or the near-miss command; from the same jq
 #                  computation a merge uses, so "present" has one definition)
+#   statusline     present | absent | near-miss | shadowed   (present: the
+#                  framework's, chaining the project's own or not; absent: a
+#                  run installs or wraps it; near-miss: the project's own
+#                  kept unwrapped; shadowed: settings.local.json sets one)
 #   gitattributes  present | missing          (detail: the LF rule)
 #   framework      fault                      (the framework copy is unusable)
 #
@@ -163,12 +182,15 @@ check_report() {
       END {
         line = "# install-hooks.sh --check: " (act + 0) " to act on. " part("settings", "settings item(s)", "current absent customized disabled fault")
         line = line "; " part("hook", "hook entries", "present absent near-miss unchecked fault")
+        line = line "; " part("statusline", "statusLine(s)", "present absent near-miss shadowed")
         line = line "; " part("gitattributes", ".gitattributes rule(s)", "present missing")
         line = line "; " (f + 0) " fault(s)."
-        if (s["settings" FS "absent"] || s["hook" FS "absent"] || s["gitattributes" FS "missing"])
+        if (s["settings" FS "absent"] || s["hook" FS "absent"] || s["statusline" FS "absent"] || s["gitattributes" FS "missing"])
           line = line " absent/missing: re-run " ENVIRON["IAENG_ME"] " without --force; it adds them and keeps every entry already there."
         if (s["hook" FS "near-miss"])
           line = line " near-miss: check each is not a weakened copy; the framework entry runs beside it."
+        if (s["statusline" FS "near-miss"] || s["statusline" FS "shadowed"])
+          line = line " statusLine near-miss/shadowed: another status line runs and the context % is not recorded (hooks/README.md, Context Status Line)."
         if (s["settings" FS "disabled"])
           line = line " disabled: \"disableAllHooks\": true switches off every hook, the guards included; remove it there for them to run."
         if (f) line = line " fault: read the fault record(s); nothing is current until they are fixed."
@@ -237,7 +259,7 @@ if [ "$PRINT" -eq 1 ]; then
   exit 0
 fi
 
-HOOK_LIST="SessionStart read-first, PreToolUse escape-hatch and inline-suppression blocks, PostToolUse lint, Stop gate, Stop usage-dashboard refresh (never blocks; opt-out in hooks/README.md)."
+HOOK_LIST="SessionStart read-first, PreToolUse escape-hatch and inline-suppression blocks, PostToolUse lint, Stop gate, Stop usage-dashboard refresh (never blocks; opt-out in hooks/README.md); statusLine recording the context % and running your own status line (hooks/README.md, Context Status Line)."
 
 DEST="$PROJECT/.claude/settings.json"
 
@@ -319,9 +341,14 @@ ensure_lf_rule() {
 # the warning. Exit 1 when the rule could not be written — settings.json is
 # installed, but not as the project will clone it.
 finish() {
-  local rc=0
+  local rc=0 sl
   ensure_lf_rule || rc=1
   warn_if_hooks_disabled
+  sl="$(statusline_shadowed)"
+  if [ -n "$sl" ]; then
+    echo "! .claude/settings.local.json sets its own statusLine ($sl): Claude Code runs it instead of the" >&2
+    echo "  project's, so the context % is not recorded for you. This installer does not change it." >&2
+  fi
   return "$rc"
 }
 
@@ -356,13 +383,15 @@ settings_mergeable() {
   # the other one is reported as a near miss for the project to check, naming
 # the fields that differ when its command is the template's.
 merge_settings() {
-  jq --argjson tpl "$RENDERED" '
+  jq --argjson tpl "$RENDERED" --arg q "'" --arg qesc "'\"'\"'" '
     def norm: gsub("[$][{]CLAUDE_PROJECT_DIR[}]"; "$CLAUDE_PROJECT_DIR") | gsub("/[.]/"; "/");
     def nentry: if type == "object" and (.command | type) == "string" then .command |= norm else . end;
     def nentries: [.hooks[]? | nentry];
     def scripts: [.hooks[]?.command // "" | strings | scan("hooks/([A-Za-z0-9._-]+[.]sh)") | .[0]];
     def where($ev): $ev + (if (.matcher // "") != "" then " [" + .matcher + "]" else "" end);
     def differ($a; $b): [[$a, $b][] | keys[]] | unique | map(select(. as $k | $a[$k] != $b[$k]));
+    def iscmd: type == "object" and .type == "command" and (.command | type) == "string";
+    def shq: $q + gsub($q; $qesc) + $q;
     . as $cur
     | ([$tpl.hooks[][] | scripts[]] | unique) as $names
     | reduce ($tpl.hooks | to_entries[]) as $e ({m: ., a: [], p: []};
@@ -385,7 +414,43 @@ merge_settings() {
              | ($grp | where($ev)) + ": " + $c
                + (if $same == null then ""
                   else "  (the framework command; differs in: " + (differ($same; $hn) | join(", ")) + ")"
-                  end) ]' 2>/dev/null | tr -d '\r'
+                  end) ]
+    | ($tpl.statusLine // null) as $tsl
+    | ($cur.statusLine // null) as $csl
+    | ($tsl.command // "" | norm) as $ours
+    | if $tsl == null then .sl = null
+      elif $csl == null then
+        .m.statusLine = $tsl | .sl = {st: "absent", d: "context-statusline.sh"}
+      elif ($csl | iscmd) and ($csl.command | norm) == $ours then
+        .sl = {st: "present", d: "context-statusline.sh"}
+      elif ($csl | iscmd) and ($csl.command | norm | startswith($ours + " --chain ")) then
+        .sl = {st: "present", d: ("context-statusline.sh, chaining the project statusLine "
+                                  + ($csl.command | norm | ltrimstr($ours + " --chain ")))}
+      elif ($csl | iscmd) and (($csl.shell // "bash") == "bash")
+           and ($csl.args == null or ($csl.args | type) == "array") then
+        (if ($csl.args | type) == "array" then [$csl.command] + ($csl.args | map(tostring)) | @sh
+         else $csl.command end) as $own
+        | .m.statusLine = (($csl | del(.args)) + {command: ($tsl.command + " --chain " + ($own | shq))})
+        | .sl = {st: "absent", d: ("context-statusline.sh, chaining the project statusLine " + $own)}
+      else
+        .sl = {st: "near-miss", d: ("the project statusLine is kept as it is ("
+               + (if ($csl | iscmd) then "it runs under " + ($csl.shell | tostring) else "not a command statusLine" end)
+               + "): the context % is not recorded")}
+      end' 2>/dev/null | tr -d '\r'
+}
+
+# statusline_shadowed — prints the command of a statusLine that
+# .claude/settings.local.json sets, other than the framework's: Claude Code
+# runs that one instead of the project's (settings precedence), so the
+# context % is not recorded for that developer. Never changed here.
+statusline_shadowed() {
+  local f="$PROJECT/.claude/settings.local.json" c
+  [ -f "$f" ] && command -v jq >/dev/null 2>&1 || return 1
+  c="$(jq -r 'if type == "object" and .statusLine != null
+              then (.statusLine.command // "(no command)" | tostring) else empty end' "$f" 2>/dev/null | tr -d '\r')"
+  [ -n "$c" ] || return 1
+  case "$c" in *context-statusline.sh*) return 1 ;; esac
+  printf '%s\n' "$c"
 }
 
 # --check: the decisions above, recorded; nothing below it runs.
@@ -419,7 +484,16 @@ if [ "$CHECK" -eq 1 ]; then
       | jq -r 'def flat: gsub("[\t\n\r]"; " ");
                (.p[] | "present\t" + flat), (.a[] | "absent\t" + flat), (.w[] | "near-miss\t" + flat)' 2>/dev/null \
       | sed $'s/\r$//')
+    while IFS=$'\t' read -r _st _d; do
+      [ -n "$_st" ] && record statusline "$_st" "$REL_DEST" "$_d"
+    done < <(printf '%s\n' "$MERGED" \
+      | jq -r '.sl | select(. != null) | .st + "\t" + (.d | gsub("[\t\n\r]"; " "))' 2>/dev/null \
+      | sed $'s/\r$//')
   fi
+  while IFS= read -r _c; do
+    [ -n "$_c" ] && record statusline shadowed .claude/settings.local.json \
+      "$_c: Claude Code runs this one instead of the project statusLine, so the context % is not recorded for this developer"
+  done <<< "$(statusline_shadowed)"
   while IFS= read -r _f; do
     [ -n "$_f" ] && record settings disabled "$_f" '"disableAllHooks": true'
   done <<< "$(hooks_disabled_in)"
@@ -449,9 +523,13 @@ if [ -f "$DEST" ] && [ "$FORCE" -eq 0 ]; then
   command -v jq >/dev/null 2>&1 || merge_by_hand "jq is not installed to merge into it"
   settings_mergeable || merge_by_hand "it is not one JSON object with an object 'hooks'"
   MERGED="$(merge_settings < "$DEST")" || merge_by_hand "the merge failed"
-  ADDED="$(printf '%s\n' "$MERGED" | jq -r '.a[]' | tr -d '\r')"
-  PRESENT="$(printf '%s\n' "$MERGED" | jq -r '.p[]' | tr -d '\r')"
+  # The statusLine is listed with the hook entries: added (installed, or
+  # wrapped around the project's own) or present; a near miss is on stderr.
+  ADDED="$(printf '%s\n' "$MERGED" | jq -r '.a[], (.sl | select(.st? == "absent") | "statusLine: " + .d)' | tr -d '\r')"
+  PRESENT="$(printf '%s\n' "$MERGED" | jq -r '.p[], (.sl | select(.st? == "present") | "statusLine: " + .d)' | tr -d '\r')"
   NEAR="$(printf '%s\n' "$MERGED" | jq -r '.w[]' | tr -d '\r')"
+  SL_NEAR="$(printf '%s\n' "$MERGED" | jq -r '.sl | select(.st? == "near-miss") | .d' | tr -d '\r')"
+  [ -z "$SL_NEAR" ] || echo "! $DEST: statusLine: $SL_NEAR (hooks/README.md, Context Status Line)." >&2
   if [ -n "$NEAR" ]; then
     {
       echo "! $DEST: these commands name a framework hook script but are not the framework's entry"

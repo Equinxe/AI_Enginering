@@ -1514,9 +1514,9 @@ work_units:
 
   - id: WU-IAENG-379
     employee: Platform Engineer
-    title: Reserved 23 Oct 2026 before dispatch (WU-IAENG-381) - context statusLine wrapper (compaction plan of 23 Oct 2026, WU-B) - a statusLine wrapper that writes the context occupancy percentage to a per-user file and chains the user's existing statusLine
+    title: Context statusLine wrapper (compaction plan of 23 Oct 2026, WU-B, issue #304) - a statusLine command, on by default through install-hooks.sh, that writes the context occupancy percentage to a per-user file with the peer kit's guards and a session id shape check, and runs the user's own statusLine or wraps the project's instead of hiding it
     milestone: Adoption
-    delivers: planned - a statusLine wrapper and its tests under Adapters/ai-runtimes/claude-code/, CHANGELOG.md, Registry/work-units.yml
+    delivers: Adapters/ai-runtimes/claude-code/hooks/context-statusline.sh, Adapters/ai-runtimes/claude-code/hooks/tests/context-statusline.sh, Adapters/ai-runtimes/claude-code/hooks/tests/run.sh, Adapters/ai-runtimes/claude-code/hooks/README.md, Adapters/ai-runtimes/claude-code/install-hooks.sh, Adapters/ai-runtimes/claude-code/settings.example.json, Adapters/scripts/check-framework-drift.sh, Adapters/scripts/tests/run.sh, .claude/settings.json, changelog.d/WU-IAENG-379.md, Registry/work-units.yml
 
   - id: WU-IAENG-380
     employee: Platform Engineer

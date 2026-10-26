@@ -1,0 +1,7 @@
+### Added
+
+- A context status line, on by default (compaction plan of 23 October 2026, step B). `Adapters/ai-runtimes/claude-code/hooks/context-statusline.sh` is the `statusLine` command that `install-hooks.sh` now installs. It writes the context occupancy to `${TMPDIR:-/tmp}/iaeng-ctx-<uid>/<session_id>.pct` for the context alert. It checks the session id's shape, so no path can be built from it. The directory is 0700, owned by the user and not a link, and the file is written to a new name and renamed, never through a link. The script then prints your own status line: the one in `~/.claude/settings.json`, which a project statusLine would otherwise hide, or the project's own, which `install-hooks.sh` wraps (`--chain`) instead of replacing. With neither, it prints a line of its own: ctx %, 5 h quota, control characters removed, `NO_COLOR` honoured. It exits 0 with a non-empty line on every input. `install-hooks.sh --check` reports the statusLine as `present`, `absent`, `near-miss` (a PowerShell one is kept) or `shadowed` (by `settings.local.json`). It is turned off by `.ia-engineering/context-hooks.off` or `IAENG_CONTEXT_HOOKS=off`, and tested by `hooks/tests/context-statusline.sh` (#304, WU-IAENG-379)
+
+### Notes
+
+- Re-run `install-hooks.sh` to get the context status line: it adds the `statusLine` to `.claude/settings.json`, wrapping a statusLine the project already has (`check-framework-drift.sh` reports it `absent` until then). Commit the file and restart the session (#304, WU-IAENG-379)
