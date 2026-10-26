@@ -59,6 +59,8 @@ Before this workflow begins:
 
 No hotfix work begins without this authorization.
 
+The authorization starts the hotfix; it is not the approval of its plan. The Main Agent plans the hotfix's Work Units as `Core/ORCHESTRATION.md` Step 3 defines them, and that plan is approved by the Director before Step 2 is dispatched. A plan that carries a Medium-or-higher action (`Standards/RISK_STANDARD.md`) goes through the Technical Lead's Plan Review first (`Employees/Management/TECHNICAL_LEAD.md`, Process, Plan Review). Urgency shortens neither.
+
 **Output:** Director authorization documented.
 
 ---
@@ -220,7 +222,7 @@ This workflow is complete when:
 
 Owner: IA Engineering
 
-Version: 0.0.9.4
+Version: 0.0.10
 
 Status: Draft
 
