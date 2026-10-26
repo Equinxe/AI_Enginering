@@ -340,5 +340,17 @@ if [ -n "$DRIFT_SH" ] && [ -f "$DRIFT_SH" ] && ! [ "$ROOT" -ef "$BASE" ]; then
   fi
 fi
 
+# --- Context alert threshold (WU-IAENG-380) ---------------------------------
+# context-alert.sh --session-start prints a line only when the context alert
+# would come after the estimated auto-compaction, or its threshold is not a
+# number; otherwise nothing. Run here rather than from a SessionStart entry of
+# its own, so the template keeps one SessionStart group. It reads only the
+# environment, exits 0 on every path, and its stderr is dropped.
+CTX_ALERT_SH="$(dirname "$0")/context-alert.sh"
+if [ -f "$CTX_ALERT_SH" ]; then
+  CTX_WARN="$(bash "$CTX_ALERT_SH" --session-start </dev/null 2>/dev/null)"
+  [ -n "$CTX_WARN" ] && printf '%s\n\n' "$CTX_WARN"
+fi
+
 echo "Rules enforced by hooks in this session (Adapters/ai-runtimes/claude-code/hooks/): no escape hatch in shell commands (Standards/GIT_STANDARD.md), no inline lint/test suppression in code (Standards/CODE_QUALITY_STANDARD.md), no stopping with uncommitted tracked changes unexplained (Core/AGENT_CONDUCT.md, Reporting Contract). Every Work Unit ends with a Work Unit Report (Templates/WORK_UNIT_REPORT.md) — a bare Done is a failed Work Unit."
 exit 0

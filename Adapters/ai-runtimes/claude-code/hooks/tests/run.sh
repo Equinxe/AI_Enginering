@@ -732,6 +732,25 @@ else
 fi
 rm -f "$DRIFT_COUNTS"
 
+# --- Context alert (WU-IAENG-380) ---------------------------------------------
+# Its own file too (tests/context-alert.sh), counted here the same way.
+ALERT_COUNTS="$(mktemp "${TMPDIR:-/tmp}/iaeng-alert-counts.XXXXXX")"
+IAENG_HOOK_TESTS_COUNTS="$ALERT_COUNTS" bash "$HERE/context-alert.sh" ${DASH_ARGS[@]+"${DASH_ARGS[@]}"}
+ALERT_RC=$?
+if read -r ALERT_TOTAL ALERT_FAILED < "$ALERT_COUNTS" 2>/dev/null \
+    && [[ "$ALERT_TOTAL" =~ ^[0-9]+$ ]] && [[ "$ALERT_FAILED" =~ ^[0-9]+$ ]] && [ "$ALERT_TOTAL" -gt 0 ]; then
+  TOTAL=$((TOTAL + ALERT_TOTAL))
+  FAILED=$((FAILED + ALERT_FAILED))
+  if [ "$ALERT_RC" -ne 0 ] && [ "$ALERT_FAILED" -eq 0 ]; then
+    TOTAL=$((TOTAL + 1)); FAILED=$((FAILED + 1))
+    echo "   FAIL  tests/context-alert.sh exited $ALERT_RC with no failed check counted"
+  fi
+else
+  TOTAL=$((TOTAL + 1)); FAILED=$((FAILED + 1))
+  echo "   FAIL  tests/context-alert.sh reported no counts (exit $ALERT_RC) — it could not run"
+fi
+rm -f "$ALERT_COUNTS"
+
 # --- Verdict ----------------------------------------------------------------
 
 echo

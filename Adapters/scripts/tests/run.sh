@@ -7441,7 +7441,7 @@ expect 0 "install-hooks.sh --check on an installed project exits 0" -- bash "$HK
 expect_output "settings${T}current${T}.claude/settings.json${T}the template, rendered for framework root ia-engineering"
 expect_output "hook${T}present${T}.claude/settings.json${T}PreToolUse [Bash]: block-escape-hatches.sh"
 expect_output "hook${T}present${T}.claude/settings.json${T}Stop: dashboard-refresh.sh"
-expect_output "# install-hooks.sh --check: 0 to act on. 1 settings item(s): 1 current; 6 hook entries: 6 present; 1 .gitattributes rule(s): 1 present; 0 fault(s)."
+expect_output "# install-hooks.sh --check: 0 to act on. 1 settings item(s): 1 current; 8 hook entries: 8 present; 1 .gitattributes rule(s): 1 present; 0 fault(s)."
 expect 0 "install-hooks.sh --check --quiet on an installed project exits 0" -- bash "$HK_357" --check --quiet
 expect_empty_357 "install-hooks.sh --check --quiet prints nothing when nothing needs acting on"
 expect 0 "install-skills.sh --check on an installed project exits 0" -- bash "$SK_357" --check
@@ -7497,7 +7497,7 @@ jq_edit_357 '.hooks.Stop |= map(select([.hooks[].command] | any(test("dashboard-
 expect 3 "a missing framework entry alone is drift (exit 3)" -- bash "$HK_357" --check
 expect_output "settings${T}customized${T}.claude/settings.json"
 expect_output "hook${T}absent${T}.claude/settings.json${T}Stop: dashboard-refresh.sh"
-expect_output "# install-hooks.sh --check: 1 to act on. 1 settings item(s): 1 customized; 6 hook entries: 5 present, 1 absent; 1 .gitattributes rule(s): 1 present; 0 fault(s). absent/missing:"
+expect_output "# install-hooks.sh --check: 1 to act on. 1 settings item(s): 1 customized; 8 hook entries: 7 present, 1 absent; 1 .gitattributes rule(s): 1 present; 0 fault(s). absent/missing:"
 expect 3 "--check --quiet keeps the missing entry" -- bash "$HK_357" --check --quiet
 expect_output "hook${T}absent${T}.claude/settings.json${T}Stop: dashboard-refresh.sh"
 expect_no_output "${T}present${T}" "--check --quiet leaves out the present entries"
@@ -7515,7 +7515,7 @@ jq_edit_357 '.hooks.PreToolUse += [.hooks.PreToolUse[] | select(.matcher == "Bas
 expect 0 "a near miss beside the framework's own entry is information, not drift (exit 0)" -- bash "$HK_357" --check
 expect_output "hook${T}near-miss${T}.claude/settings.json${T}PreToolUse [Bash]: "
 expect_output "(the framework command; differs in: timeout)"
-expect_output "# install-hooks.sh --check: 0 to act on. 1 settings item(s): 1 customized; 7 hook entries: 6 present, 1 near-miss;"
+expect_output "# install-hooks.sh --check: 0 to act on. 1 settings item(s): 1 customized; 9 hook entries: 8 present, 1 near-miss;"
 expect_output "near-miss: check each is not a weakened copy"
 expect 0 "--check --quiet is silent on a near miss alone" -- bash "$HK_357" --check --quiet
 expect_empty_357 "--check --quiet prints nothing for a near miss alone"
@@ -7536,7 +7536,7 @@ printf '{"disableAllHooks": true}\n' > .claude/settings.local.json
 expect 3 "disableAllHooks in settings.local.json alone is drift (exit 3)" -- bash "$HK_357" --check
 expect_output "settings${T}current${T}.claude/settings.json"
 expect_output "settings${T}disabled${T}.claude/settings.local.json${T}\"disableAllHooks\": true"
-expect_output "# install-hooks.sh --check: 1 to act on. 2 settings item(s): 1 current, 1 disabled; 6 hook entries: 6 present;"
+expect_output "# install-hooks.sh --check: 1 to act on. 2 settings item(s): 1 current, 1 disabled; 8 hook entries: 8 present;"
 expect_output "disabled: \"disableAllHooks\": true switches off every hook"
 expect 3 "--check --quiet keeps the switch" -- bash "$HK_357" --check --quiet
 expect_output "settings${T}disabled${T}.claude/settings.local.json"
