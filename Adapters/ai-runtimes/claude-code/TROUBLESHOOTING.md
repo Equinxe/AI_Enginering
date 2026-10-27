@@ -77,6 +77,28 @@ Audience: the operator who runs `claude` with the framework installed. Pages che
 - **This entry.** It makes the five causes quick to rule out.
 - **The framework's `SessionStart` hook.** `install-hooks.sh` installs `hooks/session-start.sh` from `settings.example.json`. Claude Code runs a `SessionStart` hook that matches the `compact` source after compaction and adds its output to the compacted context ([What survives compaction](https://code.claude.com/docs/en/context-window.md#what-survives-compaction)). The hook prints the reading order and `SESSION_STATE.md`'s header, Next Step and blockers, so the session resumes from the recorded state, not from the summary alone. `/clear` fires the separate `clear` source ([Matcher patterns](https://code.claude.com/docs/en/hooks.md#matcher-patterns)). Since WU-IAENG-373, the template's matcher is `startup|resume|clear|compact`, so the hook also runs after `/clear` and re-injects the same state. A project installed before it gets `clear` when it re-runs `install-hooks.sh`, which updates the framework's earlier entry in place (`hooks/README.md`, Installation). Check the `SessionStart` matcher in the project's `.claude/settings.json` for what your installation does: without `clear`, the state is not re-injected after `/clear`.
 
+## B. Your own status line no longer shows, or you want the context status line off
+
+Audience: the operator, after `install-hooks.sh` has installed the context status line (WU-IAENG-379, issue #304). Pages checked on 26 October 2026.
+
+**Symptom.** The status line shows `[<model>] ctx <n>% | 5h <n>%` where your own status line used to be. Or you want the framework's status line gone.
+
+**Cause.** A `statusLine` in the project's `.claude/settings.json` wins over the one in your `~/.claude/settings.json` ([Settings precedence](https://code.claude.com/docs/en/settings.md#settings-precedence)). The framework's `hooks/context-statusline.sh` therefore runs your own command itself and prints its output. Its own line appears instead in four cases:
+- your command exited non-zero, printed nothing, or took longer than `IAENG_CTX_CHAIN_TIMEOUT` seconds (10 by default). Claude Code also shows nothing for an empty output or a non-zero exit ([Script errors or hangs](https://code.claude.com/docs/en/statusline.md#script-errors-or-hangs));
+- `jq` is not installed and your `statusLine` command holds a `\u` escape, which the script does not decode without `jq`;
+- you have no `statusLine` of your own;
+- your `statusLine` is in a `settings.local.json`. That one wins over the project's for you alone, so the framework's never runs, and `install-hooks.sh --check` reports it as `shadowed`.
+
+**Remedy.** The one line that turns it off, run from the project root:
+
+```bash
+touch .ia-engineering/context-hooks.off
+```
+
+From the next update on, the script writes nothing and runs your own status line in its place, so you see exactly what you saw before the install, or nothing if you had none. The same holds with `IAENG_CONTEXT_HOOKS=off` in the environment Claude Code is launched from. Commit the file to turn it off for the whole project, or keep it untracked for yourself only. Do not delete the `statusLine` key instead: the next `install-hooks.sh` run adds it back. To check that your own command works on its own, run it with a sample payload, as the [status line page](https://code.claude.com/docs/en/statusline.md#script-errors-or-hangs) advises.
+
+**Prevention.** `install-hooks.sh --check` reports the statusLine as `present`, `absent`, `near-miss` (a project statusLine kept as it is, such as one that runs under PowerShell) or `shadowed`. `hooks/README.md`, Context Status Line, gives the full contract.
+
 ---
 
 # Adding an Entry

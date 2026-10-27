@@ -819,7 +819,7 @@ while IFS=$'\t' read -r fam st path detail; do
     statusline:present) rec config present "statusLine: $detail" "" ;;
     statusline:absent) rec config absent "statusLine: $detail" "re-run $REL/Adapters/ai-runtimes/claude-code/install-hooks.sh: it installs the context statusLine, wrapping the project's own" ;;
     statusline:near-miss) rec config near-miss "statusLine: $detail" "information: the project's own statusLine is kept; the context % is not recorded" ;;
-    statusline:shadowed) rec config shadowed "$path: statusLine $detail" "information: this developer's own statusLine runs instead" ;;
+    statusline:shadowed) rec config near-miss "$path: statusLine $detail" "information: this developer's own statusLine runs instead; the installer never changes settings.local.json" ;;
     gitattributes:present) rec config present "$path: $detail" "" ;;
     gitattributes:missing) rec config missing "$path: $detail" "re-run $REL/Adapters/ai-runtimes/claude-code/install-hooks.sh" ;;
     *:fault) rec config indeterminate "$path" "$detail" ;;

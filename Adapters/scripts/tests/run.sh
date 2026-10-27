@@ -7737,8 +7737,10 @@ expect_output "file${T}current${T}.github/workflows/data-policy.yml${T}"
 expect_output "file${T}project-owned${T}.ia-engineering/risk-map.yml${T}"
 expect_output "config${T}present${T}.gitattributes: /Registry/work-units.yml text eol=lf${T}"
 expect_output "# check-framework-drift: 4 to act on, 0 indeterminate. 3 version item(s): 1 tagged, 1 latest, 1 recorded. 14 file(s) compared: 6 current, 2 absent, 1 stale, 5 project-owned."
-expect_output "7 command path(s): 7 ok."
+expect_output "8 command path(s): 8 ok."
 expect_output "path${T}ok${T}ia-engineering/Adapters/ai-runtimes/claude-code/hooks/session-start.sh${T}"
+expect_output "path${T}ok${T}ia-engineering/Adapters/ai-runtimes/claude-code/hooks/context-statusline.sh${T}"
+expect_output "config${T}present${T}statusLine: context-statusline.sh${T}"
 fields_358 "every tsv record has four fields (DEF-01)"
 T0_358="$(date +%s%N)"
 expect 0 "the text format reports the same, and exits 0 without --strict" -- bash "$DRIFT_358"
@@ -7776,6 +7778,25 @@ expect 1 "a file the project is expected to edit is customized, information only
 expect_output "file${T}customized${T}.github/ISSUE_TEMPLATE/config.yml${T}expected to differ"
 expect_output "# check-framework-drift: 4 to act on, 0 indeterminate."
 git checkout -q -- .github/ISSUE_TEMPLATE/config.yml
+
+# The statusline records of install-hooks.sh --check (WU-IAENG-379): absent
+# is drift; a project statusLine kept unwrapped, or one in settings.local.json
+# that shadows the project's, is information and adds nothing to act on.
+jq 'del(.statusLine)' .claude/settings.json | tr -d '\r' > st.tmp && mv st.tmp .claude/settings.json
+expect 1 "a settings.json without the statusLine is drift" -- bash "$DRIFT_358" --format tsv --strict
+expect_output "config${T}absent${T}statusLine: context-statusline.sh${T}re-run ia-engineering/Adapters/ai-runtimes/claude-code/install-hooks.sh: it installs the context statusLine"
+expect_output "# check-framework-drift: 5 to act on, 0 indeterminate."
+git checkout -q -- .claude/settings.json
+jq '.statusLine = {type: "command", command: "Write-Output hi", shell: "powershell"}' .claude/settings.json | tr -d '\r' > st.tmp && mv st.tmp .claude/settings.json
+expect 1 "a PowerShell project statusLine kept unwrapped is information" -- bash "$DRIFT_358" --format tsv --strict
+expect_output "config${T}near-miss${T}statusLine: the project statusLine is kept as it is (it runs under powershell)"
+expect_output "# check-framework-drift: 4 to act on, 0 indeterminate."
+git checkout -q -- .claude/settings.json
+printf '{"statusLine": {"type": "command", "command": "echo mine"}}\n' > .claude/settings.local.json
+expect 1 "a statusLine in settings.local.json is information, not drift" -- bash "$DRIFT_358" --format tsv --strict
+expect_output "config${T}near-miss${T}.claude/settings.local.json: statusLine echo mine: Claude Code runs this one instead"
+expect_output "# check-framework-drift: 4 to act on, 0 indeterminate."
+rm -f .claude/settings.local.json
 
 # --- the framework off a tag ----------------------------------------------------------
 # On a side branch of the framework, so the adopters below still see v2 as

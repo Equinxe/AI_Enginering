@@ -40,7 +40,10 @@
 # followed by --chain and the project's command single-quoted, every other
 # field of it (padding, refreshInterval) kept; the exec form ("args") is
 # folded into that command. A statusLine already running the framework's
-# script, chained or not, is present and left alone. One that runs under
+# script, chained or not, is present and left alone; one running it from an
+# earlier path (the framework moved) has that path updated in place, its
+# --chain kept, as WU-IAENG-373 does for an earlier matcher; any other
+# command naming the script is kept and reported. One that runs under
 # "shell": "powershell", or is not a command, is kept as it is and reported:
 # the context % is then not recorded. A statusLine in settings.local.json,
 # which wins over the project's, is reported and never changed.
@@ -366,6 +369,7 @@ finish() {
   warn_if_hooks_disabled
   sl="$(statusline_shadowed)"
   if [ -n "$sl" ]; then
+    flat "$sl"; sl="$FLAT"
     echo "! .claude/settings.local.json sets its own statusLine ($sl): Claude Code runs it instead of the" >&2
     echo "  project's, so the context % is not recorded for you. This installer does not change it." >&2
   fi
@@ -469,6 +473,14 @@ merge_settings() {
       elif ($csl | iscmd) and ($csl.command | norm | startswith($ours + " --chain ")) then
         .sl = {st: "present", d: ("context-statusline.sh, chaining the project statusLine "
                                   + ($csl.command | norm | ltrimstr($ours + " --chain ")))}
+      elif ($csl | iscmd)
+           and ($csl.command | test("^bash \"[^\"]*/hooks/context-statusline[.]sh\"( --chain .*)?$"; "s")) then
+        ($csl.command | capture("^bash \"[^\"]*/hooks/context-statusline[.]sh\"(?<rest>( --chain .*)?)$"; "s").rest) as $rest
+        | .m.statusLine = ($csl + {command: ($tsl.command + $rest)})
+        | .sl = {st: "absent", d: ("context-statusline.sh, updated in place from an earlier path: " + $csl.command)}
+      elif ($csl | iscmd) and ($csl.command | contains("context-statusline.sh")) then
+        .sl = {st: "near-miss", d: ("the project statusLine names context-statusline.sh in a form of its own and is kept as it is: "
+               + $csl.command)}
       elif ($csl | iscmd) and (($csl.shell // "bash") == "bash")
            and ($csl.args == null or ($csl.args | type) == "array") then
         (if ($csl.args | type) == "array" then [$csl.command] + ($csl.args | map(tostring)) | @sh
@@ -568,14 +580,22 @@ if [ -f "$DEST" ] && [ "$FORCE" -eq 0 ]; then
   command -v jq >/dev/null 2>&1 || merge_by_hand "jq is not installed to merge into it"
   settings_mergeable || merge_by_hand "it is not one JSON object with an object 'hooks'"
   MERGED="$(merge_settings < "$DEST")" || merge_by_hand "the merge failed"
-  # The statusLine is listed with the hook entries: added (installed, or
-  # wrapped around the project's own) or present; a near miss is on stderr.
-  ADDED="$(printf '%s\n' "$MERGED" | jq -r '.a[], (.sl | select(.st? == "absent") | "statusLine: " + .d)' | tr -d '\r')"
-  PRESENT="$(printf '%s\n' "$MERGED" | jq -r '.p[], (.sl | select(.st? == "present") | "statusLine: " + .d)' | tr -d '\r')"
+  ADDED="$(printf '%s\n' "$MERGED" | jq -r '.a[]' | tr -d '\r')"
+  PRESENT="$(printf '%s\n' "$MERGED" | jq -r '.p[]' | tr -d '\r')"
   NEAR="$(printf '%s\n' "$MERGED" | jq -r '.w[]' | tr -d '\r')"
   UPDATED="$(printf '%s\n' "$MERGED" | jq -r '.u[] | .l + "  (matcher was [" + .from + "])"' | tr -d '\r')"
-  SL_NEAR="$(printf '%s\n' "$MERGED" | jq -r '.sl | select(.st? == "near-miss") | .d' | tr -d '\r')"
-  [ -z "$SL_NEAR" ] || echo "! $DEST: statusLine: $SL_NEAR (hooks/README.md, Context Status Line)." >&2
+  # The statusLine is listed with the hook entries: added (installed, or
+  # wrapped around the project's own) or present; a near miss is on stderr.
+  # Its text holds a command read from the project's settings, so it is
+  # flattened as --check's records are: no control character reaches the
+  # terminal (SEC-IAENG-379-01).
+  SL_ST="$(printf '%s\n' "$MERGED" | jq -r '.sl.st? // empty' | tr -d '\r')"
+  flat "$(printf '%s\n' "$MERGED" | jq -r '.sl.d? // empty' | tr -d '\r')"; SL_D="$FLAT"
+  case "$SL_ST" in
+    absent) ADDED="${ADDED:+$ADDED$'\n'}statusLine: $SL_D" ;;
+    present) PRESENT="${PRESENT:+$PRESENT$'\n'}statusLine: $SL_D" ;;
+    near-miss) echo "! $DEST: statusLine: $SL_D (hooks/README.md, Context Status Line)." >&2 ;;
+  esac
   if [ -n "$NEAR" ]; then
     {
       echo "! $DEST: these commands name a framework hook script but are not the framework's entry"

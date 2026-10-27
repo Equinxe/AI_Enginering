@@ -27,14 +27,18 @@
 #     one else (on Windows, where Git Bash cannot set the mode, the profile's
 #     TEMP is the user's own and the emulated mode shows no write bit for
 #     others);
-#   - the file is written to a new name in that directory, with noclobber,
-#     then renamed over <session_id>.pct: a reader sees the old value or the
+#   - a find that fails is not read as "safe": the write is skipped;
+#   - at most once an hour, *.pct and *.alert regular files older than 24 h
+#     are deleted from that directory (clean_dir, below);
+#   - the file is written mode 0600 whatever the umask, to a new name in that
+#     directory, with noclobber, then renamed over <session_id>.pct: a reader sees the old value or the
 #     new one, never half of one. A rename replaces a symbolic link and never
 #     follows it, and a final name that exists but is a link or anything but
 #     a regular file is left alone and not written.
 #   Any failure skips the write. The status line is printed anyway.
 #
-# FAIL-OPEN, ALWAYS (AC3, AC7). Exit 0 on every path; never an empty line
+# FAIL-OPEN, ALWAYS (AC3, AC7). Exit 0 on every path but the switched-off
+# one (below); never an empty line
 # (Claude Code shows nothing for an empty output or a non-zero exit); no
 # message on stderr. Empty stdin, bad JSON, a hostile session id, a planted
 # link, a read-only TMP: the line is printed and nothing else happens.
@@ -48,9 +52,12 @@
 #     statusLine command; it is run with bash -c;
 #   - otherwise, the statusLine of ${CLAUDE_CONFIG_DIR:-~/.claude}/settings.json
 #     (type "command"): bash -c for a command, its argv for the exec form
-#     ("args"), powershell -Command for "shell": "powershell". A command that
-#     names this script is not chained (no loop), and a chained run sets
-#     IAENG_CTX_CHAINED=1 so a nested copy never chains again.
+#     ("args"), powershell -Command for "shell": "powershell". It is read with
+#     jq, or by pattern without jq (a flat statusLine object; a \u escape in
+#     it is not decoded, and that command is then not run). A command that
+#     names this script is not chained (no loop): a --chain one that does
+#     (an earlier framework path) falls back to the user's statusLine. A
+#     chained run sets IAENG_CTX_CHAINED=1 so a nested copy never chains.
 # The user's output is printed as it is, colours included: it is what Claude
 # Code showed before. It is used when the command exits 0 within
 # IAENG_CTX_CHAIN_TIMEOUT seconds (default 10, where `timeout` exists) and
@@ -64,9 +71,13 @@
 # empty: the ctx part is yellow at or above IAENG_CTX_ALERT_PCT when that is
 # set.
 #
-# SWITCHED OFF (nothing written, the user's status line or the line of its
-# own printed) by the file .ia-engineering/context-hooks.off in the project,
-# or IAENG_CONTEXT_HOOKS set to 0, off, false or no (any case).
+# SWITCHED OFF by the file .ia-engineering/context-hooks.off in the project,
+# or IAENG_CONTEXT_HOOKS set to 0, off, false or no (any case). Then nothing
+# of this script's own stays (AC5): no file is written and no line of its own
+# printed; the user's statusLine command replaces this process (exec), so its
+# output and exit status are exactly what Claude Code showed before, and
+# with no such command nothing is printed, as before. This is the one path
+# whose exit status is not always 0: it is the user's.
 #
 # Usage (from .claude/settings.json, written by install-hooks.sh):
 #   "statusLine": {"type": "command", "command":
@@ -122,7 +133,101 @@ esac
 INPUT=""
 [ -t 0 ] || IFS= read -r -d '' -n 1048576 INPUT
 
-# --- 2. the fields ------------------------------------------------------------
+# --- 2. the user's own status line: which command, run how ---------------------
+# json_unescape <JSON string body> — sets UNESC; fails on \u escapes, which
+# the pattern reader below does not decode (jq does).
+json_unescape() {
+  local s="$1" out="" head
+  while [ -n "$s" ]; do
+    head="${s%%\\*}"; out+="$head"; s="${s:${#head}}"
+    [ -n "$s" ] || break
+    case "${s:1:1}" in
+      '"') out+='"' ;; "\\") out+="\\" ;; '/') out+='/' ;;
+      n) out+=$'\n' ;; t) out+=$'\t' ;; r) out+=$'\r' ;; b|f) out+=' ' ;;
+      *) return 1 ;;
+    esac
+    s="${s:2}"
+  done
+  UNESC="$out"
+}
+# user_statusline <settings.json> — sets MODE (bash|powershell) and CMD from
+# the file's statusLine of type "command"; the exec form ("args") becomes one
+# bash command, each word quoted. With jq the file is parsed; without it the
+# statusLine object is read by pattern (a flat object, as Claude Code's own
+# examples are), so the user's line is never hidden for want of jq.
+user_statusline() {
+  local f="$1" s o re a q
+  [ -f "$f" ] || return 0
+  if command -v jq >/dev/null 2>&1; then
+    IFS=$'\t' read -r -d '' MODE CMD < <(jq -r '
+      try (.statusLine
+           | select(type == "object" and .type == "command" and (.command | type) == "string")
+           | if (.args | type) == "array" then "bash\t" + ([.command] + (.args | map(tostring)) | @sh)
+             elif (.shell // "bash") == "powershell" then "powershell\t" + .command
+             else "bash\t" + .command end)
+      catch empty' -- "$f" 2>/dev/null)
+    CMD="${CMD%$'\n'}"
+    CMD="${CMD%$'\r'}"
+    return 0
+  fi
+  IFS= read -r -d '' -n 262144 s < "$f"
+  re='"statusLine"[[:space:]]*:[[:space:]]*\{([^{}]*)\}'
+  [[ $s =~ $re ]] || return 0
+  o="${BASH_REMATCH[1]}"
+  re='"type"[[:space:]]*:[[:space:]]*"command"'
+  [[ $o =~ $re ]] || return 0
+  re='"command"[[:space:]]*:[[:space:]]*"(([^"\\]|\\.)*)"'
+  [[ $o =~ $re ]] && json_unescape "${BASH_REMATCH[1]}" || return 0
+  re='"shell"[[:space:]]*:[[:space:]]*"powershell"'
+  if [[ $o =~ $re ]]; then MODE=powershell; CMD="$UNESC"; return 0; fi
+  re='"args"[[:space:]]*:[[:space:]]*\[([^]]*)\]'
+  if [[ $o =~ $re ]]; then
+    a="${BASH_REMATCH[1]}"
+    printf -v q '%q' "$UNESC"
+    re='^[[:space:],]*"(([^"\\]|\\.)*)"'
+    while [[ $a =~ $re ]]; do
+      a="${a:${#BASH_REMATCH[0]}}"
+      json_unescape "${BASH_REMATCH[1]}" || return 0
+      printf -v UNESC '%q' "$UNESC"
+      q+=" $UNESC"
+    done
+    MODE=bash; CMD="$q"; return 0
+  fi
+  MODE=bash; CMD="$UNESC"
+}
+# The command: the project's own, wrapped by install-hooks.sh (--chain), or
+# the user's. A command that names this script is never run from here (no
+# loop); a --chain one that does (an earlier framework path) falls back to
+# the user's own, so neither line is lost.
+MODE=""
+CMD=""
+if [ -z "${IAENG_CTX_CHAINED:-}" ]; then
+  case "$CHAIN_ARG" in *context-statusline.sh*) HAVE_CHAIN_ARG=0 ;; esac
+  if [ "$HAVE_CHAIN_ARG" -eq 1 ]; then
+    MODE=bash
+    CMD="$CHAIN_ARG"
+  else
+    user_statusline "${CLAUDE_CONFIG_DIR:-${HOME:-}/.claude}/settings.json"
+  fi
+fi
+case "$CMD" in *context-statusline.sh*) CMD="" ;; esac
+case "$CMD" in *[![:space:]]*) ;; *) CMD="" ;; esac
+
+# SWITCHED OFF: nothing of this script's own stays. No file, no line of its
+# own, no timeout: the user's command replaces this process with the same
+# stdin, so its output and exit status are exactly what Claude Code showed
+# before; with no such command, nothing is printed, as before (AC5).
+if [ "$OFF" -eq 1 ]; then
+  trap - EXIT
+  [ -n "$CMD" ] || exit 0
+  export IAENG_CTX_CHAINED=1
+  if [ "$MODE" = powershell ]; then
+    exec powershell -NoProfile -NonInteractive -Command "$CMD" <<< "$INPUT"
+  fi
+  exec bash -c "$CMD" <<< "$INPUT"
+fi
+
+# --- 3. the fields ------------------------------------------------------------
 SID="" PCT="" Q5="" MODEL=""
 if command -v jq >/dev/null 2>&1; then
   # The first JSON value only; anything that is not an object gives nothing.
@@ -171,7 +276,7 @@ fi
 [[ $PCT =~ ^[0-9]{1,3}$ ]] && [ "$PCT" -le 100 ] || PCT=""
 [[ $Q5 =~ ^[0-9]{1,3}$ ]] || Q5=""
 
-# --- 3. the line of its own -------------------------------------------------
+# --- 4. the line of its own -------------------------------------------------
 flat "$MODEL"; MODEL="${FLAT:0:40}"
 ESC_ON=""
 ESC_OFF=""
@@ -184,62 +289,68 @@ LINE="ctx ${ESC_ON}${PCT:---}${PCT:+%}${ESC_OFF}"
 [ -n "$MODEL" ] && LINE="[$MODEL] $LINE"
 [ -n "$Q5" ] && LINE="$LINE | 5h $Q5%"
 
-# --- 4. the file ----------------------------------------------------------------
+# --- 5. the file ----------------------------------------------------------------
+# clean_dir <dir> <uid> — the writer cleans up after itself (Main Agent
+# decision, 26 Oct 2026): at most once an hour, it deletes the *.pct and
+# *.alert files in its own state directory that are older than 24 hours. Only
+# regular files the user owns, at the top of the directory: find -type f
+# never matches or follows a link. The hour is kept as an epoch in
+# .last-clean, read and written with builtins, so a run that does not clean
+# starts no process. A marker that is a link or not a regular file stops the
+# cleanup; one from the future counts as stale.
+clean_dir() {
+  local dir="$1" uid="$2" m="$1/.last-clean" now last=""
+  printf -v now '%(%s)T' -1 2>/dev/null || return 0
+  [[ $now =~ ^[0-9]+$ ]] || return 0
+  if [ -L "$m" ] || { [ -e "$m" ] && [ ! -f "$m" ]; }; then return 0; fi
+  [ -f "$m" ] && IFS= read -r last < "$m"
+  if [[ $last =~ ^[0-9]+$ ]] && [ "$last" -le "$now" ] && [ $((now - last)) -lt 3600 ]; then
+    return 0
+  fi
+  { printf '%s\n' "$now" > "$m"; } 2>/dev/null || return 0
+  find "$dir" -maxdepth 1 -type f \( -name '*.pct' -o -name '*.alert' \) \
+    -uid "$uid" -mmin +1440 -delete 2>/dev/null
+  return 0
+}
 write_pct() {
-  local base="${TMPDIR:-}" uid="${UID:-}" dir f
+  local base="${TMPDIR:-}" uid="${UID:-}" dir f w
   case "$base" in
     /*|[A-Za-z]:[/\\]*) ;;
     *) base=/tmp ;;
   esac
-  case "/$base/" in */../*|*/./*) base=/tmp ;; esac
+  # A . or .. component, with either separator (C:\a\..\b too).
+  case "/${base//\\//}/" in */../*|*/./*) base=/tmp ;; esac
   base="${base%/}"
   [[ $uid =~ ^[0-9]+$ ]] || return 0
   dir="$base/iaeng-ctx-$uid"
+  # -m sets the mode whatever the umask; no umask is changed, so the user's
+  # command below runs with the umask Claude Code gave this script.
   if [ ! -e "$dir" ] && [ ! -L "$dir" ]; then
-    umask 077
     mkdir -m 700 -- "$dir" 2>/dev/null
   fi
   # Ours, a directory, not a link, and no one else can write in it.
   [ -d "$dir" ] && [ ! -L "$dir" ] && [ -O "$dir" ] || return 0
-  [ -z "$(find "$dir" -prune \( -perm -020 -o -perm -002 \) -print 2>/dev/null)" ] || return 0
+  # A find that fails (missing, or Windows' FIND.EXE first on PATH) is not
+  # read as "no one else can write": the write is skipped (SEC-IAENG-379-02).
+  w="$(find "$dir" -prune \( -perm -020 -o -perm -002 \) -print 2>/dev/null)" || return 0
+  [ -z "$w" ] || return 0
+  clean_dir "$dir" "$uid"
   f="$dir/$SID.pct"
   if [ -L "$f" ] || { [ -e "$f" ] && [ ! -f "$f" ]; }; then
     return 0
   fi
   TMPF="$dir/.$SID.$$.$RANDOM.tmp"
-  set -C
-  { printf '%s\n' "$PCT" > "$TMPF"; } 2>/dev/null || { set +C; TMPF=""; return 0; }
-  set +C
+  # Mode 0600 whatever the caller's umask (a reader refuses a .pct others can
+  # read or write: cr-320 M1), with the umask scoped to this subshell so it
+  # never reaches the user's command (cr-321 m3). Noclobber: a name that
+  # exists is never written through.
+  ( umask 077; set -C; printf '%s\n' "$PCT" > "$TMPF" ) 2>/dev/null || { TMPF=""; return 0; }
   mv -f -- "$TMPF" "$f" 2>/dev/null && TMPF=""
   return 0
 }
-[ "$OFF" -eq 0 ] && [ -n "$SID" ] && [ -n "$PCT" ] && write_pct
+[ -n "$SID" ] && [ -n "$PCT" ] && write_pct
 
-# --- 5. the user's own status line ----------------------------------------------
-MODE=""
-CMD=""
-if [ -z "${IAENG_CTX_CHAINED:-}" ]; then
-  if [ "$HAVE_CHAIN_ARG" -eq 1 ]; then
-    MODE=bash
-    CMD="$CHAIN_ARG"
-  elif command -v jq >/dev/null 2>&1; then
-    USER_SETTINGS="${CLAUDE_CONFIG_DIR:-${HOME:-}/.claude}/settings.json"
-    if [ -f "$USER_SETTINGS" ]; then
-      IFS=$'\t' read -r -d '' MODE CMD < <(jq -r '
-        try (.statusLine
-             | select(type == "object" and .type == "command" and (.command | type) == "string")
-             | if (.args | type) == "array" then "bash\t" + ([.command] + (.args | map(tostring)) | @sh)
-               elif (.shell // "bash") == "powershell" then "powershell\t" + .command
-               else "bash\t" + .command end)
-        catch empty' -- "$USER_SETTINGS" 2>/dev/null)
-      CMD="${CMD%$'\n'}"
-      CMD="${CMD%$'\r'}"
-    fi
-  fi
-fi
-case "$CMD" in *context-statusline.sh*) CMD="" ;; esac
-case "$CMD" in *[![:space:]]*) ;; *) CMD="" ;; esac
-
+# --- 6. the user's own status line, run ----------------------------------------
 if [ -n "$CMD" ]; then
   TO=()
   if command -v timeout >/dev/null 2>&1; then

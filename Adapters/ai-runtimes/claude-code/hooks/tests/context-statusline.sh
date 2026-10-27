@@ -22,7 +22,13 @@
 #     or slow one falls back to the line of its own; one that names this
 #     script does not loop; --chain runs the command it is given;
 #   - the off switches (IAENG_CONTEXT_HOOKS, .ia-engineering/context-hooks.off)
-#     write nothing and still show the user's line;
+#     write nothing, create no directory and pass straight through to the
+#     user's command (its output and exit status), or print nothing;
+#   - without jq the user's statusLine is still run (JSON escapes, exec form);
+#     a --chain naming this script falls back to it; the user's command keeps
+#     the caller's umask, and every .pct is 0600 under umask 002;
+#   - a find that fails skips the write; the cleanup deletes only old *.pct
+#     and *.alert regular files, at most once an hour;
 #   - install-hooks.sh installs the statusLine, wraps an adopter's own
 #     statusLine instead of replacing it (padding kept, an apostrophe in its
 #     command survives, the exec form folded), is idempotent, keeps a
@@ -137,8 +143,16 @@ if [ -d "$DIR" ] && [ ! -L "$DIR" ] && [ -O "$DIR" ]; then ok "the directory is 
 if mode_enforced; then
   # -perm with no prefix matches the mode exactly.
   if [ -n "$(find "$DIR" -prune -perm 700 2>/dev/null)" ]; then ok "the directory is created 0700"; else bad "the directory is created 0700" "find -perm 700 did not match $DIR"; fi
+  # Every .pct is 0600 whatever the caller's umask, on a later run too
+  # (cr-320 M1: under umask 002 it was 0664, and the reader refuses that).
+  UM_SAVED="$(umask)"
+  umask 002
+  run '{"session_id":"sess-um","context_window":{"used_percentage":3}}'
+  run '{"session_id":"sess-um","context_window":{"used_percentage":4}}'
+  umask "$UM_SAVED"
+  if [ -n "$(find "$DIR/sess-um.pct" -perm 600 2>/dev/null)" ]; then ok "under umask 002 the .pct is 0600"; else bad "under umask 002 the .pct is 0600" "find -perm 600 did not match $DIR/sess-um.pct"; fi
 else
-  na "the directory is created 0700" "this platform does not enforce modes (Windows or root)"
+  na "the directory is created 0700; the .pct is 0600 under umask 002" "this platform does not enforce modes (Windows or root)"
 fi
 
 run '{"session_id":"sess-1","context_window":{"used_percentage":55}}'
@@ -165,6 +179,44 @@ run '{"session_id":"sess-5","context_window":{"used_percentage":null}}'
 no_pct "a null percentage (early in a session): nothing written" sess-5
 has "a null percentage: ctx --" "ctx --"
 if [ "$(count_files "$DIR")" = "$B" ]; then ok "empty, bad, array, string and out-of-range payloads wrote no file"; else bad "empty, bad, array, string and out-of-range payloads wrote no file" "$(ls -a "$DIR")"; fi
+
+# --- cleanup: the writer's (Main Agent decision, 26 Oct 2026) -----------------------
+# At most once an hour, *.pct and *.alert regular files older than 24 h go;
+# a fresh file, another name, a directory and a link (and what it points at)
+# stay. Oracle: the decision's own terms (24 h, once an hour, regular files
+# the user owns, never through a link).
+CL="$T/cleantmp"; CLD="$CL/iaeng-ctx-$ID"; mkdir -p "$CLD"
+OLD="$(( $(date +%s) - 172800 ))"
+for n in old-a.pct old-b.alert old-other.txt; do : > "$CLD/$n"; touch -d "@$OLD" "$CLD/$n"; done
+: > "$CLD/fresh.pct"
+mkdir "$CLD/old-dir.pct"; touch -d "@$OLD" "$CLD/old-dir.pct"
+LINKED=0
+if can_link; then
+  printf 'victim\n' > "$T/victim-cl"
+  MSYS=winsymlinks:sys ln -s "$T/victim-cl" "$CLD/old-link.pct" && touch -h -d "@$OLD" "$CLD/old-link.pct" 2>/dev/null
+  [ -L "$CLD/old-link.pct" ] && LINKED=1
+fi
+RUN_ENV=(TMPDIR="$CL")
+run '{"session_id":"sess-cl","context_window":{"used_percentage":5}}'
+RUN_ENV=()
+fine "a run that cleans up"
+if [ ! -e "$CLD/old-a.pct" ] && [ ! -e "$CLD/old-b.alert" ]; then ok "cleanup: *.pct and *.alert older than 24 h are deleted"; else bad "cleanup: *.pct and *.alert older than 24 h are deleted" "$(find "$CLD" -mindepth 1 | tr '\n' ' ')"; fi
+if [ -f "$CLD/fresh.pct" ] && [ -f "$CLD/old-other.txt" ] && [ -d "$CLD/old-dir.pct" ] && [ -f "$CLD/sess-cl.pct" ]; then ok "cleanup: a fresh .pct, another name and a directory stay"; else bad "cleanup: a fresh .pct, another name and a directory stay" "$(find "$CLD" -mindepth 1 | tr '\n' ' ')"; fi
+if [ "$LINKED" -eq 1 ]; then
+  if [ -L "$CLD/old-link.pct" ] && [ "$(cat "$T/victim-cl")" = victim ]; then ok "cleanup: an old link named *.pct is neither deleted nor followed"; else bad "cleanup: an old link named *.pct is neither deleted nor followed"; fi
+else
+  na "cleanup: an old link named *.pct" "symbolic links cannot be created here"
+fi
+: > "$CLD/old-c.pct"; touch -d "@$OLD" "$CLD/old-c.pct"
+RUN_ENV=(TMPDIR="$CL")
+run '{"session_id":"sess-cl","context_window":{"used_percentage":6}}'
+RUN_ENV=()
+if [ -e "$CLD/old-c.pct" ]; then ok "cleanup: at most once an hour (a second run within the hour deletes nothing)"; else bad "cleanup: at most once an hour"; fi
+printf '%s\n' "$(( $(date +%s) - 3700 ))" > "$CLD/.last-clean"
+RUN_ENV=(TMPDIR="$CL")
+run '{"session_id":"sess-cl","context_window":{"used_percentage":7}}'
+RUN_ENV=()
+if [ ! -e "$CLD/old-c.pct" ]; then ok "cleanup: an hour after the last one, it cleans again"; else bad "cleanup: an hour after the last one, it cleans again"; fi
 
 # --- hostile session ids -------------------------------------------------------
 mkdir -p "$T/victim"
@@ -226,6 +278,17 @@ else
   na "planted links (<session_id>.pct and the directory)" "symbolic links cannot be created here (Git Bash without the right to create them)"
 fi
 
+# A find that fails cannot say the directory is safe (SEC-IAENG-379-02): the
+# write is skipped, the earlier value stays.
+FF="$T/failfind"; mkdir -p "$FF"
+printf '#!%s\nexit 2\n' "$(command -v bash)" > "$FF/find"; chmod +x "$FF/find"
+run '{"session_id":"sess-ff","context_window":{"used_percentage":11}}'
+RUN_ENV=(PATH="$FF:$PATH")
+run '{"session_id":"sess-ff","context_window":{"used_percentage":77}}'
+RUN_ENV=()
+fine "find fails"
+pct_is "a find that fails: the write is skipped, the earlier value stays" sess-ff 11
+
 mkdir -p "$DIR/sess-dir.pct"
 run '{"session_id":"sess-dir","context_window":{"used_percentage":9}}'
 fine "a directory in place of <session_id>.pct"
@@ -262,11 +325,23 @@ for tmp in "$T/a-file" "$T/no/such/dir" "relative/tmp" "$T/tmp/../dotdot"; do
 done
 if [ -f "$T/a-file" ] && [ ! -s "$T/a-file" ] && [ ! -e "$T/no" ] && [ ! -e "relative" ] && [ -z "$(ls -A "$T/dotdot")" ]; then ok "a TMPDIR that is a file, missing, relative or with .. is never written to"; else bad "a TMPDIR that is a file, missing, relative or with .. is never written to" "$(ls -A "$T/dotdot")"; fi
 rm -f "/tmp/iaeng-ctx-$ID/sess-bad-tmp.pct" 2>/dev/null
+# The same rule with Windows separators (cr-321 s1): C:\...\tmp\..\dotdot2
+# names a directory that exists.
+if command -v cygpath >/dev/null 2>&1; then
+  mkdir -p "$T/dotdot2"
+  RUN_ENV=(TMPDIR="$(cygpath -w "$T/tmp")\\..\\dotdot2")
+  run '{"session_id":"sess-bad-tmp","context_window":{"used_percentage":9}}'
+  RUN_ENV=()
+  fine "TMPDIR with a \\..\\ component"
+  if [ -z "$(ls -A "$T/dotdot2")" ]; then ok "a TMPDIR with a backslash .. component is never written to"; else bad "a TMPDIR with a backslash .. component is never written to" "$(ls -A "$T/dotdot2")"; fi
+else
+  na "a TMPDIR with a backslash .. component" "no Windows paths on this platform (no cygpath)"
+fi
 
 # --- no jq ------------------------------------------------------------------------
 # A PATH that has every tool the script uses but jq.
 NOJQ="$T/nojq-bin"; mkdir -p "$NOJQ"
-for tool in find mv mkdir head timeout cat rm; do
+for tool in find mv mkdir head timeout cat rm bash; do
   p="$(command -v "$tool" 2>/dev/null)" || continue
   printf '#!%s\nexec "%s" "$@"\n' "$(command -v bash)" "$p" > "$NOJQ/$tool"
   chmod +x "$NOJQ/$tool"
@@ -281,6 +356,23 @@ pct_is "no jq: the .pct is written from the top-level used_percentage, not curre
 printf '%s' 'garbage {"session_id": "x' | env -i PATH="$NOJQ" TMPDIR="$TMPD" HOME="$HOMED" "$BASH_BIN" "$SL" > "$T/out" 2> "$T/err"
 RC=$?; OUT="$(cat "$T/out")"; ERR="$(cat "$T/err")"
 fine "no jq, bad JSON"
+
+# No jq, and the user has a statusLine (cr-321 M2): it is still run, read by
+# pattern. Written by hand, with the JSON escapes \" and \\ in the command.
+NJH="$T/home-nojq"; mkdir -p "$NJH/.claude"
+nojq_run() {
+  printf '%s' "$GOOD" | env -i PATH="$NOJQ" TMPDIR="$TMPD" HOME="$NJH" CLAUDE_PROJECT_DIR="$PROJ" "$@" "$BASH_BIN" "$SL" > "$T/out" 2> "$T/err"
+  RC=$?; OUT="$(cat "$T/out")"; ERR="$(cat "$T/err")"
+}
+printf '%s\n' '{"model": "opus", "statusLine": {"type": "command", "command": "printf \"%s|%s\" A \"B\\\\C\""}}' > "$NJH/.claude/settings.json"
+nojq_run
+fine "no jq, a user statusLine"
+if [ "$OUT" = 'A|B\C' ]; then ok "no jq: the user statusLine is run, its JSON escapes decoded"; else bad "no jq: the user statusLine is run, its JSON escapes decoded" "[$OUT]"; fi
+printf '%s\n' '{"statusLine": {"type": "command", "command": "printf", "args": ["%s+%s", "x y", "it'"'"'s"]}}' > "$NJH/.claude/settings.json"
+nojq_run
+if [ "$OUT" = "x y+it's" ]; then ok "no jq: a user statusLine in exec form is run with its argv"; else bad "no jq: a user statusLine in exec form is run with its argv" "[$OUT]"; fi
+nojq_run IAENG_CONTEXT_HOOKS=off
+if [ "$OUT" = "x y+it's" ]; then ok "no jq, switched off: the user statusLine still shows"; else bad "no jq, switched off: the user statusLine still shows" "[$OUT]"; fi
 
 # =============================================================================
 echo "== context-statusline.sh — the user's own status line"
@@ -341,6 +433,20 @@ if [ "$OUT" = FROM-CONFIG-DIR ]; then ok "CLAUDE_CONFIG_DIR: the user statusLine
 jq -n '{statusLine:{type:"command", command:"echo USER-LINE"}}' > "$US"
 run "$GOOD" --chain "echo 'PROJECT-LINE'"
 if [ "$OUT" = PROJECT-LINE ]; then ok "--chain: the wrapped project command runs, not the user one"; else bad "--chain: the wrapped project command runs, not the user one" "$OUT"; fi
+# A --chain that is this script at an earlier path (cr-321 m2): not run (no
+# loop), and the user's own line is shown instead of being lost.
+run "$GOOD" --chain 'bash "/old/place/hooks/context-statusline.sh"'
+if [ "$OUT" = USER-LINE ]; then ok "--chain naming this script falls back to the user statusLine"; else bad "--chain naming this script falls back to the user statusLine" "$OUT"; fi
+
+# The user's command runs with the umask this script was given (cr-321 m3),
+# also on the run that creates the directory.
+jq -n '{statusLine:{type:"command", command:"umask"}}' > "$US"
+rm -rf "$DIR"
+UM_SAVED="$(umask)"
+umask 022
+run "$GOOD"
+umask "$UM_SAVED"
+if [ -d "$DIR" ] && [ "$OUT" = 0022 ]; then ok "the user command keeps the caller's umask, on the run that creates the directory"; else bad "the user command keeps the caller's umask" "[$OUT]"; fi
 
 echo '{ not json' > "$US"
 run "$GOOD"
@@ -358,6 +464,15 @@ if [ "$OUT" = USER-LINE ] && [ ! -e "$DIR/sess-1.pct" ]; then ok "IAENG_CONTEXT_
 mkdir -p "$PROJ/.ia-engineering" && : > "$PROJ/.ia-engineering/context-hooks.off"
 run "$GOOD"
 if [ "$OUT" = USER-LINE ] && [ ! -e "$DIR/sess-1.pct" ]; then ok ".ia-engineering/context-hooks.off: nothing written, the user line shown"; else bad ".ia-engineering/context-hooks.off: nothing written, the user line shown" "$OUT"; fi
+# Switched off, nothing of the script's own stays (AC5): no directory, no
+# line of its own; the user's command decides output and exit status.
+if [ ! -e "$DIR" ]; then ok "switched off: not even the directory is created"; else bad "switched off: not even the directory is created"; fi
+jq -n '{statusLine:{type:"command", command:"echo partial; exit 3"}}' > "$US"
+run "$GOOD"
+if [ "$OUT" = partial ] && [ "$RC" -eq 3 ]; then ok "switched off: a failing user statusLine passes through as it is (output and exit status)"; else bad "switched off: a failing user statusLine passes through as it is" "rc=$RC [$OUT]"; fi
+rm -f "$US"
+run "$GOOD"
+if [ -z "$OUT" ] && [ "$RC" -eq 0 ] && [ ! -e "$DIR" ]; then ok "switched off, no user statusLine: nothing printed, as before install"; else bad "switched off, no user statusLine: nothing printed, as before install" "rc=$RC [$OUT]"; fi
 rm -f "$PROJ/.ia-engineering/context-hooks.off" "$US"
 
 # =============================================================================
@@ -434,6 +549,27 @@ if grep -qF "statusline	shadowed	.claude/settings.local.json	echo mine-only" "$T
 inst
 if cmp -s "$IP/.claude/settings.local.json" "$T/local.before" && grep -qF "settings.local.json sets its own statusLine" "$T/inst.err"; then ok "a run warns about the settings.local.json statusLine and leaves the file untouched"; else bad "a run warns about the settings.local.json statusLine" "$(cat "$T/inst.err")"; fi
 rm -f "$IP/.claude/settings.local.json"
+
+# A command holding terminal escapes is printed flattened on the normal path,
+# as --check's records are (SEC-IAENG-379-01): the project's own wrapped, and
+# a settings.local.json one reported.
+ESCC="$(printf 'echo \033]0;PROJ-TITLE\007proj')"
+jq --arg c "$ESCC" '.statusLine = {type:"command", command:$c}' "$T/wrapped.json" | tr -d '\r' > "$T/s.json" && mv "$T/s.json" "$SET"
+jq -n --arg c "$(printf 'echo \033]0;LOCAL-TITLE\007local')" '{statusLine:{type:"command", command:$c}}' > "$IP/.claude/settings.local.json"
+inst
+if ! grep -q "$(printf '\033')" "$T/inst.out" "$T/inst.err" && grep -qF "PROJ-TITLE" "$T/inst.out" && grep -qF "LOCAL-TITLE" "$T/inst.err"; then ok "the installer prints statusLine commands with no control character, stdout and stderr"; else bad "the installer prints statusLine commands with no control character" "$(od -c "$T/inst.out" "$T/inst.err" | grep -m2 033)"; fi
+rm -f "$IP/.claude/settings.local.json"
+
+# The script at an earlier framework path (cr-321 m2): updated in place, its
+# --chain kept; any other command naming the script is kept and reported.
+jq --arg c "bash \"\$CLAUDE_PROJECT_DIR/old-fw/Adapters/ai-runtimes/claude-code/hooks/context-statusline.sh\" --chain 'echo kept'" \
+  '.statusLine = {type:"command", command:$c}' "$SET" | tr -d '\r' > "$T/s.json" && mv "$T/s.json" "$SET"
+inst
+if [ "$INST_RC" -eq 0 ] && [ "$(sl_cmd)" = "$OURS --chain 'echo kept'" ] && grep -qF "updated in place from an earlier path" "$T/inst.out"; then ok "a statusLine at an earlier framework path is updated in place, its --chain kept"; else bad "a statusLine at an earlier framework path is updated in place" "rc=$INST_RC $(sl_cmd)"; fi
+jq '.statusLine = {type:"command", command:"echo hooks/context-statusline.sh"}' "$SET" | tr -d '\r' > "$T/s.json" && mv "$T/s.json" "$SET"
+cp "$SET" "$T/other.json"
+inst
+if cmp -s "$SET" "$T/other.json" && grep -qF "names context-statusline.sh in a form of its own" "$T/inst.err"; then ok "another command naming the script is kept as it is, and reported"; else bad "another command naming the script is kept as it is, and reported" "$(cat "$T/inst.err")"; fi
 
 # =============================================================================
 echo
