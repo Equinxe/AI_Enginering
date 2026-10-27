@@ -1554,6 +1554,12 @@ work_units:
     milestone: Adoption
     delivers: changelog.d/WU-IAENG-346.md, changelog.d/WU-IAENG-347.md, changelog.d/WU-IAENG-348.md, changelog.d/WU-IAENG-349.md, changelog.d/WU-IAENG-350.md, changelog.d/WU-IAENG-351.md, changelog.d/WU-IAENG-385.md, Registry/work-units.yml
 
+  - id: WU-IAENG-383
+    employee: Prompt Engineer
+    title: Plan Review reads Step 3's Work Units, and hotfix plans go through Step 3 (#315) - the Technical Lead's execution simulation (Employees/Management/TECHNICAL_LEAD.md 0.0.6) reads each Work Unit as Core/ORCHESTRATION.md Step 3 defines it (objective, named Employee, inputs, outputs, Definition of Done, applicable Standards, expected commit message), together with what the plan states around it, instead of its Employee Brief, which is written only at Step 4, after the Plan Review, and adds context and boundaries but never another objective, input, output or Definition of Done; Workflows/HOTFIX.md (0.0.10) Step 1 says the Director's authorization starts the hotfix but is not the approval of its plan, which is made and approved per ORCHESTRATION Step 3 before this workflow's Step 2 is dispatched, through the Technical Lead's Plan Review when it carries a Medium-or-higher action; planning and its Plan Review are not hotfix work, so the plan and its record may go with the authorization request and one Director decision gives both; no Core change
+    milestone: Adoption
+    delivers: Employees/Management/TECHNICAL_LEAD.md, Workflows/HOTFIX.md, changelog.d/WU-IAENG-383.md, Registry/work-units.yml
+
   - id: WU-IAENG-384
     employee: DevOps Engineer
     title: Adapter header drift and develop strict=false codified (issue #299) - setup-branch-protection.sh sends strict per branch through strict_for() (main true, develop false, any other branch refused; release/* keeps strict_required_status_checks_policy true), so a re-run no longer restores strict on develop after the Director turned it off on 22 Oct 2026, and its off-GitHub checklist says the up-to-date rule is for main and release/* only; tests in run.sh stub gh and assert the body sent per branch, seen red first (3 of 8); the headers of ci-build-test.yml (no first-match precedence, all seven stacks plus generic, ambiguity fails), ghcr-publish.yml (full version tag only, no 1.2; latest also on a non-pre-release tag; sha- prefix) and generic.Dockerfile (all seven stacks) match their code
