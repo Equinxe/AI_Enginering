@@ -1578,6 +1578,12 @@ work_units:
     milestone: Adoption
     delivers: Adapters/scripts/release.sh, Adapters/scripts/tests/run.sh, Registry/workflows.yml, changelog.d/WU-IAENG-388.md, Registry/work-units.yml
 
+  - id: WU-IAENG-387
+    employee: Software Architect
+    title: The Check Convention becomes a Standard (point e of the Director texts of 26 Oct 2026, approved 27 Oct 2026 as 5:B 6:B 7:oui 8:oui) - Standards/CODE_QUALITY_STANDARD.md (0.0.4) gains The Check Convention under IA Engineering Additions, the four rules binding every check in any project and three shell rules (exit codes are an interface, set -u and pipefail rather than set -e by default, a carriage return removed only where it ends a line) binding the framework's scripts and a project's unless it records another convention, and one Forbidden Practices bullet; Adapters/README.md keeps its The Check Convention heading so the 37 citations in 24 files still resolve, replaces the rules with a pointer to the Standard, keeps the two history paragraphs unchanged and adds the Exit Code Families register, whose Checks row states that most checks exit 1 on a failure to evaluate, against shell rule 1 (Director, 27 Oct 2026: keep the rule, correct the register; issue #331); Governance/CONTRIBUTING.md now sends a new Check Convention rule to the Standard; no script changed, the non-conforming sites are filed as issues #325 to #328 and #331
+    milestone: Adoption
+    delivers: Standards/CODE_QUALITY_STANDARD.md, Adapters/README.md, Governance/CONTRIBUTING.md, changelog.d/WU-IAENG-387.md, Registry/work-units.yml
+
   - id: WU-IAENG-389
     employee: Platform Engineer
     title: Reserved 27 Oct 2026 before dispatch (WU-IAENG-393) - strip only a line-ending CR in the trailer and registry checks (issue #325) - Check Convention shell rule 3; the commit-msg hook, check-employee-trailers.sh, check-work-units.sh and check-risk-map.sh strip carriage returns inside values instead of only the one that ends a line
