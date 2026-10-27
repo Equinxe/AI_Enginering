@@ -273,9 +273,9 @@ Nothing else is covered. These stay dispatched as this section says: a merge int
 2. No Work Unit is in flight on that branch: its author has reported and no fix round is dispatched. Otherwise the author's next push is refused, and the ways past that refusal are an unplanned merge or a force-push.
 3. The update is recorded on the Pull Request, naming this authorisation.
 
-The update is a push. Approvals given on the earlier head carry over only if condition 1 above (the carry-over check) accepts the new head; otherwise they are void and the change needs a fresh review. A conflict-free update authors nothing: its tree is git's own merge of its two parents, so it needs no Employee trailer (`Adapters/scripts/merge-classify.sh`), and the carry-over check accepts it unless the forge's merge differs from git's, in which case the approvals are void.
+The update is a push. Approvals given on the earlier head carry over only if the carry-over check of the merge into `develop` (its condition 1, `Adapters/scripts/check-approval-carry-over.sh`) accepts the new head; otherwise they are void and the change needs a fresh review. A conflict-free update authors nothing: its tree is git's own merge of its two parents, so it needs no Employee trailer (`Adapters/scripts/merge-classify.sh`), and the carry-over check accepts it unless the forge's merge differs from git's, in which case the approvals are void.
 
-This exception is a standing authorisation (`Standards/RISK_STANDARD.md`, Standing Authorisations): its source is above, its scope is `develop`, and its preconditions are the three conditions, and the three above for an update. It is reviewed at each release approval (`Workflows/RELEASE.md` Step 5). The Director revokes or narrows it by saying so. From that moment the Main Agent dispatches these merges again, and records the revocation as a deviation until this section is amended.
+This exception is a standing authorisation (`Standards/RISK_STANDARD.md`, Standing Authorisations): its source is above; its scope is `develop` and the head branch of a Pull Request that targets `develop`, other than a `release/*` or `hotfix/*` branch, whose back-merge is the Release Manager's; its permitted actions are the merge, the deletion of the merged head branch, and the update; and its preconditions are the three conditions, and the three above for an update. It is reviewed at each release approval (`Workflows/RELEASE.md` Step 5). The Director revokes or narrows it by saying so. From that moment the Main Agent dispatches these merges again, and records the revocation as a deviation until this section is amended.
 
 ---
 
@@ -355,7 +355,7 @@ A successful execution is one where:
 
 # Document Metadata
 
-Version: 0.0.11
+Version: 0.0.12
 
 Status: Stable
 
