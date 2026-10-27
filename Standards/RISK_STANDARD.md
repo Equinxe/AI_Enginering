@@ -218,7 +218,7 @@ Three catalogs give default tiers for hazards every project meets. They are **st
 |---|---|---|
 | Force-push to a protected branch | **Critical** | Forbidden by `Standards/GIT_STANDARD.md`; the `pre-push` Adapter blocks it. Confirm even with `--force-with-lease`. |
 | History rewrite, `reset --hard`, `clean -f`, discarding uncommitted work | **High** | Forbidden without explicit Director instruction. Prefer a new branch or a single-path checkout. |
-| Deleting a branch whose head is not an ancestor of `develop` or `main` as the remote holds them: work on no protected branch, which includes every `spike/*` branch | **High** | Forbidden without explicit Director instruction. Merge or push the work first, or keep the branch. |
+| Deleting a branch whose head is not an ancestor of `develop` or `main` as the remote holds them, or whose ancestry was not checked after a fetch immediately before the deletion: its work may not be on `develop` or `main`. This includes every `spike/*` branch, and a branch merged only into a `release/*` branch | **High** | Forbidden without explicit Director instruction. Fetch and check first; merge or push the work, or keep the branch. |
 | Deleting a branch other than `main`, `develop` or `release/*` whose head is an ancestor of `develop` or `main` as the remote holds them, checked after a fetch, immediately before the deletion | **Low** | Nothing is lost: every commit stays on a protected branch, and the name can be recreated from its head. `main`, `develop` and `release/*` are never deleted (`Standards/BRANCH_STANDARD.md`). |
 | Deleting tracked content | **High** | Inspect the target first. If it contradicts how it was described, or the Employee did not create it, surface it instead of deleting. |
 | Destructive schema migration | **Critical** | Requires a proven rollback path before applying. |
@@ -330,7 +330,7 @@ The product catalog is included because the most expensive failures in software 
 
 Owner: IA Engineering
 
-Version: 0.0.16
+Version: 0.0.17
 
 Status: Draft
 
