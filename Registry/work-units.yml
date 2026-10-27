@@ -1514,9 +1514,9 @@ work_units:
 
   - id: WU-IAENG-379
     employee: Platform Engineer
-    title: Reserved 23 Oct 2026 before dispatch (WU-IAENG-381) - context statusLine wrapper (compaction plan of 23 Oct 2026, WU-B) - a statusLine wrapper that writes the context occupancy percentage to a per-user file and chains the user's existing statusLine
+    title: Context statusLine wrapper (compaction plan of 23 Oct 2026, WU-B, issue #304) - a statusLine command, on by default through install-hooks.sh, that writes the context occupancy percentage to a per-user file with the peer kit's guards and a session id shape check, and runs the user's own statusLine or wraps the project's instead of hiding it
     milestone: Adoption
-    delivers: planned - a statusLine wrapper and its tests under Adapters/ai-runtimes/claude-code/, CHANGELOG.md, Registry/work-units.yml
+    delivers: Adapters/ai-runtimes/claude-code/hooks/context-statusline.sh, Adapters/ai-runtimes/claude-code/hooks/tests/context-statusline.sh, Adapters/ai-runtimes/claude-code/hooks/tests/run.sh, Adapters/ai-runtimes/claude-code/hooks/README.md, Adapters/ai-runtimes/claude-code/TROUBLESHOOTING.md, Adapters/ai-runtimes/claude-code/install-hooks.sh, Adapters/ai-runtimes/claude-code/settings.example.json, Adapters/scripts/check-framework-drift.sh, Adapters/scripts/tests/run.sh, .claude/settings.json, changelog.d/WU-IAENG-379.md, Registry/work-units.yml
 
   - id: WU-IAENG-380
     employee: Platform Engineer
@@ -1598,15 +1598,15 @@ work_units:
 
   - id: WU-IAENG-391
     employee: Prompt Engineer
-    title: Reserved 27 Oct 2026 before dispatch (WU-IAENG-393) - the Hotfix Chain gets its planning step (issue #318) - Core/AGENT_CHAINS.md and Registry/chains.yml show no Step 3 plan or Plan Review step in the Hotfix Chain
+    title: The Hotfix Chain gets its planning step (issue #318), the Director-approved texts of 27 Oct 2026 committed verbatim (1:A 2:non 3:oui) - Core/AGENT_CHAINS.md (0.0.11) and Registry/chains.yml draw the Main Agent's Work Unit decomposition (Orchestration Step 3, with its Plan Review when required) before the Director gate, which becomes authorization and plan approval in one decision; the Plan Review is not drawn as its own step; Workflows/HOTFIX.md (0.0.11) Step 1 says the Main Agent presents the plan with the request for authorization, drops the "or after it" path, states that an authorization without the plan's approval does not dispatch Step 2, and its Prerequisites no longer list the authorization its own Step 1 gives; Examples/HOTFIX_CHAIN_EXAMPLE.md (0.0.9) shows the request with its plan and Plan Review record; the HOTFIX Trigger line is left to issue #209
     milestone: Adoption
-    delivers: planned - Core/AGENT_CHAINS.md, Registry/chains.yml, changelog.d/WU-IAENG-391.md, Registry/work-units.yml
+    delivers: Core/AGENT_CHAINS.md, Registry/chains.yml, Workflows/HOTFIX.md, Examples/HOTFIX_CHAIN_EXAMPLE.md, changelog.d/WU-IAENG-391.md, Registry/work-units.yml
 
   - id: WU-IAENG-392
     employee: Platform Engineer
-    title: Reserved 27 Oct 2026 before dispatch (WU-IAENG-393) - the validator compares workflow step titles (issue #332, carried forward from #306) - validate-framework.sh compares workflow step counts, not step titles
+    title: The validator compares workflow step titles (#332; Director decision of 27 Oct 2026, option A) - every step value of Registry/workflows.yml becomes its document's "## Step N" heading text copied byte for byte, qualifiers dropped (51 of 80 values rewritten, Code Review step 9's lost condition restored by the same rewrite); validate-framework.sh section 13 compares them in order with no normalisation, reports its denominator, fails at zero, and refuses a step value YAML would read differently; the Registry header and Registry/README.md state the rule; actor is not compared here
     milestone: Adoption
-    delivers: planned - Adapters/scripts/validate-framework.sh, Adapters/scripts/tests/run.sh, changelog.d/WU-IAENG-392.md, Registry/work-units.yml
+    delivers: Adapters/scripts/validate-framework.sh, Adapters/scripts/tests/run.sh, Registry/workflows.yml, Registry/README.md, changelog.d/WU-IAENG-392.md, Registry/work-units.yml
 
   - id: WU-IAENG-393
     employee: Technical Writer

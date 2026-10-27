@@ -166,9 +166,13 @@ Release Manager
 **Workflow:** Hotfix Workflow (`Workflows/HOTFIX.md`)
 
 ```
+Main Agent
+      ↓
+  [Work Unit decomposition — Orchestration Step 3, with its Plan Review when required]
+      ↓
 Main Agent → Director
       ↓
-  [Director authorization — mandatory before any work begins]
+  [Director authorization and plan approval — one decision, before any hotfix work begins]
       ↓
 Engineer
       ↓
@@ -191,7 +195,9 @@ Release Manager
   [Merge to main — tag — back-merge to develop]
 ```
 
-**Director gates:** Authorization at start, approval before merge. Both mandatory.
+**Director gates:** Authorization at start, given in one decision with the approval of the hotfix plan; approval before merge. Both mandatory.
+
+**Decomposition:** The Main Agent's own planning, not a dispatch (see Work Unit Decomposition, above), and not hotfix work (`Workflows/HOTFIX.md`, Step 1). The plan goes through the Technical Lead's Plan Review when it carries a Medium-or-higher action (`Core/ORCHESTRATION.md`, Step 3), then to the Director with the request for authorization. No Engineer is dispatched before that decision.
 
 ---
 
@@ -320,7 +326,7 @@ The Registry records the six chains this document names. Chains composed ad hoc 
 
 Owner: IA Engineering
 
-Version: 0.0.10
+Version: 0.0.11
 
 Status: Draft
 

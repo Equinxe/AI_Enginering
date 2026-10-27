@@ -732,6 +732,25 @@ else
 fi
 rm -f "$DRIFT_COUNTS"
 
+# --- Context statusLine (WU-IAENG-379) -----------------------------------------
+# Its own file too (tests/context-statusline.sh), counted here the same way.
+CTX_COUNTS="$(mktemp "${TMPDIR:-/tmp}/iaeng-ctx-counts.XXXXXX")"
+IAENG_HOOK_TESTS_COUNTS="$CTX_COUNTS" bash "$HERE/context-statusline.sh" ${DASH_ARGS[@]+"${DASH_ARGS[@]}"}
+CTX_RC=$?
+if read -r CTX_TOTAL CTX_FAILED < "$CTX_COUNTS" 2>/dev/null \
+    && [[ "$CTX_TOTAL" =~ ^[0-9]+$ ]] && [[ "$CTX_FAILED" =~ ^[0-9]+$ ]] && [ "$CTX_TOTAL" -gt 0 ]; then
+  TOTAL=$((TOTAL + CTX_TOTAL))
+  FAILED=$((FAILED + CTX_FAILED))
+  if [ "$CTX_RC" -ne 0 ] && [ "$CTX_FAILED" -eq 0 ]; then
+    TOTAL=$((TOTAL + 1)); FAILED=$((FAILED + 1))
+    echo "   FAIL  tests/context-statusline.sh exited $CTX_RC with no failed check counted"
+  fi
+else
+  TOTAL=$((TOTAL + 1)); FAILED=$((FAILED + 1))
+  echo "   FAIL  tests/context-statusline.sh reported no counts (exit $CTX_RC) — it could not run"
+fi
+rm -f "$CTX_COUNTS"
+
 # --- Verdict ----------------------------------------------------------------
 
 echo
