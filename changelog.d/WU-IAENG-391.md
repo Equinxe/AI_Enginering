@@ -1,0 +1,5 @@
+### Changed
+
+- `Core/AGENT_CHAINS.md` (0.0.11) and `Registry/chains.yml`, Hotfix Chain: the Main Agent's Work Unit decomposition (`Core/ORCHESTRATION.md` Step 3, with its Plan Review when required) is drawn before the first Director gate, which is now the authorization of the hotfix and the approval of its plan in one decision; a new **Decomposition** paragraph says planning is not a dispatch and not hotfix work, and that no Engineer is dispatched before that decision (#318)
+- `Workflows/HOTFIX.md` (0.0.11), Step 1: the Main Agent presents the hotfix plan, with its Plan Review record when one is required, together with the request for authorization; the second path, plan approved after the authorization, is removed; an authorization given without the plan's approval does not dispatch Step 2, the plan is revised and presented again. The Prerequisites no longer list the Director's authorization, which Step 1 itself gives (#318)
+- `Examples/HOTFIX_CHAIN_EXAMPLE.md` (0.0.9): the authorization request carries the hotfix plan and the Technical Lead's Plan Review record, and the Director authorizes and approves the plan in one decision (#318)
