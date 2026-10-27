@@ -1548,6 +1548,12 @@ work_units:
     milestone: Adoption
     delivers: Standards/RISK_STANDARD.md, Core/ORCHESTRATION.md, Core/EMPLOYEE_SELECTION.md, Core/MAIN_AGENT_CONDUCT.md, CHANGELOG.md, Registry/work-units.yml
 
+  - id: WU-IAENG-385
+    employee: Technical Writer
+    title: Add the missing changelog fragments of WU-IAENG-346 to WU-IAENG-351 (Code Reviewer ruling on PR #313 - six real entries, not exemptions) - one changelog.d/ fragment each, in the Keep a Changelog category the merged diff and Pull Request support, with Security entries for the escape-hatch gaps of WU-IAENG-349 and the Security Engineer findings of WU-IAENG-351; this Work Unit's own fragment is an exemption
+    milestone: Adoption
+    delivers: changelog.d/WU-IAENG-346.md, changelog.d/WU-IAENG-347.md, changelog.d/WU-IAENG-348.md, changelog.d/WU-IAENG-349.md, changelog.d/WU-IAENG-350.md, changelog.d/WU-IAENG-351.md, changelog.d/WU-IAENG-385.md, Registry/work-units.yml
+
   - id: WU-IAENG-384
     employee: DevOps Engineer
     title: Adapter header drift and develop strict=false codified (issue #299) - setup-branch-protection.sh sends strict per branch through strict_for() (main true, develop false, any other branch refused; release/* keeps strict_required_status_checks_policy true), so a re-run no longer restores strict on develop after the Director turned it off on 22 Oct 2026, and its off-GitHub checklist says the up-to-date rule is for main and release/* only; tests in run.sh stub gh and assert the body sent per branch, seen red first (3 of 8); the headers of ci-build-test.yml (no first-match precedence, all seven stacks plus generic, ambiguity fails), ghcr-publish.yml (full version tag only, no 1.2; latest also on a non-pre-release tag; sha- prefix) and generic.Dockerfile (all seven stacks) match their code
