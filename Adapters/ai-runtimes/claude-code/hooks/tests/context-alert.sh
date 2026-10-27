@@ -294,10 +294,13 @@ pct s-a 60
 run "$(ups s-a)"
 says "60 %: the alert, on UserPromptSubmit" UserPromptSubmit \
   "context is at 60 %" "alert threshold 60 %" \
-  "Finish the Work Unit in progress" "Dispatch no new Employee" \
-  "Continuing an Employee already dispatched" \
+  "Head for the Handoff" "do not stop or abandon the work in hand" \
+  "Finish the Work Unit in progress" "Dispatch no new Employee for any other work" \
+  "Allowed: continuing an Employee already dispatched" \
+  "dispatching an Employee the Work Unit in progress still needs to be delivered, such as its reviewers" \
   "Handoff to a New Conversation checklist of Templates/SESSION_STATE.md, items 1 to 6" \
-  ".ia-engineering/SESSION_STATE.md" "A last call follows at 70 %" "blocks nothing"
+  ".ia-engineering/SESSION_STATE.md" "today's absolute date" "not duplicating it" \
+  "and carry on; no answer is needed" "A last call follows at 70 %" "blocks nothing"
 if [ "$(tr -d '\r' < "$DIR/s-a.alert")" = 1 ] && [ -z "$(find "$DIR" -name '*.tmp')" ]; then ok "the alert is recorded as step 1, no temporary file left"; else bad "the alert is recorded as step 1" "$(ls -a "$DIR")"; fi
 run "$(ups s-a)"
 silent "60 % again: said once"
@@ -308,8 +311,9 @@ pct s-a 70
 run "$(ptb s-a)"
 says "70 %: the last call, on PostToolBatch" PostToolBatch \
   "context last call" "context is at 70 %" "last call 70 %" "Write the Handoff now" \
-  "even if the current Work Unit is not finished" "Dispatch no new Employee" \
-  "Handoff to a New Conversation checklist of Templates/SESSION_STATE.md, items 1 to 6"
+  "even if the current Work Unit is not finished" "Dispatch no new Employee for any other work" \
+  "Handoff to a New Conversation checklist of Templates/SESSION_STATE.md, items 1 to 6" \
+  "and resume the Work Unit; no answer is needed"
 pct s-a 75
 run "$(ups s-a)"
 silent "75 %: the last call, said once"
@@ -330,6 +334,62 @@ if ! grep -qF "Finish the Work Unit in progress" <<< "$OUT"; then ok "85 % at fi
 pct s-jump 90
 run "$(ups s-jump)"
 silent "90 % after the last call: nothing more"
+
+# Two sessions, two thresholds (SRE F2, CR M2b): a session never judges,
+# reads or removes another session's record. Session T30 runs with
+# IAENG_CTX_ALERT_PCT=30 and is told at 35 % (its last call is at 40 %);
+# session T60, on the default threshold at 10 %, must leave T30's record
+# alone, so T30 is not told again.
+pct s-t30 35
+RUN_ENV=(IAENG_CTX_ALERT_PCT=30); run "$(ups s-t30)"; RUN_ENV=()
+says "two thresholds: the session on 30 % is told at 35 %" UserPromptSubmit "alert threshold 30 %"
+pct s-t60 10
+run "$(ptb s-t60)"
+silent "two thresholds: the session on the default, at 10 %"
+if [ -f "$DIR/s-t30.alert" ]; then ok "two thresholds: the other session's record is left alone"; else bad "two thresholds: the other session's record is left alone" "$(ls -a "$DIR")"; fi
+RUN_ENV=(IAENG_CTX_ALERT_PCT=30); run "$(ups s-t30)"; RUN_ENV=()
+silent "two thresholds: the session on 30 % is not told twice"
+
+# The cost (SEC-IAENG-380-02, SRE F1, CR M2c). Every external command the
+# hook can start is a shim that leaves a mark, so "no process" is observed,
+# not assumed. A session that ended after its reading crossed a step leaves
+# a .pct and no .alert behind; it must not send another session down the
+# full path.
+SHIM="$T/shim-bin"; MARK="$T/shim-mark"; mkdir -p "$SHIM"
+for tool in jq cat find mv rm grep wc; do
+  p="$(command -v "$tool" 2>/dev/null)" || continue
+  printf '#!%s\nprintf "%%s\\n" %s >> "%s"\nexec "%s" "$@"\n' "$(command -v bash)" "$tool" "$MARK" "$p" > "$SHIM/$tool"
+  chmod +x "$SHIM/$tool"
+done
+shimmed() { rm -f "$MARK"; RUN_ENV=(PATH="$SHIM:$PATH"); run "$1"; RUN_ENV=(); }
+marks() { if [ -f "$MARK" ]; then tr '\n' ' ' < "$MARK"; fi; }
+pct s-dead 75
+rm -f "$DIR/s-dead.alert"
+pct s-live 30
+shimmed "$(ptb s-live)"
+silent "cost: a dead session's .pct at 75 % beside this session at 30 %"
+if [ -z "$(marks)" ]; then ok "cost: no process started when this session has nothing to hear, a dead session's file present"; else bad "cost: no process started when this session has nothing to hear, a dead session's file present" "started: $(marks)"; fi
+pct s-live 65
+shimmed "$(ptb s-live)"
+says "cost: the shims run the hook as usual (the alert at 65 %)" PostToolBatch "context is at 65 %"
+if [ -n "$(marks)" ]; then ok "cost: the seam sees the processes of the full path (jq and the record write)"; else bad "cost: the seam sees the processes of the full path" "no mark: the shims are not on the hook's PATH"; fi
+shimmed "$(ptb s-live)"
+silent "cost: 65 % again"
+if [ -z "$(marks)" ]; then ok "cost: no process started once the step is said"; else bad "cost: no process started once the step is said" "started: $(marks)"; fi
+shimmed "$(jq -cn '{session_id:"s-live", hook_event_name:"PostToolBatch", agent_id:"a-emp", tool_calls:[]}')"
+if [ -z "$(marks)" ] && [ -z "$OUT" ]; then ok "cost: a subagent's batch starts no process"; else bad "cost: a subagent's batch starts no process" "started: $(marks)"; fi
+if [ ! -e "$DIR/s-dead.alert" ]; then ok "cost: the dead session's files are not touched"; else bad "cost: the dead session's files are not touched"; fi
+
+# A .pct that cannot be opened says nothing on stderr either (SEC-03): the
+# redirection of every read covers the open (not on Windows, not as root).
+pct s-noread 65; chmod 000 "$DIR/s-noread.pct"
+if cat "$DIR/s-noread.pct" >/dev/null 2>&1; then
+  na "a .pct that cannot be opened" "this platform lets its owner read a 0000 file (Windows or root)"
+else
+  run "$(ups s-noread)"
+  silent "a .pct that cannot be opened: no stderr"
+fi
+chmod 600 "$DIR/s-noread.pct"; rm -f "$DIR/s-noread.pct"
 
 # =============================================================================
 echo "== context-alert.sh — thresholds and switches"
@@ -367,28 +427,38 @@ if [ ! -e "$DIR/s-off.alert" ]; then ok "switched off: nothing recorded"; else b
 # =============================================================================
 echo "== context-alert.sh — SessionStart"
 
+# Oracles worked by hand: median point = window% x override / 100 (96 with
+# no window set; TROUBLESHOOTING.md A.5); floor = median - 12, the spread
+# between the median (968,011) and the lowest (848,341) compaction of
+# Governance/CONTEXT_COMPACTION_MEASUREMENT.md, in points of a 1M window.
 run "$(sst)" --session-start
-silent "SessionStart, defaults (60 % against about 96 %)"
-RUN_ENV=(IAENG_CTX_ALERT_PCT=96); run "$(sst)" --session-start
-says "SessionStart, alert 96 % against the default window (96 %)" text "the alert threshold (96 %" "about 96 % of the context window"
+silent "SessionStart, defaults: alert 60, last call 70, floor 84"
+RUN_ENV=(IAENG_CTX_ALERT_PCT=70); run "$(sst)" --session-start
+silent "SessionStart, alert 70, last call 80: both under the floor 84"
+RUN_ENV=(IAENG_CTX_ALERT_PCT=85); run "$(sst)" --session-start
+says "SessionStart, alert 85 on the default window: past the floor 84 (SRE F3)" text "the alert threshold (85 %" "about 96 % of the context window at the median" "as low as about 84 %" "below 84" "Tell the Director in one line"
+RUN_ENV=(IAENG_CTX_ALERT_PCT=84); run "$(sst)" --session-start
+says "SessionStart, alert 84: at the floor counts" text "the alert threshold (84 %" "as low as about 84 %"
+RUN_ENV=(IAENG_CTX_ALERT_PCT=75); run "$(sst)" --session-start
+says "SessionStart, alert 75: the last call at 85 passes the floor 84" text "the last call (85 %)" "as low as about 84 %" "only the first alert, at 75 %" "Tell the Director in one line"
 RUN_ENV=(CLAUDE_CODE_AUTO_COMPACT_WINDOW=400000); run "$(sst)" --session-start
-says "SessionStart, a 400,000-token window: compaction near 40 %, the 60 % alert comes after" text "the alert threshold (60 %" "about 40 %" "CLAUDE_CODE_AUTO_COMPACT_WINDOW" "below 40"
+says "SessionStart, a 400,000-token window: median 40 %, floor 28 %, the 60 % alert comes after" text "the alert threshold (60 %" "about 40 %" "as low as about 28 %" "CLAUDE_CODE_AUTO_COMPACT_WINDOW" "below 28"
 RUN_ENV=(CLAUDE_CODE_AUTO_COMPACT_WINDOW=400k); run "$(sst)" --session-start
-says "SessionStart, a 400k window: the same 40 %" text "about 40 %"
-RUN_ENV=(CLAUDE_CODE_AUTO_COMPACT_WINDOW=400000 IAENG_CTX_ALERT_PCT=25); run "$(sst)" --session-start
-silent "SessionStart, a 400,000 window (near 40 %), alert 25 % and last call 35 %: both come before it"
-RUN_ENV=(CLAUDE_CODE_AUTO_COMPACT_WINDOW=400000 IAENG_CTX_ALERT_PCT=30); run "$(sst)" --session-start
-says "SessionStart, a 400,000 window, alert 30 %: the last call at 40 % does not come before 40 %" text "the last call (40 %)" "only the first alert, at 30 %"
-RUN_ENV=(CLAUDE_CODE_AUTO_COMPACT_WINDOW=650000); run "$(sst)" --session-start
-says "SessionStart, compaction near 65 %: the alert at 60 % comes first, the last call at 70 % does not" text "the last call (70 %)" "about 65 %" "only the first alert, at 60 %"
+says "SessionStart, a 400k window: the same 40 % and 28 %" text "about 40 %" "about 28 %"
+RUN_ENV=(CLAUDE_CODE_AUTO_COMPACT_WINDOW=400000 IAENG_CTX_ALERT_PCT=15); run "$(sst)" --session-start
+silent "SessionStart, a 400,000 window (floor 28), alert 15 and last call 25: both come before it"
+RUN_ENV=(CLAUDE_CODE_AUTO_COMPACT_WINDOW=400000 IAENG_CTX_ALERT_PCT=20); run "$(sst)" --session-start
+says "SessionStart, a 400,000 window, alert 20: the last call at 30 passes the floor 28" text "the last call (30 %)" "only the first alert, at 20 %"
+RUN_ENV=(CLAUDE_CODE_AUTO_COMPACT_WINDOW=800000); run "$(sst)" --session-start
+says "SessionStart, an 800,000 window (floor 68): the alert at 60 comes first, the last call at 70 does not" text "the last call (70 %)" "about 80 %" "as low as about 68 %" "only the first alert, at 60 %"
 RUN_ENV=(CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=50); run "$(sst)" --session-start
-says "SessionStart, CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=50 on the default window: near 48 %" text "about 48 %" "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE"
+says "SessionStart, CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=50 on the default window: median 48 %, floor 36 %" text "about 48 %" "as low as about 36 %" "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE"
 RUN_ENV=(CLAUDE_CODE_AUTO_COMPACT_WINDOW=400000 DISABLE_AUTO_COMPACT=1); run "$(sst)" --session-start
 silent "SessionStart, DISABLE_AUTO_COMPACT=1: no auto-compaction, no warning"
 RUN_ENV=(CLAUDE_CODE_AUTO_COMPACT_WINDOW=400000 DISABLE_COMPACT=1); run "$(sst)" --session-start
 silent "SessionStart, DISABLE_COMPACT=1: no warning"
 RUN_ENV=(IAENG_CTX_ALERT_PCT=abc); run "$(sst)" --session-start
-says "SessionStart, an invalid IAENG_CTX_ALERT_PCT is said" text "is not a whole number from 1 to 100" "default of 60 %"
+says "SessionStart, an invalid IAENG_CTX_ALERT_PCT is said, for the Director" text "is not a whole number from 1 to 100" "default of 60 %" "Tell the Director in one line."
 RUN_ENV=(IAENG_CONTEXT_HOOKS=off IAENG_CTX_ALERT_PCT=99); run "$(sst)" --session-start
 silent "SessionStart, switched off"
 RUN_ENV=()

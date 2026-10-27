@@ -3,10 +3,11 @@
 #
 # WU-IAENG-380, the compaction plan of 23 Oct 2026 (issue #304, WU-C). When
 # the Main Agent's context reaches IAENG_CTX_ALERT_PCT, this hook tells it,
-# once, to finish the Work Unit in progress, dispatch no new Employee and run
-# the Handoff to a New Conversation checklist of Templates/SESSION_STATE.md,
-# so a compaction that follows loses nothing. A second, "last call" message
-# comes once at IAENG_CTX_LAST_CALL_PCT. It never blocks: it adds context, and
+# once, to head for the Handoff: finish the Work Unit in progress, dispatch no
+# new Employee for any other work, then run the Handoff to a New Conversation
+# checklist of Templates/SESSION_STATE.md, so a compaction that follows loses
+# nothing. A second, "last call" message comes once at IAENG_CTX_LAST_CALL_PCT:
+# write the Handoff now, then resume. It never blocks: it adds context, and
 # every path exits 0.
 #
 # EVENTS (https://code.claude.com/docs/en/hooks.md):
@@ -16,8 +17,8 @@
 #                     with no prompt is covered too;
 #   SessionStart      run by session-start.sh with --session-start, not from
 #                     a settings entry of its own: a warning in plain text,
-#                     only when the alert threshold is at or above where
-#                     auto-compaction is estimated to run (below).
+#                     only when the alert threshold may come after
+#                     auto-compaction (below).
 # The two alert events are told apart by the payload's hook_event_name; any
 # other event gets nothing.
 #
@@ -32,15 +33,25 @@
 # with the writer's rules for the directory (TMPDIR only when absolute with no
 # . or .. component, else /tmp) and for the session id
 # ([A-Za-z0-9][A-Za-z0-9_-]{0,127}: no path can be built from it). Never from
-# the transcript. The file is believed only when:
+# the transcript. Before anything is said, the file is believed only when:
 #   - the directory is a directory, not a symbolic link, owned by the user,
 #     and writable by neither group nor others;
 #   - the file is a regular file, not a symbolic link, owned by the user,
 #     writable by neither group nor others, and at most 4 bytes long;
 #   - its content is one whole number from 0 to 100, an optional newline
 #     after it, and nothing else.
-# Otherwise, or when the file is absent: silence, exit 0. Only this session's
-# file decides what this session is told.
+# Otherwise, or when the file is absent: silence, exit 0. On Windows (Git
+# Bash on NTFS) the mode bits are not kept and -O holds for the user's files,
+# so the group/other rule is always met there: the boundary is the per-user
+# %TEMP% ACL, as for the writer.
+#
+# ONLY THIS SESSION'S FILES. The hook reads <session_id>.pct and
+# <session_id>.alert for the session in the payload, and nothing else in the
+# directory: another session's files are never read, judged or removed. So a
+# session that ended after its reading crossed a step (its .pct left behind)
+# costs the others nothing, and two sessions run with different thresholds
+# cannot re-arm each other (SEC-IAENG-380-02, SRE F1 and F2, CR M2). Removing
+# files of ended sessions is the writer's job (#321).
 #
 # ONCE PER STEP. Two steps: the alert at IAENG_CTX_ALERT_PCT (default 60, the
 # Director's provisional default of 23 Oct 2026, issue #304) and the last call
@@ -53,19 +64,21 @@
 # message is printed only when that write succeeded: an alert that cannot be
 # remembered would repeat on every prompt, and "at most once per step" is the
 # acceptance criterion (AC3). A reading below the alert threshold — after a
-# compaction or a /clear — removes the record, so the next crossing is said
-# again. A reading above both steps at once says the last call alone.
+# compaction or a /clear — removes this session's record, so the next
+# crossing is said again. A reading above both steps at once says the last
+# call alone.
 #
 # CHEAP WHEN THERE IS NOTHING TO SAY. PostToolBatch runs after every batch of
-# tool calls, and a process costs a lot on Windows (about 0.3 s each on the
-# machine this was written on). So before the payload is read, the directory
-# is scanned with shell builtins only — no process started: when no session's
-# .pct has reached a step its .alert has not recorded, the hook exits there,
-# and records whose .pct has fallen below the alert threshold are removed on
-# the way (only in a directory that passes the rules above). The scan only
-# decides whether to look closer; every check above is made again on this
-# session's own files before anything is said. A payload whose first 4 KiB
-# name an agent_id is a subagent's, and is dropped before jq runs.
+# tool calls, and on Windows every process costs (the bash that runs this
+# hook is the floor). So the first 4 KiB of the payload are read with a shell
+# builtin; a payload whose head names a non-empty agent_id is a subagent's
+# and is dropped; the session id is taken from the head (the hooks reference
+# puts it first), and this session's two files are read with builtins. Only
+# when this session has a step left to hear (or a record to re-arm) does the
+# hook read the rest of the payload, start jq and run every check above. A
+# nested "agent_id" or "session_id" key inside a tool's input, in the head,
+# can make one event miss its alert: fail-quiet, the next event recovers.
+# Without a session id in the head, the full path runs.
 #
 # WHY +10 FOR THE LAST CALL (Governance/CONTEXT_COMPACTION_MEASUREMENT.md,
 # WU-IAENG-374): auto-compaction ran at a median of 96.8 % of the 1M window
@@ -77,14 +90,19 @@
 # for most Work Units to close. The measurement's own caveat holds: the D+14
 # trial measures the real overshoot.
 #
-# THE SESSIONSTART WARNING compares the alert threshold with an ESTIMATE of
-# where auto-compaction runs, as a percentage of the context window the
-# status line measures (Adapters/ai-runtimes/claude-code/TROUBLESHOOTING.md,
-# section A, item 5): window% × (CLAUDE_AUTOCOMPACT_PCT_OVERRIDE or 100) / 100,
-# where window% is CLAUDE_CODE_AUTO_COMPACT_WINDOW over an assumed
-# 1,000,000-token context window, or 96 when the variable is unset (the
-# documented ~967K default of a 1M model; 96.8 % measured by WU-IAENG-374).
-# Only the environment is read: a window set with /autocompact or the
+# THE SESSIONSTART WARNING compares the steps with an ESTIMATE of where
+# auto-compaction may run, as a percentage of the context window the status
+# line measures (Adapters/ai-runtimes/claude-code/TROUBLESHOOTING.md, section
+# A, item 5). The median point is window% × (CLAUDE_AUTOCOMPACT_PCT_OVERRIDE
+# or 100) / 100, where window% is CLAUDE_CODE_AUTO_COMPACT_WINDOW over an
+# assumed 1,000,000-token context window, or 96 when the variable is unset
+# (the documented ~967K default of a 1M model; 96.8 % measured). The warning
+# uses the FLOOR, 12 points lower: the lowest compaction measured (848,341
+# tokens) came about 120,000 tokens, 12 points of a 1M window, under the
+# median one (968,011), because the reading the status line shows is the last
+# call's, and a large turn can trigger a compaction from there (SRE F3). It
+# warns when the alert is at or above the floor, or else when the last call
+# is. Only the environment is read: a window set with /autocompact or the
 # autoCompactWindow setting is not seen. With DISABLE_AUTO_COMPACT or
 # DISABLE_COMPACT set there is no auto-compaction to compare with, and no
 # warning. An IAENG_CTX_ALERT_PCT that is not a whole number from 1 to 100 is
@@ -153,7 +171,7 @@ json_out() {
 if [ "$MODE" = session-start ]; then
   MSG=""
   if [ "$ALERT_BAD" -eq 1 ]; then
-    MSG="IA Engineering context alert: IAENG_CTX_ALERT_PCT is not a whole number from 1 to 100, so the default of $DEFAULT_ALERT % is used (Adapters/ai-runtimes/claude-code/hooks/README.md, Context Alert)."
+    MSG="IA Engineering context alert: IAENG_CTX_ALERT_PCT is not a whole number from 1 to 100, so the default of $DEFAULT_ALERT % is used (Adapters/ai-runtimes/claude-code/hooks/README.md, Context Alert). Tell the Director in one line."
   fi
   off=0
   for v in "${DISABLE_AUTO_COMPACT:-}" "${DISABLE_COMPACT:-}"; do
@@ -177,10 +195,12 @@ if [ "$MODE" = session-start ]; then
       EFF=$((WIN_PCT * 10#$OV / 100))
       SRC="$SRC and CLAUDE_AUTOCOMPACT_PCT_OVERRIDE"
     fi
-    if [ "$ALERT" -ge "$EFF" ]; then
-      MSG="${MSG:+$MSG$'\n'}IA Engineering context alert: the alert threshold ($ALERT %, IAENG_CTX_ALERT_PCT) is at or above where auto-compaction is estimated to run, about $EFF % of the context window (from $SRC, assuming a 1,000,000-token window). The alert would come after the compaction it exists to prepare for. Tell the Director in one line, and suggest an IAENG_CTX_ALERT_PCT below $EFF (Adapters/ai-runtimes/claude-code/hooks/README.md, Context Alert)."
-    elif [ -n "$LAST" ] && [ "$LAST" -ge "$EFF" ]; then
-      MSG="${MSG:+$MSG$'\n'}IA Engineering context alert: the last call ($LAST %) is at or above where auto-compaction is estimated to run, about $EFF % of the context window (from $SRC, assuming a 1,000,000-token window); only the first alert, at $ALERT %, will come before it."
+    FLOOR=$((EFF - 12))
+    [ "$FLOOR" -lt 1 ] && FLOOR=1
+    if [ "$ALERT" -ge "$FLOOR" ]; then
+      MSG="${MSG:+$MSG$'\n'}IA Engineering context alert: the alert threshold ($ALERT %, IAENG_CTX_ALERT_PCT) is at or above where auto-compaction may run: about $EFF % of the context window at the median, and as low as about $FLOOR % (the lowest compaction measured in Governance/CONTEXT_COMPACTION_MEASUREMENT.md came 12 points under the median), estimated from $SRC, assuming a 1,000,000-token window. The alert may come after the compaction it exists to prepare for. Tell the Director in one line, and suggest an IAENG_CTX_ALERT_PCT below $FLOOR (Adapters/ai-runtimes/claude-code/hooks/README.md, Context Alert)."
+    elif [ -n "$LAST" ] && [ "$LAST" -ge "$FLOOR" ]; then
+      MSG="${MSG:+$MSG$'\n'}IA Engineering context alert: the last call ($LAST %) is at or above where auto-compaction may run, as low as about $FLOOR % of the context window (about $EFF % at the median; estimated from $SRC, assuming a 1,000,000-token window); only the first alert, at $ALERT %, is sure to come before it. Tell the Director in one line."
     fi
   fi
   # Plain text: session-start.sh prints it among its own lines, and Claude
@@ -199,7 +219,9 @@ case "/$BASE/" in */../*|*/./*) BASE=/tmp ;; esac
 BASE="${BASE%/}"
 [[ ${UID:-} =~ ^[0-9]+$ ]] || exit 0
 DIR="$BASE/iaeng-ctx-$UID"
-[ -d "$DIR" ] && [ ! -L "$DIR" ] || exit 0
+# Ours before anything in it is opened (SEC-IAENG-380-01): a directory
+# another user created first is never read.
+[ -d "$DIR" ] && [ ! -L "$DIR" ] && [ -O "$DIR" ] || exit 0
 
 # trusted <path>... — each is not a link, is owned by the user, and is
 # writable by neither group nor others; a regular file among them holds at
@@ -214,49 +236,50 @@ trusted() {
   [ -z "$out" ]
 }
 
-# said_of <file> — SAID: the step a .alert record holds, 0 when none.
+# said_of <file> — SAID: the step a .alert record holds, 0 when none. The
+# redirection is inside the group, so a failed open says nothing on stderr.
 said_of() {
   local s=""
   SAID=0
-  [ -f "$1" ] && [ ! -L "$1" ] || return 0
-  IFS= read -r -n 4 s < "$1" 2>/dev/null
+  if [ ! -f "$1" ] || [ -L "$1" ]; then return 0; fi
+  { IFS= read -r -n 4 s < "$1"; } 2>/dev/null
   case "$s" in 1|2) SAID=$s ;; esac
   return 0
 }
 
-# --- Pre-scan: builtins only ------------------------------------------------------
-NEED=0
-STALE=()
-for f in "$DIR"/*.pct; do
-  if [ ! -f "$f" ] || [ -L "$f" ]; then continue; fi
-  v=""
-  IFS= read -r -n 4 v < "$f" 2>/dev/null
-  if ! [[ $v =~ ^[0-9]{1,3}$ ]] || [ "$((10#$v))" -gt 100 ]; then continue; fi
-  step_of "$((10#$v))"
-  a="${f%.pct}.alert"
-  said_of "$a"
-  if [ "$STEP" -eq 0 ]; then
-    { [ -e "$a" ] || [ -L "$a" ]; } && STALE+=("$a")
-  elif [ "$STEP" -gt "$SAID" ]; then
-    NEED=1
-  fi
-done
-# Below the alert: the next crossing is said again. A link is removed, never
-# followed (rm acts on the link itself).
-if [ "${#STALE[@]}" -gt 0 ] && trusted "$DIR"; then
-  rm -f -- "${STALE[@]}" 2>/dev/null
-fi
-[ "$NEED" -eq 1 ] || exit 0
-
-# --- Payload ------------------------------------------------------------------
-# The first 4 KiB with a builtin: a subagent's payload is dropped here. Then
-# the rest (a PostToolBatch payload carries the batch's tool results).
+# --- Payload head: builtins only -------------------------------------------------
 [ -t 0 ] && exit 0
 HEAD=""
 IFS= read -r -d '' -n 4096 HEAD
 if [[ $HEAD =~ \"agent_id\"[[:space:]]*:[[:space:]]*\"[^\"] ]]; then
   exit 0
 fi
+
+# --- Fast gate: this session's two files, builtins only ---------------------------
+# Exits when this session has nothing to hear. Every rule is checked again on
+# the full path before anything is said or removed.
+SID_HEAD=""
+if [[ $HEAD =~ \"session_id\"[[:space:]]*:[[:space:]]*\"([A-Za-z0-9][A-Za-z0-9_-]{0,127})\" ]]; then
+  SID_HEAD="${BASH_REMATCH[1]}"
+fi
+if [ -n "$SID_HEAD" ]; then
+  f="$DIR/$SID_HEAD.pct"
+  if [ ! -f "$f" ] || [ -L "$f" ]; then exit 0; fi
+  v=""
+  { IFS= read -r -n 4 v < "$f"; } 2>/dev/null
+  if ! [[ $v =~ ^[0-9]{1,3}$ ]] || [ "$((10#$v))" -gt 100 ]; then exit 0; fi
+  step_of "$((10#$v))"
+  a="$DIR/$SID_HEAD.alert"
+  said_of "$a"
+  if [ "$STEP" -eq 0 ]; then
+    # Nothing to say; go on only to re-arm a record this session holds.
+    { [ -e "$a" ] || [ -L "$a" ]; } || exit 0
+  elif [ "$STEP" -le "$SAID" ]; then
+    exit 0
+  fi
+fi
+
+# --- Full path: the whole payload ---------------------------------------------------
 INPUT="$HEAD"
 [ "${#HEAD}" -lt 4096 ] || INPUT="$HEAD$(cat 2>/dev/null)"
 
@@ -303,10 +326,10 @@ esac
 # --- This session's percentage, every rule checked ---------------------------------
 PCT_F="$DIR/$SID.pct"
 SAID_F="$DIR/$SID.alert"
-[ -f "$PCT_F" ] && [ ! -L "$PCT_F" ] || exit 0
+if [ ! -f "$PCT_F" ] || [ -L "$PCT_F" ]; then exit 0; fi
 trusted "$DIR" "$PCT_F" || exit 0
 RAW=""
-IFS= read -r -d '' -n 16 RAW < "$PCT_F" 2>/dev/null
+{ IFS= read -r -d '' -n 16 RAW < "$PCT_F"; } 2>/dev/null
 [[ $RAW =~ ^([0-9]{1,3})$'\n'?$ ]] || exit 0
 PCT=$((10#${BASH_REMATCH[1]}))
 [ "$PCT" -le 100 ] || exit 0
@@ -317,32 +340,34 @@ if [ -f "$SAID_F" ] && [ ! -L "$SAID_F" ] && trusted "$SAID_F"; then
   said_of "$SAID_F"
 fi
 if [ "$STEP" -eq 0 ]; then
+  # Below the alert: this session's next crossing is said again. A link is
+  # removed, never followed (rm acts on the link itself).
   { [ -e "$SAID_F" ] || [ -L "$SAID_F" ]; } && rm -f -- "$SAID_F" 2>/dev/null
   exit 0
 fi
 [ "$STEP" -gt "$SAID" ] || exit 0
 
 # Remember first; say only what is remembered.
-[ -L "$SAID_F" ] || { [ -e "$SAID_F" ] && [ ! -f "$SAID_F" ]; } && exit 0
+if [ -L "$SAID_F" ] || { [ -e "$SAID_F" ] && [ ! -f "$SAID_F" ]; }; then exit 0; fi
 TMPF="$DIR/.$SID.alert.$$.$RANDOM.tmp"
 trap '[ -n "${TMPF:-}" ] && rm -f -- "$TMPF" 2>/dev/null; exit 0' EXIT
 ( umask 077; set -C; printf '%s\n' "$STEP" > "$TMPF" ) 2>/dev/null || { TMPF=""; exit 0; }
 mv -f -- "$TMPF" "$SAID_F" 2>/dev/null || exit 0
 TMPF=""
 
-HANDOFF="the Handoff to a New Conversation checklist of Templates/SESSION_STATE.md, items 1 to 6, written into .ia-engineering/SESSION_STATE.md: today's date in the header; Where the Project Stands and Next Step rewritten as of now; Blocked On with every open Director question; open Pull Requests and Employees in flight, and whether their work is committed; runtime memory pointing to the file; the right working directory"
+HANDOFF="the Handoff to a New Conversation checklist of Templates/SESSION_STATE.md, items 1 to 6, written into .ia-engineering/SESSION_STATE.md: today's absolute date in the header; Where the Project Stands and Next Step rewritten as of now; Blocked On with every open Director question; open Pull Requests and Employees in flight, and whether their work is committed; runtime memory pointing to that file, not duplicating it; the right working directory"
 
 if [ "$STEP" -eq 1 ]; then
   NEXT_LINE="A last call follows at ${LAST:-?} %."
   [ -n "$LAST" ] || NEXT_LINE="No further alert follows."
-  MSG="IA Engineering context alert: this session's context is at $PCT % of the window (alert threshold $ALERT %). Prepare the Handoff now, so a compaction loses nothing:
+  MSG="IA Engineering context alert: this session's context is at $PCT % of the window (alert threshold $ALERT %). Head for the Handoff, so a compaction loses nothing; do not stop or abandon the work in hand:
 1. Finish the Work Unit in progress. Start no other one until the Handoff is written.
-2. Dispatch no new Employee. Continuing an Employee already dispatched (answering it, waiting for its report, reviewing its work) is allowed.
+2. Dispatch no new Employee for any other work. Allowed: continuing an Employee already dispatched (answering it, waiting for its report, reviewing its work), and dispatching an Employee the Work Unit in progress still needs to be delivered, such as its reviewers.
 3. When that Work Unit is delivered, run $HANDOFF.
-4. Then tell the Director in one line that the Handoff is written.
+4. Then tell the Director in one line that the Handoff is written, and carry on; no answer is needed.
 This alert is said once and blocks nothing. $NEXT_LINE"
 else
-  MSG="IA Engineering context last call: this session's context is at $PCT % of the window (last call $LAST %). Write the Handoff now, before any other step, even if the current Work Unit is not finished: run $HANDOFF. Record where the unfinished Work Unit stands and which Employees are still in flight. Dispatch no new Employee; continuing one already dispatched is allowed. Then tell the Director in one line that the Handoff is written. Said once; blocks nothing."
+  MSG="IA Engineering context last call: this session's context is at $PCT % of the window (last call $LAST %). Write the Handoff now, before any other step, even if the current Work Unit is not finished: run $HANDOFF. Record where the unfinished Work Unit stands and which Employees are still in flight. Dispatch no new Employee for any other work; continuing one already dispatched is allowed. Then tell the Director in one line that the Handoff is written, and resume the Work Unit; no answer is needed. Said once; blocks nothing."
 fi
 json_out "$EVENT" "$MSG"
 exit 0
