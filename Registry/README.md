@@ -27,7 +27,7 @@ Concretely, per file:
 |---|---|---|
 | `employees.yml` | `Employees/*/*.md` (name, category, Default Complexity Tier) | A single parseable roster, replacing the same list duplicated in six places |
 | `chains.yml` | `Core/AGENT_CHAINS.md` | Chain sequences and Director gates as ordered data |
-| `workflows.yml` | `Workflows/*.md` | Step numbers, actors, and mandatory gates as ordered data |
+| `workflows.yml` | `Workflows/*.md` | Step numbers, step titles (each copied byte for byte from its `## Step N —` heading), actors, and mandatory gates as ordered data |
 | `work-units.yml` | The Work Units executed in the repository that holds it: this one for the framework's file; a consuming project keeps its OWN `Registry/work-units.yml` (the bootstrap writes an empty starter) and the check never reads the framework's on its behalf. The framework's file lists the Work Units executed in this repository **from WU-IAENG-137 onward** — earlier ones are deliberately absent and unrecoverable; see that file's header | Existence — so a commit's `Work Unit:` trailer can be checked against reality, not only against a regex |
 
 ---
@@ -66,7 +66,7 @@ Reformatting a Registry file — re-indenting, quoting values, adding a trailing
 ./Adapters/scripts/validate-framework.sh --regenerate-roster
 ```
 
-`chains.yml`, `workflows.yml`, and `work-units.yml` are hand-maintained: chain sequences, gate placement, and Work Unit history are editorial content, not text extractable from a heading. When one of the documents they derive from changes, update the Registry file in the same Work Unit — the same rule `Governance/CONTRIBUTING.md` §3 already sets for cross-references, now with a validator behind it.
+`chains.yml`, `workflows.yml`, and `work-units.yml` are hand-maintained: chain sequences, gate placement, and Work Unit history are editorial content, not text extractable from a heading. The step titles in `workflows.yml` are the exception: each is its document's heading text, copied byte for byte with no qualifier, and the validator fails when one differs (`Registry/workflows.yml`, header). When one of the documents they derive from changes, update the Registry file in the same Work Unit — the same rule `Governance/CONTRIBUTING.md` §3 already sets for cross-references, now with a validator behind it.
 
 ---
 
