@@ -99,6 +99,29 @@ An earlier removal, in `validate-framework.sh`, is worth recording because of ho
 
 ---
 
+## The Check Convention
+
+A check is code whose result another step relies on: a validator, a CI job, a git hook, a script whose exit status or output a caller reads. Every check, in the framework and in a project, in any language, follows four rules.
+
+1. **An unevaluated condition is a failure, not a pass.** If a check could not run — missing input, moved directory, a pattern that matched nothing — it says so. "Nothing objected" is not "everything passed". A caller that discards a check's exit status breaks this rule as surely as a check that never ran.
+2. **Exceptions are named allow-lists, never fall-throughs.** Name the exempt thing, never express the exemption as a property of absence itself, because that quietly exempts everything else that goes missing later.
+3. **Every set-iterating check reports its denominator.** Carry a count, fail at zero, print the count on the passing line. A verdict drawn from an empty set is indistinguishable from one drawn from a complete set.
+4. **A claim about how a mechanism behaves is a testable claim** — what it selects, what it accepts, what it costs, which direction it fails in. Write the claim with the test that establishes it, or do not write it; that test is seen to fail as `Standards/TESTING_STANDARD.md` (Falsifiability) requires. When the mechanism chooses among alternatives, enumerate the alternatives *before* testing: two of three agreeing is not a result.
+
+Rules 1 to 3 constrain code. Rule 4 constrains the prose that describes code — comments, Standards text, commit bodies — which is why it cannot be checked mechanically the way the others are.
+
+The rules are written down because the defect they name reproduces inside its own fixes: writing a pass is the path of least resistance whenever a condition turns out not to apply. `Adapters/README.md`, The Check Convention, keeps the record of how they were found.
+
+### Shell Scripts
+
+The framework's shell scripts follow three further rules, and so do a project's, unless the project has recorded another convention (Consistency, above).
+
+1. **Exit codes are an interface.** Each script states its exit codes in its header, and a code a caller relies on keeps its meaning. `0` means only that everything was evaluated and nothing needs action. A failure to evaluate has its own code, never `0` and never the code that reports a finding (rule 1); so does a usage error. A new check uses the convention POSIX specifies for `diff` and `grep` — `0` nothing found, `1` a finding, `2` an error — unless it implements a contract that defines its own codes. Such a contract is declared in `Adapters/README.md` (Exit Code Families) before a script uses it. No script uses `126`, `127` or a code above `128` for a verdict: the shell gives those their own meaning.
+2. **`set -u` and `pipefail`, not `set -e` by default.** Every executed script runs under `set -u` and `set -o pipefail`, set on its first lines or by the library it sources first, whose header says so. `set -e` does not stop on a failure inside a condition, an `&&` or `||` list, or a function called from one, so it promises a fail-closed script it does not deliver, and where it does stop, it stops a check before the check can report what it could not evaluate (rule 1). Each command whose failure matters is tested explicitly. A script sets `-e` only when any unhandled non-zero status is a correct fail-closed verdict, and states that reason in its header. A file that is only sourced sets no option of its own, unless it is that library.
+3. **A carriage return is removed only where it ends a line**: `${line%$'\r'}`, `sed $'s/\r$//'`, or `sub(/\r$/, "")` in awk. Never every carriage return (`tr -d '\r'`, `gsub(/\r/, "")`): one inside a value is data, and deleting it can make two different inputs read the same, which turns a difference a check exists to see into a pass.
+
+---
+
 # Responsibilities
 
 Every Employee must:
@@ -119,7 +142,8 @@ Do not:
 - leave unused code;
 - mix multiple coding styles within the same project;
 - suppress a linter, type checker, or test inline — configure the rule for the project, or satisfy it;
-- swallow a failure, skip or focus a test, lower a coverage threshold, or widen a type to make a check pass.
+- swallow a failure, skip or focus a test, lower a coverage threshold, or widen a type to make a check pass;
+- report a check as passed when it did not evaluate what it checks, or discard a check's exit status (The Check Convention).
 
 ---
 
@@ -147,7 +171,7 @@ Following this standard provides:
 
 Owner: IA Engineering
 
-Version: 0.0.3
+Version: 0.0.4
 
 Status: Draft
 
