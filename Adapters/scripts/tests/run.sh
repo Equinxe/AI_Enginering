@@ -4336,6 +4336,288 @@ chain_drift_case "two empty files" "$CHAIN_FIX/empty.md" "$CHAIN_FIX/empty.yml" 
 chain_drift_case "a missing file" "$CHAIN_FIX/absent.md" "$CHAIN_FIX/base.yml" \
   "cannot compare chain diagrams: $CHAIN_FIX/absent.md or $CHAIN_FIX/base.yml is missing"
 
+# ---- validate-framework.sh workflow step titles vs headings (WU-IAENG-392) --
+#
+# Section 13 compared each Registry/workflows.yml step_count with its
+# document's headings, and nothing else. Release Step 8's Registry line kept
+# "when the release branch diverged" for seven weeks after the document made
+# the back-merge always required (issue #332): the count was right. Since the
+# Director's decision of 27 Oct 2026, each step: value is its heading text
+# copied byte for byte, and workflow_step_title_drift compares them.
+#
+# These cases run the REAL workflow_step_title_drift, extracted from the
+# validator as chain_diagram_drift is above, on a copy of the real Workflow
+# documents and Registry, as LF and as CRLF, mutated one drift at a time. The
+# oracle is the documents' headings: every expected title, line number and
+# count below is read from a document with grep, never from the function.
+
+section "validate-framework.sh — workflow step titles match their headings byte for byte (WU-IAENG-392)"
+
+WST_HARNESS="$WORK/workflow-step-title-harness.sh"
+{
+  echo 'set -uo pipefail'
+  sed -n '/^workflow_step_title_drift() {/,/^}/p' "$SCRIPTS/validate-framework.sh"
+  cat <<'HARNESS'
+workflow_step_title_drift "$1" "$2"
+HARNESS
+} > "$WST_HARNESS"
+WST_REAL="$(cd "$SCRIPTS/../.." && pwd)"
+WST_FIX="$WORK/workflow-step-titles"
+WST_TAB=$'\t'
+WST_DASH='—'
+rm -rf "$WST_FIX"
+mkdir -p "$WST_FIX/lf/Workflows" "$WST_FIX/lf/Registry" "$WST_FIX/crlf/Workflows" "$WST_FIX/crlf/Registry"
+
+expect 0 "workflow step titles: workflow_step_title_drift is extracted from the validator" -- \
+  grep -q '^workflow_step_title_drift() {' "$WST_HARNESS"
+
+for wst_f in "$WST_REAL"/Workflows/*.md "$WST_REAL/Registry/workflows.yml"; do
+  wst_rel="${wst_f#"$WST_REAL"/}"
+  sed $'s/\r$//' "$wst_f" > "$WST_FIX/lf/$wst_rel"
+  awk '{ printf "%s\r\n", $0 }' "$WST_FIX/lf/$wst_rel" > "$WST_FIX/crlf/$wst_rel"
+done
+
+# The oracle for the denominator: the documents' numbered headings, counted
+# by grep.
+WST_DOCS="$(find "$WST_FIX/lf/Workflows" -name '*.md' | wc -l | tr -d ' ')"
+WST_HEADS="$(cat "$WST_FIX"/lf/Workflows/*.md | grep -cE '^## (Step|Ceremony) [0-9]+')"
+
+# wst_run <root> — runs the harness on <root>/Registry/workflows.yml.
+# wst_copy <name> — a fresh LF copy of the real files, at $WST_FIX/<name>.
+# wst_case <what> <root> <expected output...> — the copy must FAIL, with
+# every expected string in its output.
+wst_copy() {
+  rm -rf "${WST_FIX:?}/$1"
+  cp -R "$WST_FIX/lf" "$WST_FIX/$1"
+}
+wst_case() {
+  local what="$1" root="$2" want
+  shift 2
+  expect 1 "workflow step titles: $what fails" -- \
+    bash "$WST_HARNESS" "$root/Registry/workflows.yml" "$root"
+  for want in "$@"; do
+    expect_output "$want"
+  done
+}
+# wst_line <file> <heading prefix> — the line number of a heading, by grep.
+wst_line() {
+  grep -n "^$2" "$1" | head -n 1 | cut -d: -f1
+}
+
+# --- The real files, LF and CRLF.
+expect 0 "workflow step titles: the real documents and Registry agree, checked out LF" -- \
+  bash "$WST_HARNESS" "$WST_FIX/lf/Registry/workflows.yml" "$WST_FIX/lf"
+expect_output "total${WST_TAB}${WST_DOCS}${WST_TAB}${WST_HEADS}"
+for wst_f in "$WST_FIX"/lf/Workflows/*.md; do
+  expect_output "every step title matches Workflows/$(basename "$wst_f")"
+done
+WST_CR="$(tr -cd '\r' < "$WST_FIX/crlf/Registry/workflows.yml" | wc -c | tr -d ' ')"
+WST_LF="$(tr -cd '\n' < "$WST_FIX/crlf/Registry/workflows.yml" | wc -c | tr -d ' ')"
+expect 0 "workflow step titles: the CRLF copy ends every line in CRLF ($WST_CR CR, $WST_LF LF)" -- \
+  test "$WST_LF" -gt 0 -a "$WST_CR" = "$WST_LF"
+expect 0 "workflow step titles: the real documents and Registry agree, checked out CRLF" -- \
+  bash "$WST_HARNESS" "$WST_FIX/crlf/Registry/workflows.yml" "$WST_FIX/crlf"
+expect_output "total${WST_TAB}${WST_DOCS}${WST_TAB}${WST_HEADS}"
+
+# --- Issue #332 put back: a qualifier added to a Registry step. Release
+# Step 8 is the first "step: Back-merge to develop" line; Hotfix Step 9 is
+# the second.
+wst_copy qualifier
+awk '!done && $0 == "        step: Back-merge to develop" {
+       print "        step: Back-merge to develop via Pull Request, when the release branch diverged"; done = 1; next }
+     { print }' "$WST_FIX/lf/Registry/workflows.yml" > "$WST_FIX/qualifier/Registry/workflows.yml"
+expect 1 "workflow step titles: the qualifier fixture really changed the Registry" -- \
+  cmp -s "$WST_FIX/lf/Registry/workflows.yml" "$WST_FIX/qualifier/Registry/workflows.yml"
+WST_L="$(wst_line "$WST_FIX/qualifier/Workflows/RELEASE.md" "## Step 8 $WST_DASH ")"
+WST_R="$(grep -n '^        step: Back-merge to develop via Pull Request, when the release branch diverged$' "$WST_FIX/qualifier/Registry/workflows.yml" | cut -d: -f1)"
+wst_case "a qualifier added to a Registry step (Release Step 8, issue #332)" "$WST_FIX/qualifier" \
+  "Release, position 8: Workflows/RELEASE.md:$WST_L heads \"8 $WST_DASH Back-merge to develop\", $WST_FIX/qualifier/Registry/workflows.yml:$WST_R records \"8 $WST_DASH Back-merge to develop via Pull Request, when the release branch diverged\"" \
+  "1 of 11 positions differ"
+
+# Byte for byte means no normalisation (review of PR #339, QA): a title that
+# differs from its heading only in case, or only in a doubled space, fails.
+wst_copy case-only
+awk '$0 == "        step: Branch Creation" { print "        step: Branch creation"; next } { print }' \
+  "$WST_FIX/lf/Registry/workflows.yml" > "$WST_FIX/case-only/Registry/workflows.yml"
+expect 1 "workflow step titles: the case-only fixture really changed the Registry" -- \
+  cmp -s "$WST_FIX/lf/Registry/workflows.yml" "$WST_FIX/case-only/Registry/workflows.yml"
+WST_R="$(grep -n '^        step: Branch creation$' "$WST_FIX/case-only/Registry/workflows.yml" | cut -d: -f1)"
+wst_case "a title that differs from its heading in case only" "$WST_FIX/case-only" \
+  "Feature Development, position 2: Workflows/FEATURE_DEVELOPMENT.md:$(wst_line "$WST_FIX/case-only/Workflows/FEATURE_DEVELOPMENT.md" "## Step 2 $WST_DASH ") heads \"2 $WST_DASH Branch Creation\", $WST_FIX/case-only/Registry/workflows.yml:$WST_R records \"2 $WST_DASH Branch creation\"" \
+  "1 of 8 positions differ"
+
+wst_copy double-space
+awk '$0 == "        step: Create release branch" { print "        step: Create  release branch"; next } { print }' \
+  "$WST_FIX/lf/Registry/workflows.yml" > "$WST_FIX/double-space/Registry/workflows.yml"
+expect 1 "workflow step titles: the doubled-space fixture really changed the Registry" -- \
+  cmp -s "$WST_FIX/lf/Registry/workflows.yml" "$WST_FIX/double-space/Registry/workflows.yml"
+wst_case "a title that differs from its heading by a doubled space" "$WST_FIX/double-space" \
+  "Release, position 3: Workflows/RELEASE.md:" \
+  "records \"3 $WST_DASH Create  release branch\"" \
+  "1 of 11 positions differ"
+
+# --- Two Registry steps swapped, the step count unchanged: invisible to the
+# step_count comparison.
+wst_copy swapped
+awk '$0 == "        step: Review logic and correctness" { print "        step: Review tests"; next }
+     $0 == "        step: Review tests" { print "        step: Review logic and correctness"; next }
+     { print }' "$WST_FIX/lf/Registry/workflows.yml" > "$WST_FIX/swapped/Registry/workflows.yml"
+expect 0 "workflow step titles: the swap keeps the Registry's step count" -- \
+  test "$(grep -c '^      - n: ' "$WST_FIX/swapped/Registry/workflows.yml")" = "$(grep -c '^      - n: ' "$WST_FIX/lf/Registry/workflows.yml")"
+WST_L="$(wst_line "$WST_FIX/swapped/Workflows/CODE_REVIEW.md" "## Step 2 $WST_DASH ")"
+wst_case "two Registry steps swapped at equal count (Code Review 2 and 3)" "$WST_FIX/swapped" \
+  "Code Review, position 2: Workflows/CODE_REVIEW.md:$WST_L heads \"2 $WST_DASH Review logic and correctness\"" \
+  "records \"2 $WST_DASH Review tests\"" \
+  "2 of 9 positions differ"
+
+# --- A heading reworded in the document, the Registry unchanged.
+wst_copy reworded
+awk '$0 == "## Step 9 — Author response (if changes requested)" {
+       print "## Step 9 — Author response, then re-request review"; next }
+     { print }' "$WST_FIX/lf/Workflows/CODE_REVIEW.md" > "$WST_FIX/reworded/Workflows/CODE_REVIEW.md"
+expect 1 "workflow step titles: the reworded fixture really changed the document" -- \
+  cmp -s "$WST_FIX/lf/Workflows/CODE_REVIEW.md" "$WST_FIX/reworded/Workflows/CODE_REVIEW.md"
+WST_L="$(wst_line "$WST_FIX/reworded/Workflows/CODE_REVIEW.md" "## Step 9 $WST_DASH ")"
+wst_case "a heading reworded in the document (Code Review Step 9)" "$WST_FIX/reworded" \
+  "Code Review, position 9: Workflows/CODE_REVIEW.md:$WST_L heads \"9 $WST_DASH Author response, then re-request review\"" \
+  "records \"9 $WST_DASH Author response (if changes requested)\""
+
+# --- Two document headings swapped, a step renumbered in the Registry, a
+# heading added to the document.
+wst_copy doc-swapped
+awk '$0 == "## Ceremony 1 — Sprint Planning" { print "## Ceremony 1 — Daily Standup"; next }
+     $0 == "## Ceremony 2 — Daily Standup" { print "## Ceremony 2 — Sprint Planning"; next }
+     { print }' "$WST_FIX/lf/Workflows/SPRINT_CEREMONY.md" > "$WST_FIX/doc-swapped/Workflows/SPRINT_CEREMONY.md"
+wst_case "two document headings swapped at equal count" "$WST_FIX/doc-swapped" \
+  "Sprint Ceremony, position 1: Workflows/SPRINT_CEREMONY.md:" \
+  "heads \"1 $WST_DASH Daily Standup\"" "records \"1 $WST_DASH Sprint Planning\"" \
+  "2 of 4 positions differ"
+
+wst_copy renumbered
+awk '/^  - name: / { sprint = ($0 == "  - name: Sprint Ceremony") }
+     sprint && $0 == "      - n: 2" { print "      - n: 3"; next }
+     { print }' "$WST_FIX/lf/Registry/workflows.yml" > "$WST_FIX/renumbered/Registry/workflows.yml"
+wst_case "a Registry step renumbered, its title kept" "$WST_FIX/renumbered" \
+  "Sprint Ceremony, position 2:" "heads \"2 $WST_DASH Daily Standup\"" "records \"3 $WST_DASH Daily Standup\""
+
+wst_copy heading-added
+printf '\n## Step 12 — Close the incident record\n' >> "$WST_FIX/heading-added/Workflows/HOTFIX.md"
+wst_case "a heading added to the document" "$WST_FIX/heading-added" \
+  "Hotfix, position 12: Workflows/HOTFIX.md:" \
+  "heads \"12 $WST_DASH Close the incident record\"" \
+  "records nothing at position 12 (it ends at 11)"
+
+# --- Quoting: a double-quoted title loses its quotes and nothing else; every
+# form whose bytes YAML would read differently is refused, not compared.
+wst_copy quoted-plain
+awk '!done && $0 == "        step: Merge" { print "        step: \"Merge\""; done = 1; next } { print }' \
+  "$WST_FIX/lf/Registry/workflows.yml" > "$WST_FIX/quoted-plain/Registry/workflows.yml"
+expect 1 "workflow step titles: the quoted-plain fixture really changed the Registry" -- \
+  cmp -s "$WST_FIX/lf/Registry/workflows.yml" "$WST_FIX/quoted-plain/Registry/workflows.yml"
+expect 0 "workflow step titles: a double-quoted title that needs no quotes is compared without them" -- \
+  bash "$WST_HARNESS" "$WST_FIX/quoted-plain/Registry/workflows.yml" "$WST_FIX/quoted-plain"
+
+wst_copy colon-unquoted
+awk '$0 == "        step: \"Phase A: Project questions\"" { print "        step: Phase A: Project questions"; next } { print }' \
+  "$WST_FIX/lf/Registry/workflows.yml" > "$WST_FIX/colon-unquoted/Registry/workflows.yml"
+wst_case "a title containing \": \" left unquoted" "$WST_FIX/colon-unquoted" \
+  "a plain step: value YAML reads differently: Phase A: Project questions (enclose it in double quotes)"
+
+wst_copy block-scalar
+awk '!done && $0 == "        step: Merge" { print "        step: >-"; print "          Merge"; done = 1; next } { print }' \
+  "$WST_FIX/lf/Registry/workflows.yml" > "$WST_FIX/block-scalar/Registry/workflows.yml"
+wst_case "a title written as a block scalar" "$WST_FIX/block-scalar" \
+  "a block scalar \">-\"" "Feature Development, step 8:" "records no step: value"
+
+wst_copy single-quoted
+awk '!done && $0 == "        step: Commit" { print "        step: '\''Commit'\''"; done = 1; next } { print }' \
+  "$WST_FIX/lf/Registry/workflows.yml" > "$WST_FIX/single-quoted/Registry/workflows.yml"
+wst_case "a single-quoted title" "$WST_FIX/single-quoted" \
+  "a plain step: value starting with a YAML indicator: 'Commit'"
+
+wst_copy escaped
+awk '$0 == "        step: Pull Request" { print "        step: \"Pull\\u0020Request\""; next } { print }' \
+  "$WST_FIX/lf/Registry/workflows.yml" > "$WST_FIX/escaped/Registry/workflows.yml"
+wst_case "a double-quoted title holding an escape" "$WST_FIX/escaped" \
+  "a double-quoted step: value this check does not decode: \"Pull\\u0020Request\""
+
+wst_copy trailing-space
+awk '$0 == "        step: Diagnose" { print "        step: Diagnose "; next } { print }' \
+  "$WST_FIX/lf/Registry/workflows.yml" > "$WST_FIX/trailing-space/Registry/workflows.yml"
+wst_case "a plain title ending in a space YAML drops" "$WST_FIX/trailing-space" \
+  "a plain step: value YAML reads differently: Diagnose  (enclose it in double quotes)"
+
+# --- The Registry's shape: what cannot be read is refused.
+wst_copy no-title
+awk '$0 != "        step: Diagnose"' "$WST_FIX/lf/Registry/workflows.yml" > "$WST_FIX/no-title/Registry/workflows.yml"
+wst_case "a Registry step with no step: line" "$WST_FIX/no-title" \
+  "Incident Response, step 4:" "records no step: value"
+
+wst_copy two-titles
+awk '{ print } $0 == "        step: Diagnose" { print "        step: Contain" }' \
+  "$WST_FIX/lf/Registry/workflows.yml" > "$WST_FIX/two-titles/Registry/workflows.yml"
+wst_case "a Registry step with two step: lines" "$WST_FIX/two-titles" \
+  "a second step: line for step 4"
+
+wst_copy foreign-item
+awk '{ print } $0 == "        step: Diagnose" { print "      - actor: SRE Engineer" }' \
+  "$WST_FIX/lf/Registry/workflows.yml" > "$WST_FIX/foreign-item/Registry/workflows.yml"
+wst_case "a steps item that does not open with - n:" "$WST_FIX/foreign-item" \
+  "a step that does not open with \"- n:\": \"      - actor: SRE Engineer\""
+
+# Review of PR #339: YAML folds an indented continuation line into the value
+# above it, so a qualifier on a second line under step: was part of the title
+# for YAML and skipped by the check, which passed with "total 10 80". Every
+# line inside steps that is neither blank nor a one-line eight-space key is
+# now refused.
+wst_copy continuation
+awk '{ print } !done && $0 == "        step: Back-merge to develop" {
+       print "          via Pull Request, when the release branch diverged"; done = 1 }' \
+  "$WST_FIX/lf/Registry/workflows.yml" > "$WST_FIX/continuation/Registry/workflows.yml"
+expect 1 "workflow step titles: the continuation fixture really changed the Registry" -- \
+  cmp -s "$WST_FIX/lf/Registry/workflows.yml" "$WST_FIX/continuation/Registry/workflows.yml"
+wst_case "a qualifier on a continuation line under step: (review of PR #339)" "$WST_FIX/continuation" \
+  "Registry/workflows.yml:$(grep -n '^          via Pull Request, when the release branch diverged$' "$WST_FIX/continuation/Registry/workflows.yml" | cut -d: -f1): a line outside the steps grammar" \
+  "\"          via Pull Request, when the release branch diverged\""
+
+wst_copy actor-continuation
+awk '{ print } !done && $0 == "        actor: QA Engineer" {
+       print "          only when the change alters executable behaviour"; done = 1 }' \
+  "$WST_FIX/lf/Registry/workflows.yml" > "$WST_FIX/actor-continuation/Registry/workflows.yml"
+wst_case "a continuation line under another key of a step" "$WST_FIX/actor-continuation" \
+  "a line outside the steps grammar" "\"          only when the change alters executable behaviour\""
+
+wst_copy seven-spaces
+awk '{ print } $0 == "        step: Diagnose" { print "       gate: true" }' \
+  "$WST_FIX/lf/Registry/workflows.yml" > "$WST_FIX/seven-spaces/Registry/workflows.yml"
+wst_case "a step key at seven spaces" "$WST_FIX/seven-spaces" \
+  "a line outside the steps grammar" "\"       gate: true\""
+
+wst_copy untitled-heading
+awk '$0 == "## Step 4 — Diagnose" { print "## Step 4 Diagnose"; next } { print }' \
+  "$WST_FIX/lf/Workflows/INCIDENT_RESPONSE.md" > "$WST_FIX/untitled-heading/Workflows/INCIDENT_RESPONSE.md"
+wst_case "a document heading counted as a step with no title" "$WST_FIX/untitled-heading" \
+  "Workflows/INCIDENT_RESPONSE.md:$(wst_line "$WST_FIX/untitled-heading/Workflows/INCIDENT_RESPONSE.md" "## Step 4 Diagnose"): a step heading with no"
+
+# --- Rule 1: an empty or unreadable input fails; it is never a pass.
+wst_copy doc-missing
+rm -f "$WST_FIX/doc-missing/Workflows/ONBOARDING.md"
+wst_case "a document that cannot be read" "$WST_FIX/doc-missing" \
+  "Onboarding: Workflows/ONBOARDING.md cannot be read"
+
+wst_copy no-headings
+grep -vE '^## (Step|Ceremony) [0-9]+' "$WST_FIX/lf/Workflows/SPRINT_CEREMONY.md" > "$WST_FIX/no-headings/Workflows/SPRINT_CEREMONY.md"
+wst_case "a document with no step heading" "$WST_FIX/no-headings" \
+  "Sprint Ceremony: Workflows/SPRINT_CEREMONY.md has no \"## Step N\" or \"## Ceremony N\" heading"
+
+wst_copy empty-registry
+: > "$WST_FIX/empty-registry/Registry/workflows.yml"
+wst_case "an empty Registry" "$WST_FIX/empty-registry" \
+  "no workflow step title was compared" "total${WST_TAB}0${WST_TAB}0"
+
+wst_case "a missing Registry" "$WST_FIX/absent" \
+  "cannot compare workflow step titles: $WST_FIX/absent/Registry/workflows.yml is missing" "total${WST_TAB}0${WST_TAB}0"
+
 # ------------------------------------------------- git-hooks/pre-push -------
 #
 # Pen-test finding PT2-08 (1 Oct 2026): pre-push refused every push to main

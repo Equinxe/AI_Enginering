@@ -32,7 +32,12 @@
 # what to check, what to produce, when to escalate — stay in the Workflow
 # document, because compressing them into a data field would either lose the
 # reasoning or duplicate the document. What is recorded here is structure:
-# ordinal, actor, and whether the step is a gate.
+# ordinal, actor, the step's title, and whether the step is a gate. A step's
+# `step:` value is the document's heading text after "## Step N — " (or
+# "## Ceremony N — "), copied byte for byte. It carries no summary and no
+# qualifier: a qualifier restates what the step requires, and a restatement is
+# what drifts. Adapters/scripts/validate-framework.sh fails when a `step:`
+# value differs from its heading.
 #
 # PARSING CONTRACT — read this before reformatting.
 # Consumers read these lines with grep and sed:
@@ -40,6 +45,16 @@
 # Every Workflow document under Workflows/ must appear as a `file:` value; the
 # validator fails when one does not, so a new Workflow cannot be added to the
 # repository and stay invisible here.
+#
+# The validator reads each workflow's steps at fixed indentation: "    steps:"
+# opens the list, "      - n: <N>" opens a step, and "        step: <title>"
+# holds its title on that one line. A title is written plain, unless YAML would
+# read it differently: one containing ": " or " #", or starting with a YAML
+# indicator, is enclosed in double quotes, which the validator removes before
+# comparing. A block scalar (">-", "|"), a single-quoted value and a
+# double-quoted value containing '"' or '\' are refused, not compared. So is
+# every other line inside steps that is neither blank nor a one-line key at
+# eight spaces: a continuation line would be folded into the title above it.
 
 workflows:
 
@@ -51,12 +66,10 @@ workflows:
     steps:
       - n: 1
         actor: Main Agent
-        step: >-
-          Work Unit definition, per Core/ORCHESTRATION.md Step 3 — the
-          Engineering Manager only for multi-pole work
+        step: Work Unit Definition
       - n: 2
         actor: Engineer
-        step: Branch creation
+        step: Branch Creation
       - n: 3
         actor: Engineer
         step: Implementation
@@ -68,22 +81,13 @@ workflows:
         step: Pull Request
       - n: 6
         actor: Code Reviewer
-        step: Code review, via Workflows/CODE_REVIEW.md
+        step: Code Review
       - n: 7
         actor: QA Engineer
-        step: >-
-          QA validation against acceptance criteria — runs when the Pull
-          Request changes executable behaviour, as Workflows/FEATURE_DEVELOPMENT.md
-          Step 7 defines it (when unclear, it does); skipped otherwise
-          (Director, 6 Oct 2026)
+        step: QA Validation
       - n: 8
         actor: Engineering Manager
-        step: >-
-          Merge into develop — the document names the Engineering Manager or
-          Technical Lead; the Main Agent may also execute this merge, and
-          delete the merged branch, under the Director's standing exception
-          and only on its conditions (Core/MAIN_AGENT_CONDUCT.md, Git
-          Execution via Named Employee)
+        step: Merge
     gates: []
     gate_note: >-
       No Director gate inside this workflow. The Feature Chain places the
@@ -116,13 +120,13 @@ workflows:
         step: Review documentation
       - n: 7
         actor: Code Reviewer
-        step: Deliver severity-labelled feedback
+        step: Deliver feedback
       - n: 8
         actor: Code Reviewer
-        step: Decision — approve, request changes, or escalate
+        step: Decision
       - n: 9
         actor: Engineer
-        step: Author response, then re-request review
+        step: Author response (if changes requested)
     gates: []
     blocking_conditions:
       - Missing or insufficient tests block approval (Step 3)
@@ -143,10 +147,10 @@ workflows:
         step: Release readiness review
       - n: 2
         actor: Release Manager
-        step: Bump version on develop, through the standard PR cycle
+        step: Bump version on `develop`
       - n: 3
         actor: Release Manager
-        step: Create the release branch as a pure snapshot of develop
+        step: Create release branch
       - n: 4
         actor: QA Engineer
         step: Release acceptance testing
@@ -156,22 +160,22 @@ workflows:
         gate: true
       - n: 6
         actor: Release Manager
-        step: Merge to main via Pull Request
+        step: Merge to main
       - n: 7
         actor: Release Manager
-        step: Tag, and create a full GitHub Release from the CHANGELOG.md entry
+        step: Tag
       - n: 8
         actor: Release Manager
-        step: Back-merge to develop via Pull Request — always required, on every release
+        step: Back-merge to develop
       - n: 9
         actor: QA Engineer
         step: Post-release verification
       - n: 10
         actor: Release Manager
-        step: Preserve the release branch — never deleted
+        step: Preserve the release branch
       - n: 11
         actor: Scrum Master
-        step: Release retrospective — lessons and evidenced frictions from named sources, each with the surface that owns its fix, in one Issue the Director decides in one pass; an Issue per accepted line, recorded before the next milestone is planned
+        step: Release retrospective
     gates:
       - step: 5
         approver: Director
@@ -195,16 +199,16 @@ workflows:
         gate: true
       - n: 2
         actor: Engineer
-        step: Create the hotfix branch from main, not develop
+        step: Create hotfix branch
       - n: 3
         actor: Engineer
-        step: Implement the minimal fix plus a regression test
+        step: Implement the fix
       - n: 4
         actor: Engineer
         step: Commit
       - n: 5
         actor: Code Reviewer
-        step: Code review — expedited, not reduced
+        step: Code review
       - n: 6
         actor: QA Engineer
         step: QA validation
@@ -217,13 +221,13 @@ workflows:
         step: Merge to main and tag
       - n: 9
         actor: Release Manager
-        step: Back-merge to develop via Pull Request
+        step: Back-merge to develop
       - n: 10
         actor: QA Engineer
         step: Post-fix verification
       - n: 11
         actor: Release Manager
-        step: Delete the hotfix branch
+        step: Delete hotfix branch
     gates:
       - step: 1
         approver: Director
@@ -246,10 +250,10 @@ workflows:
     steps:
       - n: 1
         actor: SRE Engineer
-        step: Detect and declare, with an initial severity
+        step: Detect and declare
       - n: 2
         actor: Engineering Manager
-        step: Assign an Incident Commander; notify the Director if P1 or P2
+        step: Assign Incident Commander
         gate: true
       - n: 3
         actor: SRE Engineer
@@ -262,13 +266,13 @@ workflows:
         step: Contain
       - n: 6
         actor: Engineer
-        step: Resolve — via Workflows/HOTFIX.md when a code change is needed
+        step: Resolve
       - n: 7
         actor: SRE Engineer
         step: Declare resolution
       - n: 8
         actor: Engineering Manager
-        step: Blameless post-mortem, mandatory for P1 and P2
+        step: Post-mortem
     gates:
       - step: 2
         approver: Director
@@ -288,29 +292,29 @@ workflows:
     steps:
       - n: 1
         actor: Software Architect
-        step: Identify the decision, confirm it meets the ADR threshold
+        step: Identify the decision
       - n: 2
         actor: Software Architect
-        step: Research options — first search earlier ADRs' Options Considered for a rejection of the same idea; at least two must be evaluated
+        step: Research options
       - n: 3
         actor: Software Architect
         step: Draft the ADR
       - n: 4
         actor: Technical Lead
-        step: Review — minimum 48 hours, 72 for P1-level decisions
+        step: Review
       - n: 5
         actor: Director
-        step: Director approval; status becomes Accepted
+        step: Director approval
         gate: true
       - n: 6
         actor: Engineering Manager
-        step: Communicate and index the accepted ADR
+        step: Communicate
       - n: 7
         actor: Engineer
-        step: Implement, via Workflows/FEATURE_DEVELOPMENT.md
+        step: Implement
       - n: 8
         actor: Software Architect
-        step: Supersede or deprecate, when a later decision replaces this one
+        step: Supersede or deprecate (when applicable)
     gates:
       - step: 5
         approver: Director
@@ -331,26 +335,26 @@ workflows:
     steps:
       - n: 1
         actor: Main Agent
-        step: Import the framework; create CLAUDE.md
+        step: Import the framework
       - n: 2
         actor: Main Agent
-        step: Define project context from the Director's brief
+        step: Define project context
       - n: 3
         actor: Software Architect
-        step: Architecture review — existing projects only
+        step: Architecture review (existing projects only)
       - n: 4
         actor: Engineering Manager
-        step: Activate the Employee roster in CLAUDE.md
+        step: Activate employees
       - n: 5
         actor: Main Agent
-        step: Initialize the git workflow
+        step: Initialize git workflow
       - n: 6
         actor: Main Agent
-        step: Create the first Work Unit
+        step: Create first Work Unit
         gate: true
       - n: 7
         actor: Main Agent
-        step: Confirm readiness to the Director
+        step: Confirm readiness
         gate: true
     gates:
       - step: 6
@@ -382,7 +386,7 @@ workflows:
         step: Daily Standup
       - n: 3
         actor: Product Manager
-        step: Sprint Review — the Director gives final acceptance
+        step: Sprint Review
         gate: true
       - n: 4
         actor: Scrum Master
@@ -400,26 +404,26 @@ workflows:
     steps:
       - n: 1
         actor: Business Analyst
-        step: Phase A — business-before-tech questions; produces the Project Charter
+        step: "Phase A: Project questions"
       - n: 2
         actor: Software Architect
-        step: Phase B — tech-stack questions; produces the Stack Decision ADR
+        step: "Phase B: Tech-stack questions"
         gate: true
       - n: 3
         actor: DevOps Engineer
         step: Scaffold the repository
       - n: 4
         actor: DevOps Engineer
-        step: Scaffold CI/CD and enforcement, via Adapters/scripts/setup-project-bootstrap.sh
+        step: Scaffold CI/CD and enforcement
       - n: 5
         actor: DevOps Engineer
-        step: Scaffold GHCR publishing — build and publish only, never deployment
+        step: Scaffold GHCR publishing
       - n: 6
         actor: DevOps Engineer
         step: Scaffold issue templates
       - n: 7
         actor: Main Agent
-        step: Hand off to Workflows/ONBOARDING.md at its Step 4
+        step: Hand off to Onboarding
     gates:
       - step: 2
         approver: Director
@@ -446,27 +450,27 @@ workflows:
     steps:
       - n: 1
         actor: Director
-        step: Mandate — scope, bounded budget, stop conditions, delivery form
+        step: Director mandate
         gate: true
       - n: 2
         actor: Main Agent
-        step: Conductor decomposes into poles with disjoint write scope; one Pole Brief each
+        step: Decompose into poles
       - n: 3
         actor: Main Agent
-        step: Poles execute Core/ORCHESTRATION.md on their briefs; every control binds per pole
+        step: Poles execute
       - n: 4
         actor: Main Agent
-        step: Centralised escalation — High/Critical stops the pole and reaches the Director through the conductor
+        step: Centralised escalation
       - n: 5
         actor: Code Reviewer
-        step: Integration pass — merge in dependency order, conflicts as Work Units, full gate suite, review, QA
+        step: Integration pass
       - n: 6
         actor: Director
-        step: Consolidated delivery — Pole Reports, integration result, rolled-up Risk Records; Director accepts or rejects
+        step: Consolidated delivery
         gate: true
       - n: 7
         actor: Main Agent
-        step: Close the run — fold Session State, catalog incidents, delete pole branches after merge
+        step: Close the run
     gates:
       - step: 1
         approver: Director
