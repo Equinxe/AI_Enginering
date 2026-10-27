@@ -1548,6 +1548,18 @@ work_units:
     milestone: Adoption
     delivers: Standards/RISK_STANDARD.md, Core/ORCHESTRATION.md, Core/EMPLOYEE_SELECTION.md, Core/MAIN_AGENT_CONDUCT.md, CHANGELOG.md, Registry/work-units.yml
 
+  - id: WU-IAENG-385
+    employee: Technical Writer
+    title: Add the missing changelog fragments of WU-IAENG-346 to WU-IAENG-351 (Code Reviewer ruling on PR #313 - six real entries, not exemptions) - one changelog.d/ fragment each, in the Keep a Changelog category the merged diff and Pull Request support, with Security entries for the escape-hatch gaps of WU-IAENG-349 and the Security Engineer findings of WU-IAENG-351; this Work Unit's own fragment is an exemption
+    milestone: Adoption
+    delivers: changelog.d/WU-IAENG-346.md, changelog.d/WU-IAENG-347.md, changelog.d/WU-IAENG-348.md, changelog.d/WU-IAENG-349.md, changelog.d/WU-IAENG-350.md, changelog.d/WU-IAENG-351.md, changelog.d/WU-IAENG-385.md, Registry/work-units.yml
+
+  - id: WU-IAENG-383
+    employee: Prompt Engineer
+    title: Plan Review reads Step 3's Work Units, and hotfix plans go through Step 3 (#315) - the Technical Lead's execution simulation (Employees/Management/TECHNICAL_LEAD.md 0.0.6) reads each Work Unit as Core/ORCHESTRATION.md Step 3 defines it (objective, named Employee, inputs, outputs, Definition of Done, applicable Standards, expected commit message), together with what the plan states around it, instead of its Employee Brief, which is written only at Step 4, after the Plan Review, and adds context and boundaries but never another objective, input, output or Definition of Done; Workflows/HOTFIX.md (0.0.10) Step 1 says the Director's authorization starts the hotfix but is not the approval of its plan, which is made and approved per ORCHESTRATION Step 3 before this workflow's Step 2 is dispatched, through the Technical Lead's Plan Review when it carries a Medium-or-higher action; planning and its Plan Review are not hotfix work, so the plan and its record may go with the authorization request and one Director decision gives both; no Core change
+    milestone: Adoption
+    delivers: Employees/Management/TECHNICAL_LEAD.md, Workflows/HOTFIX.md, changelog.d/WU-IAENG-383.md, Registry/work-units.yml
+
   - id: WU-IAENG-386
     employee: Prompt Engineer
     title: The Director-approved Core and Standards texts of 26 Oct 2026, batch 3, committed verbatim (approved 27 Oct 2026, 1:A 2:A 3:A 4:A) - Core/MAIN_AGENT_CONDUCT.md (0.0.12) names the carry-over check of a Pull Request update as condition 1 of the merge into develop and its script, and states the develop-merge standing authorisation's exact scope (develop and the head branch of a Pull Request that targets develop, other than a release/* or hotfix/* branch, whose back-merge is the Release Manager's) and its permitted actions (the merge, the deletion of the merged head branch, the update); Core/ORCHESTRATION.md (0.0.15) Step 3 sends an escalate verdict of the Plan Review to whom the record names - the Software Architect for an architectural finding, the Director for a product decision - as Employees/Management/TECHNICAL_LEAD.md already does; Standards/RISK_STANDARD.md (0.0.17) widens the High branch-deletion row to a branch whose ancestry was not checked after a fetch immediately before the deletion and a branch merged only into a release/* branch, tier unchanged
