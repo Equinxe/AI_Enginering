@@ -1,0 +1,4 @@
+### Fixed
+
+- `install-hooks.sh` counts an existing hook entry as present only when every field equals the template's, key order aside. A guard entry with `"timeout": 1` or an extra field no longer passes for the real one: the framework's entry is added beside it, and the other is reported as a near miss naming the fields that differ. `"disableAllHooks": true` in `.claude/settings.json` or `.claude/settings.local.json` is reported on every run and never changed (issue #241) (#246, WU-IAENG-347)
+- `install-hooks.sh` and `install-skills.sh` append their LF rule (`/.claude/settings.json text eol=lf`, `/.claude/skills/** text eol=lf`) to the project's `.gitattributes` when it is missing, so a `core.autocrlf=true` clone no longer checks the installed files out with CRLF. `install.sh` lists the skills rule among the adopter rules (issue #242) (#246, WU-IAENG-347)
