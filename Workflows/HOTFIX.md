@@ -27,7 +27,8 @@ If the defect is not in production or the impact is medium or lower: use the Fea
 
 | Actor | Role in this workflow |
 |---|---|
-| Director | Authorizes the hotfix and approves the merge to `main` |
+| Director | Authorizes the hotfix, approves its plan, and approves the merge to `main` |
+| Technical Lead | Runs the Plan Review of the hotfix plan when it carries a Medium-or-higher action |
 | Engineering Manager | Coordinates the hotfix, assigns the engineer |
 | Engineer | Implements and tests the fix |
 | Code Reviewer | Reviews the fix — no hotfix is merged without review |
@@ -59,7 +60,9 @@ Before this workflow begins:
 
 No hotfix work begins without this authorization.
 
-**Output:** Director authorization documented.
+The authorization starts the hotfix; on its own it is not the approval of its plan. The Main Agent plans the hotfix's Work Units as `Core/ORCHESTRATION.md` Step 3 defines them, and the Director approves that plan before this workflow's Step 2 is dispatched. A plan that carries a Medium-or-higher action (`Standards/RISK_STANDARD.md`) goes through the Technical Lead's Plan Review first (`Employees/Management/TECHNICAL_LEAD.md`, Process, Plan Review). Planning and its Plan Review are not hotfix work: the Main Agent may present the plan, with its Plan Review record, together with the request for authorization, and the Director then authorizes the hotfix and approves its plan in one decision, recorded as both. Urgency shortens neither the plan nor its review.
+
+**Output:** Director authorization documented; the hotfix plan approved by the Director, in the same decision or after it, with its Plan Review record when one is required.
 
 ---
 
@@ -220,7 +223,7 @@ This workflow is complete when:
 
 Owner: IA Engineering
 
-Version: 0.0.9.4
+Version: 0.0.10
 
 Status: Draft
 
