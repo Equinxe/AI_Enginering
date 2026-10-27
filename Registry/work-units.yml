@@ -1520,9 +1520,9 @@ work_units:
 
   - id: WU-IAENG-380
     employee: Platform Engineer
-    title: Reserved 23 Oct 2026 before dispatch (WU-IAENG-381) - context alert hook (compaction plan of 23 Oct 2026, WU-C) - a hook that, once the context occupancy written by WU-IAENG-379 reaches the alert threshold, tells the Main Agent to run the Handoff checklist
+    title: Context alert hook (compaction plan of 23 Oct 2026, WU-C; issue #304) - hooks/context-alert.sh on UserPromptSubmit and PostToolBatch tells the Main Agent once per step, at IAENG_CTX_ALERT_PCT (default 60, Director's provisional default) and at the last call (+10, from WU-IAENG-374's measurement), to finish the Work Unit in progress, dispatch no new Employee and run the Handoff checklist of Templates/SESSION_STATE.md; it reads the percentage only from the WU-IAENG-379 file, validated (directory and file not links, owned by the user, not group- or world-writable, one integer 0-100), ignores subagents (agent_id), keeps what it said beside that file, never blocks (exit 0 on every path), starts no process when there is nothing to say; session-start.sh runs it with --session-start to warn when the alert is at or above the estimated auto-compaction threshold; installed by default by install-hooks.sh and reported by --check
     milestone: Adoption
-    delivers: planned - a hook and its tests under Adapters/ai-runtimes/claude-code/hooks/, CHANGELOG.md, Registry/work-units.yml
+    delivers: Adapters/ai-runtimes/claude-code/hooks/context-alert.sh, Adapters/ai-runtimes/claude-code/hooks/session-start.sh, Adapters/ai-runtimes/claude-code/hooks/tests/context-alert.sh, Adapters/ai-runtimes/claude-code/hooks/tests/run.sh, Adapters/ai-runtimes/claude-code/hooks/README.md, Adapters/ai-runtimes/claude-code/settings.example.json, Adapters/ai-runtimes/claude-code/install-hooks.sh, .claude/settings.json, Adapters/scripts/tests/run.sh, Adapters/README.md, changelog.d/WU-IAENG-380.md, Registry/work-units.yml
 
   - id: WU-IAENG-381
     employee: Release Manager

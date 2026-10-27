@@ -282,7 +282,7 @@ if [ "$PRINT" -eq 1 ]; then
   exit 0
 fi
 
-HOOK_LIST="SessionStart read-first, PreToolUse escape-hatch and inline-suppression blocks, PostToolUse lint, Stop gate, Stop usage-dashboard refresh (never blocks; opt-out in hooks/README.md); statusLine recording the context % and running your own status line (hooks/README.md, Context Status Line)."
+HOOK_LIST="SessionStart read-first, PreToolUse escape-hatch and inline-suppression blocks, PostToolUse lint, Stop gate, Stop usage-dashboard refresh (never blocks; opt-out in hooks/README.md), context alert on UserPromptSubmit and PostToolBatch (never blocks; hooks/README.md, Context Alert); statusLine recording the context % and running your own status line (hooks/README.md, Context Status Line)."
 
 DEST="$PROJECT/.claude/settings.json"
 
