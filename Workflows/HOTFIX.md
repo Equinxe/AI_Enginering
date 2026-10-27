@@ -27,7 +27,8 @@ If the defect is not in production or the impact is medium or lower: use the Fea
 
 | Actor | Role in this workflow |
 |---|---|
-| Director | Authorizes the hotfix and approves the merge to `main` |
+| Director | Authorizes the hotfix, approves its plan, and approves the merge to `main` |
+| Technical Lead | Runs the Plan Review of the hotfix plan when it carries a Medium-or-higher action |
 | Engineering Manager | Coordinates the hotfix, assigns the engineer |
 | Engineer | Implements and tests the fix |
 | Code Reviewer | Reviews the fix — no hotfix is merged without review |
@@ -42,7 +43,6 @@ If the defect is not in production or the impact is medium or lower: use the Fea
 Before this workflow begins:
 
 - The defect is confirmed in production.
-- Director has authorized the hotfix.
 - The defect is reproduced and documented with steps to reproduce, actual behavior, and expected behavior.
 
 ---
@@ -54,12 +54,14 @@ Before this workflow begins:
 **Actor:** Director
 
 1. Confirm the defect severity and production impact.
-2. Authorize the hotfix explicitly.
+2. Authorize the hotfix and approve its plan explicitly.
 3. Define the maximum acceptable time to resolution.
 
 No hotfix work begins without this authorization.
 
-**Output:** Director authorization documented.
+Planning is not hotfix work, and it comes first. The Main Agent plans the hotfix's Work Units as `Core/ORCHESTRATION.md` Step 3 defines them. A plan that carries a Medium-or-higher action (`Standards/RISK_STANDARD.md`) goes through the Technical Lead's Plan Review (`Employees/Management/TECHNICAL_LEAD.md`, Process, Plan Review) before it reaches the Director. The Main Agent then presents the plan, with its Plan Review record when one is required, together with the request for authorization, and the Director authorizes the hotfix and approves its plan in one decision, recorded as both. An authorization given without the plan's approval does not dispatch Step 2: the plan is revised and presented again. Urgency shortens neither the plan nor its review.
+
+**Output:** Director authorization and approval of the hotfix plan documented as one decision, with the plan's Plan Review record when one is required.
 
 ---
 
@@ -220,7 +222,7 @@ This workflow is complete when:
 
 Owner: IA Engineering
 
-Version: 0.0.9.4
+Version: 0.0.11
 
 Status: Draft
 

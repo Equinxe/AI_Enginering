@@ -11,6 +11,9 @@
 #     Validate Workflow YAML, Hook Tests, Script Tests, PR Size, Framework
 #     Validation, Data Policy) become required status checks once this
 #     script has run, on main, develop, AND release/*
+#   - the Director's decision of 22 Oct 2026 (issue #299) — `strict` (a
+#     branch must be up to date with its base before merging) is ON for main
+#     and release/* and OFF for develop. See strict_for() below.
 #   - Workflows/RELEASE.md — "The release branch `release/vX.X.X` is never
 #     deleted. It serves as a permanent snapshot of the exact state released
 #     to production." This script is what makes `allow_deletions: false`
@@ -130,7 +133,8 @@ if [ "$HOST" != "github" ]; then
   for c in "${REQUIRED_CHECKS[@]}"; do
     echo "      $c" >&2
   done
-  echo "  - require the branch to be up to date with its base before merging" >&2
+  echo "  - require the branch to be up to date with its base before merging, on main" >&2
+  echo "    and release/* only: NOT on develop (Director, 22 Oct 2026)" >&2
   echo "  - refuse force-pushes" >&2
   echo "  - refuse branch deletion" >&2
   echo "  - require a pull request for every change" >&2
@@ -168,9 +172,40 @@ ruleset_checks_json() {
   printf '%s' "${out#, }"
 }
 
+# strict_for <branch> — whether <branch> requires a Pull Request's head to be
+# up to date with it before merging (`required_status_checks.strict`).
+#
+# ON FOR main, OFF FOR develop. The Director set develop to strict=false on
+# 22 Oct 2026 and kept main and release/* strict (issue #299). Until
+# WU-IAENG-384 this script sent `"strict": true` for both, so re-running it
+# quietly undid that decision. The value now lives here, per branch, and
+# Adapters/scripts/tests/run.sh asserts the body sent for each.
+#
+# What the setting changes: with strict on, a Pull Request cannot merge until
+# its branch contains the base's tip, so every merge into the base sends every
+# other open Pull Request back for an update and a fresh run of its checks.
+# With it off, a Pull Request on develop merges once its required checks have
+# passed on its own head. main and release/* keep strict: what merges there is
+# what ships.
+#
+# release/* is not set here: its ruleset sets
+# `strict_required_status_checks_policy: true` in release_ruleset_payload().
+# A branch with no decided value fails rather than getting a guessed one.
+strict_for() {
+  case "$1" in
+    main) echo true ;;
+    develop) echo false ;;
+    *)
+      echo "strict_for: no strict value decided for branch '$1'" >&2
+      return 1
+      ;;
+  esac
+}
+
 protect_branch() {
-  local branch="$1"
-  echo "-> $branch"
+  local branch="$1" strict
+  strict="$(strict_for "$branch")" || exit 1
+  echo "-> $branch (strict: $strict)"
   gh api \
     --method PUT \
     -H "Accept: application/vnd.github+json" \
@@ -178,7 +213,7 @@ protect_branch() {
     --input - <<EOF > /dev/null
 {
   "required_status_checks": {
-    "strict": true,
+    "strict": $strict,
     "contexts": [$(contexts_json)]
   },
   "enforce_admins": false,

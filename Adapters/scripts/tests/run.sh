@@ -898,6 +898,37 @@ expect 0 "publish closing text: Step 8 back-merge is stated as always required" 
 expect 1 "publish closing text no longer says the back-merge is conditional" -- \
   grep -qF -- "Not needed when the release branch never diverged" "$WORK/publish-closing.txt"
 
+# WU-IAENG-388 (issue #306): WU-IAENG-372 added Step 11, the release
+# retrospective, to Workflows/RELEASE.md, and the closing text still listed
+# Steps 8 to 10, so the operator who had just published never saw it. Each
+# phrase is RELEASE.md's own wording and is asserted against RELEASE.md as
+# well: the expectation comes from the workflow, not from the script, and a
+# reworded Step 11 fails here instead of leaving the script quoting text the
+# workflow no longer holds. The oracle is the Step 11 section only, from its
+# heading to the next heading of any level or the `---` rule that closes it
+# (the section after Step 11 is `# Exit Criteria`, a level-1 heading): a
+# phrase that moved to another step, or survives elsewhere in the file, no
+# longer describes Step 11.
+RELEASE_MD_388="$SCRIPTS/../../Workflows/RELEASE.md"
+awk '/^## Step 11 /{f=1; print; next} f && (/^#/ || /^---\r?$/){exit} f' "$RELEASE_MD_388" \
+  | tr -d '\r' | tr -s ' \n' '  ' > "$WORK/release-step11.txt"
+# The step's title, read from its heading rather than restated, so the
+# closing text is held to whatever RELEASE.md calls the step.
+title_388="$(sed -n 's/^## Step 11 — //p' "$RELEASE_MD_388" | tr -d '\r')"
+expect 0 "RELEASE.md Step 11 heading holds: Step 11 — Release retrospective" -- \
+  test "$title_388" = "Release retrospective"
+expect 0 "publish closing text names Step 11 by RELEASE.md's title: Step 11 $title_388" -- \
+  grep -qF -- "Step 11 $title_388" "$WORK/publish-closing.txt"
+for phrase_388 in \
+  "Scrum Master, dispatched by the Main Agent once the release is tagged" \
+  "Release retrospective vX.X.X" \
+  "recorded before the next milestone's first Work Unit is planned"; do
+  expect 0 "RELEASE.md Step 11 holds: $phrase_388" -- \
+    grep -qF -- "$phrase_388" "$WORK/release-step11.txt"
+  expect 0 "publish closing text quotes Step 11: $phrase_388" -- \
+    grep -qF -- "$phrase_388" "$WORK/publish-closing.txt"
+done
+
 # Exit 3 again, and it must leave the directory behind: check-review-recorded
 # treats an ABSENT directory as a broken pipeline and an EMPTY one as "read,
 # nothing there". Only the second is true here.
@@ -1456,6 +1487,87 @@ else
   skip "$BLOCK_N" "setup-project-bootstrap.sh link-safe hint: ln -s failed on this platform (no admin rights / Developer Mode off) -- not a fix defect."
 fi
 block_end
+
+# ---------------------------- setup-branch-protection.sh (WU-IAENG-384) -----
+#
+# What the script SENDS, branch by branch. `gh` is the one thing stubbed: a
+# PATH shim answers the reads (the branch exists, no ruleset yet, automatic
+# head-branch deletion already off) and saves every `--input -` body to a file
+# named after the API path it was sent to. The payload under test is the one
+# the real script builds.
+#
+# The Director set develop to strict=false on 22 Oct 2026 while main and
+# release/* stay strict (issue #299). The script still sent strict=true for
+# develop, so a re-run silently put it back. These cases pin the per-branch
+# value, and that main and develop differ in nothing else.
+
+SBP="$SCRIPTS/setup-branch-protection.sh"
+SBP_BIN="$WORK/sbp-bin"
+SBP_DATA="$WORK/sbp-data"
+mkdir -p "$SBP_BIN" "$SBP_DATA"
+cat > "$SBP_BIN/gh" <<'FAKEGH'
+#!/usr/bin/env bash
+# Fake gh for setup-branch-protection.sh. A call with `--input -` saves its
+# body to $SBP_DATA/<api path with / as _>.json; the reads answer as a repo
+# whose branches exist, with no ruleset and auto-deletion already off.
+printf '%s\n' "$*" >> "$SBP_DATA/calls"
+[ "${1:-}" = api ] || exit 90
+case "$*" in
+  *"--input -"*)
+    for a in "$@"; do case "$a" in repos/*) p="$a" ;; esac; done
+    cat > "$SBP_DATA/$(printf '%s' "$p" | tr '/' '_').json" ;;
+  *".delete_branch_on_merge"*) echo false ;;
+  "api repos/o/r/rulesets -q "*) : ;;
+  "api repos/o/r/branches/"*) : ;;
+  *) echo "fake gh: unexpected call: $*" >&2; exit 91 ;;
+esac
+FAKEGH
+chmod +x "$SBP_BIN/gh"
+
+# sbp_payload <file> — the body with all whitespace removed, so a case can
+# match a key and its value whatever the heredoc's indentation.
+sbp_payload() { tr -d ' \t\r\n' < "$SBP_DATA/$1"; }
+
+# sbp_has <file> <needle> <description>
+sbp_has() {
+  TOTAL=$((TOTAL + 1))
+  if [ -f "$SBP_DATA/$1" ] && grep -qF -- "$2" <<< "$(sbp_payload "$1")"; then
+    [ -n "$VERBOSE" ] && printf '   ok   %s\n' "$3"
+    return 0
+  fi
+  printf '   FAIL %s\n' "$3"
+  if [ -f "$SBP_DATA/$1" ]; then sed 's/^/        | /' "$SBP_DATA/$1"; else printf '        | (no body was sent to %s)\n' "$1"; fi
+  FAILED=$((FAILED + 1))
+  return 1
+}
+
+section "setup-branch-protection.sh — strict per branch (WU-IAENG-384)"
+
+new_repo sbp
+mkdir -p .ia-engineering
+echo github > .ia-engineering/host
+expect 0 "setup-branch-protection.sh runs against the stubbed API" -- env PATH="$SBP_BIN:$PATH" SBP_DATA="$SBP_DATA" bash "$SBP" o/r
+SBP_MAIN=repos_o_r_branches_main_protection.json
+SBP_DEV=repos_o_r_branches_develop_protection.json
+sbp_has "$SBP_MAIN" '"required_status_checks":{"strict":true,' "main: strict is true (up to date with main before merging)"
+sbp_has "$SBP_DEV" '"required_status_checks":{"strict":false,' "develop: strict is false (Director, 22 Oct 2026)"
+sbp_has repos_o_r_rulesets.json '"strict_required_status_checks_policy":true,' "release/*: the ruleset stays strict"
+
+TOTAL=$((TOTAL + 1))
+if [ -f "$SBP_DATA/$SBP_MAIN" ] && [ -f "$SBP_DATA/$SBP_DEV" ] \
+  && [ "$(sbp_payload "$SBP_MAIN" | sed 's/"strict":[a-z]*,//')" = "$(sbp_payload "$SBP_DEV" | sed 's/"strict":[a-z]*,//')" ]; then
+  [ -n "$VERBOSE" ] && printf '   ok   main and develop payloads differ in strict alone\n'
+else
+  printf '   FAIL main and develop payloads differ in more than strict, or one was not sent\n'
+  FAILED=$((FAILED + 1))
+fi
+
+# Off GitHub the script configures nothing and prints the checklist a human
+# follows; that checklist must not tell them to make develop strict either.
+echo none > .ia-engineering/host
+expect 1 "setup-branch-protection.sh off GitHub prints the checklist and changes nothing" -- env PATH="$SBP_BIN:$PATH" SBP_DATA="$SBP_DATA" bash "$SBP"
+expect_output "require the branch to be up to date with its base before merging, on main"
+expect_output "and release/* only: NOT on develop"
 
 # ------------------------------------------------- generate-agents.sh -------
 #
@@ -7415,7 +7527,7 @@ SNAP_357A="$(snapshot_353)"
 expect 3 "install-hooks.sh --check without a settings.json is drift (exit 3)" -- bash "$HK_357" --check
 expect_output "settings${T}absent${T}.claude/settings.json${T}a run writes it from settings.example.json"
 expect_output "gitattributes${T}missing${T}.gitattributes${T}$HOOKS_RULE_357"
-expect_output "# install-hooks.sh --check: 2 to act on. 1 settings item(s): 1 absent; 0 hook entries; 1 .gitattributes rule(s): 1 missing; 0 fault(s). absent/missing: re-run $HK_357 without --force"
+expect_output "# install-hooks.sh --check: 2 to act on. 1 settings item(s): 1 absent; 0 hook entries; 0 statusLine(s); 1 .gitattributes rule(s): 1 missing; 0 fault(s). absent/missing: re-run $HK_357 without --force"
 expect 3 "install-skills.sh --check without skills is drift (exit 3)" -- bash "$SK_357" --check
 expect_output "skill${T}absent${T}.claude/skills/dashboard${T}ia-engineering/Adapters/ai-runtimes/claude-code/skills/dashboard"
 expect_output "skill${T}absent${T}.claude/skills/create-project${T}"
@@ -7441,7 +7553,8 @@ expect 0 "install-hooks.sh --check on an installed project exits 0" -- bash "$HK
 expect_output "settings${T}current${T}.claude/settings.json${T}the template, rendered for framework root ia-engineering"
 expect_output "hook${T}present${T}.claude/settings.json${T}PreToolUse [Bash]: block-escape-hatches.sh"
 expect_output "hook${T}present${T}.claude/settings.json${T}Stop: dashboard-refresh.sh"
-expect_output "# install-hooks.sh --check: 0 to act on. 1 settings item(s): 1 current; 8 hook entries: 8 present; 1 .gitattributes rule(s): 1 present; 0 fault(s)."
+expect_output "# install-hooks.sh --check: 0 to act on. 1 settings item(s): 1 current; 8 hook entries: 8 present; 1 statusLine(s): 1 present; 1 .gitattributes rule(s): 1 present; 0 fault(s)."
+expect_output "statusline${T}present${T}.claude/settings.json${T}context-statusline.sh"
 expect 0 "install-hooks.sh --check --quiet on an installed project exits 0" -- bash "$HK_357" --check --quiet
 expect_empty_357 "install-hooks.sh --check --quiet prints nothing when nothing needs acting on"
 expect 0 "install-skills.sh --check on an installed project exits 0" -- bash "$SK_357" --check
@@ -7497,7 +7610,7 @@ jq_edit_357 '.hooks.Stop |= map(select([.hooks[].command] | any(test("dashboard-
 expect 3 "a missing framework entry alone is drift (exit 3)" -- bash "$HK_357" --check
 expect_output "settings${T}customized${T}.claude/settings.json"
 expect_output "hook${T}absent${T}.claude/settings.json${T}Stop: dashboard-refresh.sh"
-expect_output "# install-hooks.sh --check: 1 to act on. 1 settings item(s): 1 customized; 8 hook entries: 7 present, 1 absent; 1 .gitattributes rule(s): 1 present; 0 fault(s). absent/missing:"
+expect_output "# install-hooks.sh --check: 1 to act on. 1 settings item(s): 1 customized; 8 hook entries: 7 present, 1 absent; 1 statusLine(s): 1 present; 1 .gitattributes rule(s): 1 present; 0 fault(s). absent/missing:"
 expect 3 "--check --quiet keeps the missing entry" -- bash "$HK_357" --check --quiet
 expect_output "hook${T}absent${T}.claude/settings.json${T}Stop: dashboard-refresh.sh"
 expect_no_output "${T}present${T}" "--check --quiet leaves out the present entries"
@@ -7736,8 +7849,10 @@ expect_output "file${T}current${T}.github/workflows/data-policy.yml${T}"
 expect_output "file${T}project-owned${T}.ia-engineering/risk-map.yml${T}"
 expect_output "config${T}present${T}.gitattributes: /Registry/work-units.yml text eol=lf${T}"
 expect_output "# check-framework-drift: 4 to act on, 0 indeterminate. 3 version item(s): 1 tagged, 1 latest, 1 recorded. 14 file(s) compared: 6 current, 2 absent, 1 stale, 5 project-owned."
-expect_output "9 command path(s): 9 ok."
+expect_output "10 command path(s): 10 ok."
 expect_output "path${T}ok${T}ia-engineering/Adapters/ai-runtimes/claude-code/hooks/session-start.sh${T}"
+expect_output "path${T}ok${T}ia-engineering/Adapters/ai-runtimes/claude-code/hooks/context-statusline.sh${T}"
+expect_output "config${T}present${T}statusLine: context-statusline.sh${T}"
 fields_358 "every tsv record has four fields (DEF-01)"
 T0_358="$(date +%s%N)"
 expect 0 "the text format reports the same, and exits 0 without --strict" -- bash "$DRIFT_358"
@@ -7775,6 +7890,25 @@ expect 1 "a file the project is expected to edit is customized, information only
 expect_output "file${T}customized${T}.github/ISSUE_TEMPLATE/config.yml${T}expected to differ"
 expect_output "# check-framework-drift: 4 to act on, 0 indeterminate."
 git checkout -q -- .github/ISSUE_TEMPLATE/config.yml
+
+# The statusline records of install-hooks.sh --check (WU-IAENG-379): absent
+# is drift; a project statusLine kept unwrapped, or one in settings.local.json
+# that shadows the project's, is information and adds nothing to act on.
+jq 'del(.statusLine)' .claude/settings.json | tr -d '\r' > st.tmp && mv st.tmp .claude/settings.json
+expect 1 "a settings.json without the statusLine is drift" -- bash "$DRIFT_358" --format tsv --strict
+expect_output "config${T}absent${T}statusLine: context-statusline.sh${T}re-run ia-engineering/Adapters/ai-runtimes/claude-code/install-hooks.sh: it installs the context statusLine"
+expect_output "# check-framework-drift: 5 to act on, 0 indeterminate."
+git checkout -q -- .claude/settings.json
+jq '.statusLine = {type: "command", command: "Write-Output hi", shell: "powershell"}' .claude/settings.json | tr -d '\r' > st.tmp && mv st.tmp .claude/settings.json
+expect 1 "a PowerShell project statusLine kept unwrapped is information" -- bash "$DRIFT_358" --format tsv --strict
+expect_output "config${T}near-miss${T}statusLine: the project statusLine is kept as it is (it runs under powershell)"
+expect_output "# check-framework-drift: 4 to act on, 0 indeterminate."
+git checkout -q -- .claude/settings.json
+printf '{"statusLine": {"type": "command", "command": "echo mine"}}\n' > .claude/settings.local.json
+expect 1 "a statusLine in settings.local.json is information, not drift" -- bash "$DRIFT_358" --format tsv --strict
+expect_output "config${T}near-miss${T}.claude/settings.local.json: statusLine echo mine: Claude Code runs this one instead"
+expect_output "# check-framework-drift: 4 to act on, 0 indeterminate."
+rm -f .claude/settings.local.json
 
 # --- the framework off a tag ----------------------------------------------------------
 # On a side branch of the framework, so the adopters below still see v2 as
@@ -8210,6 +8344,11 @@ for F_366 in "$SCRIPTS/install.sh" \
     expect 0 "$B_366: $FN_366 flattens every control, C1 pairs included, keeps é and the em dash ($LOC_366)" -- bash "$REC_366/rec-366.sh" records "$F_366" "$FN_366" "$LOC_366" "$HOSTILE_366" "$WANT_366"
   done
 done
+# The context statusLine prints fields of Claude Code's stdin JSON through
+# the same flat() (WU-IAENG-379). It writes no record, so only its block is
+# compared; tests/context-statusline.sh in the hooks suite checks its output.
+expect 0 "context-statusline.sh: the record sanitiser block is byte-identical to install.sh's" -- \
+  bash "$REC_366/rec-366.sh" block "$SCRIPTS/../ai-runtimes/claude-code/hooks/context-statusline.sh" "$REC_366/ref"
 
 # SEC-IAENG-366-01: the framework's path inside the project reaches the
 # install.sh --check closing line. It is the project's choice (a submodule

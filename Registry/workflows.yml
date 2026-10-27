@@ -162,7 +162,7 @@ workflows:
         step: Tag, and create a full GitHub Release from the CHANGELOG.md entry
       - n: 8
         actor: Release Manager
-        step: Back-merge to develop via Pull Request, when the release branch diverged
+        step: Back-merge to develop via Pull Request — always required, on every release
       - n: 9
         actor: QA Engineer
         step: Post-release verification

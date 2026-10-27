@@ -1,6 +1,7 @@
 # IA Engineering — starter Dockerfile (Generic fallback)
 #
-# No first-class stack (Node, Python, Go, JVM) was selected for this project.
+# No first-class stack (Node, web, Python, Go, JVM, .NET, PHP) was selected
+# for this project.
 # This file is a PLACEHOLDER: it will not build a usable image until you edit
 # it. Every meaningful step below is commented out on purpose so the intent is
 # explicit rather than guessed.

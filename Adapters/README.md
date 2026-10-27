@@ -109,18 +109,21 @@ This extends `Workflows/ONBOARDING.md` Step 5 ("Initialize git workflow") and St
 
 # The Check Convention
 
-Every check in `scripts/validate-framework.sh`, every script in `scripts/`, and every job in `github-actions/` follows four rules. They are stated in the validator's header too, but they govern all Adapter code:
-
-1. **An unevaluated condition is a failure, not a pass.** If a check could not run — missing input, moved directory, a pattern that matched nothing — it says so. "Nothing objected" is not "everything passed".
-2. **Exceptions are named allow-lists, never fall-throughs.** Name the exempt thing, never express the exemption as a property of absence itself, because that quietly exempts everything else that goes missing later.
-3. **Every set-iterating check reports its denominator.** Carry a count, fail at zero, print the count on the passing line. A verdict drawn from an empty set is indistinguishable from one drawn from a complete set.
-4. **A claim about how a mechanism behaves is a testable claim** — what it selects, what it accepts, what it costs, which direction it fails in. Write the claim with the test that establishes it, or do not write it; that test is seen to fail as `Standards/TESTING_STANDARD.md` (Falsifiability) requires. When the mechanism chooses among alternatives, enumerate the alternatives *before* testing: two of three agreeing is not a result.
-
-A **caller** that discards a check's exit status breaks rule 1 as surely as a check that never ran.
+The four rules every check follows, and the shell rules for exit codes, options and carriage returns, are stated in `Standards/CODE_QUALITY_STANDARD.md`, The Check Convention. This section keeps the record of why they were written, and the register of exit code families that standard refers to.
 
 Rules 1 to 3 constrain code; rule 4 constrains the prose that describes code — comments, Standards text, commit bodies — which is why it cannot be mechanised the way the others were. Its evidence is three conclusions reversed in a single review, each one a confirmed test that stopped short of the falsifying case: `tail -1` was tested at both ends but never on a message carrying claims at both ends, and was a live bypass; the trailer layouts were measured contiguous and renamed but not separated, and separated — the incumbent — was the only one that worked, on 28 of 30 commits; and "this fails safe in the harmless direction" was reasoned about rather than run, and was a false pass on a release gate.
 
 The rules are written down because the Automation milestone found eleven checks that reported success without evaluating anything. None was found by reading the diff — three by this repository's own CI, six by code review, two by an audit once the pattern was named — and **four were introduced by the fixes to earlier instances of the same defect**. A defect class that reproduces inside its own remediation is not a set of oversights; it is the default reasserting itself, because writing a pass is the path of least resistance whenever a condition turns out not to apply. Fixing the twelfth instance does not make the thirteenth less likely. Stating the rule does.
+
+## Exit Code Families
+
+| Family | Scripts | Codes |
+|---|---|---|
+| Checks | `scripts/check-*.sh` except `check-framework-drift.sh` (its own row below), `scripts/validate-framework.sh`, `scripts/data-policy-scan.sh` | `0` pass, `1` finding, `2` usage. A failure to evaluate is `2` only in `check-approval-carry-over.sh` and, except for an empty `--history` scan, `data-policy-scan.sh`. In the other checks it is `1`, the finding's code, which does not conform to `Standards/CODE_QUALITY_STANDARD.md`, The Check Convention, Shell Scripts, rule 1: issue #331 lists each site. `check-control-path-approval.sh` has no usage code: `0` pass, non-zero fail |
+| Installers, `--check` | `scripts/install.sh`, `ai-runtimes/claude-code/install-hooks.sh`, `install-skills.sh` | `0` current, `3` drift, `1` fault (could not evaluate), `2` usage |
+| Drift advice | `scripts/check-framework-drift.sh` | `0` always without `--strict`; with it `1` drift, `2` indeterminate; `64` usage |
+| Host operations | `scripts/hosts/<host>/*.sh` (`scripts/hosts/README.md`) | `0` done, `1` failed or unsupported, `3` partial |
+| Sourced functions | `scripts/merge-classify.sh` | `merge_classify` always `0`, its verdict printed (`clean`, `authored`, `error: <reason>`); `merge_classify_git_ok` `0` / `1`; `merge_classify_automatic` `0` clean, `1` conflicted, anything else an error, `125` when it cannot write its attributes file |
 
 ---
 
