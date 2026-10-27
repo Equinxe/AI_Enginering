@@ -1598,9 +1598,9 @@ work_units:
 
   - id: WU-IAENG-391
     employee: Prompt Engineer
-    title: Reserved 27 Oct 2026 before dispatch (WU-IAENG-393) - the Hotfix Chain gets its planning step (issue #318) - Core/AGENT_CHAINS.md and Registry/chains.yml show no Step 3 plan or Plan Review step in the Hotfix Chain
+    title: The Hotfix Chain gets its planning step (issue #318), the Director-approved texts of 27 Oct 2026 committed verbatim (1:A 2:non 3:oui) - Core/AGENT_CHAINS.md (0.0.11) and Registry/chains.yml draw the Main Agent's Work Unit decomposition (Orchestration Step 3, with its Plan Review when required) before the Director gate, which becomes authorization and plan approval in one decision; the Plan Review is not drawn as its own step; Workflows/HOTFIX.md (0.0.11) Step 1 says the Main Agent presents the plan with the request for authorization, drops the "or after it" path, states that an authorization without the plan's approval does not dispatch Step 2, and its Prerequisites no longer list the authorization its own Step 1 gives; Examples/HOTFIX_CHAIN_EXAMPLE.md (0.0.9) shows the request with its plan and Plan Review record; the HOTFIX Trigger line is left to issue #209
     milestone: Adoption
-    delivers: planned - Core/AGENT_CHAINS.md, Registry/chains.yml, changelog.d/WU-IAENG-391.md, Registry/work-units.yml
+    delivers: Core/AGENT_CHAINS.md, Registry/chains.yml, Workflows/HOTFIX.md, Examples/HOTFIX_CHAIN_EXAMPLE.md, changelog.d/WU-IAENG-391.md, Registry/work-units.yml
 
   - id: WU-IAENG-392
     employee: Platform Engineer

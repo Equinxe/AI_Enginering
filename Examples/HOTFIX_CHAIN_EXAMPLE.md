@@ -14,11 +14,13 @@ A user reports that `PATCH /tasks/{id}/complete` returns a 500 error when the ta
 
 # Step 1 — Main Agent → Director (Authorization Gate)
 
-> "Production defect found: PATCH /tasks/{id}/complete/ (trailing slash) returns 500 instead of routing correctly. Affects v1.3.0 on `main`. Requesting authorization to hotfix."
+> "Production defect found: PATCH /tasks/{id}/complete/ (trailing slash) returns 500 instead of routing correctly. Affects v1.3.0 on `main`. Requesting authorization to hotfix, with its plan: one Work Unit for the Engineer, a router fix plus a regression test, branched from `main`, risk tier High. The Technical Lead's Plan Review record is attached, verdict ready for the Director."
 
 **This gate is mandatory before any work begins**, per `Workflows/HOTFIX.md`.
 
-**Director authorizes.**
+The plan and its Plan Review came before the request: they are not hotfix work, so they need no authorization of their own.
+
+**Director authorizes the hotfix and approves its plan, in one decision.**
 
 ---
 
@@ -97,7 +99,7 @@ Validates:
 
 Owner: IA Engineering
 
-Version: 0.0.8
+Version: 0.0.9
 
 Status: Draft
 
