@@ -4543,6 +4543,34 @@ awk '{ print } $0 == "        step: Diagnose" { print "      - actor: SRE Engine
 wst_case "a steps item that does not open with - n:" "$WST_FIX/foreign-item" \
   "a step that does not open with \"- n:\": \"      - actor: SRE Engineer\""
 
+# Review of PR #339: YAML folds an indented continuation line into the value
+# above it, so a qualifier on a second line under step: was part of the title
+# for YAML and skipped by the check, which passed with "total 10 80". Every
+# line inside steps that is neither blank nor a one-line eight-space key is
+# now refused.
+wst_copy continuation
+awk '{ print } !done && $0 == "        step: Back-merge to develop" {
+       print "          via Pull Request, when the release branch diverged"; done = 1 }' \
+  "$WST_FIX/lf/Registry/workflows.yml" > "$WST_FIX/continuation/Registry/workflows.yml"
+expect 1 "workflow step titles: the continuation fixture really changed the Registry" -- \
+  cmp -s "$WST_FIX/lf/Registry/workflows.yml" "$WST_FIX/continuation/Registry/workflows.yml"
+wst_case "a qualifier on a continuation line under step: (review of PR #339)" "$WST_FIX/continuation" \
+  "Registry/workflows.yml:$(grep -n '^          via Pull Request, when the release branch diverged$' "$WST_FIX/continuation/Registry/workflows.yml" | cut -d: -f1): a line outside the steps grammar" \
+  "\"          via Pull Request, when the release branch diverged\""
+
+wst_copy actor-continuation
+awk '{ print } !done && $0 == "        actor: QA Engineer" {
+       print "          only when the change alters executable behaviour"; done = 1 }' \
+  "$WST_FIX/lf/Registry/workflows.yml" > "$WST_FIX/actor-continuation/Registry/workflows.yml"
+wst_case "a continuation line under another key of a step" "$WST_FIX/actor-continuation" \
+  "a line outside the steps grammar" "\"          only when the change alters executable behaviour\""
+
+wst_copy seven-spaces
+awk '{ print } $0 == "        step: Diagnose" { print "       gate: true" }' \
+  "$WST_FIX/lf/Registry/workflows.yml" > "$WST_FIX/seven-spaces/Registry/workflows.yml"
+wst_case "a step key at seven spaces" "$WST_FIX/seven-spaces" \
+  "a line outside the steps grammar" "\"       gate: true\""
+
 wst_copy untitled-heading
 awk '$0 == "## Step 4 — Diagnose" { print "## Step 4 Diagnose"; next } { print }' \
   "$WST_FIX/lf/Workflows/INCIDENT_RESPONSE.md" > "$WST_FIX/untitled-heading/Workflows/INCIDENT_RESPONSE.md"

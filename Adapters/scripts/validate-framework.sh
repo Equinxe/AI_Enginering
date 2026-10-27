@@ -1164,7 +1164,11 @@ fi
 # a double-quoted value with '"' or '\' inside, and a plain value that starts
 # with a YAML indicator (a single quote among them), contains ": " or " #",
 # ends in ":" or ends in whitespace. Also refused: any other "      - " line
-# inside steps, a second step: for one step, and a step with none.
+# inside steps, a second step: for one step, a step with none, and every line
+# inside steps that is neither blank nor a one-line eight-space key. YAML
+# folds an indented continuation line into the value above it, so a qualifier
+# written on a second line would otherwise be part of the title and never
+# compared (review of PR #339).
 #
 # WHAT IS READ FROM EACH DOCUMENT: every line the step_count check counts,
 # "## Step <N>" or "## Ceremony <N>"; its title is what follows
@@ -1238,6 +1242,9 @@ workflow_step_title_drift() {
       rtitle[nw, k] = v
       next
     }
+    /^$/ { next }
+    /^        [a-z_]+: [^ ]/ { next }
+    { refuse("a line outside the steps grammar (a continuation YAML folds into the value above it, or a line at another indentation): \"" $0 "\""); next }
     END {
       for (w = 1; w <= nw; w++) {
         name = wname[w]

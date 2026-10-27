@@ -52,7 +52,9 @@
 # read it differently: one containing ": " or " #", or starting with a YAML
 # indicator, is enclosed in double quotes, which the validator removes before
 # comparing. A block scalar (">-", "|"), a single-quoted value and a
-# double-quoted value containing '"' or '\' are refused, not compared.
+# double-quoted value containing '"' or '\' are refused, not compared. So is
+# every other line inside steps that is neither blank nor a one-line key at
+# eight spaces: a continuation line would be folded into the title above it.
 
 workflows:
 
