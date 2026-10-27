@@ -12,9 +12,14 @@ name: IA Engineering - GHCR Publish
 #   - push to `main`             -> a rolling image for the default branch
 #
 # Tagging strategy (via docker/metadata-action):
-#   :latest        on the default branch push
-#   :<semver>      derived from a `v*` git tag (v1.2.3 -> 1.2.3, 1.2, ...)
-#   :<short-sha>   on every run, for traceability back to a commit
+#   :latest            on the default branch push; metadata-action's default
+#                      `flavor: latest=auto` also adds it for a `v*` tag that
+#                      is not a pre-release
+#   :<version>         from a `v*` git tag, the full version only
+#                      (v1.2.3 -> 1.2.3, v2.0.0-rc.1 -> 2.0.0-rc.1). No 1.2 or
+#                      1 tag is published: that would need further
+#                      `type=semver,pattern={{major}}.{{minor}}` lines
+#   :sha-<short-sha>   on every run, for traceability back to a commit
 #
 # Auth: the built-in GITHUB_TOKEN with `packages: write` — no extra secret is
 # required to push to GHCR for this repository's own namespace.
