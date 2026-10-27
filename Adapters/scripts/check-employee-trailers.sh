@@ -100,7 +100,12 @@ fi
 
 echo "Roster: $ROSTER"
 
-VALID_NAMES="$(grep -E '^  - name: ' "$ROSTER" | sed 's/^  - name: //' | tr -d '\r')"
+# A carriage return is removed only where it ends a line (a CRLF checkout),
+# never every one: one inside a name is data, and deleting it would make a
+# roster line YAML does not read as that name match it
+# (Standards/CODE_QUALITY_STANDARD.md, The Check Convention, Shell Scripts
+# rule 3; WU-IAENG-389, issue #325).
+VALID_NAMES="$(grep -E '^  - name: ' "$ROSTER" | sed $'s/^  - name: //; s/\r$//')"
 ROSTER_COUNT="$(printf '%s\n' "$VALID_NAMES" | grep -c . || true)"
 echo "Roster entries: $ROSTER_COUNT"
 
@@ -124,7 +129,7 @@ elif [ -f ".ia-engineering/Registry/employees.yml" ]; then
 fi
 
 if [ -n "$PROJECT_ROSTER" ]; then
-  PROJECT_NAMES="$(grep -E '^  - name: ' "$PROJECT_ROSTER" | sed 's/^  - name: //' | tr -d '\r')"
+  PROJECT_NAMES="$(grep -E '^  - name: ' "$PROJECT_ROSTER" | sed $'s/^  - name: //; s/\r$//')"
   echo "Project roster: $PROJECT_ROSTER ($(printf '%s\n' "$PROJECT_NAMES" | grep -c . || true) Domain Employee(s))"
   VALID_NAMES="$(printf '%s\n%s\n' "$VALID_NAMES" "$PROJECT_NAMES")"
 else
@@ -145,7 +150,10 @@ validate_employee_lines() {
   local sha="$1" lines="$2" emp_line EMPLOYEE_NAME
   while IFS= read -r emp_line; do
     [ -n "$emp_line" ] || continue
-    EMPLOYEE_NAME="$(printf '%s' "${emp_line#Employee: }" | tr -d '\r')"
+    # Line-end carriage return only: git keeps one inside the value, so
+    # `Platform Engi<CR>neer` is not `Platform Engineer` (rule 3, above).
+    EMPLOYEE_NAME="${emp_line#Employee: }"
+    EMPLOYEE_NAME="${EMPLOYEE_NAME%$'\r'}"
     # here-string, not `printf | grep -q`: grep -q short-circuiting a roster
     # that exceeds the pipe buffer would SIGPIPE the producer, and pipefail
     # returns that — a valid name read as invalid. TROUBLESHOOTING X.
