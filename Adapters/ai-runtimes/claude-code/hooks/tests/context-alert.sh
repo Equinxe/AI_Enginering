@@ -236,13 +236,25 @@ printf '60\n7' > "$DIR/s-forged.pct"; forged "a .pct with a byte after its newli
 printf '60\n\000junk' > "$DIR/s-forged.pct"; forged "a .pct with a NUL and more after its newline"
 mkdir -p "$DIR/s-forged.pct"; forged "a directory in place of the .pct"
 
+# Each hostile id finds a valid 90 % .pct at the very path it would reach
+# without the shape check, so only that check keeps it silent (QA Q8):
+#   ../s-esc  $DIR/../s-esc.pct = $TMPD/s-esc.pct; its temporary record
+#             $DIR/.../s-esc.alert.* needs a directory "..." in $DIR, made
+#             here so the write would succeed;
+#   s.dot, -dash  $DIR/s.dot.pct, $DIR/-dash.pct;
+#   ESC id    jq turns the control character into a space: $DIR/s x.pct.
 N_ALERT="$(find "$TMPD" -name '*.alert' 2>/dev/null | wc -l | tr -d ' ')"
+mkdir -p "$DIR/..."
+printf '90\n' > "$TMPD/s-esc.pct"
+printf '90\n' > "$DIR/s.dot.pct"
+printf '90\n' > "$DIR/-dash.pct"
+printf '90\n' > "$DIR/s x.pct"
 for sid in '../s-esc' 's.dot' '-dash' "$(printf 's\033x')" ''; do
-  printf '90\n' > "$TMPD/s-esc.pct"
   run "$(jq -cn --arg s "$sid" '{session_id:$s, hook_event_name:"UserPromptSubmit", prompt:"x"}')"
-  silent "a hostile session id [$sid]"
+  silent "a hostile session id [$sid], a 90 % .pct at the path it would reach"
 done
 if [ "$(find "$TMPD" -name '*.alert' 2>/dev/null | wc -l | tr -d ' ')" = "$N_ALERT" ]; then ok "a hostile session id: nothing recorded anywhere"; else bad "a hostile session id: nothing recorded anywhere" "$(find "$TMPD" -name '*.alert')"; fi
+rm -rf "$DIR/..." "$TMPD/s-esc.pct" "$DIR/s.dot.pct" "$DIR/-dash.pct" "$DIR/s x.pct"
 
 if can_link; then
   printf '90\n' > "$T/target.pct"
@@ -288,10 +300,22 @@ else
 fi
 chmod 700 "$T/probe-ro"; rm -rf "$T/probe-ro"
 
+# A TMPDIR the rules refuse names a directory that exists and holds an 80 %
+# .pct for the session, so only the rule keeps the hook from using it (QA
+# Q5): "$T/tmp/../tmp" resolves to the real $TMPD; "relative/tmp" exists
+# under $T, where the hook is run from.
+pct s-tmpd 80
+mkdir -p "$T/relative/tmp/iaeng-ctx-$ID"; chmod 700 "$T/relative/tmp/iaeng-ctx-$ID"
+printf '80\n' > "$T/relative/tmp/iaeng-ctx-$ID/s-tmpd.pct"
+WAS_IN="$PWD"
+cd "$T" || exit 2
 for tmp in relative/tmp "$T/tmp/../tmp"; do
-  RUN_ENV=(TMPDIR="$tmp"); run "$(ups s-low)"; RUN_ENV=()
-  silent "TMPDIR=$tmp (relative, or with ..): not used"
+  RUN_ENV=(TMPDIR="$tmp"); run "$(ups s-tmpd)"; RUN_ENV=()
+  silent "TMPDIR=$tmp (relative, or with ..): not used, though an 80 % .pct waits there"
 done
+cd "$WAS_IN" || exit 2
+if [ ! -e "$DIR/s-tmpd.alert" ] && [ ! -e "$T/relative/tmp/iaeng-ctx-$ID/s-tmpd.alert" ]; then ok "a refused TMPDIR: nothing recorded there"; else bad "a refused TMPDIR: nothing recorded there"; fi
+rm -rf "$T/relative" "$DIR/s-tmpd.pct"
 
 # =============================================================================
 echo "== context-alert.sh — once per step"
