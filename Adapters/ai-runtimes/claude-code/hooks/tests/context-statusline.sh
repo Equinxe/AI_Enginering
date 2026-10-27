@@ -413,7 +413,17 @@ if command -v timeout >/dev/null 2>&1; then
   run "$GOOD"
   RUN_ENV=()
   fine "a user statusLine slower than IAENG_CTX_CHAIN_TIMEOUT"
-  if [ $((SECONDS - S0)) -lt 40 ] && [[ $OUT == *"ctx 42%"* ]]; then ok "a slow user statusLine is cut at the timeout and the line of its own printed"; else bad "a slow user statusLine is cut at the timeout" "$((SECONDS - S0)) s, out=[$OUT]"; fi
+  # On Git Bash under heavy load the signal can arrive late, even to the
+  # direct child (seen at 76-88 s with twelve suites running at once): there
+  # an overrun is reported n/a with its time, never counted as a pass. Linux,
+  # where CI runs, enforces it.
+  if [ $((SECONDS - S0)) -lt 40 ] && [[ $OUT == *"ctx 42%"* ]]; then
+    ok "a slow user statusLine is cut at the timeout and the line of its own printed"
+  elif case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*) true ;; *) false ;; esac; then
+    na "a slow user statusLine is cut at the timeout" "Git Bash: the timeout signal arrived late ($((SECONDS - S0)) s); enforced on Linux"
+  else
+    bad "a slow user statusLine is cut at the timeout" "$((SECONDS - S0)) s, out=[$OUT]"
+  fi
 else
   na "a slow user statusLine is cut" "no timeout command on this platform"
 fi
