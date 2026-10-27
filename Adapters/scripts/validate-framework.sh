@@ -1176,7 +1176,9 @@ fi
 #
 # CRLF is stripped at the end of a line only (Standards/CODE_QUALITY_STANDARD.md,
 # Shell Scripts rule 3). The first differing position of a workflow is
-# reported, with the number of positions that differ and both sequences.
+# reported, with the number of positions that differ and both sequences. The
+# Registry side names the line of the step's step: value (its "- n:" line when
+# it has none).
 
 # workflow_step_title_drift <workflow-registry> <root>
 # Each document is read at <root>/<file:>. Prints tab-separated records:
@@ -1240,6 +1242,7 @@ workflow_step_title_drift() {
         refuse("a plain step: value YAML reads differently: " v " (enclose it in double quotes)"); next
       }
       rtitle[nw, k] = v
+      rline[nw, k] = FNR
       next
     }
     /^$/ { next }

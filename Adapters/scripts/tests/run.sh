@@ -4429,9 +4429,31 @@ awk '!done && $0 == "        step: Back-merge to develop" {
 expect 1 "workflow step titles: the qualifier fixture really changed the Registry" -- \
   cmp -s "$WST_FIX/lf/Registry/workflows.yml" "$WST_FIX/qualifier/Registry/workflows.yml"
 WST_L="$(wst_line "$WST_FIX/qualifier/Workflows/RELEASE.md" "## Step 8 $WST_DASH ")"
+WST_R="$(grep -n '^        step: Back-merge to develop via Pull Request, when the release branch diverged$' "$WST_FIX/qualifier/Registry/workflows.yml" | cut -d: -f1)"
 wst_case "a qualifier added to a Registry step (Release Step 8, issue #332)" "$WST_FIX/qualifier" \
-  "Release, position 8: Workflows/RELEASE.md:$WST_L heads \"8 $WST_DASH Back-merge to develop\"" \
-  "records \"8 $WST_DASH Back-merge to develop via Pull Request, when the release branch diverged\"" \
+  "Release, position 8: Workflows/RELEASE.md:$WST_L heads \"8 $WST_DASH Back-merge to develop\", $WST_FIX/qualifier/Registry/workflows.yml:$WST_R records \"8 $WST_DASH Back-merge to develop via Pull Request, when the release branch diverged\"" \
+  "1 of 11 positions differ"
+
+# Byte for byte means no normalisation (review of PR #339, QA): a title that
+# differs from its heading only in case, or only in a doubled space, fails.
+wst_copy case-only
+awk '$0 == "        step: Branch Creation" { print "        step: Branch creation"; next } { print }' \
+  "$WST_FIX/lf/Registry/workflows.yml" > "$WST_FIX/case-only/Registry/workflows.yml"
+expect 1 "workflow step titles: the case-only fixture really changed the Registry" -- \
+  cmp -s "$WST_FIX/lf/Registry/workflows.yml" "$WST_FIX/case-only/Registry/workflows.yml"
+WST_R="$(grep -n '^        step: Branch creation$' "$WST_FIX/case-only/Registry/workflows.yml" | cut -d: -f1)"
+wst_case "a title that differs from its heading in case only" "$WST_FIX/case-only" \
+  "Feature Development, position 2: Workflows/FEATURE_DEVELOPMENT.md:$(wst_line "$WST_FIX/case-only/Workflows/FEATURE_DEVELOPMENT.md" "## Step 2 $WST_DASH ") heads \"2 $WST_DASH Branch Creation\", $WST_FIX/case-only/Registry/workflows.yml:$WST_R records \"2 $WST_DASH Branch creation\"" \
+  "1 of 8 positions differ"
+
+wst_copy double-space
+awk '$0 == "        step: Create release branch" { print "        step: Create  release branch"; next } { print }' \
+  "$WST_FIX/lf/Registry/workflows.yml" > "$WST_FIX/double-space/Registry/workflows.yml"
+expect 1 "workflow step titles: the doubled-space fixture really changed the Registry" -- \
+  cmp -s "$WST_FIX/lf/Registry/workflows.yml" "$WST_FIX/double-space/Registry/workflows.yml"
+wst_case "a title that differs from its heading by a doubled space" "$WST_FIX/double-space" \
+  "Release, position 3: Workflows/RELEASE.md:" \
+  "records \"3 $WST_DASH Create  release branch\"" \
   "1 of 11 positions differ"
 
 # --- Two Registry steps swapped, the step count unchanged: invisible to the
