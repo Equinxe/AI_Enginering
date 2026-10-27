@@ -1,0 +1,3 @@
+### Added
+
+- `Adapters/scripts/create-session-state.sh` creates an adopting project's `.ia-engineering/SESSION_STATE.md` instead of a copy by hand. It writes only the template's fenced block, with the project name and a `_Last updated:` date in the English form `session-start.sh` parses, whatever the locale. It writes nothing outside a git work tree or in a submodule, before the first commit, over an existing file or link, or on a path git does not ignore. The bootstrap summary, the README adoption step and the `session-start.sh` and `stop-gate.sh` reminders name it (issue #218) (#251, WU-IAENG-348)

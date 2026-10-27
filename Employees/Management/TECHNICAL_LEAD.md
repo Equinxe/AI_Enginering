@@ -85,7 +85,7 @@ The review of a plan carrying a Medium-or-higher action (`Standards/RISK_STANDAR
 1. **Pre-commitment** — From the plan's type and domain only, before reading it in detail, write the 3 to 5 places it is most likely to fail (fewer for a single-Work-Unit plan). Investigate each, and compare them with what was found at the end. *Why:* without written predictions the reader follows the author's framing and finds what the author already saw. Done when the predictions are in the record before step 2 begins.
 2. **Assumptions** — List every assumption the plan makes, stated or implied, and rate each: **VERIFIED** (checked against the repository, a document or a measurement, which is cited), **REASONABLE** (plausible, not checked), **FRAGILE** (the plan breaks if it is wrong, and it easily could be). Each FRAGILE assumption is a finding: verify it now, or the plan names the check that runs before the step that depends on it.
 3. **Pre-mortem** — Assume the plan was executed exactly as written and failed. Write as many concrete failure scenarios as the plan's risks justify, up to 5 to 7 for a plan of several Work Units or a High-or-higher one; a single-Work-Unit Medium plan may need two or three, and padding to reach a count is a defect. Draw them from different causes: a wrong assumption, a missing step, the wrong Employee, a control that refuses, a failure halfway and its recovery, a regression elsewhere. For each, cite the step that prevents or detects it; where none does, the gap is a finding.
-4. **Execution simulation** — Read each Work Unit's brief as its named Employee will: with that brief alone, no conversation history, no knowledge of this review. Each point where the Employee would have to ask, guess, or act outside its authority is a finding (`Templates/EMPLOYEE_BRIEF.md`). An ADR draft has no briefs: the record states "not applicable: ADR draft".
+4. **Execution simulation** — Read each Work Unit as `Core/ORCHESTRATION.md` Step 3 defines it (objective, named Employee, inputs, outputs, Definition of Done, applicable Standards, expected commit message), together with what the plan states around it, as its named Employee will work from the brief written from them at Step 4: no conversation history, no knowledge of this review. The brief does not exist yet. It adds context and boundaries (`Templates/EMPLOYEE_BRIEF.md`) but never another objective, input, output or Definition of Done, so a gap in those is a gap in the brief. Each point where the Employee would have to ask, guess, or act outside its authority is a finding. An ADR draft has no Work Units: the record states "not applicable: ADR draft".
 5. **What is MISSING** — Look for what is absent, not only for what is wrong: the step, file or test not named, the rollback, the documentation the plan makes stale, a review the change requires, a Director decision the plan takes for granted. A section that finds nothing says what it examined.
 6. **Self-audit** — Re-read every finding before delivering. One the author could refute at once with context the reviewer lacks, and that carries no evidence, is verified now or moves to Open Questions. An open question raised from a critical or major finding blocks *ready for the Director* until it is answered. A preference rather than a flaw is downgraded to minor or removed. A finding about security, data loss or an irreversible action is verified now or escalated, never moved or downgraded for lack of confidence.
 
@@ -136,7 +136,7 @@ Pre-mortem:
 - [failure scenario] — [prevented or detected by: step / gap: finding n]
 
 Execution simulation:
-- [Work Unit — Employee] — [completes from its brief alone / stops at: ...] — or "not applicable: ADR draft"
+- [Work Unit — Employee] — [completes from its Work Unit definition and the plan / stops at: ...] — or "not applicable: ADR draft"
 
 Missing:
 - [what is absent: finding n] — or "none found; examined: ..."
@@ -203,7 +203,7 @@ Escalate to the Engineering Manager when:
 
 Owner: IA Engineering
 
-Version: 0.0.5
+Version: 0.0.6
 
 Status: Draft
 
