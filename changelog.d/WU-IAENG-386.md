@@ -1,0 +1,5 @@
+### Changed
+
+- `Core/MAIN_AGENT_CONDUCT.md` (0.0.12): a Pull Request update's approvals carry over only if the carry-over check of the merge into `develop` (its condition 1, `Adapters/scripts/check-approval-carry-over.sh`) accepts the new head; the develop-merge standing authorisation states its exact scope, `develop` and the head branch of a Pull Request that targets `develop`, other than a `release/*` or `hotfix/*` branch, and its permitted actions: the merge, the deletion of the merged head branch, and the update
+- `Core/ORCHESTRATION.md` (0.0.15), Step 3: an *escalate* verdict of the Technical Lead's Plan Review goes to whom the record names, the Software Architect for an architectural finding, the Director for a product decision, as `Employees/Management/TECHNICAL_LEAD.md` already says
+- `Standards/RISK_STANDARD.md` (0.0.17): the High branch-deletion row also covers a branch whose ancestry was not checked after a fetch immediately before the deletion, and a branch merged only into a `release/*` branch; its mitigation is to fetch and check first

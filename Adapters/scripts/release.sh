@@ -1122,6 +1122,10 @@ cmd_publish() {
      Step 9   Post-release verification — QA Engineer and Observability
               Engineer confirm production health.
      Step 10  Preserve the release branch. It is never deleted.
+     Step 11  Release retrospective — Scrum Master, dispatched by the Main
+              Agent once the release is tagged. One Issue, "Release
+              retrospective vX.X.X", that the Director decides in one pass,
+              recorded before the next milestone's first Work Unit is planned.
 REMAINING
 }
 
