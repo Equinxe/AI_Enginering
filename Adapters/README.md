@@ -119,11 +119,11 @@ The rules are written down because the Automation milestone found eleven checks 
 
 | Family | Scripts | Codes |
 |---|---|---|
-| Checks | `scripts/check-*.sh`, `scripts/validate-framework.sh`, `scripts/data-policy-scan.sh` | `0` pass, `1` finding, `2` could not evaluate or usage |
+| Checks | `scripts/check-*.sh` except `check-framework-drift.sh` (its own row below), `scripts/validate-framework.sh`, `scripts/data-policy-scan.sh` | `0` pass, `1` finding, `2` usage. A failure to evaluate is `2` only in `check-approval-carry-over.sh` and, except for an empty `--history` scan, `data-policy-scan.sh`. In the other checks it is `1`, the finding's code, which does not conform to `Standards/CODE_QUALITY_STANDARD.md`, The Check Convention, Shell Scripts, rule 1: issue #331 lists each site. `check-control-path-approval.sh` has no usage code: `0` pass, non-zero fail |
 | Installers, `--check` | `scripts/install.sh`, `ai-runtimes/claude-code/install-hooks.sh`, `install-skills.sh` | `0` current, `3` drift, `1` fault (could not evaluate), `2` usage |
 | Drift advice | `scripts/check-framework-drift.sh` | `0` always without `--strict`; with it `1` drift, `2` indeterminate; `64` usage |
 | Host operations | `scripts/hosts/<host>/*.sh` (`scripts/hosts/README.md`) | `0` done, `1` failed or unsupported, `3` partial |
-| Sourced functions | `scripts/merge-classify.sh` | `0` / `1` verdict, `125` error |
+| Sourced functions | `scripts/merge-classify.sh` | `merge_classify` always `0`, its verdict printed (`clean`, `authored`, `error: <reason>`); `merge_classify_git_ok` `0` / `1`; `merge_classify_automatic` `0` clean, `1` conflicted, anything else an error, `125` when it cannot write its attributes file |
 
 ---
 
