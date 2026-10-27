@@ -179,8 +179,13 @@ fi
 # --- Rule 2: Dispatch Discipline — Employee trailer required --------------
 # Parsing contract, per Registry/README.md: every entry's first line is
 # `  - name: <Name>` — two leading spaces, unquoted, no trailing comment. The
-# trailing `tr -d '\r'` guards against a CRLF checkout on Windows, which would
-# otherwise leave a carriage return on every name and match nothing.
+# `s/\r$//` guards against a CRLF checkout on Windows, which would otherwise
+# leave a carriage return on every name and match nothing. It removes a
+# carriage return only where it ends a line, never every one
+# (Standards/CODE_QUALITY_STANDARD.md, The Check Convention, Shell Scripts
+# rule 3): one inside a name or a trailer value is data, git keeps it in the
+# value it parses, and deleting it would let `Platform Engi<CR>neer` pass as
+# `Platform Engineer` (WU-IAENG-389, issue #325).
 # EVERY `Employee: ` line is validated, not one of them.
 #
 # Two earlier versions picked a single line by ordinal and both were bypassable,
@@ -258,16 +263,17 @@ if [ -z "$EMPLOYEE_LINES" ]; then
   exit 1
 fi
 
-VALID_NAMES="$(grep -E '^  - name: ' "$ROSTER" | sed 's/^  - name: //' | tr -d '\r')"
+VALID_NAMES="$(grep -E '^  - name: ' "$ROSTER" | sed $'s/^  - name: //; s/\r$//')"
 if [ -n "$PROJECT_ROSTER" ]; then
   VALID_NAMES="$VALID_NAMES
-$(grep -E '^  - name: ' "$PROJECT_ROSTER" | sed 's/^  - name: //' | tr -d '\r')"
+$(grep -E '^  - name: ' "$PROJECT_ROSTER" | sed $'s/^  - name: //; s/\r$//')"
 fi
 
 REJECTED=0
 while IFS= read -r line; do
   [ -n "$line" ] || continue
-  name="$(echo "${line#Employee: }" | tr -d '\r')"
+  name="${line#Employee: }"
+  name="${name%$'\r'}"
   if ! grep -qxF "$name" <<< "$VALID_NAMES"; then
     echo "commit-msg: rejected — 'Employee: $name' is not a recognized Employee." >&2
     REJECTED=1

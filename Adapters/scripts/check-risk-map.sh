@@ -117,7 +117,11 @@ fi
 #
 # The parsing contract, the same shape Registry/ uses: a zone opens with a line
 # `  - pattern: <glob>` and its fields are `    level:`, `    category:` and
-# `    reason:`. Quotes around the glob are optional and stripped.
+# `    reason:`. Quotes around the glob are optional and stripped. A carriage
+# return is removed only where it ends a line (a CRLF checkout), never every
+# one: one inside a field is data, and deleting it would read a pattern, level
+# or category YAML does not contain (Standards/CODE_QUALITY_STANDARD.md, The
+# Check Convention, Shell Scripts rule 3; WU-IAENG-389, issue #325).
 #
 # Each zone becomes one tab-separated record ending in the regex its glob
 # translates to, computed ONCE here rather than per file — the alternative is
@@ -142,13 +146,13 @@ ZONES="$(awk '
   }
   /^  - pattern:/ {
     flush()
-    pat = $0; sub(/^  - pattern:[ \t]*/, "", pat); gsub(/\r/, "", pat)
+    pat = $0; sub(/^  - pattern:[ \t]*/, "", pat); sub(/\r$/, "", pat)
     gsub(/^"|"$/, "", pat)
     lvl = ""; cat = ""; reason = ""
     next
   }
-  /^    level:/    { lvl = $0; sub(/^    level:[ \t]*/, "", lvl); gsub(/\r/, "", lvl); next }
-  /^    category:/ { cat = $0; sub(/^    category:[ \t]*/, "", cat); gsub(/\r/, "", cat); next }
+  /^    level:/    { lvl = $0; sub(/^    level:[ \t]*/, "", lvl); sub(/\r$/, "", lvl); next }
+  /^    category:/ { cat = $0; sub(/^    category:[ \t]*/, "", cat); sub(/\r$/, "", cat); next }
   /^    reason:/   { reason = "yes"; next }
   END { flush() }
 ' "$MAP")"
@@ -398,7 +402,8 @@ fi
 # reason. A false declaration of absence is worse than an omission, so the
 # declaration is required to EXIST — whether it is true is a reading task, and
 # Templates/RISK_MAP.md says to have someone else do it.
-declared_absent="$(grep -E '^[[:space:]]*- category:' "$MAP" | sed 's/.*category:[[:space:]]*//' | tr -d '\r' | tr '\n' ' ')"
+# Line-end carriage return only (rule 3, see the parse above).
+declared_absent="$(grep -E '^[[:space:]]*- category:' "$MAP" | sed $'s/.*category:[[:space:]]*//; s/\r$//' | tr '\n' ' ')"
 for c in $CATEGORIES; do
   case " $seen_categories " in *" $c "*) continue ;; esac
   case " $declared_absent " in *" $c "*) continue ;; esac

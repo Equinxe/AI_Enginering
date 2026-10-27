@@ -1586,9 +1586,9 @@ work_units:
 
   - id: WU-IAENG-389
     employee: Platform Engineer
-    title: Reserved 27 Oct 2026 before dispatch (WU-IAENG-393) - strip only a line-ending CR in the trailer and registry checks (issue #325) - Check Convention shell rule 3; the commit-msg hook, check-employee-trailers.sh, check-work-units.sh and check-risk-map.sh strip carriage returns inside values instead of only the one that ends a line
+    title: Strip only a line-ending CR in the trailer and registry checks (issue #325) - Check Convention shell rule 3; the commit-msg hook, check-employee-trailers.sh, check-work-units.sh and check-risk-map.sh stripped carriage returns inside values instead of only the one that ends a line, so a value with a carriage return inside it matched the value without one
     milestone: Adoption
-    delivers: planned - Adapters/git-hooks/commit-msg, Adapters/scripts/check-employee-trailers.sh, Adapters/scripts/check-work-units.sh, Adapters/scripts/check-risk-map.sh, Adapters/scripts/tests/run.sh, changelog.d/WU-IAENG-389.md, Registry/work-units.yml
+    delivers: Adapters/git-hooks/commit-msg, Adapters/scripts/check-employee-trailers.sh, Adapters/scripts/check-work-units.sh, Adapters/scripts/check-risk-map.sh, Adapters/scripts/tests/run.sh, changelog.d/WU-IAENG-389.md, Registry/work-units.yml
 
   - id: WU-IAENG-390
     employee: Platform Engineer

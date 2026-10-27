@@ -144,7 +144,11 @@ fi
 
 echo "Registry: $REGISTRY"
 
-KNOWN="$(grep -E '^  - id: ' "$REGISTRY" | sed 's/^  - id: //' | tr -d '\r')"
+# A carriage return is removed only where it ends a line (a CRLF checkout),
+# never every one: one inside an id is data, and deleting it would register an
+# id YAML does not read (Standards/CODE_QUALITY_STANDARD.md, The Check
+# Convention, Shell Scripts rule 3; WU-IAENG-389, issue #325).
+KNOWN="$(grep -E '^  - id: ' "$REGISTRY" | sed $'s/^  - id: //; s/\r$//')"
 KNOWN_COUNT="$(printf '%s\n' "$KNOWN" | grep -c . || true)"
 echo "Registered Work Units: $KNOWN_COUNT"
 
@@ -220,7 +224,10 @@ check_commit() {
 
   while IFS= read -r wu_line; do
     [ -n "$wu_line" ] || continue
-    WU="$(printf '%s' "${wu_line#Work Unit: }" | tr -d '\r')"
+    # Line-end carriage return only (rule 3, above): one inside the value
+    # stays, and the shape test below refuses it.
+    WU="${wu_line#Work Unit: }"
+    WU="${WU%$'\r'}"
     # An empty or malformed claim never resolves. With an empty registry (the
     # bootstrap's starter) KNOWN is empty, and `grep -qxF ""` matches the
     # here-string's single empty line, so a bare `Work Unit: ` line passed

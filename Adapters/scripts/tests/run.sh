@@ -9448,6 +9448,192 @@ printf 'ctx-call\tdddddddddddddddd\t1\t1790848800\t0\t0\t0\t0\t0\t0\n' > "$WORK/
 expect 0 "context-simulate: a series with zero cost is not a division by zero" -- bash "$SIM" --thresholds 30 --reps 50 "$WORK/sim-374-zero.tsv"
 expect_output "sim${T}30${T}0${T}0${T}0${T}0${T}0.00${T}0.00${T}0.0${T}0.0${T}0.0${T}0.0"
 
+# ------------- trailer and registry checks: line-end carriage return only ---
+#
+# Standards/CODE_QUALITY_STANDARD.md, The Check Convention, Shell Scripts
+# rule 3: a carriage return is removed only where it ends a line, never every
+# one. The four checks below removed every one (`tr -d '\r'`,
+# `gsub(/\r/, "")`), so a value with a carriage return INSIDE it was compared
+# as if it had none: `Employee: Platform Engi<CR>neer` passed as
+# `Platform Engineer`, a roster or registry line YAML does not read as that
+# name or id matched it, and a risk-map field read as one the map does not
+# contain (issue #325, from SEC-IAENG-353-01). Each site has a case that a
+# mid-value carriage return is REFUSED, and one that a CRLF-terminated line
+# still PASSES, the reason the stripping exists at all.
+#
+# The expected outcomes come from git, not from the scripts: the first two
+# cases pin what `git interpret-trailers --parse` reads — a carriage return
+# inside a trailer value is kept, one ending the line is not.
+
+section "trailer and registry checks — a carriage return is removed only at a line end (WU-IAENG-389, #325)"
+
+CR389=$'\r'
+HOOK389="$SCRIPTS/../git-hooks/commit-msg"
+EMP389="$SCRIPTS/check-employee-trailers.sh"
+WU389="$SCRIPTS/check-work-units.sh"
+MAP389="$SCRIPTS/check-risk-map.sh"
+
+# commit_verbatim389 <message-file> — commits the message bytes as written.
+# The default cleanup (stripspace) trims trailing whitespace, a line-end
+# carriage return included, so without --cleanup=verbatim a CRLF-terminated
+# trailer would never reach the check under test.
+commit_verbatim389() {
+  echo "$RANDOM.$RANDOM" > "f$(date +%s%N).txt"
+  git add -A
+  git commit -q --cleanup=verbatim -F "$1"
+}
+
+new_repo cr389-oracle
+printf 'feat: x\n\nEmployee: Platform Engi\rneer\n' > mid.txt
+printf 'feat: x\n\nEmployee: Platform Engineer\r\n' > crlf.txt
+expect 0 "oracle: git keeps a carriage return inside a trailer value" -- \
+  test "$(git interpret-trailers --parse mid.txt)" = "Employee: Platform Engi${CR389}neer"
+expect 0 "oracle: git does not keep a carriage return that ends the trailer line" -- \
+  test "$(git interpret-trailers --parse crlf.txt)" = "Employee: Platform Engineer"
+
+# --- git-hooks/commit-msg: the value, the roster, the project roster
+new_repo cr389-hook
+write_employee_roster "Platform Engineer" "Release Manager"
+printf 'fix(cr): x\n\nWork Unit: WU-TEST-001\n\nEmployee: Platform Engi\rneer\n' > msg-mid.txt
+printf 'fix(cr): x\n\nWork Unit: WU-TEST-001\n\nEmployee: Platform Engineer\r\n' > msg-crlf.txt
+printf 'fix(cr): x\n\nWork Unit: WU-TEST-001\n\nEmployee: Platform Engineer\n' > msg-plain.txt
+printf 'fix(cr): x\n\nWork Unit: WU-TEST-001\n\nEmployee: Domain Engineer\n' > msg-domain.txt
+expect 1 "commit-msg: a carriage return inside the Employee value is refused" -- bash "$HOOK389" msg-mid.txt
+expect_output "is not a recognized Employee"
+expect 0 "commit-msg: a CRLF-terminated Employee trailer is accepted" -- bash "$HOOK389" msg-crlf.txt
+printf 'employees:\n  - name: Platform Engi\rneer\n    category: DevOps\n  - name: Release Manager\n    category: Management\n' > Registry/employees.yml
+expect 1 "commit-msg: a roster name with a carriage return inside it does not match the name without one" -- bash "$HOOK389" msg-plain.txt
+expect_output "is not a recognized Employee"
+write_employee_roster "Platform Engineer" "Release Manager"
+sed -i "s/\$/${CR389}/" Registry/employees.yml
+expect 0 "commit-msg: a CRLF roster still resolves its names" -- bash "$HOOK389" msg-plain.txt
+mkdir -p .ia-engineering/Registry
+printf 'employees:\n  - name: Domain Engi\rneer\n    category: Domain\n' > .ia-engineering/Registry/employees.yml
+expect 1 "commit-msg: a project roster name with a carriage return inside it does not match" -- bash "$HOOK389" msg-domain.txt
+expect_output "is not a recognized Employee"
+printf 'employees:\r\n  - name: Domain Engineer\r\n    category: Domain\r\n' > .ia-engineering/Registry/employees.yml
+expect 0 "commit-msg: a CRLF project roster still resolves its names" -- bash "$HOOK389" msg-domain.txt
+
+# --- check-employee-trailers.sh: the value, the roster, the project roster
+cr389_emp_repo() {
+  new_repo "$1"
+  write_employee_roster "Platform Engineer" "Release Manager"
+  git add -A && git commit -q -m "roster"
+}
+cr389_emp_repo cr389-emp-mid
+BASE="$(git rev-parse HEAD)"
+printf 'feat: x\n\nEmployee: Platform Engi\rneer\n' > "$WORK/cr389-emp-mid.txt"
+commit_verbatim389 "$WORK/cr389-emp-mid.txt"
+expect 1 "check-employee-trailers: a carriage return inside the Employee value is refused" -- bash "$EMP389" "$BASE" HEAD
+expect_output "which is not in"
+
+cr389_emp_repo cr389-emp-crlf
+BASE="$(git rev-parse HEAD)"
+printf 'feat: x\n\nEmployee: Platform Engineer\r\n' > "$WORK/cr389-emp-crlf.txt"
+commit_verbatim389 "$WORK/cr389-emp-crlf.txt"
+expect 0 "check-employee-trailers: a CRLF-terminated Employee trailer resolves" -- bash "$EMP389" "$BASE" HEAD
+expect_output "-> Platform Engineer"
+
+cr389_emp_repo cr389-emp-roster-mid
+printf 'employees:\n  - name: Platform Engi\rneer\n    category: DevOps\n  - name: Release Manager\n    category: Management\n' > Registry/employees.yml
+git add -A && git commit -q -m "roster"
+BASE="$(git rev-parse HEAD)"
+commit_with "feat: x" "Employee: Platform Engineer"
+expect 1 "check-employee-trailers: a roster name with a carriage return inside it does not match" -- bash "$EMP389" "$BASE" HEAD
+expect_output "which is not in"
+
+cr389_emp_repo cr389-emp-roster-crlf
+sed -i "s/\$/${CR389}/" Registry/employees.yml
+git add -A && git commit -q -m "roster"
+BASE="$(git rev-parse HEAD)"
+commit_with "feat: x" "Employee: Platform Engineer"
+expect 0 "check-employee-trailers: a CRLF roster still resolves its names" -- bash "$EMP389" "$BASE" HEAD
+expect_output "-> Platform Engineer"
+
+cr389_emp_repo cr389-emp-project-mid
+mkdir -p .ia-engineering/Registry
+printf 'employees:\n  - name: Domain Engi\rneer\n    category: Domain\n' > .ia-engineering/Registry/employees.yml
+git add -A && git commit -q -m "project roster"
+BASE="$(git rev-parse HEAD)"
+commit_with "feat: x" "Employee: Domain Engineer"
+expect 1 "check-employee-trailers: a project roster name with a carriage return inside it does not match" -- bash "$EMP389" "$BASE" HEAD
+expect_output "which is not in"
+
+cr389_emp_repo cr389-emp-project-crlf
+mkdir -p .ia-engineering/Registry
+printf 'employees:\r\n  - name: Domain Engineer\r\n    category: Domain\r\n' > .ia-engineering/Registry/employees.yml
+git add -A && git commit -q -m "project roster"
+BASE="$(git rev-parse HEAD)"
+commit_with "feat: x" "Employee: Domain Engineer"
+expect 0 "check-employee-trailers: a CRLF project roster still resolves its names" -- bash "$EMP389" "$BASE" HEAD
+expect_output "-> Domain Engineer"
+
+# --- check-work-units.sh: the value, the registry
+# cr389_wu_repo <name> [mid|crlf] — a registry of WU-TEST-001 and WU-TEST-002,
+# with a carriage return inside the second id (mid) or ending every line (crlf).
+cr389_wu_repo() {
+  new_repo "$1"
+  write_wu_registry WU-TEST-001 WU-TEST-002
+  case "${2:-}" in
+    mid)  sed -i "s/^  - id: WU-TEST-002\$/  - id: WU-TEST-0${CR389}02/" Registry/work-units.yml ;;
+    crlf) sed -i "s/\$/${CR389}/" Registry/work-units.yml ;;
+  esac
+  git add -A && git commit -q -m "registry
+
+Work Unit: WU-TEST-001"
+}
+cr389_wu_repo cr389-wu-mid
+BASE="$(git rev-parse HEAD)"
+printf 'feat: x\n\nWork Unit: WU-TEST-0\r02\n' > "$WORK/cr389-wu-mid.txt"
+commit_verbatim389 "$WORK/cr389-wu-mid.txt"
+expect 1 "check-work-units: a carriage return inside the Work Unit value is refused" -- bash "$WU389" "$BASE" HEAD
+expect_output "is empty or not a Work Unit id"
+
+cr389_wu_repo cr389-wu-crlf
+BASE="$(git rev-parse HEAD)"
+printf 'feat: x\n\nWork Unit: WU-TEST-002\r\n' > "$WORK/cr389-wu-crlf.txt"
+commit_verbatim389 "$WORK/cr389-wu-crlf.txt"
+expect 0 "check-work-units: a CRLF-terminated Work Unit trailer resolves" -- bash "$WU389" "$BASE" HEAD
+expect_output "-> WU-TEST-002 (resolved)"
+
+cr389_wu_repo cr389-wu-registry-mid mid
+BASE="$(git rev-parse HEAD)"
+commit_with "feat: x" "Work Unit: WU-TEST-002"
+expect 1 "check-work-units: a registry id with a carriage return inside it does not register the id without one" -- bash "$WU389" "$BASE" HEAD
+expect_output "claims 'WU-TEST-002', which is not in"
+
+cr389_wu_repo cr389-wu-registry-crlf crlf
+BASE="$(git rev-parse HEAD)"
+commit_with "feat: x" "Work Unit: WU-TEST-002"
+expect 0 "check-work-units: a CRLF registry still registers its ids" -- bash "$WU389" "$BASE" HEAD
+expect_output "-> WU-TEST-002 (resolved)"
+
+# --- check-risk-map.sh: pattern, level, category, declared-absent category
+risk_project cr389-map-pattern; sound_risk_map
+sed -i "s|- pattern: \"src/auth/\\*\"|- pattern: \"src/au${CR389}th/*\"|" .ia-engineering/risk-map.yml && git add -A
+expect 1 "check-risk-map: a pattern with a carriage return inside it is not the pattern without one" -- bash "$MAP389" .
+expect_output "matches no tracked file"
+
+risk_project cr389-map-level; sound_risk_map
+sed -i "s/level: sensitive/level: sensi${CR389}tive/" .ia-engineering/risk-map.yml && git add -A
+expect 1 "check-risk-map: a level with a carriage return inside it is not a level" -- bash "$MAP389" .
+expect_output "which is not one of"
+
+risk_project cr389-map-category; sound_risk_map
+sed -i "s/    category: authentication/    category: authenti${CR389}cation/" .ia-engineering/risk-map.yml && git add -A
+expect 1 "check-risk-map: a category with a carriage return inside it is not in the closed list" -- bash "$MAP389" .
+expect_output "closed list"
+
+risk_project cr389-map-absent; sound_risk_map
+sed -i "s/- category: core_architecture/- category: core_archi${CR389}tecture/" .ia-engineering/risk-map.yml && git add -A
+expect 1 "check-risk-map: a declared-absent category with a carriage return inside it declares nothing" -- bash "$MAP389" .
+expect_output "category 'core_architecture' is neither mapped"
+
+risk_project cr389-map-crlf; sound_risk_map
+sed -i "s/\$/${CR389}/" .ia-engineering/risk-map.yml && git add -A
+expect 0 "check-risk-map: a CRLF map is still sound" -- bash "$MAP389" .
+expect_output "Risk Map is sound"
+
 # --------------------------------------------------------------- verdict ----
 
 cd "$HERE" || exit 1
