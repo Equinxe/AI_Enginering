@@ -7527,7 +7527,7 @@ SNAP_357A="$(snapshot_353)"
 expect 3 "install-hooks.sh --check without a settings.json is drift (exit 3)" -- bash "$HK_357" --check
 expect_output "settings${T}absent${T}.claude/settings.json${T}a run writes it from settings.example.json"
 expect_output "gitattributes${T}missing${T}.gitattributes${T}$HOOKS_RULE_357"
-expect_output "# install-hooks.sh --check: 2 to act on. 1 settings item(s): 1 absent; 0 hook entries; 1 .gitattributes rule(s): 1 missing; 0 fault(s). absent/missing: re-run $HK_357 without --force"
+expect_output "# install-hooks.sh --check: 2 to act on. 1 settings item(s): 1 absent; 0 hook entries; 0 statusLine(s); 1 .gitattributes rule(s): 1 missing; 0 fault(s). absent/missing: re-run $HK_357 without --force"
 expect 3 "install-skills.sh --check without skills is drift (exit 3)" -- bash "$SK_357" --check
 expect_output "skill${T}absent${T}.claude/skills/dashboard${T}ia-engineering/Adapters/ai-runtimes/claude-code/skills/dashboard"
 expect_output "skill${T}absent${T}.claude/skills/create-project${T}"
@@ -7553,7 +7553,8 @@ expect 0 "install-hooks.sh --check on an installed project exits 0" -- bash "$HK
 expect_output "settings${T}current${T}.claude/settings.json${T}the template, rendered for framework root ia-engineering"
 expect_output "hook${T}present${T}.claude/settings.json${T}PreToolUse [Bash]: block-escape-hatches.sh"
 expect_output "hook${T}present${T}.claude/settings.json${T}Stop: dashboard-refresh.sh"
-expect_output "# install-hooks.sh --check: 0 to act on. 1 settings item(s): 1 current; 6 hook entries: 6 present; 1 .gitattributes rule(s): 1 present; 0 fault(s)."
+expect_output "# install-hooks.sh --check: 0 to act on. 1 settings item(s): 1 current; 6 hook entries: 6 present; 1 statusLine(s): 1 present; 1 .gitattributes rule(s): 1 present; 0 fault(s)."
+expect_output "statusline${T}present${T}.claude/settings.json${T}context-statusline.sh"
 expect 0 "install-hooks.sh --check --quiet on an installed project exits 0" -- bash "$HK_357" --check --quiet
 expect_empty_357 "install-hooks.sh --check --quiet prints nothing when nothing needs acting on"
 expect 0 "install-skills.sh --check on an installed project exits 0" -- bash "$SK_357" --check
@@ -7609,7 +7610,7 @@ jq_edit_357 '.hooks.Stop |= map(select([.hooks[].command] | any(test("dashboard-
 expect 3 "a missing framework entry alone is drift (exit 3)" -- bash "$HK_357" --check
 expect_output "settings${T}customized${T}.claude/settings.json"
 expect_output "hook${T}absent${T}.claude/settings.json${T}Stop: dashboard-refresh.sh"
-expect_output "# install-hooks.sh --check: 1 to act on. 1 settings item(s): 1 customized; 6 hook entries: 5 present, 1 absent; 1 .gitattributes rule(s): 1 present; 0 fault(s). absent/missing:"
+expect_output "# install-hooks.sh --check: 1 to act on. 1 settings item(s): 1 customized; 6 hook entries: 5 present, 1 absent; 1 statusLine(s): 1 present; 1 .gitattributes rule(s): 1 present; 0 fault(s). absent/missing:"
 expect 3 "--check --quiet keeps the missing entry" -- bash "$HK_357" --check --quiet
 expect_output "hook${T}absent${T}.claude/settings.json${T}Stop: dashboard-refresh.sh"
 expect_no_output "${T}present${T}" "--check --quiet leaves out the present entries"
@@ -7848,8 +7849,10 @@ expect_output "file${T}current${T}.github/workflows/data-policy.yml${T}"
 expect_output "file${T}project-owned${T}.ia-engineering/risk-map.yml${T}"
 expect_output "config${T}present${T}.gitattributes: /Registry/work-units.yml text eol=lf${T}"
 expect_output "# check-framework-drift: 4 to act on, 0 indeterminate. 3 version item(s): 1 tagged, 1 latest, 1 recorded. 14 file(s) compared: 6 current, 2 absent, 1 stale, 5 project-owned."
-expect_output "7 command path(s): 7 ok."
+expect_output "8 command path(s): 8 ok."
 expect_output "path${T}ok${T}ia-engineering/Adapters/ai-runtimes/claude-code/hooks/session-start.sh${T}"
+expect_output "path${T}ok${T}ia-engineering/Adapters/ai-runtimes/claude-code/hooks/context-statusline.sh${T}"
+expect_output "config${T}present${T}statusLine: context-statusline.sh${T}"
 fields_358 "every tsv record has four fields (DEF-01)"
 T0_358="$(date +%s%N)"
 expect 0 "the text format reports the same, and exits 0 without --strict" -- bash "$DRIFT_358"
@@ -7887,6 +7890,25 @@ expect 1 "a file the project is expected to edit is customized, information only
 expect_output "file${T}customized${T}.github/ISSUE_TEMPLATE/config.yml${T}expected to differ"
 expect_output "# check-framework-drift: 4 to act on, 0 indeterminate."
 git checkout -q -- .github/ISSUE_TEMPLATE/config.yml
+
+# The statusline records of install-hooks.sh --check (WU-IAENG-379): absent
+# is drift; a project statusLine kept unwrapped, or one in settings.local.json
+# that shadows the project's, is information and adds nothing to act on.
+jq 'del(.statusLine)' .claude/settings.json | tr -d '\r' > st.tmp && mv st.tmp .claude/settings.json
+expect 1 "a settings.json without the statusLine is drift" -- bash "$DRIFT_358" --format tsv --strict
+expect_output "config${T}absent${T}statusLine: context-statusline.sh${T}re-run ia-engineering/Adapters/ai-runtimes/claude-code/install-hooks.sh: it installs the context statusLine"
+expect_output "# check-framework-drift: 5 to act on, 0 indeterminate."
+git checkout -q -- .claude/settings.json
+jq '.statusLine = {type: "command", command: "Write-Output hi", shell: "powershell"}' .claude/settings.json | tr -d '\r' > st.tmp && mv st.tmp .claude/settings.json
+expect 1 "a PowerShell project statusLine kept unwrapped is information" -- bash "$DRIFT_358" --format tsv --strict
+expect_output "config${T}near-miss${T}statusLine: the project statusLine is kept as it is (it runs under powershell)"
+expect_output "# check-framework-drift: 4 to act on, 0 indeterminate."
+git checkout -q -- .claude/settings.json
+printf '{"statusLine": {"type": "command", "command": "echo mine"}}\n' > .claude/settings.local.json
+expect 1 "a statusLine in settings.local.json is information, not drift" -- bash "$DRIFT_358" --format tsv --strict
+expect_output "config${T}near-miss${T}.claude/settings.local.json: statusLine echo mine: Claude Code runs this one instead"
+expect_output "# check-framework-drift: 4 to act on, 0 indeterminate."
+rm -f .claude/settings.local.json
 
 # --- the framework off a tag ----------------------------------------------------------
 # On a side branch of the framework, so the adopters below still see v2 as
@@ -8322,6 +8344,11 @@ for F_366 in "$SCRIPTS/install.sh" \
     expect 0 "$B_366: $FN_366 flattens every control, C1 pairs included, keeps é and the em dash ($LOC_366)" -- bash "$REC_366/rec-366.sh" records "$F_366" "$FN_366" "$LOC_366" "$HOSTILE_366" "$WANT_366"
   done
 done
+# The context statusLine prints fields of Claude Code's stdin JSON through
+# the same flat() (WU-IAENG-379). It writes no record, so only its block is
+# compared; tests/context-statusline.sh in the hooks suite checks its output.
+expect 0 "context-statusline.sh: the record sanitiser block is byte-identical to install.sh's" -- \
+  bash "$REC_366/rec-366.sh" block "$SCRIPTS/../ai-runtimes/claude-code/hooks/context-statusline.sh" "$REC_366/ref"
 
 # SEC-IAENG-366-01: the framework's path inside the project reaches the
 # install.sh --check closing line. It is the project's choice (a submodule
