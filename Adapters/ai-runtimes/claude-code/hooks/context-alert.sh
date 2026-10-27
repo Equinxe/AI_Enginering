@@ -31,7 +31,8 @@
 # (hooks/context-statusline.sh, WU-IAENG-379) writes:
 #     ${TMPDIR:-/tmp}/iaeng-ctx-<uid>/<session_id>.pct
 # with the writer's rules for the directory (TMPDIR only when absolute with no
-# . or .. component, else /tmp) and for the session id
+# . or .. component, with either separator, else /tmp: context-dir.sh, which
+# both source, so they cannot name two directories, #340) and for the session id
 # ([A-Za-z0-9][A-Za-z0-9_-]{0,127}: no path can be built from it). Never from
 # the transcript. Before anything is said, the file is believed only when:
 #   - the directory is a directory, not a symbolic link, owned by the user,
@@ -210,15 +211,13 @@ if [ "$MODE" = session-start ]; then
 fi
 
 # --- The directory --------------------------------------------------------------
-BASE="${TMPDIR:-}"
-case "$BASE" in
-  /*|[A-Za-z]:[/\\]*) ;;
-  *) BASE=/tmp ;;
-esac
-case "/$BASE/" in */../*|*/./*) BASE=/tmp ;; esac
-BASE="${BASE%/}"
-[[ ${UID:-} =~ ^[0-9]+$ ]] || exit 0
-DIR="$BASE/iaeng-ctx-$UID"
+# Named by context-dir.sh, the writer's own rule, sourced by both so they
+# cannot name two directories (issue #340). A missing file: silence.
+case "${BASH_SOURCE[0]}" in */*) HOOKS_DIR="${BASH_SOURCE[0]%/*}" ;; *) HOOKS_DIR=. ;; esac
+# shellcheck source=context-dir.sh
+. "$HOOKS_DIR/context-dir.sh" 2>/dev/null
+DIR=""
+iaeng_ctx_dir DIR 2>/dev/null || exit 0
 # Ours before anything in it is opened (SEC-IAENG-380-01): a directory
 # another user created first is never read.
 [ -d "$DIR" ] && [ ! -L "$DIR" ] && [ -O "$DIR" ] || exit 0

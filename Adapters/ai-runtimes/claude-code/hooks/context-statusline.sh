@@ -16,7 +16,9 @@
 #      when the session id has the shape [A-Za-z0-9][A-Za-z0-9_-]{0,127}
 #      (no dot, no separator: no path can be built from it) and the
 #      percentage is a number from 0 to 100. TMPDIR is used only when it is
-#      an absolute path with no . or .. component, else /tmp;
+#      an absolute path with no . or .. component, with either separator,
+#      else /tmp. The rule is context-dir.sh's, which the context alert
+#      sources too, so the two cannot name different directories (#340);
 #   3. prints the status line: the output of the user's own statusLine
 #      command when there is one and it succeeds, else one line of its own.
 #
@@ -312,17 +314,15 @@ clean_dir() {
     -uid "$uid" -mmin +1440 -delete 2>/dev/null
   return 0
 }
+# The directory is named by context-dir.sh, which the context alert sources
+# too, so the writer and the reader cannot name two (issue #340). A missing
+# file means no directory: the write is skipped and the line still printed.
+case "${BASH_SOURCE[0]}" in */*) HOOKS_DIR="${BASH_SOURCE[0]%/*}" ;; *) HOOKS_DIR=. ;; esac
+# shellcheck source=context-dir.sh
+. "$HOOKS_DIR/context-dir.sh" 2>/dev/null
 write_pct() {
-  local base="${TMPDIR:-}" uid="${UID:-}" dir f w
-  case "$base" in
-    /*|[A-Za-z]:[/\\]*) ;;
-    *) base=/tmp ;;
-  esac
-  # A . or .. component, with either separator (C:\a\..\b too).
-  case "/${base//\\//}/" in */../*|*/./*) base=/tmp ;; esac
-  base="${base%/}"
-  [[ $uid =~ ^[0-9]+$ ]] || return 0
-  dir="$base/iaeng-ctx-$uid"
+  local uid="${UID:-}" dir="" f w
+  iaeng_ctx_dir dir 2>/dev/null || return 0
   # -m sets the mode whatever the umask; no umask is changed, so the user's
   # command below runs with the umask Claude Code gave this script.
   if [ ! -e "$dir" ] && [ ! -L "$dir" ]; then
