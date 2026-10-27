@@ -1616,9 +1616,9 @@ work_units:
 
   - id: WU-IAENG-394
     employee: Platform Engineer
-    title: Reserved 27 Oct 2026 before dispatch (WU-IAENG-398) - reader and writer agree on a backslash '..' TMPDIR (issue #340) - the context statusLine writer refuses a TMPDIR with a backslash . or .. component and falls back to /tmp, while the context alert reader has no backslash handling and looks under the TMPDIR as given, so the alert never fires for that user
+    title: Reader and writer agree on a backslash '..' TMPDIR (issue #340) - the context statusLine writer refused a TMPDIR with a backslash . or .. component and fell back to /tmp, while the context alert reader had no backslash handling and looked under the TMPDIR as given, so the alert never fired for that user; the rule now lives once in hooks/context-dir.sh, which both source, and one test runs the real writer then the real reader under every TMPDIR form
     milestone: Adoption
-    delivers: planned - Adapters/ai-runtimes/claude-code/hooks/context-statusline.sh, Adapters/ai-runtimes/claude-code/hooks/context-alert.sh, Adapters/ai-runtimes/claude-code/hooks/tests/context-statusline.sh, Adapters/ai-runtimes/claude-code/hooks/tests/context-alert.sh, changelog.d/WU-IAENG-394.md, Registry/work-units.yml
+    delivers: Adapters/ai-runtimes/claude-code/hooks/context-dir.sh, Adapters/ai-runtimes/claude-code/hooks/context-statusline.sh, Adapters/ai-runtimes/claude-code/hooks/context-alert.sh, Adapters/ai-runtimes/claude-code/hooks/tests/context-alert.sh, Adapters/ai-runtimes/claude-code/hooks/README.md, changelog.d/WU-IAENG-394.md, Registry/work-units.yml
 
   - id: WU-IAENG-395
     employee: Platform Engineer

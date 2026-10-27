@@ -24,7 +24,9 @@
 #   - the overrides (IAENG_CTX_ALERT_PCT, IAENG_CTX_LAST_CALL_PCT) and the
 #     switches (IAENG_CONTEXT_HOOKS, .ia-engineering/context-hooks.off);
 #   - the SessionStart warning against the estimated compaction threshold;
-#   - the payload read without jq.
+#   - the payload read without jq;
+#   - the writer (context-statusline.sh) and this reader name the same
+#     directory for every TMPDIR form, a backslash .. included (issue #340).
 #
 # ORACLES (Standards/TESTING_STANDARD.md, Independent Oracle), none taken from
 # the hook's own output:
@@ -548,6 +550,83 @@ else
   nojq 'garbage {"session_id": "x'
   silent "no jq: not JSON"
 fi
+
+# =============================================================================
+echo "== context-statusline.sh then context-alert.sh — one directory for every TMPDIR (issue #340)"
+# The writer and the reader must name the same directory, or the alert never
+# fires. For each TMPDIR form below, the real writer records 90 %, then the
+# real reader runs under the same environment. The oracle is written by hand
+# from the rule (hooks/README.md, Context Status Line, The file: TMPDIR counts
+# only when absolute with no . or .. component, with either separator, else
+# /tmp), never taken from the hooks:
+#   - where the .pct must land: TMPDIR's own iaeng-ctx-<uid>, /tmp's when the
+#     rule refuses TMPDIR, or nowhere when the directory cannot be made;
+#   - the reader then says the last call at 90 %, or, when nothing was
+#     written, both refuse alike: no file anywhere, and silence.
+# Every case runs in a scratch working directory, so a relative path a broken
+# rule accepted would land there and be seen. A /tmp file is this test's own
+# session id and is removed after its case.
+SL="$HOOKS/context-statusline.sh"
+FALLBACK="/tmp/iaeng-ctx-$ID"
+H394="$T/home394"; CWD394="$T/cwd394"
+mkdir -p "$H394" "$CWD394" "$T/dotdot394"
+: > "$T/afile394"
+N394=0
+# pair <label> <expected directory, or none> <TMPDIR, or -unset>
+pair() {
+  local label="$1" want="$2" tmp="$3" sid where tenv payload
+  N394=$((N394 + 1))
+  sid="s394-$$-$N394"
+  if [ "$tmp" = -unset ]; then tenv=(-u TMPDIR); else tenv=(TMPDIR="$tmp"); fi
+  # Here-strings, not pipes: a hook that exits before it reads its stdin
+  # must not turn the feeder's broken pipe into a failure (pipefail is on).
+  payload="$(printf '{"session_id":"%s","context_window":{"used_percentage":90}}' "$sid")"
+  ( cd "$CWD394" && env -u IAENG_CONTEXT_HOOKS -u IAENG_CTX_CHAINED -u CLAUDE_CONFIG_DIR -u IAENG_CTX_ALERT_PCT \
+      -u IAENG_CTX_LAST_CALL_PCT "${tenv[@]}" HOME="$H394" CLAUDE_PROJECT_DIR="$PROJ" \
+      bash "$SL" <<< "$payload" ) > "$T/out" 2> "$T/err"
+  RC=$?; OUT="$(cat "$T/out")"; ERR="$(cat "$T/err")"
+  if [ "$RC" -eq 0 ] && [ -n "$OUT" ] && [ -z "$ERR" ]; then ok "$label: the writer exits 0 with a line"; else bad "$label: the writer exits 0 with a line" "rc=$RC out=[$OUT] err=[$ERR]"; fi
+  where="$(find "$T" "$FALLBACK" -name "$sid.pct" 2>/dev/null | tr '\n' ' ')"
+  if [ "$want" = none ]; then
+    if [ -z "$where" ]; then ok "$label: no .pct written anywhere"; else bad "$label: no .pct written anywhere" "found: $where"; fi
+  elif [ -f "$want/$sid.pct" ] && [ "$(cat "$want/$sid.pct")" = 90 ] && [ "$(wc -w <<< "$where")" -eq 1 ]; then
+    ok "$label: the .pct lands in $want"
+  else
+    bad "$label: the .pct lands in $want" "found: [$where]"
+  fi
+  payload="$(ups "$sid")"
+  ( cd "$CWD394" && env -u IAENG_CONTEXT_HOOKS -u IAENG_CTX_ALERT_PCT -u IAENG_CTX_LAST_CALL_PCT \
+      "${tenv[@]}" CLAUDE_PROJECT_DIR="$PROJ" bash "$AL" <<< "$payload" ) > "$T/out" 2> "$T/err"
+  RC=$?; OUT="$(cat "$T/out")"; ERR="$(cat "$T/err")"
+  if [ "$want" = none ]; then
+    silent "$label: the reader refuses as the writer did"
+  else
+    says "$label: the reader finds the writer's .pct and says the last call" UserPromptSubmit "context is at 90 %"
+  fi
+  rm -f -- "$FALLBACK/$sid.pct" "$FALLBACK/$sid.alert" 2>/dev/null
+}
+pair "TMPDIR unset" "$FALLBACK" -unset
+pair "TMPDIR normal" "$DIR" "$TMPD"
+pair "TMPDIR with a trailing slash" "$DIR" "$TMPD/"
+pair "TMPDIR with a forward-slash .." "$FALLBACK" "$T/tmp/../dotdot394"
+pair "TMPDIR with a forward-slash ." "$FALLBACK" "$T/./tmp"
+pair "TMPDIR C:\\x\\..\\y (backslash ..)" "$FALLBACK" 'C:\x\..\y'
+pair "TMPDIR C:\\x\\.\\y (backslash .)" "$FALLBACK" 'C:\x\.\y'
+pair "TMPDIR C:/x/./y (drive, forward-slash .)" "$FALLBACK" 'C:/x/./y'
+pair "TMPDIR relative" "$FALLBACK" "relative394/tmp"
+pair "TMPDIR a regular file" none "$T/afile394"
+pair "TMPDIR missing" none "$T/no/such394"
+if command -v cygpath >/dev/null 2>&1; then
+  # Real Windows paths: the directory with backslashes and with a drive and
+  # forward slashes, and a \..\ that names a directory which exists, so only
+  # the .. rule keeps either hook out of it.
+  pair "TMPDIR $(cygpath -w "$TMPD") (Windows form)" "$DIR" "$(cygpath -w "$TMPD")"
+  pair "TMPDIR $(cygpath -m "$TMPD")/ (drive, forward slashes)" "$DIR" "$(cygpath -m "$TMPD")/"
+  pair "TMPDIR <Windows path>\\..\\dotdot394 (an existing directory)" "$FALLBACK" "$(cygpath -w "$T/tmp")\\..\\dotdot394"
+else
+  na "TMPDIR as a real Windows path" "no Windows paths on this platform (no cygpath); the literal C:\\ forms above run everywhere"
+fi
+if [ -z "$(ls -A "$T/dotdot394")" ] && [ -z "$(ls -A "$CWD394")" ]; then ok "a refused TMPDIR is never written to, and nothing lands in the working directory"; else bad "a refused TMPDIR is never written to, and nothing lands in the working directory" "$(ls -A "$T/dotdot394" "$CWD394")"; fi
 
 # =============================================================================
 if [ -n "${IAENG_HOOK_TESTS_COUNTS:-}" ]; then
