@@ -898,6 +898,37 @@ expect 0 "publish closing text: Step 8 back-merge is stated as always required" 
 expect 1 "publish closing text no longer says the back-merge is conditional" -- \
   grep -qF -- "Not needed when the release branch never diverged" "$WORK/publish-closing.txt"
 
+# WU-IAENG-388 (issue #306): WU-IAENG-372 added Step 11, the release
+# retrospective, to Workflows/RELEASE.md, and the closing text still listed
+# Steps 8 to 10, so the operator who had just published never saw it. Each
+# phrase is RELEASE.md's own wording and is asserted against RELEASE.md as
+# well: the expectation comes from the workflow, not from the script, and a
+# reworded Step 11 fails here instead of leaving the script quoting text the
+# workflow no longer holds. The oracle is the Step 11 section only, from its
+# heading to the next heading of any level or the `---` rule that closes it
+# (the section after Step 11 is `# Exit Criteria`, a level-1 heading): a
+# phrase that moved to another step, or survives elsewhere in the file, no
+# longer describes Step 11.
+RELEASE_MD_388="$SCRIPTS/../../Workflows/RELEASE.md"
+awk '/^## Step 11 /{f=1; print; next} f && (/^#/ || /^---\r?$/){exit} f' "$RELEASE_MD_388" \
+  | tr -d '\r' | tr -s ' \n' '  ' > "$WORK/release-step11.txt"
+# The step's title, read from its heading rather than restated, so the
+# closing text is held to whatever RELEASE.md calls the step.
+title_388="$(sed -n 's/^## Step 11 — //p' "$RELEASE_MD_388" | tr -d '\r')"
+expect 0 "RELEASE.md Step 11 heading holds: Step 11 — Release retrospective" -- \
+  test "$title_388" = "Release retrospective"
+expect 0 "publish closing text names Step 11 by RELEASE.md's title: Step 11 $title_388" -- \
+  grep -qF -- "Step 11 $title_388" "$WORK/publish-closing.txt"
+for phrase_388 in \
+  "Scrum Master, dispatched by the Main Agent once the release is tagged" \
+  "Release retrospective vX.X.X" \
+  "recorded before the next milestone's first Work Unit is planned"; do
+  expect 0 "RELEASE.md Step 11 holds: $phrase_388" -- \
+    grep -qF -- "$phrase_388" "$WORK/release-step11.txt"
+  expect 0 "publish closing text quotes Step 11: $phrase_388" -- \
+    grep -qF -- "$phrase_388" "$WORK/publish-closing.txt"
+done
+
 # Exit 3 again, and it must leave the directory behind: check-review-recorded
 # treats an ABSENT directory as a broken pipeline and an EMPTY one as "read,
 # nothing there". Only the second is true here.

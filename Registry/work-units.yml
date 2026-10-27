@@ -1572,6 +1572,12 @@ work_units:
     milestone: Adoption
     delivers: Adapters/scripts/setup-branch-protection.sh, Adapters/scripts/tests/run.sh, Adapters/github-actions/ci-build-test.yml, Adapters/github-actions/ghcr-publish.yml, Adapters/dockerfiles/generic.Dockerfile, changelog.d/WU-IAENG-384.md, Registry/work-units.yml
 
+  - id: WU-IAENG-388
+    employee: DevOps Engineer
+    title: release.sh publish names Workflows/RELEASE.md Step 11 (#306) - the closing text of release.sh publish listed Steps 8 to 10 only, so the operator never saw the release retrospective WU-IAENG-372 added; it now names Step 11 in RELEASE.md's own words (Scrum Master, dispatched by the Main Agent once the release is tagged; one Issue, Release retrospective vX.X.X; recorded before the next milestone's first Work Unit is planned), and Adapters/scripts/tests/run.sh asserts each phrase against both RELEASE.md's Step 11 section and the shipped heredoc; Registry/workflows.yml Release step 8 no longer says the back-merge happens only when the release branch diverged, matching RELEASE.md Step 8 (always required); the step-title check the issue suggests is not built here
+    milestone: Adoption
+    delivers: Adapters/scripts/release.sh, Adapters/scripts/tests/run.sh, Registry/workflows.yml, changelog.d/WU-IAENG-388.md, Registry/work-units.yml
+
   - id: WU-IAENG-387
     employee: Software Architect
     title: The Check Convention becomes a Standard (point e of the Director texts of 26 Oct 2026, approved 27 Oct 2026 as 5:B 6:B 7:oui 8:oui) - Standards/CODE_QUALITY_STANDARD.md (0.0.4) gains The Check Convention under IA Engineering Additions, the four rules binding every check in any project and three shell rules (exit codes are an interface, set -u and pipefail rather than set -e by default, a carriage return removed only where it ends a line) binding the framework's scripts and a project's unless it records another convention, and one Forbidden Practices bullet; Adapters/README.md keeps its The Check Convention heading so the 37 citations in 24 files still resolve, replaces the rules with a pointer to the Standard, keeps the two history paragraphs unchanged and adds the Exit Code Families register, whose Checks row states that most checks exit 1 on a failure to evaluate, against shell rule 1 (Director, 27 Oct 2026: keep the rule, correct the register; issue #331); Governance/CONTRIBUTING.md now sends a new Check Convention rule to the Standard; no script changed, the non-conforming sites are filed as issues #325 to #328 and #331
