@@ -1142,6 +1142,197 @@ else
   fail "Registry/chains.yml is missing" "It existed as of WU-IAENG-145 and Registry/README.md lists its consumers. Reporting a pass for an absent file is the same silent-skip shape as a gate that skips itself — if the Registry genuinely no longer carries chains, remove this check deliberately rather than letting a deletion look like a success."
 fi
 
+# WORKFLOW STEP TITLES (WU-IAENG-392, issue #332). The step_count comparison
+# below sees a step added or removed, and nothing else. Release Step 8's
+# Registry line kept "when the release branch diverged" for seven weeks after
+# the document made the back-merge always required (4f5fff4 to 0ef3ad4): the
+# count was right, so every check passed. The Director's decision of 27 Oct
+# 2026 (option A) removes the cause rather than detecting a symptom: a step's
+# `step:` value is its document's heading text after "## Step N — ", copied
+# byte for byte, with no summary or qualifier to drift. This compares them in
+# order, position by position, with no normalisation: a renamed heading, a
+# qualifier added to the Registry, and two steps swapped at equal count each
+# fail.
+#
+# WHAT IS READ FROM workflows.yml, at the fixed indentation its header's
+# parsing contract states: "  - name:" opens a workflow, "    file:" names its
+# document, "    steps:" opens its steps and any other four-space key closes
+# them, "      - n: <N>" opens a step, and "        step: <title>" is its
+# title. A double-quoted title loses its quotes, which is all YAML does to one
+# with no '"' or '\' inside. Refused rather than compared, because YAML would
+# not read the bytes on the line as the title: an empty value, a block scalar,
+# a double-quoted value with '"' or '\' inside, and a plain value that starts
+# with a YAML indicator (a single quote among them), contains ": " or " #",
+# ends in ":" or ends in whitespace. Also refused: any other "      - " line
+# inside steps, a second step: for one step, a step with none, and every line
+# inside steps that is neither blank nor a one-line eight-space key. YAML
+# folds an indented continuation line into the value above it, so a qualifier
+# written on a second line would otherwise be part of the title and never
+# compared (review of PR #339).
+#
+# WHAT IS READ FROM EACH DOCUMENT: every line the step_count check counts,
+# "## Step <N>" or "## Ceremony <N>"; its title is what follows
+# "## Step <N> — ". A counted heading without that separator is refused.
+#
+# CRLF is stripped at the end of a line only (Standards/CODE_QUALITY_STANDARD.md,
+# Shell Scripts rule 3). The first differing position of a workflow is
+# reported, with the number of positions that differ and both sequences. The
+# Registry side names the line of the step's step: value (its "- n:" line when
+# it has none).
+
+# workflow_step_title_drift <workflow-registry> <root>
+# Each document is read at <root>/<file:>. Prints tab-separated records:
+# "ok<TAB><message>" for each agreeing workflow, "fail<TAB><message><TAB><detail>"
+# for each difference or refused line, and last
+# "total<TAB><workflows compared><TAB><steps compared>". Exits 0 only when at
+# least one workflow was compared and nothing differed or was refused.
+# Self-contained, because Adapters/scripts/tests/run.sh extracts and runs it
+# on fixtures.
+workflow_step_title_drift() {
+  local reg="$1" root="$2"
+  if [ ! -f "$reg" ]; then
+    printf 'fail\tcannot compare workflow step titles: %s is missing\tNothing was compared, which is not a pass.\n' "$reg"
+    printf 'total\t0\t0\n'
+    return 1
+  fi
+  LC_ALL=C awk -v reg="$reg" -v root="$root" '
+    function refuse(what) {
+      printf "fail\t%s:%d: %s\tThis line is outside the parsing contract in the header of Registry/workflows.yml, so it was not compared.\n", reg, FNR, what
+      errors++
+    }
+    function render(w, i) {
+      return rnum[w, i] " " (((w SUBSEP i) in rtitle) ? rtitle[w, i] : "(no step: value)")
+    }
+    function registry_steps(w, n,   i, s) {
+      s = ""
+      for (i = 1; i <= n; i++)
+        s = s ((i > 1) ? "; " : "") render(w, i)
+      return s
+    }
+    function document_steps(dn,   i, s) {
+      s = ""
+      for (i = 1; i <= dn; i++)
+        s = s ((i > 1) ? "; " : "") dnum[i] " " dtitle[i]
+      return s
+    }
+    { sub(/\r$/, "") }
+    /^  - name: / { nw++; wname[nw] = substr($0, 11); in_steps = 0; k = 0; next }
+    /^    file: / { if (nw) wfile[nw] = substr($0, 11); in_steps = 0; next }
+    /^    [^ ]/   { in_steps = ($0 == "    steps:"); k = 0; next }
+    !in_steps     { next }
+    /^      - n: / { k = ++rn[nw]; rnum[nw, k] = substr($0, 12); rline[nw, k] = FNR; next }
+    /^      - /   { refuse("a step that does not open with \"- n:\": \"" $0 "\""); next }
+    /^        step:/ {
+      if (k == 0) { refuse("a step: line before the first \"- n:\" of this steps list"); next }
+      if ((nw SUBSEP k) in rtitle) { refuse("a second step: line for step " rnum[nw, k]); next }
+      v = substr($0, 14)
+      if (v == "" || v == " ") { refuse("an empty step: value"); next }
+      if (substr(v, 1, 1) != " ") { refuse("a step: key with no space before its value"); next }
+      v = substr(v, 2)
+      if (v ~ /^[>|]/) { refuse("a block scalar \"" v "\": the title is written on the step: line itself"); next }
+      if (substr(v, 1, 1) == "\"") {
+        inner = substr(v, 2, length(v) - 2)
+        if (length(v) < 2 || substr(v, length(v)) != "\"" || index(inner, "\"") || index(inner, "\\")) {
+          refuse("a double-quoted step: value this check does not decode: " v); next
+        }
+        v = inner
+      } else if (v ~ /^[-?:,{}#&*!%@`'\''[]/ || v ~ /^]/) {
+        refuse("a plain step: value starting with a YAML indicator: " v " (enclose it in double quotes)"); next
+      } else if (index(v, ": ") || index(v, " #") || v ~ /:$/ || v ~ /[ \t]$/) {
+        refuse("a plain step: value YAML reads differently: " v " (enclose it in double quotes)"); next
+      }
+      rtitle[nw, k] = v
+      rline[nw, k] = FNR
+      next
+    }
+    /^$/ { next }
+    /^        [a-z_]+: [^ ]/ { next }
+    { refuse("a line outside the steps grammar (a continuation YAML folds into the value above it, or a line at another indentation): \"" $0 "\""); next }
+    END {
+      for (w = 1; w <= nw; w++) {
+        name = wname[w]
+        if (wfile[w] == "") {
+          printf "fail\t%s: %s records no file:\tWithout its document, no step title was compared, which is not a pass.\n", name, reg
+          bad++
+          continue
+        }
+        n = rn[w] + 0
+        if (n == 0) {
+          printf "fail\t%s: %s records no steps\tAn empty steps list cannot be compared, which is not a pass.\n", name, reg
+          bad++
+          continue
+        }
+        for (i = 1; i <= n; i++) {
+          if (!((w SUBSEP i) in rtitle)) {
+            printf "fail\t%s, step %s: %s:%d records no step: value\tA step with no title cannot be compared, which is not a pass.\n", name, rnum[w, i], reg, rline[w, i]
+            bad++
+          }
+        }
+        path = (root == "") ? wfile[w] : root "/" wfile[w]
+        dn = 0
+        ln = 0
+        while ((r = (getline line < path)) > 0) {
+          ln++
+          sub(/\r$/, "", line)
+          if (line !~ /^## (Step|Ceremony) [0-9]+/) continue
+          dn++
+          dline[dn] = ln
+          t = line
+          sub(/^## (Step|Ceremony) /, "", t)
+          match(t, /^[0-9]+/)
+          dnum[dn] = substr(t, 1, RLENGTH)
+          t = substr(t, RLENGTH + 1)
+          if (substr(t, 1, 5) == " \342\200\224 " && length(t) > 5) {
+            dtitle[dn] = substr(t, 6)
+          } else {
+            printf "fail\t%s:%d: a step heading with no \" \342\200\224 <title>\": \"%s\"\tThe heading is counted as a step but has no title, so nothing was compared for it.\n", wfile[w], ln, line
+            dtitle[dn] = "(no title)"
+            bad++
+          }
+        }
+        close(path)
+        if (r < 0) {
+          printf "fail\t%s: %s cannot be read\tNo step title of this workflow was compared, which is not a pass.\n", name, wfile[w]
+          bad++
+          continue
+        }
+        if (dn == 0) {
+          printf "fail\t%s: %s has no \"## Step N\" or \"## Ceremony N\" heading\tAn empty set of headings cannot be compared, which is not a pass.\n", name, wfile[w]
+          bad++
+          continue
+        }
+        first = 0
+        ndiff = 0
+        for (i = 1; i <= dn || i <= n; i++) {
+          a = (i <= dn) ? dnum[i] " " dtitle[i] : ""
+          b = (i <= n) ? render(w, i) : ""
+          if (a != b) {
+            ndiff++
+            if (!first) first = i
+          }
+        }
+        compared++
+        steps += dn
+        if (!ndiff) {
+          printf "ok\t%s: every step title matches %s (%d steps)\n", name, wfile[w], dn
+          continue
+        }
+        bad++
+        a = (first <= dn) ? sprintf("%s:%d heads \"%s\"", wfile[w], dline[first], dnum[first] " \342\200\224 " dtitle[first]) : sprintf("%s has no heading at position %d (it ends at %d)", wfile[w], first, dn)
+        b = (first <= n) ? sprintf("%s:%d records \"%s\"", reg, rline[w, first], rnum[w, first] " \342\200\224 " (((w SUBSEP first) in rtitle) ? rtitle[w, first] : "(no step: value)")) : sprintf("%s records nothing at position %d (it ends at %d)", reg, first, n)
+        printf "fail\t%s, position %d: %s, %s\t%d of %d positions differ. Document, %d steps: %s. Registry, %d steps: %s. The document is authoritative: copy its heading text after \"## Step N \342\200\224 \" into step: byte for byte, with no qualifier (Registry/workflows.yml, header), unless the heading is what changed by mistake.\n", name, first, a, b, ndiff, ((dn > n) ? dn : n), dn, document_steps(dn), n, registry_steps(w, n)
+      }
+      if (compared == 0) {
+        printf "fail\tno workflow step title was compared\t%s yielded no workflow with a readable document and steps. A comparison over an empty set is not a pass.\n", reg
+        bad++
+      }
+      printf "total\t%d\t%d\n", compared, steps
+      if (bad || errors) exit 1
+      exit 0
+    }
+  ' "$reg"
+}
+
 if [ -f Registry/workflows.yml ]; then
   missing_doc=""
   wf_entries=0
@@ -1181,6 +1372,29 @@ if [ -f Registry/workflows.yml ]; then
       pass "$(basename "$f"): step_count $declared matches the document"
     fi
   done
+
+  # The step titles, step for step (workflow_step_title_drift, above).
+  wst_out="$(workflow_step_title_drift Registry/workflows.yml .)"
+  wst_status=$?
+  wst_total=""
+  wst_steps=""
+  wst_fails=0
+  while IFS=$'\t' read -r verdict message detail; do
+    case "$verdict" in
+      "") ;;
+      ok) pass "$message" ;;
+      fail) wst_fails=$((wst_fails + 1)); fail "$message" "$detail" ;;
+      total) wst_total="$message"; wst_steps="$detail" ;;
+      *) wst_fails=$((wst_fails + 1)); fail "workflow_step_title_drift printed a record this section cannot read" "$verdict $message" ;;
+    esac
+  done <<< "$wst_out"
+  if [ -z "$wst_total" ]; then
+    fail "the workflow step title comparison produced no verdict" "workflow_step_title_drift exited $wst_status without its closing 'total' record: awk did not run, or stopped early. Nothing was compared, which is not a pass."
+  elif [ "$wst_status" -eq 0 ] && [ "$wst_fails" -eq 0 ]; then
+    pass "all $wst_total workflows' step titles match their documents' headings ($wst_steps steps compared)"
+  elif [ "$wst_fails" -eq 0 ]; then
+    fail "the workflow step title comparison failed without naming a difference" "workflow_step_title_drift exited $wst_status after comparing $wst_total workflows. Reported rather than passed."
+  fi
 else
   fail "Registry/workflows.yml is missing" "It existed as of WU-IAENG-145. The gate positions recorded there are what makes Core/MAIN_AGENT_CONDUCT.md's autonomy-between-gates rule mechanically answerable; an absent file cannot be reported as a pass."
 fi

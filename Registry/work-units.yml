@@ -1604,9 +1604,9 @@ work_units:
 
   - id: WU-IAENG-392
     employee: Platform Engineer
-    title: Reserved 27 Oct 2026 before dispatch (WU-IAENG-393) - the validator compares workflow step titles (issue #332, carried forward from #306) - validate-framework.sh compares workflow step counts, not step titles
+    title: The validator compares workflow step titles (#332; Director decision of 27 Oct 2026, option A) - every step value of Registry/workflows.yml becomes its document's "## Step N" heading text copied byte for byte, qualifiers dropped (51 of 80 values rewritten, Code Review step 9's lost condition restored by the same rewrite); validate-framework.sh section 13 compares them in order with no normalisation, reports its denominator, fails at zero, and refuses a step value YAML would read differently; the Registry header and Registry/README.md state the rule; actor is not compared here
     milestone: Adoption
-    delivers: planned - Adapters/scripts/validate-framework.sh, Adapters/scripts/tests/run.sh, changelog.d/WU-IAENG-392.md, Registry/work-units.yml
+    delivers: Adapters/scripts/validate-framework.sh, Adapters/scripts/tests/run.sh, Registry/workflows.yml, Registry/README.md, changelog.d/WU-IAENG-392.md, Registry/work-units.yml
 
   - id: WU-IAENG-393
     employee: Technical Writer
