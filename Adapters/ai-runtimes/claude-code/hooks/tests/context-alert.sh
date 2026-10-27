@@ -228,6 +228,12 @@ printf '60\n70\n' > "$DIR/s-forged.pct"; forged "a .pct holding two lines"
 printf '60\r\n' > "$DIR/s-forged.pct"; forged "a .pct with a CR"
 printf '60\n\n\n' > "$DIR/s-forged.pct"; forged "a .pct with bytes after its newline"
 printf '60\000junk\n' > "$DIR/s-forged.pct"; forged "a .pct with a NUL and more after 60"
+# Two files that pass the fast gate (its first line is a number) and that
+# only the full path's rules refuse: a byte after the newline within 4 bytes
+# (the content rule), and a NUL after the newline (the 4-byte size rule; the
+# shell's read stops at the NUL, so "60\n" alone would be read).
+printf '60\n7' > "$DIR/s-forged.pct"; forged "a .pct with a byte after its newline, 4 bytes in all"
+printf '60\n\000junk' > "$DIR/s-forged.pct"; forged "a .pct with a NUL and more after its newline"
 mkdir -p "$DIR/s-forged.pct"; forged "a directory in place of the .pct"
 
 N_ALERT="$(find "$TMPD" -name '*.alert' 2>/dev/null | wc -l | tr -d ' ')"
@@ -334,6 +340,16 @@ if ! grep -qF "Finish the Work Unit in progress" <<< "$OUT"; then ok "85 % at fi
 pct s-jump 90
 run "$(ups s-jump)"
 silent "90 % after the last call: nothing more"
+
+# A payload whose session id comes after its first 4 KiB skips the fast
+# gate: the full path alone must keep "said once".
+head -c 5000 /dev/zero | tr '\0' 'y' > "$T/pad"
+late() { jq -c --rawfile p "$T/pad" -n '{tool_calls:[{tool_name:"Read", tool_response:$p}], hook_event_name:"PostToolBatch", session_id:"s-late"}'; }
+pct s-late 65
+run "$(late)"
+says "a session id past the first 4 KiB: the alert, by the full path" PostToolBatch "context is at 65 %"
+run "$(late)"
+silent "a session id past the first 4 KiB: said once all the same"
 
 # Two sessions, two thresholds (SRE F2, CR M2b): a session never judges,
 # reads or removes another session's record. Session T30 runs with
