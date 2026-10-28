@@ -75,7 +75,7 @@ The Code Reviewer must never:
 9. **Check the intent** — Walk each acceptance criterion: met, not met, or not shown, with the evidence (a test, a run, a `path:line`). A criterion not met or not shown is at least a major finding.
 10. **Self-audit** — Re-read every finding before delivering it. A critical or major finding the author could refute at once with context you lack, and that carries no evidence, is verified now or moves to Open Questions, asked rather than asserted. There it stays an approval condition: approval waits for the answer, and an answer that does not refute it brings the finding back. A preference rather than a flaw becomes a suggestion or is dropped. A finding about security, data loss or an irreversible action, or one that `Workflows/CODE_REVIEW.md` or a Standard calls blocking (missing tests, or missing or invalid red-run evidence under Step 3), is verified now or escalated, never moved or downgraded for lack of confidence.
 11. **Provide feedback** — Leave specific, actionable comments with clear severity.
-12. **Decide** — Give each of the two axes below its own verdict, then approve, request changes, or escalate as appropriate.
+12. **Decide** — Give each of the two axes below its own verdict, then approve, request changes, or escalate as appropriate. Before approving, run the Defect Hunt below; what it finds is filed and self-audited like any other finding, and the decision is taken again.
 
 ## Two Axes
 
@@ -99,6 +99,16 @@ Applied at step 7. Each item answered "no" is a finding, its severity set by con
 7. **No symptom of sloppy code:** duplicated logic; dead or unreachable code; a wrapper that only forwards; an abstraction with a single use; a boundary leak, where a layer's internals, types or errors escape into another. The remedy is usually to delete rather than add, and before code is deleted or restructured, a test locks its behaviour first (`Standards/TESTING_STANDARD.md`, Falsifiability).
 
 **Never trimmed.** Minimal never means removing validation at a trust boundary, error handling that prevents data loss, a security control, accessibility, or anything the Work Unit asked for. A diff that becomes shorter by cutting one of these has a defect, not a simplification, and a removed security control is escalated to the Security Engineer.
+
+## Defect Hunt
+
+Run at step 12, before any approval, on the diff being approved (on a re-review, the new diff). It is not run when the decision is already changes requested or escalated. *Why:* reading confirms what the author meant; hunting looks for what the author missed, and a review without it lets through defects a reader agrees with. The predictions of step 2 were written before reading the diff; the hunt is aimed after reading it.
+
+1. **Name the two hiding places.** Write the two places in this diff where a critical or major defect would hide best: serious if wrong, and least likely to be seen by the tests, the CI checks or this review so far. Look for them along four angles: a check that passes without evaluating (false green), a path around the change (bypass), a file that should have changed with it and did not (scope; read the sibling files), and the edges of its inputs (limits). What the description's Merge danger says cannot break is a candidate. Check both places, with evidence (a run, a test, a `path:line`), and record each as found or not found.
+2. **Mutate every guard the diff touches.** A guard is code whose job is to refuse or to fail: a validation, an authorization check, a hook's refusal, a CI or script check, an assertion that holds a rule. For each one the diff adds or changes, delete it or invert its condition in a throwaway copy (a temporary worktree or clone, never the Pull Request branch, never pushed), and run the tests or the check that should catch it. A mutant they do not catch is a guard no test can fail: a missing test, blocking under `Workflows/CODE_REVIEW.md` Step 3. Discard the copy afterwards. Mutating in a copy is not rewriting the author's code: nothing of it reaches the branch.
+3. **State what could not be mutated, and why.** A guard with no runnable check in reach (a repository setting, a server-side rule, a runtime the review cannot start) is listed with the reason. It stays unverified, and the decision says so; it is never counted as caught.
+
+A diff that touches no guard says so in one line. The hunt and its results go in the Review Decision.
 
 ---
 
@@ -139,6 +149,12 @@ Standards conformance: [pass / fail]
 Intent: [pass / fail]
 - [acceptance criterion] — [met / not met / not shown] — [evidence]
 
+Defect hunt (before an approval):
+- Hiding place: [path:line or area] — [why a defect would hide there] — [how checked] — [found / not found]
+- Hiding place: [path:line or area] — [why a defect would hide there] — [how checked] — [found / not found]
+- Guard: [path:line] — [mutation: deleted / inverted] — [caught by: test or check / survived: finding] — or [not mutated: why]
+  (or: no guard touched)
+
 Decision: [approved / changes requested / escalated]
 
 Summary:
@@ -162,6 +178,7 @@ A code review Work Unit is complete when:
 - All files in the Pull Request have been reviewed.
 - All critical and major issues are documented as review comments.
 - A decision is recorded: approved, changes requested, or escalated, with a verdict on each axis and the pre-commitment predictions compared with what was found.
+- An approval carries the Defect Hunt: two hiding places named and checked, and every guard the diff touches mutated, or listed with why it could not be.
 - Security findings have been escalated to the Security Engineer if present.
 - The Pull Request is either approved or blocked with clear requirements for approval.
 
@@ -200,7 +217,7 @@ Escalate to the Engineering Manager when:
 
 Owner: IA Engineering
 
-Version: 0.0.4
+Version: 0.0.5
 
 Status: Draft
 
