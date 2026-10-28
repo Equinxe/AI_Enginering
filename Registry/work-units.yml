@@ -1643,3 +1643,33 @@ work_units:
     title: Reserve Work Units 394 to 397 before dispatch (Workflows/FEATURE_DEVELOPMENT.md Step 4, precedent WU-IAENG-381 and WU-IAENG-393) - the four Work Units of issues #340, #337, #338 and #326 registered in one bookkeeping Pull Request, so each Work Unit's own Pull Request edits only its own entry; this Work Unit's own fragment is an exemption
     milestone: Adoption
     delivers: Registry/work-units.yml, changelog.d/WU-IAENG-398.md
+
+  - id: WU-IAENG-399
+    employee: Platform Engineer
+    title: Reserved 28 Oct 2026 before dispatch (WU-IAENG-402) - canonicalise the cache directory tail in lib.sh iaeng_cache_dir (issue #342) - iaeng_cache_dir and check-framework-drift.sh cache_dir_canon refuse a cache directory with a . or .. component but do not read a backslash as a separator, so a backslash .. component passes the test a slash one fails
+    milestone: Adoption
+    delivers: planned - Adapters/ai-runtimes/claude-code/hooks/lib.sh, Adapters/scripts/check-framework-drift.sh, Adapters/ai-runtimes/claude-code/hooks/tests/drift.sh, changelog.d/WU-IAENG-399.md, Registry/work-units.yml
+
+  - id: WU-IAENG-400
+    employee: Platform Engineer
+    title: Reserved 28 Oct 2026 before dispatch (WU-IAENG-402) - hooks load lib.sh from their own directory, not the working directory (issue #344, SEC-IAENG-394-03) - block-escape-hatches.sh, block-inline-suppression.sh, post-edit-lint.sh, session-start.sh and stop-gate.sh source lib.sh from dirname of $0, which is the working directory when bash finds the hook through PATH, so a lib.sh planted there runs
+    milestone: Adoption
+    delivers: planned - Adapters/ai-runtimes/claude-code/hooks/block-escape-hatches.sh, Adapters/ai-runtimes/claude-code/hooks/block-inline-suppression.sh, Adapters/ai-runtimes/claude-code/hooks/post-edit-lint.sh, Adapters/ai-runtimes/claude-code/hooks/session-start.sh, Adapters/ai-runtimes/claude-code/hooks/stop-gate.sh, Adapters/ai-runtimes/claude-code/hooks/tests/run.sh, changelog.d/WU-IAENG-400.md, Registry/work-units.yml
+
+  - id: WU-IAENG-401
+    employee: Platform Engineer
+    title: Reserved 28 Oct 2026 before dispatch (WU-IAENG-402) - context hooks clean orphan temp files and tests stay out of the real state directory (issue #345) - the context statusLine writer's cleanup removes only .pct and .alert files older than 24 h, so the .tmp files of a render killed before its rename accumulate, and a context hook test writes into the real iaeng-ctx state directory; with the #343 Code Reviewer minors in context-dir.sh and the tests
+    milestone: Adoption
+    delivers: planned - Adapters/ai-runtimes/claude-code/hooks/context-statusline.sh, Adapters/ai-runtimes/claude-code/hooks/context-dir.sh, Adapters/ai-runtimes/claude-code/hooks/tests/context-statusline.sh, Adapters/ai-runtimes/claude-code/hooks/tests/context-alert.sh, changelog.d/WU-IAENG-401.md, Registry/work-units.yml
+
+  - id: WU-IAENG-402
+    employee: Technical Writer
+    title: Reserve Work Units 399 to 401 and 403 before dispatch (Workflows/FEATURE_DEVELOPMENT.md Step 4, precedent WU-IAENG-381, WU-IAENG-393 and WU-IAENG-398) - the four Work Units of issues #342, #344, #345 and #335 registered in one bookkeeping Pull Request, so each Work Unit's own Pull Request edits only its own entry; this Work Unit's own fragment is an exemption
+    milestone: Adoption
+    delivers: Registry/work-units.yml, changelog.d/WU-IAENG-402.md
+
+  - id: WU-IAENG-403
+    employee: Prompt Engineer
+    title: Reserved 28 Oct 2026 before dispatch (WU-IAENG-402) - HOTFIX Step 1 title and Actor, plan time to resolution, revised plan re-enters Plan Review (issue #335) - Workflows/HOTFIX.md Step 1 is titled Director authorization with the Director as its only Actor although it also holds the Main Agent's plan and the Technical Lead's Plan Review, has the Director set the maximum time to resolution instead of the plan proposing it, and does not say whether a revised plan goes back through Plan Review
+    milestone: Adoption
+    delivers: planned - Workflows/HOTFIX.md, Registry/workflows.yml, changelog.d/WU-IAENG-403.md, Registry/work-units.yml
