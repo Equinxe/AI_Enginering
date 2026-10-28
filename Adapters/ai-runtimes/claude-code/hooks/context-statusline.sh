@@ -31,7 +31,8 @@
 #     others);
 #   - a find that fails is not read as "safe": the write is skipped;
 #   - at most once an hour, *.pct and *.alert regular files older than 24 h
-#     are deleted from that directory (clean_dir, below);
+#     are deleted from that directory, and so are the orphan .*.tmp files
+#     a render or an alert killed before its rename left (clean_dir, below);
 #   - the file is written mode 0600 whatever the umask, to a new name in that
 #     directory, with noclobber, then renamed over <session_id>.pct: a reader sees the old value or the
 #     new one, never half of one. A rename replaces a symbolic link and never
@@ -294,7 +295,11 @@ LINE="ctx ${ESC_ON}${PCT:---}${PCT:+%}${ESC_OFF}"
 # --- 5. the file ----------------------------------------------------------------
 # clean_dir <dir> <uid> — the writer cleans up after itself (Main Agent
 # decision, 26 Oct 2026): at most once an hour, it deletes the *.pct and
-# *.alert files in its own state directory that are older than 24 hours. Only
+# *.alert files in its own state directory that are older than 24 hours.
+# The .*.tmp files go too (issue #345): this script's .<session>.<pid>.<n>.tmp
+# and the context alert's .<session>.alert.<pid>.<n>.tmp, which a process
+# killed between its write and its rename leaves behind (the statusLine runs
+# under a timeout). At 24 h none is a write still in progress. Only
 # regular files the user owns, at the top of the directory: find -type f
 # never matches or follows a link. The hour is kept as an epoch in
 # .last-clean, read and written with builtins, so a run that does not clean
@@ -310,7 +315,7 @@ clean_dir() {
     return 0
   fi
   { printf '%s\n' "$now" > "$m"; } 2>/dev/null || return 0
-  find "$dir" -maxdepth 1 -type f \( -name '*.pct' -o -name '*.alert' \) \
+  find "$dir" -maxdepth 1 -type f \( -name '*.pct' -o -name '*.alert' -o -name '.*.tmp' \) \
     -uid "$uid" -mmin +1440 -delete 2>/dev/null
   return 0
 }
