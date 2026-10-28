@@ -7,13 +7,18 @@
 # it is the first thing it sees. It prints the pointers and the *current*
 # state, never a copy of CLAUDE.md (one fact, one place — Templates/SESSION_STATE.md).
 
-# This hook's own directory, from BASH_SOURCE and never $0: bash finding the
-# hook through PATH leaves $0 the bare name, whose dirname is the working
-# directory, where a cloned repository could plant lib.sh (issue #344). Either
-# separator, as dirname reads a Windows path in Git Bash. Every file this hook
+# This hook's own directory, never the working directory (issue #344). It is
+# taken from $0 when $0 holds a / or \, because the environment cannot set $0.
+# A bare $0 means bash found the hook through PATH or in the working
+# directory, where dirname "$0" would name the working directory; then
+# BASH_SOURCE[0], the path bash found, is used. BASH_SOURCE is not taken first
+# because bash 5.3 imports it from the environment (SEC-IAENG-400-01). Both
+# separators count, as Git Bash's dirname reads both. Every file this hook
 # loads or runs comes from here.
-case "${BASH_SOURCE[0]}" in
-  */*|*\\*) HOOKS_DIR="${BASH_SOURCE[0]%[/\\]*}" ;;
+HOOKS_DIR="$0"
+case "$HOOKS_DIR" in */*|*\\*) ;; *) HOOKS_DIR="${BASH_SOURCE[0]}" ;; esac
+case "$HOOKS_DIR" in
+  */*|*\\*) HOOKS_DIR="${HOOKS_DIR%[/\\]*}" ;;
   *) HOOKS_DIR=. ;;
 esac
 # shellcheck source=lib.sh

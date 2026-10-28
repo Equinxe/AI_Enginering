@@ -16,13 +16,18 @@
 # configuration cannot scope) is applied by a human, with the forcing
 # constraint written on the preceding line, as the Standard requires.
 
-# This hook's own directory, from BASH_SOURCE and never $0: bash finding the
-# hook through PATH leaves $0 the bare name, whose dirname is the working
-# directory, where a cloned repository could plant lib.sh (issue #344). Either
-# separator, as dirname reads a Windows path in Git Bash. Every file this hook
+# This hook's own directory, never the working directory (issue #344). It is
+# taken from $0 when $0 holds a / or \, because the environment cannot set $0.
+# A bare $0 means bash found the hook through PATH or in the working
+# directory, where dirname "$0" would name the working directory; then
+# BASH_SOURCE[0], the path bash found, is used. BASH_SOURCE is not taken first
+# because bash 5.3 imports it from the environment (SEC-IAENG-400-01). Both
+# separators count, as Git Bash's dirname reads both. Every file this hook
 # loads, and the tests/ exemption below, come from here.
-case "${BASH_SOURCE[0]}" in
-  */*|*\\*) HOOKS_DIR="${BASH_SOURCE[0]%[/\\]*}" ;;
+HOOKS_DIR="$0"
+case "$HOOKS_DIR" in */*|*\\*) ;; *) HOOKS_DIR="${BASH_SOURCE[0]}" ;; esac
+case "$HOOKS_DIR" in
+  */*|*\\*) HOOKS_DIR="${HOOKS_DIR%[/\\]*}" ;;
   *) HOOKS_DIR=. ;;
 esac
 # shellcheck source=lib.sh
@@ -110,12 +115,13 @@ iaeng_canon() {
   printf '%s' "${r:-/}"
 }
 
-HOOK_DIR="$(CDPATH='' cd -- "${HOOKS_DIR:-/}" && pwd)"
-PATTERNS="$HOOK_DIR/../../../scripts/suppression-patterns.tsv"
+# HOOKS_DIR made absolute, for the patterns file and the tests/ exemption.
+HOOKS_DIR_CANON="$(CDPATH='' cd -- "${HOOKS_DIR:-/}" && pwd)"
+PATTERNS="$HOOKS_DIR_CANON/../../../scripts/suppression-patterns.tsv"
 if [ -n "$FILE" ]; then
   CANON="$(iaeng_canon "$FILE" "$(iaeng_field '.cwd')")"
   [ "$CANON" != "$(iaeng_canon "$PATTERNS")" ] || exit 0
-  case "$CANON" in "$(iaeng_canon "$HOOK_DIR")"/tests/*) exit 0 ;; esac
+  case "$CANON" in "$(iaeng_canon "$HOOKS_DIR_CANON")"/tests/*) exit 0 ;; esac
 fi
 
 # Every string the edit would write. With jq: new_string, content, and each

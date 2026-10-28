@@ -16,15 +16,28 @@
 # directory, and exempted the working directory's tests/. A cloned
 # repository can hold any of these files (SEC-IAENG-394-03).
 #
-# What is proved. Each hook runs from a working directory that holds a
-# planted copy of every file it loads, invoked three ways: found through
-# PATH, named by a path with backslashes only (Windows, where dirname reads
-# one), and found in the working directory when that is the hooks directory.
+# THE REGRESSION GUARDED SINCE. Bash 5.3 imports BASH_SOURCE from the
+# environment, so a hook that read its directory from BASH_SOURCE first
+# loaded the files under a BASH_SOURCE=<dir>/x set by the caller, even when
+# run by its absolute path, as installed (SEC-IAENG-400-01). The hooks take
+# $0 when it holds a separator, and BASH_SOURCE only when $0 is a bare name.
 #
-#   - No planted file is used. Each planted script appends its name to a log
-#     when it runs, and the log must stay empty. The planted patterns file
-#     holds one row that matches nothing, so a hook that read it would allow.
-#   - The hook still does its job, which it can do only with its own files:
+# What is proved. Each hook is invoked four ways:
+#   path  found through PATH, from a working directory that holds a planted
+#         copy of every file the hook loads;
+#   win   named by a path with backslashes only, from that same directory
+#         (Windows, where dirname reads a backslash);
+#   env   named by its absolute path, from a clean directory, with
+#         BASH_SOURCE=<the planted directory>/x in the environment;
+#   here  found in the working directory, which is the hooks directory.
+#
+#   - No planted file is used (path, win, env). Each planted script appends
+#     its name to a log when it runs, and the log must stay empty. The planted
+#     patterns file holds one row that matches nothing, so a hook that read it
+#     would allow. In the here form no planted file is reachable, so these
+#     checks could not fail there and are not run.
+#   - The hook still does its job, which it can do only with its own files
+#     (all four forms; in the here form, this is what proves it loaded them):
 #       block-escape-hatches.sh refuses an escape hatch;
 #       block-inline-suppression.sh refuses a directive in a .py file, and
 #         also under the working directory's tests/;
@@ -49,8 +62,14 @@
 #   - the loop guard: stop-gate.sh's header, and hooks/README.md's example,
 #     where {"stop_hook_active":true} gives rc=0.
 #
-# The backslash form runs only where cygpath exists (Git Bash); elsewhere it
-# is reported "n/a" with its reason, never counted as a pass. Exit 0 when
+#   - BASH_SOURCE from the environment: SEC-IAENG-400-01, reproduced on Git
+#     Bash 5.3.9 by the Security Engineer on PR #363.
+#
+# The win form runs only where cygpath exists (Git Bash). The env form runs
+# only where this bash takes BASH_SOURCE from the environment, which a probe
+# script checks first: elsewhere no hook can be misled that way, and the
+# checks could not fail. Either is otherwise reported "n/a" with its reason,
+# never counted as a pass. Exit 0 when
 # every check passes, 1 when any fails, 2 when the environment is unusable.
 # With IAENG_HOOK_TESTS_COUNTS set to a file, "<total> <failed>" is written
 # there.
@@ -135,31 +154,36 @@ printf 'if then\n' > "$T/bad.sh"
 # says. Empties the log first. Sets OUT, ERR and RC.
 #   path  `bash <hook>` from $W, the hooks directory first on PATH
 #   win   `bash <C:\...\hooks\hook>` from $W, a path with backslashes only
+#   env   `bash <absolute path>` from $PROJ, with BASH_SOURCE=$W/<hook>
 #   here  `bash <hook>` from the hooks directory itself
 WINHOOKS=""
 hook() {
-  local how="$1" name="$2" payload="$3" dir="$W" arg="$2"
+  local how="$1" name="$2" payload="$3" dir="$W" arg="$2" pre=()
   shift 3
   case "$how" in
     win) arg="$WINHOOKS\\$name" ;;
+    env) dir="$PROJ"; arg="$HOOKS/$name"; pre=(BASH_SOURCE="$W/$name") ;;
     here) dir="$HOOKS" ;;
   esac
   : > "$LOG"
   (cd "$dir" && printf '%s' "$payload" \
     | env -u IAENG_FRAMEWORK -u IAENG_CONTEXT_HOOKS -u IAENG_CTX_ALERT_PCT -u IAENG_CTX_LAST_CALL_PCT \
-        CLAUDE_PROJECT_DIR="$PROJ" XDG_CACHE_HOME="$T/cache" PATH="$HOOKS:$PATH" "$@" \
-        bash "$arg") > "$T/out" 2> "$T/err"
+        CLAUDE_PROJECT_DIR="$PROJ" XDG_CACHE_HOME="$T/cache" PATH="$HOOKS:$PATH" \
+        ${pre[@]+"${pre[@]}"} "$@" bash "$arg") > "$T/out" 2> "$T/err"
   RC=$?
   OUT="$(cat "$T/out")"
   ERR="$(cat "$T/err")"
 }
 
-# not_used <label> <file> — the planted <file> did not run.
+# not_used <label> <file> — the planted <file> did not run. Not run in the
+# here form, where no planted file is reachable and the check could not fail.
+HOW=""
 not_used() {
+  [ "$HOW" != here ] || return 0
   if grep -qxF -- "$2" "$LOG"; then
-    bad "$1: $2 is not loaded from the working directory" "the planted $2 ran"
+    bad "$1: $2 is not loaded from the planted directory" "the planted $2 ran"
   else
-    ok "$1: $2 is not loaded from the working directory"
+    ok "$1: $2 is not loaded from the planted directory"
   fi
 }
 
@@ -183,7 +207,9 @@ refused() {
 # suite <how> — every hook, invoked <how>.
 suite() {
   local how="$1" l
+  HOW="$how"
   echo "== own directory — invoked $how"
+  [ "$how" != here ] || na "here: no planted file is used" "the working directory is the hooks directory, so no planted file is reachable; the checks below prove the hooks' own files were loaded"
 
   l="block-escape-hatches.sh ($how)"
   hook "$how" block-escape-hatches.sh "$(jq -n --arg c "$ESC" '{tool_name:"Bash",tool_input:{command:$c}}')"
@@ -241,6 +267,14 @@ if command -v cygpath >/dev/null 2>&1; then
   esac
 else
   na "invoked win (a path with backslashes only)" "no Windows paths on this platform (no cygpath)"
+fi
+cat > "$T/probe.sh" <<'EOF'
+printf '%s' "${BASH_SOURCE[0]}"
+EOF
+if [ "$(env BASH_SOURCE=/iaeng-probe/x bash "$T/probe.sh" 2>/dev/null)" = /iaeng-probe/x ]; then
+  suite env
+else
+  na "invoked env (BASH_SOURCE in the environment)" "this bash ($(bash -c 'echo "$BASH_VERSION"')) does not take BASH_SOURCE from the environment, so no hook can be misled by it"
 fi
 suite here
 
