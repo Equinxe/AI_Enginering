@@ -1646,9 +1646,9 @@ work_units:
 
   - id: WU-IAENG-399
     employee: Platform Engineer
-    title: Reserved 28 Oct 2026 before dispatch (WU-IAENG-402) - canonicalise the cache directory tail in lib.sh iaeng_cache_dir (issue #342) - iaeng_cache_dir and check-framework-drift.sh cache_dir_canon refuse a cache directory with a . or .. component but do not read a backslash as a separator, so a backslash .. component passes the test a slash one fails
+    title: The drift cache directory never resolves inside the project through a backslash (issue #342) - lib.sh iaeng_cache_dir and check-framework-drift.sh cache_dir_canon split the path on / alone, so the part still to be made (..\proj\cache, or proj\cache with no .. at all) was kept as one name below a directory outside the project, never tested, and created inside it on Windows; both now read every backslash as a separator before the . and .. test and in the walk, --cache-dir refuses a \.. component (64) as it refuses a /.. one, and one hand-written table of /, \, mixed and drive-letter spellings drives both copies of the rule; after review (sec-360, qa-360, cr-360) both copies also refuse a directory whose existing part resolves to the root, which the join turned into a //host network path into the project (SEC-IAENG-399-01), and end the walk at the root of a drive that does not exist, where it looped forever, as it did for a Windows cache home not yet made spelt the way the hook spells it
     milestone: Adoption
-    delivers: planned - Adapters/ai-runtimes/claude-code/hooks/lib.sh, Adapters/scripts/check-framework-drift.sh, Adapters/ai-runtimes/claude-code/hooks/tests/drift.sh, changelog.d/WU-IAENG-399.md, Registry/work-units.yml
+    delivers: Adapters/ai-runtimes/claude-code/hooks/lib.sh, Adapters/scripts/check-framework-drift.sh, Adapters/ai-runtimes/claude-code/hooks/tests/drift.sh, changelog.d/WU-IAENG-399.md, Registry/work-units.yml
 
   - id: WU-IAENG-400
     employee: Platform Engineer
