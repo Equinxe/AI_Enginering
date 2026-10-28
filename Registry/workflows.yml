@@ -195,7 +195,7 @@ workflows:
     steps:
       - n: 1
         actor: Director
-        step: Director authorization
+        step: Hotfix plan and Director authorization
         gate: true
       - n: 2
         actor: Engineer
