@@ -85,7 +85,7 @@ Main Agent → Director
 
 **Director gates:** After Architecture review (if ADR required). Before promotion to the Release Chain, always: after the QA sign-off when one is required, otherwise after Code Review.
 
-**Decomposition:** The Main Agent's own planning, not a dispatch (see Work Unit Decomposition, above). Its plan is the one Orchestration Step 3 presents to the Director before any Engineer is dispatched.
+**Decomposition:** The Main Agent's own planning, not a dispatch (see Work Unit Decomposition, above). Its plan is the one Orchestration Step 3 presents to the Director before any Engineer is dispatched. The Main Agent's plan goes through the Technical Lead's Plan Review when it carries a Medium-or-higher action (`Core/ORCHESTRATION.md`, Step 3), then to the Director for approval; no Employee is dispatched before that approval.
 
 **Parallel dispatch allowed:** Between independent Engineer Work Units only.
 
@@ -326,7 +326,7 @@ The Registry records the six chains this document names. Chains composed ad hoc 
 
 Owner: IA Engineering
 
-Version: 0.0.11
+Version: 0.0.12
 
 Status: Draft
 

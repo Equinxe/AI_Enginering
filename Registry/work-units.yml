@@ -1670,6 +1670,66 @@ work_units:
 
   - id: WU-IAENG-403
     employee: Prompt Engineer
-    title: Reserved 28 Oct 2026 before dispatch (WU-IAENG-402) - HOTFIX Step 1 title and Actor, plan time to resolution, revised plan re-enters Plan Review (issue #335) - Workflows/HOTFIX.md Step 1 is titled Director authorization with the Director as its only Actor although it also holds the Main Agent's plan and the Technical Lead's Plan Review, has the Director set the maximum time to resolution instead of the plan proposing it, and does not say whether a revised plan goes back through Plan Review
+    title: HOTFIX Step 1 names its planning, its time to resolution and its revised-plan rule, and the Feature Chain's decomposition names the Plan Review (issue #335 items 1 to 4 and 6) - Workflows/HOTFIX.md (0.0.12) Step 1 is retitled Hotfix plan and Director authorization, its Actor names the Main Agent, the Technical Lead and the Director, and the Actors table gains the Main Agent; the plan may propose the maximum time to resolution, which the Director approves or replaces in the same decision; a revised plan that carries a Medium-or-higher action goes back to the Technical Lead, who runs its Plan Review again or records on the earlier record that the revision leaves unchanged everything that review examined, and a revised plan whose actions are all Low is presented again without one; the gate sentence is unchanged; Registry/workflows.yml step 1 copies the new title; Examples/HOTFIX_CHAIN_EXAMPLE.md's RISK line says Step 1 authorization and plan approval; Core/AGENT_CHAINS.md (0.0.12) Feature Chain Decomposition gains the Plan Review sentence the Director approved word for word on 28 Oct 2026 (item 4)
     milestone: Adoption
-    delivers: planned - Workflows/HOTFIX.md, Registry/workflows.yml, changelog.d/WU-IAENG-403.md, Registry/work-units.yml
+    delivers: Workflows/HOTFIX.md, Registry/workflows.yml, Examples/HOTFIX_CHAIN_EXAMPLE.md, Core/AGENT_CHAINS.md, changelog.d/WU-IAENG-403.md, Registry/work-units.yml
+
+  - id: WU-IAENG-404
+    employee: Platform Engineer
+    title: Reserved 28 Oct 2026 before dispatch (WU-IAENG-408) - install.sh's pre-commit probe counts only a finding as a refusal, never a scanner that could not evaluate (issue #348) - install.sh tests the installed pre-commit hook with a staged .xlsx and reads any non-zero exit as a refusal, so data-policy-scan.sh --staged exiting 2 because it could not evaluate is reported as a healthy hook; Check Convention rule 1
+    milestone: Adoption
+    delivers: planned - Adapters/scripts/install.sh, Adapters/scripts/tests/run.sh, changelog.d/WU-IAENG-404.md, Registry/work-units.yml
+
+  - id: WU-IAENG-405
+    employee: Test Automation Engineer
+    title: Reserved 28 Oct 2026 before dispatch (WU-IAENG-408) - strip only a line-ending CR in the test suites (issue #327) - Check Convention shell rule 3; hooks/tests/dashboard.sh and scripts/tests/run.sh remove every carriage return instead of only the one that ends a line, so a test cannot see a carriage return the script under test left in the middle of a value
+    milestone: Adoption
+    delivers: planned - Adapters/ai-runtimes/claude-code/hooks/tests/dashboard.sh, Adapters/scripts/tests/run.sh, changelog.d/WU-IAENG-405.md, Registry/work-units.yml
+
+  - id: WU-IAENG-406
+    employee: Platform Engineer
+    title: Reserved 28 Oct 2026 before dispatch (WU-IAENG-408) - scripts that set -e state their reason, and hooks/lib.sh says it sets its callers' options (issue #328) - Check Convention shell rule 2; commit-msg, pre-commit, pre-push, setup-branch-protection.sh and setup-project-bootstrap.sh run set -euo pipefail without stating in their header why any unhandled non-zero status is a correct fail-closed verdict, and lib.sh sets -uo pipefail for the hooks that source it without its header saying so
+    milestone: Adoption
+    delivers: planned - Adapters/git-hooks/commit-msg, Adapters/git-hooks/pre-commit, Adapters/git-hooks/pre-push, Adapters/scripts/setup-branch-protection.sh, Adapters/scripts/setup-project-bootstrap.sh, Adapters/ai-runtimes/claude-code/hooks/lib.sh, changelog.d/WU-IAENG-406.md, Registry/work-units.yml
+
+  - id: WU-IAENG-407
+    employee: DevOps Engineer
+    title: Reserved 28 Oct 2026 before dispatch (WU-IAENG-408) - setup-branch-protection.sh review follow-ups and the RELEASE and HOTFIX up-to-date wording (issue #329) - the strict_for refusal of an unknown branch is tested or recorded as not falsifiable beside it, the off-GitHub test asserts that no gh call was made, and Workflows/RELEASE.md Step 8 and Workflows/HOTFIX.md word the head-main back-merge warning as conditional now that develop does not require branches to be up to date
+    milestone: Adoption
+    delivers: planned - Adapters/scripts/setup-branch-protection.sh, Adapters/scripts/tests/run.sh, Workflows/RELEASE.md, Workflows/HOTFIX.md, changelog.d/WU-IAENG-407.md, Registry/work-units.yml
+
+  - id: WU-IAENG-408
+    employee: Technical Writer
+    title: Reserve Work Units 404 to 407 and 409 to 413 before dispatch (Workflows/FEATURE_DEVELOPMENT.md Step 4, precedent WU-IAENG-381, WU-IAENG-393, WU-IAENG-398 and WU-IAENG-402) - the nine Work Units of issues #348, #327, #328, #329, #350, #351, #352, #353 and #354 registered in one bookkeeping Pull Request, so each Work Unit's own Pull Request edits only its own entry; this Work Unit's own fragment is an exemption
+    milestone: Adoption
+    delivers: Registry/work-units.yml, changelog.d/WU-IAENG-408.md
+
+  - id: WU-IAENG-409
+    employee: Prompt Engineer
+    title: Reserved 28 Oct 2026 before dispatch (WU-IAENG-408) - an Employee runs one full test suite at a time, never several in parallel (issue #350, peer K1) - Templates/EMPLOYEE_BRIEF.md and the Main Agent's dispatch guidance gain a rule that an Employee runs at most one full test suite at a time, with no background job or xargs -P, bounds a long run with a timeout, and runs the touched sections first while CI runs the rest
+    milestone: Adoption
+    delivers: planned - Templates/EMPLOYEE_BRIEF.md, Core/ORCHESTRATION.md, changelog.d/WU-IAENG-409.md, Registry/work-units.yml
+
+  - id: WU-IAENG-410
+    employee: Performance Engineer
+    title: Reserved 28 Oct 2026 before dispatch (WU-IAENG-408) - measure blocking-hook latency under parallel load on Windows, where a timed-out hook lets the action through (issue #351, peer K2) - block-escape-hatches.sh, block-inline-suppression.sh and stop-gate.sh run under a 10 s timeout and Claude Code does not block an action whose hook it killed; the record gives p50, p95 and p99 latency idle and under a representative parallel load, how often the timeout is exceeded, and the proposed mitigations, with a Security Engineer risk review
+    milestone: Adoption
+    delivers: planned - Governance/BLOCKING_HOOK_LATENCY_MEASUREMENT.md, changelog.d/WU-IAENG-410.md, Registry/work-units.yml
+
+  - id: WU-IAENG-411
+    employee: Prompt Engineer
+    title: Reserved 28 Oct 2026 before dispatch (WU-IAENG-408) - a Merge danger section in the Pull Request template, and the Code Reviewer hunts the defect before approving (issue #352, peer K3 and K4) - the template states how easy the rollback is and what breaks if the change is wrong; before APPROVE the Code Reviewer names the two places in the diff where a HIGH defect would hide best, checks them, and mutates every guard the diff touches or states why it cannot
+    milestone: Adoption
+    delivers: planned - Templates/PULL_REQUEST.md, Adapters/github/PULL_REQUEST_TEMPLATE.md, .github/PULL_REQUEST_TEMPLATE.md, Employees/Specialized/CODE_REVIEWER.md, Workflows/CODE_REVIEW.md, changelog.d/WU-IAENG-411.md, Registry/work-units.yml
+
+  - id: WU-IAENG-412
+    employee: Prompt Engineer
+    title: Reserved 28 Oct 2026 before dispatch (WU-IAENG-408) - a project domain glossary from the first settled term, and the Business Analyst asks in rounds (issue #353, peer K5) - an adopting project gets a domain glossary template and a stated place for it in its tree, created when the first domain term is settled and cited by Employees, and the Business Analyst asks its clarifying questions in numbered rounds with recommended answers; Core/GLOSSARY.md is not touched
+    milestone: Adoption
+    delivers: planned - Templates/PROJECT_GLOSSARY.md, Employees/Specialized/BUSINESS_ANALYST.md, changelog.d/WU-IAENG-412.md, Registry/work-units.yml
+
+  - id: WU-IAENG-413
+    employee: Technical Writer
+    title: Reserved 28 Oct 2026 before dispatch (WU-IAENG-408) - AMELIORATION.md strikes through what is done since 23 Oct and adds the new strengths and weaknesses (issue #354) - W2 a, b and d, W9, W14 to W16 and W18 to W21 are done on develop but not struck through; each is struck through with the Pull Request that delivered it, and the strengths and weaknesses seen since 23 Oct are added
+    milestone: Adoption
+    delivers: planned - AMELIORATION.md, changelog.d/WU-IAENG-413.md, Registry/work-units.yml
