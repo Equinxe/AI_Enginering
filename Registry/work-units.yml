@@ -1733,3 +1733,45 @@ work_units:
     title: Reserved 28 Oct 2026 before dispatch (WU-IAENG-408) - AMELIORATION.md strikes through what is done since 23 Oct and adds the new strengths and weaknesses (issue #354) - W2 a, b and d, W9, W14 to W16 and W18 to W21 are done on develop but not struck through; each is struck through with the Pull Request that delivered it, and the strengths and weaknesses seen since 23 Oct are added
     milestone: Adoption
     delivers: planned - AMELIORATION.md, changelog.d/WU-IAENG-413.md, Registry/work-units.yml
+
+  - id: WU-IAENG-414
+    employee: Platform Engineer
+    title: Reserved 28 Oct 2026 before dispatch (WU-IAENG-420) - git hooks do not run inside a git worktree of an adopting project (submodule not initialised, relative core.hooksPath) (issue #368, 28 Oct 2026 adoption rehearsal Blocker) - in a worktree the framework submodule is empty and core.hooksPath ia-engineering/Adapters/git-hooks names a missing directory, so commit-msg and pre-commit do not run and an Employee's commit with a refused trailer or real data goes through in silence; the worktree gets the submodule initialised or the commit is refused, or core.hooksPath works from every worktree, and whether the Claude Code hooks resolve from a subagent worktree's CLAUDE_PROJECT_DIR is checked
+    milestone: Adoption
+    delivers: planned - Adapters/scripts/install.sh, Adapters/ai-runtimes/claude-code/hooks/session-start.sh, Adapters/ai-runtimes/claude-code/install-hooks.sh, Adapters/scripts/tests/run.sh, Adapters/ai-runtimes/claude-code/hooks/tests/run.sh, Templates/PROJECT_CLAUDE.md, Governance/TROUBLESHOOTING.md, changelog.d/WU-IAENG-414.md, Registry/work-units.yml
+
+  - id: WU-IAENG-415
+    employee: Platform Engineer
+    title: Reserved 28 Oct 2026 before dispatch (WU-IAENG-420) - commit-msg checks that the Work Unit exists, as the README says (issue #364, 28 Oct 2026 adoption rehearsal Major) - the local commit-msg hook checks only the Work Unit line's format and count, so an unregistered Work Unit passes locally and, on the adoption commit pushed straight to main, is never seen by the Work Unit Exists CI check; commit-msg resolves it against the project's Registry/work-units.yml as staged in the index when that file exists, and README.md Contributing says what the hooks do
+    milestone: Adoption
+    delivers: planned - Adapters/git-hooks/commit-msg, Adapters/scripts/check-work-units.sh, Adapters/scripts/tests/run.sh, README.md, changelog.d/WU-IAENG-415.md, Registry/work-units.yml
+
+  - id: WU-IAENG-416
+    employee: Technical Lead
+    title: Reserved 28 Oct 2026 before dispatch (WU-IAENG-420) - the Prompt Engineer review covers Templates/EMPLOYEE_BRIEF.md and generate-agents.sh (issue #206, Director 28 Oct 2026, not Workflows/; part of issue #221) - the mandatory Prompt Engineer review, today on Employees/ and any Core/*.md document, extends to Templates/EMPLOYEE_BRIEF.md and to the text Adapters/ai-runtimes/generate-agents.sh writes around every Employee definition, and Workflows/ documents stay outside it; the Core/EMPLOYEE_SELECTION.md trigger, Workflows/CODE_REVIEW.md and Registry/workflows.yml change together, and the Core text needs the Director's approval
+    milestone: Adoption
+    delivers: planned - Core/EMPLOYEE_SELECTION.md, Workflows/CODE_REVIEW.md, Registry/workflows.yml, changelog.d/WU-IAENG-416.md, Registry/work-units.yml
+
+  - id: WU-IAENG-417
+    employee: Technical Writer
+    title: Reserved 28 Oct 2026 before dispatch (WU-IAENG-420) - adopter README gains a project tier-map step, and the 28 Oct 2026 rehearsal's doc Minors are fixed (issue #365) - Getting Started shows generate-agents.sh --print-tier-map, the project's .ia-engineering/tier-map and which model suits which task (Haiku, Sonnet, Opus, Fable), since Standard Execution otherwise generates Sonnet agents; the doc Minors are install-skills.sh adding /dashboard too, the bash and jq prerequisites, the Risk Map's eight categories to complete, FEATURE_DEVELOPMENT Step 4 citing VERSION.md to an adopter, the signer of the project CLAUDE.md commit, and submodule update before install.sh in a fresh clone
+    milestone: Adoption
+    delivers: planned - README.md, Workflows/FEATURE_DEVELOPMENT.md, Workflows/ONBOARDING.md, Templates/PROJECT_CLAUDE.md, changelog.d/WU-IAENG-417.md, Registry/work-units.yml
+
+  - id: WU-IAENG-418
+    employee: Platform Engineer
+    title: Reserved 28 Oct 2026 before dispatch (WU-IAENG-420) - session-start drift check never completes on Windows within its budget (issue #366, 28 Oct 2026 adoption rehearsal Major) - check-framework-drift.sh --quick takes 4.9 to 5.6 s cold under Git Bash against a 3 s budget, the killed run writes no cache so every later session overruns too, the overrun is said once and then silent, and the Run it by hand command shown writes no cache; the run fills the cache for the next session or the command shown does, and the overrun is not silenced while no run has completed
+    milestone: Adoption
+    delivers: planned - Adapters/ai-runtimes/claude-code/hooks/session-start.sh, Adapters/scripts/check-framework-drift.sh, Adapters/ai-runtimes/claude-code/hooks/tests/drift.sh, changelog.d/WU-IAENG-418.md, Registry/work-units.yml
+
+  - id: WU-IAENG-419
+    employee: Release Manager
+    title: Reserved 28 Oct 2026 before dispatch (WU-IAENG-420) - release v0.0.15 (Adoption) - bump VERSION.md to v0.0.15 and assemble the changelog.d fragments into the CHANGELOG.md section with release.sh, README pin and measured counts, CLAUDE.md Current Version, and the next milestone the Director names; tag and merge to main on the Director's approval (Workflows/RELEASE.md)
+    milestone: Adoption
+    delivers: planned - VERSION.md, CHANGELOG.md, README.md, CLAUDE.md, Registry/work-units.yml
+
+  - id: WU-IAENG-420
+    employee: Technical Writer
+    title: Reserve Work Units 414 to 419 before dispatch (Workflows/FEATURE_DEVELOPMENT.md Step 4, precedent WU-IAENG-381, WU-IAENG-393, WU-IAENG-398, WU-IAENG-402 and WU-IAENG-408) - the five Work Units of issues #368, #364, #206 with #221, #365 and #366, and the v0.0.15 release, registered in one bookkeeping Pull Request, so each Work Unit's own Pull Request edits only its own entry; this Work Unit's own fragment is an exemption
+    milestone: Adoption
+    delivers: Registry/work-units.yml, changelog.d/WU-IAENG-420.md
