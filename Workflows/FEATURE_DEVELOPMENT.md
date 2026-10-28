@@ -91,9 +91,9 @@ This step is the Main Agent's own planning, not a dispatch, and its plan is the 
 1. Implement the Work Unit following the Code Quality Standard.
 2. Write tests following the Testing Standard. Tests must be written alongside the code, not after.
 3. Verify the implementation meets the Work Unit's Definition of Done.
-4. Run existing tests locally to confirm nothing is broken.
+4. Run locally the tests that cover the change first: the test file, or the section of the suite, that exercises it, where the suite can run one. Run at most one full suite at a time, never in the background or fanned out, and bound it with a timeout; a run the timeout ended is not evaluated, never passed. The required CI checks on the Pull Request run every suite (`Templates/EMPLOYEE_BRIEF.md`, Constraints and Boundaries).
 
-**Output:** Implementation complete, tests passing locally.
+**Output:** Implementation complete, the tests that cover the change passing locally.
 
 **Handoff to:** Step 4.
 
@@ -235,7 +235,7 @@ The two entries are deliberately parallel. `Workflows/CODE_REVIEW.md` treats the
 
 Owner: IA Engineering
 
-Version: 0.0.14
+Version: 0.0.15
 
 Status: Draft
 
