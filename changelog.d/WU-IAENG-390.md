@@ -1,3 +1,7 @@
 ### Changed
 
 - The checks give a condition they could not evaluate its own exit code, as The Check Convention's shell rule 1 requires (`Standards/CODE_QUALITY_STANDARD.md`). `check-employee-trailers.sh`, `check-work-units.sh`, `check-inline-suppression.sh`, `check-control-path-approval.sh`, `check-risk-map.sh`, `check-review-recorded.sh`, `check-pr-size.sh`, `validate-framework.sh` and `data-policy-scan.sh` exited `1`, the code of a finding, when an input was missing, a git command failed or nothing was compared, so a caller could not tell "evaluated, found something" from "could not evaluate". They now exit `2`, and `1` means a finding only. `validate-framework.sh` reports such a check as `FAIL  not evaluated:` and exits `2` when any check could not be evaluated, whatever the others found. `check-framework-drift.sh` reports a project root it cannot enter as indeterminate, under its own contract (`0` without `--strict`, `2` with it), instead of exiting `1`. Every caller (the CI workflows, the pre-commit hook, `release.sh`) fails on any non-zero code, so a `2` fails as a `1` did; the Exit Code Families register in `Adapters/README.md` states the new codes (#331, WU-IAENG-390)
+
+### Notes
+
+- Upgrade: if a script of your own reads the exit code of one of these checks and tests for `1`, treat `2` (could not evaluate) as a failure too. The framework's own callers were audited, and each fails on any non-zero code; a project's own scripts cannot be audited from here (#331, WU-IAENG-390)

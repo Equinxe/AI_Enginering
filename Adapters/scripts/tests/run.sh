@@ -3656,6 +3656,33 @@ cpa_api "$CPA_CTRL" "$CPA_H1"
 expect 2 "a matcher failure fails closed" -- "${CPA_ENV[@]}" bash "$WORK/cpa-broken/check-control-path-approval.sh"
 expect_output "check-control-paths.sh failed (exit 2). Failing closed."
 
+# A jq that cannot read the listing, and a command the script does not test
+# explicitly, are not evaluated: exit 2 and the message that says which
+# (WU-IAENG-390, #331). The message is asserted, not the code alone: before
+# the fix `set -e` exited with jq's own status, which can already be 2.
+cpa_api 'not json' "$CPA_H1"
+expect 2 "a listing that is not JSON is not evaluated (exit 2)" -- "${CPA_ENV[@]}" bash "$CHECK_CPA"
+expect_output "The file listing could not be read as JSON. Failing closed."
+# Countable (one element) but holding no file objects: the count passes and
+# the name extraction fails.
+cpa_api '[[1,2]]' "$CPA_H1"
+expect 2 "a listing whose entries hold no file names is not evaluated (exit 2)" -- \
+  "${CPA_ENV[@]}" CHANGED_FILES=1 bash "$CHECK_CPA"
+expect_output "The file names could not be read from the listing. Failing closed."
+# The ERR trap: a sed that fails only on the report the script prints.
+CPA390_SED="$WORK/cpa390-sed"
+mkdir -p "$CPA390_SED"
+cat > "$CPA390_SED/sed" <<SHIM
+#!/usr/bin/env bash
+[ "\${1:-}" = 's/::/: :/g' ] && { echo "sed (WU-IAENG-390 shim): failing" >&2; exit 4; }
+exec "$(command -v sed)" "\$@"
+SHIM
+chmod +x "$CPA390_SED/sed"
+cpa_api "$CPA_CTRL" "$CPA_H1"
+expect 2 "a command the script does not test explicitly is not evaluated (exit 2, the ERR trap)" -- \
+  "${CPA_ENV[@]}" PATH="$CPA390_SED:$CPA_BIN:$PATH" bash "$CHECK_CPA"
+expect_output "::error::A command failed (exit 4) before the guard could judge this event. Failing closed."
+
 # ------------------------- adopter registry and install (WU-IAENG-320) --------
 #
 # DEF-1/12/13/14 of the 2 Oct 2026 adoption test (issue #181). A consumer
