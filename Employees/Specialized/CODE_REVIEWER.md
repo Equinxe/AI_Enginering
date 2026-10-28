@@ -102,10 +102,10 @@ Applied at step 7. Each item answered "no" is a finding, its severity set by con
 
 ## Defect Hunt
 
-Run at step 12, before any approval, on the diff being approved (on a re-review, the new diff). It is not run when the decision is already changes requested or escalated. *Why:* reading confirms what the author meant; hunting looks for what the author missed, and a review without it lets through defects a reader agrees with. The predictions of step 2 were written before reading the diff; the hunt is aimed after reading it.
+Run at step 12, before any approval. It covers the whole Pull Request diff against its base, at the head being approved, however many review rounds came before: a round that requested changes did not hunt, so the approving round hunts everything. Only when a hunt is already recorded on an earlier head of this Pull Request does it narrow to the changes since that head, and every guard those changes add or change is mutated again. It is not run when the decision is already changes requested or escalated. *Why:* reading confirms what the author meant; hunting looks for what the author missed, and a review without it lets through defects a reader agrees with. The predictions of step 2 were written before reading the diff; the hunt is aimed after reading it.
 
 1. **Name the two hiding places.** Write the two places in this diff where a critical or major defect would hide best: serious if wrong, and least likely to be seen by the tests, the CI checks or this review so far. Look for them along four angles: a check that passes without evaluating (false green), a path around the change (bypass), a file that should have changed with it and did not (scope; read the sibling files), and the edges of its inputs (limits). What the description's Merge danger says cannot break is a candidate. Check both places, with evidence (a run, a test, a `path:line`), and record each as found or not found.
-2. **Mutate every guard the diff touches.** A guard is code whose job is to refuse or to fail: a validation, an authorization check, a hook's refusal, a CI or script check, an assertion that holds a rule. For each one the diff adds or changes, delete it or invert its condition in a throwaway copy (a temporary worktree or clone, never the Pull Request branch, never pushed), and run the tests or the check that should catch it. A mutant they do not catch is a guard no test can fail: a missing test, blocking under `Workflows/CODE_REVIEW.md` Step 3. Discard the copy afterwards. Mutating in a copy is not rewriting the author's code: nothing of it reaches the branch.
+2. **Mutate every guard the diff touches.** A guard is code whose job is to refuse or to fail: a validation, an authorization check, a hook's refusal, a CI or script check, an assertion that holds a rule. For each one the diff adds or changes, delete it or invert its condition in a disposable copy, as `Standards/TESTING_STANDARD.md` (Falsifiability) item 4 requires: never the working tree or the Pull Request branch, never `git stash`, never committed. Run the narrowest check that should catch it (the one test file, the one validator section, the one hook case), one mutant at a time, each run under a time limit. A mutant that check does not catch is a guard no test can fail: a missing test, blocking under `Workflows/CODE_REVIEW.md` Step 3. Two outcomes are not survivors (Falsifiability item 6). A run stopped by the time limit is inconclusive: the guard goes to item 3 with that reason. An equivalent mutant, one with no observable change, is declared: the guard it shows to be redundant is a Minimal Code item 7 finding, not a missing test. Discard the copy afterwards. Mutating in a copy is not rewriting the author's code: nothing of it reaches the branch.
 3. **State what could not be mutated, and why.** A guard with no runnable check in reach (a repository setting, a server-side rule, a runtime the review cannot start) is listed with the reason. It stays unverified, and the decision says so; it is never counted as caught.
 
 A diff that touches no guard says so in one line. The hunt and its results go in the Review Decision.
@@ -152,7 +152,8 @@ Intent: [pass / fail]
 Defect hunt (before an approval):
 - Hiding place: [path:line or area] — [why a defect would hide there] — [how checked] — [found / not found]
 - Hiding place: [path:line or area] — [why a defect would hide there] — [how checked] — [found / not found]
-- Guard: [path:line] — [mutation: deleted / inverted] — [caught by: test or check / survived: finding] — or [not mutated: why]
+- Hunted: [whole diff at <head> / changes since hunted head <sha>]
+- Guard: [path:line] — [mutation: deleted / inverted] — [check run] — [caught / survived: finding / equivalent: declared / inconclusive: time limit] — or [not mutated: why]
   (or: no guard touched)
 
 Decision: [approved / changes requested / escalated]
@@ -178,7 +179,7 @@ A code review Work Unit is complete when:
 - All files in the Pull Request have been reviewed.
 - All critical and major issues are documented as review comments.
 - A decision is recorded: approved, changes requested, or escalated, with a verdict on each axis and the pre-commitment predictions compared with what was found.
-- An approval carries the Defect Hunt: two hiding places named and checked, and every guard the diff touches mutated, or listed with why it could not be.
+- An approval carries the Defect Hunt over the whole Pull Request diff, or over the changes since a head already hunted: two hiding places named and checked, and every guard the diff touches mutated, or listed with why it could not be.
 - Security findings have been escalated to the Security Engineer if present.
 - The Pull Request is either approved or blocked with clear requirements for approval.
 
