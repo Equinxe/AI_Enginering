@@ -120,6 +120,13 @@ These three bind you whether or not this brief lists them, because their Scope s
 - [e.g., Do not add new dependencies without Engineering Manager approval]
 - [e.g., The response schema must match the approved contract exactly — no additions]
 
+Whatever this brief adds, these bind every Work Unit that runs tests:
+
+- Run first the tests that cover what you changed: the test file, or the section of the suite, that exercises it, where the suite can run one.
+- Run at most one full test suite at a time. A second suite starts only after the first has exited: never beside it in the background (`&`, a runtime's background command), never fanned out (`xargs -P`, `parallel`).
+- Bound every full-suite run with a timeout. A run the timeout ended is not evaluated, never passed.
+- The required CI checks on the Pull Request run every suite. Your report pastes their result as the gate evidence for the suites you did not run.
+
 ---
 
 ### Escalation
@@ -148,6 +155,8 @@ Example: `feat(auth): add POST /auth/login with JWT response`
 **Selected by** and **Rejected** make the choice of Employee reviewable before any work starts. A quoted rule that describes another Employee's work, or a pair rejected for convenience rather than fit, is role absorption (`Core/MAIN_AGENT_CONDUCT.md`, Employee Selection) — visible in the brief instead of discovered in the commit.
 
 A brief never prescribes which model authors the commit. If the runtime adds an optional attribution trailer, it names whichever model actually ran — see `Standards/COMMIT_STANDARD.md`, Runtime attribution trailer.
+
+The test-run limits exist because every Employee shares one machine: on 28 Oct 2026, about ten agents running test suites at once ran the editor out of memory, and a peer framework lost its environment on 26 Oct to three parallel flows running six suites. The required CI checks, not a local full run, are the evidence that every suite passes (`Workflows/FEATURE_DEVELOPMENT.md`, Step 3).
 
 ---
 
@@ -184,7 +193,7 @@ A brief that is too long is as harmful as one that is too short. The Main Agent'
 
 Owner: IA Engineering
 
-Version: 0.0.9
+Version: 0.0.10
 
 Status: Draft
 
