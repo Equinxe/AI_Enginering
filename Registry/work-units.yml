@@ -1658,9 +1658,9 @@ work_units:
 
   - id: WU-IAENG-401
     employee: Platform Engineer
-    title: Reserved 28 Oct 2026 before dispatch (WU-IAENG-402) - context hooks clean orphan temp files and tests stay out of the real state directory (issue #345) - the context statusLine writer's cleanup removes only .pct and .alert files older than 24 h, so the .tmp files of a render killed before its rename accumulate, and a context hook test writes into the real iaeng-ctx state directory; with the #343 Code Reviewer minors in context-dir.sh and the tests
+    title: Context hooks clean orphan temp files and tests stay out of the real state directory (issue #345) - the context statusLine writer's cleanup removes only .pct and .alert files older than 24 h, so the .tmp files of a render killed before its rename accumulate, and a context hook test writes into the real iaeng-ctx state directory; with the #343 Code Reviewer minors in context-dir.sh and the tests
     milestone: Adoption
-    delivers: planned - Adapters/ai-runtimes/claude-code/hooks/context-statusline.sh, Adapters/ai-runtimes/claude-code/hooks/context-dir.sh, Adapters/ai-runtimes/claude-code/hooks/tests/context-statusline.sh, Adapters/ai-runtimes/claude-code/hooks/tests/context-alert.sh, changelog.d/WU-IAENG-401.md, Registry/work-units.yml
+    delivers: Adapters/ai-runtimes/claude-code/hooks/context-statusline.sh, Adapters/ai-runtimes/claude-code/hooks/context-dir.sh, Adapters/ai-runtimes/claude-code/hooks/tests/context-statusline.sh, Adapters/ai-runtimes/claude-code/hooks/tests/context-alert.sh, Adapters/ai-runtimes/claude-code/hooks/tests/real-ctx-dir.sh, Adapters/ai-runtimes/claude-code/hooks/README.md, changelog.d/WU-IAENG-401.md, Registry/work-units.yml
 
   - id: WU-IAENG-402
     employee: Technical Writer
@@ -1706,9 +1706,9 @@ work_units:
 
   - id: WU-IAENG-409
     employee: Prompt Engineer
-    title: Reserved 28 Oct 2026 before dispatch (WU-IAENG-408) - an Employee runs one full test suite at a time, never several in parallel (issue #350, peer K1) - Templates/EMPLOYEE_BRIEF.md and the Main Agent's dispatch guidance gain a rule that an Employee runs at most one full test suite at a time, with no background job or xargs -P, bounds a long run with a timeout, and runs the touched sections first while CI runs the rest
+    title: An Employee runs the tests that cover its change first and one full test suite at a time, under a timeout, and CI runs every suite (issue #350, peer K1) - Templates/EMPLOYEE_BRIEF.md (0.0.10) Constraints and Boundaries gains fixed text binding every Work Unit that runs tests - touched tests first where the suite can run one section, at most one full suite at a time with no background job or fan-out, every full-suite run under a timeout, a run the timeout ended is not evaluated and never passed, the required CI checks are the gate evidence for the suites not run - with its rationale outside the block; Workflows/FEATURE_DEVELOPMENT.md (0.0.15) Step 3 item 4 and its Output say the same instead of run existing tests locally; no Core change and no machine-wide limit (Director, 28 Oct 2026; a machine limit is decided after WU-IAENG-410)
     milestone: Adoption
-    delivers: planned - Templates/EMPLOYEE_BRIEF.md, Core/ORCHESTRATION.md, changelog.d/WU-IAENG-409.md, Registry/work-units.yml
+    delivers: Templates/EMPLOYEE_BRIEF.md, Workflows/FEATURE_DEVELOPMENT.md, changelog.d/WU-IAENG-409.md, Registry/work-units.yml
 
   - id: WU-IAENG-410
     employee: Performance Engineer
