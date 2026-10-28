@@ -37,7 +37,8 @@ The Engineer classifies the work before doing it (`Standards/RISK_STANDARD.md`).
 ```
 RISK: a fix reaching main outside the release process, on a router shared by every endpoint |
       tier=High | mitigation=minimal diff plus a regression test; expedited review and QA both
-      still run | decided_by=Director (Step 1 authorization, quoted in the Work Unit Report)
+      still run | decided_by=Director (Step 1 authorization and plan approval, quoted in the
+      Work Unit Report)
 ```
 
 `High` means stop and wait for a confirmation that names the action — which is exactly what Step 1's authorization gate is, and why the tier is satisfied rather than bypassed. `decided_by=self` would have been a violation at this tier whatever the fix looked like.
