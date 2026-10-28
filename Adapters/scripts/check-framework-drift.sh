@@ -185,7 +185,10 @@ if [ -n "$CACHE_DIR" ]; then
     /*|[A-Za-z]:[/\\]*) ;;
     *) echo "check-framework-drift.sh: --cache-dir takes an absolute directory" >&2; exit 64 ;;
   esac
-  case "/$CACHE_DIR/" in
+  # A backslash is a separator on Windows: C:\a\..\b is refused as C:/a/../b
+  # is (issue #342). Held in a variable, as cache_dir_canon holds it.
+  _bs="\\"
+  case "/${CACHE_DIR//"$_bs"//}/" in
     */../*|*/./*) echo "check-framework-drift.sh: --cache-dir takes a directory without . or .. components" >&2; exit 64 ;;
   esac
 fi
@@ -353,9 +356,14 @@ untrusted() {
 # (cd -P), so neither a link nor a .. can lead back into the project; the
 # part that does not exist yet cannot be the project. session-start.sh's
 # lib.sh iaeng_cache_dir applies the same rule to the directory it chooses:
-# no new file is sourced by this control-path script.
+# no new file is sourced by this control-path script. Every backslash is read
+# as a separator, as Windows reads it, before the test and the walk (issue
+# #342): split on / alone, a part still to be made such as "..\proj\cache"
+# or "proj\cache" was kept as one name and made inside the project.
 cache_dir_canon() {
-  local p="${CACHE_DIR%/}" tail="" n canon
+  local bs="\\" p tail="" n canon
+  p="${CACHE_DIR//"$bs"//}"
+  p="${p%/}"
   case "/$p/" in */../*|*/./*) CACHE_DIR=""; return ;; esac
   while [ ! -d "$p" ]; do
     n="${p%/*}"

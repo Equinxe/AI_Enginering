@@ -44,6 +44,10 @@
 #     --cache-dir with .. or reaching the project through a link, a cache
 #     home inside the project, and a linked said-once memory are refused
 #     (the mode and link cases are built where the platform allows: Linux).
+#   - Every separator form of the cache directory (issue #342): one table of
+#     /, \, mixed and drive-letter spellings, each answer written by hand,
+#     drives both copies of the rule (lib.sh and the script), and neither the
+#     script nor the hook writes in the project for a \ spelling of it.
 #   - Hook forms that cannot be resolved (`bash -O extglob x.sh`, `bash -lc`)
 #     are never reported as broken, and an escape sequence in a command or
 #     in a tampered cache never reaches the session.
@@ -498,6 +502,100 @@ else
   info "ln -s makes a copy here: the link case is built on Linux CI"
 fi
 rm -rf "$T/adlink" "$AD/.yc"
+
+# Every separator form (issue #342). Windows reads a backslash as a
+# separator, so both copies of the rule must read it as one: before the . and
+# .. test, and in the walk that splits the part that exists (resolved through
+# its links) from the part still to be made. Split on / alone, the walk kept
+# "..\ad\.cx", or "ad\.cx", as one name below an existing directory outside
+# the project, and Windows then made it inside. One table drives both copies:
+# lib.sh iaeng_cache_dir (session-start.sh) and cache_dir_canon
+# (check-framework-drift.sh, which sources nothing, so the function is read
+# out of it). Each answer is written by hand: "-" is refused, anything else is
+# the directory both must name, spelt from $TP, the bench's canonical root.
+TP="$(cd "$T" && pwd -P)"
+BS="\\"
+O="$TP/o342"
+mkdir -p "$O"
+SEP_IN=(); SEP_WANT=(); SEP_WHY=()
+sep_row() { SEP_IN+=("$1"); SEP_WANT+=("$2"); SEP_WHY+=("$3"); }
+sep_row "$O/new"                   "$O/new" "a / path outside the project, not yet made, is kept"
+sep_row "$O${BS}new"               "$O/new" "a \\ in the tail is read as a separator"
+sep_row "$O${BS}new${BS}"          "$O/new" "a trailing \\ is dropped"
+sep_row "$O/..${BS}ad${BS}.cx"     -        "<outside>/..\\<project>\\cache is refused (sec-343)"
+sep_row "$O${BS}..${BS}ad${BS}.cx" -        "a \\..\\ component is refused"
+sep_row "$O/../ad/.cx"             -        "a /../ component is refused"
+sep_row "$O${BS}.${BS}new"         -        "a \\.\\ component is refused"
+sep_row "$O/new${BS}.."            -        "a trailing \\.. is refused"
+sep_row "$TP/ad${BS}.cx"           -        "no . or .., a \\ tail naming the project is refused"
+if command -v cygpath >/dev/null 2>&1; then
+  PW="$(cygpath -w "$TP")"
+  PM="$(cygpath -m "$TP")"
+  sep_row "$PW${BS}o342${BS}..${BS}ad${BS}.cx" - "C:\\...\\<outside>\\..\\<project> is refused (issue #342)"
+  sep_row "$PW${BS}o342/..${BS}ad${BS}.cx"     - "C:\\...\\<outside>/..\\<project> is refused (sec-343)"
+  sep_row "$PW/o342/..${BS}ad${BS}.cx"         - "C:\\.../<outside>/..\\<project> is refused (sec-343)"
+  sep_row "$PM/ad${BS}.cx"                     - "C:/... with a \\ tail naming the project is refused"
+  sep_row "$PW${BS}ad${BS}.cx"                 - "C:\\...\\<project>\\cache is refused"
+  sep_row "$PW${BS}o342${BS}new"               "$O/new" "C:\\... outside the project, not yet made, is kept"
+  sep_row "$PM/o342/new"                       "$O/new" "C:/... outside the project, not yet made, is kept"
+else
+  info "cygpath is absent here: the drive-letter forms are built on Windows"
+fi
+ln -s "$AD" "$TP/adl342" 2>/dev/null
+if [ -L "$TP/adl342" ] && [ "$TP/adl342" -ef "$AD" ]; then
+  sep_row "$TP/adl342${BS}.cx" - "a \\ tail through a link to the project is refused"
+else
+  info "ln -s makes a copy here: the backslash-through-a-link case is built on Linux CI"
+fi
+# lib_answer <dir> — what lib.sh iaeng_cache_dir names for <dir>, or "-".
+lib_answer() {
+  # shellcheck source=../lib.sh
+  ( . "$HOOKS/lib.sh" </dev/null
+    if iaeng_cache_dir "$1" "$AD" R; then printf '%s' "$R"; else printf '%s' -; fi )
+}
+# canon_answer <dir> — what cache_dir_canon names for <dir>, or "-".
+CANON_FN="$(sed -n '/^cache_dir_canon() {/,/^}/p' "$SRC/Adapters/scripts/check-framework-drift.sh")"
+canon_answer() {
+  ( eval "$CANON_FN"
+    declare -F cache_dir_canon >/dev/null || { printf '%s' "(cache_dir_canon not found in the script)"; exit 0; }
+    # Exported: the function is the script's, and reads it as the script sets it.
+    export PROJECT="$AD"
+    CACHE_DIR="$1"
+    cache_dir_canon
+    printf '%s' "${CACHE_DIR:--}" )
+}
+for i in "${!SEP_IN[@]}"; do
+  got="$(lib_answer "${SEP_IN[i]}")"
+  if [ "$got" = "${SEP_WANT[i]}" ]; then ok "iaeng_cache_dir: ${SEP_WHY[i]}"; else bad "iaeng_cache_dir: ${SEP_WHY[i]}" "given ${SEP_IN[i]}
+want  ${SEP_WANT[i]}
+got   $got"; fi
+  got="$(canon_answer "${SEP_IN[i]}")"
+  if [ "$got" = "${SEP_WANT[i]}" ]; then ok "cache_dir_canon: ${SEP_WHY[i]}"; else bad "cache_dir_canon: ${SEP_WHY[i]}" "given ${SEP_IN[i]}
+want  ${SEP_WANT[i]}
+got   $got"; fi
+done
+# The script as the hook calls it: a \.. is a usage error (64), as a /.. is,
+# and a \ tail naming the project is no cache. Nothing is written in the
+# project, nor beside it under a name that holds a backslash.
+bash ./ia-engineering/Adapters/scripts/check-framework-drift.sh --quick --cache-dir "$O/..${BS}ad${BS}.yc" >/dev/null 2>&1
+DD_RC=$?
+if [ "$DD_RC" -eq 64 ] && [ ! -e "$AD/.yc" ]; then ok "a --cache-dir with a \\.. component is refused (64), nothing written"; else bad "a --cache-dir with a \\.. component is refused (64), nothing written" "exit $DD_RC; $(ls -a "$AD/.yc" 2>&1)"; fi
+"${QUICK[@]:0:5}" --cache-dir "$TP/ad${BS}.yc" >/dev/null 2>&1
+if [ ! -e "$AD/.yc" ] && [ ! -e "$TP/ad${BS}.yc" ]; then ok "a --cache-dir whose \\ tail names the project is never written"; else bad "a --cache-dir whose \\ tail names the project is never written" "$(ls -a "$AD/.yc" 2>&1)"; fi
+# The hook, with a cache home whose \ tail names the project: it refuses it,
+# keeps its cache in $TMPDIR instead, and writes nothing in the project.
+mkdir -p "$T/tmp3"
+HOOK_ENV=(XDG_CACHE_HOME="$TP/ad${BS}.xc" TMPDIR="$T/tmp3")
+hook "$AD"
+HOOK_ENV=()
+T3_FILE=""
+for f in "$T/tmp3"/ia-engineering-*/drift-*.tsv; do [ -f "$f" ] && T3_FILE="$f"; done
+if [ "$RC" -eq 0 ] && [ ! -e "$AD/.xc" ] && [ ! -e "$TP/ad${BS}.xc" ] && [ -n "$T3_FILE" ]; then
+  ok "a cache home whose \\ tail names the project: the hook keeps its cache in \$TMPDIR, nothing in the project"
+else
+  bad "a cache home whose \\ tail names the project: the hook keeps its cache in \$TMPDIR, nothing in the project" "exit $RC; in the project: $(ls -a "$AD/.xc" 2>&1); in \$TMPDIR: $(ls -R "$T/tmp3" 2>&1)"
+fi
+rm -rf "$O" "$T/tmp3" "$TP/adl342" "$AD/.yc" "$AD/.xc" "$TP/ad${BS}.yc" "$TP/ad${BS}.xc"
 
 # --- an incomplete check: said once, never cached --------------------------------
 git -C ia-engineering tag -d v1 >/dev/null

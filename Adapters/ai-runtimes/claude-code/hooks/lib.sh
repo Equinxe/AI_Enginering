@@ -217,16 +217,26 @@ iaeng_ymd_from_header_date() {
 # it has already said once, in a user-level directory. The rule is the
 # script's own (cache_dir_canon and untrusted in check-framework-drift.sh,
 # which sources nothing): never inside the project, resolved through symbolic
-# links and without . or .., and used only when the user alone could have
-# written it (SEC-IAENG-359-01, -03).
+# links and without . or .. with either separator, and used only when the
+# user alone could have written it (SEC-IAENG-359-01, -03).
 
 # iaeng_cache_dir <dir> <project> <var> — sets the variable named <var> to
 # <dir> made canonical (links resolved in the part that exists), and returns
 # non-zero, leaving <var> alone, when <dir> is not absolute, has a . or ..
 # component, cannot be resolved, or is the project or inside it. One fork.
+#
+# Windows reads a backslash as a separator, so every backslash is read as one
+# before the test and the walk (issue #342). Split on / alone, the part still
+# to be made kept "..\proj\cache", or "proj\cache" with no .. at all, as one
+# name below a directory outside the project: never tested, it was made
+# inside the project. The absolute test reads <dir> as given, so \x stays
+# relative. The backslash is held in a variable, so no copy of this line can
+# lose it in transport (context-dir.sh, issue #340).
 iaeng_cache_dir() {
-  local p="${1%/}" proj="$2" tail="" n canon
-  case "$p" in /*|[A-Za-z]:[/\\]*) ;; *) return 1 ;; esac
+  local bs="\\" p proj="$2" tail="" n canon
+  case "$1" in /*|[A-Za-z]:[/\\]*) ;; *) return 1 ;; esac
+  p="${1//"$bs"//}"
+  p="${p%/}"
   case "/$p/" in */../*|*/./*) return 1 ;; esac
   while [ ! -d "$p" ]; do
     n="${p%/*}"

@@ -1,0 +1,7 @@
+### Security
+
+- The drift cache directory can no longer resolve inside the project through a backslash (issue #342). `iaeng_cache_dir` in the hooks' `lib.sh`, which picks the cache directory at session start, and `cache_dir_canon` in `check-framework-drift.sh` split the path on `/` alone, but Windows reads a backslash as a separator. A part still to be made below an existing directory outside the project, such as `..\proj\cache`, or `proj\cache` with no `..` at all, was therefore kept as one name and never tested. Windows then created it inside the project, and the drift check kept its cache there. Both now read every backslash as a separator before the `.` and `..` test and in the walk. `--cache-dir` with a `\..` component is a usage error (64), as one with `/..` already was. One table of `/`, `\`, mixed and drive-letter spellings drives both copies of the rule, with each answer written by hand. The script and the hook are also run with a `\` spelling of the project, and they write nothing in it. The value comes only from `XDG_CACHE_HOME`, `HOME`, `TMPDIR` or `--cache-dir`, the user's own environment, so the tier is Low (sec-343) (#342, WU-IAENG-399)
+
+### Changed
+
+- A cache home spelt the Windows way that does not exist yet, such as `C:\Users\me\.cache`, is now used. It was refused, and the hook fell back to `$TMPDIR`. On Linux a backslash in the cache directory is now read as a separator too, so a directory whose name holds one is read as two (#342, WU-IAENG-399)
