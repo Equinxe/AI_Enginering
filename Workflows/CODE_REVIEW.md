@@ -35,7 +35,7 @@ It ensures every change is reviewed systematically, that feedback is actionable,
 
 Before this workflow begins:
 
-- The Pull Request is open with a description that states what changed, why, and how to test it.
+- The Pull Request is open with a description that states what changed, why, its merge danger (`Templates/PULL_REQUEST.md`), and how to test it. A Pull Request opened from a template without the Merge danger section (before `Templates/PULL_REQUEST.md` 0.0.8, or from a stale installed copy) is not sent back for it: the Code Reviewer asks for the two lines in a review comment and reviews on.
 - CI/CD checks (lint, tests, build) are passing or failures are explained in the PR description.
 - The PR targets `develop`, not `main`.
 
@@ -164,6 +164,14 @@ Document the decision with a summary comment stating **what was reviewed** — w
 
 Before deciding, the Code Reviewer self-audits its findings; an open question that came from a critical or major finding stays an approval condition until answered. It then gives Standards conformance and Intent a verdict each: an axis fails exactly when it carries an unresolved critical or major finding, so both pass exactly when this Step's Approve holds (`Employees/Specialized/CODE_REVIEWER.md`, Process, step 10, and Two Axes).
 
+Before approving, the Code Reviewer runs the Defect Hunt (`Employees/Specialized/CODE_REVIEWER.md`, Defect Hunt). It covers the whole Pull Request diff against its base at the head being approved, not only the changes since the last review round (Step 9): a round that requested changes did not hunt. Only when a hunt is already recorded on an earlier head of this Pull Request does it narrow to the changes since that head. The hunt:
+
+1. It names the two places in this diff where a critical or major defect would hide best, and checks both with evidence.
+2. It mutates every guard the diff adds or changes, deleting it or inverting its condition in a disposable copy (`Standards/TESTING_STANDARD.md`, Falsifiability, item 4), and runs the narrowest check that should catch it, one mutant at a time, under a time limit. A mutant that survives is a missing test, blocking under Step 3. A run stopped by the time limit is inconclusive and an equivalent mutant is declared (Falsifiability, item 6); neither counts as a survivor.
+3. It lists any guard it could not mutate, with why; that guard stays unverified and is never counted as caught.
+
+What the hunt finds is self-audited and filed like any other finding, and the decision is taken again. An approval whose summary comment lacks the hunt's results has not stated its denominator (Ten Review Lessons, 10).
+
 **Output:** PR approved, changes requested, or escalated.
 
 ---
@@ -251,7 +259,7 @@ When in doubt: treat the change as security-sensitive and route it through QA En
 
 This workflow is complete when:
 
-- The PR has a documented approval from the Code Reviewer.
+- The PR has a documented approval from the Code Reviewer, with its Defect Hunt (Step 8).
 - All critical and major issues are resolved.
 - Security escalations are resolved or formally accepted by the Security Engineer and Director.
 - A change to `Employees/` or any `Core/*.md` document (including a deletion or rename) has the Prompt Engineer's approval on the `Employees/` and `Core/*.md` text the head carries, or, when the Prompt Engineer authored it, the approval of the reviewer the Director named (Step 4). A later push that changes that text needs it again; a merge of `develop` into the branch keeps it only as condition 1 of `Core/MAIN_AGENT_CONDUCT.md` (Git Execution via Named Employee) allows.
@@ -282,7 +290,7 @@ This workflow is complete when:
 
 Owner: IA Engineering
 
-Version: 0.0.11
+Version: 0.0.12
 
 Status: Draft
 
