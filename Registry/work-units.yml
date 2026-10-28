@@ -1764,14 +1764,8 @@ work_units:
     milestone: Adoption
     delivers: planned - Adapters/ai-runtimes/claude-code/hooks/session-start.sh, Adapters/scripts/check-framework-drift.sh, Adapters/ai-runtimes/claude-code/hooks/tests/drift.sh, changelog.d/WU-IAENG-418.md, Registry/work-units.yml
 
-  - id: WU-IAENG-419
-    employee: Release Manager
-    title: Reserved 28 Oct 2026 before dispatch (WU-IAENG-420) - release v0.0.15 (Adoption) - bump VERSION.md to v0.0.15 and assemble the changelog.d fragments into the CHANGELOG.md section with release.sh, README pin and measured counts, CLAUDE.md Current Version, and the next milestone the Director names; tag and merge to main on the Director's approval (Workflows/RELEASE.md)
-    milestone: Adoption
-    delivers: planned - VERSION.md, CHANGELOG.md, README.md, CLAUDE.md, Registry/work-units.yml
-
   - id: WU-IAENG-420
     employee: Technical Writer
-    title: Reserve Work Units 414 to 419 before dispatch (Workflows/FEATURE_DEVELOPMENT.md Step 4, precedent WU-IAENG-381, WU-IAENG-393, WU-IAENG-398, WU-IAENG-402 and WU-IAENG-408) - the five Work Units of issues #368, #364, #206 with #221, #365 and #366, and the v0.0.15 release, registered in one bookkeeping Pull Request, so each Work Unit's own Pull Request edits only its own entry; this Work Unit's own fragment is an exemption
+    title: Reserve Work Units 414 to 418 before dispatch (Workflows/FEATURE_DEVELOPMENT.md Step 4, precedent WU-IAENG-381, WU-IAENG-393, WU-IAENG-398, WU-IAENG-402 and WU-IAENG-408) - the five Work Units of issues #368, #364, #206 with #221, #365 and #366 registered in one bookkeeping Pull Request, so each Work Unit's own Pull Request edits only its own entry; the v0.0.15 release Work Unit is not reserved, because release.sh check runs at Step 1 before the bump and would fail on it, so the bump Pull Request registers its own as #250 did for WU-IAENG-345; this Work Unit's own fragment is an exemption
     milestone: Adoption
     delivers: Registry/work-units.yml, changelog.d/WU-IAENG-420.md
