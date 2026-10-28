@@ -17,8 +17,17 @@
 # refuses all of them and the human runs the sanctioned one (the data-purge
 # protocol) by hand.
 
+# This hook's own directory, from BASH_SOURCE and never $0: bash finding the
+# hook through PATH leaves $0 the bare name, whose dirname is the working
+# directory, where a cloned repository could plant lib.sh (issue #344). Either
+# separator, as dirname reads a Windows path in Git Bash. Every file this hook
+# loads comes from here.
+case "${BASH_SOURCE[0]}" in
+  */*|*\\*) HOOKS_DIR="${BASH_SOURCE[0]%[/\\]*}" ;;
+  *) HOOKS_DIR=. ;;
+esac
 # shellcheck source=lib.sh
-. "$(dirname "$0")/lib.sh"
+. "$HOOKS_DIR/lib.sh"
 
 TOOL="$(iaeng_field '.tool_name')"
 [ -z "$TOOL" ] || [ "$TOOL" = "Bash" ] || exit 0
@@ -39,7 +48,7 @@ fi
 # awk file's header and Governance/TROUBLESHOOTING.md, entry R). It is a
 # separate file so that no shell quoting applies to the program itself. Only
 # text OUTSIDE quotes and heredoc bodies reaches the rules below.
-LEXER="$(dirname "$0")/strip-quotes.awk"
+LEXER="$HOOKS_DIR/strip-quotes.awk"
 if [ ! -f "$LEXER" ]; then
   iaeng_block "strip-quotes.awk is missing next to this hook — cannot separate quoted text from commands" \
     "Adapters/ai-runtimes/claude-code/hooks/README.md — the hook fails closed rather than matching raw text, which blocks every command that merely mentions a forbidden flag."

@@ -45,8 +45,16 @@
 # Work Unit Report was written (it lives in a PR body or a named file). It
 # reminds; it blocks only on the two conditions it can verify.
 
+# This hook's own directory, from BASH_SOURCE and never $0: bash finding the
+# hook through PATH leaves $0 the bare name, whose dirname is the working
+# directory, where a cloned repository could plant lib.sh (issue #344). Either
+# separator, as dirname reads a Windows path in Git Bash.
+case "${BASH_SOURCE[0]}" in
+  */*|*\\*) HOOKS_DIR="${BASH_SOURCE[0]%[/\\]*}" ;;
+  *) HOOKS_DIR=. ;;
+esac
 # shellcheck source=lib.sh
-. "$(dirname "$0")/lib.sh"
+. "$HOOKS_DIR/lib.sh"
 
 ACTIVE="$(iaeng_bool '.stop_hook_active')"
 [ "$ACTIVE" = "true" ] && exit 0

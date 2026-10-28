@@ -16,8 +16,16 @@
 # Absence of a linter is REPORTED, not passed silently: a file that was checked
 # by nothing is said to have been checked by nothing.
 
+# This hook's own directory, from BASH_SOURCE and never $0: bash finding the
+# hook through PATH leaves $0 the bare name, whose dirname is the working
+# directory, where a cloned repository could plant lib.sh (issue #344). Either
+# separator, as dirname reads a Windows path in Git Bash.
+case "${BASH_SOURCE[0]}" in
+  */*|*\\*) HOOKS_DIR="${BASH_SOURCE[0]%[/\\]*}" ;;
+  *) HOOKS_DIR=. ;;
+esac
 # shellcheck source=lib.sh
-. "$(dirname "$0")/lib.sh"
+. "$HOOKS_DIR/lib.sh"
 
 TOOL="$(iaeng_field '.tool_name')"
 case "$TOOL" in ""|Edit|Write|MultiEdit) ;; *) exit 0 ;; esac

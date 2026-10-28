@@ -7,8 +7,17 @@
 # it is the first thing it sees. It prints the pointers and the *current*
 # state, never a copy of CLAUDE.md (one fact, one place — Templates/SESSION_STATE.md).
 
+# This hook's own directory, from BASH_SOURCE and never $0: bash finding the
+# hook through PATH leaves $0 the bare name, whose dirname is the working
+# directory, where a cloned repository could plant lib.sh (issue #344). Either
+# separator, as dirname reads a Windows path in Git Bash. Every file this hook
+# loads or runs comes from here.
+case "${BASH_SOURCE[0]}" in
+  */*|*\\*) HOOKS_DIR="${BASH_SOURCE[0]%[/\\]*}" ;;
+  *) HOOKS_DIR=. ;;
+esac
 # shellcheck source=lib.sh
-. "$(dirname "$0")/lib.sh"
+. "$HOOKS_DIR/lib.sh"
 
 BASE="${CLAUDE_PROJECT_DIR:-.}"
 ROOT="$(iaeng_framework_root || true)"
@@ -346,7 +355,7 @@ fi
 # number; otherwise nothing. Run here rather than from a SessionStart entry of
 # its own, so the template keeps one SessionStart group. It reads only the
 # environment, exits 0 on every path, and its stderr is dropped.
-CTX_ALERT_SH="$(dirname "$0")/context-alert.sh"
+CTX_ALERT_SH="$HOOKS_DIR/context-alert.sh"
 if [ -f "$CTX_ALERT_SH" ]; then
   CTX_WARN="$(bash "$CTX_ALERT_SH" --session-start </dev/null 2>/dev/null)"
   [ -n "$CTX_WARN" ] && printf '%s\n\n' "$CTX_WARN"

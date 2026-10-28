@@ -1652,9 +1652,9 @@ work_units:
 
   - id: WU-IAENG-400
     employee: Platform Engineer
-    title: Reserved 28 Oct 2026 before dispatch (WU-IAENG-402) - hooks load lib.sh from their own directory, not the working directory (issue #344, SEC-IAENG-394-03) - block-escape-hatches.sh, block-inline-suppression.sh, post-edit-lint.sh, session-start.sh and stop-gate.sh source lib.sh from dirname of $0, which is the working directory when bash finds the hook through PATH, so a lib.sh planted there runs
+    title: Hooks load their files from their own directory, not the working directory (issue #344, SEC-IAENG-394-03) - block-escape-hatches.sh, block-inline-suppression.sh, post-edit-lint.sh, session-start.sh and stop-gate.sh found their directory from dirname of $0, which is the working directory when bash finds the hook through PATH, so a lib.sh, strip-quotes.awk, context-alert.sh, suppression patterns file or tests/ exemption planted there was used; they now cut BASH_SOURCE at its last / or backslash, and tests/own-dir.sh runs each hook from a working directory holding a planted copy of every file it loads
     milestone: Adoption
-    delivers: planned - Adapters/ai-runtimes/claude-code/hooks/block-escape-hatches.sh, Adapters/ai-runtimes/claude-code/hooks/block-inline-suppression.sh, Adapters/ai-runtimes/claude-code/hooks/post-edit-lint.sh, Adapters/ai-runtimes/claude-code/hooks/session-start.sh, Adapters/ai-runtimes/claude-code/hooks/stop-gate.sh, Adapters/ai-runtimes/claude-code/hooks/tests/run.sh, changelog.d/WU-IAENG-400.md, Registry/work-units.yml
+    delivers: Adapters/ai-runtimes/claude-code/hooks/block-escape-hatches.sh, Adapters/ai-runtimes/claude-code/hooks/block-inline-suppression.sh, Adapters/ai-runtimes/claude-code/hooks/post-edit-lint.sh, Adapters/ai-runtimes/claude-code/hooks/session-start.sh, Adapters/ai-runtimes/claude-code/hooks/stop-gate.sh, Adapters/ai-runtimes/claude-code/hooks/tests/own-dir.sh, Adapters/ai-runtimes/claude-code/hooks/tests/run.sh, Adapters/ai-runtimes/claude-code/hooks/README.md, changelog.d/WU-IAENG-400.md, Registry/work-units.yml
 
   - id: WU-IAENG-401
     employee: Platform Engineer

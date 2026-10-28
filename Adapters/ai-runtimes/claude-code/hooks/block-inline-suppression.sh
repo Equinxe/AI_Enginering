@@ -16,8 +16,17 @@
 # configuration cannot scope) is applied by a human, with the forcing
 # constraint written on the preceding line, as the Standard requires.
 
+# This hook's own directory, from BASH_SOURCE and never $0: bash finding the
+# hook through PATH leaves $0 the bare name, whose dirname is the working
+# directory, where a cloned repository could plant lib.sh (issue #344). Either
+# separator, as dirname reads a Windows path in Git Bash. Every file this hook
+# loads, and the tests/ exemption below, come from here.
+case "${BASH_SOURCE[0]}" in
+  */*|*\\*) HOOKS_DIR="${BASH_SOURCE[0]%[/\\]*}" ;;
+  *) HOOKS_DIR=. ;;
+esac
 # shellcheck source=lib.sh
-. "$(dirname "$0")/lib.sh"
+. "$HOOKS_DIR/lib.sh"
 
 # Unreadable payload is refused BEFORE any field is read: an empty TOOL or TEXT
 # below means "nothing to check" and exits 0, which an unparseable payload would
@@ -101,7 +110,7 @@ iaeng_canon() {
   printf '%s' "${r:-/}"
 }
 
-HOOK_DIR="$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)"
+HOOK_DIR="$(CDPATH='' cd -- "${HOOKS_DIR:-/}" && pwd)"
 PATTERNS="$HOOK_DIR/../../../scripts/suppression-patterns.tsv"
 if [ -n "$FILE" ]; then
   CANON="$(iaeng_canon "$FILE" "$(iaeng_field '.cwd')")"
