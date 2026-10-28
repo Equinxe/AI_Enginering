@@ -1670,9 +1670,9 @@ work_units:
 
   - id: WU-IAENG-403
     employee: Prompt Engineer
-    title: Reserved 28 Oct 2026 before dispatch (WU-IAENG-402) - HOTFIX Step 1 title and Actor, plan time to resolution, revised plan re-enters Plan Review (issue #335) - Workflows/HOTFIX.md Step 1 is titled Director authorization with the Director as its only Actor although it also holds the Main Agent's plan and the Technical Lead's Plan Review, has the Director set the maximum time to resolution instead of the plan proposing it, and does not say whether a revised plan goes back through Plan Review
+    title: HOTFIX Step 1 names its planning, its time to resolution and its revised-plan rule, and the Feature Chain's decomposition names the Plan Review (issue #335 items 1 to 4 and 6) - Workflows/HOTFIX.md (0.0.12) Step 1 is retitled Hotfix plan and Director authorization, its Actor names the Main Agent, the Technical Lead and the Director, and the Actors table gains the Main Agent; the plan may propose the maximum time to resolution, which the Director approves or replaces in the same decision; a revised plan that carries a Medium-or-higher action goes back to the Technical Lead, who runs its Plan Review again or records on the earlier record that the revision leaves unchanged everything that review examined, and a revised plan whose actions are all Low is presented again without one; the gate sentence is unchanged; Registry/workflows.yml step 1 copies the new title; Examples/HOTFIX_CHAIN_EXAMPLE.md's RISK line says Step 1 authorization and plan approval; Core/AGENT_CHAINS.md (0.0.12) Feature Chain Decomposition gains the Plan Review sentence the Director approved word for word on 28 Oct 2026 (item 4)
     milestone: Adoption
-    delivers: planned - Workflows/HOTFIX.md, Registry/workflows.yml, changelog.d/WU-IAENG-403.md, Registry/work-units.yml
+    delivers: Workflows/HOTFIX.md, Registry/workflows.yml, Examples/HOTFIX_CHAIN_EXAMPLE.md, Core/AGENT_CHAINS.md, changelog.d/WU-IAENG-403.md, Registry/work-units.yml
 
   - id: WU-IAENG-404
     employee: Platform Engineer
