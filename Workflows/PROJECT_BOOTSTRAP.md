@@ -55,7 +55,7 @@ Before this workflow begins:
 
 **Actor:** Main Agent, with Business Analyst and Product Manager
 
-The Main Agent asks the Director a set of business-before-tech questions, roughly twenty in number as an order of magnitude, not a fixed count. Use judgment: ask what is genuinely useful to define the project, skip what does not apply. Structure the questions into these categories:
+The Main Agent asks the Director a set of business-before-tech questions, roughly twenty in number as an order of magnitude, not a fixed count. Use judgment: ask what is genuinely useful to define the project, skip what does not apply. Ask them in numbered rounds, each question with a recommended answer where what is already known supports one, as the Business Analyst does (`Employees/Specialized/BUSINESS_ANALYST.md`, Clarification Rounds): a round holds the questions that can be answered now, and the next round holds those the answers unblocked. Structure the questions into these categories:
 
 1. **Business goal** — What problem does this solve? What is the one-sentence value proposition?
 2. **Target users / consumers** — Who uses this? Are they internal, external, or another system?
@@ -72,7 +72,7 @@ The Main Agent asks the Director a set of business-before-tech questions, roughl
 11. **Assumptions & Risks** — What must be true for this to succeed? What is the biggest risk to delivery?
 12. **What constitutes PROOF** — For each output the project produces that someone will act on — a report, a total, a classification, a recommendation — what, concretely, shows it is *correct*? A reconciling total against a named source of truth? Agreement with an authoritative table? A domain expert's sign-off on a named sample? "The pipeline ran without error" is never the answer. This question decides whether the project needs a Domain Employee (`Templates/DOMAIN_EMPLOYEE.md`, `Workflows/ONBOARDING.md` Step 4), and it names the reference that Employee reconciles against. A project that cannot answer it yet records that as its first open risk under question 11.
 
-**Output:** Phase A answers captured. These become the durable **Project Charter** artifact (`Templates/PROJECT_CHARTER.md`), which records the business-requirements answers so they are not lost once implementation begins.
+**Output:** Phase A answers captured. These become the durable **Project Charter** artifact (`Templates/PROJECT_CHARTER.md`), which records the business-requirements answers so they are not lost once implementation begins. An answer that settles what a domain term means also creates the project domain glossary, `.ia-engineering/DOMAIN_GLOSSARY.md` (`Templates/PROJECT_GLOSSARY.md`), with that answer as the entry's source. No settled term, no file: it is never created empty.
 
 **Handoff to:** Step 2 — only after Phase A is fully answered.
 
@@ -275,7 +275,7 @@ This workflow is complete when:
 
 Owner: IA Engineering
 
-Version: 0.0.14
+Version: 0.0.15
 
 Status: Draft
 

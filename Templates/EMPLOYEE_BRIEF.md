@@ -49,6 +49,8 @@ This is the Context Engine in practice: the Main Agent filters, structures, and 
 **Relevant decisions:**
 - [ADR-ID]: [brief description of the architectural decision that governs your work]
 
+**Domain terms:** [the entries of `.ia-engineering/DOMAIN_GLOSSARY.md` this Work Unit relies on, by term (`Templates/PROJECT_GLOSSARY.md`). Use each in that meaning and cite the entry; a domain word you need that has no entry is a question to escalate, never a guess. Delete this line when the project has no glossary yet.]
+
 **Related Work Units:**
 - [WU-ID]: [what it did — relevant because it is a dependency or context]
 
@@ -184,7 +186,7 @@ A brief that is too long is as harmful as one that is too short. The Main Agent'
 
 Owner: IA Engineering
 
-Version: 0.0.9
+Version: 0.0.10
 
 Status: Draft
 
