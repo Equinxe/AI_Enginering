@@ -5,8 +5,10 @@
 #
 #   ./Adapters/ai-runtimes/claude-code/hooks/tests/context-alert.sh [--verbose]
 #
-# What is proved, each against a scratch TMPDIR and project, never the real
-# ones:
+# What is proved, each against a scratch TMPDIR, fallback (in place of
+# /tmp, IAENG_CTX_TEST_FALLBACK) and project, never the real ones; the last
+# check is that the user's real iaeng-ctx directory was left alone
+# (tests/real-ctx-dir.sh, issue #345):
 #
 #   - never blocks: exit 0 and nothing on stderr on every input, the hostile
 #     ones included (empty, not JSON, not an object, unusable directory);
@@ -87,10 +89,19 @@ ID="$(id -u 2>/dev/null)"
 [ -n "${UID:-}" ] && ID="$UID"
 TMPD="$T/tmp"
 PROJ="$T/project"
-mkdir -p "$TMPD" "$PROJ"
+# The fallback a refused TMPDIR takes, in place of /tmp (issue #345): every
+# run sets IAENG_CTX_TEST_FALLBACK to it, so no case reads or writes the
+# user's real /tmp/iaeng-ctx-<uid>.
+FB="$T/fallback"
+mkdir -p "$TMPD" "$PROJ" "$FB"
 DIR="$TMPD/iaeng-ctx-$ID"
 mkdir -p "$DIR"
 chmod 700 "$DIR"
+# The user's real context directories, listed before any hook runs and
+# checked at the end (tests/real-ctx-dir.sh).
+# shellcheck source=real-ctx-dir.sh
+. "$HERE/real-ctx-dir.sh"
+real_ctx_begin "$T"
 
 # pct <session> <content> — writes the file as the WU-IAENG-379 writer does.
 pct() { printf '%s\n' "$2" > "$DIR/$1.pct"; }
@@ -103,7 +114,7 @@ run() {
   printf '%s' "$1" | env -u IAENG_CONTEXT_HOOKS -u IAENG_CTX_ALERT_PCT -u IAENG_CTX_LAST_CALL_PCT \
     -u CLAUDE_CODE_AUTO_COMPACT_WINDOW -u CLAUDE_AUTOCOMPACT_PCT_OVERRIDE \
     -u DISABLE_AUTO_COMPACT -u DISABLE_COMPACT \
-    TMPDIR="$TMPD" CLAUDE_PROJECT_DIR="$PROJ" ${RUN_ENV[@]+"${RUN_ENV[@]}"} \
+    TMPDIR="$TMPD" IAENG_CTX_TEST_FALLBACK="$FB" CLAUDE_PROJECT_DIR="$PROJ" ${RUN_ENV[@]+"${RUN_ENV[@]}"} \
     bash "$AL" "${@:2}" > "$T/out" 2> "$T/err"
   RC=$?
   OUT="$(cat "$T/out")"
@@ -529,7 +540,7 @@ for tool in cat find mv rm grep wc; do
 done
 BASH_BIN="$(command -v bash)"
 nojq() {
-  printf '%s' "$1" | env -i PATH="$NOJQ" TMPDIR="$TMPD" CLAUDE_PROJECT_DIR="$PROJ" "$BASH_BIN" "$AL" > "$T/out" 2> "$T/err"
+  printf '%s' "$1" | env -i PATH="$NOJQ" TMPDIR="$TMPD" IAENG_CTX_TEST_FALLBACK="$FB" CLAUDE_PROJECT_DIR="$PROJ" "$BASH_BIN" "$AL" > "$T/out" 2> "$T/err"
   RC=$?; OUT="$(cat "$T/out")"; ERR="$(cat "$T/err")"
 }
 if env -i PATH="$NOJQ" "$BASH_BIN" -c 'command -v jq' >/dev/null 2>&1; then
@@ -559,22 +570,26 @@ echo "== context-statusline.sh then context-alert.sh — one directory for every
 # from the rule (hooks/README.md, Context Status Line, The file: TMPDIR counts
 # only when absolute with no . or .. component, with either separator, else
 # /tmp), never taken from the hooks:
-#   - where the .pct must land: TMPDIR's own iaeng-ctx-<uid>, /tmp's when the
-#     rule refuses TMPDIR, or nowhere when the directory cannot be made;
+#   - where the .pct must land: TMPDIR's own iaeng-ctx-<uid>, the fallback's
+#     when the rule refuses TMPDIR, or nowhere when the directory cannot be
+#     made;
 #   - the reader then says the last call at 90 %, or, when nothing was
 #     written, both refuse alike: no file anywhere, and silence.
 # Every case runs in a scratch working directory, so a relative path a broken
-# rule accepted would land there and be seen. A /tmp file is this test's own
-# session id and is removed after its case.
+# rule accepted would land there and be seen. The fallback is /tmp for the
+# user and the scratch $FB here (IAENG_CTX_TEST_FALLBACK, issue #345), so no
+# case touches the user's real /tmp/iaeng-ctx-<uid>, and every .pct written
+# is under $T, where it is counted. That /tmp is the fallback itself is
+# checked by naming the directory, which writes nothing (after the pairs).
 SL="$HOOKS/context-statusline.sh"
-FALLBACK="/tmp/iaeng-ctx-$ID"
+FALLBACK="$FB/iaeng-ctx-$ID"
 H394="$T/home394"; CWD394="$T/cwd394"
 mkdir -p "$H394" "$CWD394" "$T/dotdot394"
 : > "$T/afile394"
 N394=0
 # pair <label> <expected directory, or none> <TMPDIR, or -unset>
 pair() {
-  local label="$1" want="$2" tmp="$3" sid where tenv payload
+  local label="$1" want="$2" tmp="$3" sid where n tenv payload
   N394=$((N394 + 1))
   sid="s394-$$-$N394"
   if [ "$tmp" = -unset ]; then tenv=(-u TMPDIR); else tenv=(TMPDIR="$tmp"); fi
@@ -582,28 +597,30 @@ pair() {
   # must not turn the feeder's broken pipe into a failure (pipefail is on).
   payload="$(printf '{"session_id":"%s","context_window":{"used_percentage":90}}' "$sid")"
   ( cd "$CWD394" && env -u IAENG_CONTEXT_HOOKS -u IAENG_CTX_CHAINED -u CLAUDE_CONFIG_DIR -u IAENG_CTX_ALERT_PCT \
-      -u IAENG_CTX_LAST_CALL_PCT "${tenv[@]}" HOME="$H394" CLAUDE_PROJECT_DIR="$PROJ" \
+      -u IAENG_CTX_LAST_CALL_PCT "${tenv[@]}" IAENG_CTX_TEST_FALLBACK="$FB" HOME="$H394" CLAUDE_PROJECT_DIR="$PROJ" \
       bash "$SL" <<< "$payload" ) > "$T/out" 2> "$T/err"
   RC=$?; OUT="$(cat "$T/out")"; ERR="$(cat "$T/err")"
   if [ "$RC" -eq 0 ] && [ -n "$OUT" ] && [ -z "$ERR" ]; then ok "$label: the writer exits 0 with a line"; else bad "$label: the writer exits 0 with a line" "rc=$RC out=[$OUT] err=[$ERR]"; fi
-  where="$(find "$T" "$FALLBACK" -name "$sid.pct" 2>/dev/null | tr '\n' ' ')"
+  # One path per line, counted as lines: a path with a space (a Windows
+  # profile such as "C:\Users\Jean Dupont") is still one file (cr-343).
+  where="$(find "$T" -name "$sid.pct" 2>/dev/null)"
+  n="$(find "$T" -name "$sid.pct" 2>/dev/null | wc -l | tr -d ' ')"
   if [ "$want" = none ]; then
-    if [ -z "$where" ]; then ok "$label: no .pct written anywhere"; else bad "$label: no .pct written anywhere" "found: $where"; fi
-  elif [ -f "$want/$sid.pct" ] && [ "$(cat "$want/$sid.pct")" = 90 ] && [ "$(wc -w <<< "$where")" -eq 1 ]; then
+    if [ "$n" -eq 0 ]; then ok "$label: no .pct written anywhere"; else bad "$label: no .pct written anywhere" "found: $(tr '\n' ' ' <<< "$where")"; fi
+  elif [ -f "$want/$sid.pct" ] && [ "$(cat "$want/$sid.pct")" = 90 ] && [ "$n" -eq 1 ]; then
     ok "$label: the .pct lands in $want"
   else
-    bad "$label: the .pct lands in $want" "found: [$where]"
+    bad "$label: the .pct lands in $want" "found $n: [$(tr '\n' ' ' <<< "$where")]"
   fi
   payload="$(ups "$sid")"
   ( cd "$CWD394" && env -u IAENG_CONTEXT_HOOKS -u IAENG_CTX_ALERT_PCT -u IAENG_CTX_LAST_CALL_PCT \
-      "${tenv[@]}" CLAUDE_PROJECT_DIR="$PROJ" bash "$AL" <<< "$payload" ) > "$T/out" 2> "$T/err"
+      "${tenv[@]}" IAENG_CTX_TEST_FALLBACK="$FB" CLAUDE_PROJECT_DIR="$PROJ" bash "$AL" <<< "$payload" ) > "$T/out" 2> "$T/err"
   RC=$?; OUT="$(cat "$T/out")"; ERR="$(cat "$T/err")"
   if [ "$want" = none ]; then
     silent "$label: the reader refuses as the writer did"
   else
     says "$label: the reader finds the writer's .pct and says the last call" UserPromptSubmit "context is at 90 %"
   fi
-  rm -f -- "$FALLBACK/$sid.pct" "$FALLBACK/$sid.alert" 2>/dev/null
 }
 pair "TMPDIR unset" "$FALLBACK" -unset
 pair "TMPDIR normal" "$DIR" "$TMPD"
@@ -627,6 +644,46 @@ else
   na "TMPDIR as a real Windows path" "no Windows paths on this platform (no cygpath); the literal C:\\ forms above run everywhere"
 fi
 if [ -z "$(ls -A "$T/dotdot394")" ] && [ -z "$(ls -A "$CWD394")" ]; then ok "a refused TMPDIR is never written to, and nothing lands in the working directory"; else bad "a refused TMPDIR is never written to, and nothing lands in the working directory" "$(ls -A "$T/dotdot394" "$CWD394")"; fi
+
+# The fallback itself, named and not written (issue #345): every pair above
+# runs with the scratch fallback, so /tmp as the default is checked here, by
+# calling the rule in a subshell. Nothing is created. Oracle: the rule as
+# hooks/README.md states it, and context-dir.sh's own words for the test
+# fallback (the same rule judges it; a refused value leaves /tmp).
+# named <TMPDIR or -unset> <IAENG_CTX_TEST_FALLBACK or -unset>
+named() {
+  (
+    if [ "$1" = -unset ]; then unset TMPDIR; else export TMPDIR="$1"; fi
+    if [ "$2" = -unset ]; then unset IAENG_CTX_TEST_FALLBACK; else export IAENG_CTX_TEST_FALLBACK="$2"; fi
+    # shellcheck source=../context-dir.sh
+    . "$HOOKS/context-dir.sh" || exit 1
+    X=""
+    iaeng_ctx_dir X && printf '%s' "$X"
+  )
+}
+# <expected>|<TMPDIR>|<fallback>. Naming touches no file, so the backslash
+# forms run on every platform: C:\tmp is accepted and /a\..\b refused, which
+# a context-dir.sh that lost or doubled its backslash gets wrong.
+for c in "/tmp/iaeng-ctx-$ID|-unset|-unset" \
+         "/tmp/iaeng-ctx-$ID|relative394/tmp|-unset" \
+         "/tmp/iaeng-ctx-$ID|C:\\x\\..\\y|-unset" \
+         "C:\\tmp/iaeng-ctx-$ID|C:\\tmp|-unset" \
+         "/tmp/iaeng-ctx-$ID|/a\\..\\b|-unset" \
+         "/tmp/iaeng-ctx-$ID|-unset|relative394/fb" \
+         "/tmp/iaeng-ctx-$ID|-unset|C:\\x\\..\\y" \
+         "/tmp/iaeng-ctx-$ID|-unset|$T/./fb" \
+         "$FB/iaeng-ctx-$ID|-unset|$FB" \
+         "$FB/iaeng-ctx-$ID|C:\\x\\..\\y|$FB/" \
+         "$TMPD/iaeng-ctx-$ID|$TMPD|$FB"; do
+  want="${c%%|*}"; rest="${c#*|}"; tmp="${rest%%|*}"; fb="${rest#*|}"
+  got="$(named "$tmp" "$fb")"
+  if [ "$got" = "$want" ]; then ok "the rule names $want for TMPDIR=[$tmp], fallback=[$fb]"; else bad "the rule names $want for TMPDIR=[$tmp], fallback=[$fb]" "named: [$got]"; fi
+done
+
+# =============================================================================
+echo "== the user's real context directory (issue #345)"
+LEFT="$(real_ctx_changed)"
+if [ -z "$LEFT" ]; then ok "no case wrote into the user's real iaeng-ctx directory (/tmp's or TMPDIR's)"; else bad "no case wrote into the user's real iaeng-ctx directory (/tmp's or TMPDIR's)" "added or modified: $(tr '\n' ' ' <<< "$LEFT")"; fi
 
 # =============================================================================
 if [ -n "${IAENG_HOOK_TESTS_COUNTS:-}" ]; then
