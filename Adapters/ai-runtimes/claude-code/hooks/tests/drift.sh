@@ -512,7 +512,8 @@ rm -rf "$T/adlink" "$AD/.yc"
 # lib.sh iaeng_cache_dir (session-start.sh) and cache_dir_canon
 # (check-framework-drift.sh, which sources nothing, so the function is read
 # out of it). Each answer is written by hand: "-" is refused, anything else is
-# the directory both must name, spelt from $TP, the bench's canonical root.
+# the directory both must name, spelt from $TP, the bench's canonical root,
+# or, for a drive form, by cygpath (below).
 TP="$(cd "$T" && pwd -P)"
 BS="\\"
 O="$TP/o342"
@@ -528,16 +529,42 @@ sep_row "$O/../ad/.cx"             -        "a /../ component is refused"
 sep_row "$O${BS}.${BS}new"         -        "a \\.\\ component is refused"
 sep_row "$O/new${BS}.."            -        "a trailing \\.. is refused"
 sep_row "$TP/ad${BS}.cx"           -        "no . or .., a \\ tail naming the project is refused"
+# A drive that does not exist: the walk reached its root, Q:/, which gave
+# itself back, so the walk never ended, and the hook runs it with no time
+# limit (cr-360). On Linux, Q: is a relative name that is not there either.
+NODRIVE=""
+for d in Q R S T U V W X Y Z; do [ -d "$d:/" ] || { NODRIVE="$d"; break; }; done
+if [ -n "$NODRIVE" ]; then
+  sep_row "$NODRIVE:${BS}c342"                - "a drive that does not exist is refused, and the walk ends"
+  sep_row "$NODRIVE:${BS}c342/ia-engineering" - "the same as the hook spells it (\\ then /) is refused, and the walk ends"
+else
+  info "every drive letter from Q to Z is a directory here: the absent-drive case is not built"
+fi
 if command -v cygpath >/dev/null 2>&1; then
   PW="$(cygpath -w "$TP")"
   PM="$(cygpath -m "$TP")"
-  sep_row "$PW${BS}o342${BS}..${BS}ad${BS}.cx" - "C:\\...\\<outside>\\..\\<project> is refused (issue #342)"
+  # A kept drive form is spelt by cygpath, not from $TP: MSYS also mounts the
+  # temp directory on /tmp, and pwd -P keeps whichever spelling $T was
+  # entered by, so $TP and the answer can name one directory two ways
+  # (qa-360). cygpath is the runtime's converter, not the code under test.
+  PU="$(cygpath -u "$PW")"
+  DL="${PM%%:*}"
+  sep_row "$PW${BS}o342${BS}..${BS}ad${BS}.cx" - "C:\\...\\<outside>\\..\\<project> is still refused (issue #342's example; a regression guard, develop refused it too)"
   sep_row "$PW${BS}o342/..${BS}ad${BS}.cx"     - "C:\\...\\<outside>/..\\<project> is refused (sec-343)"
   sep_row "$PW/o342/..${BS}ad${BS}.cx"         - "C:\\.../<outside>/..\\<project> is refused (sec-343)"
   sep_row "$PM/ad${BS}.cx"                     - "C:/... with a \\ tail naming the project is refused"
-  sep_row "$PW${BS}ad${BS}.cx"                 - "C:\\...\\<project>\\cache is refused"
-  sep_row "$PW${BS}o342${BS}new"               "$O/new" "C:\\... outside the project, not yet made, is kept"
-  sep_row "$PM/o342/new"                       "$O/new" "C:/... outside the project, not yet made, is kept"
+  sep_row "$PW${BS}ad${BS}.cx"                 - "C:\\...\\<project>\\cache is still refused (a regression guard, develop refused it too)"
+  sep_row "$PW${BS}o342${BS}new"               "$PU/o342/new" "C:\\... outside the project, not yet made, is kept"
+  sep_row "$PM/o342/new"                       "$PU/o342/new" "C:/... outside the project, not yet made, is kept"
+  # The hook's own spelling of a Windows cache home not yet made: \ then
+  # /ia-engineering. Split on / alone, the walk gave C:\...\.cache/ back to
+  # itself and never ended (cr-360).
+  sep_row "$PW${BS}o342${BS}nx${BS}.cache/ia-engineering" "$PU/o342/nx/.cache/ia-engineering" "C:\\...\\<not yet made>/ia-engineering, as the hook spells it, is kept, and the walk ends"
+  # A run of leading separators walked up to the root, and the join gave
+  # //<tail>: a network (UNC) path into the project that nothing tested
+  # (SEC-IAENG-399-01, sec-360).
+  sep_row "////localhost/$DL\$${PM#?:}/ad/.cx"                      - "a //// prefix cannot collapse into a UNC path into the project (SEC-IAENG-399-01)"
+  sep_row "/${BS}${BS}${BS}localhost${BS}$DL\$${PW#?:}${BS}ad${BS}.cx" - "the same spelt with \\ cannot either (SEC-IAENG-399-01)"
 else
   info "cygpath is absent here: the drive-letter forms are built on Windows"
 fi
@@ -547,33 +574,50 @@ if [ -L "$TP/adl342" ] && [ "$TP/adl342" -ef "$AD" ]; then
 else
   info "ln -s makes a copy here: the backslash-through-a-link case is built on Linux CI"
 fi
-# lib_answer <dir> — what lib.sh iaeng_cache_dir names for <dir>, or "-".
-lib_answer() {
-  # shellcheck source=../lib.sh
-  ( . "$HOOKS/lib.sh" </dev/null
-    if iaeng_cache_dir "$1" "$AD" R; then printf '%s' "$R"; else printf '%s' -; fi )
+# Each answer is asked of a fresh bash under a time limit, so a walk that
+# never ends fails its row instead of hanging the suite.
+cat > "$T/ans-lib.sh" <<'EOF'
+# ans-lib.sh <lib.sh> <dir> <project> — what iaeng_cache_dir names, or "-".
+. "$1" </dev/null
+if iaeng_cache_dir "$2" "$3" R; then printf '%s' "$R"; else printf '%s' -; fi
+EOF
+cat > "$T/ans-canon.sh" <<'EOF'
+# ans-canon.sh <script> <dir> <project> — what cache_dir_canon names, or "-".
+eval "$(sed -n '/^cache_dir_canon() {/,/^}/p' "$1")"
+declare -F cache_dir_canon >/dev/null || { printf '%s' "(cache_dir_canon not found in the script)"; exit 0; }
+PROJECT="$3"
+CACHE_DIR="$2"
+cache_dir_canon
+printf '%s' "${CACHE_DIR:--}"
+EOF
+# answer <helper> <file> <dir> — the helper's answer, or why there is none.
+answer() {
+  local out rc
+  out="$(timeout 20 bash "$T/$1" "$2" "$3" "$AD")"
+  rc=$?
+  [ "$rc" -eq 0 ] || out="(no answer: exit $rc; 124 is the 20 s limit)"
+  printf '%s' "$out"
 }
-# canon_answer <dir> — what cache_dir_canon names for <dir>, or "-".
-CANON_FN="$(sed -n '/^cache_dir_canon() {/,/^}/p' "$SRC/Adapters/scripts/check-framework-drift.sh")"
-canon_answer() {
-  ( eval "$CANON_FN"
-    declare -F cache_dir_canon >/dev/null || { printf '%s' "(cache_dir_canon not found in the script)"; exit 0; }
-    # Exported: the function is the script's, and reads it as the script sets it.
-    export PROJECT="$AD"
-    CACHE_DIR="$1"
-    cache_dir_canon
-    printf '%s' "${CACHE_DIR:--}" )
-}
+DRIFT_SCRIPT="$SRC/Adapters/scripts/check-framework-drift.sh"
 for i in "${!SEP_IN[@]}"; do
-  got="$(lib_answer "${SEP_IN[i]}")"
+  got="$(answer ans-lib.sh "$HOOKS/lib.sh" "${SEP_IN[i]}")"
   if [ "$got" = "${SEP_WANT[i]}" ]; then ok "iaeng_cache_dir: ${SEP_WHY[i]}"; else bad "iaeng_cache_dir: ${SEP_WHY[i]}" "given ${SEP_IN[i]}
 want  ${SEP_WANT[i]}
 got   $got"; fi
-  got="$(canon_answer "${SEP_IN[i]}")"
+  got="$(answer ans-canon.sh "$DRIFT_SCRIPT" "${SEP_IN[i]}")"
   if [ "$got" = "${SEP_WANT[i]}" ]; then ok "cache_dir_canon: ${SEP_WHY[i]}"; else bad "cache_dir_canon: ${SEP_WHY[i]}" "given ${SEP_IN[i]}
 want  ${SEP_WANT[i]}
 got   $got"; fi
 done
+# lib.sh alone: its absolute test reads the value as given, so a \-led
+# spelling with no drive stays relative and is refused (qa-360).
+# cache_dir_canon leaves that test to the script's usage check, which reads
+# --cache-dir as given too.
+REL="${O//\//"$BS"}${BS}new"
+got="$(answer ans-lib.sh "$HOOKS/lib.sh" "$REL")"
+if [ "$got" = - ]; then ok "iaeng_cache_dir: a \\-led spelling with no drive stays relative, and is refused"; else bad "iaeng_cache_dir: a \\-led spelling with no drive stays relative, and is refused" "given $REL
+want  -
+got   $got"; fi
 # The script as the hook calls it: a \.. is a usage error (64), as a /.. is,
 # and a \ tail naming the project is no cache. Nothing is written in the
 # project, nor beside it under a name that holds a backslash.

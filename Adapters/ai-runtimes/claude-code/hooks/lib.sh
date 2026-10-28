@@ -242,10 +242,19 @@ iaeng_cache_dir() {
     n="${p%/*}"
     { [ -z "$n" ] || [ "$n" = "$p" ]; } && return 1
     case "$n" in */*) ;; *) n="$n/" ;; esac
+    # The root of a drive that does not exist (Q:/) gives itself back: the
+    # walk would never end, and session-start.sh runs it with no time limit.
+    [ "$n" = "$p" ] && return 1
     tail="${p##*/}${tail:+/$tail}"
     p="$n"
   done
   canon="$(cd -P "$p" 2>/dev/null && pwd -P)" || return 1
+  # The part that exists resolved to the root: the join would give //<tail>,
+  # which Windows reads as a network (UNC) path that the test below never
+  # sees (////localhost/C$/<project>, SEC-IAENG-399-01). Refused, as
+  # /<missing>/x already is. Not ${canon%/}: for a // canon it gives / and
+  # /<tail>, the same // again.
+  case "$canon" in *[!/]*) ;; *) return 1 ;; esac
   p="$canon"
   while :; do
     [ "$p" -ef "$proj" ] && return 1
