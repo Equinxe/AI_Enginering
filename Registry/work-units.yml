@@ -1760,9 +1760,9 @@ work_units:
 
   - id: WU-IAENG-418
     employee: Platform Engineer
-    title: Reserved 28 Oct 2026 before dispatch (WU-IAENG-420) - session-start drift check never completes on Windows within its budget (issue #366, 28 Oct 2026 adoption rehearsal Major) - check-framework-drift.sh --quick takes 4.9 to 5.6 s cold under Git Bash against a 3 s budget, the killed run writes no cache so every later session overruns too, the overrun is said once and then silent, and the Run it by hand command shown writes no cache; the run fills the cache for the next session or the command shown does, and the overrun is not silenced while no run has completed
+    title: A session-start drift check cut by its budget finishes in the background and its result reaches the next session (issue #366, 28 Oct 2026 adoption rehearsal Major) - check-framework-drift.sh --quick took 4.9 to 5.6 s cold under Git Bash in the rehearsal and 46 to 70 s on a machine shared with other agents, against 2.8 s, so the cut run kept nothing and every later session was cut too, in silence; session-start.sh now starts the cut run again detached and bounded at 300 s, it keeps its result in the user-level cache and leaves its output and exit status beside it, a later session cut too reports that output as an earlier run's, a background run that ended with no result is said at every session until a run completes, and the overrun lines name the --quick --cache-dir command that fills the hook's cache
     milestone: Adoption
-    delivers: planned - Adapters/ai-runtimes/claude-code/hooks/session-start.sh, Adapters/scripts/check-framework-drift.sh, Adapters/ai-runtimes/claude-code/hooks/tests/drift.sh, changelog.d/WU-IAENG-418.md, Registry/work-units.yml
+    delivers: Adapters/ai-runtimes/claude-code/hooks/session-start.sh, Adapters/ai-runtimes/claude-code/hooks/tests/drift.sh, Adapters/ai-runtimes/claude-code/hooks/README.md, changelog.d/WU-IAENG-418.md, Registry/work-units.yml
 
   - id: WU-IAENG-420
     employee: Technical Writer
