@@ -158,8 +158,11 @@ Request.
 
 Enforcement installed here: [git hooks via `core.hooksPath`; the CI checks
 listed in `Adapters/scripts/setup-branch-protection.sh`; the runtime hooks in
-`Adapters/ai-runtimes/<runtime>/`]. Re-run
-`./ia-engineering/Adapters/scripts/install.sh` in every fresh clone.
+`Adapters/ai-runtimes/<runtime>/`]. In every fresh clone, run
+`git submodule update --init` (install.sh lives in the submodule), then
+`./ia-engineering/Adapters/scripts/install.sh` from the main checkout. A git
+worktree, such as an Employee's, needs neither: its hooks are the main
+checkout's.
 
 ---
 

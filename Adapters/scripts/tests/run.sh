@@ -8579,6 +8579,16 @@ git config core.hooksPath "$(printf 'x\302\23331mY')"
 expect 1 "a core.hooksPath holding a C1 control is flattened" -- bash "$DRIFT_358" --format tsv --strict
 expect_output "path${T}broken${T}x 31mY${T}"
 expect_no_output "$(printf '\302\233')" "no C1 control from a git config value reaches the output"
+# The relative value install.sh wrote before WU-IAENG-414 works in the main
+# checkout, so a directory test calls it fine; a linked worktree, where the
+# submodule is empty, runs no hook (issue #368). --quick is what session
+# start runs, and it has to say so too.
+git config core.hooksPath ia-engineering/Adapters/git-hooks
+expect 1 "the relative core.hooksPath of earlier installs is broken: a linked worktree runs no hook (WU-IAENG-414)" -- \
+  bash "$DRIFT_358" --format tsv --strict
+expect_output "path${T}broken${T}ia-engineering/Adapters/git-hooks${T}core.hooksPath is relative: a linked git worktree"
+expect 1 "--quick (session start) reports the relative core.hooksPath too" -- bash "$DRIFT_358" --quick --format tsv --strict
+expect_output "path${T}broken${T}ia-engineering/Adapters/git-hooks${T}core.hooksPath is relative"
 git config core.hooksPath "$HP0_358"
 expect 0 "clean once more after every single cause" -- bash "$DRIFT_358" --format tsv --strict
 

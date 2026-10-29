@@ -135,7 +135,9 @@
 # shadowed .git/hooks is a `fault` on a real run, which then goes on to set
 # core.hooksPath; --check calls it `shadowed`, because it was evaluated and
 # needs action (drift, exit 3), and exit 1 means something could not be
-# evaluated.
+# evaluated. In an adopting project the relative value install.sh wrote
+# before WU-IAENG-414 (ia-engineering/Adapters/git-hooks) is `differs`, with
+# its own remedy and no shadowed record: it already shadowed .git/hooks.
 #
 # What --check does NOT evaluate, and says so with an `unchecked` record
 # rather than leaving it out (Adapters/README.md, the Check Convention, rule

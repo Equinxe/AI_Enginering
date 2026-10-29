@@ -392,6 +392,18 @@ Do **not** use `git reset --hard origin/develop` or `git push --force`: both are
 
 ---
 
+## AB. In a git worktree of an adopting project, no git hook runs
+
+**Symptom.** In an adopting project, a commit made in a linked worktree (`git worktree add`, or an Employee that Claude Code isolates with `isolation: worktree` under `.claude/worktrees/`) goes through when the main checkout refuses the same commit. Examples are `Employee: Claude` and a staged `.xlsx`. Nothing prints, not even `data-policy: clean`. In the worktree, `ia-engineering/` is an empty directory.
+
+**Cause.** A linked worktree shares the repository's configuration, but its submodules are not initialised: the framework is not there. Before WU-IAENG-414, `install.sh` set `core.hooksPath` to the relative `ia-engineering/Adapters/git-hooks`, and git reads a relative value from the root of the worktree that runs the hook. In a linked worktree that directory does not exist, and git runs no hook at all, with no message. The framework's own repository never showed it: there `core.hooksPath` names tracked files, present in every worktree.
+
+**Remedy.** In the main checkout, re-run `./ia-engineering/Adapters/scripts/install.sh`. It sets `core.hooksPath` to the main checkout's framework hooks, as an absolute path, so every worktree of the clone runs them, initialised submodule or not. `install.sh --check` reports the old relative value as `differs`, and the session-start drift check as a path that does not work. Initialising the submodule in each worktree (`git submodule update --init`) also works, but it clones the framework again for every worktree. The commits already made in a worktree were never checked. Before pushing them, run `./ia-engineering/Adapters/scripts/check-employee-trailers.sh develop HEAD` and `./ia-engineering/Adapters/scripts/data-policy-scan.sh --history develop..HEAD` on the branch.
+
+**Prevention.** `install.sh` writes the absolute value in an adopting project, from the main checkout even when run from a worktree. `commit-msg` finds the roster in the framework it belongs to when the worktree's submodule is empty. `Adapters/scripts/tests/run.sh` (WU-IAENG-414) commits in a worktree whose framework is not initialised and requires the refusals. The Claude Code hooks are not affected: a worktree subagent's hooks run with `$CLAUDE_PROJECT_DIR` set to the main checkout, where the framework is initialised. If the checkout itself is moved, the absolute value names a directory that no longer exists. The drift check reports it at the next session start, and re-running `install.sh` repairs it.
+
+---
+
 # Adding an Entry
 
 1. The Work Unit that fixes the incident adds the entry — same commit, or the fix is not complete (`Governance/CONTRIBUTING.md`, Section 7).

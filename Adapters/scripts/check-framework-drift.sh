@@ -1050,6 +1050,12 @@ if HP="$(git config --type=path --get core.hooksPath 2>/dev/null)"; then
   watch_add "$HPA"
   if [ -z "$HPA" ]; then
     rec path unresolved "$HP" "core.hooksPath is a network path: never touched by this check"
+  elif [ "$HP" = "$REL/Adapters/git-hooks" ] || [ "$HP" = "./$REL/Adapters/git-hooks" ]; then
+    # The relative value install.sh wrote before WU-IAENG-414 (issue #368).
+    # It works in this checkout, so the directory test below calls it fine.
+    # git reads it from the root of each worktree, though, and a linked
+    # worktree has the framework submodule empty: git runs no hook there.
+    rec path broken "$HP" "core.hooksPath is relative: a linked git worktree, where the framework submodule is empty, runs no hook at all. Re-run $REL/Adapters/scripts/install.sh"
   elif [ -d "$HPA" ]; then
     rec path ok "$HP" ""
   else
