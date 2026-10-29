@@ -557,6 +557,83 @@ ss_run "$SKEWOLD" "$STOPGATE"
 ss_check_rc   "stop-gate: stays unblocked under clock skew even with an old, real mtime" 0
 ss_check_has  "stop-gate: old-mtime clock-skew case still names the reason" yes "dated after the system clock"
 
+# THE LOOP GUARD SILENCES EVERY OUTPUT, NOT ONLY THE BLOCKS (WU-IAENG-410).
+# stop-gate.sh reads stop_hook_active only when it is about to block or
+# remind, so the path most stops take starts no jq. On the continuation a
+# block gave, every path that would block or remind is still exit 0 and
+# silent, as when the guard was read first. NOHEAD: a repository with no
+# commit, where HEAD's time cannot be read and the hook says so.
+NOHEAD="$SSBASE/nohead"
+mkdir -p "$NOHEAD/.ia-engineering"
+git -C "$NOHEAD" init -q
+touch "$NOHEAD/.ia-engineering/SESSION_STATE.md"
+ss_run "$NOHEAD" "$STOPGATE"
+ss_check_has  "stop-gate: no commit yet — says it cannot verify (the fixture reaches that path)" yes "could not determine"
+# ss_check_silent <label>  — the most recent ss_run exited 0 and printed nothing.
+ss_check_silent() {
+  TOTAL=$((TOTAL + 1))
+  if [ "$SS_RC" -eq 0 ] && [ -z "$SS_OUT" ]; then
+    [ "$VERBOSE" -eq 1 ] && printf '   ok    %s\n' "$1"
+  else
+    FAILED=$((FAILED + 1))
+    printf '   FAIL  %s: want exit 0 and no output, got exit %s and [%s]\n' "$1" "$SS_RC" "$(printf '%s' "$SS_OUT" | head -c 200)"
+  fi
+}
+for case_dir in "$DIRTY" "$STALE" "$MISSING" "$SKEW" "$NOHEAD"; do
+  ss_run "$case_dir" "$STOPGATE" '{"stop_hook_active":true}'
+  ss_check_silent "stop-gate: loop guard — ${case_dir##*/}: exit 0, nothing printed"
+done
+
+# THE COMMON PATH'S PROCESS BUDGET (WU-IAENG-410, issue #351). On Windows
+# every command a hook starts is a process creation, and under parallel
+# agents that, not the hook's own work, is its latency
+# (Governance/BLOCKING_HOOK_LATENCY_MEASUREMENT.md). The path most stops take,
+# a clean tree and a current SESSION_STATE, starts cat (lib.sh reading the
+# payload), git twice (the status, HEAD's time) and date once (the file's
+# mtime), and no jq. Counted with recording stand-ins for the five commands
+# the hook used to start there, first on PATH.
+SHIMS="$SSBASE/shims"
+SHIMLOG="$SSBASE/shims.log"
+mkdir -p "$SHIMS"
+for shim_cmd in cat date dirname git jq; do
+  shim_real="$(command -v "$shim_cmd")"
+  printf '#!/bin/sh\necho %s >> "%s"\nexec "%s" "$@"\n' "$shim_cmd" "$SHIMLOG" "$shim_real" > "$SHIMS/$shim_cmd"
+  chmod +x "$SHIMS/$shim_cmd"
+done
+: > "$SHIMLOG"
+PATH="$SHIMS:$PATH" ss_run "$FRESH" "$STOPGATE"
+ss_check_rc   "stop-gate: budget — the fresh path still passes with the stand-ins on PATH" 0
+SHIM_JQ="$(grep -c '^jq$' "$SHIMLOG")"
+SHIM_ALL="$(wc -l < "$SHIMLOG" | tr -d ' ')"
+TOTAL=$((TOTAL + 1))
+if [ "$SHIM_JQ" -eq 0 ] && [ "$SHIM_ALL" -le 4 ]; then
+  [ "$VERBOSE" -eq 1 ] && printf '   ok    %s\n' "stop-gate: budget — clean tree, current state: no jq, at most 4 commands"
+else
+  FAILED=$((FAILED + 1))
+  printf '   FAIL  %s: started %s\n' "stop-gate: budget — clean tree, current state: no jq, at most 4 commands" \
+    "$(sort "$SHIMLOG" | uniq -c | awk '{printf "%s x%s, ", $2, $1}')"
+fi
+# git rev-parse now runs only when git status fails, and decides as it did
+# when it ran first: a bare repository fails git status but is a git
+# directory, so the gate goes on to the state check (here, the reminder).
+BARE="$SSBASE/bare.git"
+git init -q --bare "$BARE"
+ss_run "$BARE" "$STOPGATE"
+ss_check_rc   "stop-gate: a bare repository (git status fails, rev-parse does not) — not blocking" 0
+ss_check_has  "stop-gate: a bare repository — still reaches the state check, as before" yes "does not exist"
+
+# Without dirname, lib.sh is still found from the hook's own path: by a bare
+# name from its own directory, and where Windows spellings exist (cygpath),
+# by a path with backslashes only, which MSYS dirname also splits.
+SS_OUT="$(cd "$HOOKS" && printf '{}' | CLAUDE_PROJECT_DIR="$FRESH" bash stop-gate.sh 2>&1)"
+SS_RC=$?
+ss_check_silent "stop-gate: run by a bare name from its own directory — finds lib.sh, passes silently"
+if command -v cygpath >/dev/null 2>&1; then
+  SS_OUT="$(printf '{}' | CLAUDE_PROJECT_DIR="$FRESH" bash "$(cygpath -w "$STOPGATE")" 2>&1)"
+  SS_RC=$?
+  ss_check_silent "stop-gate: run by a Windows path with backslashes only — finds lib.sh, passes silently"
+fi
+
 # --- session-start.sh ------------------------------------------------------
 
 ss_run "$STALE" "$SESSTART" ''

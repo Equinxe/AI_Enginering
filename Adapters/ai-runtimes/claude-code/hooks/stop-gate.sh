@@ -8,12 +8,16 @@
 # what the Work Unit Report exists to make visible.
 #
 # LOOP GUARD: Claude Code sets stop_hook_active=true when the model is
-# continuing *because* a Stop hook blocked it. The hook then exits 0, so the
-# model gets exactly one continuation to commit or to state, in its final
-# message, why the changes stay uncommitted. Without the guard the session
-# could never end. This guard is checked FIRST and applies to every block
-# below, including the SESSION_STATE gate — one continuation total, not one
-# per condition.
+# continuing *because* a Stop hook blocked it. The hook then exits 0 and says
+# nothing, so the model gets exactly one continuation to commit or to state,
+# in its final message, why the changes stay uncommitted. Without the guard
+# the session could never end. The guard applies to every block AND every
+# reminder below, including the SESSION_STATE gate — one continuation total,
+# not one per condition. It is read where the hook is about to block or
+# remind (yield_to_loop_guard), not first: the path most stops take, a clean
+# tree and a current SESSION_STATE, says nothing, so it never needs the
+# guard, and reading it there cost a jq process on every stop (PROCESSES ARE
+# THE COST, below).
 #
 # SESSION_STATE GATE (Director-approved 24 Sep): this is the one place this
 # repository's own measured failure — a SESSION_STATE.md whose "_Last
@@ -44,18 +48,44 @@
 # ADVISORY BY DESIGN for everything else: this hook does not know whether a
 # Work Unit Report was written (it lives in a PR body or a named file). It
 # reminds; it blocks only on the two conditions it can verify.
+#
+# PROCESSES ARE THE COST (WU-IAENG-410, issue #351). On Windows every
+# command this hook starts is a process creation, and under parallel agents
+# that, not the hook's own work, is its latency: 29 processes per call,
+# p95 16 s and p99 26 s in production
+# (Governance/BLOCKING_HOOK_LATENCY_MEASUREMENT.md). A Stop hook that reaches
+# its timeout is cancelled and the session ends unchecked; "onFailure" has
+# no effect on Stop, so being fast is this gate's only protection against
+# its own timeout. On the common path the hook therefore starts cat (lib.sh),
+# git status, date and git log, and nothing else: lib.sh is found without
+# dirname, git rev-parse runs only when git status fails (the same
+# decision: git status fails outside a work tree), the clock is bash's own,
+# the mtime and HEAD's time are read without a subshell around them, and
+# the loop guard is read only before the hook says something.
+# tests/run.sh holds the budget.
 
+# lib.sh beside this script, without a dirname process. Either separator
+# ends the directory, as for MSYS dirname (C:\x\hooks\stop-gate.sh), and a
+# bare "stop-gate.sh" gives ".", as dirname would.
+IAENG_HOOK_DIR="${0%[/\\]*}"
+[ "$IAENG_HOOK_DIR" = "$0" ] && IAENG_HOOK_DIR=.
 # shellcheck source=lib.sh
-. "$(dirname "$0")/lib.sh"
+. "$IAENG_HOOK_DIR/lib.sh"
 
-ACTIVE="$(iaeng_bool '.stop_hook_active')"
-[ "$ACTIVE" = "true" ] && exit 0
+# yield_to_loop_guard — exits 0, silently, on the continuation a block gave.
+# Called before every block and every reminder; see LOOP GUARD above.
+yield_to_loop_guard() {
+  [ "$(iaeng_bool '.stop_hook_active')" = "true" ] && exit 0
+  return 0
+}
 
 BASE="${CLAUDE_PROJECT_DIR:-.}"
-git -C "$BASE" rev-parse --is-inside-work-tree >/dev/null 2>&1 || exit 0
+CHANGES="$(git -C "$BASE" status --porcelain --untracked-files=no 2>/dev/null)" \
+  || git -C "$BASE" rev-parse --is-inside-work-tree >/dev/null 2>&1 \
+  || exit 0
 
-CHANGES="$(git -C "$BASE" status --porcelain --untracked-files=no 2>/dev/null)"
 if [ -n "$CHANGES" ]; then
+  yield_to_loop_guard
   {
     echo "iaeng: stop gate — tracked files have uncommitted changes:"
     printf '%s\n' "$CHANGES" | head -20 | sed 's/^/  /'
@@ -71,9 +101,17 @@ fi
 # --- SESSION_STATE freshness gate — see header comment ----------------------
 STATE="$BASE/.ia-engineering/SESSION_STATE.md"
 if [ -f "$STATE" ]; then
-  STATE_MTIME="$(iaeng_file_mtime "$STATE")"
-  HEAD_TS="$(iaeng_head_commit_time "$BASE")"
-  NOW="$(iaeng_now)"
+  # lib.sh's iaeng_file_mtime, iaeng_head_commit_time and iaeng_now, read in
+  # place: $(helper) wraps the helper's own $(command) in a second subshell.
+  # A value that is not an integer is no value, as there.
+  STATE_MTIME="$(date -r "$STATE" +%s 2>/dev/null)"
+  iaeng_is_int "$STATE_MTIME" || STATE_MTIME=""
+  HEAD_TS="$(git -C "$BASE" log -1 --format=%ct 2>/dev/null)"
+  iaeng_is_int "$HEAD_TS" || HEAD_TS=""
+  # bash's own clock (bash 4.2 and later): no process. Elsewhere, date.
+  NOW=""
+  printf -v NOW '%(%s)T' -1 2>/dev/null
+  iaeng_is_int "$NOW" || NOW="$(iaeng_now)"
   if [ -n "$STATE_MTIME" ] && [ -n "$HEAD_TS" ] && [ -n "$NOW" ]; then
     if [ "$HEAD_TS" -gt "$NOW" ]; then
       # HEAD's commit is dated after the system clock: clock skew, or a
@@ -81,9 +119,11 @@ if [ -f "$STATE" ]; then
       # cannot be trusted, so this is treated exactly like the "could not
       # determine" branch below — warn, do not block — rather than blocked
       # or silently passed.
+      yield_to_loop_guard
       HEAD_CDATE="$(git -C "$BASE" log -1 --format=%cd 2>/dev/null)"
       echo "iaeng: stop gate — HEAD's last commit is dated after the system clock ($HEAD_CDATE vs. $(date 2>/dev/null)) — cannot verify whether SESSION_STATE.md is current; not blocking on it. Verify by hand." >&2
     elif [ "$STATE_MTIME" -lt "$HEAD_TS" ]; then
+      yield_to_loop_guard
       BEHIND="$(git -C "$BASE" rev-list --count --since="@$STATE_MTIME" HEAD 2>/dev/null)"
       HEAD_CDATE="$(git -C "$BASE" log -1 --format=%cd 2>/dev/null)"
       {
@@ -104,9 +144,11 @@ if [ -f "$STATE" ]; then
   else
     # Fail safe: a git error or an unreadable mtime/clock must not turn into
     # a false block. Warn — do not block — and let the session end.
+    yield_to_loop_guard
     echo "iaeng: stop gate — could not determine whether SESSION_STATE.md is current (mtime, HEAD commit time, or system clock unavailable); not blocking on it. Verify by hand." >&2
   fi
 else
+  yield_to_loop_guard
   ROOT="$(iaeng_framework_root || true)"
   if [ -n "$ROOT" ]; then
     HELPER="$ROOT/Adapters/scripts/create-session-state.sh"
