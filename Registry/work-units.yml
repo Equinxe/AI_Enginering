@@ -1646,9 +1646,9 @@ work_units:
 
   - id: WU-IAENG-399
     employee: Platform Engineer
-    title: Reserved 28 Oct 2026 before dispatch (WU-IAENG-402) - canonicalise the cache directory tail in lib.sh iaeng_cache_dir (issue #342) - iaeng_cache_dir and check-framework-drift.sh cache_dir_canon refuse a cache directory with a . or .. component but do not read a backslash as a separator, so a backslash .. component passes the test a slash one fails
+    title: The drift cache directory never resolves inside the project through a backslash (issue #342) - lib.sh iaeng_cache_dir and check-framework-drift.sh cache_dir_canon split the path on / alone, so the part still to be made (..\proj\cache, or proj\cache with no .. at all) was kept as one name below a directory outside the project, never tested, and created inside it on Windows; both now read every backslash as a separator before the . and .. test and in the walk, --cache-dir refuses a \.. component (64) as it refuses a /.. one, and one hand-written table of /, \, mixed and drive-letter spellings drives both copies of the rule; after review (sec-360, qa-360, cr-360) both copies also refuse a directory whose existing part resolves to the root, which the join turned into a //host network path into the project (SEC-IAENG-399-01), and end the walk at the root of a drive that does not exist, where it looped forever, as it did for a Windows cache home not yet made spelt the way the hook spells it
     milestone: Adoption
-    delivers: planned - Adapters/ai-runtimes/claude-code/hooks/lib.sh, Adapters/scripts/check-framework-drift.sh, Adapters/ai-runtimes/claude-code/hooks/tests/drift.sh, changelog.d/WU-IAENG-399.md, Registry/work-units.yml
+    delivers: Adapters/ai-runtimes/claude-code/hooks/lib.sh, Adapters/scripts/check-framework-drift.sh, Adapters/ai-runtimes/claude-code/hooks/tests/drift.sh, changelog.d/WU-IAENG-399.md, Registry/work-units.yml
 
   - id: WU-IAENG-400
     employee: Platform Engineer
@@ -1658,9 +1658,9 @@ work_units:
 
   - id: WU-IAENG-401
     employee: Platform Engineer
-    title: Reserved 28 Oct 2026 before dispatch (WU-IAENG-402) - context hooks clean orphan temp files and tests stay out of the real state directory (issue #345) - the context statusLine writer's cleanup removes only .pct and .alert files older than 24 h, so the .tmp files of a render killed before its rename accumulate, and a context hook test writes into the real iaeng-ctx state directory; with the #343 Code Reviewer minors in context-dir.sh and the tests
+    title: Context hooks clean orphan temp files and tests stay out of the real state directory (issue #345) - the context statusLine writer's cleanup removes only .pct and .alert files older than 24 h, so the .tmp files of a render killed before its rename accumulate, and a context hook test writes into the real iaeng-ctx state directory; with the #343 Code Reviewer minors in context-dir.sh and the tests
     milestone: Adoption
-    delivers: planned - Adapters/ai-runtimes/claude-code/hooks/context-statusline.sh, Adapters/ai-runtimes/claude-code/hooks/context-dir.sh, Adapters/ai-runtimes/claude-code/hooks/tests/context-statusline.sh, Adapters/ai-runtimes/claude-code/hooks/tests/context-alert.sh, changelog.d/WU-IAENG-401.md, Registry/work-units.yml
+    delivers: Adapters/ai-runtimes/claude-code/hooks/context-statusline.sh, Adapters/ai-runtimes/claude-code/hooks/context-dir.sh, Adapters/ai-runtimes/claude-code/hooks/tests/context-statusline.sh, Adapters/ai-runtimes/claude-code/hooks/tests/context-alert.sh, Adapters/ai-runtimes/claude-code/hooks/tests/real-ctx-dir.sh, Adapters/ai-runtimes/claude-code/hooks/README.md, changelog.d/WU-IAENG-401.md, Registry/work-units.yml
 
   - id: WU-IAENG-402
     employee: Technical Writer
@@ -1706,9 +1706,9 @@ work_units:
 
   - id: WU-IAENG-409
     employee: Prompt Engineer
-    title: Reserved 28 Oct 2026 before dispatch (WU-IAENG-408) - an Employee runs one full test suite at a time, never several in parallel (issue #350, peer K1) - Templates/EMPLOYEE_BRIEF.md and the Main Agent's dispatch guidance gain a rule that an Employee runs at most one full test suite at a time, with no background job or xargs -P, bounds a long run with a timeout, and runs the touched sections first while CI runs the rest
+    title: An Employee runs the tests that cover its change first and one full test suite at a time, under a timeout, and CI runs every suite (issue #350, peer K1) - Templates/EMPLOYEE_BRIEF.md (0.0.10) Constraints and Boundaries gains fixed text binding every Work Unit that runs tests - touched tests first where the suite can run one section, at most one full suite at a time with no background job or fan-out, every full-suite run under a timeout, a run the timeout ended is not evaluated and never passed, the required CI checks are the gate evidence for the suites not run - with its rationale outside the block; Workflows/FEATURE_DEVELOPMENT.md (0.0.15) Step 3 item 4 and its Output say the same instead of run existing tests locally; no Core change and no machine-wide limit (Director, 28 Oct 2026; a machine limit is decided after WU-IAENG-410)
     milestone: Adoption
-    delivers: planned - Templates/EMPLOYEE_BRIEF.md, Core/ORCHESTRATION.md, changelog.d/WU-IAENG-409.md, Registry/work-units.yml
+    delivers: Templates/EMPLOYEE_BRIEF.md, Workflows/FEATURE_DEVELOPMENT.md, changelog.d/WU-IAENG-409.md, Registry/work-units.yml
 
   - id: WU-IAENG-410
     employee: Performance Engineer
@@ -1718,9 +1718,9 @@ work_units:
 
   - id: WU-IAENG-411
     employee: Prompt Engineer
-    title: Reserved 28 Oct 2026 before dispatch (WU-IAENG-408) - a Merge danger section in the Pull Request template, and the Code Reviewer hunts the defect before approving (issue #352, peer K3 and K4) - the template states how easy the rollback is and what breaks if the change is wrong; before APPROVE the Code Reviewer names the two places in the diff where a HIGH defect would hide best, checks them, and mutates every guard the diff touches or states why it cannot
+    title: A Merge danger section in the Pull Request template, and the Code Reviewer hunts the defect before approving (issue #352, peer K3 and K4) - Templates/PULL_REQUEST.md (0.0.8) and its two GitHub copies gain a Merge danger section after Why, stating whether a revert undoes the change and what fails if it is wrong, with a Field Reference row tied to Standards/RISK_STANDARD.md; Employees/Specialized/CODE_REVIEWER.md (0.0.5) gains a Defect Hunt run at step 12 before any approval, over the whole Pull Request diff at the approving head (narrowed to the changes since an already hunted head only) - the two places in the diff where a critical or major defect would hide best, named and checked along four angles (false green, bypass, scope with sibling files, limits), and every guard the diff adds or changes deleted or inverted in a disposable copy per Standards/TESTING_STANDARD.md Falsifiability items 4 and 6, one mutant at a time with the narrowest check under a time limit, a surviving mutant being a missing test that blocks under Workflows/CODE_REVIEW.md Step 3, an equivalent mutant declared (a redundant guard, Minimal Code item 7) and a timed-out run inconclusive, a guard that cannot be mutated listed with why and left unverified - recorded in the Review Decision and the Definition of Done; Workflows/CODE_REVIEW.md (0.0.12) Step 8 runs it before approving, its Prerequisites name the merge danger and do not send back a Pull Request opened from the earlier template (the reviewer asks for the two lines in a comment), and its Exit Criteria name the hunt; the predictions, the Two Axes, Minimal Code and the Ten Review Lessons are unchanged
     milestone: Adoption
-    delivers: planned - Templates/PULL_REQUEST.md, Adapters/github/PULL_REQUEST_TEMPLATE.md, .github/PULL_REQUEST_TEMPLATE.md, Employees/Specialized/CODE_REVIEWER.md, Workflows/CODE_REVIEW.md, changelog.d/WU-IAENG-411.md, Registry/work-units.yml
+    delivers: Templates/PULL_REQUEST.md, Adapters/github/PULL_REQUEST_TEMPLATE.md, .github/PULL_REQUEST_TEMPLATE.md, Employees/Specialized/CODE_REVIEWER.md, Workflows/CODE_REVIEW.md, changelog.d/WU-IAENG-411.md, Registry/work-units.yml
 
   - id: WU-IAENG-412
     employee: Prompt Engineer
@@ -1733,3 +1733,39 @@ work_units:
     title: Reserved 28 Oct 2026 before dispatch (WU-IAENG-408) - AMELIORATION.md strikes through what is done since 23 Oct and adds the new strengths and weaknesses (issue #354) - W2 a, b and d, W9, W14 to W16 and W18 to W21 are done on develop but not struck through; each is struck through with the Pull Request that delivered it, and the strengths and weaknesses seen since 23 Oct are added
     milestone: Adoption
     delivers: planned - AMELIORATION.md, changelog.d/WU-IAENG-413.md, Registry/work-units.yml
+
+  - id: WU-IAENG-414
+    employee: Platform Engineer
+    title: Reserved 28 Oct 2026 before dispatch (WU-IAENG-420) - git hooks do not run inside a git worktree of an adopting project (submodule not initialised, relative core.hooksPath) (issue #368, 28 Oct 2026 adoption rehearsal Blocker) - in a worktree the framework submodule is empty and core.hooksPath ia-engineering/Adapters/git-hooks names a missing directory, so commit-msg and pre-commit do not run and an Employee's commit with a refused trailer or real data goes through in silence; the worktree gets the submodule initialised or the commit is refused, or core.hooksPath works from every worktree, and whether the Claude Code hooks resolve from a subagent worktree's CLAUDE_PROJECT_DIR is checked
+    milestone: Adoption
+    delivers: planned - Adapters/scripts/install.sh, Adapters/ai-runtimes/claude-code/hooks/session-start.sh, Adapters/ai-runtimes/claude-code/install-hooks.sh, Adapters/scripts/tests/run.sh, Adapters/ai-runtimes/claude-code/hooks/tests/run.sh, Templates/PROJECT_CLAUDE.md, Governance/TROUBLESHOOTING.md, changelog.d/WU-IAENG-414.md, Registry/work-units.yml
+
+  - id: WU-IAENG-415
+    employee: Platform Engineer
+    title: Reserved 28 Oct 2026 before dispatch (WU-IAENG-420) - commit-msg checks that the Work Unit exists, as the README says (issue #364, 28 Oct 2026 adoption rehearsal Major) - the local commit-msg hook checks only the Work Unit line's format and count, so an unregistered Work Unit passes locally and, on the adoption commit pushed straight to main, is never seen by the Work Unit Exists CI check; commit-msg resolves it against the project's Registry/work-units.yml as staged in the index when that file exists, and README.md Contributing says what the hooks do
+    milestone: Adoption
+    delivers: planned - Adapters/git-hooks/commit-msg, Adapters/scripts/check-work-units.sh, Adapters/scripts/tests/run.sh, README.md, changelog.d/WU-IAENG-415.md, Registry/work-units.yml
+
+  - id: WU-IAENG-416
+    employee: Technical Lead
+    title: Reserved 28 Oct 2026 before dispatch (WU-IAENG-420) - the Prompt Engineer review covers Templates/EMPLOYEE_BRIEF.md and generate-agents.sh (issue #206, Director 28 Oct 2026, not Workflows/; part of issue #221) - the mandatory Prompt Engineer review, today on Employees/ and any Core/*.md document, extends to Templates/EMPLOYEE_BRIEF.md and to the text Adapters/ai-runtimes/generate-agents.sh writes around every Employee definition, and Workflows/ documents stay outside it; the Core/EMPLOYEE_SELECTION.md trigger, Workflows/CODE_REVIEW.md and Registry/workflows.yml change together, and the Core text needs the Director's approval
+    milestone: Adoption
+    delivers: planned - Core/EMPLOYEE_SELECTION.md, Workflows/CODE_REVIEW.md, Registry/workflows.yml, changelog.d/WU-IAENG-416.md, Registry/work-units.yml
+
+  - id: WU-IAENG-417
+    employee: Technical Writer
+    title: Reserved 28 Oct 2026 before dispatch (WU-IAENG-420) - adopter README gains a project tier-map step, and the 28 Oct 2026 rehearsal's doc Minors are fixed (issue #365) - Getting Started shows generate-agents.sh --print-tier-map, the project's .ia-engineering/tier-map and which model suits which task (Haiku, Sonnet, Opus, Fable), since Standard Execution otherwise generates Sonnet agents; the doc Minors are install-skills.sh adding /dashboard too, the bash and jq prerequisites, the Risk Map's eight categories to complete, FEATURE_DEVELOPMENT Step 4 citing VERSION.md to an adopter, the signer of the project CLAUDE.md commit, and submodule update before install.sh in a fresh clone
+    milestone: Adoption
+    delivers: planned - README.md, Workflows/FEATURE_DEVELOPMENT.md, Workflows/ONBOARDING.md, Templates/PROJECT_CLAUDE.md, changelog.d/WU-IAENG-417.md, Registry/work-units.yml
+
+  - id: WU-IAENG-418
+    employee: Platform Engineer
+    title: Reserved 28 Oct 2026 before dispatch (WU-IAENG-420) - session-start drift check never completes on Windows within its budget (issue #366, 28 Oct 2026 adoption rehearsal Major) - check-framework-drift.sh --quick takes 4.9 to 5.6 s cold under Git Bash against a 3 s budget, the killed run writes no cache so every later session overruns too, the overrun is said once and then silent, and the Run it by hand command shown writes no cache; the run fills the cache for the next session or the command shown does, and the overrun is not silenced while no run has completed
+    milestone: Adoption
+    delivers: planned - Adapters/ai-runtimes/claude-code/hooks/session-start.sh, Adapters/scripts/check-framework-drift.sh, Adapters/ai-runtimes/claude-code/hooks/tests/drift.sh, changelog.d/WU-IAENG-418.md, Registry/work-units.yml
+
+  - id: WU-IAENG-420
+    employee: Technical Writer
+    title: Reserve Work Units 414 to 418 before dispatch (Workflows/FEATURE_DEVELOPMENT.md Step 4, precedent WU-IAENG-381, WU-IAENG-393, WU-IAENG-398, WU-IAENG-402 and WU-IAENG-408) - the five Work Units of issues #368, #364, #206 with #221, #365 and #366 registered in one bookkeeping Pull Request, so each Work Unit's own Pull Request edits only its own entry; the v0.0.15 release Work Unit is not reserved, because release.sh check runs at Step 1 before the bump and would fail on it, so the bump Pull Request registers its own as #250 did for WU-IAENG-345; this Work Unit's own fragment is an exemption
+    milestone: Adoption
+    delivers: Registry/work-units.yml, changelog.d/WU-IAENG-420.md

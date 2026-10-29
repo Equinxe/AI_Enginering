@@ -26,6 +26,13 @@ Work Unit: [WU-ID]
 
 ---
 
+### Merge danger
+
+- Rollback: [easy — reverting this PR restores the previous state | hard — what a revert does not undo: data written, a migration, a published tag or release, a file adopting projects have already copied]
+- What breaks if this is wrong: [who or what fails, and how it would show]
+
+---
+
 ### How to test
 
 [Step-by-step instructions for the reviewer to verify the change works:]
