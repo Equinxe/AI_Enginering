@@ -115,13 +115,21 @@ fi
 #   2. <repo>/Registry/           — the framework's own repository (dogfooding)
 #   3. <repo>/ia-engineering/     — the submodule path Workflows/ONBOARDING.md
 #                                   and Adapters/README.md both assume
+#   4. the framework this hook    — <hook>/../../Registry. In a linked git
+#      file belongs to              worktree of an adopting project the
+#                                   submodule is empty, and install.sh points
+#                                   core.hooksPath at the main checkout's
+#                                   framework, so the roster is found beside
+#                                   the hook git runs (WU-IAENG-414, #368)
 REPO_ROOT="$(git rev-parse --show-toplevel)"
+HOOK_FRAMEWORK="$(CDPATH='' cd -- "$(dirname -- "$0")/../.." && pwd)"
 ROSTER=""
 
 for candidate in \
   "${IAENG_REGISTRY:-}" \
   "$REPO_ROOT/Registry/employees.yml" \
-  "$REPO_ROOT/ia-engineering/Registry/employees.yml"
+  "$REPO_ROOT/ia-engineering/Registry/employees.yml" \
+  "$HOOK_FRAMEWORK/Registry/employees.yml"
 do
   if [ -n "$candidate" ] && [ -f "$candidate" ]; then
     ROSTER="$candidate"
@@ -140,10 +148,15 @@ if [ -z "$ROSTER" ]; then
   echo "    \$IAENG_REGISTRY (currently: '${IAENG_REGISTRY:-unset}')" >&2
   echo "    $REPO_ROOT/Registry/employees.yml" >&2
   echo "    $REPO_ROOT/ia-engineering/Registry/employees.yml" >&2
+  echo "    $HOOK_FRAMEWORK/Registry/employees.yml (the framework of this hook)" >&2
   echo "  The Employee roster is the single source of truth for the" >&2
   echo "  'Employee:' trailer (see Registry/README.md). Without it this hook" >&2
   echo "  cannot validate anything, and passing silently would be worse than" >&2
   echo "  failing. Import the framework, or set IAENG_REGISTRY to its path." >&2
+  echo "  In a linked git worktree the framework submodule is empty until" >&2
+  echo "  'git submodule update --init' runs there; re-running" >&2
+  echo "  ia-engineering/Adapters/scripts/install.sh in the main checkout points" >&2
+  echo "  core.hooksPath at a framework every worktree reaches." >&2
   exit 1
 fi
 
