@@ -13,13 +13,13 @@ The project domain glossary is where those meanings are written down once they a
 - **The project's domain vocabulary.** Words of the business the project serves, as its experts use them.
 - **Not the framework's vocabulary.** "Work Unit", "Employee", "Director" and the other framework terms are defined in the framework's `Core/GLOSSARY.md`, which a project never edits. A project word that collides with a framework term (a "release" in a publishing business, say) gets its own entry here, and the entry says which meaning it is.
 - **Not a technical glossary.** "API", "cache" or "queue" go in only when the domain gives them a meaning of its own on this project.
-- **Not a source of rules.** An entry defines a word. It never instructs an Employee to do something: a rule belongs in `CLAUDE.md` or in a Standard. The glossary is read into Employees' context, so text written as an instruction is refused at review, the same way a pasted instruction is refused in any other data an Employee reads.
+- **Not a source of rules.** An entry defines a word. It never instructs an Employee to do something: a rule belongs in `CLAUDE.md` or in a Standard. The glossary is read into Employees' context, so an entry worded as an instruction would act as one. This template makes that a check, with two owners: the Business Analyst does not write such an entry, and whoever reviews a Pull Request that changes the glossary rejects one, as a finding of this template.
 
 ## Where it lives
 
 `.ia-engineering/DOMAIN_GLOSSARY.md`, committed.
 
-- **`.ia-engineering/` is where a project keeps what is true of it.** The declared stack, the Risk Map, the Domain Employees (`Templates/DOMAIN_EMPLOYEE.md`) and the project roster already live there, and all of it is committed. Only `SESSION_STATE.md` is gitignored. The Domain Employees are the glossary's closest readers and sit beside it.
+- **`.ia-engineering/` is where a project keeps what is true of it.** The declared stack, the Risk Map, the Domain Employees (`Templates/DOMAIN_EMPLOYEE.md`) and the project roster already live there, and all of it is committed. Only local state is gitignored: `SESSION_STATE.md` and `usage/`. The Domain Employees are the glossary's closest readers and sit beside it.
 - **One fixed path.** A brief, a review or a Domain Employee can name the file without asking where this project put it. `docs/` was considered and not chosen: the framework neither creates nor assumes a `docs/` tree, and an adopter's `docs/` often has its own conventions or feeds a published site.
 - **`DOMAIN_GLOSSARY.md`, not `GLOSSARY.md`.** In an adopting project the framework's vocabulary is at `ia-engineering/Core/GLOSSARY.md`. A second `GLOSSARY.md` one character away (`.ia-engineering/` against `ia-engineering/`) would let a reader or a search open the wrong file.
 - **A project that already keeps a domain glossary** keeps it where it is. Its `CLAUDE.md` names that path in place of this one, and the rules below apply to that file. A second copy here would be two copies of the same fact, which drift.

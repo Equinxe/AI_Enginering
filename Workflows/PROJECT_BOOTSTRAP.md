@@ -55,7 +55,7 @@ Before this workflow begins:
 
 **Actor:** Main Agent, with Business Analyst and Product Manager
 
-The Main Agent asks the Director a set of business-before-tech questions, roughly twenty in number as an order of magnitude, not a fixed count. Use judgment: ask what is genuinely useful to define the project, skip what does not apply. Ask them in numbered rounds, each question with a recommended answer where what is already known supports one, as the Business Analyst does (`Employees/Specialized/BUSINESS_ANALYST.md`, Clarification Rounds): a round holds the questions that can be answered now, and the next round holds those the answers unblocked. Structure the questions into these categories:
+The Main Agent asks the Director a set of business-before-tech questions, roughly twenty in number as an order of magnitude, not a fixed count. Use judgment: ask what is genuinely useful to define the project, skip what does not apply. Ask them in numbered rounds, each question with a recommended answer where what is already known supports one: each round is one numbered batch under `Core/MAIN_AGENT_CONDUCT.md`, Presenting a Decision to the Director, item 3, ordered by dependency as the Business Analyst does (`Employees/Specialized/BUSINESS_ANALYST.md`, Clarification Rounds): a round holds the questions that can be answered now, and the next round holds those the answers unblocked. Structure the questions into these categories:
 
 1. **Business goal** — What problem does this solve? What is the one-sentence value proposition?
 2. **Target users / consumers** — Who uses this? Are they internal, external, or another system?

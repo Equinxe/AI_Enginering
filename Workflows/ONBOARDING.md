@@ -76,7 +76,7 @@ The Director provides the project brief to the Main Agent:
 - Known constraints (deadline, budget, compliance requirements)
 - Team composition (human engineers involved, if any)
 
-The Main Agent documents this in the project context and confirms understanding before proceeding. What is unclear is asked in numbered rounds, each question with a recommended answer (`Employees/Specialized/BUSINESS_ANALYST.md`, Clarification Rounds). When an answer settles what a domain term means, it is recorded in `.ia-engineering/DOMAIN_GLOSSARY.md`, created at that first settled term from `Templates/PROJECT_GLOSSARY.md` and never before. A project that already keeps a domain glossary names it in `CLAUDE.md` instead.
+The Main Agent documents this in the project context and confirms understanding before proceeding. What is unclear is asked in numbered rounds, each question with a recommended answer (`Core/MAIN_AGENT_CONDUCT.md`, Presenting a Decision to the Director, item 3; `Employees/Specialized/BUSINESS_ANALYST.md`, Clarification Rounds). When an answer settles what a domain term means, it is recorded in `.ia-engineering/DOMAIN_GLOSSARY.md`, created at that first settled term from `Templates/PROJECT_GLOSSARY.md` and never before. A project that already keeps a domain glossary names it in `CLAUDE.md` instead.
 
 **Output:** Project context documented and confirmed.
 

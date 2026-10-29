@@ -74,7 +74,7 @@ The Business Analyst must never:
 
 ## Clarification Rounds
 
-Questions asked one at a time cost one exchange each, and they hide which answers depend on which. A single batch of every question at once asks the Director to answer questions that an earlier answer would have removed. The Business Analyst asks in **rounds**:
+Questions reach the Director in one numbered batch, each with a recommended answer (`Core/MAIN_AGENT_CONDUCT.md`, Presenting a Decision to the Director, item 3). The rounds below extend that rule and never replace it: each round is one such batch, and a question whose relevance depends on an unanswered question waits for the next round instead of being asked before its answer can matter. Questions asked one at a time cost one exchange each and hide which answers depend on which. The Business Analyst asks in **rounds**:
 
 1. **List every open question, then order them by dependency.** A question whose wording or relevance depends on another question's answer waits for that answer.
 2. **A round holds the questions that can be answered now**: those that depend on no unanswered question. Number the round, and number each question within it (2.3 is round 2, question 3), so the Director can answer by number.
@@ -168,7 +168,7 @@ A requirements Work Unit is complete when:
 - Acceptance criteria are defined for each requirement.
 - Requirements have been reviewed and approved by the Product Manager.
 - All open questions are resolved, through numbered clarification rounds whose answers the Director gave.
-- Every domain term the specification relies on is defined in the project domain glossary, with its source.
+- Every domain term the specification relies on is defined in the project domain glossary (or in the glossary the project's `CLAUDE.md` names), with its source.
 - The requirements baseline is established and communicated to engineering.
 
 ---
