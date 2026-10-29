@@ -13,7 +13,7 @@ The measurement was taken on 28 October 2026 and the decision was made on 29 Oct
 1. **The premise was wrong.** The issue assumed a 10-second timeout. The two PreToolUse guards and the Stop gate had no `timeout` of their own, so Claude Code's default of **600 s** applied. A guard that hung was given ten minutes, and then the tool call went through.
 2. **That fail-open happened once in production.** On 27 October, `block-inline-suppression.sh` hung in a subagent and was cancelled at its timeout, and the edit went through (Observed Timeouts below).
 3. **Under load, the latency comes from process creation, not from the hooks' own work.** In production, `stop-gate.sh` (29 processes per call) has a p95 of 16 s and a p99 of 26 s. That is 3 to 4 times a hook that starts almost nothing, measured on the same Stop events. `block-escape-hatches.sh` starts 84 processes on every Bash call. Its modelled production latency is a p50 of 9 s and a p99 of 61 s, rising to about 90 s with 8 or more agents.
-4. **Director decision, 29 October 2026:** record this measurement; give both guards `"onFailure": "block"` and an explicit timeout; lighten the hooks that start many processes. The guards now have a **120 s** timeout and fail closed. `stop-gate.sh` starts **4 commands instead of 8** on its common path (Decisions Taken).
+4. **Director decision, 29 October 2026:** record this measurement; give both guards `"onFailure": "block"` and an explicit timeout; lighten the hooks that start many processes. The guards now have a **120 s** timeout and fail closed. `stop-gate.sh` starts **4 commands instead of 8** on its common path. Benched under load, that is 15 processes per call instead of 29, and a p50 and p99 46 % lower (Decisions Taken).
 
 ---
 
@@ -195,7 +195,7 @@ Ranked by the cost they would remove. Each needs its own Work Unit.
 
 # Limits
 
-- **One machine.** Windows with Git Bash and Defender's real-time scanning is the expensive case. On Linux and macOS a process costs a few milliseconds, and the same hooks are not slow.
+- **One machine.** Windows with Git Bash and Defender's real-time scanning is the expensive case. Linux and macOS were not measured. A fork and an exec cost far less there than under MSYS, so the same hooks are expected to be much faster, but no number here says how much.
 - **The guards' production latency is modelled.** Claude Code does not record a PreToolUse hook that succeeds. The model assumes a guard's extra cost over the floor scales with load the way the gate's does. The two values of `k` show how sensitive the result is to that assumption.
 - **The load measure is a proxy.** It counts this project's transcripts active in the same minute. It does not count other projects or CI.
 - **No idle bench.** The machine was under load through the whole bench window. One active agent in production is the nearest idle figure: a p50 of 973 ms for the gate.
@@ -207,7 +207,7 @@ Ranked by the cost they would remove. Each needs its own Work Unit.
 
 - Claude Code hooks reference: <https://code.claude.com/docs/en/hooks.md> (timeouts, `onFailure`, parallel execution), read 28 and 29 October 2026, against Claude Code 2.1.312.
 - Transcripts: `~/.claude/projects/<this repository>/*.jsonl` and their `subagents/` files, 3 September to 28 October 2026, read only. Fields used: `durationMs`, `timedOut` and `timeoutMs` of `stop_hook_summary`, `hook_success` and `hook_cancelled`.
-- The working notes of the measurement, in French, are kept outside the repository as `.ia-engineering/handoff-2026-10-28-hook-latency.md`. The bench harness, its raw data and the model scripts are in the session's scratch directory. They are not committed, because they hold transcript-derived data (`Standards/DATA_PROTECTION_STANDARD.md`).
+- The working notes of the measurement, in French, are not committed: they are `.ia-engineering/handoff-2026-10-28-hook-latency.md`, in the gitignored state directory. The bench harness, its raw data and the model scripts are in the session's scratch directory. They are not committed, because they hold transcript-derived data (`Standards/DATA_PROTECTION_STANDARD.md`).
 - Issue #351 (the question), #368 (the uninitialised submodule in a worktree), #385 (lightening `block-escape-hatches.sh`).
 
 ---
