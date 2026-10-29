@@ -158,8 +158,10 @@ Request.
 
 Enforcement installed here: [git hooks via `core.hooksPath`; the CI checks
 listed in `Adapters/scripts/setup-branch-protection.sh`; the runtime hooks in
-`Adapters/ai-runtimes/<runtime>/`]. Re-run
-`./ia-engineering/Adapters/scripts/install.sh` in every fresh clone.
+`Adapters/ai-runtimes/<runtime>/`]. In every fresh clone, fetch the framework
+first (`git submodule update --init`, or clone with `--recurse-submodules`),
+since `install.sh` lives in the submodule, then re-run
+`./ia-engineering/Adapters/scripts/install.sh`.
 
 ---
 
@@ -223,7 +225,7 @@ direction. Move an answered one into the body of this file and delete it here.]
 
 Owner: IA Engineering
 
-Version: 0.0.13
+Version: 0.0.14
 
 Status: Draft
 
