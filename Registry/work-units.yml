@@ -1748,9 +1748,9 @@ work_units:
 
   - id: WU-IAENG-416
     employee: Technical Lead
-    title: Reserved 28 Oct 2026 before dispatch (WU-IAENG-420) - the Prompt Engineer review covers Templates/EMPLOYEE_BRIEF.md and generate-agents.sh (issue #206, Director 28 Oct 2026, not Workflows/; part of issue #221) - the mandatory Prompt Engineer review, today on Employees/ and any Core/*.md document, extends to Templates/EMPLOYEE_BRIEF.md and to the text Adapters/ai-runtimes/generate-agents.sh writes around every Employee definition, and Workflows/ documents stay outside it; the Core/EMPLOYEE_SELECTION.md trigger, Workflows/CODE_REVIEW.md and Registry/workflows.yml change together, and the Core text needs the Director's approval
+    title: The Prompt Engineer review covers Templates/EMPLOYEE_BRIEF.md and generate-agents.sh (issue #206, Director 28 Oct 2026, not Workflows/; part of issue #221) - Workflows/CODE_REVIEW.md (0.0.13) Step 4 holds the single list of files whose change, deletion or rename needs the Prompt Engineer's approval, an Employee definition, any Core/*.md document, Templates/EMPLOYEE_BRIEF.md and Adapters/ai-runtimes/generate-agents.sh as a whole, with the provenance of each; the Actors table, the Step 4 Output, the Multi-Lens Review table and the Exit Criteria refer to that list, and the Code Review blocking condition in Registry/workflows.yml refers to Step 4; Workflows/ documents stay outside it; Workflows/CODE_REVIEW.md and Registry/workflows.yml change together; Core/EMPLOYEE_SELECTION.md is unchanged (Director, 29 Oct 2026, option A)
     milestone: Adoption
-    delivers: planned - Core/EMPLOYEE_SELECTION.md, Workflows/CODE_REVIEW.md, Registry/workflows.yml, changelog.d/WU-IAENG-416.md, Registry/work-units.yml
+    delivers: Workflows/CODE_REVIEW.md, Registry/workflows.yml, changelog.d/WU-IAENG-416.md, Registry/work-units.yml
 
   - id: WU-IAENG-417
     employee: Technical Writer
