@@ -81,7 +81,10 @@ Copy `Templates/PROJECT_CLAUDE.md` to your project's `CLAUDE.md` and fill it in.
 It is the contract every session reads first; a project without one starts every
 session with no context and no rules. Make your first commit (the adoption itself: the submodule and the installed
 tooling; `CLAUDE.md` goes in a later commit), signed `Employee: DevOps Engineer`
-(`Workflows/PROJECT_BOOTSTRAP.md` Step 4). Then create
+(`Workflows/PROJECT_BOOTSTRAP.md` Step 4), with a `Work Unit:` line naming the
+adoption Work Unit, registered in `Registry/work-units.yml` in that same commit.
+This commit goes to `main` without a Pull Request, so no CI check reads it: the
+`commit-msg` hook refuses an unregistered Work Unit, but not a missing line. Then create
 `.ia-engineering/SESSION_STATE.md`. The helper
 `./ia-engineering/Adapters/scripts/create-session-state.sh` does it for you: it
 refuses before the first commit and never overwrites an existing file, writes the
@@ -280,8 +283,11 @@ and a rule into a mechanical control.
 Two things worth knowing before opening a Pull Request:
 
 - **Every commit carries a `Work Unit:` and an `Employee:` trailer**, and CI
-  resolves both against `Registry/`. The git hooks install these locally so the
-  failure happens before the push, not after it.
+  resolves both against `Registry/` on every Pull Request. The `commit-msg` hook
+  refuses the commit before it exists when the `Employee:` name is not on the
+  roster or the `Work Unit:` id is not in `Registry/work-units.yml` as staged,
+  so register the Work Unit in the same commit. A commit with no `Work Unit:`
+  line passes the hook; only the CI check refuses it.
 - **The review limit is 1,500 changed lines.** Past that a review is a skim.
   Split the change, or the Director accepts the size explicitly with a label.
 

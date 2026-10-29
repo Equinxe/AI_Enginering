@@ -2096,9 +2096,11 @@ HOOK="$SCRIPTS/../git-hooks/commit-msg"
 # commit-msg resolves the Employee roster from REPO_ROOT/Registry/employees.yml
 # (Adapters/git-hooks/commit-msg, "Locate the Employee roster"), so the
 # throwaway repo needs one, exactly like check-employee-trailer.sh's cases
-# above.
+# above. It resolves a `Work Unit:` claim against the staged
+# Registry/work-units.yml too (WU-IAENG-415), so the claim is registered.
 new_repo commit-msg-types
 write_employee_roster "Test Employee"
+write_wu_registry WU-TEST-001
 git add -A && git commit -q -m "roster"
 
 cat > msg-perf.txt <<'MSG'
@@ -2178,6 +2180,141 @@ SHIM
 chmod +x "$WORK/shim-hook/git"
 expect 0 "an unclassifiable merge warns and is left to CI" -- env PATH="$WORK/shim-hook:$PATH" bash "$HOOK" msg-merge.txt
 expect_output "cannot classify this merge locally"
+
+# ------------- the Work Unit claim resolves: commit-msg (WU-IAENG-415) --------
+#
+# Issue #364, from the 28 Oct 2026 adoption rehearsal: commit-msg counted the
+# `Work Unit:` lines and never resolved one, so `Work Unit: WU-DEMO-999` was
+# committed locally. The adoption commit is pushed straight to main, with no
+# Pull Request, so the Work Unit Exists CI check never saw it either.
+#
+# The hook now hands a present claim to check-work-units.sh --message: the
+# rule the CI check applies, run against the registry the commit RECORDS,
+# which is Registry/work-units.yml as staged. A message with no `Work Unit:`
+# line is still left to CI (install.sh's own probe carries none).
+
+section "git-hooks/commit-msg — the Work Unit claim resolves against the staged registry (WU-IAENG-415, #364)"
+
+HOOK415="$SCRIPTS/../git-hooks/commit-msg"
+
+# msg415 <file> <work-unit-line, or ""> — a message that is otherwise valid.
+msg415() {
+  {
+    printf 'chore(adopt): install the framework\n\n'
+    [ -n "$2" ] && printf '%s\n\n' "$2"
+    printf 'Employee: DevOps Engineer\n'
+  } > "$1"
+}
+
+# mk415 <name> — a roster and a registry naming WU-DEMO-001, both committed.
+mk415() {
+  new_repo "$1"
+  write_employee_roster "DevOps Engineer"
+  write_wu_registry WU-DEMO-001
+  git add -A && git commit -q -m "roster and registry"
+}
+
+mk415 cm415-resolve
+msg415 m.txt "Work Unit: WU-DEMO-999"
+expect 1 "an unregistered Work Unit id is refused (the rehearsal's WU-DEMO-999)" -- bash "$HOOK415" m.txt
+expect_output "claims 'WU-DEMO-999', which is not in the staged Registry/work-units.yml"
+msg415 m.txt "Work Unit: WU-DEMO-001"
+expect 0 "a registered Work Unit id is accepted" -- bash "$HOOK415" m.txt
+msg415 m.txt "Work Unit: WU-DEMO"
+expect 1 "a malformed Work Unit id is refused" -- bash "$HOOK415" m.txt
+expect_output "is empty or not a Work Unit id"
+msg415 m.txt ""
+expect 0 "a message with no Work Unit line is left to the Work Unit Exists CI check" -- bash "$HOOK415" m.txt
+
+# The registry read is the index, not the working tree: the entry is
+# registered in the commit that performs the work (Workflows/
+# FEATURE_DEVELOPMENT.md Step 4 item 2), so an edit left unstaged would be
+# missing from the commit that claims it.
+write_wu_registry WU-DEMO-001 WU-DEMO-002
+msg415 m.txt "Work Unit: WU-DEMO-002"
+expect 1 "an entry in the working tree only, not staged, does not register the id" -- bash "$HOOK415" m.txt
+expect_output "claims 'WU-DEMO-002', which is not in the staged Registry/work-units.yml"
+git add Registry/work-units.yml
+expect 0 "the same entry staged with the commit registers the id" -- bash "$HOOK415" m.txt
+
+# A claim that cannot be evaluated is refused, never passed (Standards/
+# CODE_QUALITY_STANDARD.md, The Check Convention).
+new_repo cm415-no-registry
+write_employee_roster "DevOps Engineer"
+git add -A && git commit -q -m "roster"
+msg415 m.txt "Work Unit: WU-DEMO-001"
+expect 1 "no registry: the claim cannot be evaluated and is refused" -- bash "$HOOK415" m.txt
+expect_output "This project has no Work Unit registry"
+write_wu_registry WU-DEMO-001
+expect 1 "a registry never added to the index is refused, naming the git add" -- bash "$HOOK415" m.txt
+expect_output "git add Registry/work-units.yml"
+printf 'work_units:\n  -id: WU-DEMO-001\n' > Registry/work-units.yml
+git add Registry/work-units.yml
+expect 1 "a staged registry that parses to no id is a parsing failure" -- bash "$HOOK415" m.txt
+expect_output "yielded no Work Unit IDs"
+
+# Where the hook finds check-work-units.sh. A hook copied into .git/hooks has
+# no framework beside it: it resolves through the project's ia-engineering/,
+# and with no framework at all it refuses a claim rather than passing it.
+mkdir -p "$WORK/hook415/alone"
+cp "$HOOK415" "$WORK/hook415/alone/commit-msg"
+COPIED415="$WORK/hook415/alone/commit-msg"
+
+mk415 cm415-no-check
+msg415 m.txt "Work Unit: WU-DEMO-001"
+expect 1 "a hook that cannot locate check-work-units.sh refuses a claim" -- env -u IAENG_FRAMEWORK bash "$COPIED415" m.txt
+expect_output "cannot locate Adapters/scripts/check-work-units.sh"
+msg415 m.txt ""
+expect 0 "the same hook still accepts a message with no Work Unit line" -- env -u IAENG_FRAMEWORK bash "$COPIED415" m.txt
+
+# The adopter's layout: the framework under ia-engineering/, its own registry
+# listing a framework-only id. The hook as core.hooksPath runs it (from inside
+# ia-engineering/) and a copied one both read the PROJECT's registry.
+mk415 cm415-consumer
+mkdir -p ia-engineering/Adapters/scripts ia-engineering/Adapters/git-hooks ia-engineering/Registry
+cp "$SCRIPTS/check-work-units.sh" "$SCRIPTS/merge-classify.sh" ia-engineering/Adapters/scripts/
+cp "$HOOK415" ia-engineering/Adapters/git-hooks/commit-msg
+printf 'work_units:\n  - id: WU-FRAMEWORK-137\n' > ia-engineering/Registry/work-units.yml
+git add -A && git commit -q -m "framework imported"
+msg415 m.txt "Work Unit: WU-DEMO-001"
+expect 0 "an adopter's hook resolves a claim against the project's registry" -- bash ia-engineering/Adapters/git-hooks/commit-msg m.txt
+expect 0 "a copied hook resolves through ia-engineering/Adapters/scripts" -- env -u IAENG_FRAMEWORK bash "$COPIED415" m.txt
+msg415 m.txt "Work Unit: WU-FRAMEWORK-137"
+expect 1 "an adopter's claim is never resolved against the framework's registry" -- bash ia-engineering/Adapters/git-hooks/commit-msg m.txt
+expect_output "claims 'WU-FRAMEWORK-137', which is not in the staged Registry/work-units.yml"
+
+# A claim on a merge is validated whatever the merge's kind, as
+# check-work-units.sh validates it in CI (SEC-IAENG-313-02). A clean merge
+# still needs neither trailer.
+mk415 cm415-merge
+git checkout -qb side
+echo side > side.txt && git add -A && git commit -q -m "side work"
+git checkout -q main
+echo main > main.txt && git add -A && git commit -q -m "main work"
+git merge -q --no-commit --no-ff side > /dev/null 2>&1
+printf "Merge branch 'side'\n\nWork Unit: WU-DEMO-999\n" > "$WORK/merge415.txt"
+expect 1 "a clean merge carrying an unregistered Work Unit claim is refused" -- bash "$HOOK415" "$WORK/merge415.txt"
+expect_output "claims 'WU-DEMO-999'"
+printf "Merge branch 'side'\n\nWork Unit: WU-DEMO-001\n" > "$WORK/merge415.txt"
+expect 0 "a clean merge carrying a registered claim and no Employee line is accepted" -- bash "$HOOK415" "$WORK/merge415.txt"
+printf "Merge branch 'side'\n" > "$WORK/merge415.txt"
+expect 0 "a clean merge with no claim is still accepted" -- bash "$HOOK415" "$WORK/merge415.txt"
+git merge --abort
+
+# Through git itself, hooks wired as install.sh wires them: the rehearsal's
+# commit is refused and not created. `git commit <paths>` commits through a
+# temporary index (GIT_INDEX_FILE), and the hook reads that one.
+mk415 cm415-git
+git config core.hooksPath "$SCRIPTS/../git-hooks"
+echo x > x.txt && git add x.txt
+msg415 "$WORK/git415.txt" "Work Unit: WU-DEMO-999"
+N415="$(git rev-list --count HEAD)"
+expect 1 "git commit refuses the rehearsal's unregistered Work Unit" -- git commit -q -F "$WORK/git415.txt"
+expect 0 "and creates no commit" -- test "$(git rev-list --count HEAD)" = "$N415"
+write_wu_registry WU-DEMO-001 WU-DEMO-002
+msg415 "$WORK/git415.txt" "Work Unit: WU-DEMO-002"
+expect 0 "git commit <paths> resolves against the registry those paths stage" -- git commit -q -F "$WORK/git415.txt" Registry/work-units.yml x.txt
+expect 0 "and creates the commit" -- test "$(git rev-list --count HEAD)" = "$((N415 + 1))"
 
 # ----------------------- merge attribution: check-employee-trailers.sh --------
 
@@ -9492,8 +9629,12 @@ expect 0 "oracle: git does not keep a carriage return that ends the trailer line
   test "$(git interpret-trailers --parse crlf.txt)" = "Employee: Platform Engineer"
 
 # --- git-hooks/commit-msg: the value, the roster, the project roster
+# The messages claim WU-TEST-001, which the hook resolves against the staged
+# registry (WU-IAENG-415), so it is registered and committed.
 new_repo cr389-hook
 write_employee_roster "Platform Engineer" "Release Manager"
+write_wu_registry WU-TEST-001
+git add -A && git commit -q -m "registry"
 printf 'fix(cr): x\n\nWork Unit: WU-TEST-001\n\nEmployee: Platform Engi\rneer\n' > msg-mid.txt
 printf 'fix(cr): x\n\nWork Unit: WU-TEST-001\n\nEmployee: Platform Engineer\r\n' > msg-crlf.txt
 printf 'fix(cr): x\n\nWork Unit: WU-TEST-001\n\nEmployee: Platform Engineer\n' > msg-plain.txt
