@@ -2594,6 +2594,10 @@ fi
 # and runs it.
 validation_result() {
   local checks="$1" failures="$2" unevaluated="$3"
+  # Not evaluated is tested first. A check that could not be evaluated is a
+  # failed check, so it is counted as one even where the failure count missed
+  # it: such a run can never reach "passed", and it exits 2 (SEC-IAENG-390-01).
+  [ "$failures" -ge "$unevaluated" ] || failures="$unevaluated"
   if [ "$failures" -eq 0 ]; then
     printf '   %s checks passed.\n' "$checks"
     return 0

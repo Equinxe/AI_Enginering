@@ -9735,6 +9735,18 @@ commit_with "feat: x" "Work Unit: WU-TEST-001"
 expect 2 "check-work-units: a failed git rev-list --merges is not evaluated (exit 2)" -- \
   "${G390[@]}" G390_FAIL="rev-list --merges" bash "$SCRIPTS/check-work-units.sh" "$BASE" HEAD
 expect_output "git rev-list --merges failed"
+# A finding and an unclassified merge in one range: 2, not 1, as in
+# check-employee-trailers.sh above (DEF-IAENG-390-01: QA's mutant M1, which
+# reports the finding first, survived the suite here).
+mk_wu_merge_repo wu390-both
+git merge -q --no-ff side -m "Merge branch 'side'"
+commit_with "feat: nobody claims it"
+expect 2 "check-work-units: a finding does not lower an unclassified merge to 1" -- \
+  "${G390[@]}" G390_FAIL="merge-tree" bash "$SCRIPTS/check-work-units.sh" "$BASE" HEAD
+expect_output "carries no 'Work Unit: <WU-ID>' trailer"
+expect_output "could not be classified"
+expect 1 "check-work-units: the same finding with the merge classified is 1" -- \
+  bash "$SCRIPTS/check-work-units.sh" "$BASE" HEAD
 
 # --- check-inline-suppression.sh
 mkdir -p "$WORK/sup390-not-a-repo"
@@ -9883,6 +9895,13 @@ expect 0 "validate-framework: every check passed exits 0" -- bash "$VF390_HARNES
 expect 1 "validate-framework: a finding, every check evaluated, exits 1" -- bash "$VF390_HARNESS" validation_result 5 2 0
 expect 2 "validate-framework: a check not evaluated exits 2, whatever else failed" -- bash "$VF390_HARNESS" validation_result 5 2 1
 expect_output "1 of them could not be evaluated"
+# A check not evaluated and no finding: 2, never "passed", even if the failure
+# count missed it (SEC-IAENG-390-01; QA's mutant M2, which decoupled cannot()
+# from the failure count, passed every case above).
+expect 2 "validate-framework: a check not evaluated and no finding exits 2" -- bash "$VF390_HARNESS" validation_result 5 0 1
+expect_output "1 of 5 checks failed."
+expect_output "1 of them could not be evaluated"
+expect_output_absent "checks passed"
 # The record functions name an input they could not read "error", not "fail",
 # so the section reporting it counts it as not evaluated.
 expect 1 "validate-framework: a missing workflow registry is reported" -- \
