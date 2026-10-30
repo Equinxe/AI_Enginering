@@ -500,7 +500,16 @@ if ! PROJECT="$(git rev-parse --show-toplevel 2>/dev/null)"; then
   rec version indeterminate "." "not inside a git repository: run it from the root of the adopting project"
   finish
 fi
-cd "$PROJECT" || exit 1
+# A root git names but this shell cannot enter is indeterminate, like the
+# case above, and is reported the same way: through finish, so the exit code
+# is the contract's (0 without --strict, 2 with it), never 1, which means
+# drift (Standards/CODE_QUALITY_STANDARD.md, The Check Convention, Shell
+# Scripts rule 1).
+if ! cd "$PROJECT"; then
+  NA=1
+  rec version indeterminate "$PROJECT" "the project root git reported cannot be entered: nothing was compared"
+  finish
+fi
 PROJECT="$(pwd)"
 
 [ "$FORMAT" = text ] && printf 'IA Engineering — framework drift (read-only): %s\n' "$PROJECT"
