@@ -1754,9 +1754,9 @@ work_units:
 
   - id: WU-IAENG-417
     employee: Technical Writer
-    title: Reserved 28 Oct 2026 before dispatch (WU-IAENG-420) - adopter README gains a project tier-map step, and the 28 Oct 2026 rehearsal's doc Minors are fixed (issue #365) - Getting Started shows generate-agents.sh --print-tier-map, the project's .ia-engineering/tier-map and which model suits which task (Haiku, Sonnet, Opus, Fable), since Standard Execution otherwise generates Sonnet agents; the doc Minors are install-skills.sh adding /dashboard too, the bash and jq prerequisites, the Risk Map's eight categories to complete, FEATURE_DEVELOPMENT Step 4 citing VERSION.md to an adopter, the signer of the project CLAUDE.md commit, and submodule update before install.sh in a fresh clone
+    title: Adopter README gains a project tier-map step, and the 28 Oct 2026 rehearsal's doc Minors are fixed (issue #365, reserved by WU-IAENG-420) - Getting Started's Which model runs which task step maps each tier to a model per task (Director decision, 28 Oct 2026 - haiku Lightweight, sonnet Standard, opus Strategic, fable Frontier) in the project's .ia-engineering/tier-map, says that without it the generator's defaults apply and nobody chose them, and checks it with generate-agents.sh --print-tier-map; the doc Minors fixed are install-skills.sh adding /dashboard too, the git, bash, jq and gh prerequisites, the Windows .gitmodules CRLF warning, completing the Risk Map's eight categories early, Workflows/FEATURE_DEVELOPMENT.md (0.0.16) Step 4 giving an adopter its milestone, and Templates/PROJECT_CLAUDE.md (0.0.14) fetching the submodule before install.sh in a fresh clone; the signer of the project CLAUDE.md commit needs a decision and moved to issue #379
     milestone: Adoption
-    delivers: planned - README.md, Workflows/FEATURE_DEVELOPMENT.md, Workflows/ONBOARDING.md, Templates/PROJECT_CLAUDE.md, changelog.d/WU-IAENG-417.md, Registry/work-units.yml
+    delivers: README.md, Workflows/FEATURE_DEVELOPMENT.md, Templates/PROJECT_CLAUDE.md, changelog.d/WU-IAENG-417.md, Registry/work-units.yml
 
   - id: WU-IAENG-418
     employee: Platform Engineer
