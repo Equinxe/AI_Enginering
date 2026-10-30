@@ -184,11 +184,29 @@ fi
 # family, only for what is actionable, each naming the command that explains
 # it. Its result is kept in a user-level cache, so an unchanged project costs
 # a stat (the script's header, --QUICK). Never in the framework repository,
-# which validate-framework.sh covers. Bounded: TERM at 2.8 s, KILL 0.2 s later,
-# so the hook adds at most 3 s; `timeout` ends the whole process group, so no
-# process outlives the hook. An overrun, a fault or an incomplete check is
-# said ONCE (remembered beside the cache) and then not again until it
-# changes or a run completes. Nothing here can fail the session.
+# which validate-framework.sh covers. Bounded: TERM at 2.8 s, KILL 0.2 s later;
+# `timeout` ends the whole process group, so no process of that run outlives
+# the hook. A fault or an incomplete check is said ONCE (remembered beside the
+# cache) and then not again until it changes or a run completes. Nothing here
+# can fail the session.
+#
+# An overrun (WU-IAENG-418, issue #366). Under Git for Windows a cold --quick
+# took 4.9 to 5.6 s in the 28 Oct rehearsal, and on a machine busy with other
+# agents every process launch costs seconds, so even a cache hit can take
+# 20 s: no run cut at 2.8 s ever kept anything, and every later session was
+# cut too, in silence. Now the cut run is started again, detached from the
+# hook's output and bounded at 300 s. It keeps its result in the cache, and
+# beside the cache it leaves the next session two files, each beginning with
+# a "project TAB <path>" line: bg-<project>, then "started <pid>" and later
+# "done <exit>"; and bg-<project>.tsv, then its output.
+# A session whose own run is cut again reports from that output, read and
+# capped exactly as a run's (and said to come from an earlier run), so a
+# verdict reaches the session even when no run fits the budget. A run still
+# going is said once; a run that ended with no result is said at EVERY session
+# until one completes: no result is never silence (Adapters/README.md, the
+# Check Convention, rule 1). The command these lines name keeps its result in
+# the same cache by hand. Declared limit: the result reported after an
+# overrun is the earlier run's, so a change made since shows one session late.
 DRIFT_SH="${ROOT:+$ROOT/Adapters/scripts/check-framework-drift.sh}"
 if [ -n "$DRIFT_SH" ] && [ -f "$DRIFT_SH" ] && ! [ "$ROOT" -ef "$BASE" ]; then
   DRIFT_SHOWN="$ROOT"
@@ -217,6 +235,16 @@ if [ -n "$DRIFT_SH" ] && [ -f "$DRIFT_SH" ] && ! [ "$ROOT" -ef "$BASE" ]; then
     *) DRIFT_KEY="$PWD/$BASE" ;;
   esac
   DRIFT_SAID="${DRIFT_CACHE:+$DRIFT_CACHE/said-${DRIFT_KEY//[^A-Za-z0-9._-]/_}}"
+  DRIFT_BG="${DRIFT_CACHE:+$DRIFT_CACHE/bg-${DRIFT_KEY//[^A-Za-z0-9._-]/_}}"
+  DRIFT_BGV="${DRIFT_BG:+$DRIFT_BG.tsv}"
+  # The command that runs the check as the hook does and keeps its result in
+  # the cache the next session reads: what an overrun line tells a person to
+  # run. Without a cache there is nothing to keep: the full check instead.
+  DRIFT_FILL="$DRIFT_RUN"
+  if [ -n "$DRIFT_CACHE" ]; then
+    printf -v d_q '%q' "$DRIFT_CACHE"
+    DRIFT_FILL="$DRIFT_RUN --quick --cache-dir $d_q"
+  fi
 
   # drift_once <line> — prints it unless it is the line said last time. The
   # memory is read only when the user alone could have written it, and
@@ -250,12 +278,184 @@ if [ -n "$DRIFT_SH" ] && [ -f "$DRIFT_SH" ] && ! [ "$ROOT" -ef "$BASE" ]; then
     return 0
   }
 
+  # The background run's two files begin with the project they are about:
+  # their names are the path with every other character made "_", so two
+  # projects can share them ("/w/a/b" and "/w/a_b"), and a file about another
+  # project is not this one's (as the script's cache_replay checks its own).
+  D_BGHEAD="project"$'\t'"$DRIFT_KEY"
+
+  # d_bg_load — what the background run of an earlier session left, read
+  # only when the user alone could have written it and it is about this
+  # project. Called only where DRIFT_BG is set. DRIFT_BGS is "" (nothing
+  # readable as this hook's own), running, ended (stopped from outside: gone
+  # with no report, or started more than 6 minutes ago, past its own 300 s
+  # bound, so a reused pid cannot keep it "running"), done, or failed <exit>.
+  # The status line is matched whole, so no text of it reaches the session.
+  # D_BGV is 1 when that run's output is in DRIFT_OUT, at most 400 lines, for
+  # d_result to read as it reads a run's. It is a file, so it is read as
+  # data: every control character but the TAB that separates fields becomes
+  # a space again, the C1 pairs as the script flattens them
+  # (SEC-IAENG-357-01, -358-01).
+  d_bg_load() {
+    local l="" p="" n=0 c1=$'\xc2' LC_ALL=C
+    local -a fs=()
+    DRIFT_BGS=""; D_BGV=0; DRIFT_OUT=""
+    [ -f "$DRIFT_BG" ] && fs+=("$DRIFT_BG")
+    [ -f "$DRIFT_BGV" ] && fs+=("$DRIFT_BGV")
+    [ "${#fs[@]}" -gt 0 ] || return 0
+    iaeng_untrusted "$DRIFT_CACHE" "${fs[@]}" && return 0
+    if [ -f "$DRIFT_BG" ]; then
+      { IFS= read -r p; IFS= read -r l; } < "$DRIFT_BG"
+      if [ "$p" = "$D_BGHEAD" ]; then
+        if [[ "$l" =~ ^started\ ([0-9]{1,10})$ ]]; then
+          # DRIFT_BG is absolute (DRIFT_CACHE is canonical): never an option.
+          if kill -0 "${BASH_REMATCH[1]}" 2>/dev/null \
+             && [ -z "$(find "$DRIFT_BG" -mmin +6 2>/dev/null)" ]; then
+            DRIFT_BGS=running
+          else
+            DRIFT_BGS=ended
+          fi
+        elif [[ "$l" =~ ^done\ ([0-9]{1,3})$ ]]; then
+          if [ "${BASH_REMATCH[1]}" = 0 ]; then DRIFT_BGS="done"; else DRIFT_BGS="failed ${BASH_REMATCH[1]}"; fi
+        fi
+      fi
+    fi
+    if [ -f "$DRIFT_BGV" ]; then
+      {
+        IFS= read -r p
+        if [ "$p" = "$D_BGHEAD" ]; then
+          while [ "$n" -lt 400 ] && IFS= read -r l; do
+            l="${l//[$'\x01'-$'\x08'$'\x0b'-$'\x1f'$'\x7f']/ }"
+            l="${l//"$c1"[$'\x80'-$'\x9f']/ }"
+            DRIFT_OUT="$DRIFT_OUT$l"$'\n'; n=$((n + 1))
+          done
+          D_BGV=1
+        fi
+      } < "$DRIFT_BGV"
+    fi
+    return 0
+  }
+  # d_bg_write <file> <text> — the project line, then the text, through a new
+  # file renamed into place, never through a link, only into a cache
+  # directory the user alone owns, made 0700 here when no run made it yet
+  # (as drift_once makes it).
+  d_bg_write() {
+    [ -n "$1" ] && [ -n "$DRIFT_CACHE" ] && [ ! -L "$1" ] || return 0
+    if [ ! -d "$DRIFT_CACHE" ]; then
+      mkdir -p "${DRIFT_CACHE%/*}" 2>/dev/null
+      mkdir -m 700 "$DRIFT_CACHE" 2>/dev/null
+    fi
+    [ -d "$DRIFT_CACHE" ] && ! iaeng_untrusted "$DRIFT_CACHE" || return 0
+    { (umask 077; printf '%s\n%s\n' "$D_BGHEAD" "$2" > "$1.$$.tmp") && mv -f "$1.$$.tmp" "$1"; } 2>/dev/null
+    [ -e "$1.$$.tmp" ] && rm -f "$1.$$.tmp" 2>/dev/null
+    return 0
+  }
+  # d_bg_start — the check again, exactly as the hook runs it, bounded at
+  # 300 s and detached: every descriptor goes to /dev/null, so Claude Code,
+  # which waits for the hook's output to close, does not wait for it. The
+  # script keeps its result in the cache itself (--cache-dir); this subshell
+  # keeps the output of a run that exited 0 for the next session, then its
+  # exit status. Called only where DRIFT_BG is set. $BASHPID is bash 4: on
+  # bash 3.2 "started " is written, which d_bg_load reads as nothing, so a
+  # second run may start; never a fault.
+  d_bg_start() {
+    (
+      d_bg_write "$DRIFT_BG" "started ${BASHPID:-}"
+      out="$(CDPATH='' cd -- "$BASE" 2>/dev/null && "$DRIFT_TO" -k 1 300 bash "$DRIFT_SH" "${DRIFT_ARGS[@]}" </dev/null 2>/dev/null)"
+      rc=$?
+      [ "$rc" -eq 0 ] && d_bg_write "$DRIFT_BGV" "$out"
+      d_bg_write "$DRIFT_BG" "done $rc"
+    ) </dev/null >/dev/null 2>&1 &
+    return 0
+  }
+
+  # d_list <max> <items...> — "a, b, c and 2 more"; a name read from the
+  # project is cut at 160 bytes (d_cap), so no line floods the context.
+  d_list() {
+    local max="$1" out="" i=0 x; shift
+    for x in "$@"; do
+      i=$((i + 1))
+      d_cap "$x"
+      [ "$i" -le "$max" ] && out="${out:+$out, }$D_CAPPED"
+    done
+    [ "$i" -gt "$max" ] && out="$out and $((i - max)) more"
+    printf '%s' "$out"
+  }
+  # d_result — reads DRIFT_OUT, the tsv output of a run that exited 0, into
+  # DRIFT_LINES (one line per family, each begun with D_HEAD) or DRIFT_ONCE.
+  # Every field arrives flattened: the script turns each control character
+  # into a space (SEC-IAENG-357-01).
+  d_result() {
+    D_VER=""; D_ABS=(); D_DIF=(); D_BRK=(); D_FILES=0; D_INDET=""; D_ACT=""; D_SUM=0
+    # The version line is built from fixed words, the tag and the count
+    # alone: no text of the record (or of a cache) reaches it.
+    D_RE_BEHIND='^last tag known locally: ([A-Za-z0-9._/+-]{1,64}), ([0-9]{1,4}) tag\(s\) behind'
+    while IFS=$'\t' read -r d_f d_s d_p d_r; do
+      case "$d_f" in
+        '# check-framework-drift:'*)
+          D_SUM=1
+          D_ACT="${d_f#'# check-framework-drift: '}"; D_ACT="${D_ACT%% to act on*}"
+          case "$D_ACT" in ''|*[!0-9]*) D_ACT="" ;; esac ;;
+        ''|'#'*) ;;
+        *)
+          [ "$d_f" = file ] && D_FILES=$((D_FILES + 1))
+          case "$d_f:$d_s" in
+            version:behind)
+              if [[ "$d_r" =~ $D_RE_BEHIND ]]; then
+                D_VER="${D_VER:+$D_VER; }last tag known locally: ${BASH_REMATCH[1]}, ${BASH_REMATCH[2]} tag(s) behind"
+              else
+                D_VER="${D_VER:+$D_VER; }behind the last tag known locally"
+              fi ;;
+            version:uncommitted)
+              D_VER="${D_VER:+$D_VER; }the checkout is not the commit the project recorded (gitlink +): an upgrade not committed" ;;
+            version:uninitialized)
+              D_VER="${D_VER:+$D_VER; }the submodule is not initialized (gitlink -)" ;;
+            file:absent) D_ABS+=("$d_p") ;;
+            file:differs|file:stale|file:modified) D_DIF+=("$d_p") ;;
+            path:broken) d_r="${d_r%%;*}"; d_cap "${d_r%%:*}"; D_BRK+=("$d_p ($D_CAPPED)") ;;
+            *:indeterminate)
+              if [ -z "$D_INDET" ]; then
+                d_cap "$d_p"; D_INDET="$D_CAPPED"
+                d_cap "${d_r%%. *}"; D_INDET="$D_INDET: $D_CAPPED"
+              fi ;;
+          esac ;;
+      esac
+    done <<< "$DRIFT_OUT"
+    if [ -n "$D_VER" ]; then
+      DRIFT_LINES+=("$D_HEAD: the framework ($DRIFT_SHOWN): $D_VER. Run: $DRIFT_RUN")
+    fi
+    if [ "${#D_ABS[@]}" -gt 0 ] || [ "${#D_DIF[@]}" -gt 0 ]; then
+      D_TXT=""
+      [ "${#D_ABS[@]}" -gt 0 ] && D_TXT="absent: $(d_list 3 "${D_ABS[@]}")"
+      [ "${#D_DIF[@]}" -gt 0 ] && D_TXT="${D_TXT:+$D_TXT; }differ from the framework: $(d_list 3 "${D_DIF[@]}")"
+      DRIFT_LINES+=("$D_HEAD: $(( ${#D_ABS[@]} + ${#D_DIF[@]} )) of $D_FILES framework-managed file(s) to act on ($D_TXT). Run: $DRIFT_RUN, which tells a stale file (copy it) from a modified one (review it)")
+    fi
+    if [ "${#D_BRK[@]}" -gt 0 ]; then
+      DRIFT_LINES+=("$D_HEAD: ${#D_BRK[@]} hook command(s) or core.hooksPath name a path that does not work, so that guard is silently off: $(d_list 2 "${D_BRK[@]}"). Run: $DRIFT_RUN")
+    fi
+    if [ "$D_SUM" -eq 0 ]; then
+      # Output cut short is not a result: nothing from it is shown.
+      DRIFT_LINES=()
+      DRIFT_ONCE="IA Engineering drift check: it gave no summary line, so nothing is reported (said once). Run it by hand: $DRIFT_RUN"
+    elif [ "${#DRIFT_LINES[@]}" -eq 0 ] && [ -n "$D_ACT" ] && [ "$D_ACT" != 0 ]; then
+      # A status this hook does not render is still never silence.
+      DRIFT_LINES+=("$D_HEAD: $D_ACT item(s) to act on. Run: $DRIFT_RUN")
+    elif [ "${#DRIFT_LINES[@]}" -eq 0 ] && [ -n "$D_INDET" ]; then
+      DRIFT_ONCE="IA Engineering drift check: incomplete, $D_INDET (said once). Run: $DRIFT_RUN"
+    fi
+    return 0
+  }
+
   DRIFT_TO=""
   if command -v timeout >/dev/null 2>&1; then DRIFT_TO=timeout
   elif command -v gtimeout >/dev/null 2>&1; then DRIFT_TO=gtimeout
   fi
   DRIFT_ONCE=""
   DRIFT_LINES=()
+  # 1 once this session's run completed with a result, 2 once an earlier
+  # background run's result was reported instead: either ends an episode.
+  D_DONE=0
+  D_BGV=0
   if [ -z "$DRIFT_TO" ]; then
     DRIFT_ONCE="IA Engineering drift check: not run at session start, no timeout command to bound it (said once). Run it by hand: $DRIFT_RUN"
   else
@@ -265,79 +465,39 @@ if [ -n "$DRIFT_SH" ] && [ -f "$DRIFT_SH" ] && ! [ "$ROOT" -ef "$BASE" ]; then
     DRIFT_RC=$?
     case "$DRIFT_RC" in
       0)
-        # One line per family. Every field arrives flattened: the script
-        # turns each control character into a space (SEC-IAENG-357-01).
-        D_VER=""; D_ABS=(); D_DIF=(); D_BRK=(); D_FILES=0; D_INDET=""; D_ACT=""; D_SUM=0
-        # The version line is built from fixed words, the tag and the count
-        # alone: no text of the record (or of a cache) reaches it.
-        D_RE_BEHIND='^last tag known locally: ([A-Za-z0-9._/+-]{1,64}), ([0-9]{1,4}) tag\(s\) behind'
-        while IFS=$'\t' read -r d_f d_s d_p d_r; do
-          case "$d_f" in
-            '# check-framework-drift:'*)
-              D_SUM=1
-              D_ACT="${d_f#'# check-framework-drift: '}"; D_ACT="${D_ACT%% to act on*}"
-              case "$D_ACT" in ''|*[!0-9]*) D_ACT="" ;; esac ;;
-            ''|'#'*) ;;
-            *)
-              [ "$d_f" = file ] && D_FILES=$((D_FILES + 1))
-              case "$d_f:$d_s" in
-                version:behind)
-                  if [[ "$d_r" =~ $D_RE_BEHIND ]]; then
-                    D_VER="${D_VER:+$D_VER; }last tag known locally: ${BASH_REMATCH[1]}, ${BASH_REMATCH[2]} tag(s) behind"
-                  else
-                    D_VER="${D_VER:+$D_VER; }behind the last tag known locally"
-                  fi ;;
-                version:uncommitted)
-                  D_VER="${D_VER:+$D_VER; }the checkout is not the commit the project recorded (gitlink +): an upgrade not committed" ;;
-                version:uninitialized)
-                  D_VER="${D_VER:+$D_VER; }the submodule is not initialized (gitlink -)" ;;
-                file:absent) D_ABS+=("$d_p") ;;
-                file:differs|file:stale|file:modified) D_DIF+=("$d_p") ;;
-                path:broken) d_r="${d_r%%;*}"; d_cap "${d_r%%:*}"; D_BRK+=("$d_p ($D_CAPPED)") ;;
-                *:indeterminate)
-                  if [ -z "$D_INDET" ]; then
-                    d_cap "$d_p"; D_INDET="$D_CAPPED"
-                    d_cap "${d_r%%. *}"; D_INDET="$D_INDET: $D_CAPPED"
-                  fi ;;
-              esac ;;
-          esac
-        done <<< "$DRIFT_OUT"
-        # d_list <max> <items...> — "a, b, c and 2 more"; a name read from
-        # the project is cut at 160 bytes (d_cap), so no line floods the context.
-        d_list() {
-          local max="$1" out="" i=0 x; shift
-          for x in "$@"; do
-            i=$((i + 1))
-            d_cap "$x"
-            [ "$i" -le "$max" ] && out="${out:+$out, }$D_CAPPED"
-          done
-          [ "$i" -gt "$max" ] && out="$out and $((i - max)) more"
-          printf '%s' "$out"
-        }
-        if [ -n "$D_VER" ]; then
-          DRIFT_LINES+=("IA Engineering drift: the framework ($DRIFT_SHOWN): $D_VER. Run: $DRIFT_RUN")
-        fi
-        if [ "${#D_ABS[@]}" -gt 0 ] || [ "${#D_DIF[@]}" -gt 0 ]; then
-          D_TXT=""
-          [ "${#D_ABS[@]}" -gt 0 ] && D_TXT="absent: $(d_list 3 "${D_ABS[@]}")"
-          [ "${#D_DIF[@]}" -gt 0 ] && D_TXT="${D_TXT:+$D_TXT; }differ from the framework: $(d_list 3 "${D_DIF[@]}")"
-          DRIFT_LINES+=("IA Engineering drift: $(( ${#D_ABS[@]} + ${#D_DIF[@]} )) of $D_FILES framework-managed file(s) to act on ($D_TXT). Run: $DRIFT_RUN, which tells a stale file (copy it) from a modified one (review it)")
-        fi
-        if [ "${#D_BRK[@]}" -gt 0 ]; then
-          DRIFT_LINES+=("IA Engineering drift: ${#D_BRK[@]} hook command(s) or core.hooksPath name a path that does not work, so that guard is silently off: $(d_list 2 "${D_BRK[@]}"). Run: $DRIFT_RUN")
-        fi
-        if [ "$D_SUM" -eq 0 ]; then
-          # Output cut short is not a result: nothing from it is shown.
-          DRIFT_LINES=()
-          DRIFT_ONCE="IA Engineering drift check: it gave no summary line, so nothing is reported (said once). Run it by hand: $DRIFT_RUN"
-        elif [ "${#DRIFT_LINES[@]}" -eq 0 ] && [ -n "$D_ACT" ] && [ "$D_ACT" != 0 ]; then
-          # A status this hook does not render is still never silence.
-          DRIFT_LINES+=("IA Engineering drift: $D_ACT item(s) to act on. Run: $DRIFT_RUN")
-        elif [ "${#DRIFT_LINES[@]}" -eq 0 ] && [ -n "$D_INDET" ]; then
-          DRIFT_ONCE="IA Engineering drift check: incomplete, $D_INDET (said once). Run: $DRIFT_RUN"
-        fi ;;
+        D_HEAD="IA Engineering drift"
+        d_result
+        [ -z "$DRIFT_ONCE" ] && D_DONE=1 ;;
       124|137)
-        DRIFT_ONCE="IA Engineering drift check: not finished within the 3 s session-start budget, so nothing is reported (said once). Run it by hand: $DRIFT_RUN" ;;
+        D_OVER="IA Engineering drift check: not finished within the 3 s session-start budget"
+        D_BGNOTE="$D_OVER; it goes on in the background (5 min at most) and keeps its result for the next session (said once). To see it now: $DRIFT_FILL"
+        if [ -z "$DRIFT_BG" ]; then
+          # No cache to keep a result in: running it again would keep nothing.
+          DRIFT_ONCE="$D_OVER, so nothing is reported (said once). Run it by hand: $DRIFT_RUN"
+        else
+          d_bg_load
+          if [ "$D_BGV" -eq 1 ]; then
+            # For want of this session's result, the last one a background
+            # run kept: read and capped as a run's, and said to be older.
+            D_HEAD="IA Engineering drift, as found by the background run an earlier session started (this session's check did not finish within 3 s)"
+            d_result
+            [ -z "$DRIFT_ONCE" ] && D_DONE=2
+          fi
+          case "$DRIFT_BGS" in
+            running)
+              # Still going: its result is for the next session.
+              [ "$D_BGV" -eq 1 ] || DRIFT_ONCE="$D_BGNOTE" ;;
+            ended|failed*)
+              # No run kept a result since: said at every session, first.
+              if [ "$DRIFT_BGS" = ended ]; then D_WHY="stopped before it finished"; else D_WHY="did not finish (exit ${DRIFT_BGS#failed })"; fi
+              if [ "${#DRIFT_LINES[@]}" -gt 0 ]; then D_SO="so what is reported comes from an older run"; else D_SO="so nothing is reported"; fi
+              DRIFT_LINES=("$D_OVER, and the background run an earlier session started $D_WHY, $D_SO; it is started again. Run it by hand, which keeps its result for the next session: $DRIFT_FILL" ${DRIFT_LINES[@]+"${DRIFT_LINES[@]}"})
+              d_bg_start ;;
+            *)
+              [ "$D_BGV" -eq 1 ] || DRIFT_ONCE="$D_BGNOTE"
+              d_bg_start ;;
+          esac
+        fi ;;
       *)
         DRIFT_ONCE="IA Engineering drift check: it failed (exit $DRIFT_RC), so nothing is reported (said once). Run it by hand: $DRIFT_RUN" ;;
     esac
@@ -348,9 +508,13 @@ if [ -n "$DRIFT_SH" ] && [ -f "$DRIFT_SH" ] && ! [ "$ROOT" -ef "$BASE" ]; then
   fi
   if [ -n "$DRIFT_ONCE" ]; then
     drift_once "$DRIFT_ONCE"
-  elif [ -n "$DRIFT_SAID" ] && [ -f "$DRIFT_SAID" ]; then
-    # A run that completed: the next overrun or fault is said again.
-    rm -f "$DRIFT_SAID" 2>/dev/null
+  elif [ "$D_DONE" -ge 1 ]; then
+    # A result reported: the next overrun or fault is said again.
+    [ -n "$DRIFT_SAID" ] && [ -f "$DRIFT_SAID" ] && rm -f "$DRIFT_SAID" 2>/dev/null
+    # This session's own result supersedes what a background run left.
+    if [ "$D_DONE" -eq 1 ] && [ -n "$DRIFT_BG" ] && { [ -f "$DRIFT_BG" ] || [ -f "$DRIFT_BGV" ]; }; then
+      rm -f "$DRIFT_BG" "$DRIFT_BGV" 2>/dev/null
+    fi
   fi
 fi
 
