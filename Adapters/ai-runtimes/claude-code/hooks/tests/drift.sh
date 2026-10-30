@@ -22,7 +22,7 @@
 #     command to run. Each also proves the cache saw the change.
 #   - Every cause at once: three lines, never more, the long list cut.
 #   - The framework repository itself: the check is not even run.
-#   - The time bound, with the real `timeout`: a check that would take 120 s
+#   - The time bound, with the real `timeout`: a check that would take 600 s
 #     is cut, the hook exits 0 and says so once, and no process of the cut
 #     run is left behind. The run is started again in the background, holding
 #     none of the hook's output; while it goes on, the next session says
@@ -36,11 +36,16 @@
 #     whose own run is cut, said to come from it; a clean one says nothing; a
 #     failure is said first, at every session, beside the older result; an
 #     incomplete one is said once; one gone with no report is said; a run of
-#     the session's own that completes removes what it left. What it left is
-#     data: a status line in another form is never read, an escape sequence is
-#     flattened, the output is read to 400 lines and every name cut at 160
-#     bytes. With the real check, it keeps its result in the hook's cache (the
-#     next run is a hit) and removes the stamp a cut run left.
+#     the session's own that completes removes what it left; one started past
+#     its bound is ended even with its pid alive. What it left is data: files
+#     about another project, a status line in another form, a linked or (on
+#     Linux) world-writable output are never read; C0 controls, DEL and C1
+#     pairs are flattened; the output is read to 400 lines and every name cut
+#     at 160 bytes. It writes nothing through a link, nor (Linux) into a cache
+#     directory another account can write; with no usable cache no
+#     background run is claimed. With the real check, it keeps its result in
+#     the hook's cache (the next run is a hit) and removes the stamp a cut
+#     run left.
 #   - A fault (the check exits 3, or prints no summary) is one line, said
 #     once; the hook exits 0 in every case.
 #   - An incomplete check is said once and never cached.
@@ -118,7 +123,7 @@ now_ms() {
 # price, and the 3 s limit then cuts a check that is merely slow. So every
 # run below finds, first on PATH, a test double of `timeout` that runs the
 # real one with a 120 s limit. The limit itself is proved with the REAL
-# timeout (hook_real), against a check that would take 31 s.
+# timeout (hook_real), against a check that would take 600 s.
 REAL_TIMEOUT="$(command -v timeout)"
 mkdir -p "$T/bin"
 # The double replaces only the -k value and the duration; any other option
@@ -678,12 +683,23 @@ cp "$DRIFT_SH" "$T/check-framework-drift.sh"
 BGF="$CACHE/bg-${AD//[^A-Za-z0-9._-]/_}"
 SAID="$CACHE/said-${AD//[^A-Za-z0-9._-]/_}"
 FILL_CMD="bash ia-engineering/Adapters/scripts/check-framework-drift.sh --quick --cache-dir $(printf '%q' "$CACHE")"
+# Both files begin with the project they are about; the hook reads no other.
+BG_HDR="project${TAB}$AD"
+# bg_status — the status line: line 2 of BGF, after the project line.
+bg_status() { sed -n 2p "$BGF" 2>/dev/null; }
+# bg_put <file> <text> [header] — a file as a background run of this project
+# (or of the project the header names) would write it, by hand: a tampered
+# one, for the cases below. The text carries its own newlines. Made 0600 as
+# the hook makes its own (umask 077): under a umask such as 002 it would be
+# group-writable, refused for that alone, and every case reading it would
+# pass or fail for the wrong reason.
+bg_put() { (umask 077; printf '%s\n%s' "${3:-$BG_HDR}" "$2" > "$1"); }
 # bg_wait — until the background run's status line says done, at most 300 s
 # (its own bound): what it leaves is read only once it ended.
 bg_wait() {
   local i
   for i in $(seq 600); do
-    case "$(head -n 1 "$BGF" 2>/dev/null)" in done\ *) return 0 ;; esac
+    case "$(bg_status)" in done\ *) return 0 ;; esac
     sleep 0.5
   done
   return 1
@@ -716,20 +732,21 @@ kill_run() {
 # child dies: only the process-group kill ends it. Each run appends its PID
 # and its child's, one line per run, so the run the hook cut and the run it
 # started again in the background are told apart and checked directly.
-printf '#!/usr/bin/env bash\necho $$ >> "%s/pid1"\nsleep 120 </dev/null >/dev/null 2>&1 &\necho $! >> "%s/pid2"\nwait\n' "$T" "$T" > "$DRIFT_SH"
+printf '#!/usr/bin/env bash\necho $$ >> "%s/pid1"\nsleep 600 </dev/null >/dev/null 2>&1 &\necho $! >> "%s/pid2"\nwait\n' "$T" "$T" > "$DRIFT_SH"
 rm -f "$T/pid1" "$T/pid2" "$BGF" "$BGF.tsv" "$SAID"
 hook_real "$AD"
 OVER_MS="$MS"
 printf '   info  session-start.sh with a check that never ends: %s ms\n' "$OVER_MS"
-# Under 60 s whatever the machine's load: the check alone would hold the hook
-# 120 s, and so would the run started again in the background if it held any
-# descriptor of the hook. The 3 s figure is timeout's own (TERM 2.8 s, KILL
-# 0.2 s later); the rest of the hook launches processes, and on a Windows
-# machine shared with other agents (29 Oct 2026) the whole hook took 14 to
-# 35 s, so the margin is wide: the 31 s check and 15 s bound used before
-# failed there on develop. 120 s also keeps the background run going until
-# the next session reads it.
-if [ "$RC" -eq 0 ] && [ "$MS" -lt 60000 ]; then ok "a check that never ends is cut by the real timeout: the hook exits 0 ($MS ms, not 120 s), and the run started again holds none of its output"; else bad "a check that never ends is cut by the real timeout: the hook exits 0 ($MS ms, not 120 s), and the run started again holds none of its output" "exit $RC"; fi
+# Under 300 s whatever the machine's load: the check alone would hold the
+# hook 600 s, and so would the run started again in the background if it held
+# any descriptor of the hook. The 3 s figure is timeout's own (TERM 2.8 s,
+# KILL 0.2 s later); the rest of the hook launches processes, and on a
+# Windows machine shared with other agents (29-30 Oct 2026) the whole hook
+# took 14 to 96 s, so the margin is wide: the 31 s check and 15 s bound used
+# before failed there on develop. The check outlives every session below: the
+# background run that runs it is ended by its own 300 s bound or by this test,
+# never by the check finishing first.
+if [ "$RC" -eq 0 ] && [ "$MS" -lt 300000 ]; then ok "a check that never ends is cut by the real timeout: the hook exits 0 ($MS ms, not 600 s), and the run started again holds none of its output"; else bad "a check that never ends is cut by the real timeout: the hook exits 0 ($MS ms, not 600 s), and the run started again holds none of its output" "exit $RC"; fi
 expect_lines 1 "the overrun is said in one line"
 expect_drift "not finished within the 3 s session-start budget" "the overrun line says why"
 expect_drift "it goes on in the background (5 min at most) and keeps its result for the next session (said once). To see it now: $FILL_CMD" "the overrun line says the run goes on, and names the command that keeps its result in the hook's own cache"
@@ -739,7 +756,7 @@ for f in pid1 pid2; do
   p="$(head -n 1 "$T/$f" 2>/dev/null)"
   [ -n "$p" ] || { LEFT="$LEFT $f: never written;"; continue; }
   # A signal sent to the group is delivered asynchronously: up to 2 s for
-  # it to land, far less than the 120 s a survivor would still have.
+  # it to land, far less than the 600 s a survivor would still have.
   for _ in 1 2 3 4 5 6 7 8 9 10; do
     kill -0 "$p" 2>/dev/null || break
     sleep 0.2
@@ -749,16 +766,31 @@ done
 if [ -z "$LEFT" ]; then ok "no process of the cut run outlives the hook (the check and its detached child are gone)"; else bad "no process of the cut run outlives the hook (the check and its detached child are gone)" "$LEFT"; fi
 # The run started again, line 2: going, and its status line says so.
 if pids_wait 2 && kill -0 "$(sed -n 2p "$T/pid1")" 2>/dev/null; then ok "the cut run is started again, in the background"; else bad "the cut run is started again, in the background" "pid1: $(cat "$T/pid1" 2>/dev/null)"; fi
-case "$(head -n 1 "$BGF" 2>/dev/null)" in
-  started\ [0-9]*) ok "the background run says it started, beside the cache" ;;
-  *) bad "the background run says it started, beside the cache" "$(cat "$BGF" 2>&1)" ;;
+case "$(head -n 1 "$BGF" 2>/dev/null)|$(bg_status)" in
+  "$BG_HDR|started "[0-9]*) ok "the background run says it started, beside the cache, under this project's line" ;;
+  *) bad "the background run says it started, beside the cache, under this project's line" "$(cat "$BGF" 2>&1)" ;;
 esac
 # While it goes on, the next session's run is cut too (line 3), and nothing
-# new is said or started (no line 4).
+# new is said or started. A second start would rewrite the status line with
+# its own "started <pid>" as its very first act, then start its check (line
+# 4): either is watched for 30 s, ten times what one process launch cost at
+# the 29 Oct 2026 peak (1.8 s) for the few launches before it, and the wait
+# ends as soon as one shows. The first run is checked to be still going
+# after that session, so the session had a run to see.
+BG_FIRST="$(bg_status)"
 hook_real "$AD"
 expect_lines 0 "while the background run goes on, the overrun is not said again"
-sleep 3
-if [ "$(lines_of "$T/pid1")" -eq 3 ]; then ok "while one background run goes on, no second one is started"; else bad "while one background run goes on, no second one is started" "pid1: $(cat "$T/pid1")"; fi
+if kill -0 "$(sed -n 2p "$T/pid1")" 2>/dev/null; then ok "... the first background run was still going"; else bad "... the first background run was still going" "status: $(bg_status)"; fi
+SECOND=""
+for _ in $(seq 60); do
+  [ "$(lines_of "$T/pid1")" -ge 4 ] && { SECOND="a fourth run of the check: $(sed -n 4p "$T/pid1")"; break; }
+  case "$(bg_status)" in
+    "$BG_FIRST"|done\ *) ;;
+    *) SECOND="the status line changed: $(bg_status)"; break ;;
+  esac
+  sleep 0.5
+done
+if [ -z "$SECOND" ]; then ok "while one background run goes on, no second one is started"; else bad "while one background run goes on, no second one is started" "$SECOND"; fi
 # Stopped from outside (here: killed), it ends with no result. Every later
 # session that is cut says so, and starts it again: no result is never
 # silence, even once said.
@@ -868,52 +900,151 @@ bg_wait >/dev/null
 plan
 hook "$AD"
 bash -c 'exit 0' & DEAD=$!; wait "$DEAD"
-printf 'started %s\n' "$DEAD" > "$BGF"
+bg_put "$BGF" "started $DEAD"$'\n'
 plan cut real
 hook "$AD"
 expect_drift "and the background run an earlier session started stopped before it finished, so nothing is reported; it is started again" "a background run gone with no report is said"
 bg_wait >/dev/null
 
+# A background run started more than 6 minutes ago, past its own 300 s
+# bound, is ended even when its pid is alive again (a reused pid, here a live
+# sleep): said, and started again, never silence.
+plan
+hook "$AD"
+sleep 120 >/dev/null 2>&1 & LIVE=$!
+bg_put "$BGF" "started $LIVE"$'\n'
+touch -d '10 minutes ago' "$BGF"
+plan cut real
+hook "$AD"
+expect_drift "and the background run an earlier session started stopped before it finished, so nothing is reported; it is started again" "a status started past its bound is ended, even with its pid alive"
+kill "$LIVE" 2>/dev/null
+bg_wait >/dev/null
+
+# The files' names are shared by projects whose paths differ only in the
+# characters made "_": files about another project are not this one's.
+plan
+hook "$AD"
+bg_put "$BGF" $'done 3\n' "project${TAB}${AD}_other"
+bg_put "$BGF.tsv" $'file\tabsent\tOTHER-PROJECT-FILE\tr\n# check-framework-drift: 1 to act on, 0 indeterminate.\n' "project${TAB}${AD}_other"
+plan cut real
+hook "$AD"
+case "$DRIFT" in *OTHER-PROJECT-FILE*) bad "another project's output is never read as this one's" "$DRIFT" ;; *) ok "another project's output is never read as this one's" ;; esac
+case "$DRIFT" in *"did not finish (exit"*) bad "another project's status is never read as this one's" "$DRIFT" ;; *) ok "another project's status is never read as this one's" ;; esac
+expect_drift "it goes on in the background (5 min at most)" "... the overrun is said as with nothing left"
+bg_wait >/dev/null
+
 # What the background run left is data. A status line not in one of its own
-# forms is nothing; its output is flattened again, read to 400 lines at most,
-# and capped as a run's.
+# forms is nothing; its output is flattened again (C0 controls and DEL, C1
+# pairs), read to 400 lines at most, and capped as a run's.
 plan
 hook "$AD"
-printf 'done 3 \033[31mred\n' > "$BGF"
+bg_put "$BGF" $'done 3 \033[31mred\n'
 plan cut real
 hook "$AD"
-case "$DRIFT" in *$'\033'*|*"did not finish"*) bad "a status line not in its own form is never read" "$DRIFT" ;; *) ok "a status line not in its own form is never read" ;; esac
+case "$DRIFT" in *$'\033'*|*"did not finish (exit"*) bad "a status line not in its own form is never read" "$DRIFT" ;; *) ok "a status line not in its own form is never read" ;; esac
 bg_wait >/dev/null
 plan
 hook "$AD"
-printf 'done 0\n' > "$BGF"
-printf 'file\tabsent\tforged\033[31mred\tr\n# check-framework-drift: 1 to act on, 0 indeterminate.\n' > "$BGF.tsv"
+bg_put "$BGF" $'done 0\n'
+bg_put "$BGF.tsv" $'file\tabsent\tforged\033[31mred\177del\rcr\tr\n# check-framework-drift: 1 to act on, 0 indeterminate.\n'
 plan cut real
 hook "$AD"
-case "$DRIFT" in *$'\033'*) bad "no escape sequence in what the background run left reaches the session" "$(printf '%s' "$DRIFT" | od -c | head -5)" ;; *) ok "no escape sequence in what the background run left reaches the session" ;; esac
-expect_drift "forged [31mred" "... the field is flattened, not dropped"
+case "$DRIFT" in *$'\033'*|*$'\177'*|*$'\r'*) bad "no C0 control or DEL in what the background run left reaches the session" "$(printf '%s' "$DRIFT" | od -c | head -5)" ;; *) ok "no C0 control or DEL in what the background run left reaches the session" ;; esac
+expect_drift "forged [31mred del cr" "... each is flattened to a space, the field kept"
 bg_wait >/dev/null
 plan
 hook "$AD"
-printf 'done 0\n' > "$BGF"
-{ for i in $(seq 450); do printf 'config\tcurrent\tx%s\t\n' "$i"; done; printf '# check-framework-drift: 0 to act on, 0 indeterminate.\n'; } > "$BGF.tsv"
+bg_put "$BGF" $'done 0\n'
+bg_put "$BGF.tsv" $'file\tabsent\tforged\302\23331mred\tr\n# check-framework-drift: 1 to act on, 0 indeterminate.\n'
+plan cut real
+hook "$AD"
+case "$DRIFT" in *$'\302\233'*) bad "no C1 control in what the background run left reaches the session" "$(printf '%s' "$DRIFT" | od -c | head -5)" ;; *) ok "no C1 control in what the background run left reaches the session" ;; esac
+expect_drift "forged 31mred" "... the C1 pair is flattened to a space, the field kept"
+bg_wait >/dev/null
+plan
+hook "$AD"
+bg_put "$BGF" $'done 0\n'
+bg_put "$BGF.tsv" "$(for i in $(seq 450); do printf 'config\tcurrent\tx%s\t\n' "$i"; done; printf '# check-framework-drift: 0 to act on, 0 indeterminate.')"$'\n'
 plan cut real
 hook "$AD"
 expect_drift "it gave no summary line" "what the background run left is read to 400 lines: a summary beyond them is no result"
 bg_wait >/dev/null
 plan
 hook "$AD"
-printf 'done 0\n' > "$BGF"
-{ printf 'file\tabsent\t'; printf 'x%.0s' $(seq 400); printf '\tr\n# check-framework-drift: 1 to act on, 0 indeterminate.\n'; } > "$BGF.tsv"
+bg_put "$BGF" $'done 0\n'
+bg_put "$BGF.tsv" "file${TAB}absent${TAB}$(printf 'x%.0s' $(seq 400))${TAB}r"$'\n# check-framework-drift: 1 to act on, 0 indeterminate.\n'
 plan cut real
 hook "$AD"
 case "$DRIFT" in *"$(printf 'x%.0s' $(seq 161))"*) bad "a name in what the background run left is cut at 160 bytes" "$DRIFT" ;; *"$(printf 'x%.0s' $(seq 160))..."*) ok "a name in what the background run left is cut at 160 bytes" ;; *) bad "a name in what the background run left is cut at 160 bytes" "$DRIFT" ;; esac
 bg_wait >/dev/null
 
+# Read only what the user alone could have written. A forged output behind a
+# link is not read; nor, where the platform can make one (Linux), a
+# world-writable one. Either way the session says the overrun, as with
+# nothing left.
+plan
+hook "$AD"
+rm -f "$BGF" "$BGF.tsv"
+bg_put "$BGF" $'done 0\n'
+bg_put "$T/bg-forged" $'file\tabsent\tLINKED-FORGED\tr\n# check-framework-drift: 1 to act on, 0 indeterminate.\n'
+ln -s "$T/bg-forged" "$BGF.tsv" 2>/dev/null
+if [ -L "$BGF.tsv" ]; then
+  plan cut real
+  hook "$AD"
+  case "$DRIFT" in *LINKED-FORGED*) bad "a linked background output is never read" "$DRIFT" ;; *) ok "a linked background output is never read" ;; esac
+  bg_wait >/dev/null
+else
+  info "ln -s makes a copy here: the linked background output case is built on Linux CI"
+fi
+plan
+hook "$AD"
+bg_put "$BGF" $'done 0\n'
+bg_put "$BGF.tsv" $'file\tabsent\tSHARED-FORGED\tr\n# check-framework-drift: 1 to act on, 0 indeterminate.\n'
+chmod o+w "$BGF.tsv" 2>/dev/null
+if [ -n "$(find "$BGF.tsv" -perm -002 2>/dev/null)" ]; then
+  plan cut real
+  hook "$AD"
+  case "$DRIFT" in *SHARED-FORGED*) bad "a world-writable background output is never read" "$DRIFT" ;; *) ok "a world-writable background output is never read" ;; esac
+  bg_wait >/dev/null
+else
+  info "chmod o+w changes nothing here (Git for Windows): the world-writable background output case is built on Linux CI"
+fi
+
+# Written only into a cache directory the user alone owns: with the directory
+# world-writable (Linux), an overrun starts the run, which writes nothing
+# there. Its status line is its very first write, made before its check
+# starts, so once the check has taken its step from the plan, a status line
+# it was allowed to write would already be there.
+plan
+hook "$AD"
+rm -f "$BGF" "$BGF.tsv"
+chmod o+w "$CACHE" 2>/dev/null
+if [ -n "$(find "$CACHE" -prune -perm -002 2>/dev/null)" ]; then
+  plan cut drift
+  hook "$AD"
+  for _ in $(seq 120); do [ -s "$T/plan" ] || break; sleep 0.5; done
+  if [ ! -s "$T/plan" ] && [ ! -e "$BGF" ] && [ ! -e "$BGF.tsv" ]; then ok "a background run writes nothing into a cache directory another account can write"; else bad "a background run writes nothing into a cache directory another account can write" "plan: $(cat "$T/plan" 2>&1); $(ls -la "$CACHE" 2>&1)"; fi
+  chmod o-w "$CACHE"
+else
+  info "chmod o+w changes nothing here (Git for Windows): the world-writable cache directory case is built on Linux CI"
+fi
+
+# No usable cache (both candidates inside the project): nothing can be kept,
+# so no background run is claimed; the overrun is said as it always was.
+plan cut drift
+HOOK_ENV=(XDG_CACHE_HOME="$AD/.xc418" TMPDIR="$AD/.tmp418")
+hook "$AD"
+HOOK_ENV=()
+expect_drift "IA Engineering drift check: not finished within the 3 s session-start budget, so nothing is reported (said once). Run it by hand: bash ia-engineering/Adapters/scripts/check-framework-drift.sh" "no usable cache: the overrun is said, with the full check to run"
+case "$DRIFT" in *"goes on in the background"*) bad "no usable cache: no background run is claimed" "$DRIFT" ;; *) ok "no usable cache: no background run is claimed" ;; esac
+if [ ! -e "$AD/.xc418" ] && [ ! -e "$AD/.tmp418" ]; then ok "no usable cache: nothing is written in the project"; else bad "no usable cache: nothing is written in the project" "$(ls -a "$AD")"; fi
+rm -rf "$AD/.xc418" "$AD/.tmp418"
+
 # What a background run leaves is never written through a link: its status
 # line here is a link to a file outside the cache. The link is not read (not
 # the user's own file), so the session says the overrun and starts the run;
-# that run writes its output beside it but never its status through it.
+# that run writes its output beside it but never its status through it. Its
+# status is its first write, so it was refused before the output appears.
 plan
 hook "$AD"
 rm -f "$BGF" "$BGF.tsv"
@@ -924,7 +1055,6 @@ if [ -L "$BGF" ]; then
   hook "$AD"
   expect_drift "it goes on in the background (5 min at most)" "a linked background status is not read: the overrun is said and the run started"
   for _ in $(seq 120); do [ -e "$BGF.tsv" ] && break; sleep 0.5; done
-  sleep 2
   if [ -e "$BGF.tsv" ] && [ ! -s "$T/bg-target" ] && [ -L "$BGF" ]; then ok "a background run never writes its status through a link"; else bad "a background run never writes its status through a link" "target: $(cat "$T/bg-target" 2>&1); $(ls -la "$CACHE" 2>&1)"; fi
   rm -f "$BGF" "$BGF.tsv"
 else

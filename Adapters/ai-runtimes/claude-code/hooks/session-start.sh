@@ -196,8 +196,9 @@ fi
 # 20 s: no run cut at 2.8 s ever kept anything, and every later session was
 # cut too, in silence. Now the cut run is started again, detached from the
 # hook's output and bounded at 300 s. It keeps its result in the cache, and
-# beside the cache it leaves the next session two files: bg-<project>, one
-# line, "started <pid>" then "done <exit>"; and bg-<project>.tsv, its output.
+# beside the cache it leaves the next session two files, each beginning with
+# a "project TAB <path>" line: bg-<project>, then "started <pid>" and later
+# "done <exit>"; and bg-<project>.tsv, then its output.
 # A session whose own run is cut again reports from that output, read and
 # capped exactly as a run's (and said to come from an earlier run), so a
 # verdict reaches the session even when no run fits the budget. A run still
@@ -277,44 +278,67 @@ if [ -n "$DRIFT_SH" ] && [ -f "$DRIFT_SH" ] && ! [ "$ROOT" -ef "$BASE" ]; then
     return 0
   }
 
+  # The background run's two files begin with the project they are about:
+  # their names are the path with every other character made "_", so two
+  # projects can share them ("/w/a/b" and "/w/a_b"), and a file about another
+  # project is not this one's (as the script's cache_replay checks its own).
+  D_BGHEAD="project"$'\t'"$DRIFT_KEY"
+
   # d_bg_load — what the background run of an earlier session left, read
-  # only when the user alone could have written it. DRIFT_BGS is "" (nothing
-  # readable as this hook's own), running, ended (started, gone, no report:
-  # stopped from outside), done, or failed <exit>: the status line is matched
-  # whole, so no text of it reaches the session. D_BGV is 1 when that run's
-  # output is in DRIFT_OUT, at most 400 lines, for d_result to read as it
-  # reads a run's. It is a file, so it is read as data: every control
-  # character but the TAB that separates fields becomes a space again, the
-  # C1 pairs as the script flattens them (SEC-IAENG-357-01, -358-01).
+  # only when the user alone could have written it and it is about this
+  # project. Called only where DRIFT_BG is set. DRIFT_BGS is "" (nothing
+  # readable as this hook's own), running, ended (stopped from outside: gone
+  # with no report, or started more than 6 minutes ago, past its own 300 s
+  # bound, so a reused pid cannot keep it "running"), done, or failed <exit>.
+  # The status line is matched whole, so no text of it reaches the session.
+  # D_BGV is 1 when that run's output is in DRIFT_OUT, at most 400 lines, for
+  # d_result to read as it reads a run's. It is a file, so it is read as
+  # data: every control character but the TAB that separates fields becomes
+  # a space again, the C1 pairs as the script flattens them
+  # (SEC-IAENG-357-01, -358-01).
   d_bg_load() {
-    local l="" n=0 c1=$'\xc2' LC_ALL=C
+    local l="" p="" n=0 c1=$'\xc2' LC_ALL=C
     local -a fs=()
     DRIFT_BGS=""; D_BGV=0; DRIFT_OUT=""
-    [ -n "$DRIFT_BG" ] || return 0
     [ -f "$DRIFT_BG" ] && fs+=("$DRIFT_BG")
     [ -f "$DRIFT_BGV" ] && fs+=("$DRIFT_BGV")
     [ "${#fs[@]}" -gt 0 ] || return 0
     iaeng_untrusted "$DRIFT_CACHE" "${fs[@]}" && return 0
-    if [ -f "$DRIFT_BG" ] && { IFS= read -r l < "$DRIFT_BG" || [ -n "$l" ]; }; then
-      if [[ "$l" =~ ^started\ ([0-9]{1,10})$ ]]; then
-        if kill -0 "${BASH_REMATCH[1]}" 2>/dev/null; then DRIFT_BGS=running; else DRIFT_BGS=ended; fi
-      elif [[ "$l" =~ ^done\ ([0-9]{1,3})$ ]]; then
-        if [ "${BASH_REMATCH[1]}" = 0 ]; then DRIFT_BGS="done"; else DRIFT_BGS="failed ${BASH_REMATCH[1]}"; fi
+    if [ -f "$DRIFT_BG" ]; then
+      { IFS= read -r p; IFS= read -r l; } < "$DRIFT_BG"
+      if [ "$p" = "$D_BGHEAD" ]; then
+        if [[ "$l" =~ ^started\ ([0-9]{1,10})$ ]]; then
+          # DRIFT_BG is absolute (DRIFT_CACHE is canonical): never an option.
+          if kill -0 "${BASH_REMATCH[1]}" 2>/dev/null \
+             && [ -z "$(find "$DRIFT_BG" -mmin +6 2>/dev/null)" ]; then
+            DRIFT_BGS=running
+          else
+            DRIFT_BGS=ended
+          fi
+        elif [[ "$l" =~ ^done\ ([0-9]{1,3})$ ]]; then
+          if [ "${BASH_REMATCH[1]}" = 0 ]; then DRIFT_BGS="done"; else DRIFT_BGS="failed ${BASH_REMATCH[1]}"; fi
+        fi
       fi
     fi
     if [ -f "$DRIFT_BGV" ]; then
-      while [ "$n" -lt 400 ] && IFS= read -r l; do
-        l="${l//[$'\x01'-$'\x08'$'\x0b'-$'\x1f'$'\x7f']/ }"
-        l="${l//"$c1"[$'\x80'-$'\x9f']/ }"
-        DRIFT_OUT="$DRIFT_OUT$l"$'\n'; n=$((n + 1))
-      done < "$DRIFT_BGV"
-      D_BGV=1
+      {
+        IFS= read -r p
+        if [ "$p" = "$D_BGHEAD" ]; then
+          while [ "$n" -lt 400 ] && IFS= read -r l; do
+            l="${l//[$'\x01'-$'\x08'$'\x0b'-$'\x1f'$'\x7f']/ }"
+            l="${l//"$c1"[$'\x80'-$'\x9f']/ }"
+            DRIFT_OUT="$DRIFT_OUT$l"$'\n'; n=$((n + 1))
+          done
+          D_BGV=1
+        fi
+      } < "$DRIFT_BGV"
     fi
     return 0
   }
-  # d_bg_write <file> <text> — through a new file renamed into place, never
-  # through a link, only into a cache directory the user alone owns, made
-  # 0700 here when no run made it yet (as drift_once makes it).
+  # d_bg_write <file> <text> — the project line, then the text, through a new
+  # file renamed into place, never through a link, only into a cache
+  # directory the user alone owns, made 0700 here when no run made it yet
+  # (as drift_once makes it).
   d_bg_write() {
     [ -n "$1" ] && [ -n "$DRIFT_CACHE" ] && [ ! -L "$1" ] || return 0
     if [ ! -d "$DRIFT_CACHE" ]; then
@@ -322,7 +346,7 @@ if [ -n "$DRIFT_SH" ] && [ -f "$DRIFT_SH" ] && ! [ "$ROOT" -ef "$BASE" ]; then
       mkdir -m 700 "$DRIFT_CACHE" 2>/dev/null
     fi
     [ -d "$DRIFT_CACHE" ] && ! iaeng_untrusted "$DRIFT_CACHE" || return 0
-    { (umask 077; printf '%s\n' "$2" > "$1.$$.tmp") && mv -f "$1.$$.tmp" "$1"; } 2>/dev/null
+    { (umask 077; printf '%s\n%s\n' "$D_BGHEAD" "$2" > "$1.$$.tmp") && mv -f "$1.$$.tmp" "$1"; } 2>/dev/null
     [ -e "$1.$$.tmp" ] && rm -f "$1.$$.tmp" 2>/dev/null
     return 0
   }
@@ -331,10 +355,10 @@ if [ -n "$DRIFT_SH" ] && [ -f "$DRIFT_SH" ] && ! [ "$ROOT" -ef "$BASE" ]; then
   # which waits for the hook's output to close, does not wait for it. The
   # script keeps its result in the cache itself (--cache-dir); this subshell
   # keeps the output of a run that exited 0 for the next session, then its
-  # exit status. $BASHPID is bash 4: on bash 3.2 "started " is written, which
-  # d_bg_load reads as nothing, so a second run may start; never a fault.
+  # exit status. Called only where DRIFT_BG is set. $BASHPID is bash 4: on
+  # bash 3.2 "started " is written, which d_bg_load reads as nothing, so a
+  # second run may start; never a fault.
   d_bg_start() {
-    [ -n "$DRIFT_BG" ] || return 0
     (
       d_bg_write "$DRIFT_BG" "started ${BASHPID:-}"
       out="$(CDPATH='' cd -- "$BASE" 2>/dev/null && "$DRIFT_TO" -k 1 300 bash "$DRIFT_SH" "${DRIFT_ARGS[@]}" </dev/null 2>/dev/null)"
