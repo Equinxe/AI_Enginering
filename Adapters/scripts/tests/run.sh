@@ -8091,9 +8091,9 @@ expect_output "is not initialised there. Run: git -C $GMAIN_414b submodule updat
 hooks_path_is_414b "$GHP_414b" "the main working tree's framework not initialised: core.hooksPath is left as it was"
 # The remedy, as printed, plus the local-path exception this fixture needs.
 git -C "$GMAIN_414b" -c protocol.file.allow=always submodule update -q --init >/dev/null 2>&1
-expect 3 "after the printed remedy, --check from the linked worktree is current again" -- bash "$INST_353" --check
+expect 0 "after the printed remedy, --check from the linked worktree is current again (installed there above)" -- bash "$INST_353" --check
 expect_output "git-hooks${T}current${T}core.hooksPath${T}$GHP_414b"
-cd "$MAIN_414b" || exit 1
+cd "$WORK" || exit 1
 
 section "setup-project-bootstrap.sh — the closing message names its cause (WU-IAENG-353, issue #262)"
 
