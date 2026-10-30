@@ -99,6 +99,33 @@ From the next update on, the script writes nothing and runs your own status line
 
 **Prevention.** `install-hooks.sh --check` reports the statusLine as `present`, `absent`, `near-miss` (a project statusLine kept as it is, such as one that runs under PowerShell) or `shadowed`. `hooks/README.md`, Context Status Line, gives the full contract.
 
+## C. Every Bash command, or every edit, is refused without an "iaeng: BLOCKED" reason
+
+Audience: the operator, with the guards installed by `install-hooks.sh` since WU-IAENG-410 (issue #351). Page checked on 29 October 2026.
+
+**Symptom.** Claude Code refuses every Bash call, or every Edit and Write, in one checkout. The refusal does not carry the framework's `iaeng: BLOCKED —` line naming a rule. It may come about two minutes after the call.
+
+**Cause.** The two guards, `block-escape-hatches.sh` (Bash) and `block-inline-suppression.sh` (Edit, Write, MultiEdit), are installed with `"onFailure": "block"` and a 120 s `timeout`. A failed guard then blocks the call, as exit code 2 would ([Block the action when a hook fails](https://code.claude.com/docs/en/hooks.md#block-the-action-when-a-hook-fails), Claude Code 2.1.295 or later). The page counts these as failures: the hook cannot start, it exits with a code other than 0 or 2, it reaches its timeout, or it prints JSON that cannot be parsed. In practice, check these in order:
+
+1. **The hook files are missing in this checkout.** The usual case is a Claude Code session started inside a `git worktree` of the project whose framework submodule was never initialised (issue #368). The hooks then resolve from that worktree, the command in `.claude/settings.json` names a script that does not exist, and the hook cannot start. A subagent that Claude Code runs in a worktree is not affected. Observed on 29 October 2026 (WU-IAENG-414): its hooks ran with `$CLAUDE_PROJECT_DIR` set to the main checkout, so they resolved from the main checkout's initialised framework.
+2. **The machine is too loaded for the guard to finish in 120 s.** On Windows, a guard's latency is mostly process creation, and it grows with the number of agents working in parallel (`Governance/BLOCKING_HOOK_LATENCY_MEASUREMENT.md`).
+3. **The guard itself failed,** for example with an exit code other than 0 or 2. That is a defect in the guard.
+
+**Remedy.**
+
+1. In a terminal, from that checkout's root, run `git submodule update --init`. Then check that the scripts the commands name exist: `ls ia-engineering/Adapters/ai-runtimes/claude-code/hooks/`.
+2. Run fewer agents at once, then try the call again.
+3. Run the guard by hand with a harmless payload. It must print nothing and exit 0:
+
+   ```bash
+   printf '%s' '{"tool_name":"Bash","tool_input":{"command":"ls"}}' \
+     | bash ia-engineering/Adapters/ai-runtimes/claude-code/hooks/block-escape-hatches.sh; echo "exit $?"
+   ```
+
+   In the framework repository itself, the path starts at `Adapters/`. Any other result is a defect: open an issue with the output.
+
+**Prevention.** Do not remove `onFailure`, or set it to `"continue"`, to get past this. Before WU-IAENG-410, the same checkout ran with no guard at all, and nothing said so. That is the failure this setting ends. `install-hooks.sh` reports a weakened guard entry as a near miss and adds the framework's entry back beside it.
+
 ---
 
 # Adding an Entry
@@ -114,6 +141,7 @@ Follow `Governance/TROUBLESHOOTING.md`, "Adding an Entry", with one more rule. E
 - `Adapters/ai-runtimes/claude-code/hooks/README.md` — what `session-start.sh` prints and when
 - `Adapters/ai-runtimes/claude-code/settings.example.json` — the `SessionStart` matcher the installer writes
 - `Templates/SESSION_STATE.md` — the state the hook re-injects
+- `Governance/BLOCKING_HOOK_LATENCY_MEASUREMENT.md` — the guards' latency under load, and why their timeout is 120 s
 
 ---
 

@@ -20,7 +20,10 @@
 # framework's OWN earlier entry, exactly — a group whose matcher is one the
 # framework used before (SUPERSEDED below) and whose entries are exactly the
 # template's, nothing else in it — has its matcher updated in place, since
-# appending beside it would run the hook twice (WU-IAENG-373). The report
+# appending beside it would run the hook twice (WU-IAENG-373); so does a
+# group under the template's matcher whose entries are exactly the
+# template's without the fields the framework added since, which get those
+# fields (WU-IAENG-410: the guards' timeout and onFailure). The report
 # lists what was added, updated and found present, nothing more, plus a warning when the
 # project's settings switch every hook off ("disableAllHooks": true), which
 # this script reports and never changes. The file is rewritten by jq, so its
@@ -193,7 +196,7 @@ check_report() {
         line = line "; " part("gitattributes", ".gitattributes rule(s)", "present missing")
         line = line "; " (f + 0) " fault(s)."
         if (s["settings" FS "absent"] || s["hook" FS "absent"] || s["statusline" FS "absent"] || s["gitattributes" FS "missing"])
-          line = line " absent/missing: re-run " ENVIRON["IAENG_ME"] " without --force; it adds them and keeps every entry already there, except an earlier framework entry, whose matcher it updates in place."
+          line = line " absent/missing: re-run " ENVIRON["IAENG_ME"] " without --force; it adds them and keeps every entry already there, except an earlier framework entry, which it updates in place (its matcher, or the fields the framework added since)."
         if (s["hook" FS "near-miss"])
           line = line " near-miss: check each is not a weakened copy; the framework entry runs beside it."
         if (s["statusline" FS "near-miss"] || s["statusline" FS "shadowed"])
@@ -274,8 +277,17 @@ RENDERED="$(sed "s#__IAENG_ROOT__#$ROOT#g" "$EXAMPLE")"
 # never rewritten. Add a line here whenever a template matcher changes, and
 # set every existing line's "to" to the new matcher too: a line whose "to" is
 # no longer a template matcher is skipped, and its adopters get the near miss.
+# A line with "without" names fields the framework ADDED to the template
+# group's entries (WU-IAENG-410): its earlier entries are the template's
+# without them, and an exact earlier group gets them in place, its own
+# command spelling kept. Same rule: exactly the earlier entries and nothing
+# else, or it is the project's.
 #   SessionStart: "clear" added, so /clear starts with the read-first context.
-SUPERSEDED='{"SessionStart":[{"from":"startup|resume|compact","to":"startup|resume|clear|compact"}]}'
+#   PreToolUse: the guards' timeout and onFailure, so a guard that times out,
+#     cannot start or exits other than 0 or 2 blocks the call it guards.
+SUPERSEDED='{"SessionStart":[{"from":"startup|resume|compact","to":"startup|resume|clear|compact"}],
+  "PreToolUse":[{"from":"Bash","to":"Bash","without":["timeout","onFailure"]},
+                {"from":"Edit|Write|MultiEdit","to":"Edit|Write|MultiEdit","without":["timeout","onFailure"]}]}'
 
 if [ "$PRINT" -eq 1 ]; then
   printf '%s\n' "$RENDERED"
@@ -409,7 +421,9 @@ settings_mergeable() {
 #
 # THE FRAMEWORK'S OWN EARLIER ENTRY IS UPDATED, NOT DOUBLED (WU-IAENG-373).
 # Before anything else, a group that is exactly the framework's entry under
-# a SUPERSEDED "from" matcher has its matcher set to "to", unless the current
+# a SUPERSEDED "from" matcher (its entries without the line's "without"
+# fields, when it has some) has its matcher set to "to" and those fields
+# added from the template, unless the current
 # entry is already held under "to" (then nothing is rewritten and the earlier
 # group stays a near miss). The rest runs on the updated file, so the updated
 # group is neither added again nor a near miss; it is reported in u, and not
@@ -433,11 +447,17 @@ merge_settings() {
           ([$tpl.hooks[$s.key][]? | select((.matcher // null) == $r.to)] | first) as $tg
           | if $tg == null or ((.c.hooks[$s.key] // null) | type) != "array" then .
             else ($tg | nentries) as $want
-            | if (any(.c.hooks[$s.key][]; earlier($r.from; $want)) | not)
+            | ($r.without // []) as $wo
+            | ($want | map(delpaths([$wo[] | [.]]))) as $was
+            | if (any(.c.hooks[$s.key][]; earlier($r.from; $was)) | not)
                  or any(.c.hooks[$s.key][]; type == "object" and (.matcher // null) == $r.to and holds($want))
               then .
-              else .c.hooks[$s.key] |= map(if earlier($r.from; $want) then .matcher = $r.to else . end)
-                | .u += [{l: ($tg | where($s.key) + ": " + (scripts | join(", "))), from: $r.from}]
+              else .c.hooks[$s.key] |= map(if earlier($r.from; $was)
+                  then .matcher = $r.to
+                    | .hooks = [.hooks as $h | range(0; $h | length) as $i
+                                | $h[$i] + ($tg.hooks[$i] | with_entries(select(.key as $k | any($wo[]; . == $k))))]
+                  else . end)
+                | .u += [{l: ($tg | where($s.key) + ": " + (scripts | join(", "))), from: $r.from, without: $wo}]
               end
             end))) as $up
     | $up.c as $cur
@@ -538,7 +558,9 @@ if [ "$CHECK" -eq 1 ]; then
     done < <(printf '%s\n' "$MERGED" \
       | jq -r 'def flat: gsub("[\t\n\r]"; " ");
                (.p[] | "present\t" + flat), (.a[] | "absent\t" + flat),
-               (.u[] | "absent\t" + (.l + "  (a run updates the framework\u0027s earlier entry under [" + .from + "] in place)" | flat)),
+               (.u[] | "absent\t" + (.l + "  (a run updates the framework\u0027s earlier entry "
+                 + (if (.without // []) == [] then "under [" + .from + "]" else "without " + (.without | join(", ")) end)
+                 + " in place)" | flat)),
                (.w[] | "near-miss\t" + flat)' 2>/dev/null \
       | sed $'s/\r$//')
     while IFS=$'\t' read -r _st _d; do
@@ -583,7 +605,8 @@ if [ -f "$DEST" ] && [ "$FORCE" -eq 0 ]; then
   ADDED="$(printf '%s\n' "$MERGED" | jq -r '.a[]' | tr -d '\r')"
   PRESENT="$(printf '%s\n' "$MERGED" | jq -r '.p[]' | tr -d '\r')"
   NEAR="$(printf '%s\n' "$MERGED" | jq -r '.w[]' | tr -d '\r')"
-  UPDATED="$(printf '%s\n' "$MERGED" | jq -r '.u[] | .l + "  (matcher was [" + .from + "])"' | tr -d '\r')"
+  UPDATED="$(printf '%s\n' "$MERGED" | jq -r '.u[] | .l + "  ("
+    + (if (.without // []) == [] then "matcher was [" + .from + "]" else "added: " + (.without | join(", ")) end) + ")"' | tr -d '\r')"
   # The statusLine is listed with the hook entries: added (installed, or
   # wrapped around the project's own) or present; a near miss is on stderr.
   # Its text holds a command read from the project's settings, so it is
@@ -619,7 +642,7 @@ if [ -f "$DEST" ] && [ "$FORCE" -eq 0 ]; then
   if [ -z "$UPDATED" ]; then
     echo "+ $DEST: merged (framework root: $ROOT); every entry already in it is kept."
   else
-    echo "+ $DEST: merged (framework root: $ROOT); the framework's earlier entries had their matcher updated in place, and every other entry is kept as it was."
+    echo "+ $DEST: merged (framework root: $ROOT); the framework's earlier entries were updated in place, and every other entry is kept as it was."
   fi
   [ -z "$ADDED" ] || printf '%s\n' "$ADDED" | sed 's/^/    added:   /'
   [ -z "$UPDATED" ] || printf '%s\n' "$UPDATED" | sed 's/^/    updated: /'
