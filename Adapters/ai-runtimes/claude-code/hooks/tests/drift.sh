@@ -910,6 +910,27 @@ hook "$AD"
 case "$DRIFT" in *"$(printf 'x%.0s' $(seq 161))"*) bad "a name in what the background run left is cut at 160 bytes" "$DRIFT" ;; *"$(printf 'x%.0s' $(seq 160))..."*) ok "a name in what the background run left is cut at 160 bytes" ;; *) bad "a name in what the background run left is cut at 160 bytes" "$DRIFT" ;; esac
 bg_wait >/dev/null
 
+# What a background run leaves is never written through a link: its status
+# line here is a link to a file outside the cache. The link is not read (not
+# the user's own file), so the session says the overrun and starts the run;
+# that run writes its output beside it but never its status through it.
+plan
+hook "$AD"
+rm -f "$BGF" "$BGF.tsv"
+: > "$T/bg-target"
+ln -s "$T/bg-target" "$BGF" 2>/dev/null
+if [ -L "$BGF" ]; then
+  plan cut drift
+  hook "$AD"
+  expect_drift "it goes on in the background (5 min at most)" "a linked background status is not read: the overrun is said and the run started"
+  for _ in $(seq 120); do [ -e "$BGF.tsv" ] && break; sleep 0.5; done
+  sleep 2
+  if [ -e "$BGF.tsv" ] && [ ! -s "$T/bg-target" ] && [ -L "$BGF" ]; then ok "a background run never writes its status through a link"; else bad "a background run never writes its status through a link" "target: $(cat "$T/bg-target" 2>&1); $(ls -la "$CACHE" 2>&1)"; fi
+  rm -f "$BGF" "$BGF.tsv"
+else
+  info "ln -s makes a copy here: the linked background status case is built on Linux CI"
+fi
+
 # With the real check: the background run keeps its result in the cache the
 # hook reads, so the next session's run is a hit, and it removes the stamp a
 # run cut by the time limit left (planted here, named as that run's would be).
