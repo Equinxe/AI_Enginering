@@ -151,8 +151,10 @@ session with no context and no rules. Make your first commit (the adoption itsel
 tooling; `CLAUDE.md` goes in a later commit), signed `Employee: DevOps Engineer`
 (`Workflows/PROJECT_BOOTSTRAP.md` Step 4), with a `Work Unit:` line naming the
 adoption Work Unit, registered in `Registry/work-units.yml` in that same commit.
-This commit goes to `main` without a Pull Request, so no CI check reads it: the
-`commit-msg` hook refuses an unregistered Work Unit, but not a missing line. Then create
+This commit goes to `main` without a Pull Request, so the trailer checks
+(`Work Unit Exists`, `Employee Trailer`), which run on Pull Requests only, never
+read it: the `commit-msg` hook refuses an unregistered Work Unit, but not a
+missing line. Then create
 `.ia-engineering/SESSION_STATE.md`. The helper
 `./ia-engineering/Adapters/scripts/create-session-state.sh` does it for you: it
 refuses before the first commit and never overwrites an existing file, writes the

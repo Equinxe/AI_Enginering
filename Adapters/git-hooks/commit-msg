@@ -26,8 +26,8 @@
 # or, to install this hook alone:
 #   cp ia-engineering/Adapters/git-hooks/commit-msg .git/hooks/commit-msg
 #   chmod +x .git/hooks/commit-msg
-# A copy resolves a Work Unit claim through ia-engineering/Adapters/scripts
-# (or $IAENG_FRAMEWORK), so the framework must stay imported beside it.
+# A copy resolves a Work Unit claim only with IAENG_FRAMEWORK set to the
+# framework root: the hook never runs a script from the working tree (Rule 4).
 #
 # Commit message format expected:
 #
@@ -285,21 +285,23 @@ fi
 # Work Unit Exists check, as before: install.sh probes this hook with a message
 # that carries no `Work Unit:` line.
 #
-# The script is located as pre-commit locates its scanner: beside this hook
-# first (the core.hooksPath install, where hook and check come from the same
-# framework checkout), then $IAENG_FRAMEWORK, the framework's own repository,
-# and the ia-engineering/ submodule path. A claim that cannot be evaluated —
-# no script, no registry, a registry not staged or unreadable — is refused,
-# never passed (Standards/CODE_QUALITY_STANDARD.md, The Check Convention).
-# The script's stdout (the resolved line) is dropped; its stderr says why.
+# The script is run from this hook's OWN framework only: beside the hook (the
+# core.hooksPath install, where hook and check come from one framework
+# checkout), else from an explicit $IAENG_FRAMEWORK. Never from the working
+# tree: a hook that executes ./Adapters/scripts or ./ia-engineering/... runs
+# whatever a branch or a worktree's empty submodule directory holds there
+# (aligned with SEC-IAENG-414-01). So a hook copied into .git/hooks needs
+# IAENG_FRAMEWORK to resolve a claim. A claim that cannot be evaluated (no
+# script, no registry, a registry not staged or unreadable) is refused, never
+# passed (Standards/CODE_QUALITY_STANDARD.md, The Check Convention). The
+# script's stdout (the resolved line) is dropped; its stderr says why, and its
+# exit says which: 1 a finding about the claim, 2 not evaluated.
 if [ "$WU_COUNT" -eq 1 ]; then
   HOOK_DIR="$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)"
   CHECK_WU=""
   for candidate in \
     "$HOOK_DIR/../scripts" \
-    "${IAENG_FRAMEWORK:-}/Adapters/scripts" \
-    "$REPO_ROOT/Adapters/scripts" \
-    "$REPO_ROOT/ia-engineering/Adapters/scripts"; do
+    "${IAENG_FRAMEWORK:-}/Adapters/scripts"; do
     case "$candidate" in /Adapters/scripts) continue ;; esac
     if [ -f "$candidate/check-work-units.sh" ]; then
       CHECK_WU="$candidate/check-work-units.sh"
@@ -307,17 +309,25 @@ if [ "$WU_COUNT" -eq 1 ]; then
     fi
   done
   if [ -z "$CHECK_WU" ]; then
-    echo "commit-msg: rejected — this commit claims a Work Unit, and this hook cannot locate Adapters/scripts/check-work-units.sh to resolve it." >&2
-    echo "  Looked next to this hook, in \$IAENG_FRAMEWORK (currently: '${IAENG_FRAMEWORK:-unset}')," >&2
-    echo "  in $REPO_ROOT/Adapters/scripts and in $REPO_ROOT/ia-engineering/Adapters/scripts." >&2
-    echo "  A claim this hook cannot evaluate is refused, not passed. Set IAENG_FRAMEWORK" >&2
-    echo "  to the framework root, or re-run ./ia-engineering/Adapters/scripts/install.sh." >&2
+    echo "commit-msg: rejected — this commit claims a Work Unit, and this hook cannot locate check-work-units.sh in its own framework to resolve it." >&2
+    echo "  Looked next to this hook ($HOOK_DIR/../scripts) and in" >&2
+    echo "  \$IAENG_FRAMEWORK/Adapters/scripts (IAENG_FRAMEWORK: '${IAENG_FRAMEWORK:-unset}')." >&2
+    echo "  The working tree is never searched: a hook does not run a script a branch" >&2
+    echo "  can plant. A claim this hook cannot evaluate is refused, not passed. Wire" >&2
+    echo "  the hooks with ./ia-engineering/Adapters/scripts/install.sh (core.hooksPath)," >&2
+    echo "  or set IAENG_FRAMEWORK to the framework root for a copied hook." >&2
     exit 1
   fi
-  if ! bash "$CHECK_WU" --message "$COMMIT_MSG_FILE" > /dev/null; then
+  WU_RC=0
+  bash "$CHECK_WU" --message "$COMMIT_MSG_FILE" > /dev/null || WU_RC=$?
+  if [ "$WU_RC" -eq 1 ]; then
     echo "commit-msg: rejected — the 'Work Unit:' claim does not resolve (reason above, from" >&2
     echo "  $CHECK_WU --message: the rule of the Work Unit Exists" >&2
     echo "  CI check, applied to the registry this commit records)." >&2
+    exit 1
+  elif [ "$WU_RC" -ne 0 ]; then
+    echo "commit-msg: rejected — the 'Work Unit:' claim could not be evaluated (reason above;" >&2
+    echo "  $CHECK_WU --message exited $WU_RC), so it is refused, not passed." >&2
     exit 1
   fi
 fi

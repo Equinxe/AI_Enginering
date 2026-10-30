@@ -65,7 +65,10 @@
 # present in the working tree but not in the index is refused, naming the
 # `git add`; one that is absent, or cannot be read, is refused as in a range.
 # $IAENG_REGISTRY_WORK_UNITS, when it names an existing file, overrides here
-# too. Exit 0 when the message's one claim resolves, 1 otherwise.
+# too, and says so on stderr. Exit codes as above: 0 when the message's one
+# claim resolves, 1 for a finding about the claim, 2 when it could not be
+# evaluated (the message file unreadable, not inside a git work tree, the
+# staged registry absent, unstaged, unreadable or yielding no ids).
 #
 # The registry is searched at $IAENG_REGISTRY_WORK_UNITS, then
 # Registry/work-units.yml relative to the working directory: this repository's
@@ -122,12 +125,14 @@ if [ "$#" -ne 2 ]; then
   exit 2
 fi
 
-MESSAGE_FILE=""
+# --message reads the message once, here, so one guard covers a missing,
+# unreadable or non-regular file before anything else is examined.
+MESSAGE_MODE=0
 if [ "$1" = "--message" ]; then
-  MESSAGE_FILE="$2"
-  if [ ! -f "$MESSAGE_FILE" ] || [ ! -r "$MESSAGE_FILE" ]; then
-    err "--message: cannot read the message file '$MESSAGE_FILE'. Nothing was evaluated; failing rather than passing."
-    exit 1
+  MESSAGE_MODE=1
+  if [ ! -f "$2" ] || ! MESSAGE="$(cat -- "$2")"; then
+    err "--message: cannot read the message file '$2'. Nothing was evaluated; failing rather than passing."
+    exit 2
   fi
 else
   BASE_REF="$1"
@@ -149,10 +154,10 @@ fi
 # --message the project is the repository whose index is read, so its top
 # level stands in for the working directory.
 TOP=.
-if [ -n "$MESSAGE_FILE" ]; then
+if [ "$MESSAGE_MODE" -eq 1 ]; then
   if ! TOP="$(git rev-parse --show-toplevel 2>/dev/null)" || [ -z "$TOP" ]; then
     err "--message runs inside a git working tree: the registry it reads is the index's. Nothing was evaluated; failing rather than passing."
-    exit 1
+    exit 2
   fi
 fi
 FRAMEWORK_ROOT="$(CDPATH='' cd -- "$SCRIPT_DIR/../.." && pwd)"
@@ -166,7 +171,7 @@ fi
 # differ only with --message, where the file is a copy of the staged blob.
 REGISTRY=""
 REGISTRY_LABEL=""
-if [ -z "$MESSAGE_FILE" ]; then
+if [ "$MESSAGE_MODE" -eq 0 ]; then
   for candidate in \
     "${IAENG_REGISTRY_WORK_UNITS:-}" \
     "Registry/work-units.yml"
@@ -177,24 +182,30 @@ if [ -z "$MESSAGE_FILE" ]; then
     fi
   done
 elif [ -n "${IAENG_REGISTRY_WORK_UNITS:-}" ] && [ -f "$IAENG_REGISTRY_WORK_UNITS" ]; then
+  # Said on stderr, which the commit-msg hook shows: a variable left exported
+  # would otherwise change, unannounced, what every later commit is checked
+  # against.
   REGISTRY="$IAENG_REGISTRY_WORK_UNITS"
+  echo "check-work-units: note: IAENG_REGISTRY_WORK_UNITS is set; resolving against $REGISTRY, not the staged Registry/work-units.yml." >&2
 elif git cat-file -e ":Registry/work-units.yml" 2>/dev/null; then
   # `:<path>` is the stage-0 index entry, relative to the top level. Copied to
   # a file so the parsing below runs on it unchanged.
   if ! STAGED_REGISTRY="$(mktemp)"; then
     err "--message: could not create a temporary file to read the staged Registry/work-units.yml into. Nothing was evaluated; failing rather than passing."
-    exit 1
+    exit 2
   fi
   trap 'rm -f "$STAGED_REGISTRY"' EXIT
   if ! git cat-file blob ":Registry/work-units.yml" > "$STAGED_REGISTRY"; then
     err "--message: the index lists Registry/work-units.yml but its content could not be read. Nothing was evaluated; failing rather than passing."
-    exit 1
+    exit 2
   fi
   REGISTRY="$STAGED_REGISTRY"
   REGISTRY_LABEL="the staged Registry/work-units.yml (the index: what this commit records)"
 elif [ -f "$TOP/Registry/work-units.yml" ]; then
+  # The registry this commit records is absent, as in the no-registry case
+  # below, so it is the same could-not-evaluate exit.
   err "Registry/work-units.yml is in the working tree but not in the index, so this commit would not record it, and a Work Unit it claims could not resolve against the commit's own tree. Stage it with the work: git add Registry/work-units.yml"
-  exit 1
+  exit 2
 fi
 REGISTRY_LABEL="${REGISTRY_LABEL:-$REGISTRY}"
 
@@ -316,11 +327,7 @@ check_commit() {
 # A message is not a commit yet, so there is no range and no merge to
 # classify: whether a claim is required at all is the caller's decision (the
 # commit-msg hook calls this only for a message that carries one).
-if [ -n "$MESSAGE_FILE" ]; then
-  if ! MESSAGE="$(cat -- "$MESSAGE_FILE")"; then
-    err "--message: reading '$MESSAGE_FILE' failed. Nothing was evaluated; failing rather than passing."
-    exit 1
-  fi
+if [ "$MESSAGE_MODE" -eq 1 ]; then
   check_message "$MESSAGE" "This commit message" "message"
   exit "$fail"
 fi

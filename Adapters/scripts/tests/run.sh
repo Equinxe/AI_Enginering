@@ -2218,6 +2218,7 @@ mk415 cm415-resolve
 msg415 m.txt "Work Unit: WU-DEMO-999"
 expect 1 "an unregistered Work Unit id is refused (the rehearsal's WU-DEMO-999)" -- bash "$HOOK415" m.txt
 expect_output "claims 'WU-DEMO-999', which is not in the staged Registry/work-units.yml"
+expect_output "commit-msg: rejected — the 'Work Unit:' claim does not resolve"
 msg415 m.txt "Work Unit: WU-DEMO-001"
 expect 0 "a registered Work Unit id is accepted" -- bash "$HOOK415" m.txt
 msg415 m.txt "Work Unit: WU-DEMO"
@@ -2245,6 +2246,7 @@ git add -A && git commit -q -m "roster"
 msg415 m.txt "Work Unit: WU-DEMO-001"
 expect 1 "no registry: the claim cannot be evaluated and is refused" -- bash "$HOOK415" m.txt
 expect_output "This project has no Work Unit registry"
+expect_output "commit-msg: rejected — the 'Work Unit:' claim could not be evaluated"
 write_wu_registry WU-DEMO-001
 expect 1 "a registry never added to the index is refused, naming the git add" -- bash "$HOOK415" m.txt
 expect_output "git add Registry/work-units.yml"
@@ -2253,9 +2255,11 @@ git add Registry/work-units.yml
 expect 1 "a staged registry that parses to no id is a parsing failure" -- bash "$HOOK415" m.txt
 expect_output "yielded no Work Unit IDs"
 
-# Where the hook finds check-work-units.sh. A hook copied into .git/hooks has
-# no framework beside it: it resolves through the project's ia-engineering/,
-# and with no framework at all it refuses a claim rather than passing it.
+# Where the hook finds check-work-units.sh: in its OWN framework only, beside
+# it or through an explicit IAENG_FRAMEWORK, never in the working tree, where a
+# branch or a worktree's empty submodule directory could plant a script
+# (SEC-IAENG-414-01). A hook copied into .git/hooks has no framework beside it,
+# so with no IAENG_FRAMEWORK it refuses a claim rather than passing it.
 mkdir -p "$WORK/hook415/alone"
 cp "$HOOK415" "$WORK/hook415/alone/commit-msg"
 COPIED415="$WORK/hook415/alone/commit-msg"
@@ -2263,13 +2267,23 @@ COPIED415="$WORK/hook415/alone/commit-msg"
 mk415 cm415-no-check
 msg415 m.txt "Work Unit: WU-DEMO-001"
 expect 1 "a hook that cannot locate check-work-units.sh refuses a claim" -- env -u IAENG_FRAMEWORK bash "$COPIED415" m.txt
-expect_output "cannot locate Adapters/scripts/check-work-units.sh"
+expect_output "cannot locate check-work-units.sh in its own framework"
 msg415 m.txt ""
 expect 0 "the same hook still accepts a message with no Work Unit line" -- env -u IAENG_FRAMEWORK bash "$COPIED415" m.txt
 
+# A script planted in the working tree, at both paths a hook once searched, is
+# never run: the claim is unregistered, and the planted script would pass it.
+mkdir -p Adapters/scripts ia-engineering/Adapters/scripts
+printf '#!/usr/bin/env bash\necho PLANTED >&2\nexit 0\n' > Adapters/scripts/check-work-units.sh
+cp Adapters/scripts/check-work-units.sh ia-engineering/Adapters/scripts/check-work-units.sh
+msg415 m.txt "Work Unit: WU-DEMO-999"
+expect 1 "a check-work-units.sh planted in the working tree is never run by the hook" -- env -u IAENG_FRAMEWORK bash "$COPIED415" m.txt
+expect_output "cannot locate check-work-units.sh in its own framework"
+
 # The adopter's layout: the framework under ia-engineering/, its own registry
 # listing a framework-only id. The hook as core.hooksPath runs it (from inside
-# ia-engineering/) and a copied one both read the PROJECT's registry.
+# ia-engineering/), and a copied one given IAENG_FRAMEWORK, both read the
+# PROJECT's registry.
 mk415 cm415-consumer
 mkdir -p ia-engineering/Adapters/scripts ia-engineering/Adapters/git-hooks ia-engineering/Registry
 cp "$SCRIPTS/check-work-units.sh" "$SCRIPTS/merge-classify.sh" ia-engineering/Adapters/scripts/
@@ -2278,7 +2292,7 @@ printf 'work_units:\n  - id: WU-FRAMEWORK-137\n' > ia-engineering/Registry/work-
 git add -A && git commit -q -m "framework imported"
 msg415 m.txt "Work Unit: WU-DEMO-001"
 expect 0 "an adopter's hook resolves a claim against the project's registry" -- bash ia-engineering/Adapters/git-hooks/commit-msg m.txt
-expect 0 "a copied hook resolves through ia-engineering/Adapters/scripts" -- env -u IAENG_FRAMEWORK bash "$COPIED415" m.txt
+expect 0 "a copied hook resolves through IAENG_FRAMEWORK" -- env IAENG_FRAMEWORK="$PWD/ia-engineering" bash "$COPIED415" m.txt
 msg415 m.txt "Work Unit: WU-FRAMEWORK-137"
 expect 1 "an adopter's claim is never resolved against the framework's registry" -- bash ia-engineering/Adapters/git-hooks/commit-msg m.txt
 expect_output "claims 'WU-FRAMEWORK-137', which is not in the staged Registry/work-units.yml"
@@ -2315,6 +2329,92 @@ write_wu_registry WU-DEMO-001 WU-DEMO-002
 msg415 "$WORK/git415.txt" "Work Unit: WU-DEMO-002"
 expect 0 "git commit <paths> resolves against the registry those paths stage" -- git commit -q -F "$WORK/git415.txt" Registry/work-units.yml x.txt
 expect 0 "and creates the commit" -- test "$(git rev-list --count HEAD)" = "$((N415 + 1))"
+
+# -------- check-work-units.sh --message: each refusal's reason (WU-IAENG-415) --
+#
+# Code Review of PR #386: four fail-closed paths of --message had no test, and
+# deleting any one kept a refusal but changed its reason, often to a wrong
+# one. Each is called directly here and pinned by its exit (2: not evaluated,
+# Standards/CODE_QUALITY_STANDARD.md, The Check Convention) and by its own
+# reason. Self-contained, so the section runs alone.
+
+section "check-work-units.sh --message — each refusal names its own reason (WU-IAENG-415)"
+
+CWU415="$SCRIPTS/check-work-units.sh"
+REAL_GIT415="$(command -v git)"
+
+new_repo cwu415
+write_employee_roster "DevOps Engineer"
+write_wu_registry WU-DEMO-001
+git add -A && git commit -q -m "roster and registry"
+printf 'chore(x): y\n\nWork Unit: WU-DEMO-001\n\nEmployee: DevOps Engineer\n' > "$WORK/cwu415-ok.txt"
+printf 'chore(x): y\n\nWork Unit: WU-DEMO-999\n\nEmployee: DevOps Engineer\n' > "$WORK/cwu415-bad.txt"
+printf 'chore(x): y\n\nWork Unit: WU-OTHER-005\n\nEmployee: DevOps Engineer\n' > "$WORK/cwu415-other.txt"
+
+expect 0 "--message resolves a registered claim against the staged registry" -- bash "$CWU415" --message "$WORK/cwu415-ok.txt"
+expect_output "message -> WU-DEMO-001 (resolved)"
+expect 1 "--message: an unregistered claim is a finding (exit 1)" -- bash "$CWU415" --message "$WORK/cwu415-bad.txt"
+expect_output "This commit message claims 'WU-DEMO-999'"
+
+# The message file: one guard, at the one place it is read.
+expect 2 "--message: a missing message file is not evaluated (exit 2)" -- bash "$CWU415" --message "$WORK/cwu415-absent.txt"
+expect_output "--message: cannot read the message file '$WORK/cwu415-absent.txt'"
+
+# Outside any repository: GIT_CEILING_DIRECTORIES keeps git from finding one
+# above the directory.
+# A feeder script rather than a function: a function reached only through
+# `expect` is reported unreachable by shellcheck (SC2317), as the pre-push
+# feeder explains.
+mkdir -p "$WORK/cwu415-norepo"
+cat > "$WORK/cwu415-in.sh" <<'FEED'
+dir="$1"; shift
+cd "$dir" && exec bash "$@"
+FEED
+expect 2 "--message outside a git work tree is not evaluated (exit 2)" -- \
+  env GIT_CEILING_DIRECTORIES="$WORK" bash "$WORK/cwu415-in.sh" "$WORK/cwu415-norepo" "$CWU415" --message "$WORK/cwu415-ok.txt"
+expect_output "--message runs inside a git working tree"
+
+# mktemp failing: TMPDIR names a directory that does not exist.
+expect 2 "--message: a temporary copy it cannot create is not evaluated (exit 2)" -- \
+  env TMPDIR="$WORK/cwu415-no-such-dir" bash "$CWU415" --message "$WORK/cwu415-ok.txt"
+expect_output "could not create a temporary file to read the staged Registry/work-units.yml into"
+
+# The staged blob unreadable: a git shim fails `cat-file blob` only, so the
+# index still lists the registry.
+mkdir -p "$WORK/shim415"
+cat > "$WORK/shim415/git" <<SHIM
+#!/usr/bin/env bash
+if [ "\$1" = "cat-file" ] && [ "\$2" = "blob" ]; then exit 128; fi
+exec "$REAL_GIT415" "\$@"
+SHIM
+chmod +x "$WORK/shim415/git"
+expect 2 "--message: a staged registry it cannot read is not evaluated (exit 2)" -- \
+  env PATH="$WORK/shim415:$PATH" bash "$CWU415" --message "$WORK/cwu415-ok.txt"
+expect_output "the index lists Registry/work-units.yml but its content could not be read"
+
+# IAENG_REGISTRY_WORK_UNITS, when it names an existing file, replaces the
+# staged registry, as the header documents, and says so on stderr, which the
+# hook shows.
+printf 'work_units:\n  - id: WU-OTHER-005\n' > "$WORK/cwu415-override.yml"
+expect 1 "--message: an id listed only outside the index does not resolve" -- bash "$CWU415" --message "$WORK/cwu415-other.txt"
+expect 0 "--message: IAENG_REGISTRY_WORK_UNITS naming an existing file replaces the staged registry" -- \
+  env IAENG_REGISTRY_WORK_UNITS="$WORK/cwu415-override.yml" bash "$CWU415" --message "$WORK/cwu415-other.txt"
+expect_output "note: IAENG_REGISTRY_WORK_UNITS is set; resolving against $WORK/cwu415-override.yml"
+expect 0 "the hook shows the override's note" -- \
+  env IAENG_REGISTRY_WORK_UNITS="$WORK/cwu415-override.yml" bash "$SCRIPTS/../git-hooks/commit-msg" "$WORK/cwu415-other.txt"
+expect_output "note: IAENG_REGISTRY_WORK_UNITS is set"
+expect 1 "--message: IAENG_REGISTRY_WORK_UNITS naming a missing file falls back to the staged registry" -- \
+  env IAENG_REGISTRY_WORK_UNITS="$WORK/cwu415-missing.yml" bash "$CWU415" --message "$WORK/cwu415-other.txt"
+expect_output "which is not in the staged Registry/work-units.yml"
+
+# The registry this commit records is absent: unstaged, or none at all.
+new_repo cwu415-unstaged
+write_wu_registry WU-DEMO-001
+expect 2 "--message: a registry in the working tree only is not evaluated (exit 2)" -- bash "$CWU415" --message "$WORK/cwu415-ok.txt"
+expect_output "git add Registry/work-units.yml"
+rm -rf Registry
+expect 2 "--message: no registry is not evaluated (exit 2)" -- bash "$CWU415" --message "$WORK/cwu415-ok.txt"
+expect_output "This project has no Work Unit registry"
 
 # ----------------------- merge attribution: check-employee-trailers.sh --------
 
