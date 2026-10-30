@@ -91,9 +91,9 @@ This step is the Main Agent's own planning, not a dispatch, and its plan is the 
 1. Implement the Work Unit following the Code Quality Standard.
 2. Write tests following the Testing Standard. Tests must be written alongside the code, not after.
 3. Verify the implementation meets the Work Unit's Definition of Done.
-4. Run existing tests locally to confirm nothing is broken.
+4. Run locally the tests that cover the change first: the test file, or the section of the suite, that exercises it, where the suite can run one. Run at most one full suite at a time, never in the background or fanned out, and bound it with a timeout; a run the timeout ended is not evaluated, never passed. The required CI checks on the Pull Request run every suite (`Templates/EMPLOYEE_BRIEF.md`, Constraints and Boundaries).
 
-**Output:** Implementation complete, tests passing locally.
+**Output:** Implementation complete, the tests that cover the change passing locally.
 
 **Handoff to:** Step 4.
 
@@ -104,7 +104,7 @@ This step is the Main Agent's own planning, not a dispatch, and its plan is the 
 **Actor:** Engineer
 
 1. Stage only the files relevant to this Work Unit.
-2. If the Work Unit is not already registered, add it to `Registry/work-units.yml` (id, employee, title, milestone, delivers) in this same commit. In a project that imported the framework this is the PROJECT's own registry (the bootstrap writes an empty starter; the check never reads the framework's). The required `Work Unit Exists` CI check resolves every commit's `Work Unit:` trailer against that file and fails the Pull Request if the ID is not registered there — see `Registry/README.md`. For the `milestone` value: the current in-progress milestone is declared in `VERSION.md` ("Next Milestone") — a new Work Unit's `milestone:` uses that name. A plan's Work Units may instead be registered up front, in one bookkeeping Pull Request merged before any of them is dispatched; each Work Unit's own Pull Request then edits only its own entry, and a reserved Work Unit not delivered by the release is moved to a later milestone or removed (`Adapters/scripts/release.sh check`, condition 1, refuses a milestone with one undelivered).
+2. If the Work Unit is not already registered, add it to `Registry/work-units.yml` (id, employee, title, milestone, delivers) in this same commit. In a project that imported the framework this is the PROJECT's own registry (the bootstrap writes an empty starter; the check never reads the framework's). The required `Work Unit Exists` CI check resolves every commit's `Work Unit:` trailer against that file and fails the Pull Request if the ID is not registered there — see `Registry/README.md`. For the `milestone` value: in the framework repository, the current in-progress milestone is declared in `VERSION.md` ("Next Milestone") — a new Work Unit's `milestone:` uses that name. A project that imported the framework has no `VERSION.md`: its `milestone:` is the project's own release or iteration label, and the adoption Work Unit uses `Bootstrap` (`Registry/README.md`, Work Unit `milestone` in a Consuming Project). A plan's Work Units may instead be registered up front, in one bookkeeping Pull Request merged before any of them is dispatched; each Work Unit's own Pull Request then edits only its own entry, and a reserved Work Unit not delivered by the release is moved to a later milestone or removed (`Adapters/scripts/release.sh check`, condition 1, refuses a milestone with one undelivered).
 3. Write a commit message following the Commit Standard (Conventional Commits).
 4. One Work Unit = one commit. Do not bundle unrelated changes.
 
@@ -235,7 +235,7 @@ The two entries are deliberately parallel. `Workflows/CODE_REVIEW.md` treats the
 
 Owner: IA Engineering
 
-Version: 0.0.14
+Version: 0.0.16
 
 Status: Draft
 
