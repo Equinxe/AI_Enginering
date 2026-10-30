@@ -7450,6 +7450,14 @@ adopter_353() {
   git commit -q -m "chore(adopt): add the framework submodule"
 }
 
+# hooks_path_414 — the core.hooksPath install.sh sets in the adopter the shell
+# is in: the main checkout's framework hooks, absolute (WU-IAENG-414). Built
+# from `git rev-parse --show-toplevel`, not from the `git worktree list` that
+# install.sh reads, so the expectation is not the implementation restated.
+hooks_path_414() {
+  printf '%s/ia-engineering/Adapters/git-hooks' "$(git rev-parse --show-toplevel)"
+}
+
 # commit_353 <subject> — a commit the INSTALLED hooks accept.
 commit_353() {
   git add -A
@@ -7499,7 +7507,7 @@ expect_output "file${T}absent${T}.github/workflows/control-path-guard.yml${T}ia-
 expect_output "gitattributes${T}missing${T}.gitattributes${T}/Registry/work-units.yml text eol=lf"
 expect_output "gitignore${T}missing${T}.gitignore${T}.env"
 expect_output "directory${T}absent${T}local_test_data/"
-expect_output "git-hooks${T}absent${T}core.hooksPath${T}ia-engineering/Adapters/git-hooks"
+expect_output "git-hooks${T}absent${T}core.hooksPath${T}$(hooks_path_414)"
 expect_output "git-hooks${T}unchecked${T}commit probes"
 expect_output "8 file(s) compared: 8 absent"
 expect_output "re-run ia-engineering/Adapters/scripts/install.sh without --force"
@@ -7651,7 +7659,7 @@ section "install.sh --check — git hooks: core.hooksPath, executable, shadowed,
 # write, no chmod, and the commit probes stay skipped.
 adopter_353 chk-hooks
 expect 3 "an unset core.hooksPath is drift (exit 3)" -- bash "$INST_353" --check
-expect_output "git-hooks${T}absent${T}core.hooksPath${T}ia-engineering/Adapters/git-hooks"
+expect_output "git-hooks${T}absent${T}core.hooksPath${T}$(hooks_path_414)"
 expect_output "git-hooks${T}current${T}ia-engineering/Adapters/git-hooks/commit-msg${T}executable"
 expect_output "5 git hook item(s): 3 current, 1 absent, 1 unchecked"
 expect_output "git-hooks: re-run ia-engineering/Adapters/scripts/install.sh; it sets core.hooksPath"
@@ -7672,7 +7680,7 @@ else
 fi
 SNAP_H0="$(snapshot_353)"
 expect 3 "a wrong core.hooksPath, a shadowed hook and a non-executable hook are drift (exit 3)" -- bash "$INST_353" --check
-expect_output "git-hooks${T}differs${T}core.hooksPath${T}ia-engineering/Adapters/git-hooks (set to: .githooks)"
+expect_output "git-hooks${T}differs${T}core.hooksPath${T}$(hooks_path_414) (set to: .githooks)"
 expect_output ".git/hooks${T}1 hook(s) there would stop running once core.hooksPath points at ia-engineering/Adapters/git-hooks"
 expect_output "git-hooks${T}not-executable${T}ia-engineering/Adapters/git-hooks/post-merge"
 expect_output "7 git hook item(s): 3 current, 1 differs, 1 not-executable, 1 shadowed, 1 unchecked"
@@ -7725,14 +7733,14 @@ fi
 # core.hooksPath must not split its record into forged ones.
 git config core.hooksPath "$(printf 'x\tfile\tcurrent\tFORGED\nfault\tfake')"
 expect 3 "a core.hooksPath holding TAB and LF is still one differs record" -- bash "$INST_353" --check
-expect_output "git-hooks${T}differs${T}core.hooksPath${T}ia-engineering/Adapters/git-hooks (set to: x file current FORGED fault fake)"
+expect_output "git-hooks${T}differs${T}core.hooksPath${T}$(hooks_path_414) (set to: x file current FORGED fault fake)"
 expect_no_output "fault${T}fake" "no forged record from a TAB or LF in a git config value"
 expect_no_output "file${T}current${T}FORGED" "no forged file record either"
 # ESC and a C1 control (CSI, \xc2\x9b) become spaces too, in the record and
 # in the closing line's remedy (WU-IAENG-366).
 git config core.hooksPath "$(printf 'x\033[31mY\302\23331mZ')"
 expect 3 "a core.hooksPath holding ESC and a C1 control is flattened" -- bash "$INST_353" --check
-expect_output "git-hooks${T}differs${T}core.hooksPath${T}ia-engineering/Adapters/git-hooks (set to: x [31mY 31mZ)"
+expect_output "git-hooks${T}differs${T}core.hooksPath${T}$(hooks_path_414) (set to: x [31mY 31mZ)"
 expect_output "move any hooks the project keeps in x [31mY 31mZ out first"
 expect_no_output $'\e' "no ESC from a git config value reaches install.sh --check output"
 expect_no_output "$(printf '\302\233')" "no C1 control from a git config value reaches install.sh --check output"
@@ -7760,6 +7768,332 @@ expect 3 "a wrong core.hooksPath and a shadowed hook alone are drift (exit 3)" -
 expect_output "# install.sh --check: 2 to act on."
 expect 3 "--check --quiet keeps the shadowed hook" -- bash "$INST_353" --check --quiet
 expect_output "git-hooks${T}shadowed${T}.git/hooks${T}"
+
+section "install.sh — every linked git worktree runs the hooks (WU-IAENG-414, issue #368)"
+
+# The adoption rehearsal of 28 Oct 2026. A linked worktree (`git worktree
+# add`; Claude Code's `isolation: worktree` for an Employee) shares the
+# config but not the initialised submodule: ia-engineering/ is empty there.
+# The relative core.hooksPath install.sh wrote named a directory that did not
+# exist in it, so git ran no hook and said nothing: `Employee: Claude` and a
+# staged document were committed. Every case below failed on develop 607cae9
+# (the worktree cases: accepted, rc=0).
+adopter_353 wt-414
+expect 0 "an adopter install exits 0" -- bash "$INST_353"
+expect_output "core.hooksPath is absolute: every linked git worktree of this clone runs these hooks"
+commit_353 "chore(adopt): install the Adapters"
+git branch develop
+MAIN_414="$PWD"
+HP_414="$(hooks_path_414)"
+TOTAL=$((TOTAL + 1))
+case "$(git config --get core.hooksPath)" in
+  "$HP_414")
+    [ -n "$VERBOSE" ] && printf '   ok   an adopter core.hooksPath is the main checkout framework hooks, absolute\n' ;;
+  *)
+    printf '   FAIL an adopter core.hooksPath is %s, not %s\n' "$(git config --get core.hooksPath)" "$HP_414"
+    FAILED=$((FAILED + 1)) ;;
+esac
+git worktree add -q "$WORK/wt-414-a" -b feature/wt-414-a develop >/dev/null 2>&1
+cd "$WORK/wt-414-a" || exit 1
+# The premise: the framework is NOT there. Initialised, the cases below would
+# pass for a reason that is not the fix.
+TOTAL=$((TOTAL + 1))
+if [ -d ia-engineering ] && [ -z "$(ls -A ia-engineering)" ]; then
+  [ -n "$VERBOSE" ] && printf '   ok   the linked worktree has an empty ia-engineering/ (the premise)\n'
+else
+  printf '   FAIL the linked worktree ia-engineering/ is missing or not empty: the cases test nothing\n'
+  FAILED=$((FAILED + 1))
+fi
+expect 1 "worktree, framework not initialised: a commit signed by a tool label is refused" -- \
+  commit_with "chore(x): a tool label" "Employee: Claude"
+expect_output "commit-msg: rejected — 'Employee: Claude' is not a recognized Employee."
+git reset -q
+printf 'probe\n' > data-414.xlsx
+git add data-414.xlsx
+expect 1 "worktree, framework not initialised: a staged document is refused by pre-commit" -- \
+  git commit -q -m "chore(x): real data
+
+Employee: DevOps Engineer"
+expect_output "data-policy: REFUSED  data-414.xlsx"
+git rm -q --cached data-414.xlsx
+rm -f data-414.xlsx
+expect 0 "worktree, framework not initialised: a valid commit is accepted (the roster beside the hook)" -- \
+  commit_with "chore(x): a valid commit" "Employee: DevOps Engineer"
+
+# A run from a linked worktree whose framework IS initialised keeps the whole
+# clone on the main checkout's framework: pointing it at this worktree would
+# leave every other worktree with no hook once this one is removed.
+git worktree add -q "$WORK/wt-414-b" -b feature/wt-414-b develop >/dev/null 2>&1
+cd "$WORK/wt-414-b" || exit 1
+git -c protocol.file.allow=always submodule update -q --init >/dev/null 2>&1
+expect 3 "--check from an initialised linked worktree: the main checkout's path is current" -- bash "$INST_353" --check
+expect_output "git-hooks${T}current${T}core.hooksPath${T}$HP_414"
+bash "$INST_353" >/dev/null 2>&1
+TOTAL=$((TOTAL + 1))
+if [ "$(git config --get core.hooksPath)" = "$HP_414" ]; then
+  [ -n "$VERBOSE" ] && printf '   ok   a real run from a linked worktree leaves core.hooksPath on the main checkout\n'
+else
+  printf '   FAIL a real run from a linked worktree set core.hooksPath to %s\n' "$(git config --get core.hooksPath)"
+  FAILED=$((FAILED + 1))
+fi
+
+# The value install.sh wrote before this fix is drift with its own remedy. It
+# already shadowed .git/hooks, so no shadowed record and no "move any hooks
+# the project keeps in" the framework's own directory.
+cd "$MAIN_414" || exit 1
+git config core.hooksPath ia-engineering/Adapters/git-hooks
+printf '#!/bin/sh\nexit 0\n' > .git/hooks/post-checkout
+chmod +x .git/hooks/post-checkout
+expect 3 "the relative value of earlier installs is drift (exit 3)" -- bash "$INST_353" --check
+expect_output "git-hooks${T}differs${T}core.hooksPath${T}$HP_414 (set to: ia-engineering/Adapters/git-hooks, a relative path: a linked git worktree"
+expect_output "core.hooksPath: ia-engineering/Adapters/git-hooks is relative, so a linked git worktree runs no hook (issue #368). git-hooks: re-run"
+expect_no_output "${T}shadowed${T}" "the relative value already shadowed .git/hooks: nothing newly shadowed"
+expect_no_output "move any hooks the project keeps in" "no remedy that sends the reader to move the framework's own hooks"
+rm -f .git/hooks/post-checkout
+cd "$WORK/wt-414-a" || exit 1
+expect 0 "worktree, the relative value: git runs no hook, a tool label is accepted (the defect)" -- \
+  commit_with "chore(x): a tool label under the old value" "Employee: Claude"
+cd "$MAIN_414" || exit 1
+bash "$INST_353" >/dev/null 2>&1
+cd "$WORK/wt-414-a" || exit 1
+expect 1 "worktree, after re-running install.sh: the tool label is refused again" -- \
+  commit_with "chore(x): a tool label after the re-run" "Employee: Claude"
+git reset -q
+
+# The framework repository itself keeps its relative value: its hooks are
+# tracked files, present in every worktree.
+cd "$FW_353" || exit 1
+expect 3 "the framework repository's --check: core.hooksPath stays relative" -- bash Adapters/scripts/install.sh --check
+expect_output "git-hooks${T}absent${T}core.hooksPath${T}./Adapters/git-hooks"
+cd "$MAIN_414" || exit 1
+
+section "install.sh — the main working tree in every layout, its guards, hooks behind a closed pipe (WU-IAENG-414, #397)"
+
+# Review round of PR #387. Each case failed on the head it reviewed
+# (f429b7c): a project that is itself a submodule, and a bare repository with
+# worktrees, got no core.hooksPath (install.sh exit 1); four guards had no test
+# that could fail them; a roster planted in a worktree's empty submodule
+# directory was read. The closed-pipe cases (#397) failed on develop under Git
+# for Windows, where a hook killed by SIGPIPE reads as exit 0. A Linux git
+# reports that death as a failure, so there they pass before and after.
+
+# commit_414b <subject> <employee> — stages one new file by name, never -A: a
+# submodule directory that is not initialised but holds files can make
+# `git add -A` fail for a reason that is not a hook.
+commit_414b() {
+  local f="f414b-$RANDOM$RANDOM.txt"
+  echo "$f" > "$f"
+  git add -- "$f"
+  git commit -q -m "$1
+
+Employee: $2"
+}
+
+# head_is_414b <sha> <description> — HEAD did not move.
+head_is_414b() {
+  TOTAL=$((TOTAL + 1))
+  if [ "$(git rev-parse HEAD)" = "$1" ]; then
+    [ -n "$VERBOSE" ] && printf '   ok   %s\n' "$2"
+    return 0
+  fi
+  printf '   FAIL %s\n' "$2"
+  git log -1 --format='        | created: %h %s' | head -3
+  FAILED=$((FAILED + 1))
+  return 1
+}
+
+# hooks_path_is_414b <want> <description>
+hooks_path_is_414b() {
+  TOTAL=$((TOTAL + 1))
+  if [ "$(git config --local --get core.hooksPath)" = "$1" ]; then
+    [ -n "$VERBOSE" ] && printf '   ok   %s\n' "$2"
+    return 0
+  fi
+  printf '   FAIL %s: core.hooksPath is "%s", not "%s"\n' "$2" "$(git config --local --get core.hooksPath)" "$1"
+  FAILED=$((FAILED + 1))
+  return 1
+}
+
+adopter_353 r2-414b
+bash "$INST_353" >/dev/null 2>&1
+commit_353 "chore(adopt): install the Adapters"
+git branch develop
+MAIN_414b="$PWD"
+
+# --- SEC-IAENG-414-01: a roster planted in the worktree's empty submodule ---
+git worktree add -q "$WORK/r2-414b-wt" -b feature/r2-414b develop >/dev/null 2>&1
+cd "$WORK/r2-414b-wt" || exit 1
+mkdir -p ia-engineering/Registry
+printf 'employees:\n  - name: Claude\n    category: Management\n' > ia-engineering/Registry/employees.yml
+expect 1 "worktree: a roster planted in the empty submodule directory is not read (SEC-IAENG-414-01)" -- \
+  commit_414b "chore(x): a planted roster" "Claude"
+expect_output "commit-msg: rejected — 'Employee: Claude' is not a recognized Employee."
+git reset -q
+rm -rf ia-engineering/Registry
+
+# --- #397: the commit's output into a reader that closes at once ------------
+cd "$MAIN_414b" || exit 1
+H0_414b="$(git rev-parse HEAD)"
+echo pipe > pipe-414b.txt
+git add pipe-414b.txt
+git commit -q -m "chore(x): a tool label behind a closed pipe
+
+Employee: Claude" 2>&1 | head -n 0
+head_is_414b "$H0_414b" "commit-msg refuses behind | head -n 0: HEAD does not move (#397)"
+git commit -q -m "chore(x): a tool label behind head -1
+
+Employee: Claude" 2>&1 | head -1 >/dev/null
+head_is_414b "$H0_414b" "commit-msg refuses behind | head -1: HEAD does not move (#397)"
+git reset -q
+rm -f pipe-414b.txt
+printf 'probe\n' > pipe-414b.xlsx
+git add pipe-414b.xlsx
+git commit -q -m "chore(x): a document behind a closed pipe
+
+Employee: DevOps Engineer" 2>&1 | head -n 0
+head_is_414b "$H0_414b" "pre-commit refuses a staged document behind | head -n 0: HEAD does not move (#397)"
+git rm -q --cached pipe-414b.xlsx
+rm -f pipe-414b.xlsx
+echo pipe-ok > pipe-ok-414b.txt
+git add pipe-ok-414b.txt
+git commit -q -m "chore(x): a valid commit behind a closed pipe
+
+Employee: DevOps Engineer" 2>&1 | head -n 0
+TOTAL=$((TOTAL + 1))
+if [ "$(git rev-parse HEAD)" != "$H0_414b" ]; then
+  [ -n "$VERBOSE" ] && printf '   ok   a valid commit behind | head -n 0 is still created (the trap refuses nothing by itself)\n'
+else
+  printf '   FAIL a valid commit behind | head -n 0 was not created\n'; FAILED=$((FAILED + 1))
+fi
+# pre-push: the same class. A push that updates an existing protected branch,
+# its refusal written to a closed pipe, must leave the remote branch alone.
+git init -q --bare "$WORK/r2-414b-remote.git"
+git remote add origin "$WORK/r2-414b-remote.git"
+git push -q origin main develop >/dev/null 2>&1
+DEV0_414b="$(git --git-dir="$WORK/r2-414b-remote.git" rev-parse develop)"
+git switch -q develop
+commit_414b "chore(x): a commit on develop" "DevOps Engineer"
+git push -q origin develop 2>&1 | head -n 0
+TOTAL=$((TOTAL + 1))
+if [ "$(git --git-dir="$WORK/r2-414b-remote.git" rev-parse develop)" = "$DEV0_414b" ]; then
+  [ -n "$VERBOSE" ] && printf '   ok   pre-push refuses a push to develop behind | head -n 0: the remote branch does not move (#397)\n'
+else
+  printf '   FAIL pre-push behind | head -n 0: the remote develop moved\n'; FAILED=$((FAILED + 1))
+fi
+git switch -q main
+
+# --- layout (a): the adopter is itself a submodule of a superproject --------
+# Its git dir is absorbed into <super>/.git/modules/app and core.worktree names
+# the working tree; `git worktree list` names the git dir.
+adopter_353 r2-414b-app
+APP_414b="$PWD"
+new_repo r2-414b-super
+git -c protocol.file.allow=always submodule add -q "$APP_414b" app >/dev/null 2>&1
+git commit -q -m "chore(x): add the app"
+git -c protocol.file.allow=always submodule update -q --init --recursive >/dev/null 2>&1
+SUPER_414b="$PWD"
+cd app || exit 1
+git config user.email test@example.invalid
+git config user.name "Test Runner"
+git config commit.gpgsign false
+git config core.autocrlf false
+expect 0 "a project that is itself a submodule: install.sh exits 0" -- bash "$INST_353"
+SUBHP_414b="$(hooks_path_414)"
+hooks_path_is_414b "$SUBHP_414b" "a project that is itself a submodule: core.hooksPath is its working tree's framework, absolute"
+expect 1 "a project that is itself a submodule: a commit signed by a tool label is refused" -- \
+  commit_414b "chore(x): a tool label" "Claude"
+expect_output "commit-msg: rejected — 'Employee: Claude' is not a recognized Employee."
+git reset -q
+commit_353 "chore(adopt): install the Adapters"
+git branch develop
+git worktree add -q "$SUPER_414b/app-wt" -b feature/app-wt develop >/dev/null 2>&1
+cd "$SUPER_414b/app-wt" || exit 1
+expect 1 "its linked worktree, framework not initialised: a tool label is refused" -- \
+  commit_414b "chore(x): a tool label in the worktree" "Claude"
+git reset -q
+git -c protocol.file.allow=always submodule update -q --init >/dev/null 2>&1
+expect 3 "--check from its linked worktree names the main working tree through core.worktree" -- bash "$INST_353" --check
+expect_output "git-hooks${T}current${T}core.hooksPath${T}$SUBHP_414b"
+
+# --- layout (b): a bare repository with worktrees -----------------------------
+# No main working tree: the value names the framework of the worktree
+# install.sh ran from, and the run says so.
+adopter_353 r2-414b-bsrc
+git clone -q --bare "$PWD" "$WORK/r2-414b.git" >/dev/null 2>&1
+git --git-dir="$WORK/r2-414b.git" config user.email test@example.invalid
+git --git-dir="$WORK/r2-414b.git" config user.name "Test Runner"
+git --git-dir="$WORK/r2-414b.git" config commit.gpgsign false
+git --git-dir="$WORK/r2-414b.git" worktree add -q "$WORK/r2-414b-bw1" main >/dev/null 2>&1
+cd "$WORK/r2-414b-bw1" || exit 1
+git -c protocol.file.allow=always submodule update -q --init >/dev/null 2>&1
+expect 0 "a bare repository with worktrees: install.sh exits 0" -- bash "$INST_353"
+expect_output "a bare repository has no main working tree: core.hooksPath names this worktree's framework"
+BHP_414b="$(hooks_path_414)"
+hooks_path_is_414b "$BHP_414b" "a bare repository with worktrees: core.hooksPath is this worktree's framework, absolute"
+expect 1 "a bare repository's worktree: a tool label is refused" -- commit_414b "chore(x): a tool label" "Claude"
+git reset -q
+git worktree add -q "$WORK/r2-414b-bw2" -b feature/bw2 >/dev/null 2>&1
+cd "$WORK/r2-414b-bw2" || exit 1
+expect 1 "a bare repository's other worktree, framework not initialised: a tool label is refused" -- \
+  commit_414b "chore(x): a tool label in the second worktree" "Claude"
+expect_output "commit-msg: rejected — 'Employee: Claude' is not a recognized Employee."
+git reset -q
+
+# --- the guards: no main working tree, no hooks directory, the main working
+# tree not initialised, project hooks in the common hooks/ -------------------
+# git that names no main working tree: --path-format fails, as on a git older
+# than 2.31. The fault names that cause, and nothing is written.
+SHIM_414b="$WORK/git-shim-414b"
+mkdir -p "$SHIM_414b"
+REAL_GIT_414b="$(command -v git)"
+cat > "$SHIM_414b/git" <<EOF
+#!/usr/bin/env bash
+for a in "\$@"; do [ "\$a" = --path-format=absolute ] && exit 128; done
+exec "$REAL_GIT_414b" "\$@"
+EOF
+chmod +x "$SHIM_414b/git"
+adopter_353 r2-414b-noroot
+expect 1 "git names no main working tree: install.sh faults" -- env PATH="$SHIM_414b:$PATH" bash "$INST_353"
+expect_output "git did not name this clone's main working tree"
+hooks_path_is_414b "" "git names no main working tree: core.hooksPath is not written"
+
+# The framework's hooks directory is missing, run from the main checkout: the
+# fault names it, and a value already set is not overwritten.
+git config core.hooksPath .githooks
+mv ia-engineering/Adapters/git-hooks "$WORK/r2-414b-hooks-moved"
+expect 1 "the framework's hooks directory is missing: install.sh faults" -- bash "$INST_353"
+expect_output "ia-engineering/Adapters/git-hooks does not exist — cannot point core.hooksPath at it"
+hooks_path_is_414b .githooks "the framework's hooks directory is missing: core.hooksPath is left as it was"
+mv "$WORK/r2-414b-hooks-moved" ia-engineering/Adapters/git-hooks
+
+# Project hooks in the COMMON hooks/, read from a linked worktree, and the main
+# working tree's framework not initialised, run from a linked worktree whose
+# framework is: the fault names the cause and a remedy that works.
+adopter_353 r2-414b-guards
+git branch develop
+# git's own spelling (C:/... under Git for Windows): the fault message prints it.
+GMAIN_414b="$(git rev-parse --show-toplevel)"
+GHP_414b="$(hooks_path_414)"
+printf '#!/bin/sh\nexit 0\n' > .git/hooks/post-checkout
+chmod +x .git/hooks/post-checkout
+git worktree add -q "$WORK/r2-414b-gwt" -b feature/gwt develop >/dev/null 2>&1
+cd "$WORK/r2-414b-gwt" || exit 1
+git -c protocol.file.allow=always submodule update -q --init >/dev/null 2>&1
+expect 3 "--check from a linked worktree reads the project hooks in the common hooks/" -- bash "$INST_353" --check
+expect_output "${T}shadowed${T}"
+expect_output "/.git/hooks${T}1 hook(s) there would stop running"
+rm -f "$GMAIN_414b/.git/hooks/post-checkout"
+bash "$INST_353" >/dev/null 2>&1
+hooks_path_is_414b "$GHP_414b" "a run from a linked worktree points core.hooksPath at the main working tree"
+git -C "$GMAIN_414b" submodule deinit -q -f ia-engineering >/dev/null 2>&1
+expect 1 "the main working tree's framework not initialised: install.sh from a linked worktree faults" -- bash "$INST_353"
+expect_output "is not initialised there. Run: git -C $GMAIN_414b submodule update --init"
+hooks_path_is_414b "$GHP_414b" "the main working tree's framework not initialised: core.hooksPath is left as it was"
+# The remedy, as printed, plus the local-path exception this fixture needs.
+git -C "$GMAIN_414b" -c protocol.file.allow=always submodule update -q --init >/dev/null 2>&1
+expect 0 "after the printed remedy, --check from the linked worktree is current again (installed there above)" -- bash "$INST_353" --check
+expect_output "git-hooks${T}current${T}core.hooksPath${T}$GHP_414b"
+cd "$WORK" || exit 1
 
 section "setup-project-bootstrap.sh — the closing message names its cause (WU-IAENG-353, issue #262)"
 
@@ -8321,7 +8655,7 @@ mv stop-gate.moved ia-engineering/Adapters/ai-runtimes/claude-code/hooks/stop-ga
 mv ia-engineering ia-moved
 expect 0 "a renamed submodule breaks every framework path" -- bash ./ia-moved/Adapters/scripts/check-framework-drift.sh --format tsv
 expect_output "path${T}broken${T}ia-engineering/Adapters/ai-runtimes/claude-code/hooks/session-start.sh${T}"
-expect_output "path${T}broken${T}ia-engineering/Adapters/git-hooks${T}core.hooksPath names a directory that does not exist"
+expect_output "path${T}broken${T}$(hooks_path_414)${T}core.hooksPath names a directory that does not exist"
 mv ia-moved ia-engineering
 
 # --- no jq: indeterminate, with its cause (issue #282) -----------------------------
@@ -8501,6 +8835,16 @@ git config core.hooksPath "$(printf 'x\302\23331mY')"
 expect 1 "a core.hooksPath holding a C1 control is flattened" -- bash "$DRIFT_358" --format tsv --strict
 expect_output "path${T}broken${T}x 31mY${T}"
 expect_no_output "$(printf '\302\233')" "no C1 control from a git config value reaches the output"
+# The relative value install.sh wrote before WU-IAENG-414 works in the main
+# checkout, so a directory test calls it fine; a linked worktree, where the
+# submodule is empty, runs no hook (issue #368). --quick is what session
+# start runs, and it has to say so too.
+git config core.hooksPath ia-engineering/Adapters/git-hooks
+expect 1 "the relative core.hooksPath of earlier installs is broken: a linked worktree runs no hook (WU-IAENG-414)" -- \
+  bash "$DRIFT_358" --format tsv --strict
+expect_output "path${T}broken${T}ia-engineering/Adapters/git-hooks${T}core.hooksPath is relative: a linked git worktree"
+expect 1 "--quick (session start) reports the relative core.hooksPath too" -- bash "$DRIFT_358" --quick --format tsv --strict
+expect_output "path${T}broken${T}ia-engineering/Adapters/git-hooks${T}core.hooksPath is relative"
 git config core.hooksPath "$HP0_358"
 expect 0 "clean once more after every single cause" -- bash "$DRIFT_358" --format tsv --strict
 
@@ -8562,7 +8906,7 @@ same_without_cdpath_365() {
 cd "$ADOPTER_365" || exit 1
 same_without_cdpath_365 3 "install.sh --check on a never-installed project" \
   -- bash ia-engineering/Adapters/scripts/install.sh --check
-expect_output "git-hooks${T}absent${T}core.hooksPath${T}ia-engineering/Adapters/git-hooks"
+expect_output "git-hooks${T}absent${T}core.hooksPath${T}$(hooks_path_414)"
 same_without_cdpath_365 3 "install-hooks.sh --check on a never-installed project" \
   -- bash ia-engineering/Adapters/ai-runtimes/claude-code/install-hooks.sh --check
 same_without_cdpath_365 0 "generate-agents.sh --print-tier-map" \

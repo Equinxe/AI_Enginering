@@ -392,6 +392,30 @@ Do **not** use `git reset --hard origin/develop` or `git push --force`: both are
 
 ---
 
+## AB. In a git worktree of an adopting project, no git hook runs
+
+**Symptom.** In an adopting project, a commit made in a linked worktree (`git worktree add`, or an Employee that Claude Code isolates with `isolation: worktree` under `.claude/worktrees/`) goes through when the main checkout refuses the same commit. Examples are `Employee: Claude` and a staged `.xlsx`. Nothing prints, not even `data-policy: clean`. In the worktree, `ia-engineering/` is an empty directory.
+
+**Cause.** A linked worktree shares the repository's configuration, but its submodules are not initialised: the framework is not there. Before WU-IAENG-414, `install.sh` set `core.hooksPath` to the relative `ia-engineering/Adapters/git-hooks`, and git reads a relative value from the root of the worktree that runs the hook. In a linked worktree that directory does not exist, and git runs no hook at all, with no message. The framework's own repository never showed it: there `core.hooksPath` names tracked files, present in every worktree.
+
+**Remedy.** In the main checkout, re-run `./ia-engineering/Adapters/scripts/install.sh`. It sets `core.hooksPath` to the main checkout's framework hooks, as an absolute path, so every worktree of the clone runs them, initialised submodule or not. `install.sh --check` reports the old relative value as `differs`, and the session-start drift check as a path that does not work. Initialising the submodule in each worktree (`git submodule update --init`) also works, but it clones the framework again for every worktree. The commits already made in a worktree were never checked. Before pushing them, run these from the **main checkout**, where the framework is present, naming the worktree's branch: `./ia-engineering/Adapters/scripts/check-employee-trailers.sh develop <branch>` and `./ia-engineering/Adapters/scripts/data-policy-scan.sh --history develop..<branch>`. They cannot run inside the worktree, where `ia-engineering/` is empty.
+
+**Prevention.** `install.sh` writes the absolute value in an adopting project, from the main working tree even when run from a worktree. That holds for a standalone clone, for a project that is itself a submodule, and for a bare repository with worktrees, where the value names the framework of the worktree it was run from. `commit-msg` reads the roster of the framework it belongs to before the worktree's own `ia-engineering/` path, so a roster planted in an empty submodule directory is not read. `Adapters/scripts/tests/run.sh` (WU-IAENG-414) commits in a worktree whose framework is not initialised and requires the refusals. The Claude Code hooks are not affected: a worktree subagent's hooks run with `$CLAUDE_PROJECT_DIR` set to the main checkout, where the framework is initialised. If the checkout itself is moved, the absolute value names a directory that no longer exists. The drift check reports it at the next session start, and re-running `install.sh` repairs it.
+
+---
+
+## AC. A commit the hooks refuse is created when its output is piped into `head`
+
+**Symptom.** Under Git for Windows, `git commit … 2>&1 | head -1` (or `| head -n 0`) creates a commit that the same command without the pipe refuses: a commit signed `Employee: Claude`, or one staging an `.xlsx`. The pipeline exits 0, and HEAD moves.
+
+**Cause.** `head` closes the pipe early. The hook's first write of its refusal goes to that closed pipe, and SIGPIPE kills the hook. Under Git for Windows (MSYS), git reads a hook killed by a signal as exit 0, so the refusal is lost along with its exit code. No `--no-verify` is involved, and the escape-hatch guard sees nothing to block.
+
+**Remedy.** If such a command was run before the fix, check what it committed: `git log -1`, the `Employee:` line, and `git show --stat` for a document or data file. Take out what should not be there with a new commit, before any push.
+
+**Prevention.** `commit-msg`, `pre-commit`, `pre-push` and `data-policy-scan.sh` ignore SIGPIPE (`trap '' PIPE`, WU-IAENG-414, #397). A write to a closed pipe then only fails, and the hook's own `exit 1` decides. `Adapters/scripts/tests/run.sh` commits through `| head -n 0` and requires HEAD not to move. The class is a control whose verdict rides on being able to write its message. Any script a hook or guard execs needs the same trap.
+
+---
+
 # Adding an Entry
 
 1. The Work Unit that fixes the incident adds the entry — same commit, or the fix is not complete (`Governance/CONTRIBUTING.md`, Section 7).

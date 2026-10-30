@@ -162,7 +162,9 @@ listed in `Adapters/scripts/setup-branch-protection.sh`; the runtime hooks in
 `Adapters/ai-runtimes/<runtime>/`]. In every fresh clone, fetch the framework
 first (`git submodule update --init`, or clone with `--recurse-submodules`),
 since `install.sh` lives in the submodule, then re-run
-`./ia-engineering/Adapters/scripts/install.sh`.
+`./ia-engineering/Adapters/scripts/install.sh` from the main checkout. A git
+worktree, such as an Employee's, needs neither: its hooks are the main
+checkout's.
 
 ---
 

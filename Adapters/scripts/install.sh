@@ -21,6 +21,28 @@
 # in force is always the hook in the imported framework version. There is one
 # copy of each hook, in one place, under version control.
 #
+# WHY THE VALUE IS ABSOLUTE IN AN ADOPTING PROJECT (WU-IAENG-414, issue #368):
+#
+# git reads a relative core.hooksPath from the root of the worktree that runs
+# the hook. A linked worktree (`git worktree add`, and Claude Code's
+# `isolation: worktree` for an Employee) shares the repository's config but
+# not its initialised submodules: ia-engineering/ is empty there. So the
+# relative value ia-engineering/Adapters/git-hooks named a directory that did
+# not exist, and git ran no hook at all, with no message. A commit signed
+# `Employee: Claude`, or one that staged real data, went through.
+#
+# So in an adopting project core.hooksPath names the MAIN working tree's
+# framework, as an absolute path (how the main working tree is found, for a
+# standalone clone, a project that is itself a submodule, and a bare
+# repository with worktrees, is under "Git hooks" below). Every worktree of
+# the clone runs those hooks, initialised submodule or not, and the hook in
+# force is still the framework's own file, never a copy. The cost: a value tied to where the
+# checkout is. If the checkout is moved, git runs no hook until install.sh is
+# re-run. Moving a checkout already breaks its linked worktrees, and both the
+# session-start drift check and --check below report that value. In the
+# framework repository the value stays relative (./Adapters/git-hooks): those
+# hooks are tracked files, present in every worktree.
+#
 # This does not make hooks travel with a clone. Nothing can: git deliberately
 # never transmits hooks or local config, because a repository that could
 # install executables on clone would be a remote-code-execution vector. Every
@@ -114,7 +136,9 @@
 # shadowed .git/hooks is a `fault` on a real run, which then goes on to set
 # core.hooksPath; --check calls it `shadowed`, because it was evaluated and
 # needs action (drift, exit 3), and exit 1 means something could not be
-# evaluated.
+# evaluated. In an adopting project the relative value install.sh wrote
+# before WU-IAENG-414 (ia-engineering/Adapters/git-hooks) is `differs`, with
+# its own remedy and no shadowed record: it already shadowed .git/hooks.
 #
 # What --check does NOT evaluate, and says so with an `unchecked` record
 # rather than leaving it out (Adapters/README.md, the Check Convention, rule
@@ -197,9 +221,12 @@ cd "$PROJECT" || exit 1
 # reject a perfectly correct layout. Both paths now come from the same source.
 PROJECT="$(pwd)"
 
-# The hooks path recorded in git config must be relative to the project root,
-# so the setting keeps working if the checkout is moved or is on another
-# machine. An absolute path would be correct only for whoever ran the script.
+# HOOKS_REL is the framework's path relative to the project root. Records and
+# messages name every framework file by it, so they read the same on any
+# machine. The value written to core.hooksPath is relative only in the
+# framework repository itself. In an adopting project it is absolute: it
+# names the main checkout's framework, because a relative value runs no hook
+# in a linked git worktree. See "Git hooks" below (WU-IAENG-414, issue #368).
 #
 # THE RELATION IS ESTABLISHED BY WALKING, NOT BY COMPARING SPELLINGS.
 #
@@ -449,57 +476,140 @@ if [ "$NO_HOOKS" -eq 1 ]; then
   [ "$CHECK" -eq 1 ] && record git-hooks unchecked core.hooksPath "skipped (--no-hooks)"
   say "skipped (--no-hooks)"
 else
+  # HOOKS_DIR names the hooks as the project reaches them, for records and
+  # messages. HOOKS_PATH is the value core.hooksPath gets. HOOKS_ABS is the
+  # directory that value names, where the hooks are checked and probed.
   HOOKS_DIR="$HOOKS_REL/Adapters/git-hooks"
+  MAIN_ROOT=""
+  MAIN_BARE=0
+  if [ "$FRAMEWORK_IS_PROJECT" -eq 1 ]; then
+    HOOKS_PATH="$HOOKS_DIR"
+    HOOKS_ABS="$PROJECT/$HOOKS_DIR"
+  else
+    # The main working tree, in git's own spelling (C:/... under Git for
+    # Windows, which the git that runs the hooks reads), wherever this runs:
+    #   - from the main working tree, whose git dir IS the common dir: its
+    #     own top level. That holds for a standalone clone, for a project that
+    #     is itself a submodule (git dir absorbed into the superproject's
+    #     .git/modules/), and for a separate git dir;
+    #   - from a linked worktree: the common dir's core.worktree when it is
+    #     set (an absorbed submodule's main working tree), else the parent of
+    #     a common dir named .git;
+    #   - a bare repository has no main working tree: the worktree this runs
+    #     from, said below.
+    # Not the first entry of `git worktree list`: for an absorbed submodule it
+    # is the git dir, and for a bare repository the repository itself, and
+    # install.sh then failed where it used to install (PR #387 review).
+    # Every answer is checked to be absolute: a git older than 2.31 does not
+    # know --path-format.
+    _gd="" _cd="" _top=""
+    { IFS= read -r _gd; IFS= read -r _cd; IFS= read -r _top; } \
+      < <(git rev-parse --path-format=absolute --git-dir --git-common-dir --show-toplevel 2>/dev/null)
+    for _p in "$_gd" "$_cd" "$_top"; do
+      case "$_p" in /*|[A-Za-z]:[/\\]*) ;; *) _gd="" ;; esac
+    done
+    unset _p
+    if [ -z "$_gd" ]; then
+      :
+    elif [ "$_gd" = "$_cd" ]; then
+      MAIN_ROOT="$_top"
+    else
+      _cw="$(git config -f "$_cd/config" --get core.worktree 2>/dev/null || true)"
+      if [ -n "$_cw" ]; then
+        MAIN_ROOT="$(git -C "$_cd" -C "$_cw" rev-parse --show-toplevel 2>/dev/null || true)"
+      elif [ "${_cd##*/}" = .git ]; then
+        MAIN_ROOT="${_cd%/.git}"
+      elif [ "$(git config -f "$_cd/config" --bool --get core.bare 2>/dev/null || true)" = true ]; then
+        MAIN_ROOT="$_top"
+        MAIN_BARE=1
+      fi
+      unset _cw
+    fi
+    unset _gd _cd _top
+    HOOKS_PATH="$MAIN_ROOT/$HOOKS_DIR"
+    HOOKS_ABS="$HOOKS_PATH"
+  fi
 
-  if [ ! -d "$PROJECT/$HOOKS_DIR" ]; then
-    fault git-hooks "$HOOKS_DIR" "$HOOKS_DIR does not exist — cannot point core.hooksPath at it"
+  if [ "$FRAMEWORK_IS_PROJECT" -eq 0 ] && [ -z "$MAIN_ROOT" ]; then
+    fault git-hooks core.hooksPath "git did not name this clone's main working tree, so the absolute core.hooksPath every worktree needs cannot be built (git 2.31 or later is needed). Run install.sh from the main working tree"
+  elif [ ! -d "$HOOKS_ABS" ]; then
+    if [ "$FRAMEWORK_IS_PROJECT" -eq 0 ] && ! [ "$PROJECT" -ef "$MAIN_ROOT" ]; then
+      fault git-hooks "$HOOKS_DIR" "$HOOKS_ABS does not exist: core.hooksPath names the MAIN checkout's framework, and it is not initialised there. Run: git -C $MAIN_ROOT submodule update --init"
+    else
+      fault git-hooks "$HOOKS_DIR" "$HOOKS_DIR does not exist — cannot point core.hooksPath at it"
+    fi
   else
     CURRENT="$(git config --local core.hooksPath || true)"
+
+    # The value install.sh wrote before WU-IAENG-414: the framework's hooks,
+    # relative. It already shadows .git/hooks, so switching it shadows
+    # nothing new; it is drift because a linked worktree runs no hook.
+    LEGACY_HOOKS=0
+    if [ "$FRAMEWORK_IS_PROJECT" -eq 0 ] && [ -n "$CURRENT" ] \
+       && { [ "$CURRENT" = "$HOOKS_DIR" ] || [ "$CURRENT" = "./$HOOKS_DIR" ]; }; then
+      LEGACY_HOOKS=1
+    fi
 
     # Setting core.hooksPath makes git ignore .git/hooks entirely. If the
     # project has its own hooks there, they would stop running with no error
     # and no output — exactly the silent-degradation failure this framework
     # keeps repairing. Detect it and say so rather than breaking them quietly.
     #
-    # The directory must be derived from --absolute-git-dir, NOT from
+    # The directory is git's DEFAULT hooks directory, NOT
     # "git rev-parse --git-path hooks": once core.hooksPath is set, --git-path
     # resolves to that configured value, so a second run would inspect the
     # framework's own hooks directory and report its two hooks as pre-existing
-    # project hooks about to be shadowed. Checked only when the setting is not
-    # already correct, since the question is only meaningful before switching.
-    if [ "$CURRENT" != "$HOOKS_DIR" ]; then
-      REAL_HOOKS="$(git rev-parse --absolute-git-dir)/hooks"
+    # project hooks about to be shadowed. It is the COMMON git directory's
+    # hooks/: git runs the hooks of every worktree from there, so a run from a
+    # linked worktree inspects the right directory, not .git/worktrees/<name>/
+    # (WU-IAENG-414). Checked only when the setting is not already correct,
+    # since the question is only meaningful before switching.
+    if [ "$CURRENT" != "$HOOKS_PATH" ] && [ "$LEGACY_HOOKS" -eq 0 ]; then
+      GIT_HOOKS_SHOWN="$(git rev-parse --git-common-dir)/hooks"
+      case "$GIT_HOOKS_SHOWN" in
+        /*|[A-Za-z]:[/\\]*) REAL_HOOKS="$GIT_HOOKS_SHOWN" ;;
+        *) REAL_HOOKS="$PROJECT/$GIT_HOOKS_SHOWN" ;;
+      esac
       EXISTING="$(find "$REAL_HOOKS" -maxdepth 1 -type f ! -name '*.sample' 2>/dev/null \
                     | wc -l | tr -d ' ')"
       if [ "$EXISTING" -gt 0 ]; then
         if [ "$CHECK" -eq 1 ]; then
           # Project-relative when git can say so, like every other record path.
-          record git-hooks shadowed "$(git rev-parse --git-dir)/hooks" "$EXISTING hook(s) there would stop running once core.hooksPath points at $HOOKS_DIR; move them into $HOOKS_DIR (or into a directory of your own that also contains the framework's hooks) first"
+          record git-hooks shadowed "$GIT_HOOKS_SHOWN" "$EXISTING hook(s) there would stop running once core.hooksPath points at $HOOKS_DIR; move them into $HOOKS_DIR (or into a directory of your own that also contains the framework's hooks) first"
         else
           fault git-hooks "$REAL_HOOKS" "$EXISTING hook(s) already in $REAL_HOOKS. Setting core.hooksPath makes git ignore that directory entirely, so those hooks would stop running silently. Move them into $HOOKS_DIR (or into a directory of your own that also contains the framework's hooks) before continuing."
         fi
       fi
     fi
-    if [ "$CURRENT" = "$HOOKS_DIR" ]; then
-      record git-hooks current core.hooksPath "$HOOKS_DIR"
-      same "core.hooksPath = $HOOKS_DIR"
+    if [ "$CURRENT" = "$HOOKS_PATH" ]; then
+      record git-hooks current core.hooksPath "$HOOKS_PATH"
+      same "core.hooksPath = $HOOKS_PATH"
     else
       if [ -z "$CURRENT" ]; then
-        record git-hooks absent core.hooksPath "$HOOKS_DIR"
+        record git-hooks absent core.hooksPath "$HOOKS_PATH"
+      elif [ "$LEGACY_HOOKS" -eq 1 ]; then
+        record git-hooks differs core.hooksPath "$HOOKS_PATH (set to: $CURRENT, a relative path: a linked git worktree, where the framework submodule is empty, runs no hook)"
       else
-        record git-hooks differs core.hooksPath "$HOOKS_DIR (set to: $CURRENT)"
+        record git-hooks differs core.hooksPath "$HOOKS_PATH (set to: $CURRENT)"
       fi
       if [ "$CHECK" -eq 1 ]; then
         :
-      elif run git config --local core.hooksPath "$HOOKS_DIR"; then
-        did "core.hooksPath = $HOOKS_DIR${CURRENT:+ (was: $CURRENT)}"
+      elif run git config --local core.hooksPath "$HOOKS_PATH"; then
+        did "core.hooksPath = $HOOKS_PATH${CURRENT:+ (was: $CURRENT)}"
       else
         fault git-hooks core.hooksPath "could not set core.hooksPath"
       fi
     fi
 
+    # A bare repository has no main working tree, so the value names the
+    # framework of the worktree this ran from, and that worktree must outlive
+    # the others' need for it.
+    if [ "$MAIN_BARE" -eq 1 ]; then
+      say "a bare repository has no main working tree: core.hooksPath names this worktree's framework. Before removing this worktree, re-run install.sh from another one"
+    fi
+
     # A hook that is not executable is a hook git skips without complaint.
-    for h in "$PROJECT/$HOOKS_DIR"/*; do
+    for h in "$HOOKS_ABS"/*; do
       [ -f "$h" ] || continue
       if [ -x "$h" ]; then
         record git-hooks current "$HOOKS_DIR/${h##*/}" executable
@@ -810,7 +920,20 @@ elif [ "$MERGE_IN_PROGRESS" -eq 1 ]; then
   say "  actually enforces anything. Re-run install.sh after the merge"
   say "  completes to verify enforcement."
 else
-  HOOK="$PROJECT/$(git config --local core.hooksPath || echo '.git/hooks')/commit-msg"
+  # The directory git runs the hooks from: core.hooksPath as set, absolute in
+  # an adopting project (see Git hooks), relative to the project otherwise.
+  PROBE_HOOKS="$(git config --local core.hooksPath || echo '.git/hooks')"
+  case "$PROBE_HOOKS" in
+    /*|[A-Za-z]:[/\\]*)
+      # Said for an adopter, whose Employees commit from linked worktrees
+      # where the framework submodule is empty (WU-IAENG-414).
+      if [ "$FRAMEWORK_IS_PROJECT" -eq 0 ]; then
+        say "core.hooksPath is absolute: every linked git worktree of this clone runs these hooks"
+      fi
+      ;;
+    *) PROBE_HOOKS="$PROJECT/$PROBE_HOOKS" ;;
+  esac
+  HOOK="$PROBE_HOOKS/commit-msg"
   if [ ! -x "$HOOK" ]; then
     fault git-hooks "$HOOK" "commit-msg hook is not executable at $HOOK"
   else
@@ -835,7 +958,7 @@ else
   # index (GIT_INDEX_FILE) seeded from HEAD plus one staged document — the
   # real index and working tree are untouched. Proves the hook resolves the
   # scanner and that the scanner refuses, rather than that a file was copied.
-  PRE_COMMIT="$PROJECT/$(git config --local core.hooksPath || echo '.git/hooks')/pre-commit"
+  PRE_COMMIT="$PROBE_HOOKS/pre-commit"
   if [ ! -x "$PRE_COMMIT" ]; then
     fault git-hooks "$PRE_COMMIT" "pre-commit hook is not executable at $PRE_COMMIT"
   else
@@ -888,7 +1011,7 @@ if [ "$CHECK" -eq 1 ]; then
     # each is flattened as a record field is (SEC-IAENG-366-01).
     flat "$HOOKS_REL"; _rel_flat="$FLAT"
     flat "${CURRENT:-}"
-    IAENG_REL="$_rel_flat" IAENG_HOOKS_NOW="$FLAT" awk -F '\t' '
+    IAENG_REL="$_rel_flat" IAENG_HOOKS_NOW="$FLAT" IAENG_HOOKS_LEGACY="${LEGACY_HOOKS:-0}" awk -F '\t' '
       NF == 0 { next }
       { n[$1]++; s[$1 FS $2]++; if ($2 ~ /^(absent|differs|missing|not-executable|shadowed|fault)$/) act++ }
       function part(fam, label, statuses,   k, i, out, sep, st) {
@@ -916,7 +1039,11 @@ if [ "$CHECK" -eq 1 ]; then
         first = 0
         if (s["git-hooks" FS "shadowed"]) {
           line = line " shadowed: move the project hooks out of .git/hooks first, or git stops running them."; first = 1 }
-        if (s["git-hooks" FS "differs"]) {
+        # The relative value install.sh itself wrote before WU-IAENG-414 names
+        # the framework, so there is nothing of the project to move out.
+        if (s["git-hooks" FS "differs"] && ENVIRON["IAENG_HOOKS_LEGACY"] == "1")
+          line = line " core.hooksPath: " ENVIRON["IAENG_HOOKS_NOW"] " is relative, so a linked git worktree runs no hook (issue #368)."
+        else if (s["git-hooks" FS "differs"]) {
           line = line " core.hooksPath: move any hooks the project keeps in " ENVIRON["IAENG_HOOKS_NOW"] " out first, or git stops running them."; first = 1 }
         if (s["git-hooks" FS "absent"] || s["git-hooks" FS "differs"] || s["git-hooks" FS "not-executable"])
           line = line " git-hooks: " (first ? "then " : "") "re-run " ENVIRON["IAENG_REL"] "/Adapters/scripts/install.sh; it sets core.hooksPath and makes the framework hooks executable."
