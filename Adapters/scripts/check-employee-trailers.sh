@@ -41,9 +41,17 @@
 #
 #   check-employee-trailers.sh <base-ref> <head-ref>
 #
-# Exit 0 when every commit (and every authored merge) resolves, 1 when any does
-# not, when a merge cannot be classified, or when the roster cannot be found. A
-# range with no non-merge commits says so and still classifies its merges.
+# Exit codes (Standards/CODE_QUALITY_STANDARD.md, The Check Convention, Shell
+# Scripts rule 1):
+#   0  every commit, and every authored merge, carries an Employee that resolves
+#   1  a finding: a commit or authored merge without the trailer, or with a
+#      name that is not on the roster
+#   2  could not evaluate, or a usage error: merge-classify.sh missing, no
+#      roster or one that yields no names, $IAENG_PROJECT_ROSTER naming no
+#      file, `git rev-list` failed, git too old to classify merges, or a merge
+#      that could not be classified. A finding elsewhere in the range does not
+#      lower it to 1: what was not evaluated is reported as such.
+# A range with no non-merge commits says so and still classifies its merges.
 
 set -uo pipefail
 
@@ -55,7 +63,7 @@ set -uo pipefail
 SCRIPT_DIR="$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 if [ ! -f "$SCRIPT_DIR/merge-classify.sh" ]; then
   echo "check-employee-trailers: ERROR: $SCRIPT_DIR/merge-classify.sh not found; failing closed." >&2
-  exit 1
+  exit 2
 fi
 # shellcheck source=merge-classify.sh
 . "$SCRIPT_DIR/merge-classify.sh"
@@ -95,7 +103,7 @@ done
 
 if [ -z "$ROSTER" ]; then
   err "Could not locate Registry/employees.yml (looked at \$IAENG_REGISTRY, Registry/, ia-engineering/Registry/). The Employee roster is the single source of truth for this check; failing closed rather than passing without validating anything."
-  exit 1
+  exit 2
 fi
 
 echo "Roster: $ROSTER"
@@ -113,7 +121,7 @@ echo "Roster entries: $ROSTER_COUNT"
 # would describe the commits when the fault is in the parser or the file shape.
 if [ "$ROSTER_COUNT" -eq 0 ]; then
   err "$ROSTER yielded no Employee names. The parsing contract is a line of the exact form '  - name: <Name>' (two spaces, dash, space). Failing rather than refusing every commit, which would describe the parser and not the commits."
-  exit 1
+  exit 2
 fi
 
 PROJECT_ROSTER=""
@@ -122,7 +130,7 @@ if [ -n "${IAENG_PROJECT_ROSTER:-}" ]; then
     PROJECT_ROSTER="$IAENG_PROJECT_ROSTER"
   else
     err "IAENG_PROJECT_ROSTER is set to '$IAENG_PROJECT_ROSTER' but no such file exists. Validating against the framework roster alone would silently refuse every Domain Employee; fix the path or unset the variable."
-    exit 1
+    exit 2
   fi
 elif [ -f ".ia-engineering/Registry/employees.yml" ]; then
   PROJECT_ROSTER=".ia-engineering/Registry/employees.yml"
@@ -138,10 +146,13 @@ fi
 
 if ! COMMITS="$(git rev-list --no-merges "${BASE_REF}..${HEAD_REF}")"; then
   err "git rev-list failed over ${BASE_REF}..${HEAD_REF}. No commit was examined, so nothing was established; failing rather than reporting zero problems."
-  exit 1
+  exit 2
 fi
 
 fail=0
+# Set when a merge could not be classified: the run then exits 2, whatever
+# else it found (the header's exit codes).
+unevaluated=0
 
 # validate_employee_lines <sha> <employee-lines>
 # Every claim is checked against the roster; the caller decides what an absent
@@ -211,7 +222,7 @@ readonly GRANDFATHERED_MERGES="3babf69d9664ddb590acd7381a99fa90d1e40f70 93c850a7
 # unclassifiable merge is the check-that-passes-without-evaluating shape.
 if ! MERGES="$(git rev-list --merges "${BASE_REF}..${HEAD_REF}")"; then
   err "git rev-list --merges failed over ${BASE_REF}..${HEAD_REF}; failing rather than skipping merges unexamined."
-  exit 1
+  exit 2
 fi
 
 if [ -n "$MERGES" ]; then
@@ -219,7 +230,7 @@ if [ -n "$MERGES" ]; then
 
   if ! merge_classify_git_ok; then
     err "git $(git version) cannot classify merge commits: 'git merge-tree --write-tree' with --attr-source needs git 2.40 or newer. Failing closed rather than passing merges unclassified."
-    exit 1
+    exit 2
   fi
 
   for sha in $MERGES; do
@@ -232,7 +243,7 @@ if [ -n "$MERGES" ]; then
     KIND="$(merge_classify "$sha")"
     if [ "${KIND#error}" != "$KIND" ]; then
       err "Merge $sha could not be classified (${KIND#error: }). Failing closed rather than passing an unclassified merge."
-      fail=1
+      unevaluated=1
       continue
     fi
 
@@ -247,4 +258,5 @@ if [ -n "$MERGES" ]; then
   done
 fi
 
+[ "$unevaluated" -eq 0 ] || exit 2
 exit "$fail"

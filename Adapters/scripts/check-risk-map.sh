@@ -51,8 +51,14 @@
 # advisory: it verifies the record is there and has its fields, not that the
 # tier or the decision is the right one.
 #
-# Exit 0 when the map is sound (or, in --range, when the change set is
-# acceptable), 1 otherwise, 2 on a usage error.
+# Exit codes (Standards/CODE_QUALITY_STANDARD.md, The Check Convention, Shell
+# Scripts rule 1):
+#   0  the map is sound (or, in --range, the change set is acceptable)
+#   1  a finding: the map is unsound, or a sensitive zone is touched without
+#      a Risk Record
+#   2  could not evaluate, or a usage error: the project root is not a
+#      directory, there is no Risk Map or it yields no zones, or a git command
+#      failed (`ls-files`, `merge-base`, `diff`). Nothing was classified.
 
 set -uo pipefail
 export LC_ALL=C
@@ -101,16 +107,16 @@ done
 
 if [ ! -d "$ROOT" ]; then
   err "no such directory: $ROOT"
-  exit 1
+  exit 2
 fi
 # The root is the caller's, often relative: an exported CDPATH must neither
 # redirect this cd nor print into the output.
-CDPATH='' cd -- "$ROOT" || exit 1
+CDPATH='' cd -- "$ROOT" || exit 2
 
 MAP=".ia-engineering/risk-map.yml"
 if [ ! -f "$MAP" ]; then
   err "no Risk Map at $MAP. Standards/RISK_STANDARD.md: a project without one is UNCLASSIFIED, not safe — every path falls back to standard and the sensitive ones silently lose what the project requires of them. Write one from Templates/RISK_MAP.md, and commit it: a map CI cannot read classifies nothing."
-  exit 1
+  exit 2
 fi
 
 # --- parse -------------------------------------------------------------------
@@ -160,12 +166,12 @@ ZONES="$(awk '
 ZONE_COUNT="$(printf '%s\n' "$ZONES" | grep -c . || true)"
 if [ "$ZONE_COUNT" -eq 0 ]; then
   err "$MAP yielded no zones. The parsing contract is a line of the exact form '  - pattern: <glob>' with '    level:' beneath it (two spaces, dash, space). Failing rather than treating an unreadable map as an empty one, which would classify the whole project as unmapped without ever saying the file could not be read."
-  exit 1
+  exit 2
 fi
 
 if ! TRACKED="$(git ls-files)"; then
   err "git ls-files failed. The map is checked against tracked paths; without them nothing can be verified."
-  exit 1
+  exit 2
 fi
 TRACKED_COUNT="$(printf '%s\n' "$TRACKED" | grep -c . || true)"
 
@@ -234,11 +240,11 @@ if [ "$MODE" = range ]; then
   # below uses `<base>..<head>`, which is already merge-base-relative.
   if ! MERGE_BASE="$(git merge-base "$BASE" "$HEAD_REF")"; then
     err "Could not compute the merge base of $BASE and $HEAD_REF. Nothing was classified, so nothing is established."
-    exit 1
+    exit 2
   fi
   if ! CHANGED="$(git diff --name-only "$MERGE_BASE" "$HEAD_REF")"; then
     err "git diff failed between the merge base $MERGE_BASE and $HEAD_REF. Nothing was classified, so nothing is established."
-    exit 1
+    exit 2
   fi
   n="$(printf '%s\n' "$CHANGED" | grep -c . || true)"
   if [ "$n" -eq 0 ]; then
@@ -279,7 +285,12 @@ EOF
   # while git keeps writing — SIGPIPE, which `set -o pipefail` returns as the
   # pipeline's status. The check would then report NO record while one is right
   # there, and block a valid change. TROUBLESHOOTING X.
-  RANGE_MSGS="$(git log --format=%B "$BASE..$HEAD_REF")"
+  # A log that could not be read is not a range without a record: that would
+  # report a finding nobody established.
+  if ! RANGE_MSGS="$(git log --format=%B "$BASE..$HEAD_REF")"; then
+    err "git log failed over $BASE..$HEAD_REF, so no commit message was read for a Risk Record. Nothing is established."
+    exit 2
+  fi
 
   # THE RECORD MUST BE A RECORD, not a mention of one (PT2-06). The line is
   # the one Standards/RISK_STANDARD.md defines —
