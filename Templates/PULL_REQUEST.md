@@ -41,6 +41,13 @@ Work Unit: [WU-ID]
 
 ---
 
+### Merge danger
+
+- Rollback: [easy — reverting this PR restores the previous state | hard — what a revert does not undo: data written, a migration, a published tag or release, a file adopting projects have already copied]
+- What breaks if this is wrong: [who or what fails, and how it would show]
+
+---
+
 ### How to test
 
 [Step-by-step instructions for the reviewer to verify the change works:]
@@ -92,6 +99,7 @@ Work Unit: [WU-ID]
 | Type | Categorizes the change for changelog generation | Selecting multiple types — one PR, one type |
 | What changed | Describes the concrete change | "Fixed bug" — not specific enough |
 | Why | Links to the requirement — traceability | Missing Work Unit ID, no business context |
+| Merge danger | Tells the approver in two lines how costly a wrong approval is: whether a revert undoes the change, and what fails if it is wrong. Its terms follow `Standards/RISK_STANDARD.md` (reversible path, blast radius) | "Low risk" with no reason; "easy" for a change a revert does not undo, such as a migration, a published tag or a file adopting projects copy |
 | How to test | Enables the reviewer to verify correctness | "Run tests" — not actionable for manual verification |
 | Checklist | Self-verification before requesting review | Submitting with unchecked items |
 
@@ -107,7 +115,7 @@ The size limit, what it counts, and the `size/approved` override are defined onc
 
 Owner: IA Engineering
 
-Version: 0.0.7
+Version: 0.0.8
 
 Status: Draft
 

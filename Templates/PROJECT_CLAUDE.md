@@ -14,9 +14,10 @@
 |---|---|
 | Objective, users, stack, architecture, active roster, dispatch triggers, standards in force, git workflow, Director — things that change when the **contract** changes | **`CLAUDE.md`** — committed |
 | Where things stand today, next step, what is blocked, deviations in force, the journal — things that change every session | `.ia-engineering/SESSION_STATE.md` — **never committed** (`Templates/SESSION_STATE.md`) |
+| What the project's domain terms mean, as settled | `.ia-engineering/DOMAIN_GLOSSARY.md` — committed, created when the first domain term is settled (`Templates/PROJECT_GLOSSARY.md`) |
 | The operator's cross-project preferences and method lessons | The AI runtime's own memory — not repository content |
 
-A fact lives in exactly one of the three. Progress never goes in `CLAUDE.md`; a copy of the contract never goes in the runtime's memory.
+A fact lives in exactly one of them. Progress never goes in `CLAUDE.md`; a copy of the contract never goes in the runtime's memory.
 
 ## How to fill it in
 
@@ -158,8 +159,10 @@ Request.
 
 Enforcement installed here: [git hooks via `core.hooksPath`; the CI checks
 listed in `Adapters/scripts/setup-branch-protection.sh`; the runtime hooks in
-`Adapters/ai-runtimes/<runtime>/`]. Re-run
-`./ia-engineering/Adapters/scripts/install.sh` in every fresh clone.
+`Adapters/ai-runtimes/<runtime>/`]. In every fresh clone, fetch the framework
+first (`git submodule update --init`, or clone with `--recurse-submodules`),
+since `install.sh` lives in the submodule, then re-run
+`./ia-engineering/Adapters/scripts/install.sh`.
 
 ---
 
@@ -173,6 +176,17 @@ action without Director approval. Merging an approved Pull Request into
 `develop` is delegable (`Workflows/FEATURE_DEVELOPMENT.md` Step 8). High and
 Critical risks stop and wait for a confirmation that names the action
 (`Standards/RISK_STANDARD.md`).
+
+---
+
+# Domain Glossary
+
+Domain terms mean what `.ia-engineering/DOMAIN_GLOSSARY.md` says they mean
+(`ia-engineering/Templates/PROJECT_GLOSSARY.md`). Use a term in that meaning
+and cite its entry where the meaning matters. The file is created when the
+first domain term is settled; until then, a domain word whose meaning matters
+is an Open Question below. A domain word with no entry is a question, never a
+guess.
 
 ---
 
@@ -202,6 +216,7 @@ direction. Move an answered one into the body of this file and delete it here.]
 | Standards in Force | Additions, never subtractions | A relaxation recorded here as if it were policy |
 | Main Agent | Dispatch and plan-first rule, loaded every session | Restating `Core/MAIN_AGENT_CONDUCT.md` instead of pointing to it |
 | Director | Names who decides | "The team" |
+| Domain Glossary | Points to where domain words are defined | Definitions written into this file instead; a glossary created empty |
 | Open Questions | Prevents invented answers | Questions that were answered and never removed |
 
 ---
@@ -215,6 +230,7 @@ direction. Move an answered one into the body of this file and delete it here.]
 | `Templates/PROJECT_CHARTER.md` | The durable record of Phase A — this file is its operational summary, not a second copy |
 | `Templates/SESSION_STATE.md` | The other half of the memory split: dated state, never committed |
 | `Templates/DOMAIN_EMPLOYEE.md` | The Domain Employees this file lists and gives triggers for |
+| `Templates/PROJECT_GLOSSARY.md` | The project domain glossary this file points to |
 | `Core/AGENT_CONDUCT.md` | Read First — this file is the first document read |
 
 ---
@@ -223,7 +239,7 @@ direction. Move an answered one into the body of this file and delete it here.]
 
 Owner: IA Engineering
 
-Version: 0.0.13
+Version: 0.0.14
 
 Status: Draft
 

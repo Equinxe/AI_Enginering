@@ -5,7 +5,10 @@
 #
 #   ./Adapters/ai-runtimes/claude-code/hooks/tests/context-statusline.sh [--verbose]
 #
-# What is proved, on real files in a scratch TMPDIR and HOME:
+# What is proved, on real files in a scratch TMPDIR and HOME. The fallback a
+# refused TMPDIR takes is scratch too (IAENG_CTX_TEST_FALLBACK, in place of
+# /tmp), and the last check is that the user's real iaeng-ctx directory was
+# left alone (tests/real-ctx-dir.sh, issue #345):
 #
 #   - context-statusline.sh exits 0, prints a non-empty line and nothing on
 #     stderr for every input: a valid payload, empty stdin, bad JSON, a value
@@ -27,8 +30,10 @@
 #   - without jq the user's statusLine is still run (JSON escapes, exec form);
 #     a --chain naming this script falls back to it; the user's command keeps
 #     the caller's umask, and every .pct is 0600 under umask 002;
-#   - a find that fails skips the write; the cleanup deletes only old *.pct
-#     and *.alert regular files, at most once an hour;
+#   - a find that fails skips the write; the cleanup deletes only old *.pct,
+#     *.alert and orphan .*.tmp regular files, at most once an hour;
+#   - a relative TMPDIR, or one with .., falls back: the .pct is written
+#     there, never in the TMPDIR given;
 #   - install-hooks.sh installs the statusLine, wraps an adopter's own
 #     statusLine instead of replacing it (padding kept, an apostrophe in its
 #     command survives, the exec form folded), is idempotent, keeps a
@@ -84,16 +89,27 @@ ID="$(id -u 2>/dev/null)"
 TMPD="$T/tmp"
 HOMED="$T/home"
 PROJ="$T/project"
-mkdir -p "$TMPD" "$HOMED/.claude" "$PROJ"
+# The fallback a refused TMPDIR takes, in place of /tmp (issue #345): every
+# run sets IAENG_CTX_TEST_FALLBACK to it, so no case writes into the user's
+# real /tmp/iaeng-ctx-<uid>.
+FB="$T/fallback"
+mkdir -p "$TMPD" "$HOMED/.claude" "$PROJ" "$FB"
 DIR="$TMPD/iaeng-ctx-$ID"
+FBD="$FB/iaeng-ctx-$ID"
+# The user's real context directories, listed before any hook runs and
+# checked at the end (tests/real-ctx-dir.sh).
+# shellcheck source=real-ctx-dir.sh
+. "$HERE/real-ctx-dir.sh"
+real_ctx_begin "$T"
 
 # run <stdin> [args...] — runs the statusLine as Claude Code does: stdin, a
-# scratch TMPDIR, HOME and project, none of the switches. Sets OUT, ERR, RC.
+# scratch TMPDIR, fallback, HOME and project, none of the switches. Sets OUT,
+# ERR, RC.
 run() {
   local input="$1"; shift
   printf '%s' "$input" | env -u IAENG_CONTEXT_HOOKS -u IAENG_CTX_CHAINED -u CLAUDE_CONFIG_DIR \
     -u NO_COLOR -u IAENG_CTX_ALERT_PCT \
-    TMPDIR="$TMPD" HOME="$HOMED" CLAUDE_PROJECT_DIR="$PROJ" ${RUN_ENV[@]+"${RUN_ENV[@]}"} \
+    TMPDIR="$TMPD" IAENG_CTX_TEST_FALLBACK="$FB" HOME="$HOMED" CLAUDE_PROJECT_DIR="$PROJ" ${RUN_ENV[@]+"${RUN_ENV[@]}"} \
     bash "$SL" "$@" > "$T/out" 2> "$T/err"
   RC=$?
   OUT="$(cat "$T/out")"
@@ -181,31 +197,40 @@ has "a null percentage: ctx --" "ctx --"
 if [ "$(count_files "$DIR")" = "$B" ]; then ok "empty, bad, array, string and out-of-range payloads wrote no file"; else bad "empty, bad, array, string and out-of-range payloads wrote no file" "$(ls -a "$DIR")"; fi
 
 # --- cleanup: the writer's (Main Agent decision, 26 Oct 2026) -----------------------
-# At most once an hour, *.pct and *.alert regular files older than 24 h go;
-# a fresh file, another name, a directory and a link (and what it points at)
-# stay. Oracle: the decision's own terms (24 h, once an hour, regular files
-# the user owns, never through a link).
+# At most once an hour, *.pct and *.alert regular files older than 24 h go,
+# and so do the orphan .*.tmp files of the two hooks (issue #345): the
+# writer's .<session>.<pid>.<n>.tmp and the alert's .<session>.alert.<pid>.<n>.tmp,
+# left by a process killed before its rename. A fresh file (a .tmp among
+# them: a write in progress), another name, a directory and a link (and what
+# it points at) stay. Oracle: the decision's own terms (24 h, once an hour,
+# regular files the user owns, never through a link) and issue #345's.
 CL="$T/cleantmp"; CLD="$CL/iaeng-ctx-$ID"; mkdir -p "$CLD"
 OLD="$(( $(date +%s) - 172800 ))"
-for n in old-a.pct old-b.alert old-other.txt; do : > "$CLD/$n"; touch -d "@$OLD" "$CLD/$n"; done
+for n in old-a.pct old-b.alert old-other.txt old-other.tmp .sess-gone.4242.17.tmp .sess-gone.alert.4242.18.tmp; do
+  : > "$CLD/$n"; touch -d "@$OLD" "$CLD/$n"
+done
 : > "$CLD/fresh.pct"
-mkdir "$CLD/old-dir.pct"; touch -d "@$OLD" "$CLD/old-dir.pct"
+: > "$CLD/.sess-busy.4243.19.tmp"
+mkdir "$CLD/old-dir.pct" "$CLD/.old-dir.4244.20.tmp"; touch -d "@$OLD" "$CLD/old-dir.pct" "$CLD/.old-dir.4244.20.tmp"
 LINKED=0
 if can_link; then
   printf 'victim\n' > "$T/victim-cl"
   MSYS=winsymlinks:sys ln -s "$T/victim-cl" "$CLD/old-link.pct" && touch -h -d "@$OLD" "$CLD/old-link.pct" 2>/dev/null
-  [ -L "$CLD/old-link.pct" ] && LINKED=1
+  MSYS=winsymlinks:sys ln -s "$T/victim-cl" "$CLD/.old-link.4245.21.tmp" && touch -h -d "@$OLD" "$CLD/.old-link.4245.21.tmp" 2>/dev/null
+  [ -L "$CLD/old-link.pct" ] && [ -L "$CLD/.old-link.4245.21.tmp" ] && LINKED=1
 fi
 RUN_ENV=(TMPDIR="$CL")
 run '{"session_id":"sess-cl","context_window":{"used_percentage":5}}'
 RUN_ENV=()
 fine "a run that cleans up"
 if [ ! -e "$CLD/old-a.pct" ] && [ ! -e "$CLD/old-b.alert" ]; then ok "cleanup: *.pct and *.alert older than 24 h are deleted"; else bad "cleanup: *.pct and *.alert older than 24 h are deleted" "$(find "$CLD" -mindepth 1 | tr '\n' ' ')"; fi
+if [ ! -e "$CLD/.sess-gone.4242.17.tmp" ] && [ ! -e "$CLD/.sess-gone.alert.4242.18.tmp" ]; then ok "cleanup: the writer's and the alert's orphan .tmp files older than 24 h are deleted"; else bad "cleanup: the writer's and the alert's orphan .tmp files older than 24 h are deleted" "$(find "$CLD" -mindepth 1 -name '*.tmp' | tr '\n' ' ')"; fi
 if [ -f "$CLD/fresh.pct" ] && [ -f "$CLD/old-other.txt" ] && [ -d "$CLD/old-dir.pct" ] && [ -f "$CLD/sess-cl.pct" ]; then ok "cleanup: a fresh .pct, another name and a directory stay"; else bad "cleanup: a fresh .pct, another name and a directory stay" "$(find "$CLD" -mindepth 1 | tr '\n' ' ')"; fi
+if [ -f "$CLD/.sess-busy.4243.19.tmp" ] && [ -f "$CLD/old-other.tmp" ] && [ -d "$CLD/.old-dir.4244.20.tmp" ]; then ok "cleanup: a fresh .tmp (a write in progress), an old .tmp not named .*.tmp and a directory named .*.tmp stay"; else bad "cleanup: a fresh .tmp, an old .tmp not named .*.tmp and a directory named .*.tmp stay" "$(find "$CLD" -mindepth 1 | tr '\n' ' ')"; fi
 if [ "$LINKED" -eq 1 ]; then
-  if [ -L "$CLD/old-link.pct" ] && [ "$(cat "$T/victim-cl")" = victim ]; then ok "cleanup: an old link named *.pct is neither deleted nor followed"; else bad "cleanup: an old link named *.pct is neither deleted nor followed"; fi
+  if [ -L "$CLD/old-link.pct" ] && [ -L "$CLD/.old-link.4245.21.tmp" ] && [ "$(cat "$T/victim-cl")" = victim ]; then ok "cleanup: an old link named *.pct or .*.tmp is neither deleted nor followed"; else bad "cleanup: an old link named *.pct or .*.tmp is neither deleted nor followed"; fi
 else
-  na "cleanup: an old link named *.pct" "symbolic links cannot be created here"
+  na "cleanup: an old link named *.pct or .*.tmp" "symbolic links cannot be created here"
 fi
 : > "$CLD/old-c.pct"; touch -d "@$OLD" "$CLD/old-c.pct"
 RUN_ENV=(TMPDIR="$CL")
@@ -317,23 +342,37 @@ fi
 # "$T/tmp/../dotdot" names a directory that exists: only the .. rule keeps
 # the script from writing there.
 mkdir -p "$T/dotdot"
-for tmp in "$T/a-file" "$T/no/such/dir" "relative/tmp" "$T/tmp/../dotdot"; do
+# A relative TMPDIR or one with .. falls back: to /tmp for the user, to the
+# scratch fallback here, so the write is seen and the user's real directory
+# is never touched (issue #345). A file or a missing directory is absolute:
+# nothing can be created there, and nothing is written anywhere.
+# <where the .pct must go>|<TMPDIR>
+for c in "none|$T/a-file" "none|$T/no/such/dir" "fallback|relative/tmp" "fallback|$T/tmp/../dotdot"; do
+  tmp="${c#*|}"
   RUN_ENV=(TMPDIR="$tmp")
-  run '{"session_id":"sess-bad-tmp","context_window":{"used_percentage":9}}'
+  rm -f "$FBD/sess-refused.pct"
+  run '{"session_id":"sess-refused","context_window":{"used_percentage":9}}'
   RUN_ENV=()
   fine "TMPDIR=$tmp"
+  if [ "${c%%|*}" = fallback ]; then
+    if [ -f "$FBD/sess-refused.pct" ]; then ok "TMPDIR=$tmp is refused: the .pct goes to the fallback"; else bad "TMPDIR=$tmp is refused: the .pct goes to the fallback" "$(find "$FB" "$T/dotdot" 2>&1 | tr '\n' ' ')"; fi
+  elif [ ! -e "$FBD/sess-refused.pct" ]; then
+    ok "TMPDIR=$tmp cannot be used: no .pct, not even in the fallback"
+  else
+    bad "TMPDIR=$tmp cannot be used: no .pct, not even in the fallback"
+  fi
 done
 if [ -f "$T/a-file" ] && [ ! -s "$T/a-file" ] && [ ! -e "$T/no" ] && [ ! -e "relative" ] && [ -z "$(ls -A "$T/dotdot")" ]; then ok "a TMPDIR that is a file, missing, relative or with .. is never written to"; else bad "a TMPDIR that is a file, missing, relative or with .. is never written to" "$(ls -A "$T/dotdot")"; fi
-rm -f "/tmp/iaeng-ctx-$ID/sess-bad-tmp.pct" 2>/dev/null
 # The same rule with Windows separators (cr-321 s1): C:\...\tmp\..\dotdot2
 # names a directory that exists.
 if command -v cygpath >/dev/null 2>&1; then
   mkdir -p "$T/dotdot2"
+  rm -f "$FBD/sess-refused.pct"
   RUN_ENV=(TMPDIR="$(cygpath -w "$T/tmp")\\..\\dotdot2")
-  run '{"session_id":"sess-bad-tmp","context_window":{"used_percentage":9}}'
+  run '{"session_id":"sess-refused","context_window":{"used_percentage":9}}'
   RUN_ENV=()
   fine "TMPDIR with a \\..\\ component"
-  if [ -z "$(ls -A "$T/dotdot2")" ]; then ok "a TMPDIR with a backslash .. component is never written to"; else bad "a TMPDIR with a backslash .. component is never written to" "$(ls -A "$T/dotdot2")"; fi
+  if [ -z "$(ls -A "$T/dotdot2")" ] && [ -f "$FBD/sess-refused.pct" ]; then ok "a TMPDIR with a backslash .. component is never written to: the .pct goes to the fallback"; else bad "a TMPDIR with a backslash .. component is never written to: the .pct goes to the fallback" "$(ls -A "$T/dotdot2" "$FBD" 2>&1)"; fi
 else
   na "a TMPDIR with a backslash .. component" "no Windows paths on this platform (no cygpath)"
 fi
@@ -348,12 +387,12 @@ for tool in find mv mkdir head timeout cat rm bash; do
 done
 BASH_BIN="$(command -v bash)"
 printf '%s' '{"session_id":"sess-nojq","context_window":{"current_usage":{"used_percentage":99},"used_percentage":61.9},"rate_limits":{"five_hour":{"used_percentage":8}}}' \
-  | env -i PATH="$NOJQ" TMPDIR="$TMPD" HOME="$HOMED" CLAUDE_PROJECT_DIR="$PROJ" "$BASH_BIN" "$SL" > "$T/out" 2> "$T/err"
+  | env -i PATH="$NOJQ" TMPDIR="$TMPD" IAENG_CTX_TEST_FALLBACK="$FB" HOME="$HOMED" CLAUDE_PROJECT_DIR="$PROJ" "$BASH_BIN" "$SL" > "$T/out" 2> "$T/err"
 RC=$?; OUT="$(cat "$T/out")"; ERR="$(cat "$T/err")"
 fine "no jq"
 has "no jq: the line still shows ctx and 5 h quota" "ctx 61% | 5h 8%"
 pct_is "no jq: the .pct is written from the top-level used_percentage, not current_usage's" sess-nojq 61
-printf '%s' 'garbage {"session_id": "x' | env -i PATH="$NOJQ" TMPDIR="$TMPD" HOME="$HOMED" "$BASH_BIN" "$SL" > "$T/out" 2> "$T/err"
+printf '%s' 'garbage {"session_id": "x' | env -i PATH="$NOJQ" TMPDIR="$TMPD" IAENG_CTX_TEST_FALLBACK="$FB" HOME="$HOMED" "$BASH_BIN" "$SL" > "$T/out" 2> "$T/err"
 RC=$?; OUT="$(cat "$T/out")"; ERR="$(cat "$T/err")"
 fine "no jq, bad JSON"
 
@@ -361,7 +400,7 @@ fine "no jq, bad JSON"
 # pattern. Written by hand, with the JSON escapes \" and \\ in the command.
 NJH="$T/home-nojq"; mkdir -p "$NJH/.claude"
 nojq_run() {
-  printf '%s' "$GOOD" | env -i PATH="$NOJQ" TMPDIR="$TMPD" HOME="$NJH" CLAUDE_PROJECT_DIR="$PROJ" "$@" "$BASH_BIN" "$SL" > "$T/out" 2> "$T/err"
+  printf '%s' "$GOOD" | env -i PATH="$NOJQ" TMPDIR="$TMPD" IAENG_CTX_TEST_FALLBACK="$FB" HOME="$NJH" CLAUDE_PROJECT_DIR="$PROJ" "$@" "$BASH_BIN" "$SL" > "$T/out" 2> "$T/err"
   RC=$?; OUT="$(cat "$T/out")"; ERR="$(cat "$T/err")"
 }
 printf '%s\n' '{"model": "opus", "statusLine": {"type": "command", "command": "printf \"%s|%s\" A \"B\\\\C\""}}' > "$NJH/.claude/settings.json"
@@ -500,7 +539,7 @@ sl_cmd() { jq -r '.statusLine.command // empty' "$SET" | tr -d '\r'; }
 # run_installed <payload> — the installed statusLine command, run as Claude
 # Code runs it (bash -c, CLAUDE_PROJECT_DIR set). Sets OUT, ERR, RC.
 run_installed() {
-  printf '%s' "$1" | env -u IAENG_CTX_CHAINED -u IAENG_CONTEXT_HOOKS TMPDIR="$TMPD" HOME="$HOMED" CLAUDE_PROJECT_DIR="$IP" \
+  printf '%s' "$1" | env -u IAENG_CTX_CHAINED -u IAENG_CONTEXT_HOOKS TMPDIR="$TMPD" IAENG_CTX_TEST_FALLBACK="$FB" HOME="$HOMED" CLAUDE_PROJECT_DIR="$IP" \
     bash -c "$(sl_cmd)" > "$T/out" 2> "$T/err"
   RC=$?; OUT="$(cat "$T/out")"; ERR="$(cat "$T/err")"
 }
@@ -580,6 +619,11 @@ jq '.statusLine = {type:"command", command:"echo hooks/context-statusline.sh"}' 
 cp "$SET" "$T/other.json"
 inst
 if cmp -s "$SET" "$T/other.json" && grep -qF "names context-statusline.sh in a form of its own" "$T/inst.err"; then ok "another command naming the script is kept as it is, and reported"; else bad "another command naming the script is kept as it is, and reported" "$(cat "$T/inst.err")"; fi
+
+# =============================================================================
+echo "== the user's real context directory (issue #345)"
+LEFT="$(real_ctx_changed)"
+if [ -z "$LEFT" ]; then ok "no case wrote into the user's real iaeng-ctx directory (/tmp's or TMPDIR's)"; else bad "no case wrote into the user's real iaeng-ctx directory (/tmp's or TMPDIR's)" "added or modified: $(tr '\n' ' ' <<< "$LEFT")"; fi
 
 # =============================================================================
 echo

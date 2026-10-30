@@ -185,7 +185,10 @@ if [ -n "$CACHE_DIR" ]; then
     /*|[A-Za-z]:[/\\]*) ;;
     *) echo "check-framework-drift.sh: --cache-dir takes an absolute directory" >&2; exit 64 ;;
   esac
-  case "/$CACHE_DIR/" in
+  # A backslash is a separator on Windows: C:\a\..\b is refused as C:/a/../b
+  # is (issue #342). Held in a variable, as cache_dir_canon holds it.
+  _bs="\\"
+  case "/${CACHE_DIR//"$_bs"//}/" in
     */../*|*/./*) echo "check-framework-drift.sh: --cache-dir takes a directory without . or .. components" >&2; exit 64 ;;
   esac
 fi
@@ -353,18 +356,31 @@ untrusted() {
 # (cd -P), so neither a link nor a .. can lead back into the project; the
 # part that does not exist yet cannot be the project. session-start.sh's
 # lib.sh iaeng_cache_dir applies the same rule to the directory it chooses:
-# no new file is sourced by this control-path script.
+# no new file is sourced by this control-path script. Every backslash is read
+# as a separator, as Windows reads it, before the test and the walk (issue
+# #342): split on / alone, a part still to be made such as "..\proj\cache"
+# or "proj\cache" was kept as one name and made inside the project.
 cache_dir_canon() {
-  local p="${CACHE_DIR%/}" tail="" n canon
+  local bs="\\" p tail="" n canon
+  p="${CACHE_DIR//"$bs"//}"
+  p="${p%/}"
   case "/$p/" in */../*|*/./*) CACHE_DIR=""; return ;; esac
   while [ ! -d "$p" ]; do
     n="${p%/*}"
     { [ -z "$n" ] || [ "$n" = "$p" ]; } && { CACHE_DIR=""; return; }
     case "$n" in */*) ;; *) n="$n/" ;; esac
+    # The root of a drive that does not exist (Q:/) gives itself back: the
+    # walk would never end.
+    [ "$n" = "$p" ] && { CACHE_DIR=""; return; }
     tail="${p##*/}${tail:+/$tail}"
     p="$n"
   done
   canon="$(cd -P "$p" 2>/dev/null && pwd -P)" || { CACHE_DIR=""; return; }
+  # The part that exists resolved to the root: the join would give //<tail>,
+  # a network (UNC) path on Windows that the test below never sees
+  # (SEC-IAENG-399-01). Refused, as /<missing>/x already is. Not ${canon%/}:
+  # for a // canon it gives / and /<tail>, the same // again.
+  case "$canon" in *[!/]*) ;; *) CACHE_DIR=""; return ;; esac
   p="$canon"
   while :; do
     [ "$p" -ef "$PROJECT" ] && { CACHE_DIR=""; return; }
@@ -484,7 +500,16 @@ if ! PROJECT="$(git rev-parse --show-toplevel 2>/dev/null)"; then
   rec version indeterminate "." "not inside a git repository: run it from the root of the adopting project"
   finish
 fi
-cd "$PROJECT" || exit 1
+# A root git names but this shell cannot enter is indeterminate, like the
+# case above, and is reported the same way: through finish, so the exit code
+# is the contract's (0 without --strict, 2 with it), never 1, which means
+# drift (Standards/CODE_QUALITY_STANDARD.md, The Check Convention, Shell
+# Scripts rule 1).
+if ! cd "$PROJECT"; then
+  NA=1
+  rec version indeterminate "$PROJECT" "the project root git reported cannot be entered: nothing was compared"
+  finish
+fi
 PROJECT="$(pwd)"
 
 [ "$FORMAT" = text ] && printf 'IA Engineering — framework drift (read-only): %s\n' "$PROJECT"
