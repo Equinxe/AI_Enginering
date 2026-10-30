@@ -1592,9 +1592,9 @@ work_units:
 
   - id: WU-IAENG-390
     employee: Platform Engineer
-    title: Reserved 27 Oct 2026 before dispatch (WU-IAENG-393) - a distinct exit code for a failure to evaluate in the checks (issue #331) - Check Convention shell rule 1; the ten checks the issue names exit 1, the finding code, when they could not evaluate
+    title: A distinct exit code for a failure to evaluate in the checks (issue #331) - Check Convention shell rule 1; the ten checks the issue names exited 1, the finding code, when they could not evaluate, and now exit 2 (check-framework-drift.sh reports it as indeterminate, its own contract); validate-framework.sh counts a check it could not evaluate apart and exits 2; every caller fails on any non-zero code, so 2 fails closed as 1 did
     milestone: Adoption
-    delivers: planned - the checks named in issue #331 under Adapters/, Adapters/scripts/tests/run.sh, changelog.d/WU-IAENG-390.md, Registry/work-units.yml
+    delivers: Adapters/scripts/check-employee-trailers.sh, Adapters/scripts/check-work-units.sh, Adapters/scripts/check-inline-suppression.sh, Adapters/scripts/check-control-path-approval.sh, Adapters/scripts/check-risk-map.sh, Adapters/scripts/check-review-recorded.sh, Adapters/scripts/check-pr-size.sh, Adapters/scripts/validate-framework.sh, Adapters/scripts/data-policy-scan.sh, Adapters/scripts/check-framework-drift.sh, Adapters/README.md, Adapters/scripts/tests/run.sh, changelog.d/WU-IAENG-390.md, Registry/work-units.yml
 
   - id: WU-IAENG-391
     employee: Prompt Engineer

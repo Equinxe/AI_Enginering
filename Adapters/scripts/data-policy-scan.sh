@@ -72,7 +72,10 @@
 #   IAENG_LOCAL_DATA_DIR    directory name treated as local-only (local_test_data)
 #   IAENG_DATA_ALLOW_FILE   allow file path (.ia-engineering/data-policy.allow)
 #
-# Exit codes: 0 clean, 1 findings, 2 usage or environment error.
+# Exit codes: 0 clean, 1 findings, 2 usage or environment error, or a scan
+# that could not evaluate: a --history scan that enumerated no path over a
+# range holding a non-merge commit (Standards/CODE_QUALITY_STANDARD.md, The
+# Check Convention, Shell Scripts rule 1).
 # Always prints what it scanned (path count, added-line count) so a clean
 # result shows its denominator rather than just an exit status.
 
@@ -448,7 +451,7 @@ if [ "$MODE" = history ] && [ "$PATHS_SCANNED" -eq 0 ]; then
   elif [ "${COMMITS:-0}" -gt 0 ]; then
     printf 'data-policy: mode=history scanned 0 path(s) over %s commit(s), %s of them not merges — the path enumeration produced nothing for a range that is not empty.\n' "$COMMITS" "$NONMERGE" >&2
     printf '  This is reported rather than passed: a scan that examined nothing has established nothing.\n' >&2
-    exit 1
+    exit 2
   fi
 fi
 
