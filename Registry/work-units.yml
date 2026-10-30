@@ -1724,15 +1724,15 @@ work_units:
 
   - id: WU-IAENG-412
     employee: Prompt Engineer
-    title: Reserved 28 Oct 2026 before dispatch (WU-IAENG-408) - a project domain glossary from the first settled term, and the Business Analyst asks in rounds (issue #353, peer K5) - an adopting project gets a domain glossary template and a stated place for it in its tree, created when the first domain term is settled and cited by Employees, and the Business Analyst asks its clarifying questions in numbered rounds with recommended answers; Core/GLOSSARY.md is not touched
+    title: A project domain glossary from the first settled term, and the Business Analyst asks in numbered rounds (issue #353, peer K5) - Templates/PROJECT_GLOSSARY.md (0.0.15) is new - an adopting project keeps its domain terms in .ia-engineering/DOMAIN_GLOSSARY.md, committed, one entry per term with its definition, source and date, created when the first domain term is settled and never empty; the path is fixed beside the Domain Employees and named DOMAIN_GLOSSARY so it is never mistaken for the framework's Core/GLOSSARY.md, which is not touched; Employees use and cite its meanings and a term with no entry is a question, never a guess; Employees/Specialized/BUSINESS_ANALYST.md (0.0.4) gains Clarification Rounds - questions in numbered rounds ordered by dependency, each with a recommended answer and what it unblocks, a recommendation never recorded as an answer - and keeps the glossary; Templates/PROJECT_CLAUDE.md (0.0.14), Workflows/ONBOARDING.md (0.0.16) Step 2, Workflows/PROJECT_BOOTSTRAP.md (0.0.15) Phase A and Templates/EMPLOYEE_BRIEF.md (0.0.11) point to it; README.md and VERSION.md list the template
     milestone: Adoption
-    delivers: planned - Templates/PROJECT_GLOSSARY.md, Employees/Specialized/BUSINESS_ANALYST.md, changelog.d/WU-IAENG-412.md, Registry/work-units.yml
+    delivers: Templates/PROJECT_GLOSSARY.md, Employees/Specialized/BUSINESS_ANALYST.md, Templates/PROJECT_CLAUDE.md, Templates/EMPLOYEE_BRIEF.md, Workflows/ONBOARDING.md, Workflows/PROJECT_BOOTSTRAP.md, README.md, VERSION.md, changelog.d/WU-IAENG-412.md, Registry/work-units.yml
 
   - id: WU-IAENG-413
     employee: Technical Writer
-    title: Reserved 28 Oct 2026 before dispatch (WU-IAENG-408) - AMELIORATION.md strikes through what is done since 23 Oct and adds the new strengths and weaknesses (issue #354) - W2 a, b and d, W9, W14 to W16 and W18 to W21 are done on develop but not struck through; each is struck through with the Pull Request that delivered it, and the strengths and weaknesses seen since 23 Oct are added
+    title: AMELIORATION.md strikes through what develop delivered between 23 and 28 Oct 2026 and adds the strengths and weaknesses seen since (issue #354) - each line checked against develop 607cae9; W9, W14, W15, W16, W18, W20 and W21 struck through with their Pull Requests; W2 a, b and d, W3, W19 and W29 delivered in part, with what remains in Suivi; strengths F15 to F17 (context statusLine and alert, Check Convention in a Standard, step-title validator); weaknesses W30 to W37 (parallel test suites, blocking-hook timeouts, merge danger in the Pull Request, active Employees per machine, issues not closed by a develop merge, worktree hooks, Work Unit existence in commit-msg, Windows drift check at session start); section 3.4 maps peer ideas K1 to K5 to issues 350 to 353
     milestone: Adoption
-    delivers: planned - AMELIORATION.md, changelog.d/WU-IAENG-413.md, Registry/work-units.yml
+    delivers: AMELIORATION.md, changelog.d/WU-IAENG-413.md, Registry/work-units.yml
 
   - id: WU-IAENG-414
     employee: Platform Engineer
@@ -1754,9 +1754,9 @@ work_units:
 
   - id: WU-IAENG-417
     employee: Technical Writer
-    title: Reserved 28 Oct 2026 before dispatch (WU-IAENG-420) - adopter README gains a project tier-map step, and the 28 Oct 2026 rehearsal's doc Minors are fixed (issue #365) - Getting Started shows generate-agents.sh --print-tier-map, the project's .ia-engineering/tier-map and which model suits which task (Haiku, Sonnet, Opus, Fable), since Standard Execution otherwise generates Sonnet agents; the doc Minors are install-skills.sh adding /dashboard too, the bash and jq prerequisites, the Risk Map's eight categories to complete, FEATURE_DEVELOPMENT Step 4 citing VERSION.md to an adopter, the signer of the project CLAUDE.md commit, and submodule update before install.sh in a fresh clone
+    title: Adopter README gains a project tier-map step, and the 28 Oct 2026 rehearsal's doc Minors are fixed (issue #365, reserved by WU-IAENG-420) - Getting Started's Which model runs which task step maps each tier to a model per task (Director decision, 28 Oct 2026 - haiku Lightweight, sonnet Standard, opus Strategic, fable Frontier) in the project's .ia-engineering/tier-map, says that without it the generator's defaults apply and nobody chose them, and checks it with generate-agents.sh --print-tier-map; the doc Minors fixed are install-skills.sh adding /dashboard too, the git, bash, jq and gh prerequisites, the Windows .gitmodules CRLF warning, completing the Risk Map's eight categories early, Workflows/FEATURE_DEVELOPMENT.md (0.0.16) Step 4 giving an adopter its milestone, and Templates/PROJECT_CLAUDE.md (0.0.14) fetching the submodule before install.sh in a fresh clone; the signer of the project CLAUDE.md commit needs a decision and moved to issue #379
     milestone: Adoption
-    delivers: planned - README.md, Workflows/FEATURE_DEVELOPMENT.md, Workflows/ONBOARDING.md, Templates/PROJECT_CLAUDE.md, changelog.d/WU-IAENG-417.md, Registry/work-units.yml
+    delivers: README.md, Workflows/FEATURE_DEVELOPMENT.md, Templates/PROJECT_CLAUDE.md, changelog.d/WU-IAENG-417.md, Registry/work-units.yml
 
   - id: WU-IAENG-418
     employee: Platform Engineer
