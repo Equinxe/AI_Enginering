@@ -31,11 +31,12 @@
 # not exist, and git ran no hook at all, with no message. A commit signed
 # `Employee: Claude`, or one that staged real data, went through.
 #
-# So in an adopting project core.hooksPath names the MAIN checkout's
-# framework, as an absolute path: the first entry of `git worktree list`,
-# whose framework install.sh was run from. Every worktree of the clone runs
-# those hooks, initialised submodule or not, and the hook in force is still
-# the framework's own file, never a copy. The cost: a value tied to where the
+# So in an adopting project core.hooksPath names the MAIN working tree's
+# framework, as an absolute path (how the main working tree is found, for a
+# standalone clone, a project that is itself a submodule, and a bare
+# repository with worktrees, is under "Git hooks" below). Every worktree of
+# the clone runs those hooks, initialised submodule or not, and the hook in
+# force is still the framework's own file, never a copy. The cost: a value tied to where the
 # checkout is. If the checkout is moved, git runs no hook until install.sh is
 # re-run. Moving a checkout already breaks its linked worktrees, and both the
 # session-start drift check and --check below report that value. In the
@@ -480,27 +481,57 @@ else
   # directory that value names, where the hooks are checked and probed.
   HOOKS_DIR="$HOOKS_REL/Adapters/git-hooks"
   MAIN_ROOT=""
+  MAIN_BARE=0
   if [ "$FRAMEWORK_IS_PROJECT" -eq 1 ]; then
     HOOKS_PATH="$HOOKS_DIR"
     HOOKS_ABS="$PROJECT/$HOOKS_DIR"
   else
-    # The main checkout: the first `worktree` line of `git worktree list
-    # --porcelain`, in git's own spelling (C:/... under Git for Windows,
-    # which the git that runs the hooks reads). Read from the main checkout
-    # or from a linked worktree, the answer is the same, so a run from a
-    # worktree never points the whole clone at a directory that goes away
-    # with that worktree.
-    MAIN_ROOT=""
-    while IFS= read -r _wl; do
-      case "$_wl" in "worktree "*) MAIN_ROOT="${_wl#worktree }"; break ;; esac
-    done < <(git worktree list --porcelain 2>/dev/null)
-    unset _wl
+    # The main working tree, in git's own spelling (C:/... under Git for
+    # Windows, which the git that runs the hooks reads), wherever this runs:
+    #   - from the main working tree, whose git dir IS the common dir: its
+    #     own top level. That holds for a standalone clone, for a project that
+    #     is itself a submodule (git dir absorbed into the superproject's
+    #     .git/modules/), and for a separate git dir;
+    #   - from a linked worktree: the common dir's core.worktree when it is
+    #     set (an absorbed submodule's main working tree), else the parent of
+    #     a common dir named .git;
+    #   - a bare repository has no main working tree: the worktree this runs
+    #     from, said below.
+    # Not the first entry of `git worktree list`: for an absorbed submodule it
+    # is the git dir, and for a bare repository the repository itself, and
+    # install.sh then failed where it used to install (PR #387 review).
+    # Every answer is checked to be absolute: a git older than 2.31 does not
+    # know --path-format.
+    _gd="" _cd="" _top=""
+    { IFS= read -r _gd; IFS= read -r _cd; IFS= read -r _top; } \
+      < <(git rev-parse --path-format=absolute --git-dir --git-common-dir --show-toplevel 2>/dev/null)
+    for _p in "$_gd" "$_cd" "$_top"; do
+      case "$_p" in /*|[A-Za-z]:[/\\]*) ;; *) _gd="" ;; esac
+    done
+    unset _p
+    if [ -z "$_gd" ]; then
+      :
+    elif [ "$_gd" = "$_cd" ]; then
+      MAIN_ROOT="$_top"
+    else
+      _cw="$(git config -f "$_cd/config" --get core.worktree 2>/dev/null || true)"
+      if [ -n "$_cw" ]; then
+        MAIN_ROOT="$(git -C "$_cd" -C "$_cw" rev-parse --show-toplevel 2>/dev/null || true)"
+      elif [ "${_cd##*/}" = .git ]; then
+        MAIN_ROOT="${_cd%/.git}"
+      elif [ "$(git config -f "$_cd/config" --bool --get core.bare 2>/dev/null || true)" = true ]; then
+        MAIN_ROOT="$_top"
+        MAIN_BARE=1
+      fi
+      unset _cw
+    fi
+    unset _gd _cd _top
     HOOKS_PATH="$MAIN_ROOT/$HOOKS_DIR"
     HOOKS_ABS="$HOOKS_PATH"
   fi
 
   if [ "$FRAMEWORK_IS_PROJECT" -eq 0 ] && [ -z "$MAIN_ROOT" ]; then
-    fault git-hooks core.hooksPath "git worktree list named no main checkout, so the absolute core.hooksPath every worktree needs cannot be built"
+    fault git-hooks core.hooksPath "git did not name this clone's main working tree, so the absolute core.hooksPath every worktree needs cannot be built (git 2.31 or later is needed). Run install.sh from the main working tree"
   elif [ ! -d "$HOOKS_ABS" ]; then
     if [ "$FRAMEWORK_IS_PROJECT" -eq 0 ] && ! [ "$PROJECT" -ef "$MAIN_ROOT" ]; then
       fault git-hooks "$HOOKS_DIR" "$HOOKS_ABS does not exist: core.hooksPath names the MAIN checkout's framework, and it is not initialised there. Run: git -C $MAIN_ROOT submodule update --init"
@@ -568,6 +599,13 @@ else
       else
         fault git-hooks core.hooksPath "could not set core.hooksPath"
       fi
+    fi
+
+    # A bare repository has no main working tree, so the value names the
+    # framework of the worktree this ran from, and that worktree must outlive
+    # the others' need for it.
+    if [ "$MAIN_BARE" -eq 1 ]; then
+      say "a bare repository has no main working tree: core.hooksPath names this worktree's framework. Before removing this worktree, re-run install.sh from another one"
     fi
 
     # A hook that is not executable is a hook git skips without complaint.

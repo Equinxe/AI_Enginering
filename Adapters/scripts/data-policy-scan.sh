@@ -80,6 +80,12 @@
 # result shows its denominator rather than just an exit status.
 
 set -uo pipefail
+# SIGPIPE ignored (#397, SEC-IAENG-414-05). The pre-commit hook execs this
+# scanner, and with its output going to a closed pipe (`git commit … 2>&1 |
+# head -n 0`) a SIGPIPE death read as exit 0 under Git for Windows, so a staged
+# document was committed. Ignored, a failed write is only a failed write, and
+# the explicit exit 1 (findings) or exit 0 (clean) at the end decides.
+trap '' PIPE
 export LC_ALL=C
 
 LOCAL_DATA_DIR="${IAENG_LOCAL_DATA_DIR:-local_test_data}"
