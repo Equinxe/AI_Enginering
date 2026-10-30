@@ -7752,7 +7752,8 @@ section "install.sh — every linked git worktree runs the hooks (WU-IAENG-414, 
 # staged document were committed. Every case below failed on develop 607cae9
 # (the worktree cases: accepted, rc=0).
 adopter_353 wt-414
-bash "$INST_353" >/dev/null 2>&1
+expect 0 "an adopter install exits 0" -- bash "$INST_353"
+expect_output "core.hooksPath is absolute: every linked git worktree of this clone runs these hooks"
 commit_353 "chore(adopt): install the Adapters"
 git branch develop
 MAIN_414="$PWD"

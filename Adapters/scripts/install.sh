@@ -886,7 +886,13 @@ else
   # an adopting project (see Git hooks), relative to the project otherwise.
   PROBE_HOOKS="$(git config --local core.hooksPath || echo '.git/hooks')"
   case "$PROBE_HOOKS" in
-    /*|[A-Za-z]:[/\\]*) ;;
+    /*|[A-Za-z]:[/\\]*)
+      # Said for an adopter, whose Employees commit from linked worktrees
+      # where the framework submodule is empty (WU-IAENG-414).
+      if [ "$FRAMEWORK_IS_PROJECT" -eq 0 ]; then
+        say "core.hooksPath is absolute: every linked git worktree of this clone runs these hooks"
+      fi
+      ;;
     *) PROBE_HOOKS="$PROJECT/$PROBE_HOOKS" ;;
   esac
   HOOK="$PROBE_HOOKS/commit-msg"
