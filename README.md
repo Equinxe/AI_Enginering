@@ -14,6 +14,15 @@ IA Engineering is imported into a project as a git submodule. It does not
 replace your stack, your CI, or your tooling — it adds standards, workflows and
 a roster of named Employees on top of them.
 
+**What you need first.** `git`, and `bash` to run the scripts. On Windows,
+that is the Git Bash that comes with Git for Windows. The `bash` that
+PowerShell finds is WSL, not Git Bash
+([`Governance/TROUBLESHOOTING.md`](Governance/TROUBLESHOOTING.md) entry AA).
+With Claude Code you also need `jq`: `install-hooks.sh` uses it to merge into an
+existing `.claude/settings.json` and to check that file. On GitHub,
+`setup-branch-protection.sh` needs the GitHub CLI, `gh`, signed in
+(`gh auth status`).
+
 ```bash
 # from the root of your project (skip git init if it is already a repository)
 git init -b main
@@ -51,6 +60,11 @@ If the framework comes from a local directory instead of a URL, `git submodule
 add` fails with `fatal: transport 'file' not allowed`; see
 [`Governance/TROUBLESHOOTING.md`](Governance/TROUBLESHOOTING.md) entry Y.
 
+On Windows, `git submodule add` may also print `warning: in the working copy of
+'.gitmodules', LF will be replaced by CRLF the next time Git touches it`. That
+comes from Git for Windows' default `core.autocrlf=true` and concerns your
+working copy only: the committed `.gitmodules` keeps LF. Nothing needs doing.
+
 `<stack>` is one of `node`, `web`, `python`, `go`, `jvm`, `dotnet`, `php`,
 `generic`. **`web` is a static front end** — a site or single-page application
 built to files and served by a web server — and it is a different stack from
@@ -62,8 +76,62 @@ Using Claude Code as the runtime? Two more, both **required for Claude Code** (w
 
 ```bash
 ./ia-engineering/Adapters/ai-runtimes/claude-code/install-hooks.sh   # refuse before, not report after
-./ia-engineering/Adapters/ai-runtimes/claude-code/install-skills.sh  # adds /create-project
+./ia-engineering/Adapters/ai-runtimes/claude-code/install-skills.sh  # adds /create-project and /dashboard
 ```
+
+### Which model runs which task
+
+Each Employee has a default tier: Strategic Judgment or Standard Execution. The
+Main Agent sets the tier for each Work Unit from the task itself, and only
+reaches Frontier with the Director's approval each time
+([`Core/CAPABILITY_TIERS.md`](Core/CAPABILITY_TIERS.md)). Your project's tier
+map turns each tier into a model. On a real project, choose the model per task
+(Director decision, 28 Oct 2026):
+
+| Tier | The task | Claude Code alias | On the Anthropic API, 29 Oct 2026 |
+|---|---|---|---|
+| Lightweight Execution | a lookup, a status check, a mechanical edit with a pass/fail result | `haiku` | Haiku 5.5 |
+| Standard Execution | implementation against an existing contract, documentation, a test plan, review of a non-sensitive change | `sonnet` | Sonnet 5.5 |
+| Strategic Judgment | a tradeoff with no precedent, cross-cutting work, security, compliance or financial risk | `opus` | Opus 5.5 |
+| Frontier | Strategic work that has fallen short, with the Director's approval each time | `fable` | Fable 5.1 |
+
+Record that choice in `.ia-engineering/tier-map`, regenerate the agents, check
+the result, and commit the file:
+
+```
+# .ia-engineering/tier-map: the model follows the task (who decided, and when)
+map=strategic=opus,standard=sonnet,lightweight=haiku,frontier=fable
+effort-map=strategic=high,standard=,lightweight=,frontier=
+```
+
+```bash
+./ia-engineering/Adapters/ai-runtimes/generate-agents.sh                   # rewrites the agents from the map
+./ia-engineering/Adapters/ai-runtimes/generate-agents.sh --print-tier-map  # first line: # mapping: file (...)
+```
+
+**Without the file**, `generate-agents.sh` uses its own defaults: `opus` for
+the Strategic Judgment Employees, `sonnet` for every other Employee, and
+`haiku` and `fable` only when a Work Unit's tier is overridden.
+`--print-tier-map` then starts with `# mapping: defaults (target claude-code;
+no .ia-engineering/tier-map in the project)`. Those defaults belong to the
+framework, not to your project: they apply without anyone having chosen them.
+To see which mapping is in force at any time, run `--print-tier-map`. The
+Claude Code session-start hook prints the same mapping as `Tier map in force`
+at the start of every session. `generate-agents.sh --check` reports agents
+generated with another mapping as differing in the tier mapping only.
+
+Write the aliases, not full model IDs. A Tier Override passes the model on
+each dispatch, and a Claude Code dispatch takes an alias, so a full ID such as
+`claude-sonnet-5-5` makes every override that changes the model stop and ask
+the Director. An alias moves to the newer model when one ships. On Amazon
+Bedrock, Google Cloud's Agent Platform, Microsoft Foundry and Claude Platform
+on AWS, `sonnet` and `haiku` resolve to older models
+([code.claude.com/docs/en/model-config](https://code.claude.com/docs/en/model-config)),
+so pin them there with the provider's `ANTHROPIC_DEFAULT_*_MODEL` variable.
+[`Adapters/ai-runtimes/README.md`](Adapters/ai-runtimes/README.md) has the
+file's rules and the provider details.
+
+### Branch protection
 
 On GitHub, one command configures the ten required status checks, branch
 protection, and the release-branch ruleset:
@@ -103,6 +171,18 @@ that predates the first commit is reported as "1 commit(s) behind" on the very
 first session. `Workflows/PROJECT_BOOTSTRAP.md` walks
 through the questions behind it — including the one that decides whether your
 project needs a Domain Employee of its own.
+
+Complete `.ia-engineering/risk-map.yml` in one of your first Work Units. The
+bootstrap's starter maps only the files it installed. Until each of the eight
+categories of `Standards/RISK_STANDARD.md` is either mapped to your project's
+paths or declared absent with a reason someone else can check
+([`Templates/RISK_MAP.md`](Templates/RISK_MAP.md)),
+`./ia-engineering/Adapters/scripts/check-risk-map.sh .` fails with one error
+per category it cannot find: "category '…' is neither mapped to a path nor
+declared absent". The **Risk Map (advisory)** CI check runs that command on
+every Pull Request. It does not block a merge, but it stays red on every Pull
+Request until the map is complete, and a check that is always red teaches
+everyone to ignore red.
 
 ### Working on the framework itself
 

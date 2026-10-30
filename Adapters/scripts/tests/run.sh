@@ -359,7 +359,7 @@ expect_output "carries no"
 new_repo wu-no-registry
 BASE="$(git rev-parse HEAD)"
 commit_with "feat: anything" "Work Unit: WU-TEST-001"
-expect 1 "an absent registry fails closed" -- bash "$CHECK_WU" "$BASE" HEAD
+expect 2 "an absent registry fails closed" -- bash "$CHECK_WU" "$BASE" HEAD
 expect_output "This project has no Work Unit registry"
 
 # A registry that parses to nothing must name the parser, not blame the
@@ -371,7 +371,7 @@ printf 'work_units:\n- id: WU-TEST-001\n' > Registry/work-units.yml
 git add -A && git commit -q -m "registry with the wrong indentation"
 BASE="$(git rev-parse HEAD)"
 commit_with "feat: anything" "Work Unit: WU-TEST-001"
-expect 1 "a registry that parses to zero IDs fails as a parsing fault" -- bash "$CHECK_WU" "$BASE" HEAD
+expect 2 "a registry that parses to zero IDs fails as a parsing fault" -- bash "$CHECK_WU" "$BASE" HEAD
 expect_output "parsing contract"
 
 new_repo wu-one-bad-of-three
@@ -387,7 +387,7 @@ expect_output "WU-TEST-404"
 new_repo wu-bad-refs
 write_wu_registry WU-TEST-001
 git add -A && git commit -q -m "registry"
-expect 1 "an unresolvable range fails rather than reporting zero problems" -- bash "$CHECK_WU" "does-not-exist" HEAD
+expect 2 "an unresolvable range fails rather than reporting zero problems" -- bash "$CHECK_WU" "does-not-exist" HEAD
 
 expect 2 "wrong argument count is a usage error, not a pass" -- bash "$CHECK_WU"
 
@@ -465,7 +465,7 @@ expect_output "missing an 'Employee: <Name>' trailer"
 new_repo emp-no-roster
 BASE="$(git rev-parse HEAD)"
 commit_with "feat: anything" "Employee: Release Manager"
-expect 1 "an absent roster fails closed" -- bash "$CHECK_EMP" "$BASE" HEAD
+expect 2 "an absent roster fails closed" -- bash "$CHECK_EMP" "$BASE" HEAD
 expect_output "Could not locate Registry/employees.yml"
 
 new_repo emp-unparseable-roster
@@ -476,7 +476,7 @@ printf 'employees:
 git add -A && git commit -q -m "roster with the wrong indentation"
 BASE="$(git rev-parse HEAD)"
 commit_with "feat: anything" "Employee: Release Manager"
-expect 1 "a roster that parses to zero names fails as a parsing fault" -- bash "$CHECK_EMP" "$BASE" HEAD
+expect 2 "a roster that parses to zero names fails as a parsing fault" -- bash "$CHECK_EMP" "$BASE" HEAD
 expect_output "parsing contract"
 
 # A Domain Employee is a real Employee for its project and unknown to the
@@ -504,7 +504,7 @@ write_employee_roster "Release Manager"
 git add -A && git commit -q -m "roster"
 BASE="$(git rev-parse HEAD)"
 commit_with "feat: anything" "Employee: Release Manager"
-expect 1 "a missing IAENG_PROJECT_ROSTER path fails rather than narrowing silently" --   env IAENG_PROJECT_ROSTER=nope/employees.yml bash "$CHECK_EMP" "$BASE" HEAD
+expect 2 "a missing IAENG_PROJECT_ROSTER path fails rather than narrowing silently" --   env IAENG_PROJECT_ROSTER=nope/employees.yml bash "$CHECK_EMP" "$BASE" HEAD
 expect_output "no such file exists"
 
 expect 2 "wrong argument count is a usage error" -- bash "$CHECK_EMP"
@@ -554,13 +554,13 @@ expect_output "every one a merge"
 
 new_repo size-empty-range
 BASE="$(git rev-parse HEAD)"
-expect 1 "identical refs fail: no commits and no files means nothing measured" -- bash "$CHECK_SIZE" "$BASE" HEAD
+expect 2 "identical refs fail: no commits and no files means nothing measured" -- bash "$CHECK_SIZE" "$BASE" HEAD
 expect_output "no commits either"
 
 new_repo size-empty-commit
 BASE="$(git rev-parse HEAD)"
 git commit -q --allow-empty -m "an empty non-merge commit"
-expect 1 "an empty non-merge commit fails: it is not a back-merge" -- bash "$CHECK_SIZE" "$BASE" HEAD
+expect 2 "an empty non-merge commit fails: it is not a back-merge" -- bash "$CHECK_SIZE" "$BASE" HEAD
 expect_output "not merges"
 
 new_repo size-merge-plus-empty
@@ -570,12 +570,12 @@ git checkout -q main
 git merge -q --no-ff side -m "merge side"
 BASE="$(git rev-parse HEAD)"
 git commit -q --allow-empty -m "an empty commit after the merge"
-expect 1 "a merge plus an empty commit still fails" -- bash "$CHECK_SIZE" "$BASE" HEAD
+expect 2 "a merge plus an empty commit still fails" -- bash "$CHECK_SIZE" "$BASE" HEAD
 
 # WU-IAENG-198. An unresolvable ref must not be counted as zero lines: the
 # inline version printed "Within the review limit" and exited 0.
 new_repo size-bad-ref
-expect 1 "an unresolvable base fails rather than measuring zero" -- bash "$CHECK_SIZE" "does-not-exist" HEAD
+expect 2 "an unresolvable base fails rather than measuring zero" -- bash "$CHECK_SIZE" "does-not-exist" HEAD
 
 # linguist-generated files are excluded from the count, and the exclusion is
 # declared in a committed file so it is itself reviewable.
@@ -631,14 +631,14 @@ expect_output "Comments examined: 0"
 
 # A directory the host never created means the fetch did not run. Blaming the
 # change set for a broken pipeline is the failure this distinguishes.
-expect 1 "a missing directory is a pipeline fault, not an unreviewed change" --   bash "$CHECK_REVIEW" "$WORK/comments-never-created"
+expect 2 "a missing directory is a pipeline fault, not an unreviewed change" --   bash "$CHECK_REVIEW" "$WORK/comments-never-created"
 expect_output "fetch did not run"
 
 # "Could not read everything" is not "nothing was recorded".
 CDIR="$WORK/comments-partial"
 rm -rf "$CDIR"
 comment "$CDIR" 1 alice "Only some sources could be read."
-expect 1 "an incomplete fetch says nothing was established either way" --   bash "$CHECK_REVIEW" "$CDIR" --fetch-incomplete
+expect 2 "an incomplete fetch says nothing was established either way" --   bash "$CHECK_REVIEW" "$CDIR" --fetch-incomplete
 expect_output "NOT the same as an unreviewed change set"
 
 # ...but a decision found in what WAS read still counts: the check is satisfied
@@ -677,7 +677,7 @@ expect_output "skipped for author: 1"
 CDIR="$WORK/comments-no-header"
 rm -rf "$CDIR"; mkdir -p "$CDIR"
 printf 'Decision: approved\n' > "$CDIR/1.txt"
-expect 1 "a file with no author header fails closed" -- bash "$CHECK_REVIEW" "$CDIR"
+expect 2 "a file with no author header fails closed" -- bash "$CHECK_REVIEW" "$CDIR"
 expect_output "cannot be attributed"
 
 # The decision block is matched case-insensitively and tolerates leading
@@ -945,7 +945,7 @@ fi
 
 # ...and the caller reads that correctly: an empty directory plus
 # --fetch-incomplete is "nothing established", never "no decision recorded".
-expect 1 "an empty corpus with --fetch-incomplete establishes nothing" -- bash "$SCRIPTS/check-review-recorded.sh" "$D" --fetch-incomplete
+expect 2 "an empty corpus with --fetch-incomplete establishes nothing" -- bash "$SCRIPTS/check-review-recorded.sh" "$D" --fetch-incomplete
 expect_output "NOT the same as an unreviewed change set"
 
 # Every host implements every operation. A missing file is a silently skipped
@@ -1027,14 +1027,14 @@ expect_output "Risk Map is sound"
 # standard and the sensitive ones would lose what the project requires of them,
 # with nothing reporting the loss.
 risk_project rm-absent
-expect 1 "no map at all fails, and says unclassified rather than safe" -- bash "$CHECK_MAP" .
+expect 2 "no map at all fails, and says unclassified rather than safe" -- bash "$CHECK_MAP" .
 expect_output "UNCLASSIFIED, not safe"
 
 # An unreadable map is not an empty one. Treating it as empty would classify the
 # whole project as unmapped without ever saying the file could not be read.
 risk_project rm-garbled
 printf 'zones: []\n' > .ia-engineering/risk-map.yml && git add -A
-expect 1 "a map that parses to zero zones fails as a parsing fault" -- bash "$CHECK_MAP" .
+expect 2 "a map that parses to zero zones fails as a parsing fault" -- bash "$CHECK_MAP" .
 expect_output "parsing contract"
 
 # Trap 4 — a pattern matching nothing reassures without keeping anything.
@@ -2436,7 +2436,7 @@ chmod +x "$WORK/shim-old/git"
 # 2.39, not anything older: it has merge-tree --write-tree but not
 # --attr-source, so it pins the floor the attribute pin raised to 2.40
 # (SEC-IAENG-313-01).
-expect 1 "git older than 2.40 fails closed" -- env PATH="$WORK/shim-old:$PATH" bash "$CHECK_EMP" "$BASE" HEAD
+expect 2 "git older than 2.40 fails closed" -- env PATH="$WORK/shim-old:$PATH" bash "$CHECK_EMP" "$BASE" HEAD
 expect_output "cannot classify"
 expect_output "2.40"
 
@@ -2453,7 +2453,7 @@ for a in "\$@"; do [ "\$a" = "merge-tree" ] && exit 128; done
 exec "$REAL_GIT" "\$@"
 SHIM
 chmod +x "$WORK/shim/git"
-expect 1 "a merge the classifier cannot run on fails closed" -- env PATH="$WORK/shim:$PATH" bash "$CHECK_EMP" "$BASE" HEAD
+expect 2 "a merge the classifier cannot run on fails closed" -- env PATH="$WORK/shim:$PATH" bash "$CHECK_EMP" "$BASE" HEAD
 expect_output "could not be classified"
 
 # ----------------------- merge attribution: check-work-units.sh ---------------
@@ -2544,14 +2544,14 @@ expect 1 "a -s ours merge, no Work Unit trailer, fails" -- bash "$CHECK_WU" "$BA
 # Fail closed on a git too old to classify.
 mk_wu_merge_repo wmrg-old-git
 git merge -q --no-ff side -m "Merge branch 'side'"
-expect 1 "git older than 2.40 fails closed (work units)" -- env PATH="$WORK/shim-old:$PATH" bash "$CHECK_WU" "$BASE" HEAD
+expect 2 "git older than 2.40 fails closed (work units)" -- env PATH="$WORK/shim-old:$PATH" bash "$CHECK_WU" "$BASE" HEAD
 expect_output "cannot classify"
 expect_output "2.40"
 
 # Fail closed: a git whose merge-tree errors must not turn into a pass.
 mk_wu_merge_repo wmrg-shim
 git merge -q --no-ff side -m "Merge branch 'side'"
-expect 1 "a merge the classifier cannot run on fails closed (work units)" -- env PATH="$WORK/shim:$PATH" bash "$CHECK_WU" "$BASE" HEAD
+expect 2 "a merge the classifier cannot run on fails closed (work units)" -- env PATH="$WORK/shim:$PATH" bash "$CHECK_WU" "$BASE" HEAD
 expect_output "could not be classified"
 
 # The grandfather list is a constant inside the script, never a data file
@@ -2603,10 +2603,10 @@ expect 1 "an exceptions file planted in the tree does not exempt a merge (work u
 # The classifier is sourced; its absence must fail closed, not pass.
 mkdir -p "$WORK/no-helper"
 cp "$CHECK_WU" "$WORK/no-helper/"
-expect 1 "a missing merge-classify.sh fails closed (work units)" -- bash "$WORK/no-helper/check-work-units.sh" "$BASE" HEAD
+expect 2 "a missing merge-classify.sh fails closed (work units)" -- bash "$WORK/no-helper/check-work-units.sh" "$BASE" HEAD
 expect_output "merge-classify.sh not found"
 cp "$CHECK_EMP" "$WORK/no-helper/"
-expect 1 "a missing merge-classify.sh fails closed (employee trailers)" -- bash "$WORK/no-helper/check-employee-trailers.sh" "$BASE" HEAD
+expect 2 "a missing merge-classify.sh fails closed (employee trailers)" -- bash "$WORK/no-helper/check-employee-trailers.sh" "$BASE" HEAD
 expect_output "merge-classify.sh not found"
 
 # SEC-IAENG-313-02: a Work Unit claim present on a merge is validated whatever
@@ -2842,14 +2842,14 @@ sup_repo sup-allow-noreason
 mkdir -p .ia-engineering
 printf '^a\\.py$%s%s%s\n' "$TAB" 'x = 1' "$TAB" > .ia-engineering/suppression.allow
 sup_commit a.py "x = 1  $D_NOQA"
-expect 1 "an allow entry with an empty reason is invalid and fails the check" -- bash "$CHECK_SUP" "$SBASE" HEAD
+expect 2 "an allow entry with an empty reason is invalid and fails the check" -- bash "$CHECK_SUP" "$SBASE" HEAD
 expect_output "empty reason"
 
 sup_repo sup-allow-twofields
 mkdir -p .ia-engineering
 printf '^a\\.py$%s%s\n' "$TAB" 'x = 1' > .ia-engineering/suppression.allow
 sup_commit a.py "x = 1  $D_NOQA"
-expect 1 "an allow entry with fewer than three fields is invalid" -- bash "$CHECK_SUP" "$SBASE" HEAD
+expect 2 "an allow entry with fewer than three fields is invalid" -- bash "$CHECK_SUP" "$SBASE" HEAD
 expect_output "fewer than three fields"
 
 sup_repo sup-allow-otherpath
@@ -2859,7 +2859,7 @@ sup_commit a.py "x = 1  $D_NOQA"
 expect 1 "an allow entry whose path expression does not match allows nothing" -- bash "$CHECK_SUP" "$SBASE" HEAD
 
 sup_repo sup-badref
-expect 1 "an unresolvable ref fails: nothing was established" -- bash "$CHECK_SUP" "$SBASE" no-such-ref
+expect 2 "an unresolvable ref fails: nothing was established" -- bash "$CHECK_SUP" "$SBASE" no-such-ref
 expect_output "nothing was established"
 
 sup_repo sup-staged
@@ -2877,7 +2877,7 @@ sup_repo sup-nopatterns
 mkdir -p "$WORK/sup-noscripts"
 cp "$CHECK_SUP" "$WORK/sup-noscripts/"
 sup_commit a.py 'x = 1'
-expect 1 "a missing pattern file fails closed" -- bash "$WORK/sup-noscripts/check-inline-suppression.sh" "$SBASE" HEAD
+expect 2 "a missing pattern file fails closed" -- bash "$WORK/sup-noscripts/check-inline-suppression.sh" "$SBASE" HEAD
 expect_output "is missing"
 
 # --- Review findings (SEC-01..07, CR): each case below failed before its fix. ----
@@ -2901,7 +2901,7 @@ NL_SHA="$(printf 'x = 1  %s\n' "$D_NOQA" | git hash-object -w --stdin)"
 NL_CLEAN="$(printf 'y = 2\n' | git hash-object -w --stdin)"
 NL_TREE="$(printf '100644 blob %s\treal.py\x00100644 blob %s\treal.py\nz.md\x00' "$NL_SHA" "$NL_CLEAN" | git mktree -z)"
 git update-ref refs/heads/main "$(git commit-tree "$NL_TREE" -p HEAD -m 'newline in a path')"
-expect 1 "SEC-01: a path containing a newline is refused, not used to exempt another file" -- bash "$CHECK_SUP" "$SBASE" HEAD
+expect 2 "SEC-01: a path containing a newline is refused, not used to exempt another file" -- bash "$CHECK_SUP" "$SBASE" HEAD
 expect_output "newline"
 
 # SEC-02 (High): a file git classifies as binary (a NUL byte, or -diff /
@@ -2958,21 +2958,21 @@ sup_repo sup-allow-blanket
 mkdir -p .ia-engineering
 printf '.%s.%sa reason\n' "$TAB" "$TAB" > .ia-engineering/suppression.allow
 sup_commit a.py "x = 1  $D_NOQA"
-expect 1 "SEC-07: an allow entry of . TAB . excuses nothing and is invalid" -- bash "$CHECK_SUP" "$SBASE" HEAD
+expect 2 "SEC-07: an allow entry of . TAB . excuses nothing and is invalid" -- bash "$CHECK_SUP" "$SBASE" HEAD
 expect_output "anchored"
 
 sup_repo sup-allow-unanchored
 mkdir -p .ia-engineering
 printf 'a\\.py%sx = 1%sa reason\n' "$TAB" "$TAB" > .ia-engineering/suppression.allow
 sup_commit a.py "x = 1  $D_NOQA"
-expect 1 "SEC-07: an allow path expression that is not anchored is invalid" -- bash "$CHECK_SUP" "$SBASE" HEAD
+expect 2 "SEC-07: an allow path expression that is not anchored is invalid" -- bash "$CHECK_SUP" "$SBASE" HEAD
 expect_output "anchored"
 
 sup_repo sup-allow-emptymatch
 mkdir -p .ia-engineering
 printf '^a\\.py$%s.*%sa reason\n' "$TAB" "$TAB" > .ia-engineering/suppression.allow
 sup_commit a.py "x = 1  $D_NOQA"
-expect 1 "SEC-07: an allow line expression that matches the empty string is invalid" -- bash "$CHECK_SUP" "$SBASE" HEAD
+expect 2 "SEC-07: an allow line expression that matches the empty string is invalid" -- bash "$CHECK_SUP" "$SBASE" HEAD
 expect_output "empty string"
 
 # Tripwire: one positive sample per row of the REAL pattern file. A pattern that
@@ -3016,7 +3016,7 @@ expect_output "lists no files"
 
 sup_repo sup-emptycommit
 git commit -q --allow-empty -m "changes nothing"
-expect 1 "a non-merge commit that changed nothing fails closed" -- bash "$CHECK_SUP" "$SBASE" HEAD
+expect 2 "a non-merge commit that changed nothing fails closed" -- bash "$CHECK_SUP" "$SBASE" HEAD
 expect_output "lists no files"
 
 expect 2 "no arguments is a usage error" -- bash "$CHECK_SUP"
@@ -3030,9 +3030,9 @@ cp "$CHECK_SUP" "$WORK/sup-malformedpat/"
 printf '# nothing but a comment\n\n' > "$WORK/sup-emptypat/suppression-patterns.tsv"
 printf 'label-without-a-tab\n' > "$WORK/sup-malformedpat/suppression-patterns.tsv"
 sup_commit a.py 'x = 1'
-expect 1 "a pattern file with no rows fails closed" -- bash "$WORK/sup-emptypat/check-inline-suppression.sh" "$SBASE" HEAD
+expect 2 "a pattern file with no rows fails closed" -- bash "$WORK/sup-emptypat/check-inline-suppression.sh" "$SBASE" HEAD
 expect_output "holds no patterns"
-expect 1 "a pattern row without a TAB fails closed" -- bash "$WORK/sup-malformedpat/check-inline-suppression.sh" "$SBASE" HEAD
+expect 2 "a pattern row without a TAB fails closed" -- bash "$WORK/sup-malformedpat/check-inline-suppression.sh" "$SBASE" HEAD
 expect_output "without a TAB"
 
 # The allow file is committed knowledge, and .ia-engineering/* is ignored. Without
@@ -3737,33 +3737,33 @@ expect 1 "the approval label applied by someone else fails" -- "${CPA_ENV[@]}" \
 expect_output "$CPA_LAST"
 
 cpa_api "$CPA_CTRL" "$CPA_H1"
-expect 1 "an empty Director login fails closed" -- "${CPA_ENV[@]}" DIRECTOR_LOGIN= \
+expect 2 "an empty Director login fails closed" -- "${CPA_ENV[@]}" DIRECTOR_LOGIN= \
   ACTION=labeled LABEL_ADDED="$CPA_OK" LABELS_JSON="[\"$CPA_OK\"]" SENDER= bash "$CHECK_CPA"
 expect_output "the repository variable IAENG_DIRECTOR_LOGIN is not set, so no approval can be recognised"
 cpa_api "$CPA_CTRL" "$CPA_H1"
-expect 1 "an unset Director login fails closed" -- "${CPA_BASE[@]}" bash "$CHECK_CPA"
+expect 2 "an unset Director login fails closed" -- "${CPA_BASE[@]}" bash "$CHECK_CPA"
 expect_output "the repository variable IAENG_DIRECTOR_LOGIN is not set, so no approval can be recognised"
 
 cpa_api "$CPA_PLAIN" "$CPA_H2"
-expect 1 "a head moved before the listing fails closed" -- "${CPA_ENV[@]}" bash "$CHECK_CPA"
+expect 2 "a head moved before the listing fails closed" -- "${CPA_ENV[@]}" bash "$CHECK_CPA"
 expect_output "The PR head moved since this event ($CPA_H1 -> $CPA_H2). Failing closed"
 cpa_calls "$CPA_HEAD" "nothing is listed once the head has moved"
 cpa_api "$CPA_PLAIN" "$CPA_H1" "$CPA_H2"
-expect 1 "a head moved during the listing fails closed" -- "${CPA_ENV[@]}" bash "$CHECK_CPA"
+expect 2 "a head moved during the listing fails closed" -- "${CPA_ENV[@]}" bash "$CHECK_CPA"
 expect_output "The PR head moved while its files were being listed ($CPA_H1 -> $CPA_H2). Failing closed."
 
 cpa_api "$CPA_PLAIN" "$CPA_H1"
-expect 1 "a listing shorter than changed_files fails closed" -- "${CPA_ENV[@]}" CHANGED_FILES=3 bash "$CHECK_CPA"
+expect 2 "a listing shorter than changed_files fails closed" -- "${CPA_ENV[@]}" CHANGED_FILES=3 bash "$CHECK_CPA"
 expect_output "The API listed 2 files but the PR reports 3. Refusing to guess."
 cpa_api "$CPA_PLAIN" "$CPA_H1"
-expect 1 "3000 changed files cannot be listed and fail" -- "${CPA_ENV[@]}" CHANGED_FILES=3000 bash "$CHECK_CPA"
+expect 2 "3000 changed files cannot be listed and fail" -- "${CPA_ENV[@]}" CHANGED_FILES=3000 bash "$CHECK_CPA"
 expect_output "This PR changes 3000 files; the API lists at most 3000"
 cpa_api "$CPA_PLAIN" "$CPA_H1"
-expect 1 "an event head that is not a full SHA fails closed" -- "${CPA_ENV[@]}" EVENT_HEAD=abc123 bash "$CHECK_CPA"
+expect 2 "an event head that is not a full SHA fails closed" -- "${CPA_ENV[@]}" EVENT_HEAD=abc123 bash "$CHECK_CPA"
 expect_output "The event carries no valid head SHA. Failing closed."
 cpa_api "$CPA_PLAIN" "$CPA_H1"
 touch "$CPA_DATA/files.fail"
-expect 1 "a failed listing fails closed" -- "${CPA_ENV[@]}" bash "$CHECK_CPA"
+expect 2 "a failed listing fails closed" -- "${CPA_ENV[@]}" bash "$CHECK_CPA"
 expect_output_absent "No control path is touched."
 
 cpa_api '[{"filename":"src/x.sh","previous_filename":"Adapters/scripts/x.sh"}]' "$CPA_H1"
@@ -3777,10 +3777,10 @@ expect_output "control path touched: .github/workflows/: :error: :x"
 # `[ x -ge 3000 ]` on a non-integer is false, which skipped the size and count
 # guards in the inline version.
 cpa_api "$CPA_PLAIN" "$CPA_H1"
-expect 1 "a CHANGED_FILES that is not a count fails closed" -- "${CPA_ENV[@]}" CHANGED_FILES=two bash "$CHECK_CPA"
+expect 2 "a CHANGED_FILES that is not a count fails closed" -- "${CPA_ENV[@]}" CHANGED_FILES=two bash "$CHECK_CPA"
 expect_output "CHANGED_FILES is not a file count"
 cpa_api "$CPA_PLAIN" "$CPA_H1"
-expect 1 "an empty REPO fails closed" -- "${CPA_ENV[@]}" REPO= bash "$CHECK_CPA"
+expect 2 "an empty REPO fails closed" -- "${CPA_ENV[@]}" REPO= bash "$CHECK_CPA"
 expect_output "REPO is not set"
 
 # The matcher's own failure is not a verdict. A copy of the script beside a
@@ -3790,8 +3790,35 @@ cp "$CHECK_CPA" "$WORK/cpa-broken/"
 printf '#!/usr/bin/env bash\nexit 2\n' > "$WORK/cpa-broken/check-control-paths.sh"
 chmod +x "$WORK/cpa-broken/check-control-paths.sh"
 cpa_api "$CPA_CTRL" "$CPA_H1"
-expect 1 "a matcher failure fails closed" -- "${CPA_ENV[@]}" bash "$WORK/cpa-broken/check-control-path-approval.sh"
+expect 2 "a matcher failure fails closed" -- "${CPA_ENV[@]}" bash "$WORK/cpa-broken/check-control-path-approval.sh"
 expect_output "check-control-paths.sh failed (exit 2). Failing closed."
+
+# A jq that cannot read the listing, and a command the script does not test
+# explicitly, are not evaluated: exit 2 and the message that says which
+# (WU-IAENG-390, #331). The message is asserted, not the code alone: before
+# the fix `set -e` exited with jq's own status, which can already be 2.
+cpa_api 'not json' "$CPA_H1"
+expect 2 "a listing that is not JSON is not evaluated (exit 2)" -- "${CPA_ENV[@]}" bash "$CHECK_CPA"
+expect_output "The file listing could not be read as JSON. Failing closed."
+# Countable (one element) but holding no file objects: the count passes and
+# the name extraction fails.
+cpa_api '[[1,2]]' "$CPA_H1"
+expect 2 "a listing whose entries hold no file names is not evaluated (exit 2)" -- \
+  "${CPA_ENV[@]}" CHANGED_FILES=1 bash "$CHECK_CPA"
+expect_output "The file names could not be read from the listing. Failing closed."
+# The ERR trap: a sed that fails only on the report the script prints.
+CPA390_SED="$WORK/cpa390-sed"
+mkdir -p "$CPA390_SED"
+cat > "$CPA390_SED/sed" <<SHIM
+#!/usr/bin/env bash
+[ "\${1:-}" = 's/::/: :/g' ] && { echo "sed (WU-IAENG-390 shim): failing" >&2; exit 4; }
+exec "$(command -v sed)" "\$@"
+SHIM
+chmod +x "$CPA390_SED/sed"
+cpa_api "$CPA_CTRL" "$CPA_H1"
+expect 2 "a command the script does not test explicitly is not evaluated (exit 2, the ERR trap)" -- \
+  "${CPA_ENV[@]}" PATH="$CPA390_SED:$CPA_BIN:$PATH" bash "$CHECK_CPA"
+expect_output "::error::A command failed (exit 4) before the guard could judge this event. Failing closed."
 
 # ------------------------- adopter registry and install (WU-IAENG-320) --------
 #
@@ -3837,7 +3864,7 @@ mk_consumer cons-no-registry
 git add -A && git commit -q -m "no project registry"
 BASE="$(git rev-parse HEAD)"
 commit_with "feat: claims a framework id with no project registry" "Work Unit: WU-FRAMEWORK-137"
-expect 1 "a consumer with no project registry fails, never falling back to the framework's" -- bash "$CONSUMER_WU" "$BASE" HEAD
+expect 2 "a consumer with no project registry fails, never falling back to the framework's" -- bash "$CONSUMER_WU" "$BASE" HEAD
 expect_output "This project has no Work Unit registry"
 expect_output "Registry/work-units.yml"
 
@@ -3881,7 +3908,7 @@ cp "$CHECK_WU" "$SCRIPTS/merge-classify.sh" Adapters/scripts/
 git add -A && git commit -q -m "no registry"
 BASE="$(git rev-parse HEAD)"
 commit_with "feat: anything" "Work Unit: WU-QA-1"
-expect 1 "the framework root with no registry fails closed" -- bash Adapters/scripts/check-work-units.sh "$BASE" HEAD
+expect 2 "the framework root with no registry fails closed" -- bash Adapters/scripts/check-work-units.sh "$BASE" HEAD
 expect_output "Could not locate Registry/work-units.yml"
 
 # IAENG_REGISTRY_WORK_UNITS, as the script header states: an existing file it
@@ -3890,7 +3917,7 @@ expect_output "Could not locate Registry/work-units.yml"
 # case below used to be labelled "naming a missing file fails closed" and
 # passed only because this fixture has no Registry/ (issue #275, item 5): no
 # case read the file the variable names.
-expect 1 "IAENG_REGISTRY_WORK_UNITS naming a missing file, with no Registry/ to fall back to, fails closed" -- \
+expect 2 "IAENG_REGISTRY_WORK_UNITS naming a missing file, with no Registry/ to fall back to, fails closed" -- \
   env IAENG_REGISTRY_WORK_UNITS=/nonexistent/devops320.yml bash Adapters/scripts/check-work-units.sh "$BASE" HEAD
 expect_output "Could not locate Registry/work-units.yml"
 printf 'work_units:\n  - id: WU-QA-1\n' > "$WORK/env-registry-363.yml"
@@ -8678,9 +8705,11 @@ same_without_cdpath_365 3 "install-hooks.sh --check on a never-installed project
 same_without_cdpath_365 0 "generate-agents.sh --print-tier-map" \
   -- bash ia-engineering/Adapters/ai-runtimes/generate-agents.sh --print-tier-map
 # validate-framework.sh names the root it resolved; the fixture holds no
-# Employees, so it fails (exit 1), but on the submodule, not elsewhere.
+# Employees, so it fails, but on the submodule, not elsewhere. Its inputs are
+# missing, so the checks that read them could not be evaluated: exit 2, not
+# the finding's 1 (WU-IAENG-390, #331).
 for cp_365 in ".:$DECOY_365" "$DECOY_365:."; do
-  expect 1 "validate-framework.sh, CDPATH=$cp_365 exported: validates the framework it sits in" \
+  expect 2 "validate-framework.sh, CDPATH=$cp_365 exported: validates the framework it sits in" \
     -- env CDPATH="$cp_365" bash ia-engineering/Adapters/scripts/validate-framework.sh
   expect_output "Repository: $ADOPTER_365/ia-engineering"
 done
@@ -8956,6 +8985,7 @@ expect 0 "fragments: the real changelog.d/ passes against the real registry" -- 
   bash "$FRAG_HARNESS" changelog_fragment_check "$FRAG_ROOT/changelog.d" "$FRAG_ROOT/Registry/work-units.yml" "$FRAG_PARSER"
 expect_output "total${FRAG_TAB}"
 expect_output_absent "fail${FRAG_TAB}"
+expect_output_absent "error${FRAG_TAB}"
 
 # --- Fixtures: a README, a registry of WU-T-1 and WU-T-2, a valid WU-T-1.
 FRAG_FIX="$WORK/fragments"
@@ -8979,12 +9009,14 @@ expect 0 "fragments: an entry and a CRLF entry pass" -- \
   bash "$FRAG_HARNESS" changelog_fragment_check "$FRAG_FIX/changelog.d" "$FRAG_FIX/work-units.yml" "$FRAG_PARSER"
 expect_output "total${FRAG_TAB}2"
 expect_output_absent "fail${FRAG_TAB}"
+expect_output_absent "error${FRAG_TAB}"
 
 frag_fixture
 printf 'No changelog entry: tests only\n' > "$FRAG_FIX/changelog.d/WU-T-2.md"
 expect 0 "fragments: an exemption with a reason passes" -- \
   bash "$FRAG_HARNESS" changelog_fragment_check "$FRAG_FIX/changelog.d" "$FRAG_FIX/work-units.yml" "$FRAG_PARSER"
 expect_output_absent "fail${FRAG_TAB}"
+expect_output_absent "error${FRAG_TAB}"
 
 frag_fixture
 printf '### Added\n\n- x\n' > "$FRAG_FIX/changelog.d/WU-T-9.md"
@@ -9001,6 +9033,7 @@ expect 0 "fragments: an upgrade note under ### Notes passes" -- \
   bash "$FRAG_HARNESS" changelog_fragment_check "$FRAG_FIX/changelog.d" "$FRAG_FIX/work-units.yml" "$FRAG_PARSER"
 expect_output "total${FRAG_TAB}2"
 expect_output_absent "fail${FRAG_TAB}"
+expect_output_absent "error${FRAG_TAB}"
 frag_fixture
 printf '### Notes\n\nAn upgrade paragraph, not a bullet.\n' > "$FRAG_FIX/changelog.d/WU-T-2.md"
 frag_case "an upgrade note that is prose, not a bullet" "neither a '- ' bullet nor an indented continuation"
@@ -9774,6 +9807,261 @@ risk_project cr389-map-crlf; sound_risk_map
 sed -i "s/\$/${CR389}/" .ia-engineering/risk-map.yml && git add -A
 expect 0 "check-risk-map: a CRLF map is still sound" -- bash "$MAP389" .
 expect_output "Risk Map is sound"
+
+# ------- a condition not evaluated exits 2, never 1 (WU-IAENG-390, #331) ------
+#
+# Standards/CODE_QUALITY_STANDARD.md, The Check Convention, Shell Scripts
+# rule 1: a failure to evaluate has its own code, never 0 and never the code
+# that reports a finding. Ten checks exited 1 when they could not evaluate, so
+# a caller could not tell "evaluated, found something" from "could not
+# evaluate". The cases flipped from `expect 1` to `expect 2` in the sections
+# above cover the conditions those sections already built; these cover the
+# rest, one or more per check, and pin that a finding is still 1 where the two
+# could be confused. Every caller fails on any non-zero code (the workflows'
+# run: steps, pre-commit's exec, release.sh's `if`), so 2 fails closed as 1 did.
+#
+# git390_shim <dir> — a git that fails (exit 128) any call whose arguments
+# hold every word of $G390_FAIL, and runs the real git for every other call.
+# It is how a git failure the checks test for is produced on demand.
+
+section "checks — a condition not evaluated exits 2, not the finding's 1 (WU-IAENG-390, #331)"
+
+G390_REAL_GIT="$(command -v git)"
+G390_SHIM="$WORK/shim-390"
+mkdir -p "$G390_SHIM"
+cat > "$G390_SHIM/git" <<SHIM
+#!/usr/bin/env bash
+g390_args=" \$* "
+for g390_w in \${G390_FAIL:-}; do
+  case "\$g390_args" in *" \$g390_w "*) ;; *) exec "$G390_REAL_GIT" "\$@" ;; esac
+done
+[ -n "\${G390_FAIL:-}" ] || exec "$G390_REAL_GIT" "\$@"
+echo "git (WU-IAENG-390 shim): failing '\$*'" >&2
+exit 128
+SHIM
+chmod +x "$G390_SHIM/git"
+G390=(env PATH="$G390_SHIM:$PATH")
+T390=$'\t'
+
+# --- check-employee-trailers.sh
+new_repo emp390-range
+write_employee_roster "DevOps Engineer"
+git add -A && git commit -q -m "roster"
+BASE="$(git rev-parse HEAD)"
+commit_with "feat: x" "Employee: DevOps Engineer"
+expect 2 "check-employee-trailers: an unresolvable range is not evaluated (exit 2)" -- \
+  bash "$SCRIPTS/check-employee-trailers.sh" does-not-exist HEAD
+expect_output "git rev-list failed"
+expect 2 "check-employee-trailers: a failed git rev-list --merges is not evaluated (exit 2)" -- \
+  "${G390[@]}" G390_FAIL="rev-list --merges" bash "$SCRIPTS/check-employee-trailers.sh" "$BASE" HEAD
+expect_output "git rev-list --merges failed"
+# A finding and an unclassifiable merge in one range: 2, not 1. What was not
+# evaluated is reported as such, whatever else was found.
+mk_emp_merge_repo emp390-both
+git merge -q --no-ff side -m "Merge branch 'side'"
+commit_with "feat: nobody claims it"
+expect 2 "check-employee-trailers: a finding does not lower an unclassified merge to 1" -- \
+  "${G390[@]}" G390_FAIL="merge-tree" bash "$SCRIPTS/check-employee-trailers.sh" "$BASE" HEAD
+expect_output "missing an 'Employee: <Name>' trailer"
+expect_output "could not be classified"
+expect 1 "check-employee-trailers: the same finding with the merge classified is 1" -- \
+  bash "$SCRIPTS/check-employee-trailers.sh" "$BASE" HEAD
+
+# --- check-work-units.sh
+new_repo wu390-merges
+write_wu_registry WU-TEST-001
+git add -A && git commit -q -m "registry"
+BASE="$(git rev-parse HEAD)"
+commit_with "feat: x" "Work Unit: WU-TEST-001"
+expect 2 "check-work-units: a failed git rev-list --merges is not evaluated (exit 2)" -- \
+  "${G390[@]}" G390_FAIL="rev-list --merges" bash "$SCRIPTS/check-work-units.sh" "$BASE" HEAD
+expect_output "git rev-list --merges failed"
+# A finding and an unclassified merge in one range: 2, not 1, as in
+# check-employee-trailers.sh above (DEF-IAENG-390-01: QA's mutant M1, which
+# reports the finding first, survived the suite here).
+mk_wu_merge_repo wu390-both
+git merge -q --no-ff side -m "Merge branch 'side'"
+commit_with "feat: nobody claims it"
+expect 2 "check-work-units: a finding does not lower an unclassified merge to 1" -- \
+  "${G390[@]}" G390_FAIL="merge-tree" bash "$SCRIPTS/check-work-units.sh" "$BASE" HEAD
+expect_output "carries no 'Work Unit: <WU-ID>' trailer"
+expect_output "could not be classified"
+expect 1 "check-work-units: the same finding with the merge classified is 1" -- \
+  bash "$SCRIPTS/check-work-units.sh" "$BASE" HEAD
+
+# --- check-inline-suppression.sh
+mkdir -p "$WORK/sup390-not-a-repo"
+cd "$WORK/sup390-not-a-repo" || exit 1
+expect 2 "check-inline-suppression: outside a work tree is not evaluated (exit 2)" -- \
+  bash "$SCRIPTS/check-inline-suppression.sh" HEAD HEAD
+expect_output "not inside a git work tree"
+new_repo sup390
+SBASE="$(git rev-parse HEAD)"
+printf 'x = 1\n' > a.py && git add -A && git commit -q -m "a.py"
+expect 2 "check-inline-suppression: an unresolvable base is not evaluated (exit 2)" -- \
+  bash "$SCRIPTS/check-inline-suppression.sh" no-such-base HEAD
+expect_output "cannot resolve base"
+expect 2 "check-inline-suppression: no scratch directory is not evaluated (exit 2)" -- \
+  env TMPDIR="$WORK/sup390-no-such-tmp" bash "$SCRIPTS/check-inline-suppression.sh" "$SBASE" HEAD
+expect_output "cannot create a scratch directory"
+expect 2 "check-inline-suppression: a failed git diff --name-only is not evaluated (exit 2)" -- \
+  "${G390[@]}" G390_FAIL="diff --name-only" bash "$SCRIPTS/check-inline-suppression.sh" "$SBASE" HEAD
+expect_output "git diff --name-only failed"
+expect 2 "check-inline-suppression: a failed git diff is not evaluated (exit 2)" -- \
+  "${G390[@]}" G390_FAIL="diff -U0" bash "$SCRIPTS/check-inline-suppression.sh" "$SBASE" HEAD
+expect_output "git diff failed"
+expect 2 "check-inline-suppression: a failed git check-attr is not evaluated (exit 2)" -- \
+  "${G390[@]}" G390_FAIL="check-attr" bash "$SCRIPTS/check-inline-suppression.sh" "$SBASE" HEAD
+expect_output "git check-attr failed"
+mkdir -p .ia-engineering
+printf '^a\\.py$\t(\tan unbalanced expression\n' > .ia-engineering/suppression.allow
+expect 2 "check-inline-suppression: an allow entry grep cannot compile is not evaluated (exit 2)" -- \
+  bash "$SCRIPTS/check-inline-suppression.sh" "$SBASE" HEAD
+expect_output "is not a valid extended regular expression"
+rm -f .ia-engineering/suppression.allow
+git commit -q --allow-empty -m "changes nothing"
+expect 2 "check-inline-suppression: commits that cannot be counted are not evaluated (exit 2)" -- \
+  "${G390[@]}" G390_FAIL="rev-list --count" bash "$SCRIPTS/check-inline-suppression.sh" HEAD~1 HEAD
+expect_output "cannot count commits"
+mkdir -p "$WORK/sup390-badpat"
+cp "$SCRIPTS/check-inline-suppression.sh" "$WORK/sup390-badpat/"
+printf 'broken\t(\n' > "$WORK/sup390-badpat/suppression-patterns.tsv"
+expect 2 "check-inline-suppression: a pattern grep cannot compile is not evaluated (exit 2)" -- \
+  bash "$WORK/sup390-badpat/check-inline-suppression.sh" "$SBASE" HEAD
+expect_output "is not a valid extended regular expression"
+# A finding is still 1.
+printf 'x = 2  %s\n' "$(printf '%s%s' '#' ' noqa')" > a.py && git add -A && git commit -q -m "a directive"
+expect 1 "check-inline-suppression: a directive is still a finding (exit 1)" -- \
+  bash "$SCRIPTS/check-inline-suppression.sh" "$SBASE" HEAD
+
+# --- check-control-path-approval.sh: a fake gh whose API calls fail.
+CPA390_BIN="$WORK/cpa390-bin"
+mkdir -p "$CPA390_BIN"
+printf '#!/usr/bin/env bash\necho "gh: HTTP 502" >&2\nexit 1\n' > "$CPA390_BIN/gh"
+chmod +x "$CPA390_BIN/gh"
+expect 2 "check-control-path-approval: a head the API cannot return is not evaluated (exit 2)" -- \
+  env PATH="$CPA390_BIN:$PATH" GH_TOKEN=unused REPO=o/r PR_NUMBER=7 CHANGED_FILES=1 \
+  ACTION=synchronize LABEL_ADDED= SENDER=dir DIRECTOR_LOGIN=dir \
+  EVENT_HEAD="$(printf '%040d' 0 | tr 0 a)" LABELS_JSON='[]' APPROVAL_LABEL=control-change/approved \
+  bash "$SCRIPTS/check-control-path-approval.sh"
+expect_output "The API did not return the PR head"
+
+# --- check-risk-map.sh
+cd "$WORK" || exit 1
+expect 2 "check-risk-map: a project root that is not a directory is not evaluated (exit 2)" -- \
+  bash "$SCRIPTS/check-risk-map.sh" "$WORK/rm390-no-such-root"
+expect_output "no such directory"
+mkdir -p "$WORK/rm390-not-a-repo/.ia-engineering"
+cd "$WORK/rm390-not-a-repo" || exit 1
+# sound_risk_map ends in `git add`, which has no repository here.
+sound_risk_map 2>/dev/null || true
+cd "$WORK" || exit 1
+expect 2 "check-risk-map: a failed git ls-files is not evaluated (exit 2)" -- \
+  bash "$SCRIPTS/check-risk-map.sh" "$WORK/rm390-not-a-repo"
+expect_output "git ls-files failed"
+risk_project rm390-range; sound_risk_map
+git commit -q -m "map"
+RM390_BASE="$(git rev-parse HEAD)"
+echo changed > src/auth/login.js
+git commit -qam "touch the auth module
+
+RISK: changes the identity check | tier=High | mitigation=reviewed | decided_by=Director"
+expect 0 "check-risk-map: the range carries its Risk Record" -- \
+  bash "$SCRIPTS/check-risk-map.sh" --range "$RM390_BASE" HEAD .
+expect 2 "check-risk-map: an uncomputable merge base is not evaluated (exit 2)" -- \
+  bash "$SCRIPTS/check-risk-map.sh" --range does-not-exist HEAD .
+expect_output "Could not compute the merge base"
+expect 2 "check-risk-map: a failed git diff is not evaluated (exit 2)" -- \
+  "${G390[@]}" G390_FAIL="diff --name-only" bash "$SCRIPTS/check-risk-map.sh" --range "$RM390_BASE" HEAD .
+expect_output "git diff failed"
+# The record is there; a log that could not be read must not report it absent.
+expect 2 "check-risk-map: a commit log that cannot be read is not a missing record (exit 2)" -- \
+  "${G390[@]}" G390_FAIL="log --format=%B" bash "$SCRIPTS/check-risk-map.sh" --range "$RM390_BASE" HEAD .
+expect_output "git log failed"
+
+# --- check-pr-size.sh
+new_repo size390
+BASE="$(git rev-parse HEAD)"
+printf 'one\n' > a.txt && git add -A && git commit -q -m "a"
+expect 0 "check-pr-size: a small change is within the limit" -- bash "$SCRIPTS/check-pr-size.sh" "$BASE" HEAD
+expect 2 "check-pr-size: a failed git diff is not evaluated (exit 2)" -- \
+  "${G390[@]}" G390_FAIL="diff --numstat" bash "$SCRIPTS/check-pr-size.sh" "$BASE" HEAD
+expect_output "git diff failed"
+git commit -q --allow-empty -m "changes nothing"
+expect 2 "check-pr-size: commits that cannot be counted are not evaluated (exit 2)" -- \
+  "${G390[@]}" G390_FAIL="rev-list --count" bash "$SCRIPTS/check-pr-size.sh" HEAD~1 HEAD
+expect_output "git rev-list failed"
+expect 1 "check-pr-size: over the limit is still a finding (exit 1)" -- \
+  env IAENG_PR_LIMIT=0 bash "$SCRIPTS/check-pr-size.sh" "$BASE" HEAD
+
+# --- data-policy-scan.sh
+new_repo dp390
+git commit -q --allow-empty -m "changes nothing"
+expect 2 "data-policy-scan: a history scan that enumerated no path over a non-merge commit is not evaluated (exit 2)" -- \
+  bash "$SCRIPTS/data-policy-scan.sh" --history HEAD~1..HEAD
+expect_output "the path enumeration produced nothing"
+
+# --- check-framework-drift.sh: a project root git names but no cd can enter.
+G390_TOP="$WORK/shim-390-top"
+mkdir -p "$G390_TOP"
+cat > "$G390_TOP/git" <<SHIM
+#!/usr/bin/env bash
+if [ "\$*" = "rev-parse --show-toplevel" ]; then echo "$WORK/drift390-no-such-project"; exit 0; fi
+exec "$G390_REAL_GIT" "\$@"
+SHIM
+chmod +x "$G390_TOP/git"
+new_repo drift390
+expect 0 "check-framework-drift: a root it cannot enter is advice without --strict (exit 0)" -- \
+  env PATH="$G390_TOP:$PATH" bash "$SCRIPTS/check-framework-drift.sh" --format tsv
+expect_output "indeterminate"
+expect_output "cannot be entered"
+expect 2 "check-framework-drift: a root it cannot enter is indeterminate with --strict (exit 2, not drift's 1)" -- \
+  env PATH="$G390_TOP:$PATH" bash "$SCRIPTS/check-framework-drift.sh" --format tsv --strict
+
+# --- validate-framework.sh
+# The verdict, extracted and run as the record functions are above.
+VF390_HARNESS="$WORK/vf390-harness.sh"
+{
+  echo 'set -uo pipefail'
+  sed -n '/^validation_result() {/,/^}/p' "$SCRIPTS/validate-framework.sh"
+  sed -n '/^workflow_step_title_drift() {/,/^}/p' "$SCRIPTS/validate-framework.sh"
+  sed -n '/^chain_diagram_drift() {/,/^}/p' "$SCRIPTS/validate-framework.sh"
+  sed -n '/^changelog_fragment_check() {/,/^}/p' "$SCRIPTS/validate-framework.sh"
+  cat <<'HARNESS'
+fn="$1"; shift
+"$fn" "$@"
+HARNESS
+} > "$VF390_HARNESS"
+expect 0 "validate-framework: every check passed exits 0" -- bash "$VF390_HARNESS" validation_result 5 0 0
+expect 1 "validate-framework: a finding, every check evaluated, exits 1" -- bash "$VF390_HARNESS" validation_result 5 2 0
+expect 2 "validate-framework: a check not evaluated exits 2, whatever else failed" -- bash "$VF390_HARNESS" validation_result 5 2 1
+expect_output "1 of them could not be evaluated"
+# A check not evaluated and no finding: 2, never "passed", even if the failure
+# count missed it (SEC-IAENG-390-01; QA's mutant M2, which decoupled cannot()
+# from the failure count, passed every case above).
+expect 2 "validate-framework: a check not evaluated and no finding exits 2" -- bash "$VF390_HARNESS" validation_result 5 0 1
+expect_output "1 of 5 checks failed."
+expect_output "1 of them could not be evaluated"
+expect_output_absent "checks passed"
+# The record functions name an input they could not read "error", not "fail",
+# so the section reporting it counts it as not evaluated.
+expect 1 "validate-framework: a missing workflow registry is reported" -- \
+  bash "$VF390_HARNESS" workflow_step_title_drift "$WORK/vf390-none/workflows.yml" "$WORK/vf390-none"
+expect_output "error${T390}cannot compare workflow step titles"
+expect 1 "validate-framework: a missing chain document is reported" -- \
+  bash "$VF390_HARNESS" chain_diagram_drift "$WORK/vf390-none/AGENT_CHAINS.md" "$WORK/vf390-none/chains.yml"
+expect_output "error${T390}cannot compare chain diagrams"
+expect 1 "validate-framework: a missing changelog.d/ is reported" -- \
+  bash "$VF390_HARNESS" changelog_fragment_check "$WORK/vf390-none/changelog.d" "$WORK/vf390-none/work-units.yml" "$SCRIPTS/changelog-fragment.awk"
+expect_output "error${T390}$WORK/vf390-none/changelog.d/ is missing"
+# End to end: a framework checkout holding nothing but the validator.
+new_repo vf390-empty
+mkdir -p Adapters/scripts
+cp "$SCRIPTS/validate-framework.sh" Adapters/scripts/
+expect 2 "validate-framework: a checkout whose inputs are missing is not evaluated (exit 2)" -- \
+  bash Adapters/scripts/validate-framework.sh
+expect_output "FAIL  not evaluated: Registry/employees.yml is missing"
+expect_output "could not be evaluated"
 
 # --------------------------------------------------------------- verdict ----
 

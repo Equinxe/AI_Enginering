@@ -16,8 +16,21 @@
 # Absence of a linter is REPORTED, not passed silently: a file that was checked
 # by nothing is said to have been checked by nothing.
 
+# This hook's own directory, never the working directory (issue #344). It is
+# taken from $0 when $0 holds a / or \, because the environment cannot set $0.
+# A bare $0 means bash found the hook through PATH or in the working
+# directory, where dirname "$0" would name the working directory; then
+# BASH_SOURCE[0], the path bash found, is used. BASH_SOURCE is not taken first
+# because bash 5.3 imports it from the environment (SEC-IAENG-400-01). Both
+# separators count, as Git Bash's dirname reads both.
+HOOKS_DIR="$0"
+case "$HOOKS_DIR" in */*|*\\*) ;; *) HOOKS_DIR="${BASH_SOURCE[0]}" ;; esac
+case "$HOOKS_DIR" in
+  */*|*\\*) HOOKS_DIR="${HOOKS_DIR%[/\\]*}" ;;
+  *) HOOKS_DIR=. ;;
+esac
 # shellcheck source=lib.sh
-. "$(dirname "$0")/lib.sh"
+. "$HOOKS_DIR/lib.sh"
 
 TOOL="$(iaeng_field '.tool_name')"
 case "$TOOL" in ""|Edit|Write|MultiEdit) ;; *) exit 0 ;; esac
