@@ -34,8 +34,11 @@
 #               .claude/settings.local.json, the project's own included: the
 #               script it names is resolved and checked to exist and be
 #               readable — NEVER executed. Same for core.hooksPath. A hook
-#               whose script is gone exits 127 and its guard disappears
-#               without a sound.
+#               whose script is gone exits 127. An ordinary hook then
+#               disappears without a sound. A guard whose entry has
+#               "onFailure": "block" (the framework's two PreToolUse
+#               guards, Claude Code 2.1.295 or later) then refuses every
+#               call it guards (claude-code/TROUBLESHOOTING.md, entry C).
 #
 # B AND C COME FROM THE INSTALLERS, NOT FROM A THIRD LIST
 #
@@ -1032,7 +1035,7 @@ for SF in .claude/settings.json .claude/settings.local.json; do
     case "$RSTATUS" in ok|broken) watch_add "$RPATH" ;; esac
     case "$RSTATUS" in
       ok) rec path ok "$RPATH" "" ;;
-      broken) rec path broken "$RPATH" "$RWHY; named by $SF ($WHERE). The hook fails (exit 127) and its guard is silently gone: restore the file, or fix the entry (re-run $REL/Adapters/ai-runtimes/claude-code/install-hooks.sh for the framework's)" ;;
+      broken) rec path broken "$RPATH" "$RWHY; named by $SF ($WHERE). The hook fails (exit 127): its check is silently gone, or, for an entry with \"onFailure\": \"block\" (the framework's guards, Claude Code 2.1.295 or later), every call it guards is refused (Adapters/ai-runtimes/claude-code/TROUBLESHOOTING.md, entry C). Restore the file, or fix the entry (re-run $REL/Adapters/ai-runtimes/claude-code/install-hooks.sh for the framework's)" ;;
       *) rec path unresolved "$RPATH" "$RWHY; named by $SF ($WHERE)" ;;
     esac
   done <<< "$CMDS"

@@ -60,8 +60,9 @@
 # git status, date and git log, and nothing else: lib.sh is found without
 # dirname, git rev-parse runs only when git status fails (the same
 # decision: git status fails outside a work tree), the clock is bash's own,
-# the mtime and HEAD's time are read without a subshell around them, and
-# the loop guard is read only before the hook says something.
+# the mtime and HEAD's time are read through lib.sh's by-name helpers, with
+# no subshell around them, and the loop guard is read only before the hook
+# says something.
 # tests/run.sh holds the budget.
 
 # This hook's own directory, never the working directory (issue #344). It is
@@ -109,17 +110,11 @@ fi
 # --- SESSION_STATE freshness gate — see header comment ----------------------
 STATE="$BASE/.ia-engineering/SESSION_STATE.md"
 if [ -f "$STATE" ]; then
-  # lib.sh's iaeng_file_mtime, iaeng_head_commit_time and iaeng_now, read in
-  # place: $(helper) wraps the helper's own $(command) in a second subshell.
-  # A value that is not an integer is no value, as there.
-  STATE_MTIME="$(date -r "$STATE" +%s 2>/dev/null)"
-  iaeng_is_int "$STATE_MTIME" || STATE_MTIME=""
-  HEAD_TS="$(git -C "$BASE" log -1 --format=%ct 2>/dev/null)"
-  iaeng_is_int "$HEAD_TS" || HEAD_TS=""
-  # bash's own clock (bash 4.2 and later): no process. Elsewhere, date.
-  NOW=""
-  printf -v NOW '%(%s)T' -1 2>/dev/null
-  iaeng_is_int "$NOW" || NOW="$(iaeng_now)"
+  # lib.sh's by-name forms: no subshell around each helper. Each sets an
+  # empty value when it cannot read a non-negative integer.
+  iaeng_file_mtime_to STATE_MTIME "$STATE"
+  iaeng_head_commit_time_to HEAD_TS "$BASE"
+  iaeng_now_to NOW
   if [ -n "$STATE_MTIME" ] && [ -n "$HEAD_TS" ] && [ -n "$NOW" ]; then
     if [ "$HEAD_TS" -gt "$NOW" ]; then
       # HEAD's commit is dated after the system clock: clock skew, or a

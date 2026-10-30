@@ -196,7 +196,7 @@ check_report() {
         line = line "; " part("gitattributes", ".gitattributes rule(s)", "present missing")
         line = line "; " (f + 0) " fault(s)."
         if (s["settings" FS "absent"] || s["hook" FS "absent"] || s["statusline" FS "absent"] || s["gitattributes" FS "missing"])
-          line = line " absent/missing: re-run " ENVIRON["IAENG_ME"] " without --force; it adds them and keeps every entry already there, except an earlier framework entry, whose matcher it updates in place."
+          line = line " absent/missing: re-run " ENVIRON["IAENG_ME"] " without --force; it adds them and keeps every entry already there, except an earlier framework entry, which it updates in place (its matcher, or the fields the framework added since)."
         if (s["hook" FS "near-miss"])
           line = line " near-miss: check each is not a weakened copy; the framework entry runs beside it."
         if (s["statusline" FS "near-miss"] || s["statusline" FS "shadowed"])
@@ -455,7 +455,7 @@ merge_settings() {
               else .c.hooks[$s.key] |= map(if earlier($r.from; $was)
                   then .matcher = $r.to
                     | .hooks = [.hooks as $h | range(0; $h | length) as $i
-                                | $h[$i] + ($tg.hooks[$i] | with_entries(select(.key | IN($wo[]))))]
+                                | $h[$i] + ($tg.hooks[$i] | with_entries(select(.key as $k | any($wo[]; . == $k))))]
                   else . end)
                 | .u += [{l: ($tg | where($s.key) + ": " + (scripts | join(", "))), from: $r.from, without: $wo}]
               end
