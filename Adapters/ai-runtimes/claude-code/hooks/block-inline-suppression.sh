@@ -16,8 +16,22 @@
 # configuration cannot scope) is applied by a human, with the forcing
 # constraint written on the preceding line, as the Standard requires.
 
+# This hook's own directory, never the working directory (issue #344). It is
+# taken from $0 when $0 holds a / or \, because the environment cannot set $0.
+# A bare $0 means bash found the hook through PATH or in the working
+# directory, where dirname "$0" would name the working directory; then
+# BASH_SOURCE[0], the path bash found, is used. BASH_SOURCE is not taken first
+# because bash 5.3 imports it from the environment (SEC-IAENG-400-01). Both
+# separators count, as Git Bash's dirname reads both. Every file this hook
+# loads, and the tests/ exemption below, come from here.
+HOOKS_DIR="$0"
+case "$HOOKS_DIR" in */*|*\\*) ;; *) HOOKS_DIR="${BASH_SOURCE[0]}" ;; esac
+case "$HOOKS_DIR" in
+  */*|*\\*) HOOKS_DIR="${HOOKS_DIR%[/\\]*}" ;;
+  *) HOOKS_DIR=. ;;
+esac
 # shellcheck source=lib.sh
-. "$(dirname "$0")/lib.sh"
+. "$HOOKS_DIR/lib.sh"
 
 # Unreadable payload is refused BEFORE any field is read: an empty TOOL or TEXT
 # below means "nothing to check" and exits 0, which an unparseable payload would
@@ -101,12 +115,13 @@ iaeng_canon() {
   printf '%s' "${r:-/}"
 }
 
-HOOK_DIR="$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)"
-PATTERNS="$HOOK_DIR/../../../scripts/suppression-patterns.tsv"
+# HOOKS_DIR made absolute, for the patterns file and the tests/ exemption.
+HOOKS_DIR_CANON="$(CDPATH='' cd -- "${HOOKS_DIR:-/}" && pwd)"
+PATTERNS="$HOOKS_DIR_CANON/../../../scripts/suppression-patterns.tsv"
 if [ -n "$FILE" ]; then
   CANON="$(iaeng_canon "$FILE" "$(iaeng_field '.cwd')")"
   [ "$CANON" != "$(iaeng_canon "$PATTERNS")" ] || exit 0
-  case "$CANON" in "$(iaeng_canon "$HOOK_DIR")"/tests/*) exit 0 ;; esac
+  case "$CANON" in "$(iaeng_canon "$HOOKS_DIR_CANON")"/tests/*) exit 0 ;; esac
 fi
 
 # Every string the edit would write. With jq: new_string, content, and each

@@ -57,15 +57,22 @@
 # submodule only as a changed commit id, so an adopter's ia-engineering/ is not
 # scanned here; that repository runs its own checks.
 #
-# A path containing a newline is REFUSED (exit 1): the exemption lists are
-# line-oriented, and a name that a list cannot represent is a name it could be
-# made to exempt another file with.
+# A path containing a newline is REFUSED (exit 2, not evaluated): the
+# exemption lists are line-oriented, and a name that a list cannot represent
+# is a name it could be made to exempt another file with.
 #
 # OUTPUT
 #   path:line: <label>: <the line, at most 200 characters>
-# followed by a summary. Exit 0 clean; 1 on any finding, on an invalid allow
-# file or pattern file, and when git failed (nothing was established); 2 on
-# a usage error.
+# followed by a summary.
+#
+# EXIT CODES (Standards/CODE_QUALITY_STANDARD.md, The Check Convention, Shell
+# Scripts rule 1)
+#   0  clean: every added line was scanned and none needs action
+#   1  a finding: an added line matches a pattern no allow entry excuses
+#   2  could not evaluate, or a usage error: an invalid allow file or pattern
+#      file, a git command that failed, a ref or merge base that does not
+#      resolve, a changed path holding a newline, or an empty diff over
+#      non-merge commits. Nothing was established.
 
 set -uo pipefail
 export LC_ALL=C
@@ -80,7 +87,7 @@ err() {
 
 # One place for "git could not tell me", so every such exit says the same
 # thing: a check that examined nothing has established nothing.
-nothing() { err "$1 — nothing was established."; exit 1; }
+nothing() { err "$1 — nothing was established."; exit 2; }
 
 STAGED=0
 BASE_REF=""
@@ -140,34 +147,34 @@ if [ -f "$ALLOW_FILE" ]; then
     ap="${row%%$'\t'*}"
     rest="${row#*$'\t'}"
     case "$row" in *$'\t'*$'\t'*) ;; *)
-      err "$ALLOW_FILE:$n: an entry is <path ERE> TAB <line ERE> TAB <reason>; this one has fewer than three fields. An invalid allow file fails the check." ; exit 1 ;;
+      err "$ALLOW_FILE:$n: an entry is <path ERE> TAB <line ERE> TAB <reason>; this one has fewer than three fields. An invalid allow file fails the check." ; exit 2 ;;
     esac
     al="${rest%%$'\t'*}"
     reason="${rest#*$'\t'}"
     if [ -z "${reason//[[:space:]]/}" ]; then
       err "$ALLOW_FILE:$n: the entry has an empty reason. An exemption nobody explained is not an exemption; the file is invalid."
-      exit 1
+      exit 2
     fi
     if [ -z "$ap" ] || [ -z "$al" ]; then
       err "$ALLOW_FILE:$n: an empty path or line expression would match everything. The file is invalid."
-      exit 1
+      exit 2
     fi
     for re in "$ap" "$al"; do
       rc=0; grep -E -- "$re" </dev/null >/dev/null 2>&1 || rc=$?
       if [ "$rc" -gt 1 ]; then
         err "$ALLOW_FILE:$n: '$re' is not a valid extended regular expression. The file is invalid."
-        exit 1
+        exit 2
       fi
       # An expression that matches the empty string matches every line or path.
       if grep -qE -- "$re" <<< ""; then
         err "$ALLOW_FILE:$n: '$re' matches the empty string, so the entry would allow everything. The file is invalid."
-        exit 1
+        exit 2
       fi
     done
     # The path expression is anchored, so 'a\.py' cannot excuse src/a.py.py.
     case "$ap" in
       '^'*'$') ;;
-      *) err "$ALLOW_FILE:$n: the path expression '$ap' must be anchored (^...$). The file is invalid."; exit 1 ;;
+      *) err "$ALLOW_FILE:$n: the path expression '$ap' must be anchored (^...$). The file is invalid."; exit 2 ;;
     esac
     ALLOW_PATHS+=("$ap")
     ALLOW_LINES+=("$al")

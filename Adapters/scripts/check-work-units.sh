@@ -42,8 +42,16 @@
 #
 #   check-work-units.sh <base-ref> <head-ref>
 #
-# Exit 0 when every commit (and every authored merge) resolves, 1 when any does
-# not, when a merge cannot be classified, or when the registry cannot be found.
+# Exit codes (Standards/CODE_QUALITY_STANDARD.md, The Check Convention, Shell
+# Scripts rule 1):
+#   0  every commit, and every authored merge, claims one registered Work Unit
+#   1  a finding: a commit or authored merge with no claim, more than one, a
+#      malformed one, or one the registry does not hold
+#   2  could not evaluate, or a usage error: merge-classify.sh missing, no
+#      registry or one that yields no ids, `git rev-list` failed, git too old
+#      to classify merges, or a merge that could not be classified. A finding
+#      elsewhere in the range does not lower it to 1: what was not evaluated
+#      is reported as such.
 # A range with no non-merge commits and only clean merges is a pass and says
 # so — a back-merge carries no authored commits to attribute.
 #
@@ -69,7 +77,7 @@ set -uo pipefail
 SCRIPT_DIR="$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 if [ ! -f "$SCRIPT_DIR/merge-classify.sh" ]; then
   echo "check-work-units: ERROR: $SCRIPT_DIR/merge-classify.sh not found; failing closed." >&2
-  exit 1
+  exit 2
 fi
 # shellcheck source=merge-classify.sh
 . "$SCRIPT_DIR/merge-classify.sh"
@@ -139,7 +147,7 @@ if [ -z "$REGISTRY" ]; then
   else
     err "Could not locate Registry/work-units.yml (looked at \$IAENG_REGISTRY_WORK_UNITS and Registry/). A project that has not adopted the Work Unit registry should remove this check rather than have it pass without checking anything."
   fi
-  exit 1
+  exit 2
 fi
 
 echo "Registry: $REGISTRY"
@@ -164,12 +172,12 @@ if [ "$KNOWN_COUNT" -eq 0 ] \
    && { ! grep -qE '^work_units:[[:space:]]*(\[\])?[[:space:]]*$' "$REGISTRY" \
         || grep -qE '^[[:space:]]*-[[:space:]]*id:' "$REGISTRY"; }; then
   err "$REGISTRY yielded no Work Unit IDs. The parsing contract is a line of the exact form '  - id: <WU-ID>' (two spaces, dash, space). Failing rather than reporting every commit unregistered, which would describe the parser and not the commits."
-  exit 1
+  exit 2
 fi
 
 if ! COMMITS="$(git rev-list --no-merges "${BASE_REF}..${HEAD_REF}")"; then
   err "git rev-list failed over ${BASE_REF}..${HEAD_REF}. No commit was examined, so nothing was established; failing rather than reporting zero problems."
-  exit 1
+  exit 2
 fi
 
 # Merge commits are classified, not skipped: a merge that AUTHORS content (its
@@ -179,10 +187,13 @@ fi
 # authored merge adding content carried no Work Unit and passed.
 if ! MERGES="$(git rev-list --merges "${BASE_REF}..${HEAD_REF}")"; then
   err "git rev-list --merges failed over ${BASE_REF}..${HEAD_REF}; failing rather than skipping merges unexamined."
-  exit 1
+  exit 2
 fi
 
 fail=0
+# Set when a merge could not be classified: the run then exits 2, whatever
+# else it found (the header's exit codes).
+unevaluated=0
 
 # Historical authored merges without a Work Unit are grandfathered by sha in
 # the constant below. It lives in THIS script, not in a data file, on purpose:
@@ -278,7 +289,7 @@ if [ -n "$MERGES" ]; then
 
   if ! merge_classify_git_ok; then
     err "git $(git version) cannot classify merge commits: 'git merge-tree --write-tree' with --attr-source needs git 2.40 or newer. Failing closed rather than passing merges unclassified."
-    exit 1
+    exit 2
   fi
 
   for sha in $MERGES; do
@@ -299,7 +310,7 @@ if [ -n "$MERGES" ]; then
     KIND="$(merge_classify "$sha")"
     if [ "${KIND#error}" != "$KIND" ]; then
       err "Merge $sha could not be classified (${KIND#error: }). Failing closed rather than passing an unclassified merge."
-      fail=1
+      unevaluated=1
       continue
     fi
 
@@ -311,4 +322,5 @@ if [ -n "$MERGES" ]; then
   done
 fi
 
+[ "$unevaluated" -eq 0 ] || exit 2
 exit "$fail"
