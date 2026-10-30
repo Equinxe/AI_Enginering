@@ -24,7 +24,7 @@ It ensures every change is reviewed systematically, that feedback is actionable,
 | Engineer (author) | Responds to review comments and makes requested changes |
 | Security Engineer | Reviews security findings escalated by the Code Reviewer |
 | Compliance Engineer | Reviews compliance findings escalated by the Code Reviewer (regulated data handling, retention/deletion logic, cross-border data transfer) |
-| Prompt Engineer | Approves every change to an Employee definition (`Employees/`) or to any `Core/*.md` document (including a deletion or rename), in addition to the Code Reviewer, and never a change it authored (`Core/EMPLOYEE_SELECTION.md`, Prompt Engineer trigger) |
+| Prompt Engineer | Approves every change to a file Step 4 lists, in addition to the Code Reviewer, and never a change it authored (Step 4) |
 | Software Architect | Reviews architectural concerns escalated by the Code Reviewer |
 | Engineering Manager | Resolves blockers when review cycles exceed two rounds |
 | QA Engineer | Validates the change after approval when it is security-sensitive or high-risk (see "Security-Sensitive or High-Risk Changes") |
@@ -101,9 +101,16 @@ If a security issue is found: escalate immediately to the Security Engineer. Do 
 
 If compliance-relevant content is found: escalate immediately to the Compliance Engineer, the same way a security issue escalates to the Security Engineer. Do not wait for the full review to complete.
 
-If the Pull Request makes a change to an Employee definition (`Employees/`) or to any `Core/*.md` document (including a deletion or rename): request the Prompt Engineer's review, whether or not a finding exists. The Prompt Engineer's **approval** is required before merge, in addition to this review, and must cover the `Employees/` and `Core/*.md` text the head carries. A later push that changes that text needs it again; a merge of `develop` into the branch keeps it only as condition 1 of `Core/MAIN_AGENT_CONDUCT.md` (Git Execution via Named Employee) allows. If the Prompt Engineer authored the change, its own review does not count: escalate to the Director, who names the second reviewer (`Core/EMPLOYEE_SELECTION.md`, Prompt Engineer trigger).
+If the Pull Request changes one of these files, including by deleting or renaming it, request the Prompt Engineer's review, whether or not a finding exists:
 
-**Output:** Security assessment. Escalation opened if needed (Security Engineer and/or Compliance Engineer). Prompt Engineer review requested for a change to `Employees/` or any `Core/*.md` document (including a deletion or rename).
+- an Employee definition (`Employees/`);
+- any `Core/*.md` document;
+- `Templates/EMPLOYEE_BRIEF.md`, the format of every Employee brief;
+- `Adapters/ai-runtimes/generate-agents.sh`, which writes the text around every generated agent and chooses what each agent carries from its Employee definition.
+
+Every other place in this Workflow that requires the Prompt Engineer's approval refers to this list. The Prompt Engineer's **approval** is required before merge, in addition to this review, and must cover the text of these files the head carries. A later push that changes that text needs it again; a merge of `develop` into the branch keeps it only as condition 1 of `Core/MAIN_AGENT_CONDUCT.md` (Git Execution via Named Employee) allows. If the Prompt Engineer authored the change, its own review does not count: escalate to the Director, who names the second reviewer (`Core/EMPLOYEE_SELECTION.md`, Prompt Engineer trigger, for `Employees/` and `Core/*.md`; Director, 28 Oct 2026, issue #206, for the template and the generator).
+
+**Output:** Security assessment. Escalation opened if needed (Security Engineer and/or Compliance Engineer). Prompt Engineer review requested for a change to a file Step 4 lists.
 
 ---
 
@@ -207,7 +214,7 @@ Steps 2 through 6 are five **lenses** — correctness, tests, security and compl
 |---|---|---|
 | Correctness, quality, documentation (Steps 2, 5, 6) | Code Reviewer | The baseline pass |
 | Tests (Step 3) | QA Engineer | Whether the tests *can fail* is a question the author of the review checklist tends to answer optimistically |
-| Security and compliance (Step 4) | Security Engineer; Compliance Engineer when regulated data is in scope; Prompt Engineer for a change to `Employees/` or any `Core/*.md` document (including a deletion or rename) | Already the Escalation rule when a finding exists; for high-risk changes the pass runs whether or not the baseline reviewer noticed anything. The Prompt Engineer's approval is required on every such change, whatever its risk |
+| Security and compliance (Step 4) | Security Engineer; Compliance Engineer when regulated data is in scope; Prompt Engineer for a change to a file Step 4 lists | Already the Escalation rule when a finding exists; for high-risk changes the pass runs whether or not the baseline reviewer noticed anything. The Prompt Engineer's approval is required on every such change, whatever its risk |
 
 Three rules make separate passes worth more than one long one:
 
@@ -262,7 +269,7 @@ This workflow is complete when:
 - The PR has a documented approval from the Code Reviewer, with its Defect Hunt (Step 8).
 - All critical and major issues are resolved.
 - Security escalations are resolved or formally accepted by the Security Engineer and Director.
-- A change to `Employees/` or any `Core/*.md` document (including a deletion or rename) has the Prompt Engineer's approval on the `Employees/` and `Core/*.md` text the head carries, or, when the Prompt Engineer authored it, the approval of the reviewer the Director named (Step 4). A later push that changes that text needs it again; a merge of `develop` into the branch keeps it only as condition 1 of `Core/MAIN_AGENT_CONDUCT.md` (Git Execution via Named Employee) allows.
+- A change to a file Step 4 lists has the Prompt Engineer's approval on the text of those files the head carries, or, when the Prompt Engineer authored it, the approval of the reviewer the Director named (Step 4). A later push that changes that text needs it again; a merge of `develop` into the branch keeps it only as condition 1 of `Core/MAIN_AGENT_CONDUCT.md` (Git Execution via Named Employee) allows.
 
 ---
 
@@ -290,7 +297,7 @@ This workflow is complete when:
 
 Owner: IA Engineering
 
-Version: 0.0.12
+Version: 0.0.13
 
 Status: Draft
 
