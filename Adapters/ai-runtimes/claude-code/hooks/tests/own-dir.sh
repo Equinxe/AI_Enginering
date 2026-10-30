@@ -22,22 +22,25 @@
 # run by its absolute path, as installed (SEC-IAENG-400-01). The hooks take
 # $0 when it holds a separator, and BASH_SOURCE only when $0 is a bare name.
 #
-# What is proved. Each hook is invoked four ways:
-#   path  found through PATH, from a working directory that holds a planted
-#         copy of every file the hook loads;
-#   win   named by a path with backslashes only, from that same directory
-#         (Windows, where dirname reads a backslash);
-#   env   named by its absolute path, from a clean directory, with
-#         BASH_SOURCE=<the planted directory>/x in the environment;
-#   here  found in the working directory, which is the hooks directory.
+# What is proved. Each hook is invoked five ways:
+#   path    found through PATH, from a working directory that holds a
+#           planted copy of every file the hook loads;
+#   win     named by a path with backslashes only, from that same directory
+#           (Windows, where dirname reads a backslash);
+#   env     named by its absolute path, from a clean directory, with
+#           BASH_SOURCE=<the planted directory>/x in the environment;
+#   winenv  named by a path with backslashes only, from a clean directory,
+#           with that BASH_SOURCE: a $0 holding only a backslash must win
+#           over the environment, as a $0 holding a / does;
+#   here    found in the working directory, which is the hooks directory.
 #
-#   - No planted file is used (path, win, env). Each planted script appends
+#   - No planted file is used (path, win, env, winenv). Each planted script appends
 #     its name to a log when it runs, and the log must stay empty. The planted
 #     patterns file holds one row that matches nothing, so a hook that read it
 #     would allow. In the here form no planted file is reachable, so these
 #     checks could not fail there and are not run.
 #   - The hook still does its job, which it can do only with its own files
-#     (all four forms; in the here form, this is what proves it loaded them):
+#     (every form; in the here form, this is what proves it loaded them):
 #       block-escape-hatches.sh refuses an escape hatch;
 #       block-inline-suppression.sh refuses a directive in a .py file, and
 #         also under the working directory's tests/;
@@ -68,8 +71,8 @@
 # The win form runs only where cygpath exists (Git Bash). The env form runs
 # only where this bash takes BASH_SOURCE from the environment, which a probe
 # script checks first: elsewhere no hook can be misled that way, and the
-# checks could not fail. Either is otherwise reported "n/a" with its reason,
-# never counted as a pass. Exit 0 when
+# checks could not fail. The winenv form needs both. Each is otherwise
+# reported "n/a" with its reason, never counted as a pass. Exit 0 when
 # every check passes, 1 when any fails, 2 when the environment is unusable.
 # With IAENG_HOOK_TESTS_COUNTS set to a file, "<total> <failed>" is written
 # there.
@@ -155,6 +158,7 @@ printf 'if then\n' > "$T/bad.sh"
 #   path  `bash <hook>` from $W, the hooks directory first on PATH
 #   win   `bash <C:\...\hooks\hook>` from $W, a path with backslashes only
 #   env   `bash <absolute path>` from $PROJ, with BASH_SOURCE=$W/<hook>
+#   winenv  `bash <C:\...\hooks\hook>` from $PROJ, with BASH_SOURCE=$W/<hook>
 #   here  `bash <hook>` from the hooks directory itself
 WINHOOKS=""
 hook() {
@@ -163,6 +167,7 @@ hook() {
   case "$how" in
     win) arg="$WINHOOKS\\$name" ;;
     env) dir="$PROJ"; arg="$HOOKS/$name"; pre=(BASH_SOURCE="$W/$name") ;;
+    winenv) dir="$PROJ"; arg="$WINHOOKS\\$name"; pre=(BASH_SOURCE="$W/$name") ;;
     here) dir="$HOOKS" ;;
   esac
   : > "$LOG"
@@ -258,23 +263,29 @@ suite() {
   fi
 }
 
-suite path
-if command -v cygpath >/dev/null 2>&1; then
-  WINHOOKS="$(cygpath -w "$HOOKS")"
-  case "$WINHOOKS" in
-    */*) na "invoked win" "cygpath -w gave a path with a forward slash: $WINHOOKS" ;;
-    *) suite win ;;
-  esac
-else
-  na "invoked win (a path with backslashes only)" "no Windows paths on this platform (no cygpath)"
-fi
 cat > "$T/probe.sh" <<'EOF'
 printf '%s' "${BASH_SOURCE[0]}"
 EOF
-if [ "$(env BASH_SOURCE=/iaeng-probe/x bash "$T/probe.sh" 2>/dev/null)" = /iaeng-probe/x ]; then
-  suite env
+ENV_IMPORT=0
+[ "$(env BASH_SOURCE=/iaeng-probe/x bash "$T/probe.sh" 2>/dev/null)" = /iaeng-probe/x ] && ENV_IMPORT=1
+NO_ENV_IMPORT="this bash ($(bash -c 'echo "$BASH_VERSION"')) does not take BASH_SOURCE from the environment, so no hook can be misled by it"
+
+suite path
+WIN=0
+if command -v cygpath >/dev/null 2>&1; then
+  WINHOOKS="$(cygpath -w "$HOOKS")"
+  case "$WINHOOKS" in
+    */*) na "invoked win and winenv" "cygpath -w gave a path with a forward slash: $WINHOOKS" ;;
+    *) WIN=1; suite win ;;
+  esac
 else
-  na "invoked env (BASH_SOURCE in the environment)" "this bash ($(bash -c 'echo "$BASH_VERSION"')) does not take BASH_SOURCE from the environment, so no hook can be misled by it"
+  na "invoked win and winenv (a path with backslashes only)" "no Windows paths on this platform (no cygpath)"
+fi
+if [ "$ENV_IMPORT" -eq 1 ]; then
+  suite env
+  [ "$WIN" -eq 0 ] || suite winenv
+else
+  na "invoked env and winenv (BASH_SOURCE in the environment)" "$NO_ENV_IMPORT"
 fi
 suite here
 
