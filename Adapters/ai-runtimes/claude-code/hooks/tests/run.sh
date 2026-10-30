@@ -770,6 +770,25 @@ else
 fi
 rm -f "$CTX_COUNTS"
 
+# --- Own directory (WU-IAENG-400) ----------------------------------------------
+# Its own file too (tests/own-dir.sh), counted here the same way.
+OWN_COUNTS="$(mktemp "${TMPDIR:-/tmp}/iaeng-own-counts.XXXXXX")"
+IAENG_HOOK_TESTS_COUNTS="$OWN_COUNTS" bash "$HERE/own-dir.sh" ${DASH_ARGS[@]+"${DASH_ARGS[@]}"}
+OWN_RC=$?
+if read -r OWN_TOTAL OWN_FAILED < "$OWN_COUNTS" 2>/dev/null \
+    && [[ "$OWN_TOTAL" =~ ^[0-9]+$ ]] && [[ "$OWN_FAILED" =~ ^[0-9]+$ ]] && [ "$OWN_TOTAL" -gt 0 ]; then
+  TOTAL=$((TOTAL + OWN_TOTAL))
+  FAILED=$((FAILED + OWN_FAILED))
+  if [ "$OWN_RC" -ne 0 ] && [ "$OWN_FAILED" -eq 0 ]; then
+    TOTAL=$((TOTAL + 1)); FAILED=$((FAILED + 1))
+    echo "   FAIL  tests/own-dir.sh exited $OWN_RC with no failed check counted"
+  fi
+else
+  TOTAL=$((TOTAL + 1)); FAILED=$((FAILED + 1))
+  echo "   FAIL  tests/own-dir.sh reported no counts (exit $OWN_RC) — it could not run"
+fi
+rm -f "$OWN_COUNTS"
+
 # --- Verdict ----------------------------------------------------------------
 
 echo

@@ -7,8 +7,22 @@
 # it is the first thing it sees. It prints the pointers and the *current*
 # state, never a copy of CLAUDE.md (one fact, one place — Templates/SESSION_STATE.md).
 
+# This hook's own directory, never the working directory (issue #344). It is
+# taken from $0 when $0 holds a / or \, because the environment cannot set $0.
+# A bare $0 means bash found the hook through PATH or in the working
+# directory, where dirname "$0" would name the working directory; then
+# BASH_SOURCE[0], the path bash found, is used. BASH_SOURCE is not taken first
+# because bash 5.3 imports it from the environment (SEC-IAENG-400-01). Both
+# separators count, as Git Bash's dirname reads both. Every file this hook
+# loads or runs comes from here.
+HOOKS_DIR="$0"
+case "$HOOKS_DIR" in */*|*\\*) ;; *) HOOKS_DIR="${BASH_SOURCE[0]}" ;; esac
+case "$HOOKS_DIR" in
+  */*|*\\*) HOOKS_DIR="${HOOKS_DIR%[/\\]*}" ;;
+  *) HOOKS_DIR=. ;;
+esac
 # shellcheck source=lib.sh
-. "$(dirname "$0")/lib.sh"
+. "$HOOKS_DIR/lib.sh"
 
 BASE="${CLAUDE_PROJECT_DIR:-.}"
 ROOT="$(iaeng_framework_root || true)"
@@ -486,7 +500,7 @@ fi
 # number; otherwise nothing. Run here rather than from a SessionStart entry of
 # its own, so the template keeps one SessionStart group. It reads only the
 # environment, exits 0 on every path, and its stderr is dropped.
-CTX_ALERT_SH="$(dirname "$0")/context-alert.sh"
+CTX_ALERT_SH="$HOOKS_DIR/context-alert.sh"
 if [ -f "$CTX_ALERT_SH" ]; then
   CTX_WARN="$(bash "$CTX_ALERT_SH" --session-start </dev/null 2>/dev/null)"
   [ -n "$CTX_WARN" ] && printf '%s\n\n' "$CTX_WARN"

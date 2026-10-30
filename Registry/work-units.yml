@@ -1592,9 +1592,9 @@ work_units:
 
   - id: WU-IAENG-390
     employee: Platform Engineer
-    title: Reserved 27 Oct 2026 before dispatch (WU-IAENG-393) - a distinct exit code for a failure to evaluate in the checks (issue #331) - Check Convention shell rule 1; the ten checks the issue names exit 1, the finding code, when they could not evaluate
+    title: A distinct exit code for a failure to evaluate in the checks (issue #331) - Check Convention shell rule 1; the ten checks the issue names exited 1, the finding code, when they could not evaluate, and now exit 2 (check-framework-drift.sh reports it as indeterminate, its own contract); validate-framework.sh counts a check it could not evaluate apart and exits 2; every caller fails on any non-zero code, so 2 fails closed as 1 did
     milestone: Adoption
-    delivers: planned - the checks named in issue #331 under Adapters/, Adapters/scripts/tests/run.sh, changelog.d/WU-IAENG-390.md, Registry/work-units.yml
+    delivers: Adapters/scripts/check-employee-trailers.sh, Adapters/scripts/check-work-units.sh, Adapters/scripts/check-inline-suppression.sh, Adapters/scripts/check-control-path-approval.sh, Adapters/scripts/check-risk-map.sh, Adapters/scripts/check-review-recorded.sh, Adapters/scripts/check-pr-size.sh, Adapters/scripts/validate-framework.sh, Adapters/scripts/data-policy-scan.sh, Adapters/scripts/check-framework-drift.sh, Adapters/README.md, Adapters/scripts/tests/run.sh, changelog.d/WU-IAENG-390.md, Registry/work-units.yml
 
   - id: WU-IAENG-391
     employee: Prompt Engineer
@@ -1652,9 +1652,9 @@ work_units:
 
   - id: WU-IAENG-400
     employee: Platform Engineer
-    title: Reserved 28 Oct 2026 before dispatch (WU-IAENG-402) - hooks load lib.sh from their own directory, not the working directory (issue #344, SEC-IAENG-394-03) - block-escape-hatches.sh, block-inline-suppression.sh, post-edit-lint.sh, session-start.sh and stop-gate.sh source lib.sh from dirname of $0, which is the working directory when bash finds the hook through PATH, so a lib.sh planted there runs
+    title: Hooks load their files from their own directory, not the working directory (issue #344, SEC-IAENG-394-03) - block-escape-hatches.sh, block-inline-suppression.sh, post-edit-lint.sh, session-start.sh and stop-gate.sh found their directory from dirname of $0, which is the working directory when bash finds the hook through PATH, so a lib.sh, strip-quotes.awk, context-alert.sh, suppression patterns file or tests/ exemption planted there was used; they now take $0, or BASH_SOURCE only when $0 is a bare name (bash 5.3 imports BASH_SOURCE from the environment), cut at its last / or backslash, and tests/own-dir.sh runs each hook from a working directory holding a planted copy of every file it loads
     milestone: Adoption
-    delivers: planned - Adapters/ai-runtimes/claude-code/hooks/block-escape-hatches.sh, Adapters/ai-runtimes/claude-code/hooks/block-inline-suppression.sh, Adapters/ai-runtimes/claude-code/hooks/post-edit-lint.sh, Adapters/ai-runtimes/claude-code/hooks/session-start.sh, Adapters/ai-runtimes/claude-code/hooks/stop-gate.sh, Adapters/ai-runtimes/claude-code/hooks/tests/run.sh, changelog.d/WU-IAENG-400.md, Registry/work-units.yml
+    delivers: Adapters/ai-runtimes/claude-code/hooks/block-escape-hatches.sh, Adapters/ai-runtimes/claude-code/hooks/block-inline-suppression.sh, Adapters/ai-runtimes/claude-code/hooks/post-edit-lint.sh, Adapters/ai-runtimes/claude-code/hooks/session-start.sh, Adapters/ai-runtimes/claude-code/hooks/stop-gate.sh, Adapters/ai-runtimes/claude-code/hooks/tests/own-dir.sh, Adapters/ai-runtimes/claude-code/hooks/tests/run.sh, Adapters/ai-runtimes/claude-code/hooks/README.md, changelog.d/WU-IAENG-400.md, Registry/work-units.yml
 
   - id: WU-IAENG-401
     employee: Platform Engineer
@@ -1730,9 +1730,9 @@ work_units:
 
   - id: WU-IAENG-413
     employee: Technical Writer
-    title: Reserved 28 Oct 2026 before dispatch (WU-IAENG-408) - AMELIORATION.md strikes through what is done since 23 Oct and adds the new strengths and weaknesses (issue #354) - W2 a, b and d, W9, W14 to W16 and W18 to W21 are done on develop but not struck through; each is struck through with the Pull Request that delivered it, and the strengths and weaknesses seen since 23 Oct are added
+    title: AMELIORATION.md strikes through what develop delivered between 23 and 28 Oct 2026 and adds the strengths and weaknesses seen since (issue #354) - each line checked against develop 607cae9; W9, W14, W15, W16, W18, W20 and W21 struck through with their Pull Requests; W2 a, b and d, W3, W19 and W29 delivered in part, with what remains in Suivi; strengths F15 to F17 (context statusLine and alert, Check Convention in a Standard, step-title validator); weaknesses W30 to W37 (parallel test suites, blocking-hook timeouts, merge danger in the Pull Request, active Employees per machine, issues not closed by a develop merge, worktree hooks, Work Unit existence in commit-msg, Windows drift check at session start); section 3.4 maps peer ideas K1 to K5 to issues 350 to 353
     milestone: Adoption
-    delivers: planned - AMELIORATION.md, changelog.d/WU-IAENG-413.md, Registry/work-units.yml
+    delivers: AMELIORATION.md, changelog.d/WU-IAENG-413.md, Registry/work-units.yml
 
   - id: WU-IAENG-414
     employee: Platform Engineer
@@ -1748,15 +1748,15 @@ work_units:
 
   - id: WU-IAENG-416
     employee: Technical Lead
-    title: Reserved 28 Oct 2026 before dispatch (WU-IAENG-420) - the Prompt Engineer review covers Templates/EMPLOYEE_BRIEF.md and generate-agents.sh (issue #206, Director 28 Oct 2026, not Workflows/; part of issue #221) - the mandatory Prompt Engineer review, today on Employees/ and any Core/*.md document, extends to Templates/EMPLOYEE_BRIEF.md and to the text Adapters/ai-runtimes/generate-agents.sh writes around every Employee definition, and Workflows/ documents stay outside it; the Core/EMPLOYEE_SELECTION.md trigger, Workflows/CODE_REVIEW.md and Registry/workflows.yml change together, and the Core text needs the Director's approval
+    title: The Prompt Engineer review covers Templates/EMPLOYEE_BRIEF.md and generate-agents.sh (issue #206, Director 28 Oct 2026, not Workflows/; part of issue #221) - Workflows/CODE_REVIEW.md (0.0.13) Step 4 holds the single list of files whose change, deletion or rename needs the Prompt Engineer's approval, an Employee definition, any Core/*.md document, Templates/EMPLOYEE_BRIEF.md and Adapters/ai-runtimes/generate-agents.sh as a whole, with the provenance of each; the Actors table, the Step 4 Output, the Multi-Lens Review table and the Exit Criteria refer to that list, and the Code Review blocking condition in Registry/workflows.yml refers to Step 4; Workflows/ documents stay outside it; Workflows/CODE_REVIEW.md and Registry/workflows.yml change together; Core/EMPLOYEE_SELECTION.md is unchanged (Director, 29 Oct 2026, option A)
     milestone: Adoption
-    delivers: planned - Core/EMPLOYEE_SELECTION.md, Workflows/CODE_REVIEW.md, Registry/workflows.yml, changelog.d/WU-IAENG-416.md, Registry/work-units.yml
+    delivers: Workflows/CODE_REVIEW.md, Registry/workflows.yml, changelog.d/WU-IAENG-416.md, Registry/work-units.yml
 
   - id: WU-IAENG-417
     employee: Technical Writer
-    title: Reserved 28 Oct 2026 before dispatch (WU-IAENG-420) - adopter README gains a project tier-map step, and the 28 Oct 2026 rehearsal's doc Minors are fixed (issue #365) - Getting Started shows generate-agents.sh --print-tier-map, the project's .ia-engineering/tier-map and which model suits which task (Haiku, Sonnet, Opus, Fable), since Standard Execution otherwise generates Sonnet agents; the doc Minors are install-skills.sh adding /dashboard too, the bash and jq prerequisites, the Risk Map's eight categories to complete, FEATURE_DEVELOPMENT Step 4 citing VERSION.md to an adopter, the signer of the project CLAUDE.md commit, and submodule update before install.sh in a fresh clone
+    title: Adopter README gains a project tier-map step, and the 28 Oct 2026 rehearsal's doc Minors are fixed (issue #365, reserved by WU-IAENG-420) - Getting Started's Which model runs which task step maps each tier to a model per task (Director decision, 28 Oct 2026 - haiku Lightweight, sonnet Standard, opus Strategic, fable Frontier) in the project's .ia-engineering/tier-map, says that without it the generator's defaults apply and nobody chose them, and checks it with generate-agents.sh --print-tier-map; the doc Minors fixed are install-skills.sh adding /dashboard too, the git, bash, jq and gh prerequisites, the Windows .gitmodules CRLF warning, completing the Risk Map's eight categories early, Workflows/FEATURE_DEVELOPMENT.md (0.0.16) Step 4 giving an adopter its milestone, and Templates/PROJECT_CLAUDE.md (0.0.14) fetching the submodule before install.sh in a fresh clone; the signer of the project CLAUDE.md commit needs a decision and moved to issue #379
     milestone: Adoption
-    delivers: planned - README.md, Workflows/FEATURE_DEVELOPMENT.md, Workflows/ONBOARDING.md, Templates/PROJECT_CLAUDE.md, changelog.d/WU-IAENG-417.md, Registry/work-units.yml
+    delivers: README.md, Workflows/FEATURE_DEVELOPMENT.md, Templates/PROJECT_CLAUDE.md, changelog.d/WU-IAENG-417.md, Registry/work-units.yml
 
   - id: WU-IAENG-418
     employee: Platform Engineer
@@ -1769,3 +1769,15 @@ work_units:
     title: Reserve Work Units 414 to 418 before dispatch (Workflows/FEATURE_DEVELOPMENT.md Step 4, precedent WU-IAENG-381, WU-IAENG-393, WU-IAENG-398, WU-IAENG-402 and WU-IAENG-408) - the five Work Units of issues #368, #364, #206 with #221, #365 and #366 registered in one bookkeeping Pull Request, so each Work Unit's own Pull Request edits only its own entry; the v0.0.15 release Work Unit is not reserved, because release.sh check runs at Step 1 before the bump and would fail on it, so the bump Pull Request registers its own as #250 did for WU-IAENG-345; this Work Unit's own fragment is an exemption
     milestone: Adoption
     delivers: Registry/work-units.yml, changelog.d/WU-IAENG-420.md
+
+  - id: WU-IAENG-421
+    employee: Platform Engineer
+    title: Reserved 30 Oct 2026 before dispatch (WU-IAENG-422) - status line redesign, context tokens used/total, 5h and weekly quotas with reset and projected-cap times, thresholds shared with the context alert, and the chained HUD replaced in a project by a local opt-in file (issue #390, Director decisions 29 Oct 2026) - context-statusline.sh shows the context as tokens used out of the window's total, the 5-hour and weekly quotas as a percentage only (they have no token budget) with their reset and projected-cap times always shown, and colours at the thresholds the context alert uses; when the gitignored file .ia-engineering/statusline-own exists the script prints its own line instead of the user's chained statusLine, deleting the file restores it, and ~/.claude/settings.json is never touched
+    milestone: Adoption
+    delivers: planned - Adapters/ai-runtimes/claude-code/hooks/context-statusline.sh, Adapters/ai-runtimes/claude-code/hooks/context-alert.sh, Adapters/ai-runtimes/claude-code/hooks/tests/context-statusline.sh, Adapters/ai-runtimes/claude-code/hooks/tests/context-alert.sh, Adapters/ai-runtimes/claude-code/hooks/README.md, changelog.d/WU-IAENG-421.md, Registry/work-units.yml
+
+  - id: WU-IAENG-422
+    employee: Technical Writer
+    title: Reserve Work Unit 421 before dispatch (Workflows/FEATURE_DEVELOPMENT.md Step 4, precedent WU-IAENG-381, WU-IAENG-393, WU-IAENG-398, WU-IAENG-402, WU-IAENG-408 and WU-IAENG-420) - the Work Unit of issue #390 registered in one bookkeeping Pull Request, so its own Pull Request edits only its own entry; this Work Unit's own fragment is an exemption
+    milestone: Adoption
+    delivers: Registry/work-units.yml, changelog.d/WU-IAENG-422.md
