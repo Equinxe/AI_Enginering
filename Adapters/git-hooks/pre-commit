@@ -25,6 +25,10 @@
 # .ia-engineering/data-policy.allow.
 
 set -euo pipefail
+# SIGPIPE ignored (#397, SEC-IAENG-414-05): see commit-msg. The setting is
+# inherited across the exec below, so the scanner's refusal survives a closed
+# pipe too.
+trap '' PIPE
 
 # --- Locate the scanner ------------------------------------------------------
 # In order: next to this hook (the core.hooksPath install, where the hook runs
