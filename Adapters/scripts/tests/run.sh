@@ -8230,6 +8230,90 @@ else
 fi
 git switch -q main
 
+# --- #397 on any bash: each hook run directly, behind a closed pipe ---------
+# Through git, only Git for Windows turned a SIGPIPE death into exit 0, so the
+# closed-pipe cases above pass on Linux with or without the fix. Run directly,
+# the hook's own status tells them apart on any bash (QA, T-414-02): killed by
+# SIGPIPE it is 141; ignoring SIGPIPE, its failed write leaves its refusal,
+# exit 1. The reader (`true`) has exited before the hook starts: the hook
+# runs after a one-second sleep. SIGPIPE is set back to its default for the
+# hook where `env --default-signal` exists, so a caller that ignores it
+# cannot make the case pass without the hook's own trap.
+HOOKS_414b="$SCRIPTS/../git-hooks"
+DEFSIG_414b=()
+if env --default-signal=PIPE true >/dev/null 2>&1; then DEFSIG_414b=(env --default-signal=PIPE); fi
+# closed_pipe_rc_414b <command...> — the command's stdout and stderr go into a
+# pipe whose reader has exited; RC_414b is the command's exit status.
+closed_pipe_rc_414b() {
+  local rcf="$WORK/r3-414b-rc"
+  rm -f "$rcf"
+  { sleep 1; ${DEFSIG_414b[@]+"${DEFSIG_414b[@]}"} "$@"; echo "$?" > "$rcf"; } 2>&1 | true
+  RC_414b="$(cat "$rcf" 2>/dev/null)"
+}
+# rc_is_414b <want> <description>
+rc_is_414b() {
+  TOTAL=$((TOTAL + 1))
+  if [ "$RC_414b" = "$1" ]; then
+    [ -n "$VERBOSE" ] && printf '   ok   %s\n' "$2"
+    return 0
+  fi
+  printf '   FAIL %s: exit %s, expected %s\n' "$2" "${RC_414b:-none}" "$1"
+  FAILED=$((FAILED + 1))
+  return 1
+}
+
+# pre-commit's OWN refusal (PR #387 review, round 3). The staged-document
+# cases are refused by the scanner, which ignores SIGPIPE itself, so they
+# pass without pre-commit's trap. pre-commit refuses on its own when it
+# cannot locate the scanner: moved aside here, in this adopter's framework
+# copy, the way the guards below move git-hooks.
+cd "$MAIN_414b" || exit 1
+mv ia-engineering/Adapters/scripts/data-policy-scan.sh "$WORK/r3-414b-scanner-moved"
+echo own > own-414b.txt
+git add own-414b.txt
+H1_414b="$(git rev-parse HEAD)"
+MSG_OWN_414b="chore(x): a commit with no scanner
+
+Employee: DevOps Engineer"
+expect 1 "pre-commit cannot locate the scanner: the commit is refused" -- env -u IAENG_FRAMEWORK git commit -q -m "$MSG_OWN_414b"
+expect_output "pre-commit: rejected — cannot locate Adapters/scripts/data-policy-scan.sh."
+env -u IAENG_FRAMEWORK git commit -q -m "$MSG_OWN_414b" 2>&1 | head -n 0
+head_is_414b "$H1_414b" "pre-commit's own refusal behind | head -n 0: HEAD does not move (#397)"
+closed_pipe_rc_414b env -u IAENG_FRAMEWORK ia-engineering/Adapters/git-hooks/pre-commit
+rc_is_414b 1 "pre-commit's own refusal, run directly behind a closed pipe: exit 1, not a SIGPIPE death (141)"
+mv "$WORK/r3-414b-scanner-moved" ia-engineering/Adapters/scripts/data-policy-scan.sh
+git reset -q
+rm -f own-414b.txt
+
+new_repo r3-414b-direct
+write_employee_roster "DevOps Engineer"
+git add -A && git commit -q -m "chore(x): a roster"
+printf 'chore(x): a tool label\n\nEmployee: Claude\n' > "$WORK/r3-414b-msg"
+closed_pipe_rc_414b "$HOOKS_414b/commit-msg" "$WORK/r3-414b-msg"
+rc_is_414b 1 "commit-msg run directly behind a closed pipe refuses with exit 1, not a SIGPIPE death (141)"
+# commit-msg's merge warning (PR #387 review, round 3). When it cannot
+# classify a merge (git merge-tree fails), commit-msg warns and leaves the
+# merge to CI. Behind a closed pipe the warning's write fails, and under
+# set -e that must not turn the warning into a refusal. MERGE_HEAD names an
+# object that does not exist, so merge-tree fails.
+printf '%s\n' 0123456789abcdef0123456789abcdef01234567 > .git/MERGE_HEAD
+printf 'Merge branch x\n' > "$WORK/r3-414b-merge-msg"
+expect 0 "an unclassifiable merge: commit-msg warns and lets it through to CI" -- "$HOOKS_414b/commit-msg" "$WORK/r3-414b-merge-msg"
+expect_output "commit-msg: warning — cannot classify this merge locally; CI will."
+closed_pipe_rc_414b "$HOOKS_414b/commit-msg" "$WORK/r3-414b-merge-msg"
+rc_is_414b 0 "an unclassifiable merge, run directly behind a closed pipe: still let through (exit 0), its warning is no refusal"
+rm -f .git/MERGE_HEAD
+printf 'probe\n' > d-414b.xlsx
+git add d-414b.xlsx
+closed_pipe_rc_414b "$HOOKS_414b/pre-commit"
+rc_is_414b 1 "pre-commit run directly behind a closed pipe refuses a staged document with exit 1, not 141"
+git rm -q --cached d-414b.xlsx
+rm -f d-414b.xlsx
+printf 'refs/heads/develop %s refs/heads/develop %s\n' \
+  1111111111111111111111111111111111111111 2222222222222222222222222222222222222222 > "$WORK/r3-414b-push"
+closed_pipe_rc_414b "$HOOKS_414b/pre-push" origin "file:///nowhere" < "$WORK/r3-414b-push"
+rc_is_414b 1 "pre-push run directly behind a closed pipe refuses a push to develop with exit 1, not 141"
+
 # --- layout (a): the adopter is itself a submodule of a superproject --------
 # Its git dir is absorbed into <super>/.git/modules/app and core.worktree names
 # the working tree; `git worktree list` names the git dir.
@@ -8302,65 +8386,24 @@ git worktree add -q "$PROJ_414b/feat" -b feature/c >/dev/null 2>&1
 cd "$PROJ_414b/feat" || exit 1
 layout_commits_414b "a bare repository in <project>/.git, other worktree, framework not initialised"
 
-# --- #397 on any bash: each hook run directly, behind a closed pipe ---------
-# Through git, only Git for Windows turned a SIGPIPE death into exit 0, so the
-# closed-pipe cases above pass on Linux with or without the fix. Run directly,
-# the hook's own status tells them apart on any bash (QA, T-414-02): killed by
-# SIGPIPE it is 141; ignoring SIGPIPE, its failed write leaves its refusal,
-# exit 1. The reader (`true`) has exited before the hook starts: the hook
-# runs after a one-second sleep. SIGPIPE is set back to its default for the
-# hook where `env --default-signal` exists, so a caller that ignores it
-# cannot make the case pass without the hook's own trap.
-HOOKS_414b="$SCRIPTS/../git-hooks"
-DEFSIG_414b=()
-if env --default-signal=PIPE true >/dev/null 2>&1; then DEFSIG_414b=(env --default-signal=PIPE); fi
-# closed_pipe_rc_414b <command...> — the command's stdout and stderr go into a
-# pipe whose reader has exited; RC_414b is the command's exit status.
-closed_pipe_rc_414b() {
-  local rcf="$WORK/r3-414b-rc"
-  rm -f "$rcf"
-  { sleep 1; ${DEFSIG_414b[@]+"${DEFSIG_414b[@]}"} "$@"; echo "$?" > "$rcf"; } 2>&1 | true
-  RC_414b="$(cat "$rcf" 2>/dev/null)"
-}
-# rc_is_414b <want> <description>
-rc_is_414b() {
-  TOTAL=$((TOTAL + 1))
-  if [ "$RC_414b" = "$1" ]; then
-    [ -n "$VERBOSE" ] && printf '   ok   %s\n' "$2"
-    return 0
-  fi
-  printf '   FAIL %s: exit %s, expected %s\n' "$2" "${RC_414b:-none}" "$1"
-  FAILED=$((FAILED + 1))
-  return 1
-}
-new_repo r3-414b-direct
-write_employee_roster "DevOps Engineer"
-git add -A && git commit -q -m "chore(x): a roster"
-printf 'chore(x): a tool label\n\nEmployee: Claude\n' > "$WORK/r3-414b-msg"
-closed_pipe_rc_414b "$HOOKS_414b/commit-msg" "$WORK/r3-414b-msg"
-rc_is_414b 1 "commit-msg run directly behind a closed pipe refuses with exit 1, not a SIGPIPE death (141)"
-printf 'probe\n' > d-414b.xlsx
-git add d-414b.xlsx
-closed_pipe_rc_414b "$HOOKS_414b/pre-commit"
-rc_is_414b 1 "pre-commit run directly behind a closed pipe refuses a staged document with exit 1, not 141"
-git rm -q --cached d-414b.xlsx
-rm -f d-414b.xlsx
-printf 'refs/heads/develop %s refs/heads/develop %s\n' \
-  1111111111111111111111111111111111111111 2222222222222222222222222222222222222222 > "$WORK/r3-414b-push"
-closed_pipe_rc_414b "$HOOKS_414b/pre-push" origin "file:///nowhere" < "$WORK/r3-414b-push"
-rc_is_414b 1 "pre-push run directly behind a closed pipe refuses a push to develop with exit 1, not 141"
-
 # --- the guards: no main working tree, no hooks directory, the main working
 # tree not initialised, project hooks in the common hooks/ -------------------
-# git that names no main working tree: --path-format fails, as on a git older
-# than 2.31. The fault names that cause, and nothing is written.
+# A git older than 2.31 does not know --path-format. Like any rev-parse
+# option it does not know, it prints the option back, answers the rest in
+# relative form (.git, .git, then the top level) and exits 0: it does not
+# fail. The shim answers exactly so (PR #387 review, round 3: an exit-128
+# shim never reached the absoluteness check). The fault names that cause,
+# and nothing is written.
 SHIM_414b="$WORK/git-shim-414b"
 mkdir -p "$SHIM_414b"
 REAL_GIT_414b="$(command -v git)"
 cat > "$SHIM_414b/git" <<EOF
 #!/usr/bin/env bash
-for a in "\$@"; do [ "\$a" = --path-format=absolute ] && exit 128; done
-exec "$REAL_GIT_414b" "\$@"
+args=()
+for a in "\$@"; do
+  if [ "\$a" = --path-format=absolute ]; then printf '%s\n' "\$a"; else args+=("\$a"); fi
+done
+exec "$REAL_GIT_414b" "\${args[@]}"
 EOF
 chmod +x "$SHIM_414b/git"
 adopter_353 r2-414b-noroot

@@ -80,11 +80,13 @@
 # result shows its denominator rather than just an exit status.
 
 set -uo pipefail
-# SIGPIPE ignored (#397, SEC-IAENG-414-05). The pre-commit hook execs this
-# scanner, and with its output going to a closed pipe (`git commit … 2>&1 |
-# head -n 0`) a SIGPIPE death read as exit 0 under Git for Windows, so a staged
-# document was committed. Ignored, a failed write is only a failed write, and
-# the explicit exit 1 (findings) or exit 0 (clean) at the end decides.
+# SIGPIPE ignored (#397, SEC-IAENG-414-05): defence in depth, not the guard.
+# On the hook path the guard is pre-commit's own trap. A signal ignored there
+# stays ignored across its exec of this scanner, so this line changes nothing
+# for a commit (an equivalent mutant there, PR #387 review). It acts when the
+# scanner is run any other way: with its output going to a closed pipe, a
+# failed write is only a failed write, and the explicit exit 1 (findings) or
+# exit 0 (clean) at the end decides.
 trap '' PIPE
 export LC_ALL=C
 

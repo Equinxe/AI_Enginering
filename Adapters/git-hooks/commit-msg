@@ -104,7 +104,9 @@ if [ -f "$MERGE_HEAD_PATH" ]; then
     fi
   fi
   if [ "$MERGE_KIND" = unknown ]; then
-    echo "commit-msg: warning — cannot classify this merge locally; CI will." >&2
+    # A warning, not a refusal: behind a closed pipe its write fails, and
+    # set -e must not turn it into one (PR #387 review, round 3).
+    echo "commit-msg: warning — cannot classify this merge locally; CI will." >&2 || true
     exit 0
   fi
 fi
