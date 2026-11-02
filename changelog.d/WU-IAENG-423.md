@@ -1,0 +1,1 @@
+No changelog entry: bookkeeping only, moves eight undelivered Work Units from Adoption to the Usage milestone in the registry (Director decision, 30 Oct 2026) and changes no behaviour or document a reader relies on

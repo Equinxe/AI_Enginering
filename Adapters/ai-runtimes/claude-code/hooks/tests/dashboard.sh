@@ -432,6 +432,88 @@ jq '.hooks.SessionStart[0].matcher = "startup"' "$T/rendered.json" | tr -d '\r' 
 inst
 if [ "$INST_RC" -eq 0 ] && [ "$(ss_groups | tr '\n' ' ')" = "startup#1 $SS_NEW#1 " ] && ! grep -q "updated: " "$T/inst.out"; then ok "#373: a matcher that was never the framework's (startup) — not rewritten, the current entry added"; else bad "#373: a matcher that was never the framework's (startup) — not rewritten, the current entry added" "groups: $(ss_groups | tr '\n' ' ')"; fi
 
+# THE GUARDS' NEW FIELDS ARE ADDED IN PLACE, NOT DOUBLED (WU-IAENG-410).
+# The template gives both PreToolUse guards a timeout and "onFailure":
+# "block", so a guard that times out, cannot start or exits other than 0 or
+# 2 blocks the call instead of letting it through. An adopter whose file
+# holds the framework's earlier guard entry, exactly (the template's without
+# those two fields), gets them in place: appending the current entry beside
+# it would run each guard twice per call, doubling the processes that are
+# the guards' latency (Governance/BLOCKING_HOOK_LATENCY_MEASUREMENT.md).
+# Anything else under the guards' matchers is the project's, left as it is.
+G_BASH='Bash'
+G_EDIT='Edit|Write|MultiEdit'
+TPL_GUARDS="$(jq -r '[.hooks.PreToolUse[] | select(.matcher == "Bash" or .matcher == "Edit|Write|MultiEdit") | .hooks[0]
+                      | select((.timeout | type) == "number" and .timeout >= 1 and .timeout < 600 and .onFailure == "block")] | length' "$TPL" | tr -d '\r')"
+check "#410: template — both guards carry \"onFailure\": \"block\" and a timeout under the 600 s default" [ "$TPL_GUARDS" = 2 ]
+check "#410: template — no Stop entry carries onFailure (it has no effect on Stop)" \
+  [ "$(jq -r '[.hooks.Stop[].hooks[] | select(has("onFailure"))] | length' "$TPL" | tr -d '\r')" = 0 ]
+# guard_groups — the PreToolUse groups of $SET, as "matcher#entries#timeout#onFailure" lines.
+guard_groups() { jq -r '.hooks.PreToolUse[] | "\(.matcher // "")#\(.hooks | length)#\(.hooks[0].timeout // "-")#\(.hooks[0].onFailure // "-")"' "$SET" | tr -d '\r'; }
+G_TO="$(jq -r '.hooks.PreToolUse[] | select(.matcher == "Bash") | .hooks[0].timeout' "$TPL" | tr -d '\r')"
+G_CUR="$G_BASH#1#$G_TO#block $G_EDIT#1#$G_TO#block"
+# The earlier file: the guards without the two fields, the project's own entries kept.
+jq '.hooks.PreToolUse |= map(if .matcher == "Bash" or .matcher == "Edit|Write|MultiEdit" then .hooks[0] |= del(.timeout, .onFailure) else . end)
+    | .hooks.PreToolUse += [{"matcher":"Read","hooks":[{"type":"command","command":"bash ./tools/my-own-hook.sh"}]}]
+    | .env = {"FOO":"1"}' "$T/rendered.json" | tr -d '\r' > "$SET"
+inst --check
+if [ "$INST_RC" -eq 3 ] \
+    && grep -qF "hook	absent	.claude/settings.json	PreToolUse [$G_BASH]: block-escape-hatches.sh  (a run updates the framework's earlier entry without timeout, onFailure in place)" "$T/inst.out" \
+    && grep -qF "hook	absent	.claude/settings.json	PreToolUse [$G_EDIT]: block-inline-suppression.sh  (a run updates the framework's earlier entry without timeout, onFailure in place)" "$T/inst.out" \
+    && ! grep -q "near-miss" "$T/inst.out"; then
+  ok "#410: --check on the earlier guards — drift (exit 3), both named for an in-place update, no near miss"
+else
+  bad "#410: --check on the earlier guards — drift (exit 3), both named for an in-place update, no near miss" "rc=$INST_RC $(cat "$T/inst.out")"
+fi
+inst
+if [ "$INST_RC" -eq 0 ] && [ "$(guard_groups | tr '\n' ' ')" = "$G_CUR Read#1#-#- " ]; then ok "#410: the earlier guards — upgraded in place: one group each, with the timeout and onFailure, the project's own kept"; else bad "#410: the earlier guards — upgraded in place: one group each, with the timeout and onFailure, the project's own kept" "rc=$INST_RC groups: $(guard_groups | tr '\n' ' ')"; fi
+if grep -qF "updated: PreToolUse [$G_BASH]: block-escape-hatches.sh  (added: timeout, onFailure)" "$T/inst.out" \
+    && grep -qF "updated: PreToolUse [$G_EDIT]: block-inline-suppression.sh  (added: timeout, onFailure)" "$T/inst.out" \
+    && ! grep -q "^ *added: " "$T/inst.out" && [ ! -s "$T/inst.err" ]; then
+  ok "#410: ... reported as updated, nothing added, no near-miss warning"
+else
+  bad "#410: ... reported as updated, nothing added, no near-miss warning" "$(cat "$T/inst.out" "$T/inst.err")"
+fi
+if [ "$(jq -S '.hooks.PreToolUse += [{"matcher":"Read","hooks":[{"type":"command","command":"bash ./tools/my-own-hook.sh"}]}] | .env = {"FOO":"1"}' "$T/rendered.json" | tr -d '\r')" = "$(jq -S . "$SET" | tr -d '\r')" ]; then ok "#410: ... the two fields are the only change"; else bad "#410: ... the two fields are the only change"; fi
+cp "$SET" "$T/g-upgraded.json"
+inst
+if [ "$INST_RC" -eq 0 ] && grep -q "present exactly" "$T/inst.out" && cmp -s "$SET" "$T/g-upgraded.json"; then ok "#410: re-run after the upgrade — present exactly, byte-identical"; else bad "#410: re-run after the upgrade — present exactly, byte-identical" "$(cat "$T/inst.out")"; fi
+# The project directory spelled ${CLAUDE_PROJECT_DIR}: still the earlier entry, its spelling kept.
+jq '.hooks.PreToolUse |= map(if .matcher == "Bash" then .hooks[0] |= (del(.timeout, .onFailure) | .command |= gsub("[$]CLAUDE_PROJECT_DIR"; "${CLAUDE_PROJECT_DIR}")) else . end)' \
+  "$T/rendered.json" | tr -d '\r' > "$SET"
+inst
+if [ "$INST_RC" -eq 0 ] && [ "$(guard_groups | tr '\n' ' ')" = "$G_CUR " ] \
+    && jq -e '.hooks.PreToolUse[] | select(.matcher == "Bash") | .hooks[0].command | contains("${CLAUDE_PROJECT_DIR}")' "$SET" >/dev/null; then
+  ok "#410: the earlier guard with \${CLAUDE_PROJECT_DIR} — upgraded in place, its spelling kept"
+else
+  bad "#410: the earlier guard with \${CLAUDE_PROJECT_DIR} — upgraded in place, its spelling kept" "groups: $(guard_groups | tr '\n' ' ')"
+fi
+# Not the framework's exact earlier entry: never rewritten. The current entry
+# is added beside it and the other one is reported, as for any near miss.
+# (a) a timeout of its own; (b) "onFailure": "continue", the failure let through.
+for g_case in '.timeout = 1' '.onFailure = "continue"'; do
+  jq --arg m "$G_BASH" '.hooks.PreToolUse |= map(if .matcher == $m then .hooks[0] |= del(.timeout, .onFailure) else . end)' "$T/rendered.json" \
+    | jq ".hooks.PreToolUse |= map(if .matcher == \"Bash\" then .hooks[0] |= ($g_case) else . end)" | tr -d '\r' > "$SET"
+  inst
+  if [ "$INST_RC" -eq 0 ] && [ "$(guard_groups | grep -c "^$G_BASH#")" = 2 ] && [ "$(guard_groups | grep -c "^$G_BASH#1#$G_TO#block$")" = 1 ] \
+      && grep -qF "PreToolUse [$G_BASH]: " "$T/inst.err" && ! grep -q "updated: " "$T/inst.out"; then
+    ok "#410: the earlier guard with $g_case — kept as it is, the current entry added beside it, near miss reported"
+  else
+    bad "#410: the earlier guard with $g_case — kept as it is, the current entry added beside it, near miss reported" "groups: $(guard_groups | tr '\n' ' ') err: $(head -c 300 "$T/inst.err")"
+  fi
+done
+# (c) the earlier guard group also holding the project's own hook.
+jq '.hooks.PreToolUse |= map(if .matcher == "Bash" then (.hooks[0] |= del(.timeout, .onFailure)) | .hooks += [{"type":"command","command":"bash ./tools/my-bash-hook.sh"}] else . end)' \
+  "$T/rendered.json" | tr -d '\r' > "$SET"
+inst
+if [ "$INST_RC" -eq 0 ] && [ "$(guard_groups | grep -c "^$G_BASH#2#-#-$")" = 1 ] && [ "$(guard_groups | grep -c "^$G_BASH#1#$G_TO#block$")" = 1 ] && grep -qF "PreToolUse [$G_BASH]: " "$T/inst.err"; then ok "#410: the earlier guard with the project's own hook in its group — the group kept as it is, the current entry added, near miss reported"; else bad "#410: the earlier guard with the project's own hook in its group — the group kept as it is, the current entry added, near miss reported" "groups: $(guard_groups | tr '\n' ' ')"; fi
+# (d) the earlier guard AND the current one: nothing duplicated, nothing removed.
+jq '.hooks.PreToolUse = [(.hooks.PreToolUse[] | select(.matcher == "Bash") | .hooks[0] |= del(.timeout, .onFailure))] + .hooks.PreToolUse' \
+  "$T/rendered.json" | tr -d '\r' > "$SET"
+cp "$SET" "$T/g-both.json"
+inst
+if [ "$INST_RC" -eq 0 ] && cmp -s "$SET" "$T/g-both.json" && grep -qF "PreToolUse [$G_BASH]: " "$T/inst.err"; then ok "#410: the earlier guard beside the current one — the file left byte-identical (no second current group), near miss reported"; else bad "#410: the earlier guard beside the current one — the file left byte-identical (no second current group), near miss reported" "groups: $(guard_groups | tr '\n' ' ') out: $(cat "$T/inst.out")"; fi
+
 # PRESENCE IS EXACT (PR #239 security review, F1). The template commands:
 TPL_ESC="$(jq -r '.hooks.PreToolUse[] | select(.matcher == "Bash") | .hooks[0].command' "$T/rendered.json" | tr -d '\r')"
 TPL_SUP="$(jq -r '.hooks.PreToolUse[] | select(.matcher == "Edit|Write|MultiEdit") | .hooks[0].command' "$T/rendered.json" | tr -d '\r')"

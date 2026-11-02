@@ -99,7 +99,7 @@ What the tooling requires of it, exactly:
 
 | Consumer | Reads | For |
 |---|---|---|
-| `Adapters/git-hooks/commit-msg` | `employees.yml`, project roster | Validating the `Employee:` trailer against the real roster, extended by the project's Domain Employees |
+| `Adapters/git-hooks/commit-msg` | `employees.yml`, project roster, and `work-units.yml` as staged — the PROJECT's own in a consuming project, through `Adapters/scripts/check-work-units.sh --message` | Validating the `Employee:` trailer against the real roster, extended by the project's Domain Employees; resolving a `Work Unit:` trailer before the commit exists |
 | `Adapters/github-actions/pr-validation.yml` | `employees.yml` (the framework's roster, by design), project roster, and `work-units.yml` — the PROJECT's own in a consuming project, never the framework's | Server-side trailer re-validation; Work Unit existence |
 | `Adapters/scripts/validate-framework.sh` | all four | Drift detection across every derived location |
 | `Adapters/ai-runtimes/generate-agents.sh` | `employees.yml`, project roster | Generating runtime agent definitions from Employee definitions, framework and Domain alike |
