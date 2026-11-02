@@ -125,8 +125,8 @@ Adapters/      — Tool integrations
 
 # Current Version
 
-v0.0.14 — Precision
+v0.0.15 — Adoption
 
-The framework made exact and usable: every front-facing surface audited and guarded against drift, the controls that grade a Pull Request hardened by adversarial exercises, and the newcomer path dogfooded on real adoptions. See `CHANGELOG.md` and `Governance/VERSIONING_POLICY.md`.
+The framework prepared for a project other than its own: an adopting project sees its drift from the framework at every session start, the adoption rehearsal's Blocker and Majors are fixed, and the context and guard hooks hold under parallel agents. See `CHANGELOG.md` and `Governance/VERSIONING_POLICY.md`.
 
-Next: **Adoption**, targeting v0.0.15.
+Next: **Usage**, targeting v0.0.16.

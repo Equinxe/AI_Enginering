@@ -1787,3 +1787,9 @@ work_units:
     title: Defer Work Units 395, 396, 397, 404, 405, 406, 407 and 421 from Adoption to the next milestone, Usage (Director decision, 30 Oct 2026; Workflows/FEATURE_DEVELOPMENT.md Step 4, a reserved Work Unit not delivered by the release is moved to a later milestone) - none of the eight is delivered on develop, so release.sh check condition 1 would refuse v0.0.15 while they are registered against Adoption; only their milestone field changes, and none of them gets a changelog fragment here, because each brings its own with its Pull Request; with Adoption and Usage both unreleased, release.sh check derives no milestone and is run with --milestone Adoption; this Work Unit's own fragment is an exemption
     milestone: Adoption
     delivers: Registry/work-units.yml, changelog.d/WU-IAENG-423.md
+
+  - id: WU-IAENG-424
+    employee: Release Manager
+    title: Bump VERSION.md to v0.0.15 and finalize the CHANGELOG.md section for the Adoption release (Workflows/RELEASE.md Step 2) - the changelog fragments assembled by release.sh assemble, the 30 Oct 2026 release-readiness audit's editorial fixes (one ordered upgrade procedure, version-scoped Security and Fixed lines, document versions, the known issues), README pin and measured counts, CLAUDE.md Current Version, next milestone Usage (v0.0.16); this Work Unit's own fragment is an exemption
+    milestone: Adoption
+    delivers: VERSION.md, CHANGELOG.md, README.md, CLAUDE.md, Registry/work-units.yml, changelog.d/
