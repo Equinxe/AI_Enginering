@@ -1742,9 +1742,9 @@ work_units:
 
   - id: WU-IAENG-415
     employee: Platform Engineer
-    title: Reserved 28 Oct 2026 before dispatch (WU-IAENG-420) - commit-msg checks that the Work Unit exists, as the README says (issue #364, 28 Oct 2026 adoption rehearsal Major) - the local commit-msg hook checks only the Work Unit line's format and count, so an unregistered Work Unit passes locally and, on the adoption commit pushed straight to main, is never seen by the Work Unit Exists CI check; commit-msg resolves it against the project's Registry/work-units.yml as staged in the index when that file exists, and README.md Contributing says what the hooks do
+    title: commit-msg checks that the Work Unit exists, as the README says (issue #364, 28 Oct 2026 adoption rehearsal Major) - the hook only counted the Work Unit lines, so an unregistered Work Unit passed locally and, on the adoption commit pushed straight to main, was never seen by the Work Unit Exists CI check; the hook now hands a present claim to check-work-units.sh --message, the same rule, against the project's Registry/work-units.yml as staged in the index, and refuses a claim it cannot evaluate (no registry, an unstaged or unreadable one, the script not found); a message with no Work Unit line still passes and only CI requires one; README.md, Workflows/PROJECT_BOOTSTRAP.md Step 4, Standards/COMMIT_STANDARD.md, Adapters/README.md and Registry/README.md say what each layer enforces
     milestone: Adoption
-    delivers: planned - Adapters/git-hooks/commit-msg, Adapters/scripts/check-work-units.sh, Adapters/scripts/tests/run.sh, README.md, changelog.d/WU-IAENG-415.md, Registry/work-units.yml
+    delivers: Adapters/git-hooks/commit-msg, Adapters/scripts/check-work-units.sh, Adapters/scripts/tests/run.sh, README.md, Workflows/PROJECT_BOOTSTRAP.md, Standards/COMMIT_STANDARD.md, Adapters/README.md, Registry/README.md, changelog.d/WU-IAENG-415.md, Registry/work-units.yml
 
   - id: WU-IAENG-416
     employee: Technical Lead

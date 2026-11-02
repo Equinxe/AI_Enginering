@@ -1,12 +1,19 @@
 #!/usr/bin/env bash
 # IA Engineering — commit-msg hook
 #
-# Enforces two rules mechanically instead of relying on the AI reading and
+# Enforces these rules mechanically instead of relying on the AI reading and
 # choosing to follow them:
 #   1. Standards/COMMIT_STANDARD.md — Conventional Commits subject line.
 #   2. Core/MAIN_AGENT_CONDUCT.md (Dispatch Discipline) — every commit must
 #      identify the Employee who produced it, by name, not by a generic tool
 #      label ("executor", "coder", etc.).
+#   3. Standards/COMMIT_STANDARD.md (Trailers) — at most one `Work Unit:` line,
+#      and (4) the one present names a Work Unit registered in the project's
+#      Registry/work-units.yml as staged, resolved by
+#      Adapters/scripts/check-work-units.sh --message (WU-IAENG-415).
+#
+# A message with no `Work Unit:` line passes this hook; the Work Unit Exists
+# CI check (check-work-units.sh over the Pull Request) is what requires one.
 #
 # The Employee roster is read from Registry/employees.yml — the single source
 # of truth (see Registry/README.md). Before WU-IAENG-138 this hook carried its
@@ -19,6 +26,8 @@
 # or, to install this hook alone:
 #   cp ia-engineering/Adapters/git-hooks/commit-msg .git/hooks/commit-msg
 #   chmod +x .git/hooks/commit-msg
+# A copy resolves a Work Unit claim only with IAENG_FRAMEWORK set to the
+# framework root: the hook never runs a script from the working tree (Rule 4).
 #
 # Commit message format expected:
 #
@@ -104,8 +113,12 @@ if [ "$IS_MERGE" -eq 0 ] && ! grep -qE "$CC_REGEX" <<< "$SUBJECT"; then
   exit 1
 fi
 
-# A clean merge carrying no Employee claim has nothing left to check.
-if [ "$MERGE_KIND" = clean ] && ! grep -qE '^Employee: ' "$COMMIT_MSG_FILE"; then
+# A clean merge carrying no claim, neither Employee nor Work Unit, has nothing
+# left to check. A claim it does carry is validated (Rule 4 for a Work Unit),
+# as the CI checks validate a claim present on any merge.
+if [ "$MERGE_KIND" = clean ] \
+   && ! grep -qE '^Employee: ' "$COMMIT_MSG_FILE" \
+   && ! grep -qE '^Work Unit: ' "$COMMIT_MSG_FILE"; then
   exit 0
 fi
 
@@ -254,7 +267,75 @@ if [ "$WU_COUNT" -gt 1 ]; then
   exit 1
 fi
 
+# --- Rule 4: the Work Unit claim names a registered Work Unit ------------
+# Issue #364, from the 28 Oct 2026 adoption rehearsal: this hook counted the
+# `Work Unit:` lines and never resolved one, so `Work Unit: WU-DEMO-999` was
+# committed. The adoption commit is pushed straight to main with no Pull
+# Request, so the Work Unit Exists CI check never saw it either.
+#
+# The rule is check-work-units.sh's, not a copy of it. The hook hands the
+# message to `check-work-units.sh --message`, which applies the CI check's
+# shape test and registry parse to the registry this commit RECORDS:
+# Registry/work-units.yml as staged, because the entry is registered in the
+# same commit as the work (Workflows/FEATURE_DEVELOPMENT.md Step 4 item 2). In
+# a project that imported the framework that is the project's registry, never
+# the framework's (WU-IAENG-320).
+#
+# Only a claim that is present is resolved. A message with none is left to the
+# Work Unit Exists check, as before: install.sh probes this hook with a message
+# that carries no `Work Unit:` line.
+#
+# The script is run from this hook's OWN framework only: beside the hook (the
+# core.hooksPath install, where hook and check come from one framework
+# checkout), else from an explicit $IAENG_FRAMEWORK. Never from the working
+# tree: a hook that executes ./Adapters/scripts or ./ia-engineering/... runs
+# whatever a branch or a worktree's empty submodule directory holds there
+# (aligned with SEC-IAENG-414-01). So a hook copied into .git/hooks needs
+# IAENG_FRAMEWORK to resolve a claim. A claim that cannot be evaluated (no
+# script, no registry, a registry not staged or unreadable) is refused, never
+# passed (Standards/CODE_QUALITY_STANDARD.md, The Check Convention). The
+# script's stdout (the resolved line) is dropped; its stderr says why, and its
+# exit says which: 1 a finding about the claim, 2 not evaluated.
+if [ "$WU_COUNT" -eq 1 ]; then
+  HOOK_DIR="$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)"
+  CHECK_WU=""
+  for candidate in \
+    "$HOOK_DIR/../scripts" \
+    "${IAENG_FRAMEWORK:-}/Adapters/scripts"; do
+    case "$candidate" in /Adapters/scripts) continue ;; esac
+    if [ -f "$candidate/check-work-units.sh" ]; then
+      CHECK_WU="$candidate/check-work-units.sh"
+      break
+    fi
+  done
+  if [ -z "$CHECK_WU" ]; then
+    echo "commit-msg: rejected — this commit claims a Work Unit, and this hook cannot locate check-work-units.sh in its own framework to resolve it." >&2
+    echo "  Looked next to this hook ($HOOK_DIR/../scripts) and in" >&2
+    echo "  \$IAENG_FRAMEWORK/Adapters/scripts (IAENG_FRAMEWORK: '${IAENG_FRAMEWORK:-unset}')." >&2
+    echo "  The working tree is never searched: a hook does not run a script a branch" >&2
+    echo "  can plant. A claim this hook cannot evaluate is refused, not passed. Wire" >&2
+    echo "  the hooks with ./ia-engineering/Adapters/scripts/install.sh (core.hooksPath)," >&2
+    echo "  or set IAENG_FRAMEWORK to the framework root for a copied hook." >&2
+    exit 1
+  fi
+  WU_RC=0
+  bash "$CHECK_WU" --message "$COMMIT_MSG_FILE" > /dev/null || WU_RC=$?
+  if [ "$WU_RC" -eq 1 ]; then
+    echo "commit-msg: rejected — the 'Work Unit:' claim does not resolve (reason above, from" >&2
+    echo "  $CHECK_WU --message: the rule of the Work Unit Exists" >&2
+    echo "  CI check, applied to the registry this commit records)." >&2
+    exit 1
+  elif [ "$WU_RC" -ne 0 ]; then
+    echo "commit-msg: rejected — the 'Work Unit:' claim could not be evaluated (reason above;" >&2
+    echo "  $CHECK_WU --message exited $WU_RC), so it is refused, not passed." >&2
+    exit 1
+  fi
+fi
+
 if [ -z "$EMPLOYEE_LINES" ]; then
+  # A clean merge reaches this point only to have its Work Unit claim resolved
+  # (Rule 4, above); it needs no Employee trailer.
+  [ "$MERGE_KIND" = clean ] && exit 0
   [ "$MERGE_KIND" = authored ] && echo "commit-msg: this merge changes content beyond its parents' automatic merge, so it is authored work." >&2
   echo "commit-msg: rejected — missing 'Employee: <Name>' trailer." >&2
   echo "  Per Core/MAIN_AGENT_CONDUCT.md (Dispatch Discipline), every commit must" >&2
