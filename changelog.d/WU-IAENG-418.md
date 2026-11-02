@@ -1,0 +1,10 @@
+### Fixed
+
+- `session-start.sh`: a drift check cut by the session-start budget is no longer lost. Under Git for Windows a cold `check-framework-drift.sh --quick` took 4.9 to 5.6 s against the 2.8 s limit in the 28 Oct 2026 rehearsal, and 46 to 70 s on a machine shared with other agents. The cut run kept nothing, so every later session was cut too, and after the first overrun nothing was said. The cut run is now started again in the background, detached from the hook's output and bounded at 300 s. It keeps its result in the user-level cache, so a later session hits that cache (#366)
+- A session whose own run is cut again now reports the result the background run kept, read and capped as a run's, and each line says it comes from an earlier background run. A background run still going is said once. One that failed or was stopped is said at every session until a run completes, so an unevaluated check is never silent. The hook still adds no more than its 3 s limit plus a process launch, and still never fails the session (#366)
+- What a background run leaves is read only when the user alone could have written it and it names this project on its first line. A status started more than 6 minutes ago, past its bound, counts as ended, so a reused pid cannot keep the check silent. Control characters, DEL and C1 pairs are flattened, and the output is read to 400 lines with every name cut at 160 bytes. Nothing is written through a link or into a cache directory another account can write. With no usable cache, no background run is claimed (#366)
+- The overrun lines name `check-framework-drift.sh --quick --cache-dir <cache>`, which keeps its result in the cache the hook reads. The plain command named before took 7.9 s and kept nothing, so running it by hand did not help the next session (#366)
+
+### Notes
+
+- The hook's user-level cache directory (`$XDG_CACHE_HOME/ia-engineering` or `~/.cache/ia-engineering`) now also holds `bg-<project>` and `bg-<project>.tsv` for a project whose drift check overran. They are removed by the next session whose own check completes. Nothing to do on upgrade (#366)
