@@ -518,8 +518,13 @@ else
       # core.bare first: a bare repository can itself be named .git, cloned
       # into <project>/.git with its worktrees inside <project>/, and its
       # parent is then no working tree at all (PR #387 review, round 3).
-      _cw="$(git config -f "$_cd/config" --get core.worktree 2>/dev/null || true)"
-      if [ "$(git config -f "$_cd/config" --bool --get core.bare 2>/dev/null || true)" = true ]; then
+      # Both keys are read as git resolves them for the main working tree
+      # (--git-dir on the common dir), never from the one file
+      # <common>/config: once extensions.worktreeConfig is on (`git
+      # sparse-checkout init` turns it on), git keeps them in
+      # <common>/config.worktree (PR #387 review, round 4).
+      _cw="$(git --git-dir="$_cd" config --get core.worktree 2>/dev/null || true)"
+      if [ "$(git --git-dir="$_cd" config --bool --get core.bare 2>/dev/null || true)" = true ]; then
         MAIN_ROOT="$_top"
         MAIN_BARE=1
       elif [ -n "$_cw" ]; then

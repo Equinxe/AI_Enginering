@@ -8151,6 +8151,27 @@ hooks_path_is_414b() {
   return 1
 }
 
+# worktree_config_on_414b <key> <where> — the premise of a worktreeConfig case
+# (PR #387 review, round 4): `git sparse-checkout init`, then `disable` (which
+# gives the checkout back), was run in a worktree whose framework is not
+# initialised. extensions.worktreeConfig is now on, and <key> is no longer in
+# <common>/config but git still resolves it, from <common>/config.worktree.
+# Without this, the case after it would test nothing.
+worktree_config_on_414b() {
+  local c
+  c="$(git rev-parse --path-format=absolute --git-common-dir)"
+  TOTAL=$((TOTAL + 1))
+  if [ "$(git config --bool --get extensions.worktreeConfig)" = true ] \
+     && [ -z "$(git config -f "$c/config" --get "$1")" ] \
+     && [ -n "$(git --git-dir="$c" config --get "$1")" ]; then
+    [ -n "$VERBOSE" ] && printf '   ok   %s: worktreeConfig on, %s only in config.worktree (the premise)\n' "$2" "$1"
+    return 0
+  fi
+  printf '   FAIL %s: the worktreeConfig premise does not hold for %s, so the case tests nothing\n' "$2" "$1"
+  FAILED=$((FAILED + 1))
+  return 1
+}
+
 # layout_commits_414b <where> — in the shell's checkout, a commit signed by a
 # tool label is refused FOR THAT REASON, and a valid commit is accepted. An
 # exit code alone would stay green under a regression that refuses every
@@ -8353,6 +8374,15 @@ layout_commits_414b "its linked worktree, framework not initialised"
 git -c protocol.file.allow=always submodule update -q --init >/dev/null 2>&1
 expect 3 "--check from its linked worktree names the main working tree through core.worktree" -- bash "$INST_353" --check
 expect_output "git-hooks${T}current${T}core.hooksPath${T}$SUBHP_414b"
+# worktreeConfig on (round 4): core.worktree moves to <common>/config.worktree.
+# The sparse checkout is set and cleared in a second worktree whose framework
+# is not initialised; its effect on the keys is the whole repository's.
+git worktree add -q "$SUPER_414b/app-wt2" -b feature/app-wt2 develop >/dev/null 2>&1
+git -C "$SUPER_414b/app-wt2" sparse-checkout init >/dev/null 2>&1
+git -C "$SUPER_414b/app-wt2" sparse-checkout disable >/dev/null 2>&1
+worktree_config_on_414b core.worktree "a project that is itself a submodule"
+expect 3 "worktreeConfig on: --check from its linked worktree still names the main working tree" -- bash "$INST_353" --check
+expect_output "git-hooks${T}current${T}core.hooksPath${T}$SUBHP_414b"
 
 # --- layout (b): a bare repository with worktrees -----------------------------
 # No main working tree: the value names the framework of the worktree
@@ -8397,6 +8427,16 @@ layout_commits_414b "a bare repository in <project>/.git, its worktree"
 git worktree add -q "$PROJ_414b/feat" -b feature/c >/dev/null 2>&1
 cd "$PROJ_414b/feat" || exit 1
 layout_commits_414b "a bare repository in <project>/.git, other worktree, framework not initialised"
+# worktreeConfig on (round 4): core.bare moves to <common>/config.worktree,
+# and the .git name must not decide in its place. The sparse checkout is set
+# and cleared here, where the framework is not initialised; install.sh is
+# then run again from the worktree whose framework is.
+git sparse-checkout init >/dev/null 2>&1
+git sparse-checkout disable >/dev/null 2>&1
+worktree_config_on_414b core.bare "a bare repository in <project>/.git"
+cd "$PROJ_414b/main" || exit 1
+expect 0 "worktreeConfig on: a bare repository in <project>/.git: install.sh still exits 0" -- bash "$INST_353"
+hooks_path_is_414b "$CHP_414b" "worktreeConfig on: a bare repository in <project>/.git: core.hooksPath is still this worktree's framework"
 
 # --- the guards: no main working tree, no hooks directory, the main working
 # tree not initialised, project hooks in the common hooks/ -------------------
