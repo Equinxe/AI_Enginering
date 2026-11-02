@@ -7914,6 +7914,17 @@ hooks_path_is_414b() {
   return 1
 }
 
+# layout_commits_414b <where> — in the shell's checkout, a commit signed by a
+# tool label is refused FOR THAT REASON, and a valid commit is accepted. An
+# exit code alone would stay green under a regression that refuses every
+# commit, such as a roster that cannot be found (QA, T-414-01).
+layout_commits_414b() {
+  expect 1 "$1: a commit signed by a tool label is refused" -- commit_414b "chore(x): a tool label" "Claude"
+  expect_output "commit-msg: rejected — 'Employee: Claude' is not a recognized Employee."
+  git reset -q
+  expect 0 "$1: a valid commit is accepted" -- commit_414b "chore(x): a valid commit" "DevOps Engineer"
+}
+
 adopter_353 r2-414b
 bash "$INST_353" >/dev/null 2>&1
 commit_353 "chore(adopt): install the Adapters"
@@ -8000,17 +8011,12 @@ git config core.autocrlf false
 expect 0 "a project that is itself a submodule: install.sh exits 0" -- bash "$INST_353"
 SUBHP_414b="$(hooks_path_414)"
 hooks_path_is_414b "$SUBHP_414b" "a project that is itself a submodule: core.hooksPath is its working tree's framework, absolute"
-expect 1 "a project that is itself a submodule: a commit signed by a tool label is refused" -- \
-  commit_414b "chore(x): a tool label" "Claude"
-expect_output "commit-msg: rejected — 'Employee: Claude' is not a recognized Employee."
-git reset -q
+layout_commits_414b "a project that is itself a submodule"
 commit_353 "chore(adopt): install the Adapters"
 git branch develop
 git worktree add -q "$SUPER_414b/app-wt" -b feature/app-wt develop >/dev/null 2>&1
 cd "$SUPER_414b/app-wt" || exit 1
-expect 1 "its linked worktree, framework not initialised: a tool label is refused" -- \
-  commit_414b "chore(x): a tool label in the worktree" "Claude"
-git reset -q
+layout_commits_414b "its linked worktree, framework not initialised"
 git -c protocol.file.allow=always submodule update -q --init >/dev/null 2>&1
 expect 3 "--check from its linked worktree names the main working tree through core.worktree" -- bash "$INST_353" --check
 expect_output "git-hooks${T}current${T}core.hooksPath${T}$SUBHP_414b"
@@ -8030,14 +8036,82 @@ expect 0 "a bare repository with worktrees: install.sh exits 0" -- bash "$INST_3
 expect_output "a bare repository has no main working tree: core.hooksPath names this worktree's framework"
 BHP_414b="$(hooks_path_414)"
 hooks_path_is_414b "$BHP_414b" "a bare repository with worktrees: core.hooksPath is this worktree's framework, absolute"
-expect 1 "a bare repository's worktree: a tool label is refused" -- commit_414b "chore(x): a tool label" "Claude"
-git reset -q
+layout_commits_414b "a bare repository's worktree"
 git worktree add -q "$WORK/r2-414b-bw2" -b feature/bw2 >/dev/null 2>&1
 cd "$WORK/r2-414b-bw2" || exit 1
-expect 1 "a bare repository's other worktree, framework not initialised: a tool label is refused" -- \
-  commit_414b "chore(x): a tool label in the second worktree" "Claude"
-expect_output "commit-msg: rejected — 'Employee: Claude' is not a recognized Employee."
-git reset -q
+layout_commits_414b "a bare repository's other worktree, framework not initialised"
+
+# --- layout (c): a bare repository cloned into <project>/.git ---------------
+# The bare repository is named .git and its worktrees sit inside <project>/.
+# Its parent, <project>/, is no working tree: core.bare decides before the
+# name does (PR #387 review, round 3). Before that, install.sh took
+# <project>/ as the main working tree, exited 1 and set no core.hooksPath.
+adopter_353 r3-414b-csrc
+PROJ_414b="$WORK/r3-414b-proj"
+mkdir -p "$PROJ_414b"
+git clone -q --bare "$PWD" "$PROJ_414b/.git" >/dev/null 2>&1
+git --git-dir="$PROJ_414b/.git" config user.email test@example.invalid
+git --git-dir="$PROJ_414b/.git" config user.name "Test Runner"
+git --git-dir="$PROJ_414b/.git" config commit.gpgsign false
+git --git-dir="$PROJ_414b/.git" worktree add -q "$PROJ_414b/main" main >/dev/null 2>&1
+cd "$PROJ_414b/main" || exit 1
+git -c protocol.file.allow=always submodule update -q --init >/dev/null 2>&1
+expect 0 "a bare repository in <project>/.git: install.sh exits 0" -- bash "$INST_353"
+expect_output "a bare repository has no main working tree: core.hooksPath names this worktree's framework"
+CHP_414b="$(hooks_path_414)"
+hooks_path_is_414b "$CHP_414b" "a bare repository in <project>/.git: core.hooksPath is this worktree's framework, absolute"
+layout_commits_414b "a bare repository in <project>/.git, its worktree"
+git worktree add -q "$PROJ_414b/feat" -b feature/c >/dev/null 2>&1
+cd "$PROJ_414b/feat" || exit 1
+layout_commits_414b "a bare repository in <project>/.git, other worktree, framework not initialised"
+
+# --- #397 on any bash: each hook run directly, behind a closed pipe ---------
+# Through git, only Git for Windows turned a SIGPIPE death into exit 0, so the
+# closed-pipe cases above pass on Linux with or without the fix. Run directly,
+# the hook's own status tells them apart on any bash (QA, T-414-02): killed by
+# SIGPIPE it is 141; ignoring SIGPIPE, its failed write leaves its refusal,
+# exit 1. The reader (`true`) has exited before the hook starts: the hook
+# runs after a one-second sleep. SIGPIPE is set back to its default for the
+# hook where `env --default-signal` exists, so a caller that ignores it
+# cannot make the case pass without the hook's own trap.
+HOOKS_414b="$SCRIPTS/../git-hooks"
+DEFSIG_414b=()
+if env --default-signal=PIPE true >/dev/null 2>&1; then DEFSIG_414b=(env --default-signal=PIPE); fi
+# closed_pipe_rc_414b <command...> — the command's stdout and stderr go into a
+# pipe whose reader has exited; RC_414b is the command's exit status.
+closed_pipe_rc_414b() {
+  local rcf="$WORK/r3-414b-rc"
+  rm -f "$rcf"
+  { sleep 1; ${DEFSIG_414b[@]+"${DEFSIG_414b[@]}"} "$@"; echo "$?" > "$rcf"; } 2>&1 | true
+  RC_414b="$(cat "$rcf" 2>/dev/null)"
+}
+# rc_is_414b <want> <description>
+rc_is_414b() {
+  TOTAL=$((TOTAL + 1))
+  if [ "$RC_414b" = "$1" ]; then
+    [ -n "$VERBOSE" ] && printf '   ok   %s\n' "$2"
+    return 0
+  fi
+  printf '   FAIL %s: exit %s, expected %s\n' "$2" "${RC_414b:-none}" "$1"
+  FAILED=$((FAILED + 1))
+  return 1
+}
+new_repo r3-414b-direct
+write_employee_roster "DevOps Engineer"
+git add -A && git commit -q -m "chore(x): a roster"
+printf 'chore(x): a tool label\n\nEmployee: Claude\n' > "$WORK/r3-414b-msg"
+closed_pipe_rc_414b "$HOOKS_414b/commit-msg" "$WORK/r3-414b-msg"
+rc_is_414b 1 "commit-msg run directly behind a closed pipe refuses with exit 1, not a SIGPIPE death (141)"
+printf 'probe\n' > d-414b.xlsx
+git add d-414b.xlsx
+closed_pipe_rc_414b "$HOOKS_414b/pre-commit"
+rc_is_414b 1 "pre-commit run directly behind a closed pipe refuses a staged document with exit 1, not 141"
+git rm -q --cached d-414b.xlsx
+rm -f d-414b.xlsx
+printf 'refs/heads/develop %s refs/heads/develop %s\n' \
+  1111111111111111111111111111111111111111 2222222222222222222222222222222222222222 > "$WORK/r3-414b-push"
+closed_pipe_rc_414b "$HOOKS_414b/pre-push" origin "file:///nowhere" < "$WORK/r3-414b-push"
+rc_is_414b 1 "pre-push run directly behind a closed pipe refuses a push to develop with exit 1, not 141"
 
 # --- the guards: no main working tree, no hooks directory, the main working
 # tree not initialised, project hooks in the common hooks/ -------------------

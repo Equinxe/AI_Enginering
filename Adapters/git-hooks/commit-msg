@@ -16,9 +16,11 @@
 # Install in a project that has imported IA Engineering as a submodule:
 #   ./ia-engineering/Adapters/scripts/install.sh
 #
-# or, to install this hook alone:
-#   cp ia-engineering/Adapters/git-hooks/commit-msg .git/hooks/commit-msg
-#   chmod +x .git/hooks/commit-msg
+# It points core.hooksPath at this directory, so git runs this file in place
+# from the framework. Do not copy it into .git/hooks: a copy is a second,
+# forkable version frozen at the framework version it was copied from, and
+# nothing reports the drift (Adapters/README.md, "Hooks are configured
+# through core.hooksPath, not copied into .git/hooks").
 #
 # Commit message format expected:
 #
@@ -127,7 +129,7 @@ fi
 #                                   the hook git runs (WU-IAENG-414, #368)
 #   4. <repo>/ia-engineering/     — the submodule path Workflows/ONBOARDING.md
 #                                   and Adapters/README.md both assume, for a
-#                                   hook copied into .git/hooks
+#                                   hook run from outside its framework
 # The hook's own framework comes before the worktree's submodule path
 # (SEC-IAENG-414-01). In the main checkout both name the same file. In a
 # linked worktree the submodule directory is empty and untracked content

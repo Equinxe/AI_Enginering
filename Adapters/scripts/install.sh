@@ -492,11 +492,12 @@ else
     #     own top level. That holds for a standalone clone, for a project that
     #     is itself a submodule (git dir absorbed into the superproject's
     #     .git/modules/), and for a separate git dir;
-    #   - from a linked worktree: the common dir's core.worktree when it is
-    #     set (an absorbed submodule's main working tree), else the parent of
-    #     a common dir named .git;
-    #   - a bare repository has no main working tree: the worktree this runs
-    #     from, said below.
+    #   - from a linked worktree of a bare repository (core.bare, whatever the
+    #     repository's name, <project>/.git included): there is no main
+    #     working tree, so the worktree this runs from, said below;
+    #   - from any other linked worktree: the common dir's core.worktree when
+    #     it is set (an absorbed submodule's main working tree), else the
+    #     parent of a common dir named .git.
     # Not the first entry of `git worktree list`: for an absorbed submodule it
     # is the git dir, and for a bare repository the repository itself, and
     # install.sh then failed where it used to install (PR #387 review).
@@ -514,14 +515,17 @@ else
     elif [ "$_gd" = "$_cd" ]; then
       MAIN_ROOT="$_top"
     else
+      # core.bare first: a bare repository can itself be named .git, cloned
+      # into <project>/.git with its worktrees inside <project>/, and its
+      # parent is then no working tree at all (PR #387 review, round 3).
       _cw="$(git config -f "$_cd/config" --get core.worktree 2>/dev/null || true)"
-      if [ -n "$_cw" ]; then
+      if [ "$(git config -f "$_cd/config" --bool --get core.bare 2>/dev/null || true)" = true ]; then
+        MAIN_ROOT="$_top"
+        MAIN_BARE=1
+      elif [ -n "$_cw" ]; then
         MAIN_ROOT="$(git -C "$_cd" -C "$_cw" rev-parse --show-toplevel 2>/dev/null || true)"
       elif [ "${_cd##*/}" = .git ]; then
         MAIN_ROOT="${_cd%/.git}"
-      elif [ "$(git config -f "$_cd/config" --bool --get core.bare 2>/dev/null || true)" = true ]; then
-        MAIN_ROOT="$_top"
-        MAIN_BARE=1
       fi
       unset _cw
     fi
