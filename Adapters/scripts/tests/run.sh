@@ -8292,15 +8292,27 @@ printf 'chore(x): a tool label\n\nEmployee: Claude\n' > "$WORK/r3-414b-msg"
 closed_pipe_rc_414b "$HOOKS_414b/commit-msg" "$WORK/r3-414b-msg"
 rc_is_414b 1 "commit-msg run directly behind a closed pipe refuses with exit 1, not a SIGPIPE death (141)"
 # commit-msg's merge warning (PR #387 review, round 3). When it cannot
-# classify a merge (git merge-tree fails), commit-msg warns and leaves the
-# merge to CI. Behind a closed pipe the warning's write fails, and under
-# set -e that must not turn the warning into a refusal. MERGE_HEAD names an
-# object that does not exist, so merge-tree fails.
-printf '%s\n' 0123456789abcdef0123456789abcdef01234567 > .git/MERGE_HEAD
+# classify a merge, commit-msg warns and leaves the merge to CI. Behind a
+# closed pipe the warning's write fails, and under set -e that must not turn
+# the warning into a refusal. The warning needs `git merge-tree --write-tree`
+# to exit above 1, as a git older than 2.38 does on that unknown option (a
+# usage error, 129); a bad object exits 1, read as an authored merge. The
+# hook is run directly, so PATH is this shim's, and merge-tree answers as an
+# old git; every other command is the real git.
+MTSHIM_414b="$WORK/git-mt-shim-414b"
+mkdir -p "$MTSHIM_414b"
+cat > "$MTSHIM_414b/git" <<EOF
+#!/usr/bin/env bash
+if [ "\${1:-}" = merge-tree ]; then echo "error: unknown option \\\`write-tree'" >&2; exit 129; fi
+exec "$(command -v git)" "\$@"
+EOF
+chmod +x "$MTSHIM_414b/git"
+git rev-parse HEAD > .git/MERGE_HEAD
 printf 'Merge branch x\n' > "$WORK/r3-414b-merge-msg"
-expect 0 "an unclassifiable merge: commit-msg warns and lets it through to CI" -- "$HOOKS_414b/commit-msg" "$WORK/r3-414b-merge-msg"
+expect 0 "an unclassifiable merge: commit-msg warns and lets it through to CI" -- \
+  env PATH="$MTSHIM_414b:$PATH" "$HOOKS_414b/commit-msg" "$WORK/r3-414b-merge-msg"
 expect_output "commit-msg: warning — cannot classify this merge locally; CI will."
-closed_pipe_rc_414b "$HOOKS_414b/commit-msg" "$WORK/r3-414b-merge-msg"
+closed_pipe_rc_414b env PATH="$MTSHIM_414b:$PATH" "$HOOKS_414b/commit-msg" "$WORK/r3-414b-merge-msg"
 rc_is_414b 0 "an unclassifiable merge, run directly behind a closed pipe: still let through (exit 0), its warning is no refusal"
 rm -f .git/MERGE_HEAD
 printf 'probe\n' > d-414b.xlsx
