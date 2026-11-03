@@ -191,6 +191,12 @@ ruleset_checks_json() {
 # release/* is not set here: its ruleset sets
 # `strict_required_status_checks_policy: true` in release_ruleset_payload().
 # A branch with no decided value fails rather than getting a guessed one.
+#
+# No run of this script reaches that refusal: the loop below names main and
+# develop only. Adapters/scripts/tests/run.sh therefore extracts this function,
+# from its `strict_for() {` line to the first `}` at the start of a line, and
+# calls it alone with a release branch (issue #329). Keep that shape, or the
+# test stops finding the function and fails.
 strict_for() {
   case "$1" in
     main) echo true ;;

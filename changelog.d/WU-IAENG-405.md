@@ -1,0 +1,3 @@
+### Fixed
+
+- The test suites `Adapters/ai-runtimes/claude-code/hooks/tests/dashboard.sh` (53 reads) and `Adapters/scripts/tests/run.sh` (8 reads, the `setup-branch-protection.sh` payload comparison included) remove only the carriage return that ends a line from what their checks compare, as Check Convention shell rule 3 requires, through a `strip_eol_cr` helper (`sed $'s/\r$//'`) in each suite. They removed every one with `tr -d '\r'`, so a check could not see a carriage return that a script under test left inside a value: `Platform Engi\rneer` read as `Platform Engineer`. Each suite checks its helper both ways, a carriage return inside a value kept and the one ending a line removed (#327, WU-IAENG-405)
