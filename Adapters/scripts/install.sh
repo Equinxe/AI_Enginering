@@ -773,8 +773,23 @@ IGNORE_RULES="$LOCAL_DATA_DIR/
 # ignore_has <rule> — true when .gitignore has the rule as a whole line, as
 # `grep -qxF` decided before; the file is read once (IGNORE_CONTENT), not once
 # per rule, for the same time budget as the .gitattributes rules above.
-IGNORE_CONTENT=""
-[ -f .gitignore ] && IGNORE_CONTENT=$'\n'"$(< .gitignore)"$'\n'
+#
+# read_ignore — (re)loads IGNORE_CONTENT with the CR that ends a line removed,
+# and only that one (Standards/CODE_QUALITY_STANDARD.md, The Check Convention,
+# shell rule 3). Git for Windows' default core.autocrlf=true checks .gitignore
+# out CRLF. Read raw, a CRLF line never matched its rule (only the file's last
+# line could, its CR dropped by Git for Windows' bash in $(< file)), so every
+# real run appended the rules again and --check disagreed with that run
+# (WU-IAENG-425, #396). The content is framed by a newline on each side, so
+# the substitution is ${line%$'\r'} on every line: a CR inside a line stays
+# data, and `.env<CR>x` is not `.env`.
+read_ignore() {
+  IGNORE_CONTENT=""
+  [ -f .gitignore ] || return 0
+  IGNORE_CONTENT=$'\n'"$(< .gitignore)"$'\n'
+  IGNORE_CONTENT="${IGNORE_CONTENT//$'\r\n'/$'\n'}"
+}
+read_ignore
 ignore_has() { [ -f .gitignore ] && [[ "$IGNORE_CONTENT" == *$'\n'"$1"$'\n'* ]]; }
 
 MISSING_IGNORES=""
@@ -855,8 +870,7 @@ ARTIFACT_IGNORE_RULES=".claude/agents/
 
 MISSING_ARTIFACT_IGNORES=""
 # Re-read: the data-protection block above may have just appended to it.
-IGNORE_CONTENT=""
-[ -f .gitignore ] && IGNORE_CONTENT=$'\n'"$(< .gitignore)"$'\n'
+read_ignore
 while IFS= read -r rule; do
   if ! ignore_has "$rule"; then
     MISSING_ARTIFACT_IGNORES="$MISSING_ARTIFACT_IGNORES$rule

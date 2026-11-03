@@ -7890,6 +7890,155 @@ expect_output "file${T}fault${T}.github/workflows/data-policy.yml"
 expect 1 "the bootstrap --check passes the fault on (exit 1 over 3)" -- bash "$BOOT_353" --check --quiet
 mv data-policy.moved ia-engineering/Adapters/github-actions/data-policy.yml
 
+# ------------------ install.sh: a CRLF .gitignore (WU-IAENG-425, issue #396) --
+#
+# Git for Windows' default core.autocrlf=true checks .gitignore out CRLF.
+# install.sh read it raw, so no rule matched a whole line: a real run appended
+# all six again, on every fresh clone (two copies, then three), and --check
+# disagreed with that run, because Git for Windows' bash drops the CR of the
+# file's last line in $(< file) and Linux bash drops none. The fix removes the
+# CR that ends a line, and only that one (Standards/CODE_QUALITY_STANDARD.md,
+# The Check Convention, shell rule 3). The fixture writes CRLF with awk, so
+# every platform runs the same case whatever its core.autocrlf.
+
+section "install.sh — a CRLF .gitignore is read line by line, no rule appended twice (WU-IAENG-425, #396)"
+
+IGN_RULES_425="local_test_data/
+.env
+.ia-engineering/SESSION_STATE.md
+.claude/agents/
+.claude/worktrees/
+.ia-engineering/usage/"
+
+# rule_lines_425 <rule> — how many lines of .gitignore are exactly <rule> once
+# their line-ending CR is removed. awk, not grep: Git for Windows' grep drops
+# a CR before matching and Linux grep does not.
+rule_lines_425() {
+  awk -v r="$1" '{ sub(/\r$/, "") } $0 == r { n++ } END { print n + 0 }' .gitignore
+}
+
+# each_once_425 <description> — each of the six rules is on exactly one line.
+each_once_425() {
+  local rule n bad=""
+  TOTAL=$((TOTAL + 1))
+  while IFS= read -r rule; do
+    n="$(rule_lines_425 "$rule")"
+    [ "$n" -eq 1 ] || bad="$bad $rule x$n"
+  done <<< "$IGN_RULES_425"
+  if [ -z "$bad" ]; then
+    [ -n "$VERBOSE" ] && printf '   ok   %s\n' "$1"
+    return 0
+  fi
+  printf '   FAIL %s:%s\n' "$1" "$bad"; FAILED=$((FAILED + 1))
+  return 1
+}
+
+# crlf_425 <description> — every line of .gitignore ends CRLF, or the CRLF
+# cases below test nothing. The CRs are counted with tr, for the grep reason
+# above.
+crlf_425() {
+  local crs lines
+  TOTAL=$((TOTAL + 1))
+  crs=$(( $(tr -cd '\r' < .gitignore | wc -c) ))
+  lines=$(( $(wc -l < .gitignore) ))
+  if [ "$crs" -gt 0 ] && [ "$crs" -eq "$lines" ]; then
+    [ -n "$VERBOSE" ] && printf '   ok   %s\n' "$1"
+    return 0
+  fi
+  printf '   FAIL %s: %s CR for %s lines\n' "$1" "$crs" "$lines"; FAILED=$((FAILED + 1))
+  return 1
+}
+
+# unchanged_425 <md5> <description> — .gitignore is byte for byte what it was.
+unchanged_425() {
+  TOTAL=$((TOTAL + 1))
+  if [ "$(md5sum < .gitignore)" = "$1" ]; then
+    [ -n "$VERBOSE" ] && printf '   ok   %s\n' "$2"
+    return 0
+  fi
+  printf '   FAIL %s; it now ends:\n' "$2"
+  tail -n 8 .gitignore | sed 's/^/        | /'; FAILED=$((FAILED + 1))
+  return 1
+}
+
+# present_425 — the last --check output reports each of the six present.
+present_425() {
+  local rule
+  while IFS= read -r rule; do
+    expect_output "gitignore${T}present${T}.gitignore${T}$rule"
+  done <<< "$IGN_RULES_425"
+}
+
+adopter_353 ign-crlf
+expect 0 "a first bootstrap succeeds" -- bash "$BOOT_353" generic
+commit_353 "chore(adopt): install the Adapters"
+
+# --- LF, the case that always worked: unchanged by the fix ---------------------
+each_once_425 "the LF .gitignore holds each of the six rules once"
+SUM_425="$(md5sum < .gitignore)"
+expect 0 "--check on an LF .gitignore holding every rule exits 0" -- bash "$INST_353" --check
+expect_output "6 .gitignore rule(s): 6 present;"
+expect 0 "a real run on it exits 0" -- bash "$INST_353"
+expect_output ".gitignore (data-protection rules already present)"
+expect_output ".gitignore (generated/runtime-artifact rules already present)"
+unchanged_425 "$SUM_425" "a real run left the LF .gitignore byte-identical"
+
+# --- CRLF, every rule present: reported present, nothing appended, twice -------
+awk '{ sub(/\r$/, ""); printf "%s\r\n", $0 }' .gitignore > ign.tmp && mv ign.tmp .gitignore
+crlf_425 "the CRLF fixture ends every line with CRLF"
+SUM_425="$(md5sum < .gitignore)"
+expect 0 "--check on a CRLF .gitignore holding every rule exits 0" -- bash "$INST_353" --check
+expect_output "6 .gitignore rule(s): 6 present;"
+present_425
+for RUN_425 in 1 2; do
+  expect 0 "real run $RUN_425 on the CRLF .gitignore exits 0" -- bash "$INST_353"
+  expect_output ".gitignore (data-protection rules already present)"
+  expect_output ".gitignore (generated/runtime-artifact rules already present)"
+  unchanged_425 "$SUM_425" "real run $RUN_425 left the CRLF .gitignore byte-identical"
+done
+
+# --- CRLF, one rule missing: that rule appended once, and only it --------------
+# .env is a data-protection rule: a real run appends it before the
+# generated-artifact block re-reads the file, so both reads are exercised.
+awk '{ sub(/\r$/, "") } $0 != ".env" { printf "%s\r\n", $0 }' .gitignore > ign.tmp && mv ign.tmp .gitignore
+crlf_425 "the CRLF fixture without .env ends every line with CRLF"
+cp .gitignore "$WORK/ign-before-425"
+SIZE_425=$(( $(wc -c < .gitignore) ))
+expect 3 "--check on a CRLF .gitignore missing .env reports drift (exit 3)" -- bash "$INST_353" --check
+expect_output "gitignore${T}missing${T}.gitignore${T}.env"
+expect_output "6 .gitignore rule(s): 5 present, 1 missing;"
+expect 0 "a real run on it exits 0" -- bash "$INST_353"
+expect_output ".gitignore (appended 1 data-protection rule(s))"
+expect_output ".gitignore (generated/runtime-artifact rules already present)"
+ADDED_425="$(tail -c +"$((SIZE_425 + 1))" .gitignore | grep -v '^#' | grep -v '^$')"
+TOTAL=$((TOTAL + 1))
+if cmp -s -n "$SIZE_425" "$WORK/ign-before-425" .gitignore && [ "$ADDED_425" = ".env" ]; then
+  [ -n "$VERBOSE" ] && printf '   ok   the real run kept the CRLF bytes and added one rule line, .env\n'
+else
+  printf '   FAIL the real run did not keep the CRLF bytes and add exactly .env; it added:\n'
+  printf '%s\n' "$ADDED_425" | sed 's/^/        | /'; FAILED=$((FAILED + 1))
+fi
+each_once_425 "after it, each of the six rules is on exactly one line"
+SUM_425="$(md5sum < .gitignore)"
+expect 0 "a second real run exits 0" -- bash "$INST_353"
+expect_output ".gitignore (data-protection rules already present)"
+expect_output ".gitignore (generated/runtime-artifact rules already present)"
+unchanged_425 "$SUM_425" "the second real run appended nothing"
+
+# --- only the CR that ends a line goes (shell rule 3) --------------------------
+# `.env<CR>x` is the rule followed by a mid-line CR and more text: not .env.
+# `.claude/agents/<CR><CR>` keeps one CR once the line-ending one is gone: not
+# .claude/agents/ either. Deleting every CR would call the second present,
+# and cutting each line at its first CR would call the first present.
+awk '{ sub(/\r$/, "") }
+     $0 == ".env" { printf "%s\rx\r\n", $0; next }
+     $0 == ".claude/agents/" { printf "%s\r\r\n", $0; next }
+     { printf "%s\r\n", $0 }' .gitignore > ign.tmp && mv ign.tmp .gitignore
+expect 3 "--check: a CR inside a line is data, so neither line is its rule (exit 3)" -- bash "$INST_353" --check
+expect_output "gitignore${T}missing${T}.gitignore${T}.env"
+expect_output "gitignore${T}missing${T}.gitignore${T}.claude/agents/"
+expect_output "6 .gitignore rule(s): 4 present, 2 missing;"
+
 section "install.sh --check — git hooks: core.hooksPath, executable, shadowed, no probe (WU-IAENG-355)"
 
 # The write path's own decisions, read and never applied: no `git config`
