@@ -277,6 +277,34 @@ block_end() {
 
 section() { printf '\n== %s\n' "$1"; }
 
+# strip_eol_cr — stdin to stdout, with the carriage return that ends a line
+# removed and every other one kept (Standards/CODE_QUALITY_STANDARD.md, The
+# Check Convention, Shell Scripts rule 3); `sed $'s/\r$//'` written inline is
+# the same rule. Until issue #327 the reads that use it, sbp_payload included,
+# removed every carriage return (`tr -d '\r'`), one inside a value too, so a
+# case could not see one that a script under test left there.
+# Git for Windows' sed drops a CRLF's CR on input, so there a CR just before it goes too: a\r\r\n gives a\n.
+strip_eol_cr() { sed $'s/\r$//'; }
+
+# The helper's own cases. The expected values are rule 3's, written by hand,
+# never the helper's output. Compared byte for byte: the trailing "." keeps
+# what a command substitution drops, a final newline everywhere and, in Git
+# for Windows' bash, a CR before it, so a CR left on the last line still shows.
+section "strip_eol_cr — only the carriage return that ends a line is removed (WU-IAENG-405, #327)"
+
+CR405=$'\r'
+LF405=$'\n'
+SHOWN_CR405='\r'
+SHOWN_LF405='\n'
+# shown405 <value> — the value with each CR and LF written as \r and \n.
+shown405() { local s="${1//"$CR405"/"$SHOWN_CR405"}"; printf '%s' "${s//"$LF405"/"$SHOWN_LF405"}"; }
+EOL405_MID="$(printf 'Employee: Platform Engi\rneer\r\n' | strip_eol_cr; printf .)"
+expect 0 "strip_eol_cr keeps a carriage return inside a value (got: $(shown405 "$EOL405_MID"))" -- \
+  test "$EOL405_MID" = "Employee: Platform Engi${CR405}neer${LF405}."
+EOL405_END="$(printf 'one\r\ntwo\r\n' | strip_eol_cr; printf .)"
+expect 0 "strip_eol_cr removes the carriage return that ends each line (got: $(shown405 "$EOL405_END"))" -- \
+  test "$EOL405_END" = $'one\ntwo\n.'
+
 # ------------------------------------------------- check-work-units.sh ------
 
 CHECK_WU="$SCRIPTS/check-work-units.sh"
@@ -926,10 +954,10 @@ expect 1 "publish closing text no longer says the back-merge is conditional" -- 
 # longer describes Step 11.
 RELEASE_MD_388="$SCRIPTS/../../Workflows/RELEASE.md"
 awk '/^## Step 11 /{f=1; print; next} f && (/^#/ || /^---\r?$/){exit} f' "$RELEASE_MD_388" \
-  | tr -d '\r' | tr -s ' \n' '  ' > "$WORK/release-step11.txt"
+  | strip_eol_cr | tr -s ' \n' '  ' > "$WORK/release-step11.txt"
 # The step's title, read from its heading rather than restated, so the
 # closing text is held to whatever RELEASE.md calls the step.
-title_388="$(sed -n 's/^## Step 11 — //p' "$RELEASE_MD_388" | tr -d '\r')"
+title_388="$(sed -n 's/^## Step 11 — //p' "$RELEASE_MD_388" | strip_eol_cr)"
 expect 0 "RELEASE.md Step 11 heading holds: Step 11 — Release retrospective" -- \
   test "$title_388" = "Release retrospective"
 expect 0 "publish closing text names Step 11 by RELEASE.md's title: Step 11 $title_388" -- \
@@ -1539,9 +1567,11 @@ esac
 FAKEGH
 chmod +x "$SBP_BIN/gh"
 
-# sbp_payload <file> — the body with all whitespace removed, so a case can
-# match a key and its value whatever the heredoc's indentation.
-sbp_payload() { tr -d ' \t\r\n' < "$SBP_DATA/$1"; }
+# sbp_payload <file> — the body with its spaces, tabs and line breaks removed,
+# so a case can match a key and its value whatever the heredoc's indentation.
+# A carriage return goes only where it ends a line (strip_eol_cr): one inside
+# a value the script sent is data, and stays visible to the case.
+sbp_payload() { strip_eol_cr < "$SBP_DATA/$1" | tr -d ' \t\n'; }
 
 # sbp_has <file> <needle> <description>
 sbp_has() {
@@ -4305,8 +4335,8 @@ for chain_name in Feature Review Architecture; do
   expect_output "ok${CHAIN_TAB}$chain_name Chain: diagram and Registry agree step for step"
 done
 
-tr -d '\r' < "$CHAIN_ROOT/Core/AGENT_CHAINS.md" > "$CHAIN_FIX/real.md"
-tr -d '\r' < "$CHAIN_ROOT/Registry/chains.yml" > "$CHAIN_FIX/real.yml"
+strip_eol_cr < "$CHAIN_ROOT/Core/AGENT_CHAINS.md" > "$CHAIN_FIX/real.md"
+strip_eol_cr < "$CHAIN_ROOT/Registry/chains.yml" > "$CHAIN_FIX/real.yml"
 awk '{ printf "%s\r\n", $0 }' "$CHAIN_FIX/real.md" > "$CHAIN_FIX/real-crlf.md"
 awk '{ printf "%s\r\n", $0 }' "$CHAIN_FIX/real.yml" > "$CHAIN_FIX/real-crlf.yml"
 CHAIN_CR="$(tr -cd '\r' < "$CHAIN_FIX/real-crlf.md" | wc -c | tr -d ' ')"
@@ -6656,7 +6686,7 @@ expect 0 "launcher: it runs Git for Windows' own bin\\bash.exe" -- \
   grep -qF '"%IAENG_GITROOT%\bin\bash.exe"' "$LAUNCHER"
 # Outside rem comments and echoed messages, `bash` may appear only as the
 # resolved bin\bash.exe.
-L_CODE="$(tr -d '\r' < "$LAUNCHER" 2>/dev/null \
+L_CODE="$(strip_eol_cr < "$LAUNCHER" 2>/dev/null \
   | grep -viE '^[[:space:]]*(@?rem|::|echo)([[:space:]]|$)')"
 expect 1 "launcher: no bare bash (PATH lookup reaches WSL in PowerShell and cmd)" -- \
   grep -iE '(^|[^\\a-z_.-])bash(\.exe)?([^a-z_.-]|$)' <<< "$L_CODE"
@@ -8549,6 +8579,98 @@ expect 0 "after the printed remedy, --check from the linked worktree is current 
 expect_output "git-hooks${T}current${T}core.hooksPath${T}$GHP_414b"
 cd "$WORK" || exit 1
 
+section "install.sh — the pre-commit probe counts only a refusal of its document (WU-IAENG-404, issue #348)"
+
+# install.sh stages iaeng-install-probe.xlsx in a throwaway index and runs the
+# installed pre-commit hook. It read any non-zero exit as a refusal, so a
+# scanner that could not evaluate (data-policy-scan.sh exit 2) and a hook that
+# could not find its scanner (exit 1, nothing scanned) were reported as a hook
+# that refuses a staged document, and install.sh exited 0. A refusal is now
+# exit 1 with the probe document refused in the hook's output; anything else
+# non-zero is a fault. Each fault case below failed on develop 5213806:
+# install.sh exited 0 and printed the refusal line.
+adopter_353 probe-404
+SCAN_404="ia-engineering/Adapters/scripts/data-policy-scan.sh"
+REAL_404="$WORK/probe-404-scanner"
+cp "$SCAN_404" "$REAL_404"
+REFUSES_404="pre-commit hook refuses a staged document (Standards/DATA_PROTECTION_STANDARD.md)"
+
+# The real scanner, a finding (exit 1) that names the probe document.
+expect 0 "the real scanner refuses the probe document: install.sh exits 0" -- bash "$INST_353"
+expect_output "$REFUSES_404"
+expect_no_output "the pre-commit hook could not evaluate" "a refusal of the probe document is not reported as a fault"
+
+# The real scanner where it cannot evaluate: its own die(), exit 2, as the
+# issue names it. The wrapper stands where the hook resolves the scanner.
+printf '#!/usr/bin/env bash\nGIT_DIR="%s" exec bash "%s" "$@"\n' "$WORK/probe-404-no-such-git-dir" "$REAL_404" > "$SCAN_404"
+chmod +x "$SCAN_404"
+rm -f "$WORK/probe-404-report.tsv"
+expect 1 "a scanner that could not evaluate (exit 2): install.sh exits 1" -- \
+  env IAENG_INSTALL_REPORT="$WORK/probe-404-report.tsv" bash "$INST_353"
+expect_output "the pre-commit hook could not evaluate a staged .xlsx document: exit 2, which is neither a refusal (1) nor an acceptance (0)"
+expect_output "It said: data-policy: not inside a git work tree"
+expect_no_output "$REFUSES_404" "a scanner that could not evaluate is not reported as a refusal"
+# A git-hooks fault record, which setup-project-bootstrap.sh counts as a hook
+# problem, not a bare warning (PR #422 review, CR F2).
+expect 0 "the fault is recorded as a git-hooks fault on the pre-commit hook" -- \
+  grep -qE "^git-hooks${T}fault${T}[^${T}]*/pre-commit${T}the pre-commit hook could not evaluate a staged \.xlsx document: exit 2," "$WORK/probe-404-report.tsv"
+
+# The scanner refused the document and then exited 2: the exit status is the
+# verdict (Check Convention, shell rule 1), and 2 says the scan did not finish.
+printf '#!/usr/bin/env bash\nbash "%s" "$@"\nexit 2\n' "$REAL_404" > "$SCAN_404"
+expect 1 "the probe document refused but the scanner exits 2: install.sh exits 1" -- bash "$INST_353"
+expect_output "the pre-commit hook could not evaluate a staged .xlsx document: exit 2, which is neither a refusal (1) nor an acceptance (0)"
+expect_output "It said: data-policy: REFUSED  iaeng-install-probe.xlsx"
+expect_no_output "$REFUSES_404" "a refusal line under exit 2 is not reported as a refusal"
+
+# The hook cannot find its scanner: it exits 1, the finding's code, having
+# scanned nothing. It refuses every commit and evaluates none.
+rm -f "$SCAN_404"
+expect 1 "the hook cannot locate its scanner (exit 1, nothing scanned): install.sh exits 1" -- bash "$INST_353"
+expect_output "the pre-commit hook could not evaluate a staged .xlsx document: exit 1, but its output does not refuse iaeng-install-probe.xlsx"
+expect_output "It said: pre-commit: rejected — cannot locate Adapters/scripts/data-policy-scan.sh."
+expect_no_output "$REFUSES_404" "a hook with no scanner is not reported as a refusal"
+
+# The quoted first line is the hook's own output, printed to the terminal:
+# its control characters become spaces, as in a record (SEC-IAENG-422-01).
+cat > "$SCAN_404" <<'EOF'
+#!/usr/bin/env bash
+printf '\033]0;PWNED\a\033[31mRED\n' >&2
+exit 2
+EOF
+chmod +x "$SCAN_404"
+expect 1 "a hook whose first line carries terminal escapes: install.sh exits 1" -- bash "$INST_353"
+expect_output "It said:  ]0;PWNED  [31mRED"
+expect_no_output $'\033' "no ESC from the hook's output reaches the terminal"
+expect_no_output $'\a' "no BEL from the hook's output reaches the terminal"
+
+# A refusal is of the probe document, by its whole name: a scanner that
+# refuses other documents only, one of them named with the probe's name as a
+# prefix, has not refused it (PR #422 review, QA Q3).
+cat > "$SCAN_404" <<'EOF'
+#!/usr/bin/env bash
+printf 'data-policy: REFUSED  other.xlsx\n    office document\n' >&2
+printf 'data-policy: REFUSED  iaeng-install-probe.xlsx.bak\n    office document\n' >&2
+exit 1
+EOF
+expect 1 "the scanner refuses other documents only (exit 1): install.sh exits 1" -- bash "$INST_353"
+expect_output "the pre-commit hook could not evaluate a staged .xlsx document: exit 1, but its output does not refuse iaeng-install-probe.xlsx"
+expect_no_output "$REFUSES_404" "a refusal of other documents is not reported as a refusal of the probe document"
+
+# Exit 0 stays what it was: the document accepted, here by an allow file that
+# names it, with the real scanner back in place.
+cp "$REAL_404" "$SCAN_404"
+chmod +x "$SCAN_404"
+mkdir -p .ia-engineering
+printf '^iaeng-install-probe\\.xlsx$\n' > .ia-engineering/data-policy.allow
+expect 1 "the probe document allowed (exit 0): install.sh exits 1" -- bash "$INST_353"
+expect_output "the pre-commit hook ACCEPTED a staged .xlsx document"
+expect_no_output "$REFUSES_404" "an accepted document is not reported as a refusal"
+rm -f .ia-engineering/data-policy.allow
+expect 0 "the allow file removed: the real scanner refuses the probe document again" -- bash "$INST_353"
+expect_output "$REFUSES_404"
+cd "$WORK" || exit 1
+
 section "setup-project-bootstrap.sh — the closing message names its cause (WU-IAENG-353, issue #262)"
 
 # DEF-IAENG-REL014-02: a re-run whose only problem is Adapter files that differ
@@ -8991,12 +9113,12 @@ git checkout -q -- .github/ISSUE_TEMPLATE/config.yml
 # The statusline records of install-hooks.sh --check (WU-IAENG-379): absent
 # is drift; a project statusLine kept unwrapped, or one in settings.local.json
 # that shadows the project's, is information and adds nothing to act on.
-jq 'del(.statusLine)' .claude/settings.json | tr -d '\r' > st.tmp && mv st.tmp .claude/settings.json
+jq 'del(.statusLine)' .claude/settings.json | strip_eol_cr > st.tmp && mv st.tmp .claude/settings.json
 expect 1 "a settings.json without the statusLine is drift" -- bash "$DRIFT_358" --format tsv --strict
 expect_output "config${T}absent${T}statusLine: context-statusline.sh${T}re-run ia-engineering/Adapters/ai-runtimes/claude-code/install-hooks.sh: it installs the context statusLine"
 expect_output "# check-framework-drift: 5 to act on, 0 indeterminate."
 git checkout -q -- .claude/settings.json
-jq '.statusLine = {type: "command", command: "Write-Output hi", shell: "powershell"}' .claude/settings.json | tr -d '\r' > st.tmp && mv st.tmp .claude/settings.json
+jq '.statusLine = {type: "command", command: "Write-Output hi", shell: "powershell"}' .claude/settings.json | strip_eol_cr > st.tmp && mv st.tmp .claude/settings.json
 expect 1 "a PowerShell project statusLine kept unwrapped is information" -- bash "$DRIFT_358" --format tsv --strict
 expect_output "config${T}near-miss${T}statusLine: the project statusLine is kept as it is (it runs under powershell)"
 expect_output "# check-framework-drift: 4 to act on, 0 indeterminate."

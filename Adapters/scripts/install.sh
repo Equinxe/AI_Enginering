@@ -967,10 +967,22 @@ else
   # index (GIT_INDEX_FILE) seeded from HEAD plus one staged document — the
   # real index and working tree are untouched. Proves the hook resolves the
   # scanner and that the scanner refuses, rather than that a file was copied.
+  #
+  # Only a REFUSAL counts (issue #348): exit 1, the scanner's finding, with
+  # the probe document refused in the output, on the scanner's own line. Any
+  # other non-zero status is a hook that did not evaluate the document: the
+  # scanner's 2 (could not evaluate), and the hook's own 1 when it cannot
+  # locate the scanner, having scanned nothing. Reading those as "refuses"
+  # reported a hook that enforces nothing as healthy, and an unevaluated
+  # condition is a failure, not a pass (Standards/CODE_QUALITY_STANDARD.md,
+  # The Check Convention, rule 1). The line matched is data-policy-scan.sh's
+  # report_path output; the test that the real scanner's refusal is reported
+  # as one (Adapters/scripts/tests/run.sh, WU-IAENG-404) fails if it changes.
   PRE_COMMIT="$PROBE_HOOKS/pre-commit"
   if [ ! -x "$PRE_COMMIT" ]; then
     fault git-hooks "$PRE_COMMIT" "pre-commit hook is not executable at $PRE_COMMIT"
   else
+    PROBE_NAME="iaeng-install-probe.xlsx"
     PROBE_INDEX="$(mktemp)"
     rm -f "$PROBE_INDEX"
     if git rev-parse --verify --quiet HEAD >/dev/null; then
@@ -978,11 +990,25 @@ else
     fi
     PROBE_BLOB="$(printf 'probe\n' | git hash-object -w --stdin)"
     GIT_INDEX_FILE="$PROBE_INDEX" git update-index --add \
-      --cacheinfo "100644,$PROBE_BLOB,iaeng-install-probe.xlsx"
-    if GIT_INDEX_FILE="$PROBE_INDEX" "$PRE_COMMIT" > /dev/null 2>&1; then
+      --cacheinfo "100644,$PROBE_BLOB,$PROBE_NAME"
+    PROBE_RC=0
+    PROBE_OUT="$(GIT_INDEX_FILE="$PROBE_INDEX" "$PRE_COMMIT" 2>&1)" || PROBE_RC=$?
+    if [ "$PROBE_RC" -eq 0 ]; then
       fault git-hooks "$PRE_COMMIT" "the pre-commit hook ACCEPTED a staged .xlsx document. The hook is installed but not enforcing — check that it resolves Adapters/scripts/data-policy-scan.sh."
-    else
+    elif [ "$PROBE_RC" -eq 1 ] && [[ $'\n'"$PROBE_OUT"$'\n' == *$'\n'"data-policy: REFUSED  $PROBE_NAME"$'\n'* ]]; then
       say "pre-commit hook refuses a staged document (Standards/DATA_PROTECTION_STANDARD.md)"
+    else
+      if [ "$PROBE_RC" -eq 1 ]; then
+        PROBE_WHY="exit 1, but its output does not refuse $PROBE_NAME"
+      else
+        PROBE_WHY="exit $PROBE_RC, which is neither a refusal (1) nor an acceptance (0)"
+      fi
+      PROBE_SAID="${PROBE_OUT%%$'\n'*}"
+      PROBE_SAID="${PROBE_SAID%$'\r'}"
+      # The hook's own output, printed to the terminal by warn: its control
+      # characters become spaces, as in a record (SEC-IAENG-422-01).
+      flat "$PROBE_SAID"; PROBE_SAID="$FLAT"
+      fault git-hooks "$PRE_COMMIT" "the pre-commit hook could not evaluate a staged .xlsx document: $PROBE_WHY. The hook is installed but its verdict is unknown, and that is not a refusal. It said: ${PROBE_SAID:-nothing}"
     fi
     rm -f "$PROBE_INDEX"
   fi
