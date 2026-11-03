@@ -1794,6 +1794,12 @@ work_units:
     milestone: Adoption
     delivers: VERSION.md, CHANGELOG.md, README.md, CLAUDE.md, Registry/work-units.yml, changelog.d/
 
+  - id: WU-IAENG-425
+    employee: Platform Engineer
+    title: install.sh reads a CRLF .gitignore line by line (v0.0.15 release acceptance DEF-01, cases S1-45 and S2-34, issue #396, Workflows/RELEASE.md Step 4 minor defect) - Git for Windows' default core.autocrlf=true checks .gitignore out CRLF, and since WU-IAENG-353 the presence test read it raw, so a real install.sh run, and setup-project-bootstrap.sh through it, appended the six rules again on every fresh clone, and --check disagreed with that run on .ia-engineering/usage/; both reads now go through read_ignore, which reads the file with a sentinel so command substitution strips nothing, then removes the CR that ends a line and only that one, as git reads it (Standards/CODE_QUALITY_STANDARD.md, The Check Convention, shell rule 3; the sentinel closes Security review F1, a last line .env followed by two CRs read as .env on Git for Windows); the script tests cover LF, CRLF with every rule present (two real runs, byte for byte), CRLF missing one rule, a CR inside a line, and five last-line shapes checked against git check-ignore; CHANGELOG.md is left to the Release Manager's documentation Pull Request on the release branch
+    milestone: Adoption
+    delivers: Adapters/scripts/install.sh, Adapters/scripts/tests/run.sh, Registry/work-units.yml
+
   - id: WU-IAENG-426
     employee: Release Manager
     title: Correct the v0.0.15 release notes and front doors from the release acceptance (Workflows/RELEASE.md Step 4, minor-defect route, Pull Request to release/v0.0.15) - the upgrade procedure regenerates the agents and checks them with generate-agents.sh --check, also in README Which ref to pin; Known issues gain the unclassifiable merge, cherry-pick and revert skipping commit-msg, the escape-hatch guard's multi-value payload and the quoted-substitution false positive of #272, and the #391 and #396 lines are corrected; a moved checkout's worktrees need git worktree repair; README Roadmap, the never-dispatched count, and the VERSION.md numbering sentence brought up to date
