@@ -39,7 +39,7 @@ REAL_CTX_STAMP=""
 real_ctx_names() {
   [ -d "$1" ] || return 0
   find "$1" -mindepth 1 -maxdepth 1 2>/dev/null | sed 's|^.*/||' \
-    | { grep -Ev "$REAL_CTX_LIVE" || :; } | LC_ALL=C sort
+    | { grep -Ev -- "$REAL_CTX_LIVE" || :; } | LC_ALL=C sort
 }
 
 real_ctx_begin() {
@@ -66,7 +66,7 @@ real_ctx_changed() {
       LC_ALL=C comm -13 <(printf '%s\n' "${REAL_CTX_BEFORE[$i]}") <(real_ctx_names "$d")
       # Modified: written after the stamp.
       find "$d" -mindepth 1 -maxdepth 1 -newer "$REAL_CTX_STAMP" 2>/dev/null \
-        | sed 's|^.*/||' | { grep -Ev "$REAL_CTX_LIVE" || :; }
+        | sed 's|^.*/||' | { grep -Ev -- "$REAL_CTX_LIVE" || :; }
     } | LC_ALL=C sort -u | while IFS= read -r n; do
       [ -n "$n" ] && printf '%s/%s\n' "$d" "$n"
     done

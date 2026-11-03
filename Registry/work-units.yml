@@ -1793,3 +1793,9 @@ work_units:
     title: Bump VERSION.md to v0.0.15 and finalize the CHANGELOG.md section for the Adoption release (Workflows/RELEASE.md Step 2) - the changelog fragments assembled by release.sh assemble, the 30 Oct 2026 release-readiness audit's editorial fixes (one ordered upgrade procedure, version-scoped Security and Fixed lines, document versions, the known issues), README pin and measured counts, CLAUDE.md Current Version, next milestone Usage (v0.0.16); this Work Unit's own fragment is an exemption
     milestone: Adoption
     delivers: VERSION.md, CHANGELOG.md, README.md, CLAUDE.md, Registry/work-units.yml, changelog.d/
+
+  - id: WU-IAENG-427
+    employee: Platform Engineer
+    title: Pass every grep pattern taken from a variable after -- (Workflows/RELEASE.md Step 4, Director decision 3 Nov 2026) - a value that begins with a dash is compared as text and never read as an option; the Employee trailer value in the commit-msg hook and check-employee-trailers.sh, then every other grep in the repository whose pattern comes from a variable, in check-work-units.sh, check-risk-map.sh, release.sh, validate-framework.sh, usage-dashboard.sh and the hook and script test suites; the script tests compare values that begin with a dash with the roster, in the hook and in the CI check; CHANGELOG.md is left to the Release Manager's documentation Pull Request on the release branch
+    milestone: Adoption
+    delivers: Adapters/git-hooks/commit-msg, Adapters/scripts/check-employee-trailers.sh, Adapters/scripts/check-work-units.sh, Adapters/scripts/check-risk-map.sh, Adapters/scripts/release.sh, Adapters/scripts/validate-framework.sh, Adapters/scripts/usage-dashboard.sh, Adapters/scripts/tests/run.sh, Adapters/ai-runtimes/claude-code/hooks/tests/dashboard.sh, Adapters/ai-runtimes/claude-code/hooks/tests/real-ctx-dir.sh, Adapters/ai-runtimes/claude-code/hooks/tests/context-statusline.sh, Registry/work-units.yml
