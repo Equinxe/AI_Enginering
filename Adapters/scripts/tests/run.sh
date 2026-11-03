@@ -1594,10 +1594,43 @@ fi
 
 # Off GitHub the script configures nothing and prints the checklist a human
 # follows; that checklist must not tell them to make develop strict either.
+#
+# "Nothing was changed" is checked, not taken from the message (issue #329):
+# the off-GitHub run must make no gh call at all. The shim's call log is
+# emptied first, and the GitHub run above must have filled it, or an empty log
+# afterwards would prove nothing.
+SBP_LOGGED=no
+[ -s "$SBP_DATA/calls" ] && SBP_LOGGED=yes
+: > "$SBP_DATA/calls"
 echo none > .ia-engineering/host
 expect 1 "setup-branch-protection.sh off GitHub prints the checklist and changes nothing" -- env PATH="$SBP_BIN:$PATH" SBP_DATA="$SBP_DATA" bash "$SBP"
 expect_output "require the branch to be up to date with its base before merging, on main"
 expect_output "and release/* only: NOT on develop"
+TOTAL=$((TOTAL + 1))
+if [ "$SBP_LOGGED" = yes ] && [ ! -s "$SBP_DATA/calls" ]; then
+  [ -n "$VERBOSE" ] && printf '   ok   off GitHub, setup-branch-protection.sh makes no gh call\n'
+else
+  printf '   FAIL off GitHub, setup-branch-protection.sh made a gh call, or the shim logged nothing on GitHub\n'
+  printf '        shim logged the GitHub run: %s; calls logged off GitHub:\n' "$SBP_LOGGED"
+  sed 's/^/        | /' "$SBP_DATA/calls"
+  FAILED=$((FAILED + 1))
+fi
+
+# strict_for() refuses a branch with no decided strict value, rather than
+# guessing one (issue #329). Its only caller loops over main and develop, so
+# no run of the script reaches the refusal; the function is extracted from the
+# script and called alone, as the validate-framework.sh functions are below.
+# release/* is the likely wrong addition to that loop: its ruleset sets strict.
+SBP_HARNESS="$WORK/sbp-strict-for.sh"
+{
+  echo 'set -uo pipefail'
+  sed -n '/^strict_for() {/,/^}/p' "$SBP"
+  cat <<'HARNESS'
+strict_for "$1"
+HARNESS
+} > "$SBP_HARNESS"
+expect 1 "strict_for refuses a branch with no decided strict value" -- bash "$SBP_HARNESS" release/v1.0.0
+expect_output "strict_for: no strict value decided for branch 'release/v1.0.0'"
 
 # ------------------------------------------------- generate-agents.sh -------
 #
