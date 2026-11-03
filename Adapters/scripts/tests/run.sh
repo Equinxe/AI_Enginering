@@ -10706,6 +10706,10 @@ section "Check Convention shell rule 3 — only a line-ending carriage return is
 
 CR397=$'\r'
 T397=$'\t'
+# What validate-framework.sh prints for a CR inside a value: the two characters
+# \r on a terminal line (SEC-IAENG-397-01). The function cases below run the
+# readers with a stub fail(), so their records hold the raw CR.
+VCR397='\r'
 
 # show_397 <text> — the text with its control characters made visible: a raw
 # CR in a failure message would draw the rest of its line over the start.
@@ -10810,7 +10814,7 @@ expect_output "decision found in 1.txt (author: reviewbot)"
 
 # --- validate-framework.sh: the functions, extracted as above.
 VF397_HARNESS="$WORK/vf397-harness.sh"
-VF397_FNS="flatten_roster employee_tier_from_file employee_name_from_file has_line check_inventory check_enum_completeness changelog_fragment_check changelog_fragment_advisory"
+VF397_FNS="flatten_roster employee_tier_from_file employee_name_from_file has_line check_inventory check_enum_completeness changelog_fragment_check changelog_fragment_advisory annotate"
 {
   cat <<'STUBS'
 set -uo pipefail
@@ -11048,25 +11052,25 @@ expect 2 "validate-framework sections: the fixture run completes" -- bash Adapte
 expect_line_397 "validate-framework 6: an Employee heading with a CR inside is not the required section" \
   "   FAIL  Employees/DevOps/PLATFORM_ENGINEER.md is missing required sections: Mission"
 expect_line_397 "validate-framework 13: a chain step naming an Employee with a CR inside is not that Employee" \
-  "   FAIL  Registry/chains.yml names non-Employees: Platform Eng${CR397}ineer; "
+  "   FAIL  Registry/chains.yml names non-Employees: Platform Eng${VCR397}ineer; "
 expect_line_397 "validate-framework 13: a chain workflow path with a CR inside is not the document" \
-  "   FAIL  Registry/chains.yml references missing workflow documents: Workflows/PRO${CR397}BE.md; "
+  "   FAIL  Registry/chains.yml references missing workflow documents: Workflows/PRO${VCR397}BE.md; "
 expect_line_397 "validate-framework 13: a chain heading with a CR inside is not a chain" \
   "   ok    Registry/chains.yml covers every named chain (2 checked)"
 expect_line_397 "validate-framework 14: a workflow path with a CR inside is not the document" \
-  "   FAIL  Registry/workflows.yml references missing documents: Workflows/PRO${CR397}BE.md; "
+  "   FAIL  Registry/workflows.yml references missing documents: Workflows/PRO${VCR397}BE.md; "
 expect_line_397 "validate-framework 14: a step_count with a CR inside is not the number" \
-  "   FAIL  Registry/workflows.yml says Workflows/TWELVE.md has 1${CR397}2 steps; the document has 12"
+  "   FAIL  Registry/workflows.yml says Workflows/TWELVE.md has 1${VCR397}2 steps; the document has 12"
 expect_line_397 "validate-framework 14: a Work Unit id with a CR inside is malformed" \
-  "   FAIL  Registry/work-units.yml has malformed IDs: WU-T-1${CR397}0 "
+  "   FAIL  Registry/work-units.yml has malformed IDs: WU-T-1${VCR397}0 "
 expect_line_397 "validate-framework 14: WU-T-1<CR>0 is not a duplicate of WU-T-10" \
   "   FAIL  Registry/work-units.yml has duplicate IDs: WU-T-2 "
 expect_line_397 "validate-framework 14: a Work Unit owner with a CR inside is not that Employee" \
-  "   FAIL  Registry/work-units.yml credits non-Employees: Platform Eng${CR397}ineer; "
+  "   FAIL  Registry/work-units.yml credits non-Employees: Platform Eng${VCR397}ineer; "
 expect_line_397 "validate-framework 17: a stack with a CR inside is not the stack" \
-  "   FAIL  stack 'py${CR397}thon' is in VALID_STACKS but Adapters/dockerfiles/py${CR397}thon.Dockerfile is missing or empty"
+  "   FAIL  stack 'py${VCR397}thon' is in VALID_STACKS but Adapters/dockerfiles/py${VCR397}thon.Dockerfile is missing or empty"
 expect_line_397 "validate-framework 18: a README version line with a CR inside is not VERSION.md's" \
-  "   FAIL  README Current Status says 'v9.9.9 - Pro${CR397}be' but VERSION.md declares 'v9.9.9 - Probe'"
+  "   FAIL  README Current Status says 'v9.9.9 - Pro${VCR397}be' but VERSION.md declares 'v9.9.9 - Probe'"
 expect_line_397 "validate-framework 18: a CLAUDE.md codename with a CR inside is not the codename" \
   "   FAIL  CLAUDE.md's Current Version section does not name 'v9.9.9 — Probe'"
 expect_line_397 "validate-framework 21: a CLAUDE.md Next: line with a CR inside the milestone does not name it" \
@@ -11122,27 +11126,73 @@ printf '# Probe Framework\n\n# Current Version\n\nv9.9.9 — Probe\n\nNext: **Se
 vf397_version "Pro<CR>be" "Seq<CR>uel"
 expect 2 "validate-framework VERSION.md: the fixture run completes" -- bash Adapters/scripts/validate-framework.sh --verbose
 expect_line_397 "validate-framework 18: a VERSION.md codename with a CR inside its bold token keeps it" \
-  "   FAIL  README Current Status says 'v9.9.9 - Probe' but VERSION.md declares 'v9.9.9 - Pro${CR397}be'"
+  "   FAIL  README Current Status says 'v9.9.9 - Probe' but VERSION.md declares 'v9.9.9 - Pro${VCR397}be'"
 expect_line_397 "validate-framework 21: a VERSION.md Next Milestone with a CR inside its bold token keeps it" \
-  "   FAIL  CLAUDE.md's 'Next:' line does not name 'Seq${CR397}uel'"
+  "   FAIL  CLAUDE.md's 'Next:' line does not name 'Seq${VCR397}uel'"
 # A CR just before the closing '**' is inside the line too: removing a CR at
 # the end of the token, rather than none, would still read it as the
-# codename. Git Bash's $(...) drops a CR before the final newline by itself,
-# so only a shell that keeps one can see the token end in it.
-VF397_TRAIL="$(printf 'x\r\n')"
-block_begin 3 "validate-framework VERSION.md, a CR at the end of the bold token"
-if [ "$VF397_TRAIL" = "x${CR397}" ]; then
-  vf397_version "Probe<CR>" "Sequel<CR>"
-  expect 2 "validate-framework VERSION.md, CR at the end of the token: the fixture run completes" -- \
-    bash Adapters/scripts/validate-framework.sh --verbose
-  expect_line_397 "validate-framework 18: a codename token ending in a CR keeps it" \
-    "   FAIL  README Current Status says 'v9.9.9 - Probe' but VERSION.md declares 'v9.9.9 - Probe${CR397}'"
-  expect_line_397 "validate-framework 21: a milestone token ending in a CR keeps it" \
-    "   FAIL  CLAUDE.md's 'Next:' line does not name 'Sequel${CR397}'"
-else
-  skip "$BLOCK_N" "validate-framework VERSION.md, a CR at the end of the bold token: this shell's command substitution drops a trailing CR (Git Bash), so no value can end in one here -- not a fix defect."
-fi
-block_end
+# codename. On every platform: the readers use read, because Git Bash's $(...)
+# drops a CR before the final newline (QA R1 on PR #437).
+vf397_version "Probe<CR>" "Sequel<CR>"
+expect 2 "validate-framework VERSION.md, CR at the end of the token: the fixture run completes" -- \
+  bash Adapters/scripts/validate-framework.sh --verbose
+expect_line_397 "validate-framework 18: a codename token ending in a CR keeps it" \
+  "   FAIL  README Current Status says 'v9.9.9 - Probe' but VERSION.md declares 'v9.9.9 - Probe${VCR397}'"
+expect_line_397 "validate-framework 21: a milestone token ending in a CR keeps it" \
+  "   FAIL  CLAUDE.md's 'Next:' line does not name 'Sequel${VCR397}'"
+
+# --- validate-framework.sh: how a value it quotes is printed (SEC-IAENG-397-01).
+# A value kept with a CR inside is printed with that CR shown, never raw: as
+# the two characters \r on the terminal line, and as %0D in a workflow command
+# (% as %25 and LF as %0A), so each annotation stays one command.
+expect 0 "validate-framework annotate: runs" -- bash "$VF397_HARNESS" annotate warning "a%b${CR397}c
+d"
+expect_same_397 "validate-framework annotate: %, CR and LF in the data are %25, %0D and %0A" \
+  "::warning::a%25b%0Dc%0Ad"
+# End to end, under GitHub Actions and --verbose: a registry value with a CR
+# inside, one with a %, a CR inside a value quoted in a failure's detail and in
+# a passing line, and a Work Unit id with a CR inside read from a commit
+# message of the Pull Request (the changelog fragment early warning).
+new_repo vf397-annotate
+mkdir -p Adapters/scripts Registry Core
+cp "$VF" Adapters/scripts/validate-framework.sh
+printf 'work_units:\n  - id: WU-T-1<CR>2\n    employee: Platform 100%% Engineer\n' > Registry/work-units.yml
+printf '# Version\n\nCurrent Version\n\n**v9.9.9**\n\nCodename\n\n**Pro<CR>be**\n' > VERSION.md
+printf '# Probe\n\n## Current Status\n\nv9.9.9 - Pro<CR>be\n\nCompleted\n\n- Core (A, B<CR>, C, D)\n' > README.md
+printf '# A\n' > Core/A.md
+printf '# B\n' > Core/B.md
+printf '# C\n' > Core/C.md
+inner_397 Registry/work-units.yml VERSION.md README.md
+git add -A && git commit -q -m "fixture"
+git update-ref refs/remotes/origin/main HEAD
+printf 'feat: a change\n\nWork Unit: WU-T-1\r2\n' > "$WORK/vf397-annotate-msg.txt"
+git commit -q --allow-empty --cleanup=verbatim -F "$WORK/vf397-annotate-msg.txt"
+expect 2 "validate-framework under GitHub Actions: the fixture run completes" -- \
+  env GITHUB_ACTIONS=true GITHUB_BASE_REF=main GITHUB_WORKSPACE="$PWD" bash Adapters/scripts/validate-framework.sh --verbose
+expect_line_397 "validate-framework fail(): a CR inside a value quoted in the detail is shown as \\r" \
+  "         A file was added to or dropped from Core/ without the README enumeration following it. Compare 'Core (A, B${VCR397}, C, D)' against Core/*.md."
+expect_line_397 "validate-framework fail(): and is %0D in the detail part of its ::error:: line" \
+  "::error::README's Core enumeration lists 4 entries but Core/ holds 3 files A file was added to or dropped from Core/ without the README enumeration following it. Compare 'Core (A, B%0D, C, D)' against Core/*.md."
+expect_line_397 "validate-framework pass(): a CR inside a value a passing line quotes is shown as \\r" \
+  "   ok    README Current Status names 'v9.9.9 - Pro${VCR397}be', matching VERSION.md"
+expect_line_397 "validate-framework fail(): a CR inside a value is %0D in its one ::error:: line" \
+  "::error::Registry/work-units.yml has malformed IDs: WU-T-1%0D2  Templates/WORK_UNIT.md defines the format as WU-[project]-[number]."
+expect_line_397 "validate-framework fail(): a % inside a value is %25 in its ::error:: line" \
+  "::error::Registry/work-units.yml credits non-Employees: Platform 100%25 Engineer;  A Work Unit's owner must be a real Employee, matching the 'Employee:' commit trailer the work landed under."
+expect_line_397 "validate-framework fail(): the terminal line shows the CR as \\r" \
+  "   FAIL  Registry/work-units.yml has malformed IDs: WU-T-1${VCR397}2 "
+expect_line_397 "validate-framework fragment warning: a commit's Work Unit id with a CR inside is %0D in its one ::warning:: line" \
+  "::warning::WU-T-1%0D2 has no changelog.d/WU-T-1%0D2.md and this Pull Request does not edit CHANGELOG.md. Add the fragment (changelog.d/README.md), or 'No changelog entry: <reason>'; release.sh check condition 5 blocks the release without one."
+expect_line_397 "validate-framework fragment warning: its terminal line shows the CR as \\r" \
+  "   note  WU-T-1${VCR397}2 has no changelog.d/WU-T-1${VCR397}2.md in this Pull Request"
+TOTAL=$((TOTAL + 1))
+case "$LAST_OUTPUT" in
+  *"$CR397"*)
+    printf '   FAIL validate-framework under GitHub Actions: no carriage return reaches the output raw\n'
+    show_397 "$LAST_OUTPUT"
+    FAILED=$((FAILED + 1)) ;;
+  *) [ -n "$VERBOSE" ] && printf '   ok   validate-framework under GitHub Actions: no carriage return reaches the output raw\n' ;;
+esac
 
 # --- usage-dashboard.sh: the five registry readers and the prices, from one
 # template rendered with a CR inside one value each, then CRLF. The JSON in

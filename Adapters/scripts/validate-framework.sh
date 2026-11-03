@@ -170,23 +170,41 @@ section() {
   printf '\n== %s\n' "$1"
 }
 
+# What is printed, never what is compared (SEC-IAENG-397-01). A value a check
+# quotes keeps a carriage return inside it (Standards/CODE_QUALITY_STANDARD.md,
+# The Check Convention, Shell Scripts, rule 3). Printed raw, that CR sends the
+# cursor back over the line it is in; in a workflow command, the runner can
+# read what follows it as a command of its own. So a terminal line shows each
+# CR as the two characters \r, and annotate escapes the annotation's data.
+
+# annotate <error|warning> <text> — prints one workflow command whose data is
+# <text> with %, CR and LF written %25, %0D and %0A, so it is one line whatever
+# the text holds.
+annotate() {
+  local data="${2//\%/%25}"
+  data="${data//$'\r'/%0D}"
+  data="${data//$'\n'/%0A}"
+  printf '::%s::%s\n' "$1" "$data"
+}
+
 pass() {
   CHECKS=$((CHECKS + 1))
   if [ "$VERBOSE" -eq 1 ]; then
-    printf '   ok    %s\n' "$1"
+    printf '   ok    %s\n' "${1//$'\r'/\\r}"
   fi
 }
 
 fail() {
   CHECKS=$((CHECKS + 1))
   FAILURES=$((FAILURES + 1))
-  printf '   FAIL  %s\n' "$1"
+  printf '   FAIL  %s\n' "${1//$'\r'/\\r}"
   if [ -n "${2:-}" ]; then
-    printf '         %s\n' "$2"
+    local detail="$2"
+    printf '         %s\n' "${detail//$'\r'/\\r}"
   fi
   # Surface as an annotation when running under GitHub Actions.
   if [ -n "${GITHUB_ACTIONS:-}" ]; then
-    echo "::error::$1 ${2:-}"
+    annotate error "$1 ${2:-}"
   fi
 }
 
@@ -207,7 +225,9 @@ cannot() {
 # The carriage return a CRLF checkout leaves at the end of a line is removed,
 # which would otherwise make every name comparison fail; one inside a value is
 # kept (Standards/CODE_QUALITY_STANDARD.md, The Check Convention, Shell
-# Scripts, rule 3). This holds for every reader in this script.
+# Scripts, rule 3). Every reader in this script that removes a CR does so. Some
+# readers anchor a pattern at the end of the line without removing the CR
+# first, and miss a CRLF line on Linux: issue #433.
 
 roster_names() {
   printf '%s\n' "$ROSTER_NAMES"
@@ -996,7 +1016,7 @@ else
   printf '         lost. Verify from a git checkout, or check the modes by\n'
   printf '         hand: ls -l Adapters/git-hooks Adapters/scripts\n'
   if [ -n "${GITHUB_ACTIONS:-}" ]; then
-    echo "::warning::Index file modes were not evaluated — no git repository. Run this from a git checkout to verify the executable bit on shipped scripts."
+    annotate warning "Index file modes were not evaluated — no git repository. Run this from a git checkout to verify the executable bit on shipped scripts."
   fi
 fi
 
@@ -1797,8 +1817,10 @@ else
   # a CRLF checkout does not defeat the match. The bold token ends at its
   # closing '**', so that carriage return is never inside it; a CR before the
   # '**' is inside the line, and is kept (rule 3 of the Shell Scripts rules).
+  # Read with read, not $(...): Git Bash's command substitution drops a CR
+  # before the final newline, which here is that CR.
   ver_version="$(grep -A2 '^Current Version' "$VER_FILE" | grep -oE 'v[0-9]+\.[0-9]+\.[0-9.]+' | head -1 | sed $'s/\r$//')"
-  ver_codename="$(grep -A2 '^Codename' "$VER_FILE" | grep -oE '\*\*[^*]+\*\*' | head -1 | tr -d '*')"
+  IFS= read -r ver_codename < <(grep -A2 '^Codename' "$VER_FILE" | grep -oE '\*\*[^*]+\*\*' | head -1 | tr -d '*') || true
   if [ -z "$ver_version" ] || [ -z "$ver_codename" ]; then
     cannot "could not read the current version and codename from $VER_FILE" "The extraction reads '**vX.Y.Z**' under 'Current Version' and '**Codename**' under 'Codename'. Empty means that header moved and this section now verifies nothing — reported rather than passed."
   else
@@ -2023,8 +2045,9 @@ else
   # same '-A2' plus bold-token idiom section 18 uses for Codename. A TBD
   # line carries no bold token, so this is empty for the unscoped state, by
   # design (see above). As for Codename, the token ends at its closing '**',
-  # so only the '*' are removed: a CR inside it is inside the line.
-  next_ms="$(grep -A2 '^## Next Milestone' "$VER_FILE" | grep -oE '\*\*[^*]+\*\*' | head -1 | tr -d '*')"
+  # so only the '*' are removed: a CR inside it is inside the line, and it is
+  # read with read so that Git Bash keeps one just before the '**'.
+  IFS= read -r next_ms < <(grep -A2 '^## Next Milestone' "$VER_FILE" | grep -oE '\*\*[^*]+\*\*' | head -1 | tr -d '*') || true
   if [ -z "$next_ms" ]; then
     pass "$VER_FILE's Next Milestone is unscoped (TBD); the front doors are not required to name one"
   else
@@ -2583,13 +2606,15 @@ if [ -n "${GITHUB_BASE_REF:-}" ] && [ -n "${GITHUB_WORKSPACE:-}" ] && [ "$GITHUB
   frag_adv="$(changelog_fragment_advisory changelog.d "origin/$GITHUB_BASE_REF" HEAD)"
   frag_adv_status=$?
   if [ "$frag_adv_status" -eq 2 ]; then
-    printf '   --    changelog fragment early warning not evaluated: origin/%s or HEAD is not a commit here\n' "$GITHUB_BASE_REF"
-    echo "::warning::Changelog fragment early warning not evaluated: origin/$GITHUB_BASE_REF or HEAD could not be read. release.sh check condition 5 still applies at the release."
+    printf '   --    changelog fragment early warning not evaluated: origin/%s or HEAD is not a commit here\n' "${GITHUB_BASE_REF//$'\r'/\\r}"
+    annotate warning "Changelog fragment early warning not evaluated: origin/$GITHUB_BASE_REF or HEAD could not be read. release.sh check condition 5 still applies at the release."
   else
+    # The id is read from a commit message of the Pull Request: printed as
+    # every other value is (annotate, above), never raw.
     while IFS= read -r id; do
       [ -n "$id" ] || continue
-      printf '   note  %s has no changelog.d/%s.md in this Pull Request\n' "$id" "$id"
-      echo "::warning::$id has no changelog.d/$id.md and this Pull Request does not edit CHANGELOG.md. Add the fragment (changelog.d/README.md), or 'No changelog entry: <reason>'; release.sh check condition 5 blocks the release without one."
+      printf '   note  %s has no changelog.d/%s.md in this Pull Request\n' "${id//$'\r'/\\r}" "${id//$'\r'/\\r}"
+      annotate warning "$id has no changelog.d/$id.md and this Pull Request does not edit CHANGELOG.md. Add the fragment (changelog.d/README.md), or 'No changelog entry: <reason>'; release.sh check condition 5 blocks the release without one."
     done <<< "$frag_adv"
   fi
 fi
