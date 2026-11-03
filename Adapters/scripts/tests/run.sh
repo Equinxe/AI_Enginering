@@ -11194,6 +11194,43 @@ case "$LAST_OUTPUT" in
   *) [ -n "$VERBOSE" ] && printf '   ok   validate-framework under GitHub Actions: no carriage return reaches the output raw\n' ;;
 esac
 
+# A printed value with a line break stays on one line: the terminal lines show
+# an LF as \n, as they show a CR as \r. The validator's own pass() and fail(),
+# extracted, in plain mode (0) and --verbose (1), with no annotation.
+LF397=$'\n'
+VLF397='\n'
+VF397_PRINT="$WORK/vf397-print.sh"
+{
+  cat <<'PRINT'
+set -uo pipefail
+CHECKS=0
+FAILURES=0
+VERBOSE="$1"
+shift
+PRINT
+  for fn397 in show annotate pass fail; do
+    sed -n "/^$fn397() {/,/^}/p" "$VF"
+  done
+  cat <<'PRINT'
+"$@"
+PRINT
+} > "$VF397_PRINT"
+expect 0 "validate-framework fail(), plain: runs" -- env GITHUB_ACTIONS= bash "$VF397_PRINT" 0 fail "first${LF397}second"
+expect_same_397 "validate-framework fail(), plain: a printed value with a line break stays on one line" \
+  "   FAIL  first${VLF397}second"
+expect 0 "validate-framework fail(), plain, with a detail: runs" -- \
+  env GITHUB_ACTIONS= bash "$VF397_PRINT" 0 fail "a${LF397}b" "c${LF397}d"
+expect_same_397 "validate-framework fail(), plain: the message and the detail stay on one line each" \
+  "   FAIL  a${VLF397}b${LF397}         c${VLF397}d"
+expect 0 "validate-framework fail(), --verbose: runs" -- env GITHUB_ACTIONS= bash "$VF397_PRINT" 1 fail "first${LF397}second"
+expect_same_397 "validate-framework fail(), --verbose: a printed value with a line break stays on one line" \
+  "   FAIL  first${VLF397}second"
+expect 0 "validate-framework pass(), --verbose: runs" -- env GITHUB_ACTIONS= bash "$VF397_PRINT" 1 pass "first${LF397}second"
+expect_same_397 "validate-framework pass(), --verbose: a printed value with a line break stays on one line" \
+  "   ok    first${VLF397}second"
+expect 0 "validate-framework pass(), plain: runs" -- env GITHUB_ACTIONS= bash "$VF397_PRINT" 0 pass "first${LF397}second"
+expect_same_397 "validate-framework pass(), plain: prints no line at all" ""
+
 # --- usage-dashboard.sh: the five registry readers and the prices, from one
 # template rendered with a CR inside one value each, then CRLF. The JSON in
 # the page writes a CR as the two characters \r.

@@ -175,7 +175,16 @@ section() {
 # The Check Convention, Shell Scripts, rule 3). Printed raw, that CR sends the
 # cursor back over the line it is in; in a workflow command, the runner can
 # read what follows it as a command of its own. So a terminal line shows each
-# CR as the two characters \r, and annotate escapes the annotation's data.
+# CR as the two characters \r (show), and annotate escapes the annotation's
+# data.
+
+# show <text> — sets SHOWN to <text> as a terminal line prints it: each CR as
+# the two characters \r and each LF as \n, so a printed value with a line
+# break stays on one line.
+show() {
+  SHOWN="${1//$'\r'/\\r}"
+  SHOWN="${SHOWN//$'\n'/\\n}"
+}
 
 # annotate <error|warning> <text> — prints one workflow command whose data is
 # <text> with %, CR and LF written %25, %0D and %0A, so it is one line whatever
@@ -190,17 +199,19 @@ annotate() {
 pass() {
   CHECKS=$((CHECKS + 1))
   if [ "$VERBOSE" -eq 1 ]; then
-    printf '   ok    %s\n' "${1//$'\r'/\\r}"
+    show "$1"
+    printf '   ok    %s\n' "$SHOWN"
   fi
 }
 
 fail() {
   CHECKS=$((CHECKS + 1))
   FAILURES=$((FAILURES + 1))
-  printf '   FAIL  %s\n' "${1//$'\r'/\\r}"
+  show "$1"
+  printf '   FAIL  %s\n' "$SHOWN"
   if [ -n "${2:-}" ]; then
-    local detail="$2"
-    printf '         %s\n' "${detail//$'\r'/\\r}"
+    show "$2"
+    printf '         %s\n' "$SHOWN"
   fi
   # Surface as an annotation when running under GitHub Actions.
   if [ -n "${GITHUB_ACTIONS:-}" ]; then
@@ -2606,14 +2617,16 @@ if [ -n "${GITHUB_BASE_REF:-}" ] && [ -n "${GITHUB_WORKSPACE:-}" ] && [ "$GITHUB
   frag_adv="$(changelog_fragment_advisory changelog.d "origin/$GITHUB_BASE_REF" HEAD)"
   frag_adv_status=$?
   if [ "$frag_adv_status" -eq 2 ]; then
-    printf '   --    changelog fragment early warning not evaluated: origin/%s or HEAD is not a commit here\n' "${GITHUB_BASE_REF//$'\r'/\\r}"
+    show "$GITHUB_BASE_REF"
+    printf '   --    changelog fragment early warning not evaluated: origin/%s or HEAD is not a commit here\n' "$SHOWN"
     annotate warning "Changelog fragment early warning not evaluated: origin/$GITHUB_BASE_REF or HEAD could not be read. release.sh check condition 5 still applies at the release."
   else
     # The id is read from a commit message of the Pull Request: printed as
     # every other value is (annotate, above), never raw.
     while IFS= read -r id; do
       [ -n "$id" ] || continue
-      printf '   note  %s has no changelog.d/%s.md in this Pull Request\n' "${id//$'\r'/\\r}" "${id//$'\r'/\\r}"
+      show "$id"
+      printf '   note  %s has no changelog.d/%s.md in this Pull Request\n' "$SHOWN" "$SHOWN"
       annotate warning "$id has no changelog.d/$id.md and this Pull Request does not edit CHANGELOG.md. Add the fragment (changelog.d/README.md), or 'No changelog entry: <reason>'; release.sh check condition 5 blocks the release without one."
     done <<< "$frag_adv"
   fi
