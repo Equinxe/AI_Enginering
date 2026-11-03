@@ -1694,9 +1694,9 @@ work_units:
 
   - id: WU-IAENG-407
     employee: DevOps Engineer
-    title: Reserved 28 Oct 2026 before dispatch (WU-IAENG-408) - setup-branch-protection.sh review follow-ups and the RELEASE and HOTFIX up-to-date wording (issue #329) - the strict_for refusal of an unknown branch is tested or recorded as not falsifiable beside it, the off-GitHub test asserts that no gh call was made, and Workflows/RELEASE.md Step 8 and Workflows/HOTFIX.md word the head-main back-merge warning as conditional now that develop does not require branches to be up to date
+    title: setup-branch-protection.sh review follow-ups and the RELEASE and HOTFIX up-to-date wording (issue #329) - the script suite asserts that the off-GitHub run makes no gh call, the stub's call log emptied first and required to have recorded the GitHub run; strict_for() refusing a branch with no decided strict value is tested, the function extracted from the script and called alone with a release branch as the validate-framework.sh functions are, since no run of the script reaches the refusal, and the comment beside it says so; Workflows/RELEASE.md Step 8 and Workflows/HOTFIX.md Step 9 word the head-main back-merge warning as conditional - develop requires branches to be up to date only where a project turns it on or the script was last run from a version before v0.0.15 - and the instruction is unchanged
     milestone: Usage
-    delivers: planned - Adapters/scripts/setup-branch-protection.sh, Adapters/scripts/tests/run.sh, Workflows/RELEASE.md, Workflows/HOTFIX.md, changelog.d/WU-IAENG-407.md, Registry/work-units.yml
+    delivers: Adapters/scripts/setup-branch-protection.sh, Adapters/scripts/tests/run.sh, Workflows/RELEASE.md, Workflows/HOTFIX.md, changelog.d/WU-IAENG-407.md, Registry/work-units.yml
 
   - id: WU-IAENG-408
     employee: Technical Writer
