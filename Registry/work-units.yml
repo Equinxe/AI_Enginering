@@ -1634,9 +1634,9 @@ work_units:
 
   - id: WU-IAENG-397
     employee: Platform Engineer
-    title: Reserved 27 Oct 2026 before dispatch (WU-IAENG-398) - strip only a line-ending CR in the other production sites (issue #326) - Check Convention shell rule 3; validate-framework.sh, install-hooks.sh, usage-dashboard.sh and check-review-recorded.sh remove every carriage return instead of only the one that ends a line
+    title: Strip only a line-ending CR in the other production sites (issue #326) - Check Convention shell rule 3; validate-framework.sh (34 readers, in every spelling the issue table and its SEC-IAENG-389-02 comment did and did not list), install-hooks.sh (9), usage-dashboard.sh (6) and check-review-recorded.sh (1) removed every carriage return, so a value with a CR inside read as the value without it; each now removes only the CR that ends a line, VERSION.md's codename and Next Milestone keep any CR (their match ends at the closing bold markers, so the line-ending one is never in it), and the install-hooks.sh run path shows a TAB, LF or CR inside a project near-miss command as a space, as --check does, instead of removing the CR; run.sh renders each fixture once with a CR inside a value and once CRLF, never both in one file, because Git for Windows grep drops every CR of a CRLF file (issue #433); the run path still prints other control bytes raw (issue #434)
     milestone: Usage
-    delivers: planned - Adapters/scripts/validate-framework.sh, Adapters/ai-runtimes/claude-code/install-hooks.sh, Adapters/scripts/usage-dashboard.sh, Adapters/scripts/check-review-recorded.sh, Adapters/scripts/tests/run.sh, changelog.d/WU-IAENG-397.md, Registry/work-units.yml
+    delivers: Adapters/scripts/validate-framework.sh, Adapters/ai-runtimes/claude-code/install-hooks.sh, Adapters/scripts/usage-dashboard.sh, Adapters/scripts/check-review-recorded.sh, Adapters/scripts/tests/run.sh, changelog.d/WU-IAENG-397.md, Registry/work-units.yml
 
   - id: WU-IAENG-398
     employee: Technical Writer
