@@ -780,13 +780,18 @@ IGNORE_RULES="$LOCAL_DATA_DIR/
 # out CRLF. Read raw, a CRLF line never matched its rule (only the file's last
 # line could, its CR dropped by Git for Windows' bash in $(< file)), so every
 # real run appended the rules again and --check disagreed with that run
-# (WU-IAENG-425, #396). The content is framed by a newline on each side, so
-# the substitution is ${line%$'\r'} on every line: a CR inside a line stays
-# data, and `.env<CR>x` is not `.env`.
+# (WU-IAENG-425, #396). The file is read with a sentinel after it, because
+# command substitution strips the trailing newlines and Git for Windows' bash
+# a CR with them: a last line `.env<CR><CR>` read as .env, which git does not
+# ignore (Security review of PR #423, F1). The content is then framed by a
+# newline on each side, so the substitution is ${line%$'\r'} on every line,
+# as git reads the file: a CR inside a line stays data, `.env<CR>x` is not
+# `.env`, and `.env<CR><CR>` is not either.
 read_ignore() {
   IGNORE_CONTENT=""
   [ -f .gitignore ] || return 0
-  IGNORE_CONTENT=$'\n'"$(< .gitignore)"$'\n'
+  IGNORE_CONTENT="$(cat .gitignore; printf x)"
+  IGNORE_CONTENT=$'\n'"${IGNORE_CONTENT%x}"$'\n'
   IGNORE_CONTENT="${IGNORE_CONTENT//$'\r\n'/$'\n'}"
 }
 read_ignore

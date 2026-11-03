@@ -8039,6 +8039,43 @@ expect_output "gitignore${T}missing${T}.gitignore${T}.env"
 expect_output "gitignore${T}missing${T}.gitignore${T}.claude/agents/"
 expect_output "6 .gitignore rule(s): 4 present, 2 missing;"
 
+# --- the file's LAST line (Security review of PR #423, F1) ---------------------
+# Git for Windows' bash drops the last line's CR together with the final
+# newline in $(< file). `.env<CR><CR>` there then read as .env once the
+# line-ending CR was stripped as well: present to install.sh, while git, which
+# removes one CR only, does not ignore .env. These cases cannot fail on Linux,
+# where this framework's CI runs: Linux bash's $(< file) keeps that CR, so
+# the read without the sentinel is right there too. They fail on Git for
+# Windows, where the defect lives, and were seen red there (WU-IAENG-425).
+# Each case asks git first, so the expectation is git's own reading of the
+# same bytes; core.excludesFile points nowhere so a global ignore of .env
+# cannot answer.
+#
+# last_line_425 <ending> <git-exit> <description> — the five other rules CRLF,
+# then .env ending in <ending> (escapes as printf %b reads them) as the file's
+# last line. <git-exit> is git check-ignore's exit for .env: 0 ignored, 1 not.
+last_line_425() {
+  printf '%s\r\n' local_test_data/ .ia-engineering/SESSION_STATE.md \
+    .claude/agents/ .claude/worktrees/ .ia-engineering/usage/ > .gitignore
+  printf '.env%b' "$1" >> .gitignore
+  expect "$2" "git check-ignore on .env exits $2: $3" -- \
+    git -c core.excludesFile="$WORK/no-excludes-425" check-ignore -q .env
+  if [ "$2" -eq 0 ]; then
+    expect 0 "--check reports .env present, as git reads it: $3" -- bash "$INST_353" --check
+    expect_output "gitignore${T}present${T}.gitignore${T}.env"
+    expect_output "6 .gitignore rule(s): 6 present;"
+  else
+    expect 3 "--check reports .env missing, as git reads it: $3 (exit 3)" -- bash "$INST_353" --check
+    expect_output "gitignore${T}missing${T}.gitignore${T}.env"
+    expect_output "6 .gitignore rule(s): 5 present, 1 missing;"
+  fi
+}
+last_line_425 '\r\n' 0 "CRLF on the last line"
+last_line_425 '\r' 0 "a CR and no final newline on the last line"
+last_line_425 '\r\r\n' 1 "a doubled CR on the last line"
+last_line_425 '\r\r\n\n' 1 "a doubled CR on the last rule line, a blank line after it"
+last_line_425 '\r\r' 1 "a doubled CR on the last line, no final newline"
+
 section "install.sh --check — git hooks: core.hooksPath, executable, shadowed, no probe (WU-IAENG-355)"
 
 # The write path's own decisions, read and never applied: no `git config`
