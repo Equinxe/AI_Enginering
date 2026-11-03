@@ -1793,3 +1793,9 @@ work_units:
     title: Bump VERSION.md to v0.0.15 and finalize the CHANGELOG.md section for the Adoption release (Workflows/RELEASE.md Step 2) - the changelog fragments assembled by release.sh assemble, the 30 Oct 2026 release-readiness audit's editorial fixes (one ordered upgrade procedure, version-scoped Security and Fixed lines, document versions, the known issues), README pin and measured counts, CLAUDE.md Current Version, next milestone Usage (v0.0.16); this Work Unit's own fragment is an exemption
     milestone: Adoption
     delivers: VERSION.md, CHANGELOG.md, README.md, CLAUDE.md, Registry/work-units.yml, changelog.d/
+
+  - id: WU-IAENG-426
+    employee: Release Manager
+    title: Correct the v0.0.15 release notes and front doors from the release acceptance (Workflows/RELEASE.md Step 4, minor-defect route, Pull Request to release/v0.0.15) - the upgrade procedure regenerates the agents and checks them with generate-agents.sh --check, also in README Which ref to pin; Known issues gain the unclassifiable merge, cherry-pick and revert skipping commit-msg, the escape-hatch guard's multi-value payload and the quoted-substitution false positive of #272, and the #391 and #396 lines are corrected; a moved checkout's worktrees need git worktree repair; README Roadmap, the never-dispatched count, and the VERSION.md numbering sentence brought up to date
+    milestone: Adoption
+    delivers: CHANGELOG.md, README.md, VERSION.md, Registry/work-units.yml

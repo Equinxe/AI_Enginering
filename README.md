@@ -53,8 +53,10 @@ lists with `!` each existing file it left alone. Leave the `already exists`
 stack files as they are. Copy an Adapter by hand over a file that `differs from
 the Adapter` only if you never edited that file, since `--force` replaces every
 existing file the script manages at once, your Dockerfile and Work Unit
-registry included. Then re-run `install-hooks.sh` and `install-skills.sh`. The
-version's `CHANGELOG.md` entry says what changed.
+registry included. Then re-run `install-hooks.sh` and `install-skills.sh`, and
+then `generate-agents.sh`: an Employee definition that changed upstream reaches
+your agents only through that run. `generate-agents.sh --check` exits 0 once
+every agent is current. The version's `CHANGELOG.md` entry says what changed.
 
 If the framework comes from a local directory instead of a URL, `git submodule
 add` fails with `fatal: transport 'file' not allowed`; see
@@ -220,7 +222,7 @@ skipping it:
 | **Proven by execution** | as of v0.0.15: 212 framework self-validation checks, 2432 behaviour tests over the check scripts, 1516 over the runtime hooks, and ten required CI checks — all green on every merge, on Linux |
 | **Proven once, end to end** | a fresh project importing the framework, bootstrapping, generating its 42 agents, installing hooks that refuse a bad commit and accept a good one |
 | **Not yet proven** | **the framework has only ever been used on itself.** No third-party project has adopted it. The first one will find things `Governance/TROUBLESHOOTING.md` does not yet contain |
-| **Not yet proven** | 29 of the 42 Employees have never been dispatched. Their definitions are careful; carefulness is not evidence |
+| **Not yet proven** | 24 of the 42 Employees have never been dispatched. Their definitions are careful; carefulness is not evidence |
 
 ---
 
@@ -351,6 +353,9 @@ Adapters/
 - Automation
 - Convergence
 - Portability
+- Precision
+- Adoption
+- Usage
 - Public Release
 
 ---
