@@ -268,20 +268,27 @@ section() { printf '\n== %s\n' "$1"; }
 # the same rule. Until issue #327 the reads that use it, sbp_payload included,
 # removed every carriage return (`tr -d '\r'`), one inside a value too, so a
 # case could not see one that a script under test left there.
+# Git for Windows' sed drops a CRLF's CR on input, so there a CR just before it goes too: a\r\r\n gives a\n.
 strip_eol_cr() { sed $'s/\r$//'; }
 
 # The helper's own cases. The expected values are rule 3's, written by hand,
-# never the helper's output.
+# never the helper's output. Compared byte for byte: the trailing "." keeps
+# what a command substitution drops, a final newline everywhere and, in Git
+# for Windows' bash, a CR before it, so a CR left on the last line still shows.
 section "strip_eol_cr — only the carriage return that ends a line is removed (WU-IAENG-405, #327)"
 
 CR405=$'\r'
+LF405=$'\n'
 SHOWN_CR405='\r'
-EOL405_MID="$(printf 'Employee: Platform Engi\rneer\r\n' | strip_eol_cr)"
-expect 0 "strip_eol_cr keeps a carriage return inside a value (got: ${EOL405_MID//"$CR405"/"$SHOWN_CR405"})" -- \
-  test "$EOL405_MID" = "Employee: Platform Engi${CR405}neer"
-EOL405_END="$(printf 'one\r\ntwo\r\n' | strip_eol_cr)"
-expect 0 "strip_eol_cr removes the carriage return that ends each line (got: ${EOL405_END//"$CR405"/"$SHOWN_CR405"})" -- \
-  test "$EOL405_END" = $'one\ntwo'
+SHOWN_LF405='\n'
+# shown405 <value> — the value with each CR and LF written as \r and \n.
+shown405() { local s="${1//"$CR405"/"$SHOWN_CR405"}"; printf '%s' "${s//"$LF405"/"$SHOWN_LF405"}"; }
+EOL405_MID="$(printf 'Employee: Platform Engi\rneer\r\n' | strip_eol_cr; printf .)"
+expect 0 "strip_eol_cr keeps a carriage return inside a value (got: $(shown405 "$EOL405_MID"))" -- \
+  test "$EOL405_MID" = "Employee: Platform Engi${CR405}neer${LF405}."
+EOL405_END="$(printf 'one\r\ntwo\r\n' | strip_eol_cr; printf .)"
+expect 0 "strip_eol_cr removes the carriage return that ends each line (got: $(shown405 "$EOL405_END"))" -- \
+  test "$EOL405_END" = $'one\ntwo\n.'
 
 # ------------------------------------------------- check-work-units.sh ------
 

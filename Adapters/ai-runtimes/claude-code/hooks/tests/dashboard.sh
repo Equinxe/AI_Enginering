@@ -83,6 +83,7 @@ check() { local label="$1"; shift; if "$@" >/dev/null 2>&1; then ok "$label"; el
 # Until issue #327 these reads ran `tr -d '\r'`, which deleted a carriage
 # return inside a value too, so a check could not see one that a script under
 # test left there. Its own checks are the first section.
+# Git for Windows' sed drops a CRLF's CR on input, so there a CR just before it goes too: a\r\r\n gives a\n.
 strip_eol_cr() { sed $'s/\r$//'; }
 
 T="$(mktemp -d "${TMPDIR:-/tmp}/iaeng-dash342.XXXXXX")" || { echo "dashboard.sh: mktemp failed" >&2; exit 2; }
