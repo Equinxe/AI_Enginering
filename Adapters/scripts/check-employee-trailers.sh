@@ -72,11 +72,20 @@ fi
 # merge-classify.sh is sourced: sourcing a sibling via BASH_SOURCE is safe,
 # but `err` differs per script (its prefix) and most check-*.sh siblings
 # source nothing.
+#
+# A carriage return in a message is printed as the two characters \r, on both
+# hosts (issue #337). One reaches a message only through a value it quotes,
+# such as an Employee name kept with a carriage return inside it (rule 3,
+# below); printed raw, it sends the cursor back to the start of the line, the
+# rest of the message overwrites the beginning, and the byte that caused the
+# refusal is not visible. Only what is printed changes: the comparisons read
+# the raw bytes. The other control bytes are issue #427.
 err() {
+  local msg="${1//$'\r'/\\r}"
   if [ -n "${GITHUB_ACTIONS:-}" ]; then
-    printf '::error::%s\n' "$1" >&2
+    printf '::error::%s\n' "$msg" >&2
   else
-    printf 'check-employee-trailers: ERROR: %s\n' "$1" >&2
+    printf 'check-employee-trailers: ERROR: %s\n' "$msg" >&2
   fi
 }
 

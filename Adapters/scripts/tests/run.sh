@@ -153,6 +153,21 @@ expect_output() {
   return 1
 }
 
+# expect_line <line> — the previous command's output has a line equal to
+# <line> from its first byte to its last (grep -x). A line that only contains
+# it, or that holds a byte <line> does not, does not match (WU-IAENG-395).
+expect_line() {
+  TOTAL=$((TOTAL + 1))
+  if grep -qxF -- "$1" <<< "$LAST_OUTPUT"; then
+    [ -n "$VERBOSE" ] && printf '   ok   output has the line: %s\n' "$1"
+    return 0
+  fi
+  printf '   FAIL output has no line equal to: %s\n' "$1"
+  printf '%s\n' "$LAST_OUTPUT" | sed 's/^/        | /'
+  FAILED=$((FAILED + 1))
+  return 1
+}
+
 # skip <n> <reason...> — records that <n> checks were not executed, and why,
 # instead of leaving TOTAL exactly as a full run would (WU-IAENG-300: a
 # platform where `ln -s` fails used to print a bare SKIP line that touched no
@@ -10575,6 +10590,98 @@ risk_project cr389-map-crlf; sound_risk_map
 sed -i "s/\$/${CR389}/" .ia-engineering/risk-map.yml && git add -A
 expect 0 "check-risk-map: a CRLF map is still sound" -- bash "$MAP389" .
 expect_output "Risk Map is sound"
+
+# ---------- refusal messages: a carriage return in a value is shown as \r ---
+#
+# The cases above refuse a value with a carriage return inside it. The
+# refusal printed that value raw, so in a terminal or a CI log the carriage
+# return sent the cursor back to the start of the line, the rest of the
+# message overwrote the beginning, and the byte that caused the refusal was
+# not visible (issue #337, from the Code Reviewer on #336). Each refusal now
+# prints it as the two characters \r, and only the message changes: the
+# refusals above still compare the raw bytes.
+#
+# The expected lines are each check's refusal text, which this change leaves
+# as it was, with the value spelt as issue #337 specifies: the carriage return
+# as \r. expect_line matches the whole line, so a raw carriage return anywhere
+# in it fails the case, and expect_no_output checks that none is printed on
+# any other line. The check scripts print `::error::` instead of their own
+# prefix when GITHUB_ACTIONS is set, as it is in CI, so each case sets it
+# explicitly: empty for the local form, true for the annotation form.
+
+section "refusal messages show a carriage return inside a value as \\r (WU-IAENG-395, #337)"
+
+VCR395='\r'
+
+# --- git-hooks/commit-msg: the Employee value, the subject, and the Work
+# Unit value its check-work-units.sh --message call refuses
+new_repo cr395-hook
+write_employee_roster "Platform Engineer" "Release Manager"
+write_wu_registry WU-TEST-001
+git add -A && git commit -q -m "registry"
+printf 'fix(cr): x\n\nWork Unit: WU-TEST-001\n\nEmployee: Platform Engi\rneer\n' > msg-emp.txt
+expect 1 "commit-msg: a refused Employee value with a carriage return inside it" -- env GITHUB_ACTIONS= bash "$HOOK389" msg-emp.txt
+expect_line "commit-msg: rejected — 'Employee: Platform Engi${VCR395}neer' is not a recognized Employee."
+expect_no_output "$CR389" "no raw carriage return is printed"
+printf 'fix\r(cr): x\n\nWork Unit: WU-TEST-001\n\nEmployee: Platform Engineer\n' > msg-subject.txt
+expect 1 "commit-msg: a refused subject with a carriage return inside it" -- env GITHUB_ACTIONS= bash "$HOOK389" msg-subject.txt
+expect_line "  Got: fix${VCR395}(cr): x"
+expect_no_output "$CR389" "no raw carriage return is printed"
+printf 'fix(cr): x\n\nWork Unit: WU-TEST-0\r01\n\nEmployee: Platform Engineer\n' > msg-wu.txt
+expect 1 "commit-msg: a refused Work Unit value with a carriage return inside it" -- env GITHUB_ACTIONS= bash "$HOOK389" msg-wu.txt
+expect_line "check-work-units: ERROR: This commit message has a 'Work Unit:' line whose value 'WU-TEST-0${VCR395}01' is empty or not a Work Unit id. The form is WU-<project>-<number> (Templates/WORK_UNIT.md), for example WU-SHOP-042."
+expect_no_output "$CR389" "no raw carriage return is printed"
+
+# --- check-employee-trailers.sh, local and annotation forms
+cr389_emp_repo cr395-emp
+BASE="$(git rev-parse HEAD)"
+printf 'feat: x\n\nEmployee: Platform Engi\rneer\n' > "$WORK/cr395-emp.txt"
+commit_verbatim389 "$WORK/cr395-emp.txt"
+SHA395="$(git rev-parse HEAD)"
+MSG395="has 'Employee: Platform Engi${VCR395}neer', which is not in Registry/employees.yml. A functional or tool label ('executor', 'coder', 'reviewer-bot') is not a valid Employee name — see Core/MAIN_AGENT_CONDUCT.md, 'Naming matters.' If this line is an EXAMPLE quoted in the message body, indent it so it does not start at column 0."
+expect 1 "check-employee-trailers: a refused Employee value with a carriage return inside it" -- env GITHUB_ACTIONS= bash "$EMP389" "$BASE" HEAD
+expect_line "check-employee-trailers: ERROR: Commit $SHA395 $MSG395"
+expect_no_output "$CR389" "no raw carriage return is printed"
+expect 1 "check-employee-trailers: the same refusal as a GitHub annotation" -- env GITHUB_ACTIONS=true bash "$EMP389" "$BASE" HEAD
+expect_line "::error::Commit $SHA395 $MSG395"
+expect_no_output "$CR389" "no raw carriage return is printed"
+
+# --- check-work-units.sh, local and annotation forms
+cr389_wu_repo cr395-wu
+BASE="$(git rev-parse HEAD)"
+printf 'feat: x\n\nWork Unit: WU-TEST-0\r02\n' > "$WORK/cr395-wu.txt"
+commit_verbatim389 "$WORK/cr395-wu.txt"
+SHA395="$(git rev-parse HEAD)"
+MSG395="has a 'Work Unit:' line whose value 'WU-TEST-0${VCR395}02' is empty or not a Work Unit id. The form is WU-<project>-<number> (Templates/WORK_UNIT.md), for example WU-SHOP-042."
+expect 1 "check-work-units: a refused Work Unit value with a carriage return inside it" -- env GITHUB_ACTIONS= bash "$WU389" "$BASE" HEAD
+expect_line "check-work-units: ERROR: Commit $SHA395 $MSG395"
+expect_no_output "$CR389" "no raw carriage return is printed"
+expect 1 "check-work-units: the same refusal as a GitHub annotation" -- env GITHUB_ACTIONS=true bash "$WU389" "$BASE" HEAD
+expect_line "::error::Commit $SHA395 $MSG395"
+expect_no_output "$CR389" "no raw carriage return is printed"
+
+# --- check-risk-map.sh: pattern (local and annotation forms), level, category
+risk_project cr395-map-pattern; sound_risk_map
+sed -i "s|- pattern: \"src/auth/\\*\"|- pattern: \"src/au${CR389}th/*\"|" .ia-engineering/risk-map.yml && git add -A
+MSG395="zone 'src/au${VCR395}th/*' matches no tracked file. A dead entry reassures without keeping anything — trap 4 in Templates/RISK_MAP.md. Remove it, or fix the pattern."
+expect 1 "check-risk-map: a refused pattern with a carriage return inside it" -- env GITHUB_ACTIONS= bash "$MAP389" .
+expect_line "check-risk-map: ERROR: $MSG395"
+expect_no_output "$CR389" "no raw carriage return is printed"
+expect 1 "check-risk-map: the same refusal as a GitHub annotation" -- env GITHUB_ACTIONS=true bash "$MAP389" .
+expect_line "::error::$MSG395"
+expect_no_output "$CR389" "no raw carriage return is printed"
+
+risk_project cr395-map-level; sound_risk_map
+sed -i "s/level: sensitive/level: sensi${CR389}tive/" .ia-engineering/risk-map.yml && git add -A
+expect 1 "check-risk-map: a refused level with a carriage return inside it" -- env GITHUB_ACTIONS= bash "$MAP389" .
+expect_line "check-risk-map: ERROR: zone 'src/auth/*' has level 'sensi${VCR395}tive', which is not one of: routine standard sensitive"
+expect_no_output "$CR389" "no raw carriage return is printed"
+
+risk_project cr395-map-category; sound_risk_map
+sed -i "s/    category: authentication/    category: authenti${CR389}cation/" .ia-engineering/risk-map.yml && git add -A
+expect 1 "check-risk-map: a refused category with a carriage return inside it" -- env GITHUB_ACTIONS= bash "$MAP389" .
+expect_line "check-risk-map: ERROR: zone 'src/auth/*' names category 'authenti${VCR395}cation', which is not in the closed list: authentication authorization personal_data payments_and_spend cryptography_and_secrets migrations_and_data_integrity infrastructure_and_ci core_architecture"
+expect_no_output "$CR389" "no raw carriage return is printed"
 
 # ------- a condition not evaluated exits 2, never 1 (WU-IAENG-390, #331) ------
 #
