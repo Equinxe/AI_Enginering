@@ -1794,6 +1794,12 @@ work_units:
     milestone: Adoption
     delivers: VERSION.md, CHANGELOG.md, README.md, CLAUDE.md, Registry/work-units.yml, changelog.d/
 
+  - id: WU-IAENG-425
+    employee: Platform Engineer
+    title: install.sh reads a CRLF .gitignore line by line (v0.0.15 release acceptance DEF-01, cases S1-45 and S2-34, issue #396, Workflows/RELEASE.md Step 4 minor defect) - Git for Windows' default core.autocrlf=true checks .gitignore out CRLF, and since WU-IAENG-353 the presence test read it raw, so a real install.sh run, and setup-project-bootstrap.sh through it, appended the six rules again on every fresh clone, and --check disagreed with that run on .ia-engineering/usage/; both reads now go through read_ignore, which reads the file with a sentinel so command substitution strips nothing, then removes the CR that ends a line and only that one, as git reads it (Standards/CODE_QUALITY_STANDARD.md, The Check Convention, shell rule 3; the sentinel closes Security review F1, a last line .env followed by two CRs read as .env on Git for Windows); the script tests cover LF, CRLF with every rule present (two real runs, byte for byte), CRLF missing one rule, a CR inside a line, and five last-line shapes checked against git check-ignore; CHANGELOG.md is left to the Release Manager's documentation Pull Request on the release branch
+    milestone: Adoption
+    delivers: Adapters/scripts/install.sh, Adapters/scripts/tests/run.sh, Registry/work-units.yml
+
   - id: WU-IAENG-427
     employee: Platform Engineer
     title: Pass every grep pattern taken from a variable after -- (Workflows/RELEASE.md Step 4, Director decision 3 Nov 2026) - a value that begins with a dash is compared as text and never read as an option; the Employee trailer value in the commit-msg hook and check-employee-trailers.sh, then every other grep in the repository whose pattern comes from a variable, in check-work-units.sh, check-risk-map.sh, release.sh, validate-framework.sh, usage-dashboard.sh and the hook and script test suites; the script tests compare values that begin with a dash with the roster, in the hook and in the CI check; CHANGELOG.md is left to the Release Manager's documentation Pull Request on the release branch
