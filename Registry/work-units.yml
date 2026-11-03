@@ -1622,9 +1622,9 @@ work_units:
 
   - id: WU-IAENG-395
     employee: Platform Engineer
-    title: Reserved 27 Oct 2026 before dispatch (WU-IAENG-398) - refusal messages show a mid-value CR visibly (issue #337) - the commit-msg hook, check-employee-trailers.sh, check-work-units.sh and check-risk-map.sh print a refused value raw, so a carriage return inside it garbles the line and the byte that caused the refusal is not visible
+    title: Refusal messages show a mid-value carriage return as \r (issue #337) - the commit-msg hook, check-employee-trailers.sh, check-work-units.sh and check-risk-map.sh printed a refused value raw, so a carriage return inside it sent the cursor back to the start of the line, the rest of the message overwrote the beginning, and the byte that caused the refusal was not visible; the hook prints the Employee value and the subject through shown, and the three scripts' err prints every message with each carriage return as \r, in the local message and the GitHub annotation alike, while every comparison still reads the raw bytes; the other control bytes are issue #427
     milestone: Usage
-    delivers: planned - Adapters/git-hooks/commit-msg, Adapters/scripts/check-employee-trailers.sh, Adapters/scripts/check-work-units.sh, Adapters/scripts/check-risk-map.sh, Adapters/scripts/tests/run.sh, changelog.d/WU-IAENG-395.md, Registry/work-units.yml
+    delivers: Adapters/git-hooks/commit-msg, Adapters/scripts/check-employee-trailers.sh, Adapters/scripts/check-work-units.sh, Adapters/scripts/check-risk-map.sh, Adapters/scripts/tests/run.sh, changelog.d/WU-IAENG-395.md, Registry/work-units.yml
 
   - id: WU-IAENG-396
     employee: Platform Engineer

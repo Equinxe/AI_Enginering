@@ -69,11 +69,19 @@ export LC_ALL=C
 CATEGORIES="authentication authorization personal_data payments_and_spend cryptography_and_secrets migrations_and_data_integrity infrastructure_and_ci core_architecture"
 LEVELS="routine standard sensitive"
 
+# A carriage return in a message is printed as the two characters \r, on both
+# hosts (issue #337). One reaches a message only through a value it quotes,
+# such as a pattern, level or category kept with a carriage return inside it
+# (see the parse below); printed raw, it sends the cursor back to the start of
+# the line, the rest of the message overwrites the beginning, and the byte
+# that caused the refusal is not visible. Only what is printed changes: the
+# comparisons read the raw bytes. The other control bytes are issue #427.
 err() {
+  local msg="${1//$'\r'/\\r}"
   if [ -n "${GITHUB_ACTIONS:-}" ]; then
-    printf '::error::%s\n' "$1" >&2
+    printf '::error::%s\n' "$msg" >&2
   else
-    printf 'check-risk-map: ERROR: %s\n' "$1" >&2
+    printf 'check-risk-map: ERROR: %s\n' "$msg" >&2
   fi
 }
 
