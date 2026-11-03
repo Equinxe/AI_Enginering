@@ -1682,9 +1682,9 @@ work_units:
 
   - id: WU-IAENG-405
     employee: Test Automation Engineer
-    title: Reserved 28 Oct 2026 before dispatch (WU-IAENG-408) - strip only a line-ending CR in the test suites (issue #327) - Check Convention shell rule 3; hooks/tests/dashboard.sh and scripts/tests/run.sh remove every carriage return instead of only the one that ends a line, so a test cannot see a carriage return the script under test left in the middle of a value
+    title: strip only a line-ending CR in the test suites (issue #327) - Check Convention shell rule 3; hooks/tests/dashboard.sh (53 reads) and scripts/tests/run.sh (8 reads, sbp_payload included) removed every carriage return from what their checks compare, so a check could not see a carriage return a script under test left in the middle of a value; each read now goes through the suite's strip_eol_cr helper, which removes only the carriage return that ends a line, and each suite checks the helper both ways, seen red against the every-CR strip
     milestone: Usage
-    delivers: planned - Adapters/ai-runtimes/claude-code/hooks/tests/dashboard.sh, Adapters/scripts/tests/run.sh, changelog.d/WU-IAENG-405.md, Registry/work-units.yml
+    delivers: Adapters/ai-runtimes/claude-code/hooks/tests/dashboard.sh, Adapters/scripts/tests/run.sh, changelog.d/WU-IAENG-405.md, Registry/work-units.yml
 
   - id: WU-IAENG-406
     employee: Platform Engineer

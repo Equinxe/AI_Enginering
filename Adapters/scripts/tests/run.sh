@@ -262,6 +262,27 @@ block_end() {
 
 section() { printf '\n== %s\n' "$1"; }
 
+# strip_eol_cr — stdin to stdout, with the carriage return that ends a line
+# removed and every other one kept (Standards/CODE_QUALITY_STANDARD.md, The
+# Check Convention, Shell Scripts rule 3); `sed $'s/\r$//'` written inline is
+# the same rule. Until issue #327 the reads that use it, sbp_payload included,
+# removed every carriage return (`tr -d '\r'`), one inside a value too, so a
+# case could not see one that a script under test left there.
+strip_eol_cr() { sed $'s/\r$//'; }
+
+# The helper's own cases. The expected values are rule 3's, written by hand,
+# never the helper's output.
+section "strip_eol_cr — only the carriage return that ends a line is removed (WU-IAENG-405, #327)"
+
+CR405=$'\r'
+SHOWN_CR405='\r'
+EOL405_MID="$(printf 'Employee: Platform Engi\rneer\r\n' | strip_eol_cr)"
+expect 0 "strip_eol_cr keeps a carriage return inside a value (got: ${EOL405_MID//"$CR405"/"$SHOWN_CR405"})" -- \
+  test "$EOL405_MID" = "Employee: Platform Engi${CR405}neer"
+EOL405_END="$(printf 'one\r\ntwo\r\n' | strip_eol_cr)"
+expect 0 "strip_eol_cr removes the carriage return that ends each line (got: ${EOL405_END//"$CR405"/"$SHOWN_CR405"})" -- \
+  test "$EOL405_END" = $'one\ntwo'
+
 # ------------------------------------------------- check-work-units.sh ------
 
 CHECK_WU="$SCRIPTS/check-work-units.sh"
@@ -911,10 +932,10 @@ expect 1 "publish closing text no longer says the back-merge is conditional" -- 
 # longer describes Step 11.
 RELEASE_MD_388="$SCRIPTS/../../Workflows/RELEASE.md"
 awk '/^## Step 11 /{f=1; print; next} f && (/^#/ || /^---\r?$/){exit} f' "$RELEASE_MD_388" \
-  | tr -d '\r' | tr -s ' \n' '  ' > "$WORK/release-step11.txt"
+  | strip_eol_cr | tr -s ' \n' '  ' > "$WORK/release-step11.txt"
 # The step's title, read from its heading rather than restated, so the
 # closing text is held to whatever RELEASE.md calls the step.
-title_388="$(sed -n 's/^## Step 11 — //p' "$RELEASE_MD_388" | tr -d '\r')"
+title_388="$(sed -n 's/^## Step 11 — //p' "$RELEASE_MD_388" | strip_eol_cr)"
 expect 0 "RELEASE.md Step 11 heading holds: Step 11 — Release retrospective" -- \
   test "$title_388" = "Release retrospective"
 expect 0 "publish closing text names Step 11 by RELEASE.md's title: Step 11 $title_388" -- \
@@ -1524,9 +1545,11 @@ esac
 FAKEGH
 chmod +x "$SBP_BIN/gh"
 
-# sbp_payload <file> — the body with all whitespace removed, so a case can
-# match a key and its value whatever the heredoc's indentation.
-sbp_payload() { tr -d ' \t\r\n' < "$SBP_DATA/$1"; }
+# sbp_payload <file> — the body with its spaces, tabs and line breaks removed,
+# so a case can match a key and its value whatever the heredoc's indentation.
+# A carriage return goes only where it ends a line (strip_eol_cr): one inside
+# a value the script sent is data, and stays visible to the case.
+sbp_payload() { strip_eol_cr < "$SBP_DATA/$1" | tr -d ' \t\n'; }
 
 # sbp_has <file> <needle> <description>
 sbp_has() {
@@ -4257,8 +4280,8 @@ for chain_name in Feature Review Architecture; do
   expect_output "ok${CHAIN_TAB}$chain_name Chain: diagram and Registry agree step for step"
 done
 
-tr -d '\r' < "$CHAIN_ROOT/Core/AGENT_CHAINS.md" > "$CHAIN_FIX/real.md"
-tr -d '\r' < "$CHAIN_ROOT/Registry/chains.yml" > "$CHAIN_FIX/real.yml"
+strip_eol_cr < "$CHAIN_ROOT/Core/AGENT_CHAINS.md" > "$CHAIN_FIX/real.md"
+strip_eol_cr < "$CHAIN_ROOT/Registry/chains.yml" > "$CHAIN_FIX/real.yml"
 awk '{ printf "%s\r\n", $0 }' "$CHAIN_FIX/real.md" > "$CHAIN_FIX/real-crlf.md"
 awk '{ printf "%s\r\n", $0 }' "$CHAIN_FIX/real.yml" > "$CHAIN_FIX/real-crlf.yml"
 CHAIN_CR="$(tr -cd '\r' < "$CHAIN_FIX/real-crlf.md" | wc -c | tr -d ' ')"
@@ -6608,7 +6631,7 @@ expect 0 "launcher: it runs Git for Windows' own bin\\bash.exe" -- \
   grep -qF '"%IAENG_GITROOT%\bin\bash.exe"' "$LAUNCHER"
 # Outside rem comments and echoed messages, `bash` may appear only as the
 # resolved bin\bash.exe.
-L_CODE="$(tr -d '\r' < "$LAUNCHER" 2>/dev/null \
+L_CODE="$(strip_eol_cr < "$LAUNCHER" 2>/dev/null \
   | grep -viE '^[[:space:]]*(@?rem|::|echo)([[:space:]]|$)')"
 expect 1 "launcher: no bare bash (PATH lookup reaches WSL in PowerShell and cmd)" -- \
   grep -iE '(^|[^\\a-z_.-])bash(\.exe)?([^a-z_.-]|$)' <<< "$L_CODE"
@@ -8943,12 +8966,12 @@ git checkout -q -- .github/ISSUE_TEMPLATE/config.yml
 # The statusline records of install-hooks.sh --check (WU-IAENG-379): absent
 # is drift; a project statusLine kept unwrapped, or one in settings.local.json
 # that shadows the project's, is information and adds nothing to act on.
-jq 'del(.statusLine)' .claude/settings.json | tr -d '\r' > st.tmp && mv st.tmp .claude/settings.json
+jq 'del(.statusLine)' .claude/settings.json | strip_eol_cr > st.tmp && mv st.tmp .claude/settings.json
 expect 1 "a settings.json without the statusLine is drift" -- bash "$DRIFT_358" --format tsv --strict
 expect_output "config${T}absent${T}statusLine: context-statusline.sh${T}re-run ia-engineering/Adapters/ai-runtimes/claude-code/install-hooks.sh: it installs the context statusLine"
 expect_output "# check-framework-drift: 5 to act on, 0 indeterminate."
 git checkout -q -- .claude/settings.json
-jq '.statusLine = {type: "command", command: "Write-Output hi", shell: "powershell"}' .claude/settings.json | tr -d '\r' > st.tmp && mv st.tmp .claude/settings.json
+jq '.statusLine = {type: "command", command: "Write-Output hi", shell: "powershell"}' .claude/settings.json | strip_eol_cr > st.tmp && mv st.tmp .claude/settings.json
 expect 1 "a PowerShell project statusLine kept unwrapped is information" -- bash "$DRIFT_358" --format tsv --strict
 expect_output "config${T}near-miss${T}statusLine: the project statusLine is kept as it is (it runs under powershell)"
 expect_output "# check-framework-drift: 4 to act on, 0 indeterminate."
