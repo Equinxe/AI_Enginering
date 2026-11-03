@@ -8501,6 +8501,66 @@ expect 0 "after the printed remedy, --check from the linked worktree is current 
 expect_output "git-hooks${T}current${T}core.hooksPath${T}$GHP_414b"
 cd "$WORK" || exit 1
 
+section "install.sh — the pre-commit probe counts only a refusal of its document (WU-IAENG-404, issue #348)"
+
+# install.sh stages iaeng-install-probe.xlsx in a throwaway index and runs the
+# installed pre-commit hook. It read any non-zero exit as a refusal, so a
+# scanner that could not evaluate (data-policy-scan.sh exit 2) and a hook that
+# could not find its scanner (exit 1, nothing scanned) were reported as a hook
+# that refuses a staged document, and install.sh exited 0. A refusal is now
+# exit 1 with the probe document refused in the hook's output; anything else
+# non-zero is a fault. Each fault case below failed on develop 5213806:
+# install.sh exited 0 and printed the refusal line.
+adopter_353 probe-404
+SCAN_404="ia-engineering/Adapters/scripts/data-policy-scan.sh"
+REAL_404="$WORK/probe-404-scanner"
+cp "$SCAN_404" "$REAL_404"
+REFUSES_404="pre-commit hook refuses a staged document (Standards/DATA_PROTECTION_STANDARD.md)"
+
+# The real scanner, a finding (exit 1) that names the probe document.
+expect 0 "the real scanner refuses the probe document: install.sh exits 0" -- bash "$INST_353"
+expect_output "$REFUSES_404"
+expect_no_output "the pre-commit hook could not evaluate" "a refusal of the probe document is not reported as a fault"
+
+# The real scanner where it cannot evaluate: its own die(), exit 2, as the
+# issue names it. The wrapper stands where the hook resolves the scanner.
+printf '#!/usr/bin/env bash\nGIT_DIR="%s" exec bash "%s" "$@"\n' "$WORK/probe-404-no-such-git-dir" "$REAL_404" > "$SCAN_404"
+chmod +x "$SCAN_404"
+expect 1 "a scanner that could not evaluate (exit 2): install.sh exits 1" -- bash "$INST_353"
+expect_output "the pre-commit hook could not evaluate a staged .xlsx document: exit 2, which is neither a refusal (1) nor an acceptance (0)"
+expect_output "It said: data-policy: not inside a git work tree"
+expect_no_output "$REFUSES_404" "a scanner that could not evaluate is not reported as a refusal"
+
+# The scanner refused the document and then exited 2: the exit status is the
+# verdict (Check Convention, shell rule 1), and 2 says the scan did not finish.
+printf '#!/usr/bin/env bash\nbash "%s" "$@"\nexit 2\n' "$REAL_404" > "$SCAN_404"
+expect 1 "the probe document refused but the scanner exits 2: install.sh exits 1" -- bash "$INST_353"
+expect_output "the pre-commit hook could not evaluate a staged .xlsx document: exit 2, which is neither a refusal (1) nor an acceptance (0)"
+expect_output "It said: data-policy: REFUSED  iaeng-install-probe.xlsx"
+expect_no_output "$REFUSES_404" "a refusal line under exit 2 is not reported as a refusal"
+
+# The hook cannot find its scanner: it exits 1, the finding's code, having
+# scanned nothing. It refuses every commit and evaluates none.
+rm -f "$SCAN_404"
+expect 1 "the hook cannot locate its scanner (exit 1, nothing scanned): install.sh exits 1" -- bash "$INST_353"
+expect_output "the pre-commit hook could not evaluate a staged .xlsx document: exit 1, but its output does not refuse iaeng-install-probe.xlsx"
+expect_output "It said: pre-commit: rejected — cannot locate Adapters/scripts/data-policy-scan.sh."
+expect_no_output "$REFUSES_404" "a hook with no scanner is not reported as a refusal"
+
+# Exit 0 stays what it was: the document accepted, here by an allow file that
+# names it, with the real scanner back in place.
+cp "$REAL_404" "$SCAN_404"
+chmod +x "$SCAN_404"
+mkdir -p .ia-engineering
+printf '^iaeng-install-probe\\.xlsx$\n' > .ia-engineering/data-policy.allow
+expect 1 "the probe document allowed (exit 0): install.sh exits 1" -- bash "$INST_353"
+expect_output "the pre-commit hook ACCEPTED a staged .xlsx document"
+expect_no_output "$REFUSES_404" "an accepted document is not reported as a refusal"
+rm -f .ia-engineering/data-policy.allow
+expect 0 "the allow file removed: the real scanner refuses the probe document again" -- bash "$INST_353"
+expect_output "$REFUSES_404"
+cd "$WORK" || exit 1
+
 section "setup-project-bootstrap.sh — the closing message names its cause (WU-IAENG-353, issue #262)"
 
 # DEF-IAENG-REL014-02: a re-run whose only problem is Adapter files that differ

@@ -1676,9 +1676,9 @@ work_units:
 
   - id: WU-IAENG-404
     employee: Platform Engineer
-    title: Reserved 28 Oct 2026 before dispatch (WU-IAENG-408) - install.sh's pre-commit probe counts only a finding as a refusal, never a scanner that could not evaluate (issue #348) - install.sh tests the installed pre-commit hook with a staged .xlsx and reads any non-zero exit as a refusal, so data-policy-scan.sh --staged exiting 2 because it could not evaluate is reported as a healthy hook; Check Convention rule 1
+    title: install.sh's pre-commit probe counts only a finding as a refusal, never a hook that could not evaluate (issue #348) - install.sh tested the installed pre-commit hook with a staged .xlsx and read any non-zero exit as a refusal, so data-policy-scan.sh --staged exiting 2 because it could not evaluate, and the hook's own exit 1 when it cannot locate the scanner, were reported as a healthy hook; a refusal is now exit 1 with the probe document refused on the scanner's own line, exit 0 stays an acceptance fault, and any other status is a fault naming the exit status and the hook's first line of output; Check Convention rule 1
     milestone: Usage
-    delivers: planned - Adapters/scripts/install.sh, Adapters/scripts/tests/run.sh, changelog.d/WU-IAENG-404.md, Registry/work-units.yml
+    delivers: Adapters/scripts/install.sh, Adapters/scripts/tests/run.sh, changelog.d/WU-IAENG-404.md, Registry/work-units.yml
 
   - id: WU-IAENG-405
     employee: Test Automation Engineer
