@@ -1005,6 +1005,9 @@ else
       fi
       PROBE_SAID="${PROBE_OUT%%$'\n'*}"
       PROBE_SAID="${PROBE_SAID%$'\r'}"
+      # The hook's own output, printed to the terminal by warn: its control
+      # characters become spaces, as in a record (SEC-IAENG-422-01).
+      flat "$PROBE_SAID"; PROBE_SAID="$FLAT"
       fault git-hooks "$PRE_COMMIT" "the pre-commit hook could not evaluate a staged .xlsx document: $PROBE_WHY. The hook is installed but its verdict is unknown, and that is not a refusal. It said: ${PROBE_SAID:-nothing}"
     fi
     rm -f "$PROBE_INDEX"

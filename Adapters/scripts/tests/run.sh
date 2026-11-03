@@ -8526,10 +8526,16 @@ expect_no_output "the pre-commit hook could not evaluate" "a refusal of the prob
 # issue names it. The wrapper stands where the hook resolves the scanner.
 printf '#!/usr/bin/env bash\nGIT_DIR="%s" exec bash "%s" "$@"\n' "$WORK/probe-404-no-such-git-dir" "$REAL_404" > "$SCAN_404"
 chmod +x "$SCAN_404"
-expect 1 "a scanner that could not evaluate (exit 2): install.sh exits 1" -- bash "$INST_353"
+rm -f "$WORK/probe-404-report.tsv"
+expect 1 "a scanner that could not evaluate (exit 2): install.sh exits 1" -- \
+  env IAENG_INSTALL_REPORT="$WORK/probe-404-report.tsv" bash "$INST_353"
 expect_output "the pre-commit hook could not evaluate a staged .xlsx document: exit 2, which is neither a refusal (1) nor an acceptance (0)"
 expect_output "It said: data-policy: not inside a git work tree"
 expect_no_output "$REFUSES_404" "a scanner that could not evaluate is not reported as a refusal"
+# A git-hooks fault record, which setup-project-bootstrap.sh counts as a hook
+# problem, not a bare warning (PR #422 review, CR F2).
+expect 0 "the fault is recorded as a git-hooks fault on the pre-commit hook" -- \
+  grep -qE "^git-hooks${T}fault${T}[^${T}]*/pre-commit${T}the pre-commit hook could not evaluate a staged \.xlsx document: exit 2," "$WORK/probe-404-report.tsv"
 
 # The scanner refused the document and then exited 2: the exit status is the
 # verdict (Check Convention, shell rule 1), and 2 says the scan did not finish.
@@ -8546,6 +8552,32 @@ expect 1 "the hook cannot locate its scanner (exit 1, nothing scanned): install.
 expect_output "the pre-commit hook could not evaluate a staged .xlsx document: exit 1, but its output does not refuse iaeng-install-probe.xlsx"
 expect_output "It said: pre-commit: rejected — cannot locate Adapters/scripts/data-policy-scan.sh."
 expect_no_output "$REFUSES_404" "a hook with no scanner is not reported as a refusal"
+
+# The quoted first line is the hook's own output, printed to the terminal:
+# its control characters become spaces, as in a record (SEC-IAENG-422-01).
+cat > "$SCAN_404" <<'EOF'
+#!/usr/bin/env bash
+printf '\033]0;PWNED\a\033[31mRED\n' >&2
+exit 2
+EOF
+chmod +x "$SCAN_404"
+expect 1 "a hook whose first line carries terminal escapes: install.sh exits 1" -- bash "$INST_353"
+expect_output "It said:  ]0;PWNED  [31mRED"
+expect_no_output $'\033' "no ESC from the hook's output reaches the terminal"
+expect_no_output $'\a' "no BEL from the hook's output reaches the terminal"
+
+# A refusal is of the probe document, by its whole name: a scanner that
+# refuses other documents only, one of them named with the probe's name as a
+# prefix, has not refused it (PR #422 review, QA Q3).
+cat > "$SCAN_404" <<'EOF'
+#!/usr/bin/env bash
+printf 'data-policy: REFUSED  other.xlsx\n    office document\n' >&2
+printf 'data-policy: REFUSED  iaeng-install-probe.xlsx.bak\n    office document\n' >&2
+exit 1
+EOF
+expect 1 "the scanner refuses other documents only (exit 1): install.sh exits 1" -- bash "$INST_353"
+expect_output "the pre-commit hook could not evaluate a staged .xlsx document: exit 1, but its output does not refuse iaeng-install-probe.xlsx"
+expect_no_output "$REFUSES_404" "a refusal of other documents is not reported as a refusal of the probe document"
 
 # Exit 0 stays what it was: the document accepted, here by an allow file that
 # names it, with the real scanner back in place.
