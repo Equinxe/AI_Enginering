@@ -23,7 +23,8 @@
 # call: one grep for each rule. The rules are now matched by bash itself, so a
 # call starts lib.sh's cat, one jq and at most one awk (the lexer), and none
 # of those for a rule. A command made only of bytes the lexer passes through
-# unchanged skips the awk too. The rule patterns are unchanged; only the
+# unchanged skips the awk too. A carriage return is removed before matching,
+# as bash removes it before running. The rule patterns are unchanged; only the
 # engine that runs them moved. tests/run.sh counts what a call starts.
 
 # This hook's own directory, never the working directory (issue #344). It is
@@ -57,8 +58,7 @@ esac
 # jq built for Windows writes its output in text mode: every line break it
 # prints is CR LF, the ones inside the command included, and Git Bash's $(...)
 # drops only the last pair. So the first line may end in a CR, which is
-# removed before it is compared; the command keeps its inner CRs exactly as
-# iaeng_field gave them to the earlier hook.
+# removed before it is compared.
 if iaeng_have_jq; then
   PAYLOAD="$(jq -r 'if (.tool_name | type) == "string" and .tool_name != "" and .tool_name != "Bash" then "other" else "bash" end, (.tool_input.command // empty)' 2>/dev/null <<< "$IAENG_INPUT")"
   PAYLOAD_TOOL="${PAYLOAD%%$'\n'*}"
@@ -69,6 +69,12 @@ else
   [ -z "$TOOL" ] || [ "$TOOL" = "Bash" ] || exit 0
   CMD="$(iaeng_field '.tool_input.command')"
 fi
+# A CARRIAGE RETURN IS REMOVED BEFORE MATCHING, as bash removes it before
+# running: Git Bash drops every raw CR when it parses a command line
+# (SEC-IAENG-431-01). Every CR goes, wherever it stands, so the lexer and the
+# rules read the command bash runs. The CRs jq on Windows writes before each
+# line break go with them.
+CMD="${CMD//$'\r'/}"
 if [ -z "$CMD" ]; then
   # An empty command is either a malformed payload or an input this helper
   # could not read. Neither is a reason to allow.
@@ -91,23 +97,22 @@ if [ ! -f "$LEXER" ]; then
 fi
 #
 # THE LEXER IS SKIPPED ONLY WHERE IT WOULD CHANGE NOTHING (WU-IAENG-431). The
-# lexer rewrites a command only at eleven bytes: a backslash, a `$`, a
-# backtick, either quote, a `<` (a heredoc), a `{` (brace expansion), the
-# three control characters it uses itself — \001 (its record separator), \002
-# and \003 (its marks for a literal brace, printed back as { and }) — and a
-# carriage return, because gawk built for Windows reads its input in text mode
-# and turns CR LF into LF (a multi-line command from jq on Windows has a CR
-# before every line break). Every other byte it copies to its output as it
-# found it. So a command with none of those eleven bytes lexes to itself, and
-# STRIPPED is the command. Most plain commands are of that kind (`git status`,
-# `ls -la x`, a `cd ... && git log`), and they skip the awk. Every other
-# command goes through the lexer, as before. tests/run.sh holds a command with
-# each of the eleven, which must start the lexer, and a case for each that
-# can change a verdict, refused only because the lexer ran; and a property
-# check lexes every other byte value and requires the output to equal the
-# input, so a lexer that starts rewriting one fails it too.
+# lexer rewrites a command only at ten bytes: a backslash, a `$`, a backtick,
+# either quote, a `<` (a heredoc), a `{` (brace expansion), and the three
+# control characters it uses itself — \001 (its record separator), \002 and
+# \003 (its marks for a literal brace, printed back as { and }). Every other
+# byte that can reach it, it copies to its output as it found it. (A carriage
+# return cannot reach it: it is removed above. gawk built for Windows would
+# turn CR LF into LF.) So a command with none of those ten bytes lexes to
+# itself, and STRIPPED is the command. Most plain commands are of that kind
+# (`git status`, `ls -la x`, a `cd ... && git log`), and they skip the awk.
+# Every other command goes through the lexer, as before. tests/run.sh holds a
+# command with each of the ten, which must start the lexer, and a case for
+# each that can change a verdict, refused only because the lexer ran; and a
+# property check lexes every other byte value and requires the output to
+# equal the input, so a lexer that starts rewriting one fails it too.
 case "$CMD" in
-  *[\\\$\`\'\"\<\{$'\001\002\003\r']*) STRIPPED="$(awk -f "$LEXER" <<< "$CMD")" ;;
+  *[\\\$\`\'\"\<\{$'\001\002\003']*) STRIPPED="$(awk -f "$LEXER" <<< "$CMD")" ;;
   *) STRIPPED="$CMD" ;;
 esac
 
@@ -134,16 +139,8 @@ esac
 # matches an empty line. Case is folded for check_key with nocasematch, which
 # applies to =~, and is restored before rx_any returns.
 #
-# ONE KNOWN DIFFERENCE, a carriage return the command itself holds. Git for
-# Windows' grep removed every CR from a text that held a CR LF pair; grep on
-# Linux and macOS keeps them, and so does bash. The rules now read such a CR
-# the way they always did on Linux, on every platform: as a character of its
-# line, and as whitespace to [[:space:]]. A CR at the end of a line therefore
-# changes no verdict: every pattern that can end at a line's end also accepts
-# whitespace there. (The CR that jq on Windows writes before each line break
-# never reaches the rules: such a command goes through the lexer, whose gawk
-# reads CR LF as LF there.) None of 4,504 real commands of this repository
-# holds a CR of its own.
+# No carriage return reaches the rules: every one is removed from the command
+# before the lexer, as bash removes it before running (above).
 #
 # A PATTERN BASH CANNOT COMPILE IS A REFUSAL. grep returned 2 for a pattern it
 # could not compile, and `grep -q` in an `if` read that as "no match", so a
@@ -160,11 +157,20 @@ split_into() {
 
 # rx_any FOLD ERE LINE... — true when ERE matches one of the LINEs. FOLD is 1
 # to ignore case (grep -i), 0 otherwise.
+#
+# THE RULE CLASSES MATCH THE SAME BYTES AS GREP DID (SEC-IAENG-431-02). Under
+# LC_ALL=C, grep puts no byte from 0x80 to 0xFF in any class. bash's matcher
+# on Git for Windows puts some of them in [[:space:]] and [[:alnum:]]. So each
+# such byte is replaced, in the copy of the line that is matched, by \006: a
+# byte no pattern names and no class holds, as no class held the byte under
+# grep. Every text the rules read passes through here. tests/run.sh compares
+# this function with grep on every byte value, for every class the rules use.
 rx_any() {
   local fold="$1" re="$2" line rc
   shift 2
   [ "$fold" -eq 1 ] && shopt -s nocasematch
   for line in "$@"; do
+    line="${line//[![:ascii:]]/$'\006'}"
     [[ $line =~ $re ]]
     rc=$?
     if [ "$rc" -eq 0 ]; then shopt -u nocasematch; return 0; fi

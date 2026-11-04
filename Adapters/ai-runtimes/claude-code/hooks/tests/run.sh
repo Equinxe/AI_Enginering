@@ -205,7 +205,7 @@ expect_hint "hooksPath: a legacy read beside a -c write layered under a --get re
 
 # --- Escape-hatch hook: matching in bash, the fast path, the cap (WU-IAENG-431)
 # The rules are matched by bash, line by line, as grep read them; one jq reads
-# both payload fields; a command with none of the eleven bytes the lexer rewrites
+# both payload fields; a command with none of the ten bytes the lexer rewrites
 # skips the lexer; and a command over MAX_SEGMENTS segments is refused
 # (issue #385, SEC-IAENG-410-01). Each case below pins one of those moves, so
 # that a change to it fails here rather than in a timing.
@@ -242,17 +242,31 @@ expect_rc "escape-hatch: another tool's call is not judged" 0 "$HOOK" '{"tool_na
 # cannot hold. Each is refused only because the lexer ran: \001 ends one of
 # its records (the two halves of the flag are joined), \002 becomes the { that
 # puts export at command position. \003 (a }, which no rule pattern contains)
-# and a CR (whitespace to every rule at a line's end) cannot change a verdict;
-# they go to the lexer so that STRIPPED is always what the lexer would print,
-# and the budget checks below pin that.
+# cannot change a verdict; it goes to the lexer so that STRIPPED is always what
+# the lexer would print, and the budget checks below pin that.
 expect_reason "escape-hatch: \\001 inside a flag goes through the lexer" "$(mkbash $'git push --forc\001e')" "force-push or mirror-push"
 expect_reason "escape-hatch: \\002 before export goes through the lexer" "$(mkbash $'\002export GIT_CONFIG_KEY_0')" "an assigning builtin naming GIT_CONFIG_KEY_<n>"
-# The fast path's promise, kept by the lexer: every byte value but those eleven
-# (and NUL, which no shell string holds) is copied unchanged. One text holds
-# each such byte once, then 20,000 more drawn from them; the lexer must print
-# it back exactly. A lexer that starts rewriting one of them must also add it
-# to the hook's list, or this check fails. (A CR is one of the eleven: gawk
-# built for Windows reads CR LF as LF.)
+# A carriage return is removed before matching, as bash removes it before
+# running (SEC-IAENG-431-01): each command below is judged as the same command
+# without its CRs. The payloads are JSON text with \r escapes, not $'\r' shell
+# strings: Git Bash drops a raw CR when it parses a command substitution, so
+# $(mkbash $'..\r..') would carry no CR there, and the check would pass for
+# any hook.
+CR_P='{"tool_name":"Bash","tool_input":{"command":"'
+CR_S='"}}'
+expect_reason "escape-hatch: a carriage return is removed before matching (1)" "${CR_P}"'true\r\ngit push --for\rce'"${CR_S}" "force-push or mirror-push"
+expect_reason "escape-hatch: a carriage return is removed before matching (2)" "${CR_P}"'true\r\ngit commit --no-ver\rify -m x'"${CR_S}" "--no-verify disables"
+expect_reason "escape-hatch: a carriage return is removed before matching (3)" "${CR_P}"'true\r\ngit push -\rf'"${CR_S}" "force-push or mirror-push"
+expect_reason "escape-hatch: a carriage return is removed before matching (4)" "${CR_P}"'true\r\nrm -r\rf /'"${CR_S}" "recursive removal"
+expect_reason "escape-hatch: a carriage return is removed before matching (5)" "${CR_P}"'git push --for\rce'"${CR_S}" "force-push or mirror-push"
+expect_reason "escape-hatch: a carriage return is removed before matching (6)" "${CR_P}"'rm -r\rf /'"${CR_S}" "recursive removal"
+expect_reason "escape-hatch: a carriage return is removed before matching (7)" "${CR_P}"'git config core.hooks\rPath x'"${CR_S}" "setting core.hooksPath disables"
+# The fast path's promise, kept by the lexer: every byte value but those ten,
+# a CR (which never reaches the lexer: the hook removes it first) and NUL
+# (which no shell string holds) is copied unchanged. One text holds each such
+# byte once, then 20,000 more drawn from them; the lexer must print it back
+# exactly. A lexer that starts rewriting one of them must also add it to the
+# hook's list, or this check fails.
 FP_ALPHA=()
 for ((fp_i = 1; fp_i < 256; fp_i++)); do
   printf -v fp_hex '%02x' "$fp_i"
@@ -268,11 +282,66 @@ FP_TEXT+="x"
 FP_GOT="$(awk -f "$HOOKS/strip-quotes.awk" <<< "$FP_TEXT")"
 TOTAL=$((TOTAL + 1))
 if [ "${#FP_ALPHA[@]}" -eq 244 ] && [ "$FP_GOT" = "$FP_TEXT" ]; then
-  [ "$VERBOSE" -eq 1 ] && printf '   ok    %s\n' "escape-hatch: the lexer copies every byte outside the fast path's eleven unchanged"
+  [ "$VERBOSE" -eq 1 ] && printf '   ok    %s\n' "escape-hatch: the lexer copies every byte outside the fast path's ten (and CR) unchanged"
 else
   FAILED=$((FAILED + 1))
-  printf '   FAIL  escape-hatch: the lexer copies every byte outside the fast path'"'"'s eleven unchanged (%s bytes, %s in, %s out)\n' \
+  printf '   FAIL  escape-hatch: the lexer copies every byte outside the fast path'"'"'s ten (and CR) unchanged (%s bytes, %s in, %s out)\n' \
     "${#FP_ALPHA[@]}" "${#FP_TEXT}" "${#FP_GOT}"
+fi
+# THE RULE CLASSES MATCH THE SAME BYTES AS GREP DID (SEC-IAENG-431-02). The
+# hook's own rx_any, read from its source, against grep -E, on every byte value
+# from 1 to 255 but the line feed: for every POSIX class the hook names, alone
+# and negated, with case folded and not. grep reads the bytes as text (-a) and
+# keeps a CR (-U). A class the hook starts to use is tested without a change
+# here. [:ascii:] is left out: it is the bash pattern class of the mapping
+# itself, in no rule. A grep that cannot compile a class, or a class that
+# holds no byte or every byte, fails the check, so it cannot pass empty.
+CB_RX="$(awk 'index($0, "rx_any() {") == 1 { on = 1 } on { print } on && $0 == "}" { exit }' "$HOOK")"
+CB_CLASSES=()
+read -r -d '' -a CB_CLASSES <<< "$(grep -o '\[:[a-z]*:\]' "$HOOK" | grep -vxF '[:ascii:]' | sort -u)"
+CB_FILE="$(mktemp)"
+for ((cb_i = 1; cb_i < 256; cb_i++)); do
+  [ "$cb_i" -eq 10 ] && continue
+  printf -v cb_hex '%02x' "$cb_i"
+  printf -v cb_ch '%b' "\\x$cb_hex"
+  printf '%s\n' "$cb_ch"
+done > "$CB_FILE"
+CB_LABEL="escape-hatch: rule classes match the same bytes as grep did, every byte, every class the hook names"
+CB_BAD=""
+TOTAL=$((TOTAL + 1))
+if [ -z "$CB_RX" ] || [ "${#CB_CLASSES[@]}" -eq 0 ]; then
+  CB_BAD=" (rx_any or the classes could not be read from the hook)"
+else
+  for cb_cls in "${CB_CLASSES[@]}"; do
+    for cb_re in "^[${cb_cls}]\$" "^[^${cb_cls}]\$"; do
+      for cb_fold in 0 1; do
+        cb_flags=-anUE
+        [ "$cb_fold" -eq 1 ] && cb_flags=-anUiE
+        if ! cb_grep="$(grep "$cb_flags" -- "$cb_re" "$CB_FILE")"; then
+          CB_BAD="$CB_BAD $cb_re (fold $cb_fold: grep matched nothing or failed)"
+          continue
+        fi
+        cb_grep="$(cut -d: -f1 <<< "$cb_grep" | tr '\n' ' ')"
+        cb_bash="$(
+          # rx_any calls iaeng_block only on a pattern that does not compile.
+          eval "$CB_RX"$'\n''iaeng_block() { exit 3; }'
+          cb_n=0
+          while IFS= read -r cb_line; do
+            cb_n=$((cb_n + 1))
+            rx_any "$cb_fold" "$cb_re" "$cb_line" && printf '%s ' "$cb_n"
+          done < "$CB_FILE"
+        )"
+        [ "$cb_grep" = "$cb_bash" ] || CB_BAD="$CB_BAD $cb_re (fold $cb_fold)"
+      done
+    done
+  done
+fi
+rm -f "$CB_FILE"
+if [ -z "$CB_BAD" ]; then
+  [ "$VERBOSE" -eq 1 ] && printf '   ok    %s (%s classes)\n' "$CB_LABEL" "${#CB_CLASSES[@]}"
+else
+  FAILED=$((FAILED + 1))
+  printf '   FAIL  %s: differ on%s\n' "$CB_LABEL" "$CB_BAD"
 fi
 # The segment cap. 2,000 segments are read; 2,001 are refused, with the cap's
 # own reason. Both cases are plain, so nothing else could refuse them.
@@ -345,10 +414,10 @@ eh_budget "escape-hatch: budget — a plain command starts cat and one jq, no aw
 eh_budget "escape-hatch: budget — a plain chain of commands starts no awk" 'cd /c/x && git log --oneline -5 | head -3' 0 2
 eh_budget "escape-hatch: budget — a quoted command adds the lexer" 'git commit -m "a message"' 1 3
 eh_budget "escape-hatch: budget — a quoted label list adds the KEEPQ lexer" 'gh pr edit 1 --add-label "help wanted,bug"' 2 4
-# Each of the eleven bytes the lexer rewrites sends the command to it, alone in
-# an otherwise plain command. A fast-path test that stopped naming one of them
+# Each of the ten bytes the lexer rewrites sends the command to it, alone in an
+# otherwise plain command. A fast-path test that stopped naming one of them
 # fails here, whether or not that byte could change a verdict.
-for eh_byte in "\\" '$' '`' "'" '"' '<' '{' $'\001' $'\002' $'\003' $'\r'; do
+for eh_byte in "\\" '$' '`' "'" '"' '<' '{' $'\001' $'\002' $'\003'; do
   printf -v eh_shown '%q' "$eh_byte"
   eh_budget "escape-hatch: budget — a command holding $eh_shown starts the lexer" "echo a${eh_byte}b" 1 3
 done

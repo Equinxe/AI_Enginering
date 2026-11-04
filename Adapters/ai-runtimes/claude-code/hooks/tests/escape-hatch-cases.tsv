@@ -758,12 +758,13 @@ allow	git commit -m 'export GIT_CONFIG_KEY_$i=$K and git -c alias.x=y are refuse
 allow	git commit -m "GIT_CONFIG_KEY_0=include.path is refused"
 allow	gh issue create --title 'git -c include.path and GIT_CONFIG_KEY_0=alias.x' --body x
 allow	sed -i 's/git -c alias.x=y//' notes.md
-# THE LEXER'S FAST PATH (WU-IAENG-431). A command with none of the eleven bytes
+# THE LEXER'S FAST PATH (WU-IAENG-431). A command with none of the ten bytes
 # the lexer rewrites skips it. Each case below holds exactly one of those bytes
 # and is refused only because the lexer ran: without it, the rules see a command
 # that matches nothing. A fast-path test that stopped sending that byte to the
-# lexer would let the case through. The four control bytes (\001, \002, \003,
-# CR) cannot be written in this file; tests/run.sh holds their cases.
+# lexer would let the case through. The three control bytes (\001, \002, \003)
+# and the carriage return cannot be written in this file; tests/run.sh holds
+# their cases.
 block	git push --forc\e	force-push or mirror-push
 block	echo $(rm -rf /)	recursive removal
 block	echo `rm -rf /`	recursive removal
@@ -781,3 +782,29 @@ block	git -C 'a|b' push --force	force-push or mirror-push
 allow	git status
 allow	cd /c/x && git log --oneline -5 | head -3
 block	cd /c/x && git push --force	force-push or mirror-push
+# RULE CLASSES MATCH THE SAME BYTES AS GREP DID (SEC-IAENG-431-02). Each command
+# below holds a non-ASCII character, U+00A0 or U+00E0, written as UTF-8. No
+# byte of it is in a class for grep, and none may be for the rules.
+block	gh api repos/o/r/issues/1/labels -f labels[]=size/approved -f x= -XGET	only the Director applies these approval labels
+block	gh api repos/o/r/pulls/1/labels -f labels[]=size/approved -f t=à--method=GET	only the Director applies these approval labels
+block	git config --file=Xà--get core.hooksPath /dev/null	setting core.hooksPath disables
+# The same, with the byte written raw or decoded by the lexer from $'...' (\xa0,
+# \240, \u00a0, or the character itself), after a global option, in a branch
+# name, before a flag or a label (DEF-IAENG-463-01). Each row is judged as
+# develop's grep judged it: a byte above 0x7F is in no class.
+block	git -C $'\xa0' push --force	force-push or mirror-push
+block	git -C $'\240' push --force	force-push or mirror-push
+block	git -C $'\u00a0' push --force	force-push or mirror-push
+block	git -C $' ' push --force	force-push or mirror-push
+block	git --git-dir=$'\xa0' push --force	force-push or mirror-push
+block	git -C $'\xa0' commit --no-verify -m x	--no-verify disables
+block	git -C $'\xa0' commit -n -m x	git commit -n is --no-verify
+block	git -C $'\xa0' reset --hard	git reset --hard discards
+block	git -C $'\xa0' branch -D main	force-deleting a branch
+block	gh api repos/o/r/issues/1/labels -f labels[]=õcontrol-change/approved	only the Director applies these approval labels
+allow	git push --force
+allow	git -C x push --force
+allow	git push origin feature-à-f
+# Case folding ends with the check that asked for it: the gpgsign value check
+# folds case, and the stash rule after it must not (QA review of PR #463, M4).
+block	git -c commit.gpgSign=true stash LIST	git stash sets work aside
