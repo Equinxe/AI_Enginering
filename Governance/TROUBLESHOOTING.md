@@ -416,7 +416,7 @@ Do **not** use `git reset --hard origin/develop` or `git push --force`: both are
 
 ---
 
-## AD. On a private repository, GitHub refuses branch protection and nothing requires the checks
+## AD. On a private repository on GitHub Free, GitHub refuses branch protection and nothing requires the checks
 
 **Symptom.** `setup-branch-protection.sh` stops with `GitHub refuses branch protection and rulesets on <owner>/<repo>`, after GitHub answered HTTP 403 `Upgrade to GitHub Pro or make this repository public to enable this feature.` Or, where the script never ran, a Pull Request whose `Employee Trailer` or `Work Unit Exists` check is red can still be merged.
 
@@ -425,10 +425,12 @@ Do **not** use `git reset --hard origin/develop` or `git push --force`: both are
 **Remedy.** The repository's owner chooses one of three:
 
 - **Make the repository public**, if nothing in it must stay private (`Standards/DATA_PROTECTION_STANDARD.md`). Protection is then available, and standard runners are free.
-- **Move to a plan that has protection on private repositories**: GitHub Pro for a personal account, GitHub Team for an organization. One community report (github.com/orgs/community/discussions/209198) says the settings page of a personal private repository on Pro still warned that its rules would not be enforced until it moved to a Team organization. After the change, check Settings > Branches, then run the script again.
+- **Move to a plan that has protection on private repositories**: GitHub Pro for a personal account, GitHub Team for an organization. One community thread (github.com/orgs/community/discussions/209198) started from a personal private repository on GitHub Free. Its settings page warned that the rules would not be enforced until the repository moved to a GitHub Team organization. A later reply, from an account on Pro, says the warning disappeared once Pro was active. After the change, check Settings > Branches, then run the script again.
 - **Stay private on Free.** Then only two things enforce the framework's rules, and neither is a boundary (`SECURITY.md`, Where the boundary is):
   - the local git hooks (`commit-msg`, `pre-commit`, `pre-push`), on each clone where `install.sh` installed them. A clone without them, or `--no-verify`, goes around them;
   - the CI checks. They still run on every Pull Request and still turn red, but they cannot be *required*, so a red check does not block a merge. Whoever merges reads them first.
+
+  Nothing on GitHub then stops a direct push, a force-push or the deletion of `main`, `develop` or `release/*` from a clone without the hooks. And the hooks never run on a merge made on GitHub, with the web button or `gh pr merge`: only the person who merges checks that merge.
 
   Also turn off Settings > General > *Automatically delete head branches* by hand. On such a repository nothing else stops a merge from deleting a release branch (`Workflows/RELEASE.md` Step 10).
 

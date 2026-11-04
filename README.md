@@ -21,7 +21,7 @@ PowerShell finds is WSL, not Git Bash
 With Claude Code you also need `jq`: `install-hooks.sh` uses it to merge into an
 existing `.claude/settings.json` and to check that file. On GitHub,
 `setup-branch-protection.sh` needs the GitHub CLI, `gh`, signed in
-(`gh auth status`).
+(`gh auth status`), and `jq`, which reads what GitHub answers.
 
 ```bash
 # from the root of your project (skip git init if it is already a repository)
@@ -144,8 +144,9 @@ On any other forge it changes nothing and prints the equivalent as a checklist
 to apply by hand.
 
 On a repository that already has protection, a run keeps it. Its required
-checks become the union of the project's and the framework's, and no setting
-is lowered. The default branch must be `main` or `develop`; for any other, the
+checks become the union of the project's and the framework's, each keeps the
+app it is tied to, and no setting is lowered, required signed commits
+included. The default branch must be `main` or `develop`; for any other, the
 script refuses and names it. On a private repository on GitHub Free, GitHub
 refuses branch protection. The script says so, changes nothing and exits 1.
 Only the local hooks and the CI checks then enforce the rules, and the checks

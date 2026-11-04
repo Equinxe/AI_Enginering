@@ -6,9 +6,12 @@
 ### Security
 
 - `setup-branch-protection.sh` no longer lowers the protection of an existing repository. It used to replace each protection whole: a project's own required checks were dropped, its approvals set to 0, `enforce_admins` turned off, and the settings its body left out reset. It now reads every branch protection and the `release-branch-protection` ruleset before its first write. Required checks become the union of the project's and the framework's, and no count or setting is lowered. A read that fails stops the run with nothing changed (#447, WU-IAENG-433)
+- Each required check keeps the app it is tied to. The framework's own checks, where a repository does not require them yet, are tied to GitHub Actions, which runs them. Required signed commits stay required. After each write the required checks are read back, and the run stops if GitHub did not keep one as sent. GitHub's messages and a project's check names reach the terminal without their control bytes (#447, WU-IAENG-433)
 
 ### Notes
 
-- If you ran `setup-branch-protection.sh` from an earlier version on a repository that had protection of its own, that run replaced it. Check Settings > Branches and the `release-branch-protection` ruleset. Restore by hand what the run dropped or lowered: your own required checks, the required approvals, `enforce_admins`, push restrictions, and the review, linear-history and conversation-resolution settings. A run of this version keeps what it finds. It cannot restore what an earlier run removed
+- `setup-branch-protection.sh` now needs `jq`, which reads every answer GitHub gives. Without it the script stops before reading any protection
+
+- If you ran `setup-branch-protection.sh` from an earlier version on a repository that had protection of its own, that run replaced it. Check Settings > Branches and the `release-branch-protection` ruleset. Restore by hand what the run dropped or lowered: your own required checks and the app each is tied to, the required approvals, `enforce_admins`, push restrictions, and the review, linear-history and conversation-resolution settings. Check required signed commits too. A run of this version keeps what it finds. It cannot restore what an earlier run removed
 - `develop` now keeps `strict` (branches up to date before merging) where it is on. A run from v0.0.15 turned it off, and this version leaves it as it finds it. If a run from before v0.0.15 turned it on and you want the framework's default, turn it off by hand
 - If your repository is private on GitHub Free, an earlier run stopped on GitHub's HTTP 403 and protected nothing. That is still the case: see `Governance/TROUBLESHOOTING.md` entry AD
