@@ -91,8 +91,16 @@ MERGE_HEAD_PATH="$(git rev-parse --git-path MERGE_HEAD)"
 #                                         validated only if present, exit 0
 #   authored  tree differs, conflicts resolved, or several MERGE_HEAD lines
 #             (octopus)                -> no subject rule, Rule 2 REQUIRED
-#   unknown   git too old / merge-tree errors -> warn, keep the old behaviour
-#             (exit 0); CI (check-employee-trailers.sh) classifies it instead
+#   unknown   merge-tree errors          -> warn; then as clean: no subject
+#             rule, Employee lines validated only if present, the Work Unit
+#             claim resolved (Rules 3 and 4); whether it needed a trailer is
+#             left to CI (check-employee-trailers.sh, check-work-units.sh),
+#             which classifies it or fails closed (WU-IAENG-429, #408).
+#             Unrelated histories (`git merge --allow-unrelated-histories`)
+#             make merge-tree exit 128. A git older than 2.38 has no
+#             --write-tree: its merge-tree takes exactly three arguments and
+#             exits 129 (usage) on the four given below, so there every
+#             merge of two parents is unknown
 # Known friction, by design: `-s ours`, `-X theirs`, and conflicts resolved in
 # the GitHub web editor produce a tree that differs from the automatic merge,
 # so they need an Employee trailer (or, for the web editor, resolve locally).
@@ -117,7 +125,10 @@ if [ -f "$MERGE_HEAD_PATH" ]; then
     # A warning, not a refusal: behind a closed pipe its write fails, and
     # set -e must not turn it into one (PR #387 review, round 3).
     echo "commit-msg: warning — cannot classify this merge locally; CI will." >&2 || true
-    exit 0
+    # No exit here: checking a claim needs no classification. Until
+    # WU-IAENG-429 the hook exited 0 at this point, before any rule, so an
+    # unregistered `Work Unit:` claim, or an `Employee:` line naming no
+    # Employee, was merged locally while CI refused it (issue #408, S4-24).
   fi
 fi
 
@@ -133,10 +144,12 @@ if [ "$IS_MERGE" -eq 0 ] && ! grep -qE "$CC_REGEX" <<< "$SUBJECT"; then
   exit 1
 fi
 
-# A clean merge carrying no claim, neither Employee nor Work Unit, has nothing
-# left to check. A claim it does carry is validated (Rule 4 for a Work Unit),
-# as the CI checks validate a claim present on any merge.
-if [ "$MERGE_KIND" = clean ] \
+# A merge carrying no claim, neither Employee nor Work Unit, has nothing left
+# to check when it is clean, or when this hook cannot classify it. A claim
+# such a merge does carry is validated (Rule 2 for an Employee line, Rules 3
+# and 4 for a Work Unit), as the CI checks validate a claim present on any
+# merge.
+if { [ "$MERGE_KIND" = clean ] || [ "$MERGE_KIND" = unknown ]; } \
    && ! grep -qE '^Employee: ' "$COMMIT_MSG_FILE" \
    && ! grep -qE '^Work Unit: ' "$COMMIT_MSG_FILE"; then
   exit 0
@@ -373,8 +386,11 @@ fi
 
 if [ -z "$EMPLOYEE_LINES" ]; then
   # A clean merge reaches this point only to have its Work Unit claim resolved
-  # (Rule 4, above); it needs no Employee trailer.
+  # (Rule 4, above); it needs no Employee trailer. Nor is one required here of
+  # a merge this hook cannot classify: whether it authors content is decided
+  # in CI (check-employee-trailers.sh), which fails closed when it cannot tell.
   [ "$MERGE_KIND" = clean ] && exit 0
+  [ "$MERGE_KIND" = unknown ] && exit 0
   [ "$MERGE_KIND" = authored ] && echo "commit-msg: this merge changes content beyond its parents' automatic merge, so it is authored work." >&2
   echo "commit-msg: rejected — missing 'Employee: <Name>' trailer." >&2
   echo "  Per Core/MAIN_AGENT_CONDUCT.md (Dispatch Discipline), every commit must" >&2

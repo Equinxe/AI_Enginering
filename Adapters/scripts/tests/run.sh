@@ -2408,6 +2408,169 @@ msg415 "$WORK/git415.txt" "Work Unit: WU-DEMO-002"
 expect 0 "git commit <paths> resolves against the registry those paths stage" -- git commit -q -F "$WORK/git415.txt" Registry/work-units.yml x.txt
 expect 0 "and creates the commit" -- test "$(git rev-list --count HEAD)" = "$((N415 + 1))"
 
+# ---- a merge commit-msg cannot classify still has its claims checked (WU-IAENG-429) --
+#
+# Issue #408, case S4-24 of the v0.0.15 acceptance. On a merge it could not
+# classify, the hook printed "cannot classify this merge locally; CI will."
+# and exited 0 before any rule ran. `git merge --allow-unrelated-histories` is
+# such a merge: `git merge-tree` refuses unrelated histories and exits 128. So
+# `Work Unit: WU-DEMO-999` was merged locally while the Work Unit Exists check
+# refused the same commit, and an `Employee:` line naming no Employee passed
+# as well.
+#
+# Checking a claim needs no classification. Each expected verdict has one of
+# two sources:
+#   - A REFUSAL: the rule of the CI checks, which validate a claim present
+#     on a merge whatever the merge's kind (check-work-units.sh,
+#     SEC-IAENG-313-02; check-employee-trailers.sh). These are also the
+#     hook's own verdicts on a clean merge carrying the same lines (above).
+#   - An ACCEPTANCE of a merge with no Employee line, or with no claim: the
+#     design decision of WU-IAENG-429 (issue #408). The hook requires no
+#     trailer of a merge it cannot classify, and leaves that to CI. That
+#     verdict is not CI's: on unrelated histories, check-employee-trailers.sh
+#     cannot classify the merge either, and fails closed (exit 2) on one that
+#     carries no Employee line.
+# A merge with no claim is accepted with the warning, as before.
+
+section "git-hooks/commit-msg — a merge it cannot classify still has its claims checked (WU-IAENG-429, #408)"
+
+# orph429 — a branch `orph` whose root commit shares no history with main.
+# main is checked out again.
+orph429() {
+  git checkout -q --orphan orph
+  git rm -rqf .
+  echo other > other.txt && git add other.txt && git commit -q -m "chore: other root"
+  git checkout -q main
+}
+
+# msg429 <file> <line...> — a merge message, each line in a paragraph of its own.
+msg429() {
+  local f="$1" l
+  shift
+  {
+    printf 'Merge branch orph\n'
+    for l in "$@"; do printf '\n%s\n' "$l"; done
+  } > "$f"
+}
+
+mk415 cm429-unrelated
+orph429
+git merge -q --no-commit --no-ff --allow-unrelated-histories orph > /dev/null 2>&1
+# The premise, asserted: the hook's classifier cannot classify this merge. If a
+# later git merged unrelated histories by default, this section would fail
+# here rather than quietly test a merge the hook can classify.
+MT429=0
+git merge-tree --write-tree --no-messages HEAD orph > /dev/null 2>&1 || MT429=$?
+expect 0 "premise: git merge-tree exits above 1 on these unrelated histories (it exited $MT429)" -- test "$MT429" -gt 1
+
+msg429 "$WORK/m429.txt" "Work Unit: WU-DEMO-999"
+expect 1 "an unregistered Work Unit claim on a merge the hook cannot classify is refused (S4-24)" -- bash "$HOOK415" "$WORK/m429.txt"
+expect_output "claims 'WU-DEMO-999', which is not in the staged Registry/work-units.yml"
+expect_output "commit-msg: rejected — the 'Work Unit:' claim does not resolve"
+msg429 "$WORK/m429.txt" "Work Unit: WU-DEMO"
+expect 1 "a malformed Work Unit claim on the same merge is refused" -- bash "$HOOK415" "$WORK/m429.txt"
+expect_output "is empty or not a Work Unit id"
+msg429 "$WORK/m429.txt" "Work Unit: WU-DEMO-001" "Work Unit: WU-DEMO-001"
+expect 1 "two Work Unit claims on the same merge are refused" -- bash "$HOOK415" "$WORK/m429.txt"
+expect_output "rejected — 2 'Work Unit:' lines at column 0"
+msg429 "$WORK/m429.txt" "Employee: executor"
+expect 1 "an Employee line naming no Employee on the same merge is refused" -- bash "$HOOK415" "$WORK/m429.txt"
+expect_output "commit-msg: rejected — 'Employee: executor' is not a recognized Employee."
+msg429 "$WORK/m429.txt" "Work Unit: WU-DEMO-001"
+expect 0 "a registered claim on the same merge, with no Employee line, is accepted" -- bash "$HOOK415" "$WORK/m429.txt"
+expect_output "cannot classify this merge locally; CI will."
+msg429 "$WORK/m429.txt" "Work Unit: WU-DEMO-001" "Employee: DevOps Engineer"
+expect 0 "a registered claim and a valid Employee line on the same merge are accepted" -- bash "$HOOK415" "$WORK/m429.txt"
+msg429 "$WORK/m429.txt"
+expect 0 "the same merge with no claim is still accepted, with the warning" -- bash "$HOOK415" "$WORK/m429.txt"
+expect_output "cannot classify this merge locally; CI will."
+git merge --abort
+
+# Through git itself, hooks wired as install.sh wires them: S4-24's own
+# command. git keeps the merge in progress when commit-msg refuses it.
+git config core.hooksPath "$SCRIPTS/../git-hooks"
+H429="$(git rev-parse HEAD)"
+msg429 "$WORK/git429.txt" "Work Unit: WU-DEMO-999"
+expect 1 "git merge --allow-unrelated-histories refuses the unregistered claim (S4-24)" -- \
+  git merge --allow-unrelated-histories --no-ff -F "$WORK/git429.txt" orph
+expect_output "claims 'WU-DEMO-999', which is not in the staged Registry/work-units.yml"
+expect 0 "and creates no merge" -- test "$(git rev-parse HEAD)" = "$H429"
+git merge --abort
+msg429 "$WORK/git429.txt" "Work Unit: WU-DEMO-001"
+expect 0 "the same merge with a registered claim is created" -- \
+  git merge --allow-unrelated-histories --no-ff -F "$WORK/git429.txt" orph
+expect 0 "and its second parent is orph" -- test "$(git rev-parse HEAD^2)" = "$(git rev-parse orph)"
+
+# With no claim there is nothing to check, so no roster is looked up, as on a
+# clean merge and as before: a hook copied away from its framework, with no
+# roster to find, still accepts the merge, with the warning.
+new_repo cm429-no-roster
+orph429
+git merge -q --no-commit --no-ff --allow-unrelated-histories orph > /dev/null 2>&1
+msg429 "$WORK/m429.txt"
+expect 0 "the same merge with no claim needs no roster" -- env -u IAENG_REGISTRY -u IAENG_FRAMEWORK bash "$COPIED415" "$WORK/m429.txt"
+expect_output "cannot classify this merge locally; CI will."
+git merge --abort
+
+# Git older than 2.38 (#408 left it unverified; no such git was run here).
+# Its merge-tree has no --write-tree: the builtin calls usage() unless it is
+# given exactly three arguments, and usage() exits 129 (git v2.37.0,
+# builtin/merge-tree.c and usage.c). The hook gives it four, so every merge
+# of two parents is one it cannot classify. The shim answers merge-tree as
+# that git does and hands every other command to the real git. On such a git
+# an ordinary merge still has its claims checked.
+REAL_GIT429="$(command -v git)"
+mkdir -p "$WORK/shim-git237"
+cat > "$WORK/shim-git237/git" <<SHIM
+#!/usr/bin/env bash
+if [ "\$1" = "merge-tree" ]; then
+  echo "usage: git merge-tree <base-tree> <branch1> <branch2>" >&2
+  exit 129
+fi
+exec "$REAL_GIT429" "\$@"
+SHIM
+chmod +x "$WORK/shim-git237/git"
+
+mk415 cm429-old-git
+git checkout -qb side
+echo side > side.txt && git add -A && git commit -q -m "side work"
+git checkout -q main
+echo main > main.txt && git add -A && git commit -q -m "main work"
+git merge -q --no-commit --no-ff side > /dev/null 2>&1
+printf "Merge branch 'side'\n\nWork Unit: WU-DEMO-999\n" > "$WORK/m429.txt"
+expect 1 "git < 2.38 (merge-tree as it answers): an unregistered claim on an ordinary merge is refused" -- \
+  env PATH="$WORK/shim-git237:$PATH" bash "$HOOK415" "$WORK/m429.txt"
+expect_output "cannot classify this merge locally; CI will."
+expect_output "claims 'WU-DEMO-999', which is not in the staged Registry/work-units.yml"
+printf "Merge branch 'side'\n\nEmployee: executor\n" > "$WORK/m429.txt"
+expect 1 "git < 2.38: an Employee line naming no Employee on an ordinary merge is refused" -- \
+  env PATH="$WORK/shim-git237:$PATH" bash "$HOOK415" "$WORK/m429.txt"
+expect_output "cannot classify this merge locally; CI will."
+expect_output "commit-msg: rejected — 'Employee: executor' is not a recognized Employee."
+printf "Merge branch 'side'\n\nWork Unit: WU-DEMO-001\n" > "$WORK/m429.txt"
+expect 0 "git < 2.38: a registered claim on an ordinary merge is accepted, with the warning" -- \
+  env PATH="$WORK/shim-git237:$PATH" bash "$HOOK415" "$WORK/m429.txt"
+expect_output "cannot classify this merge locally; CI will."
+printf "Merge branch 'side'\n" > "$WORK/m429.txt"
+expect 0 "git < 2.38: an ordinary merge with no claim is accepted, with the warning" -- \
+  env PATH="$WORK/shim-git237:$PATH" bash "$HOOK415" "$WORK/m429.txt"
+expect_output "cannot classify this merge locally; CI will."
+git merge --abort
+
+# An ordinary commit, no merge in progress, still takes neither exit this
+# Work Unit changed: the clean-or-unknown exit for a message with no claim,
+# and the clean-or-unknown exit after Rule 4 for one with no Employee line
+# (PR #444 review, round 1). The oracle is Core/MAIN_AGENT_CONDUCT.md,
+# Dispatch Discipline: every commit names its Employee. Widening either exit
+# to every kind but `authored` would let these through.
+mk415 cm429-ordinary
+printf 'chore(x): an ordinary commit\n' > "$WORK/m429.txt"
+expect 1 "an ordinary commit with no claim at all is still refused for its missing Employee line" -- bash "$HOOK415" "$WORK/m429.txt"
+expect_output "commit-msg: rejected — missing 'Employee: <Name>' trailer."
+printf 'chore(x): an ordinary commit\n\nWork Unit: WU-DEMO-001\n' > "$WORK/m429.txt"
+expect 1 "an ordinary commit with a registered claim and no Employee line is still refused" -- bash "$HOOK415" "$WORK/m429.txt"
+expect_output "commit-msg: rejected — missing 'Employee: <Name>' trailer."
+
 # -------- check-work-units.sh --message: each refusal's reason (WU-IAENG-415) --
 #
 # Code Review of PR #386: four fail-closed paths of --message had no test, and

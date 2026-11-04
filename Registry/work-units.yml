@@ -1794,6 +1794,12 @@ work_units:
     milestone: Adoption
     delivers: VERSION.md, CHANGELOG.md, README.md, CLAUDE.md, Registry/work-units.yml, changelog.d/
 
+  - id: WU-IAENG-429
+    employee: Platform Engineer
+    title: The commit-msg hook checks the claims of a merge it cannot classify (issue #408, v0.0.15 acceptance case S4-24; Director decision 3 Nov 2026, fixed early in Usage) - when git merge-tree exited above 1 the hook printed its warning and exited 0 before any rule ran, so git merge --allow-unrelated-histories carrying an unregistered Work Unit claim, or an Employee line naming no Employee, was merged locally while the CI checks refused the same commit; the hook still warns and still leaves CI to decide whether the merge needed a trailer, but it now resolves the Work Unit claim through check-work-units.sh --message, refuses two claims, and validates every Employee line, as on a clean merge; a git older than 2.38 has no merge-tree --write-tree, so its merge-tree exits 129 on every merge of two parents (an octopus merge is still classified authored without it), and there too every merge of two parents now has its claims checked; classified merges and ordinary commits are checked as before
+    milestone: Usage
+    delivers: Adapters/git-hooks/commit-msg, Adapters/scripts/tests/run.sh, changelog.d/WU-IAENG-429.md, Registry/work-units.yml
+
   - id: WU-IAENG-432
     employee: Technical Writer
     title: Adoption docs a newcomer can follow word for word in an existing project (Usage plan item W1.6; issues #446, #414, #253 docs part, #413, #208, #257, #379) - Templates/PROJECT_CLAUDE.md (0.0.15) gains a merge procedure for a project that already has a CLAUDE.md, which keeps its build commands and conventions, adds the contract, and settles each contradiction with the Director; it also says copy the block's contents only and gives the block a four-backtick outer fence; README.md, Workflows/ONBOARDING.md (0.0.17) Step 1, Workflows/PROJECT_BOOTSTRAP.md (0.0.16), Templates/SESSION_STATE.md (0.0.15) and the Claude Code hooks README name create-session-state.sh, with the by-hand copy as the fallback; the commit that adds a project's CLAUDE.md is signed by the DevOps Engineer (Director decision, 4 Nov 2026); PROJECT_BOOTSTRAP Step 4 says install-skills.sh adds /create-project and /dashboard and justifies its signer by pipelines and git hooks; the hooks README install paragraph is whole again
