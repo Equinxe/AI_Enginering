@@ -1793,3 +1793,9 @@ work_units:
     title: Bump VERSION.md to v0.0.15 and finalize the CHANGELOG.md section for the Adoption release (Workflows/RELEASE.md Step 2) - the changelog fragments assembled by release.sh assemble, the 30 Oct 2026 release-readiness audit's editorial fixes (one ordered upgrade procedure, version-scoped Security and Fixed lines, document versions, the known issues), README pin and measured counts, CLAUDE.md Current Version, next milestone Usage (v0.0.16); this Work Unit's own fragment is an exemption
     milestone: Adoption
     delivers: VERSION.md, CHANGELOG.md, README.md, CLAUDE.md, Registry/work-units.yml, changelog.d/
+
+  - id: WU-IAENG-429
+    employee: Platform Engineer
+    title: The commit-msg hook checks the claims of a merge it cannot classify (issue #408, v0.0.15 acceptance case S4-24; Director decision 3 Nov 2026, fixed early in Usage) - when git merge-tree exited above 1 the hook printed its warning and exited 0 before any rule ran, so git merge --allow-unrelated-histories carrying an unregistered Work Unit claim, or an Employee line naming no Employee, was merged locally while the CI checks refused the same commit; the hook still warns and still leaves CI to decide whether the merge needed a trailer, but it now resolves the Work Unit claim through check-work-units.sh --message, refuses two claims, and validates every Employee line, as on a clean merge; a git older than 2.38 has no merge-tree --write-tree and exits 129 on every merge, and there too every merge now has its claims checked; classified merges and ordinary commits are checked as before
+    milestone: Usage
+    delivers: Adapters/git-hooks/commit-msg, Adapters/scripts/tests/run.sh, changelog.d/WU-IAENG-429.md, Registry/work-units.yml
