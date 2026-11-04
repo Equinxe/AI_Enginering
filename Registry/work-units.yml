@@ -1806,6 +1806,12 @@ work_units:
     milestone: Usage
     delivers: Adapters/git-hooks/commit-msg, Adapters/scripts/tests/run.sh, changelog.d/WU-IAENG-429.md, Registry/work-units.yml
 
+  - id: WU-IAENG-431
+    employee: Platform Engineer
+    title: Make the escape-hatch guard fast under parallel load (issue #385, Usage plan W1.4, SEC-IAENG-410-01) - block-escape-hatches.sh matches its rules with bash's own [[ =~ ]], line by line as grep read them, instead of starting a grep per rule; reads both payload fields with one jq; skips the lexer for a command with none of the eleven bytes the lexer rewrites; refuses a command of more than 2,000 pipeline segments after expansion, and a rule pattern the shell cannot compile; the rule patterns are unchanged; tests/run.sh counts the processes a call starts and pins the fast path, the cap and the compile refusal; Governance/BLOCKING_HOOK_LATENCY_MEASUREMENT.md records the re-measurement
+    milestone: Usage
+    delivers: Adapters/ai-runtimes/claude-code/hooks/block-escape-hatches.sh, Adapters/ai-runtimes/claude-code/hooks/tests/run.sh, Adapters/ai-runtimes/claude-code/hooks/tests/escape-hatch-cases.tsv, Adapters/ai-runtimes/claude-code/hooks/README.md, Governance/BLOCKING_HOOK_LATENCY_MEASUREMENT.md, changelog.d/WU-IAENG-431.md, Registry/work-units.yml
+
   - id: WU-IAENG-432
     employee: Technical Writer
     title: Adoption docs a newcomer can follow word for word in an existing project (Usage plan item W1.6; issues #446, #414, #253 docs part, #413, #208, #257, #379) - Templates/PROJECT_CLAUDE.md (0.0.15) gains a merge procedure for a project that already has a CLAUDE.md, which keeps its build commands and conventions, adds the contract, and settles each contradiction with the Director; it also says copy the block's contents only and gives the block a four-backtick outer fence; README.md, Workflows/ONBOARDING.md (0.0.17) Step 1, Workflows/PROJECT_BOOTSTRAP.md (0.0.16), Templates/SESSION_STATE.md (0.0.15) and the Claude Code hooks README name create-session-state.sh, with the by-hand copy as the fallback; the commit that adds a project's CLAUDE.md is signed by the DevOps Engineer (Director decision, 4 Nov 2026); PROJECT_BOOTSTRAP Step 4 says install-skills.sh adds /create-project and /dashboard and justifies its signer by pipelines and git hooks; the hooks README install paragraph is whole again

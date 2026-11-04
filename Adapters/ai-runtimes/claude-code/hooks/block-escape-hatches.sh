@@ -16,6 +16,16 @@
 # and this hook cannot see which branch a bare `git push -f` targets — so it
 # refuses all of them and the human runs the sanctioned one (the data-purge
 # protocol) by hand.
+#
+# WHAT A CALL COSTS (WU-IAENG-431, issue #385). This hook runs on every Bash
+# call, and on Windows every process it starts is the latency under parallel
+# agents (Governance/BLOCKING_HOOK_LATENCY_MEASUREMENT.md). It started 84 per
+# call: one grep for each rule. The rules are now matched by bash itself, so a
+# call starts lib.sh's cat, one jq and at most one awk (the lexer), and none
+# of those for a rule. A command made only of bytes the lexer passes through
+# unchanged skips the awk too. A carriage return is removed before matching,
+# as bash removes it before running. The rule patterns are unchanged; only the
+# engine that runs them moved. tests/run.sh counts what a call starts.
 
 # This hook's own directory, never the working directory (issue #344). It is
 # taken from $0 when $0 holds a / or \, because the environment cannot set $0.
@@ -34,10 +44,37 @@ esac
 # shellcheck source=lib.sh
 . "$HOOKS_DIR/lib.sh"
 
-TOOL="$(iaeng_field '.tool_name')"
-[ -z "$TOOL" ] || [ "$TOOL" = "Bash" ] || exit 0
-
-CMD="$(iaeng_field '.tool_input.command')"
+# ONE jq FOR BOTH FIELDS. iaeng_field starts a jq per field. Here one jq prints
+# a first line, `other` when the tool name is a string that is neither empty
+# nor Bash (the call is another tool's, not this hook's) and `bash` otherwise,
+# then the command exactly as `iaeng_field '.tool_input.command'` prints it.
+# The command is everything after that first line; the $(...) drops a NUL and
+# the trailing newlines, as it did around iaeng_field. A payload jq cannot read,
+# or whose first value is not an object, prints nothing: no command, refused
+# below. A stream of several values is judged as if its commands were one
+# (each value adds a line), which can only refuse more. Without jq, lib.sh's
+# fallback reads each field, as before.
+#
+# jq built for Windows writes its output in text mode: every line break it
+# prints is CR LF, the ones inside the command included, and Git Bash's $(...)
+# drops only the last pair. So the first line may end in a CR, which is
+# removed before it is compared.
+if iaeng_have_jq; then
+  PAYLOAD="$(jq -r 'if (.tool_name | type) == "string" and .tool_name != "" and .tool_name != "Bash" then "other" else "bash" end, (.tool_input.command // empty)' 2>/dev/null <<< "$IAENG_INPUT")"
+  PAYLOAD_TOOL="${PAYLOAD%%$'\n'*}"
+  [ "${PAYLOAD_TOOL%$'\r'}" = other ] && exit 0
+  case "$PAYLOAD" in *$'\n'*) CMD="${PAYLOAD#*$'\n'}" ;; *) CMD="" ;; esac
+else
+  TOOL="$(iaeng_field '.tool_name')"
+  [ -z "$TOOL" ] || [ "$TOOL" = "Bash" ] || exit 0
+  CMD="$(iaeng_field '.tool_input.command')"
+fi
+# A CARRIAGE RETURN IS REMOVED BEFORE MATCHING, as bash removes it before
+# running: Git Bash drops every raw CR when it parses a command line
+# (SEC-IAENG-431-01). Every CR goes, wherever it stands, so the lexer and the
+# rules read the command bash runs. The CRs jq on Windows writes before each
+# line break go with them.
+CMD="${CMD//$'\r'/}"
 if [ -z "$CMD" ]; then
   # An empty command is either a malformed payload or an input this helper
   # could not read. Neither is a reason to allow.
@@ -58,7 +95,26 @@ if [ ! -f "$LEXER" ]; then
   iaeng_block "strip-quotes.awk is missing next to this hook — cannot separate quoted text from commands" \
     "Adapters/ai-runtimes/claude-code/hooks/README.md — the hook fails closed rather than matching raw text, which blocks every command that merely mentions a forbidden flag."
 fi
-STRIPPED="$(printf '%s\n' "$CMD" | awk -f "$LEXER")"
+#
+# THE LEXER IS SKIPPED ONLY WHERE IT WOULD CHANGE NOTHING (WU-IAENG-431). The
+# lexer rewrites a command only at ten bytes: a backslash, a `$`, a backtick,
+# either quote, a `<` (a heredoc), a `{` (brace expansion), and the three
+# control characters it uses itself — \001 (its record separator), \002 and
+# \003 (its marks for a literal brace, printed back as { and }). Every other
+# byte that can reach it, it copies to its output as it found it. (A carriage
+# return cannot reach it: it is removed above. gawk built for Windows would
+# turn CR LF into LF.) So a command with none of those ten bytes lexes to
+# itself, and STRIPPED is the command. Most plain commands are of that kind
+# (`git status`, `ls -la x`, a `cd ... && git log`), and they skip the awk.
+# Every other command goes through the lexer, as before. tests/run.sh holds a
+# command with each of the ten, which must start the lexer, and a case for
+# each that can change a verdict, refused only because the lexer ran; and a
+# property check lexes every other byte value and requires the output to
+# equal the input, so a lexer that starts rewriting one fails it too.
+case "$CMD" in
+  *[\\\$\`\'\"\<\{$'\001\002\003']*) STRIPPED="$(awk -f "$LEXER" <<< "$CMD")" ;;
+  *) STRIPPED="$CMD" ;;
+esac
 
 # The lexer emits this marker instead of a partial result when it reaches one
 # of its expansion bounds. A bound that silently truncates is a bound an
@@ -66,9 +122,95 @@ STRIPPED="$(printf '%s\n' "$CMD" | awk -f "$LEXER")"
 # blocked and nine were allowed, while the shell produced the flag in both.
 # Reaching a bound means the command was not fully read, and unread input is
 # refused, which is the contract every other path in these hooks follows.
-if grep -qF '__IAENG_LEXER_LIMIT__' <<< "$STRIPPED"; then
-  iaeng_block "this command expands to more alternatives than the hook will enumerate, so it could not be read in full" \
-    "Adapters/ai-runtimes/claude-code/hooks/README.md — unread input is refused rather than allowed. Write the command without the brace expansion."
+case "$STRIPPED" in
+  *__IAENG_LEXER_LIMIT__*)
+    iaeng_block "this command expands to more alternatives than the hook will enumerate, so it could not be read in full" \
+      "Adapters/ai-runtimes/claude-code/hooks/README.md — unread input is refused rather than allowed. Write the command without the brace expansion."
+    ;;
+esac
+
+# --- Matching in bash ------------------------------------------------------------
+# Every rule below was `grep -qE PATTERN <<< "$TEXT"`: true when the pattern
+# matches at least one LINE of the text. rx_any keeps that meaning with bash's
+# own matcher, [[ =~ ]], which is POSIX extended regular expressions as grep
+# -E is: the text is split into its lines once, and each line is tested alone,
+# so ^ and $ still anchor at line ends and no match runs across a line break.
+# Empty lines are not tested: every pattern here names literal text, so none
+# matches an empty line. Case is folded for check_key with nocasematch, which
+# applies to =~, and is restored before rx_any returns.
+#
+# No carriage return reaches the rules: every one is removed from the command
+# before the lexer, as bash removes it before running (above).
+#
+# A PATTERN BASH CANNOT COMPILE IS A REFUSAL. grep returned 2 for a pattern it
+# could not compile, and `grep -q` in an `if` read that as "no match", so a
+# rule could switch itself off silently. Here a status other than 0 or 1 from
+# [[ =~ ]] refuses the call: a rule that cannot run has not said the command
+# is safe.
+#
+# split_into NAME SEPARATORS TEXT sets the array NAME to the pieces of TEXT
+# between SEPARATORS, by read's word splitting: empty pieces between two
+# newlines are dropped, and no pattern is expanded as a file name.
+split_into() {
+  IFS="$2" read -r -d '' -a "$1" <<< "$3"
+}
+
+# rx_any FOLD ERE LINE... — true when ERE matches one of the LINEs. FOLD is 1
+# to ignore case (grep -i), 0 otherwise.
+#
+# THE RULE CLASSES MATCH THE SAME BYTES AS GREP DID (SEC-IAENG-431-02). Under
+# LC_ALL=C, grep puts no byte from 0x80 to 0xFF in any class. bash's matcher
+# on Git for Windows puts some of them in [[:space:]] and [[:alnum:]]. So each
+# such byte is replaced, in the copy of the line that is matched, by \006: a
+# byte no pattern names and no class holds, as no class held the byte under
+# grep. Every text the rules read passes through here. tests/run.sh compares
+# this function with grep on every byte value, for every class the rules use.
+rx_any() {
+  local fold="$1" re="$2" line rc
+  shift 2
+  [ "$fold" -eq 1 ] && shopt -s nocasematch
+  for line in "$@"; do
+    line="${line//[![:ascii:]]/$'\006'}"
+    [[ $line =~ $re ]]
+    rc=$?
+    if [ "$rc" -eq 0 ]; then shopt -u nocasematch; return 0; fi
+    if [ "$rc" -ne 1 ]; then
+      shopt -u nocasematch
+      iaeng_block "a rule's pattern does not compile in this shell, so the command could not be checked" \
+        "Adapters/ai-runtimes/claude-code/hooks/README.md — a rule that cannot run has not said the command is safe. Report the bash version with this message."
+    fi
+  done
+  shopt -u nocasematch
+  return 1
+}
+
+STRIPPED_LINES=()
+split_into STRIPPED_LINES $'\n' "$STRIPPED"
+
+# --- Segments, and their cap (SEC-IAENG-410-01) ----------------------------------
+# Two rules below judge the command one pipeline segment at a time: the
+# stripped text split on `;`, `&`, `|` and line breaks. SEGS holds those
+# segments, split once. `&&` leaves an empty segment between its two
+# characters, which no rule matches.
+#
+# A COMMAND WITH MORE THAN MAX_SEGMENTS SEGMENTS IS REFUSED. The per-segment
+# work grows with the count, and a call that runs past the guard's 120 s
+# timeout is refused with no reason given, or, on a Claude Code older than
+# 2.1.295, allowed (Governance/BLOCKING_HOOK_LATENCY_MEASUREMENT.md). A cap
+# in this script bounds that work on every version. 2,000 is four times the
+# most segments seen in 4,504 real commands of this repository (463, where a
+# brace expansion multiplied a 1,235-character command; the 99.9th percentile
+# is 137, the median 5). The count is taken after the lexer, so brace
+# alternatives count. At the cap, the heaviest command (2,000 lines, each a
+# `gh` segment) was read in 2.5 s on the loaded Windows machine of the
+# measurement, and every large input tried there ran faster in this hook than
+# in the one before it.
+MAX_SEGMENTS=2000
+SEGS=()
+split_into SEGS $';&|\n' "$STRIPPED"
+if [ "${#SEGS[@]}" -gt "$MAX_SEGMENTS" ]; then
+  iaeng_block "this command has more than $MAX_SEGMENTS pipeline segments after expansion, more than the hook will read" \
+    "Adapters/ai-runtimes/claude-code/hooks/README.md — unread input is refused rather than allowed. Split the command, or write it to a script file and run that."
 fi
 
 # --- Rules: pattern → reason ----------------------------------------------------
@@ -102,20 +244,18 @@ G='git([[:space:]]+(-C[[:space:]]+[^[:space:]]+|-c[[:space:]]+[^[:space:]]+|--(g
 S='[[:space:]]'
 E='([[:space:]]|;|&|\||\)|$)'
 
-# here-strings, not `printf | grep -q`: under pipefail, grep -q closing the
-# pipe on an early match SIGPIPEs printf and pipefail returns that as failure,
-# so a forbidden token early in a command larger than the pipe buffer would
-# read as absent. Masked today by the lexer LIMIT for very large inputs, but
-# the pattern is unsafe and shared with block-inline-suppression, where it was
-# a live bypass. Same class as the check-*.sh fix. TROUBLESHOOTING X.
-check() { grep -qE -- "$1" <<< "$STRIPPED"; }
+# check ERE — true when ERE matches a line of the stripped command. It was a
+# grep over a here-string (never `printf | grep -q`, which pipefail misread on
+# a large input: TROUBLESHOOTING X); it is now rx_any over the lines split
+# above, and starts no process.
+check() { rx_any 0 "$1" ${STRIPPED_LINES[@]+"${STRIPPED_LINES[@]}"}; }
 
 # Case-insensitive variant, for git CONFIG KEYS only. Git treats the section
 # and key parts of a config name case-insensitively — `git -c
 # commit.gpgSign=false` disables signing exactly as the lowercase spelling
 # does, and was allowed while the lowercase one was blocked. Command names and
 # flags stay case-sensitive, because git's are.
-check_key() { grep -qiE -- "$1" <<< "$STRIPPED"; }
+check_key() { rx_any 1 "$1" ${STRIPPED_LINES[@]+"${STRIPPED_LINES[@]}"}; }
 
 # --no-verify is scoped to a git command rather than matched anywhere, so that
 # searching the documentation for the string — `grep -rn -- --no-verify
@@ -222,24 +362,24 @@ HOOKSPATH_REAL_WRITE=0
 # already rejoined; bash 3.2 has no ${var,,}, so the case is folded by the pattern.
 case "$STRIPPED" in
   *[hH][oO][oO][kK][sS][pP][aA][tT][hH]*)
-    while IFS= read -r SEG; do
-      grep -qiE -- "git[^|;&]*core\.hooksPath" <<< "$SEG" || continue
-      if grep -qiE -- "$READ_HOOKSPATH" <<< "$SEG" \
-         || { [ "$LEGACY_OK" -eq 1 ] && grep -qiE -- "$READ_HOOKSPATH_LEGACY" <<< "$SEG"; }; then
+    for SEG in ${SEGS[@]+"${SEGS[@]}"}; do
+      rx_any 1 "git[^|;&]*core\.hooksPath" "$SEG" || continue
+      if rx_any 1 "$READ_HOOKSPATH" "$SEG" \
+         || { [ "$LEGACY_OK" -eq 1 ] && rx_any 1 "$READ_HOOKSPATH_LEGACY" "$SEG"; }; then
         :
       else
         HOOKSPATH_WRITE=1
-        if grep -qiE -- "$READ_HOOKSPATH_LEGACY" <<< "$SEG"; then
+        if rx_any 1 "$READ_HOOKSPATH_LEGACY" "$SEG"; then
           HOOKSPATH_READ_HINT=1
         else
           HOOKSPATH_REAL_WRITE=1
         fi
       fi
-      if grep -qiE -- "$WRITE_HOOKSPATH_VIA_C" <<< "$SEG"; then
+      if rx_any 1 "$WRITE_HOOKSPATH_VIA_C" "$SEG"; then
         HOOKSPATH_WRITE=1
         HOOKSPATH_REAL_WRITE=1
       fi
-    done < <(printf '%s\n' "$STRIPPED" | tr ';&|' '\n')
+    done
     ;;
 esac
 if [ "$HOOKSPATH_WRITE" -eq 1 ]; then
@@ -345,9 +485,15 @@ fi
 # with a variable index (`printenv GIT_CONFIG_KEY_$i`, `unset GIT_CONFIG_KEY_$i`)
 # has no `=` and stays allowed; a bare operand of an assigning builtin
 # (`export GIT_CONFIG_KEY_$i`) is already refused by GCN above.
+# check_raw ERE — check, on the lines of the RAW command.
+check_raw() {
+  local raw_lines=()
+  split_into raw_lines $'\n' "$CMD"
+  rx_any 0 "$1" ${raw_lines[@]+"${raw_lines[@]}"}
+}
 if check 'GIT_CONFIG_KEY_[^[:space:];&|=+]*\$[^[:space:];&|=+]*\+?=' \
    || { check 'GIT_CONFIG_KEY_[0-9]*([[:space:]]|$)' \
-        && grep -qE 'GIT_CONFIG_KEY_[0-9]*(\$\(|`)' <<< "$CMD"; }; then
+        && check_raw 'GIT_CONFIG_KEY_[0-9]*(\$\(|`)'; }; then
   iaeng_block "GIT_CONFIG_KEY_<n> with a variable or substituted index names a git config key variable this hook cannot read after quote-stripping — refused rather than assumed to be something other than core.hooksPath" \
     "Standards/GIT_STANDARD.md, Escape Hatches. Write the index and the key literally in the command so they can be reviewed, or ask a human to run it."
 fi
@@ -395,12 +541,16 @@ DANGER_KEY_C='(include\.|includeif\.|alias\.|core\.fsmonitor([[:space:];&|)=]|$)
 # command names KEY (a whole key: `core.fsmonitorHookVersion` is not
 # `core.fsmonitor`) with anything other than SAFE, the ERE for the safe `=value`
 # (or the empty string). Every such option is extracted and judged alone, so
-# one safe option cannot exempt an unsafe one beside it.
+# one safe option cannot exempt an unsafe one beside it. The extraction is
+# still `grep -o`: it runs only for a command that passes the check_key gate
+# (a git -c or --config-env naming KEY), and grep -o's way of cutting a line
+# into successive matches has no counterpart in [[ =~ ]], which reports a match
+# but not where it starts.
 c_value_unsafe() {
   local key="$1" safe="$2" tok
   check_key "${G}(-c${S}+|--config-env(=|${S}+))${key}([[:space:];&|)=]|\$)" || return 1
   while IFS= read -r tok; do
-    grep -qiE -- "^-c[[:space:]]+${key}${safe}([[:space:];&|)])?\$" <<< "$tok" || return 0
+    rx_any 1 "^-c[[:space:]]+${key}${safe}([[:space:];&|)])?\$" "$tok" || return 0
   done < <(grep -oiE -- "(-c${S}+|--config-env(=|${S}+))${key}(=[^[:space:];&|)]*)?([[:space:];&|)]|\$)" <<< "$STRIPPED")
   return 1
 }
@@ -561,52 +711,54 @@ GH_EDIT_LABELFLAG=0
 GH_ALIAS=0
 case "$STRIPPED" in *[gG][hH]*) GH_SEEN=1 ;; *) GH_SEEN=0 ;; esac
 if [ "$GH_SEEN" -eq 1 ]; then
-  while IFS= read -r SEG; do
-    grep -qiE -- "${GHB}${S}" <<< "$SEG" || continue
-    if grep -qiE -- "${GHEDIT}[^|;&]*${LABEL_FLAG}${LVAL}" <<< "$SEG" \
-       || grep -qiE -- "${GHB}${GHF}${S}+label${GHF}${S}+edit[^|;&]*${S}(--name|-n)(=|${S}*)${LBL}${LEND}" <<< "$SEG" \
-       || grep -qiE -- "${GHB}${GHF}${S}+label${GHF}${S}+create${S}([^|;&]*${S})?${LBL}${LEND}" <<< "$SEG" \
-       || grep -qiE -- "${GHB}${GHF}${S}+label${GHF}${S}+clone${S}([^|;&]*${S})?(-f|--force)${E}" <<< "$SEG"; then
+  for SEG in ${SEGS[@]+"${SEGS[@]}"}; do
+    rx_any 1 "${GHB}${S}" "$SEG" || continue
+    if rx_any 1 "${GHEDIT}[^|;&]*${LABEL_FLAG}${LVAL}" "$SEG" \
+       || rx_any 1 "${GHB}${GHF}${S}+label${GHF}${S}+edit[^|;&]*${S}(--name|-n)(=|${S}*)${LBL}${LEND}" "$SEG" \
+       || rx_any 1 "${GHB}${GHF}${S}+label${GHF}${S}+create${S}([^|;&]*${S})?${LBL}${LEND}" "$SEG" \
+       || rx_any 1 "${GHB}${GHF}${S}+label${GHF}${S}+clone${S}([^|;&]*${S})?(-f|--force)${E}" "$SEG"; then
       APPROVAL_LABEL=1
     fi
-    grep -qiE -- "${GHEDIT}[^|;&]*${LABEL_FLAG}" <<< "$SEG" && GH_EDIT_LABELFLAG=1
-    grep -qiE -- "${GHB}${GHF}${S}+alias${GHF}${S}+(set|import)${E}" <<< "$SEG" && GH_ALIAS=1
+    rx_any 1 "${GHEDIT}[^|;&]*${LABEL_FLAG}" "$SEG" && GH_EDIT_LABELFLAG=1
+    rx_any 1 "${GHB}${GHF}${S}+alias${GHF}${S}+(set|import)${E}" "$SEG" && GH_ALIAS=1
     # The read exemption applies only when no write method is also present.
-    if grep -qiE -- "${GHB}${GHF}${S}+api${S}" <<< "$SEG" \
-       && { ! grep -qiE -- "$READ_M" <<< "$SEG" || grep -qiE -- "$WRITE_M" <<< "$SEG"; }; then
+    if rx_any 1 "${GHB}${GHF}${S}+api${S}" "$SEG" \
+       && { ! rx_any 1 "$READ_M" "$SEG" || rx_any 1 "$WRITE_M" "$SEG"; }; then
       WRITE_OPT="${WRITE_M}|${S}(-f|-F|--field|--raw-field|--input)"
-      if grep -qiE -- "(^|[^[:alnum:]_-])${LBL}${LEND}" <<< "$SEG" \
-         && grep -qiE -- "$WRITE_OPT" <<< "$SEG"; then
+      if rx_any 1 "(^|[^[:alnum:]_-])${LBL}${LEND}" "$SEG" \
+         && rx_any 1 "$WRITE_OPT" "$SEG"; then
         APPROVAL_LABEL=1
       fi
       # --input names a file this hook cannot read: refused on the endpoints that
       # set labels, since unread input is refused (see the lexer LIMIT contract).
-      if grep -qiE -- "${S}--input" <<< "$SEG" \
-         && grep -qiE -- "(issues|pulls)/[0-9]+(/labels)?${E}|/labels${E}" <<< "$SEG"; then
+      if rx_any 1 "${S}--input" "$SEG" \
+         && rx_any 1 "(issues|pulls)/[0-9]+(/labels)?${E}|/labels${E}" "$SEG"; then
         APPROVAL_LABEL=1
       fi
     fi
-  done < <(printf '%s\n' "$STRIPPED" | tr ';&|' '\n')
+  done
   if [ "$GH_EDIT_LABELFLAG" -eq 1 ] || [ "$GH_ALIAS" -eq 1 ]; then
     # The KEEPQ view of the command: quoted regions kept as single words, their
     # inner whitespace replaced by PH, heredoc bodies still skipped. A flag or a
     # `gh` that sits INSIDE quoted prose has lost its whitespace boundary, so
     # only a real flag is matched; a real flag's quoted value is one word.
-    KEPT="$(printf '%s\n' "$CMD" | awk -v KEEPQ=1 -f "$LEXER")"
+    KEPT="$(awk -v KEEPQ=1 -f "$LEXER" <<< "$CMD")"
     PHC=$'\004'
     LENDK="([[:space:]]|,|;|&|\||\)|$|${PHC})"
     LVALK="([^[:space:],]*,)*${PHC}*${LBL}${LENDK}"
-    while IFS= read -r SEG; do
+    KEPT_SEGS=()
+    split_into KEPT_SEGS $';&|\n' "$KEPT"
+    for SEG in ${KEPT_SEGS[@]+"${KEPT_SEGS[@]}"}; do
       if [ "$GH_EDIT_LABELFLAG" -eq 1 ] \
-         && grep -qiE -- "${GHEDIT}[^|;&]*${LABEL_FLAG}${LVALK}" <<< "$SEG"; then
+         && rx_any 1 "${GHEDIT}[^|;&]*${LABEL_FLAG}${LVALK}" "$SEG"; then
         APPROVAL_LABEL=1
       fi
       if [ "$GH_ALIAS" -eq 1 ] \
-         && grep -qiE -- "${GHB}${GHF}${S}+alias${GHF}${S}+(set|import)${E}" <<< "$SEG" \
-         && grep -qiE -- "(^|[^[:alnum:]_-])${LBL}" <<< "$SEG"; then
+         && rx_any 1 "${GHB}${GHF}${S}+alias${GHF}${S}+(set|import)${E}" "$SEG" \
+         && rx_any 1 "(^|[^[:alnum:]_-])${LBL}" "$SEG"; then
         APPROVAL_LABEL=1
       fi
-    done < <(printf '%s\n' "$KEPT" | tr ';&|' '\n')
+    done
   fi
 fi
 if [ "$APPROVAL_LABEL" -eq 1 ]; then
