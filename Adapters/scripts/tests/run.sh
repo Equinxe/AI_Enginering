@@ -10846,6 +10846,190 @@ expect 1 "check-risk-map: a refused category with a carriage return inside it" -
 expect_line "check-risk-map: ERROR: zone 'src/auth/*' names category 'authenti${VCR395}cation', which is not in the closed list: authentication authorization personal_data payments_and_spend cryptography_and_secrets migrations_and_data_integrity infrastructure_and_ci core_architecture"
 expect_no_output "$CR389" "no raw carriage return is printed"
 
+# ------------ Employee trailer variants git reads are refused (#338) --------
+#
+# Issue #338 (SEC-IAENG-389-01): the commit-msg hook and
+# check-employee-trailers.sh validated only the lines spelt `Employee: ` at
+# column 0, while git's trailer parser also reads the key in any case, with
+# spaces or a tab before the colon, with no space after it, and folds an
+# indented line into the trailer above it. Each variant row below passed both
+# checks, and git log read a name that is not on the roster, or a valid name
+# under a spelling neither check had read.
+#
+# The oracle is git, and the expected readings are issue #338's table, written
+# by hand. Each row first pins what the hook's reader
+# (`git interpret-trailers --parse --no-divider`) and what the CI check's
+# reader, which is usage-dashboard.sh's (`%(trailers:key=Employee,unfold)`),
+# return for the message. Then both checks refuse it with a line naming each
+# trailer no exact line accounts for. Each row keeps an exact line with a
+# valid name, so no other rule refuses it: before this change both checks
+# accepted every row. The legitimate forms below are accepted, as before.
+
+section "Employee trailer variants git reads are refused (WU-IAENG-396, #338)"
+
+HOOK396="$SCRIPTS/../git-hooks/commit-msg"
+EMP396="$SCRIPTS/check-employee-trailers.sh"
+HOOK396_TAIL="as an Employee trailer, and no line of the message is spelt exactly so."
+EMP396_TAIL="as an Employee trailer, and no line of its message is spelt exactly so. This check validates the name on each line spelt 'Employee: <Name>' at column 0; git also reads the key in any case, with spaces or a tab before the colon or no space after it, and folds an indented line into the trailer above it, so a line spelt any other way reaches git log with a name nobody checked (issue #338). Write each Employee trailer as exactly 'Employee: <Name>' on one line, with no indented line under it."
+
+# repo396 <name> — a roster of Platform Engineer and Release Manager and a
+# registry of WU-TEST-001, committed; BASE is that commit.
+repo396() {
+  new_repo "$1"
+  write_employee_roster "Platform Engineer" "Release Manager"
+  write_wu_registry WU-TEST-001
+  git add -A && git commit -q -m "roster and registry"
+  BASE="$(git rev-parse HEAD)"
+}
+
+# row396 <name> <description> <message, printf %b> <git reading> <refused>...
+# A variant row: the two oracles, the hook's refusal, then the message
+# committed and the CI check's refusal, one refusal line per <refused>.
+row396() {
+  local name="$1" desc="$2" body="$3" reading="$4" t sha
+  shift 4
+  repo396 "v396-$name"
+  printf '%b' "$body" > "$WORK/v396-$name.txt"
+  expect 0 "oracle, $desc: git interpret-trailers --parse --no-divider reads it" -- \
+    test "$(git interpret-trailers --parse --no-divider < "$WORK/v396-$name.txt")" = "$reading"
+  expect 1 "commit-msg refuses $desc" -- env GITHUB_ACTIONS= bash "$HOOK396" "$WORK/v396-$name.txt"
+  for t in "$@"; do
+    expect_line "commit-msg: rejected — git reads '$t' $HOOK396_TAIL"
+  done
+  commit_verbatim389 "$WORK/v396-$name.txt"
+  sha="$(git rev-parse HEAD)"
+  expect 0 "oracle, $desc: git log %(trailers:key=Employee,unfold) reads it" -- \
+    test "$(git log -1 --format='%(trailers:key=Employee,unfold)')" = "$reading"
+  expect 1 "check-employee-trailers refuses $desc" -- env GITHUB_ACTIONS= bash "$EMP396" "$BASE" HEAD
+  for t in "$@"; do
+    expect_line "check-employee-trailers: ERROR: Commit $sha: git reads '$t' $EMP396_TAIL"
+  done
+}
+
+# --- The rows of issue #338's table, the tab forms, and a valid name under a
+# variant key: git reads it, so it is refused as well.
+row396 lower "a lowercase key (employee: executor)" \
+  'fix(trailer): x\n\nEmployee: Platform Engineer\nemployee: executor\n' \
+  $'Employee: Platform Engineer\nemployee: executor' 'employee: executor'
+row396 no-space "no space after the colon (Employee:executor)" \
+  'fix(trailer): x\n\nEmployee: Platform Engineer\nEmployee:executor\n' \
+  $'Employee: Platform Engineer\nEmployee: executor' 'Employee: executor'
+row396 space-colon "a space before the colon (Employee : executor)" \
+  'fix(trailer): x\n\nEmployee: Platform Engineer\nEmployee : executor\n' \
+  $'Employee: Platform Engineer\nEmployee: executor' 'Employee: executor'
+row396 tab-colon "a tab before the colon (Employee<TAB>: executor)" \
+  'fix(trailer): x\n\nEmployee: Platform Engineer\nEmployee\t: executor\n' \
+  $'Employee: Platform Engineer\nEmployee: executor' 'Employee: executor'
+row396 continuation "a continuation line ( executor)" \
+  'fix(trailer): x\n\nEmployee: Platform Engineer\n executor\n' \
+  'Employee: Platform Engineer executor' 'Employee: Platform Engineer executor'
+row396 tab-continuation "a tab continuation line (<TAB>executor)" \
+  'fix(trailer): x\n\nEmployee: Platform Engineer\n\texecutor\n' \
+  'Employee: Platform Engineer executor' 'Employee: Platform Engineer executor'
+row396 valid-lower "a valid name under a lowercase key" \
+  'fix(trailer): x\n\nEmployee: Release Manager\nemployee: Platform Engineer\n' \
+  $'Employee: Release Manager\nemployee: Platform Engineer' 'employee: Platform Engineer'
+row396 valid-no-space "a valid name with no space after the colon" \
+  'fix(trailer): x\n\nEmployee: Release Manager\nEmployee:Platform Engineer\n' \
+  $'Employee: Release Manager\nEmployee: Platform Engineer' 'Employee: Platform Engineer'
+# One line accounts for one trailer: git reads Platform Engineer twice, and
+# the message spells it exactly once.
+row396 duplicate "a variant that repeats an exact line of the block" \
+  'fix(trailer): x\n\nEmployee: Platform Engineer\nEmployee:Platform Engineer\n' \
+  $'Employee: Platform Engineer\nEmployee: Platform Engineer' 'Employee: Platform Engineer'
+# git log reads a commit with no patch divider: the trailer block after a
+# `---` line is still its trailer block, so the hook reads it the same way.
+row396 divider "a variant after a --- line" \
+  'fix(trailer): x\n\nEmployee: Platform Engineer\n\n---\n\nemployee: executor\n' \
+  'employee: executor' 'employee: executor'
+
+# --- Merges. The hook checks a merge before classifying it: a clean merge,
+# which needs no Employee trailer, and a merge the hook cannot classify both
+# carry the variant to git log otherwise.
+mk_merge_repo m396-hook-clean
+git merge -q --no-commit --no-ff side
+printf "Merge branch 'side'\n\nemployee: executor\n" > msg-merge.txt
+expect 1 "commit-msg refuses a variant on a clean merge" -- env GITHUB_ACTIONS= bash "$HOOK396" msg-merge.txt
+expect_line "commit-msg: rejected — git reads 'employee: executor' $HOOK396_TAIL"
+
+S396_REAL_GIT="$(command -v git)"
+mkdir -p "$WORK/shim-396"
+cat > "$WORK/shim-396/git" <<SHIM
+#!/usr/bin/env bash
+# Fails (exit 128) a call whose arguments include the word \$S396_FAIL.
+if [ -n "\${S396_FAIL:-}" ]; then
+  case " \$* " in *" \$S396_FAIL "*) echo "git (WU-IAENG-396 shim): failing '\$*'" >&2; exit 128 ;; esac
+fi
+exec "$S396_REAL_GIT" "\$@"
+SHIM
+chmod +x "$WORK/shim-396/git"
+
+mk_merge_repo m396-hook-unclassified
+git merge -q --no-commit --no-ff side
+printf "Merge branch 'side'\n\nemployee: executor\n" > msg-merge.txt
+expect 1 "commit-msg refuses a variant on a merge it cannot classify" -- \
+  env PATH="$WORK/shim-396:$PATH" S396_FAIL=merge-tree GITHUB_ACTIONS= bash "$HOOK396" msg-merge.txt
+expect_line "commit-msg: rejected — git reads 'employee: executor' $HOOK396_TAIL"
+
+mk_emp_merge_repo m396-ci-clean
+git merge -q --no-ff side -m "Merge branch 'side'
+
+employee: executor"
+SHA396="$(git rev-parse HEAD)"
+expect 1 "check-employee-trailers refuses a variant on a clean merge" -- env GITHUB_ACTIONS= bash "$EMP396" "$BASE" HEAD
+expect_line "check-employee-trailers: ERROR: Commit $SHA396: git reads 'employee: executor' $EMP396_TAIL"
+
+# --- What git cannot read is refused, never passed.
+repo396 f396-hook
+printf 'fix(trailer): x\n\nEmployee: Platform Engineer\n' > "$WORK/f396.txt"
+expect 1 "commit-msg refuses a message git interpret-trailers cannot parse" -- \
+  env PATH="$WORK/shim-396:$PATH" S396_FAIL=interpret-trailers GITHUB_ACTIONS= bash "$HOOK396" "$WORK/f396.txt"
+expect_line "commit-msg: rejected — git interpret-trailers could not parse this message, so the Employee trailers git reads were not checked."
+commit_verbatim389 "$WORK/f396.txt"
+SHA396="$(git rev-parse HEAD)"
+expect 2 "check-employee-trailers: trailers git log cannot read are not evaluated (exit 2)" -- \
+  env PATH="$WORK/shim-396:$PATH" S396_FAIL='--format=%(trailers:key=Employee,unfold)' GITHUB_ACTIONS= bash "$EMP396" "$BASE" HEAD
+expect_line "check-employee-trailers: ERROR: git log could not read the trailers of commit $SHA396, so the Employee trailers git reads were not checked. Failing rather than passing it unexamined."
+
+# --- A refused reading is printed as every refusal of these checks prints a
+# value (WU-IAENG-395, #337): a carriage return inside it as \r, never raw.
+CR396=$'\r'
+VCR396='\r'
+repo396 cr396
+printf 'fix(trailer): x\n\nEmployee: Platform Engineer\nemployee: exec\rutor\n' > "$WORK/cr396.txt"
+expect 1 "commit-msg refuses a variant whose value holds a carriage return" -- env GITHUB_ACTIONS= bash "$HOOK396" "$WORK/cr396.txt"
+expect_line "commit-msg: rejected — git reads 'employee: exec${VCR396}utor' $HOOK396_TAIL"
+expect_no_output "$CR396" "no raw carriage return is printed"
+commit_verbatim389 "$WORK/cr396.txt"
+SHA396="$(git rev-parse HEAD)"
+expect 1 "check-employee-trailers refuses a variant whose value holds a carriage return" -- env GITHUB_ACTIONS= bash "$EMP396" "$BASE" HEAD
+expect_line "check-employee-trailers: ERROR: Commit $SHA396: git reads 'employee: exec${VCR396}utor' $EMP396_TAIL"
+expect_no_output "$CR396" "no raw carriage return is printed"
+
+# --- Legitimate messages: accepted by both checks, as before this change.
+# ok396 <name> <description> <message, printf %b>
+ok396() {
+  repo396 "ok396-$1"
+  printf '%b' "$3" > "$WORK/ok396-$1.txt"
+  expect 0 "commit-msg accepts $2" -- env GITHUB_ACTIONS= bash "$HOOK396" "$WORK/ok396-$1.txt"
+  commit_verbatim389 "$WORK/ok396-$1.txt"
+  expect 0 "check-employee-trailers accepts $2" -- env GITHUB_ACTIONS= bash "$EMP396" "$BASE" HEAD
+}
+ok396 framework-form "the framework's own trailer block (Work Unit, Employee, Co-Authored-By)" \
+  'fix(trailer): x\n\nWork Unit: WU-TEST-001\n\nEmployee: Platform Engineer\nCo-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>\n'
+ok396 two-employees "two Employee trailers, each spelt exactly" \
+  'fix(trailer): x\n\nEmployee: Platform Engineer\nEmployee: Release Manager\n'
+ok396 same-twice "the same exact line twice: each line accounts for its own trailer" \
+  'fix(trailer): x\n\nEmployee: Platform Engineer\nEmployee: Platform Engineer\n'
+ok396 indented-example "an indented example in the body, which is not a trailer" \
+  'fix(trailer): x\n\nThe rejected commit said:\n    employee: executor\n\nEmployee: Platform Engineer\n'
+ok396 divider "an exact trailer after a --- line" \
+  'fix(trailer): x\n\nnotes\n---\nmore notes\n\nEmployee: Platform Engineer\n'
+# The limit the hook and the script state: a variant whose reading equals an
+# exact line outside the trailer block. git reads only that validated value.
+ok396 reading-equals-body-line "a variant git reads as an exact line of the body (accepted by design)" \
+  'fix(trailer): x\n\nEmployee: Platform Engineer\n\nEmployee:Platform Engineer\n'
+
 # ------- a condition not evaluated exits 2, never 1 (WU-IAENG-390, #331) ------
 #
 # Standards/CODE_QUALITY_STANDARD.md, The Check Convention, Shell Scripts

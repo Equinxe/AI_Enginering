@@ -1628,9 +1628,9 @@ work_units:
 
   - id: WU-IAENG-396
     employee: Platform Engineer
-    title: Reserved 27 Oct 2026 before dispatch (WU-IAENG-398) - trailer key variants git reads as Employee are refused (issue #338, SEC-IAENG-389-01) - the commit-msg hook and check-employee-trailers.sh validate only lines matching ^Employee: exactly, while git reads a key in any case, with whitespace before the colon or no space after it, and folds continuation lines into the value
+    title: Employee trailer variants git reads are refused (issue #338, SEC-IAENG-389-01) - the commit-msg hook and check-employee-trailers.sh validated only the lines that start with the key Employee, a colon and a space, while git reads the key in any case, with spaces or a tab before the colon or no space after it, and folds an indented line into the value, so a name nobody checked reached git log; which lines are trailers is now git's decision (git interpret-trailers --parse --no-divider in the hook, %(trailers:key=Employee,unfold) in the script, the reader usage-dashboard.sh uses), and each Employee trailer git reads must be accounted for by its own line spelt exactly so, one of the lines checked against the roster, so a variant is refused even when its name is valid; the hook checks every commit before it classifies a merge; a message git cannot parse is refused by the hook and not evaluated (exit 2) by the script; accepted by design, a variant whose reading equals an exact line outside the trailer block
     milestone: Usage
-    delivers: planned - Adapters/git-hooks/commit-msg, Adapters/scripts/check-employee-trailers.sh, Adapters/scripts/tests/run.sh, changelog.d/WU-IAENG-396.md, Registry/work-units.yml
+    delivers: Adapters/git-hooks/commit-msg, Adapters/scripts/check-employee-trailers.sh, Adapters/scripts/tests/run.sh, changelog.d/WU-IAENG-396.md, Registry/work-units.yml
 
   - id: WU-IAENG-397
     employee: Platform Engineer
