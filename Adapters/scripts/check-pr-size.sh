@@ -57,8 +57,9 @@
 #   0  within the limit, a back-merge, or over it with `size/approved`
 #   1  a finding: over the limit without `size/approved`
 #   2  could not evaluate, or a usage error: the merge base, `git diff` or
-#      `git rev-list` failed, or the diff lists no files while the range holds
-#      no commits or a non-merge commit. The size was never measured.
+#      `git rev-list` failed, no scratch directory could be created for the
+#      diff, or the diff lists no files while the range holds no commits or a
+#      non-merge commit. The size was never measured.
 
 set -uo pipefail
 
@@ -107,13 +108,31 @@ fi
 # which `git check-attr` reads literally and reports as unspecified — a renamed
 # generated file was counted as reviewable. The add/delete counts it produces
 # instead are also the ones a reviewer actually reads.
-if ! NUMSTAT="$(git diff --numstat --no-renames "$MERGE_BASE" "$HEAD_REF")"; then
+#
+# -z for the same reason: git prints each name exactly as it is, ended by a
+# NUL, and core.quotePath=false is stated as well. Without it, a name holding a
+# byte outside ASCII, a control character, a double quote or a backslash came
+# as a quoted C string — gen-dé.txt as "gen-d\303\251.txt" — which check-attr
+# also read literally, so a generated file with such a name was counted
+# (WU-IAENG-428). A shell variable cannot hold a NUL byte, so the diff is
+# captured in a file of a scratch directory.
+if ! SCRATCH="$(mktemp -d)"; then
+  err "Could not create a scratch directory for the diff. The size was never measured; failing rather than reporting a size of zero."
+  exit 2
+fi
+trap 'rm -rf "$SCRATCH"' EXIT
+if ! git -c core.quotePath=false diff --numstat --no-renames -z "$MERGE_BASE" "$HEAD_REF" > "$SCRATCH/numstat"; then
   err "git diff failed between $MERGE_BASE and $HEAD_REF. The size was never measured; failing rather than reporting a size of zero."
   exit 2
 fi
 
+TAB="$(printf '\t')"
 TOTAL=0; FILES=0; GENERATED=0; BINARY=0
-while IFS="$(printf '\t')" read -r added deleted path; do
+while IFS= read -r -d '' rec; do
+  # <added> TAB <deleted> TAB <path>. The counts never hold a tab; the path
+  # may, so it is everything after the second one.
+  added="${rec%%"$TAB"*}"; rec="${rec#*"$TAB"}"
+  deleted="${rec%%"$TAB"*}"; path="${rec#*"$TAB"}"
   [ -n "$path" ] || continue
   FILES=$((FILES + 1))
   if [ "$added" = "-" ]; then
@@ -124,9 +143,7 @@ while IFS="$(printf '\t')" read -r added deleted path; do
     GENERATED=$((GENERATED + 1)); continue
   fi
   TOTAL=$((TOTAL + added + deleted))
-done <<EOF
-$NUMSTAT
-EOF
+done < "$SCRATCH/numstat"
 
 # A DIFF OF ZERO FILES HAS TWO CAUSES AND THEY ARE NOT THE SAME THING.
 #

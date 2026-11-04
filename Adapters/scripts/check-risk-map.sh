@@ -23,7 +23,9 @@
 # translated to a regular expression, where `*` becomes `.*` — so `*` CROSSES
 # `/`, and `*.md` matches every markdown file in the repository rather than
 # only those at the root. `**` is not special; it behaves exactly like `*`.
-# Write specific patterns before general ones: first match wins.
+# Write specific patterns before general ones: first match wins. The
+# expression is matched against the whole path as git stores it, byte for
+# byte, so `*` and `?` also match a newline or a byte outside ASCII.
 #
 # The translation is done rather than delegated to shell `case` on purpose.
 # `case` has the same semantics, but reading it requires knowing that; a regex
@@ -38,7 +40,9 @@
 #                                                 highest level a change set touches
 #
 # --range diffs from the MERGE BASE of <base> and <head>, as check-pr-size.sh
-# does, so only what the change set itself changed is classified. When a
+# does, so only what the change set itself changed is classified. A renamed
+# file is classified by both its old and its new path, as check-pr-size.sh
+# already lists it. A printed path shows a CR as \r and an LF as \n. When a
 # sensitive zone is touched it requires the Risk Record of
 # Standards/RISK_STANDARD.md in a commit message of the range: a paragraph
 # starting with `RISK:` at column 0 that carries tier= (one of Low, Medium,
@@ -57,7 +61,8 @@
 #   1  a finding: the map is unsound, or a sensitive zone is touched without
 #      a Risk Record
 #   2  could not evaluate, or a usage error: the project root is not a
-#      directory, there is no Risk Map or it yields no zones, or a git command
+#      directory, there is no Risk Map or it yields no zones, no scratch
+#      directory could be created for the path listings, or a git command
 #      failed (`ls-files`, `merge-base`, `diff`). Nothing was classified.
 
 set -uo pipefail
@@ -83,6 +88,16 @@ err() {
   else
     printf 'check-risk-map: ERROR: %s\n' "$msg" >&2
   fi
+}
+
+# show <text> — sets SHOWN to <text> as a terminal line prints it: each CR as
+# the two characters \r and each LF as \n, so a printed path with a line break
+# stays on one line, as validate-framework.sh's show does (WU-IAENG-397). Only
+# what is printed changes: every comparison reads the name as git stores it
+# (WU-IAENG-428).
+show() {
+  SHOWN="${1//$'\r'/\\r}"
+  SHOWN="${SHOWN//$'\n'/\\n}"
 }
 
 note() {
@@ -177,11 +192,58 @@ if [ "$ZONE_COUNT" -eq 0 ]; then
   exit 2
 fi
 
-if ! TRACKED="$(git ls-files)"; then
+# --- the path listings --------------------------------------------------------
+#
+# EVERY LISTING IS READ WITH -z, so git prints each name exactly as it is and
+# ends it with a NUL byte; core.quotePath=false is stated as well. Without -z,
+# git prints a name holding a byte outside ASCII, a control character, a double
+# quote or a backslash as a quoted C string — docs/dé.md arrives as
+# "docs/d\303\251.md" — and the zone patterns were matched against the quotes
+# and escapes instead of the name: such a path got the level of a later zone
+# than the one its name matches, and a zone whose only files had such names was
+# reported as matching nothing. A newline is a byte a line-per-name listing
+# cannot carry at all. No name holds a NUL, so the split is exact
+# (WU-IAENG-428).
+#
+# A shell variable cannot hold a NUL byte, so each listing is kept in a file
+# of a scratch directory and read back with `read -d ''`. A scratch directory
+# that cannot be created means nothing was classified.
+if ! SCRATCH="$(mktemp -d)"; then
+  err "cannot create a scratch directory for the path listings. Nothing was classified, so nothing is established."
+  exit 2
+fi
+trap 'rm -rf "$SCRATCH"' EXIT
+TRACKED="$SCRATCH/tracked"
+UNTRACKED="$SCRATCH/untracked"
+
+# count_paths <listing> — how many names a NUL-separated listing holds.
+count_paths() {
+  local n=0 _p
+  while IFS= read -r -d '' _p; do n=$((n + 1)); done < "$1"
+  printf '%s\n' "$n"
+}
+
+# first_match <regex> <listing> — sets FIRST_MATCH to the first name in a
+# NUL-separated listing that <regex> matches, and fails when none does. The
+# match is level_of's, below. A variable rather than printed output, because a
+# command substitution would drop a newline that ends a name.
+first_match() {
+  local re="$1" p
+  FIRST_MATCH=""
+  while IFS= read -r -d '' p; do
+    if [[ $p =~ $re ]]; then
+      FIRST_MATCH="$p"
+      return 0
+    fi
+  done < "$2"
+  return 1
+}
+
+if ! git -c core.quotePath=false ls-files -z > "$TRACKED"; then
   err "git ls-files failed. The map is checked against tracked paths; without them nothing can be verified."
   exit 2
 fi
-TRACKED_COUNT="$(printf '%s\n' "$TRACKED" | grep -c . || true)"
+TRACKED_COUNT="$(count_paths "$TRACKED")"
 
 # Files present in the working tree but not yet committed (respecting
 # .gitignore, so node_modules and the like do not appear). Used ONLY to tell a
@@ -189,8 +251,8 @@ TRACKED_COUNT="$(printf '%s\n' "$TRACKED" | grep -c . || true)"
 # but has not staged — the state EVERY adopter is in the first time they run
 # this, immediately after bootstrap installs the workflows, Dockerfile and the
 # map itself. "Remove the entry" is the wrong advice then; "commit the file" is
-# right. Captured once; matched with here-strings (TROUBLESHOOTING X).
-UNTRACKED="$(git ls-files --others --exclude-standard 2>/dev/null || true)"
+# right. Listed once, into its file.
+git -c core.quotePath=false ls-files -z --others --exclude-standard > "$UNTRACKED" 2>/dev/null || true
 
 # NO FIELD IS EVER EMPTY in the records above, and that is not tidiness.
 #
@@ -206,16 +268,20 @@ UNTRACKED="$(git ls-files --others --exclude-standard 2>/dev/null || true)"
 TAB="$(printf '\t')"
 
 # level_of <path> — first match wins, exactly as the map documents.
+#
+# THE NAME IS MATCHED WHOLE, by `[[ =~ ]]` rather than grep. grep reads its
+# input as lines, so a name holding a newline was matched line by line: one of
+# its lines could match a zone the name does not, or no line could match a zone
+# the name does. Bash compiles the expression without REG_NEWLINE, so `.`
+# matches a newline and ^ and $ anchor the whole name; under LC_ALL=C it
+# compares bytes. It also starts no process, where grep started one for every
+# path and zone. There is no pipe either, so the SIGPIPE trap of
+# TROUBLESHOOTING X does not arise.
 level_of() {
   local file="$1" pat lvl re
   while IFS="$TAB" read -r pat lvl _cat _reason re; do
     [ -n "$pat" ] || continue
-    # here-string, not `printf | grep -q`. grep -q closes the pipe on its first
-    # match; the producer then takes SIGPIPE, and `set -o pipefail` reports that
-    # as the pipeline's failure — so a real match reads as a miss whenever the
-    # producer had more to write. Harmless for one filename, wrong for the large
-    # producers below, uniform here so the footgun is not copied. TROUBLESHOOTING X.
-    if grep -qE "$re" <<< "$file"; then
+    if [[ $file =~ $re ]]; then
       printf '%s\n' "$lvl"
       return 0
     fi
@@ -227,12 +293,11 @@ EOF
 
 # --- explain -----------------------------------------------------------------
 if [ "$MODE" = explain ]; then
-  while IFS= read -r f; do
+  while IFS= read -r -d '' f; do
     [ -n "$f" ] || continue
-    printf '%s %s\n' "$f" "$(level_of "$f")"
-  done <<EOF
-$TRACKED
-EOF
+    show "$f"
+    printf '%s %s\n' "$SHOWN" "$(level_of "$f")"
+  done < "$TRACKED"
   exit 0
 fi
 
@@ -250,11 +315,16 @@ if [ "$MODE" = range ]; then
     err "Could not compute the merge base of $BASE and $HEAD_REF. Nothing was classified, so nothing is established."
     exit 2
   fi
-  if ! CHANGED="$(git diff --name-only "$MERGE_BASE" "$HEAD_REF")"; then
+  # -z, as every listing above: a name as git stores it, ended by a NUL.
+  # --no-renames, as check-pr-size.sh lists a diff: a renamed file is listed
+  # under its old path and its new one, so it is classified by both. With
+  # rename detection, --name-only names only the new path.
+  CHANGED="$SCRATCH/changed"
+  if ! git -c core.quotePath=false diff --name-only --no-renames -z "$MERGE_BASE" "$HEAD_REF" > "$CHANGED"; then
     err "git diff failed between the merge base $MERGE_BASE and $HEAD_REF. Nothing was classified, so nothing is established."
     exit 2
   fi
-  n="$(printf '%s\n' "$CHANGED" | grep -c . || true)"
+  n="$(count_paths "$CHANGED")"
   if [ "$n" -eq 0 ]; then
     note "no files changed between $BASE and $HEAD_REF; no zone touched."
     exit 0
@@ -262,18 +332,17 @@ if [ "$MODE" = range ]; then
 
   highest=routine
   sensitive_paths=""
-  while IFS= read -r f; do
+  while IFS= read -r -d '' f; do
     [ -n "$f" ] || continue
     l="$(level_of "$f")"
     if [ "$l" = sensitive ]; then
       highest=sensitive
-      sensitive_paths="$sensitive_paths $f"
+      show "$f"
+      sensitive_paths="$sensitive_paths $SHOWN"
     elif [ "$l" != routine ] && [ "$highest" != sensitive ]; then
       highest=standard
     fi
-  done <<EOF
-$CHANGED
-EOF
+  done < "$CHANGED"
 
   echo "Files changed: $n — highest change zone: $highest"
 
@@ -384,15 +453,15 @@ while IFS="$TAB" read -r pat lvl cat reason re; do
   fi
 
   # Trap 4: a pattern matching nothing reassures without protecting anything.
-  # here-string, not `printf | grep -q`: $TRACKED is git ls-files, which in a
-  # real project exceeds the pipe buffer, and grep -q short-circuiting it would
-  # make a LIVE zone read as dead under pipefail. TROUBLESHOOTING X.
-  if ! grep -qE "$re" <<< "$TRACKED"; then
+  # Each tracked name is matched whole, as level_of matches it, so a zone is
+  # live exactly when some tracked file would be classified by it.
+  if ! first_match "$re" "$TRACKED"; then
     # Present-but-untracked is not a dead zone. The file exists; it is not
     # committed yet. That is the expected state right after bootstrap, so the
     # honest fix is to stage it, not to delete the entry the installer wrote.
-    if untracked_hit="$(grep -m1 -E "$re" <<< "$UNTRACKED")" && [ -n "$untracked_hit" ]; then
-      fail "zone '$pat' matches a file that exists but is not tracked yet (e.g. $untracked_hit). The map classifies committed files; stage and commit it — right after bootstrap this is expected, since the installed files are not committed yet. Until then the zone protects nothing."
+    if first_match "$re" "$UNTRACKED"; then
+      show "$FIRST_MATCH"
+      fail "zone '$pat' matches a file that exists but is not tracked yet (e.g. $SHOWN). The map classifies committed files; stage and commit it — right after bootstrap this is expected, since the installed files are not committed yet. Until then the zone protects nothing."
     else
       fail "zone '$pat' matches no tracked file. A dead entry reassures without keeping anything — trap 4 in Templates/RISK_MAP.md. Remove it, or fix the pattern."
     fi
@@ -405,14 +474,12 @@ EOF
 # the list. A core module that fell through to a catch-all is invisible
 # otherwise, and a file matching nothing at all is unclassified.
 unmatched=0
-while IFS= read -r f; do
+while IFS= read -r -d '' f; do
   [ -n "$f" ] || continue
   if [ "$(level_of "$f")" = UNMATCHED ]; then
     unmatched=$((unmatched + 1))
   fi
-done <<EOF
-$TRACKED
-EOF
+done < "$TRACKED"
 if [ "$unmatched" -gt 0 ]; then
   fail "$unmatched of $TRACKED_COUNT tracked file(s) match no zone. Every path must resolve to a level; add a final '**' zone at level standard, which is the documented default."
 fi

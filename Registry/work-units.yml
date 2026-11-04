@@ -1794,6 +1794,12 @@ work_units:
     milestone: Adoption
     delivers: VERSION.md, CHANGELOG.md, README.md, CLAUDE.md, Registry/work-units.yml, changelog.d/
 
+  - id: WU-IAENG-428
+    employee: Platform Engineer
+    title: check-risk-map.sh and check-pr-size.sh read the paths git lists with -z - a path with a byte outside ASCII, a double quote, a control character or a newline is matched by its name as git stores it instead of git's quoted form, so the Risk Map classifies it by the zone its name matches, a zone whose only files have such names is live, --explain prints the name as it is, and a linguist-generated file with such a name is left out of the review count; the zone patterns are matched against the whole name with bash's [[ =~ ]], a printed path shows a CR as \r and an LF as \n, --range classifies a renamed file by both its old and its new path as check-pr-size.sh already lists it, and both checks exit 2 when they cannot create a scratch directory for the listings
+    milestone: Usage
+    delivers: Adapters/scripts/check-risk-map.sh, Adapters/scripts/check-pr-size.sh, Adapters/scripts/tests/run.sh, Registry/work-units.yml, changelog.d/WU-IAENG-428.md
+
   - id: WU-IAENG-429
     employee: Platform Engineer
     title: The commit-msg hook checks the claims of a merge it cannot classify (issue #408, v0.0.15 acceptance case S4-24; Director decision 3 Nov 2026, fixed early in Usage) - when git merge-tree exited above 1 the hook printed its warning and exited 0 before any rule ran, so git merge --allow-unrelated-histories carrying an unregistered Work Unit claim, or an Employee line naming no Employee, was merged locally while the CI checks refused the same commit; the hook still warns and still leaves CI to decide whether the merge needed a trailer, but it now resolves the Work Unit claim through check-work-units.sh --message, refuses two claims, and validates every Employee line, as on a clean merge; a git older than 2.38 has no merge-tree --write-tree, so its merge-tree exits 129 on every merge of two parents (an octopus merge is still classified authored without it), and there too every merge of two parents now has its claims checked; classified merges and ordinary commits are checked as before
