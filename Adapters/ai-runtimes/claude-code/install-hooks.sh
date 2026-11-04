@@ -401,9 +401,10 @@ settings_mergeable() {
   jq -es 'length == 1 and (.[0] | type == "object") and ((.[0].hooks // {}) | type == "object")' "$DEST" >/dev/null 2>&1
 }
 # merge_settings: the settings on stdin, merged with the template; prints
-# {m: merged settings, a: added, p: present, w: near misses}. tr: jq on
-# Windows writes CRLF; its JSON escapes a CR inside a string, so only line
-# endings are removed.
+# {m: merged settings, a: added, p: present, w: near misses}. sed: jq on
+# Windows writes CRLF; its JSON escapes a CR inside a string, so the only raw
+# CR is the one that ends a line, and only that one is removed (Check
+# Convention, Shell Scripts, rule 3).
 #
 # PRESENT MEANS EXACTLY THE FRAMEWORK'S ENTRY (PR #239 security review, F1;
   # issue #241, L1). A template group is present only when a group under the
@@ -511,18 +512,21 @@ merge_settings() {
         .sl = {st: "near-miss", d: ("the project statusLine is kept as it is ("
                + (if ($csl | iscmd) then "it runs under " + ($csl.shell | tostring) else "not a command statusLine" end)
                + "): the context % is not recorded")}
-      end' 2>/dev/null | tr -d '\r'
+      end' 2>/dev/null | sed $'s/\r$//'
 }
 
 # statusline_shadowed — prints the command of a statusLine that
 # .claude/settings.local.json sets, other than the framework's: Claude Code
 # runs that one instead of the project's (settings precedence), so the
-# context % is not recorded for that developer. Never changed here.
+# context % is not recorded for that developer. Never changed here. Only the
+# CR jq writes at the end of its line on Windows is removed: a CR inside the
+# command is part of it, so "context-statu<CR>sline.sh" is not the
+# framework's script, and it is reported.
 statusline_shadowed() {
   local f="$PROJECT/.claude/settings.local.json" c
   [ -f "$f" ] && command -v jq >/dev/null 2>&1 || return 1
   c="$(jq -r 'if type == "object" and .statusLine != null
-              then (.statusLine.command // "(no command)" | tostring) else empty end' "$f" 2>/dev/null | tr -d '\r')"
+              then (.statusLine.command // "(no command)" | tostring) else empty end' "$f" 2>/dev/null | sed $'s/\r$//')"
   [ -n "$c" ] || return 1
   case "$c" in *context-statusline.sh*) return 1 ;; esac
   printf '%s\n' "$c"
@@ -602,18 +606,24 @@ if [ -f "$DEST" ] && [ "$FORCE" -eq 0 ]; then
   command -v jq >/dev/null 2>&1 || merge_by_hand "jq is not installed to merge into it"
   settings_mergeable || merge_by_hand "it is not one JSON object with an object 'hooks'"
   MERGED="$(merge_settings < "$DEST")" || merge_by_hand "the merge failed"
-  ADDED="$(printf '%s\n' "$MERGED" | jq -r '.a[]' | tr -d '\r')"
-  PRESENT="$(printf '%s\n' "$MERGED" | jq -r '.p[]' | tr -d '\r')"
-  NEAR="$(printf '%s\n' "$MERGED" | jq -r '.w[]' | tr -d '\r')"
+  # Only the CR jq writes at the end of a line on Windows is removed (Check
+  # Convention, Shell Scripts, rule 3). The added, present and updated labels
+  # are built from the framework's template. A near miss carries the project's
+  # own matcher and command, so a tab, line feed or carriage return inside it
+  # becomes a space, as --check's records do, rather than reaching the terminal
+  # where a carriage return could draw over the line it is in.
+  ADDED="$(printf '%s\n' "$MERGED" | jq -r '.a[]' | sed $'s/\r$//')"
+  PRESENT="$(printf '%s\n' "$MERGED" | jq -r '.p[]' | sed $'s/\r$//')"
+  NEAR="$(printf '%s\n' "$MERGED" | jq -r '.w[] | gsub("[\t\n\r]"; " ")' | sed $'s/\r$//')"
   UPDATED="$(printf '%s\n' "$MERGED" | jq -r '.u[] | .l + "  ("
-    + (if (.without // []) == [] then "matcher was [" + .from + "]" else "added: " + (.without | join(", ")) end) + ")"' | tr -d '\r')"
+    + (if (.without // []) == [] then "matcher was [" + .from + "]" else "added: " + (.without | join(", ")) end) + ")"' | sed $'s/\r$//')"
   # The statusLine is listed with the hook entries: added (installed, or
   # wrapped around the project's own) or present; a near miss is on stderr.
   # Its text holds a command read from the project's settings, so it is
   # flattened as --check's records are: no control character reaches the
   # terminal (SEC-IAENG-379-01).
-  SL_ST="$(printf '%s\n' "$MERGED" | jq -r '.sl.st? // empty' | tr -d '\r')"
-  flat "$(printf '%s\n' "$MERGED" | jq -r '.sl.d? // empty' | tr -d '\r')"; SL_D="$FLAT"
+  SL_ST="$(printf '%s\n' "$MERGED" | jq -r '.sl.st? // empty' | sed $'s/\r$//')"
+  flat "$(printf '%s\n' "$MERGED" | jq -r '.sl.d? // empty' | sed $'s/\r$//')"; SL_D="$FLAT"
   case "$SL_ST" in
     absent) ADDED="${ADDED:+$ADDED$'\n'}statusLine: $SL_D" ;;
     present) PRESENT="${PRESENT:+$PRESENT$'\n'}statusLine: $SL_D" ;;
@@ -634,7 +644,7 @@ if [ -f "$DEST" ] && [ "$FORCE" -eq 0 ]; then
     finish; exit $?
   fi
   TMP="$DEST.iaeng-merge.$$"
-  if ! printf '%s\n' "$MERGED" | jq '.m' | tr -d '\r' > "$TMP" || ! jq -e 'type == "object"' "$TMP" >/dev/null 2>&1; then
+  if ! printf '%s\n' "$MERGED" | jq '.m' | sed $'s/\r$//' > "$TMP" || ! jq -e 'type == "object"' "$TMP" >/dev/null 2>&1; then
     rm -f "$TMP"
     merge_by_hand "the merged file could not be written"
   fi
