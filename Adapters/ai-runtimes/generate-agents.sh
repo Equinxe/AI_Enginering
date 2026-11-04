@@ -759,7 +759,6 @@ fi
 # read from the file's own "Framework root:" line, so each side is normalised
 # by its own value, and the comparison is by text (index), never by regular
 # expression: a path is full of characters a regex reads as operators.
-# Reads its file argument, or stdin when there is none.
 without_location() {
   awk '
     root == "" && /^Framework root: `.*`$/ {
@@ -777,7 +776,7 @@ without_location() {
       $0 = out rest
     }
     { print }
-  ' "$@"
+  ' "$1"
 }
 
 # The framework root a generated file names, or nothing.
@@ -785,7 +784,9 @@ location_of() {
   awk '/^Framework root: `.*`$/ { sub(/^Framework root: `/, ""); sub(/`$/, ""); print; exit }' "$1"
 }
 
-# Prints a generated agent file with what the MAPPING decides removed:
+# Reads a generated agent file on stdin (without_location's output, so the
+# framework root is already set aside) and prints it with what the MAPPING
+# decides removed:
 # `model:` and `effort:` inside the frontmatter, and the " -> <model>..." tail
 # of the header's `Tier:` line. Two files equal under this filter differ in
 # mapping only — their Employee definition, roster, and template are the same.
@@ -802,7 +803,7 @@ without_mapping() {
     fm == 1 && (/^model: / || /^effort: /) { next }
     /^  Tier:      / { sub(/ -> .*$/, ""); print; next }
     { print }
-  ' "$@"
+  '
 }
 
 generate_claude_code() {

@@ -11619,9 +11619,15 @@ git add -A && git commit -q -m "framework fixture"
 FW_430="$PWD"
 ROSTER_N_430="$(grep -cE '^  - name: ' Registry/employees.yml)"
 
+# The markdown backtick around a path, held in a variable so each pattern that
+# names one is double-quoted: written inside single quotes, shellcheck reads it
+# as an unexpanded command substitution (SC2016), as validate-framework.sh
+# notes for its own REF_PATTERN.
+BT_430='`'
+
 # root_430 <agent> — the framework root an agent tells its Employee to read
 # from, as the agent itself states it, or empty when it states none.
-root_430() { sed -n 's/^Framework root: `\(.*\)`$/\1/p' "$1" | head -n 1; }
+root_430() { sed -n "s/^Framework root: ${BT_430}\(.*\)${BT_430}\$/\1/p" "$1" | head -n 1; }
 
 # unresolved_430 <agent> — from the working directory, every framework path
 # the agent names, read the way the agent tells its Employee to read it: under
@@ -11745,7 +11751,7 @@ expect 0 "framework: --check stays green" -- bash Adapters/ai-runtimes/generate-
 # wrong path of the framework inside the project fails it with 127. The
 # expected new root is the validated old one with the move applied.
 cd "$MAIN_430" || exit 1
-REGEN_430="$(sed -n 's/^`\(\.\/[^`]*generate-agents\.sh\)`\.$/\1/p' .claude/agents/devops-engineer.md | head -n 1)"
+REGEN_430="$(sed -n "s/^${BT_430}\(\.\/[^${BT_430}]*generate-agents\.sh\)${BT_430}\.\$/\1/p" .claude/agents/devops-engineer.md | head -n 1)"
 cd "$WORK" || exit 1
 mv adopter-430 adopter-430-moved
 cd "$WORK/adopter-430-moved" || exit 1
