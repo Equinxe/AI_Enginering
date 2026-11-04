@@ -1622,9 +1622,9 @@ work_units:
 
   - id: WU-IAENG-395
     employee: Platform Engineer
-    title: Reserved 27 Oct 2026 before dispatch (WU-IAENG-398) - refusal messages show a mid-value CR visibly (issue #337) - the commit-msg hook, check-employee-trailers.sh, check-work-units.sh and check-risk-map.sh print a refused value raw, so a carriage return inside it garbles the line and the byte that caused the refusal is not visible
+    title: Refusal messages show a mid-value carriage return as \r (issue #337) - the commit-msg hook, check-employee-trailers.sh, check-work-units.sh and check-risk-map.sh printed a refused value raw, so a carriage return inside it sent the cursor back to the start of the line, the rest of the message overwrote the beginning, and the byte that caused the refusal was not visible; the hook prints the Employee value and the subject through shown, and the three scripts' err prints every message with each carriage return as \r, in the local message and the GitHub annotation alike, while every comparison still reads the raw bytes; the other control bytes are issue #427
     milestone: Usage
-    delivers: planned - Adapters/git-hooks/commit-msg, Adapters/scripts/check-employee-trailers.sh, Adapters/scripts/check-work-units.sh, Adapters/scripts/check-risk-map.sh, Adapters/scripts/tests/run.sh, changelog.d/WU-IAENG-395.md, Registry/work-units.yml
+    delivers: Adapters/git-hooks/commit-msg, Adapters/scripts/check-employee-trailers.sh, Adapters/scripts/check-work-units.sh, Adapters/scripts/check-risk-map.sh, Adapters/scripts/tests/run.sh, changelog.d/WU-IAENG-395.md, Registry/work-units.yml
 
   - id: WU-IAENG-396
     employee: Platform Engineer
@@ -1676,15 +1676,15 @@ work_units:
 
   - id: WU-IAENG-404
     employee: Platform Engineer
-    title: Reserved 28 Oct 2026 before dispatch (WU-IAENG-408) - install.sh's pre-commit probe counts only a finding as a refusal, never a scanner that could not evaluate (issue #348) - install.sh tests the installed pre-commit hook with a staged .xlsx and reads any non-zero exit as a refusal, so data-policy-scan.sh --staged exiting 2 because it could not evaluate is reported as a healthy hook; Check Convention rule 1
+    title: install.sh's pre-commit probe counts only a finding as a refusal, never a hook that could not evaluate (issue #348) - install.sh tested the installed pre-commit hook with a staged .xlsx and read any non-zero exit as a refusal, so data-policy-scan.sh --staged exiting 2 because it could not evaluate, and the hook's own exit 1 when it cannot locate the scanner, were reported as a healthy hook; a refusal is now exit 1 with the probe document refused on the scanner's own line, exit 0 stays an acceptance fault, and any other status is a fault naming the exit status and the hook's first line of output; Check Convention rule 1
     milestone: Usage
-    delivers: planned - Adapters/scripts/install.sh, Adapters/scripts/tests/run.sh, changelog.d/WU-IAENG-404.md, Registry/work-units.yml
+    delivers: Adapters/scripts/install.sh, Adapters/scripts/tests/run.sh, changelog.d/WU-IAENG-404.md, Registry/work-units.yml
 
   - id: WU-IAENG-405
     employee: Test Automation Engineer
-    title: Reserved 28 Oct 2026 before dispatch (WU-IAENG-408) - strip only a line-ending CR in the test suites (issue #327) - Check Convention shell rule 3; hooks/tests/dashboard.sh and scripts/tests/run.sh remove every carriage return instead of only the one that ends a line, so a test cannot see a carriage return the script under test left in the middle of a value
+    title: strip only a line-ending CR in the test suites (issue #327) - Check Convention shell rule 3; hooks/tests/dashboard.sh (53 reads) and scripts/tests/run.sh (8 reads, sbp_payload included) removed every carriage return from what their checks compare, so a check could not see a carriage return a script under test left in the middle of a value; each read now goes through the suite's strip_eol_cr helper, which removes only the carriage return that ends a line, and each suite checks the helper both ways, seen red against the every-CR strip
     milestone: Usage
-    delivers: planned - Adapters/ai-runtimes/claude-code/hooks/tests/dashboard.sh, Adapters/scripts/tests/run.sh, changelog.d/WU-IAENG-405.md, Registry/work-units.yml
+    delivers: Adapters/ai-runtimes/claude-code/hooks/tests/dashboard.sh, Adapters/scripts/tests/run.sh, changelog.d/WU-IAENG-405.md, Registry/work-units.yml
 
   - id: WU-IAENG-406
     employee: Platform Engineer
@@ -1694,9 +1694,9 @@ work_units:
 
   - id: WU-IAENG-407
     employee: DevOps Engineer
-    title: Reserved 28 Oct 2026 before dispatch (WU-IAENG-408) - setup-branch-protection.sh review follow-ups and the RELEASE and HOTFIX up-to-date wording (issue #329) - the strict_for refusal of an unknown branch is tested or recorded as not falsifiable beside it, the off-GitHub test asserts that no gh call was made, and Workflows/RELEASE.md Step 8 and Workflows/HOTFIX.md word the head-main back-merge warning as conditional now that develop does not require branches to be up to date
+    title: setup-branch-protection.sh review follow-ups and the RELEASE and HOTFIX up-to-date wording (issue #329) - the script suite asserts that the off-GitHub run makes no gh call, the stub's call log emptied first and required to have recorded the GitHub run; strict_for() refusing a branch with no decided strict value is tested, the function extracted from the script and called alone with a release branch as the validate-framework.sh functions are, since no run of the script reaches the refusal, and the comment beside it says so; Workflows/RELEASE.md Step 8 and Workflows/HOTFIX.md Step 9 word the head-main back-merge warning as conditional - develop requires branches to be up to date only where a project turns it on or the script was last run from a version before v0.0.15 - and the instruction is unchanged
     milestone: Usage
-    delivers: planned - Adapters/scripts/setup-branch-protection.sh, Adapters/scripts/tests/run.sh, Workflows/RELEASE.md, Workflows/HOTFIX.md, changelog.d/WU-IAENG-407.md, Registry/work-units.yml
+    delivers: Adapters/scripts/setup-branch-protection.sh, Adapters/scripts/tests/run.sh, Workflows/RELEASE.md, Workflows/HOTFIX.md, changelog.d/WU-IAENG-407.md, Registry/work-units.yml
 
   - id: WU-IAENG-408
     employee: Technical Writer
