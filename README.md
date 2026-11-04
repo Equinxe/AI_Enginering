@@ -145,25 +145,27 @@ to apply by hand.
 
 ### The steps that are not commands
 
-Have the Main Agent dispatch the DevOps Engineer to create `CLAUDE.md` from
-the fenced block under **Template** in `Templates/PROJECT_CLAUDE.md` (the
-block's contents only, not the whole file, whose other sections explain how
-to fill it in) and fill it in with your answers. The Main Agent never writes
-the file itself (`Core/MAIN_AGENT_CONDUCT.md`, Dispatch Discipline). If your
-project already has a `CLAUDE.md`, it is kept: after the adoption commit below,
-the block is merged into it, as that template's section **A project that
-already has a `CLAUDE.md`** says, so your build commands and conventions stay.
-It is the contract every session reads first; a project without one starts every
-session with no context and no rules. Make your first commit (the adoption itself: the submodule and the installed
-tooling; `CLAUDE.md` goes in a later commit), signed `Employee: DevOps Engineer`
+Make the adoption commit, your first commit in a new repository: the submodule
+and the installed tooling, without `CLAUDE.md`, signed `Employee: DevOps Engineer`
 (`Workflows/PROJECT_BOOTSTRAP.md` Step 4), with a `Work Unit:` line naming the
 adoption Work Unit, registered in `Registry/work-units.yml` in that same commit.
 This commit goes to `main` without a Pull Request, so the trailer checks
 (`Work Unit Exists`, `Employee Trailer`), which run on Pull Requests only, never
 read it: the `commit-msg` hook refuses an unregistered Work Unit, but not a
-missing line. The later `CLAUDE.md` commit is made by the dispatched DevOps
-Engineer and signed `Employee: DevOps Engineer` (Director decision,
-4 November 2026), so every commit of the adoption has the same signer. It
+missing line.
+
+Then have the Main Agent dispatch the DevOps Engineer to create `CLAUDE.md`
+from the fenced block under **Template** in `Templates/PROJECT_CLAUDE.md` (the
+block's contents only, not the whole file, whose other sections explain how
+to fill it in) and fill it in with your answers. The Main Agent never writes
+the file itself (`Core/MAIN_AGENT_CONDUCT.md`, Dispatch Discipline). If your
+project already has a `CLAUDE.md`, it is kept, and the block is merged into it
+as that template's section **A project that already has a `CLAUDE.md`** says,
+so your build commands and conventions stay. It is the contract every session
+reads first; a project without one starts every session with no context and
+no rules. The DevOps Engineer commits it on its own, after the adoption
+commit, signed `Employee: DevOps Engineer` (Director decision, 4 November
+2026), so every commit of the adoption has the same signer. That commit
 carries a `Work Unit:` line of its own, registered in that commit, because the
 hook does not require the line. Then create
 `.ia-engineering/SESSION_STATE.md`, and copy into its Governance Deviations in

@@ -37,8 +37,8 @@ An existing project that uses Claude Code usually has a `CLAUDE.md` already, hol
 
    Both commands stage the change at once, which is why the procedure runs after the adoption commit. In the text that came from `.claude/CLAUDE.md`, rewrite every relative `@` import so that it resolves from the root. The memory documentation says "Relative paths resolve relative to the file containing the import, not the working directory." So `@build.md` becomes `@.claude/build.md`, and `@../docs/build.md` becomes `@docs/build.md`. An absolute path or a `~/` path stays as it is. Leave `CLAUDE.local.md` alone: it is personal and never committed.
 2. **Build the merged file from the template's block** (its contents only, Template below), and move the project's content into it:
-   - Content that answers a template section goes in that section and replaces its placeholder. The project's overview goes under `# Project`, its stack under `# Technology`, its directory layout under `# Repository`, and its own extra rules under `# Standards in Force`.
-   - Content no template section covers keeps its own heading, word for word, in a section placed after `# Technology`. This covers build, test, lint and run commands, local setup, and a guide to the modules. Copy every command exactly: a session runs it as written. Keep each `@path` import line, rewritten as step 1 says if it came from `.claude/CLAUDE.md`.
+   - Content that answers a template section goes in that section and replaces its placeholder. The project's overview goes under `# Project`, its stack under `# Technology`, its top-level layout (one line per entry) under `# Repository`, and its own extra rules under `# Standards in Force`.
+   - Content no template section covers keeps its headings, at their own level and in their own order, word for word. Place it as one block right after the `# Technology` section, with a `---` line before and after it, as between the template's sections. This covers build, test, lint and run commands, local setup, and a guide to the modules: a module guide keeps its own heading here, and `# Repository` takes only the top-level layout. Copy every command exactly: a session runs it as written. Keep each `@path` import line, rewritten as step 1 says if it came from `.claude/CLAUDE.md`.
 3. **Settle every contradiction with the Director.** When two instructions contradict each other, Claude may follow either one (memory documentation, above), so no contradiction may stay. Look for at least these project lines:
    - committing or pushing to `main` directly;
    - a branch model without `develop`;
@@ -46,7 +46,7 @@ An existing project that uses Claude Code usually has a `CLAUDE.md` already, hol
    - implementing a task inline instead of delegating it, or starting work without a plan;
    - skipping a hook, a test or a review.
 
-   Settle any other line that contradicts a framework rule the same way. Read the `CLAUDE.md` files in subdirectories, the files under `.claude/rules/` and every imported file too, because they reach the same session.
+   Settle any other line that contradicts a framework rule the same way. Read the `CLAUDE.md` files in subdirectories, the files under `.claude/rules/` and every imported file too, because they reach the same session. Leave out the files inside `ia-engineering/`. They are the framework's own: `# Framework` in the block points to them, and the project never edits its pinned submodule.
 
    Present every contradiction to the Director, through the Main Agent, with the three outcomes below. Change none of those lines until the Director has chosen:
    - **The project's rule is stricter** than the framework's: it stays, under `# Standards in Force`.
@@ -56,6 +56,7 @@ An existing project that uses Claude Code usually has a `CLAUDE.md` already, hol
    Delete without asking a project line that restates a framework rule exactly. The template's section already points to the rule, and two copies drift apart. A line that differs at all is a contradiction or a stricter rule: settle it as above.
 4. **Fill or delete every bracketed field** (How to fill it in, above). An existing project has no Project Charter and no Stack Decision ADR. Answer from the existing file, the code and the Director (`Workflows/ONBOARDING.md` Steps 2 and 3). If nobody can answer a field yet, delete it and add the question under `# Open Questions`. Never guess an answer.
 5. **Check the result.**
+   - First, confirm that `HEAD` still holds the originals. `git show --stat --format= HEAD -- CLAUDE.md .claude/CLAUDE.md` prints nothing when the adoption commit left them alone. If it prints a line, the merged file went into the adoption commit, and `HEAD` holds the merge, not the original. Then compare against `HEAD~1` in the commands below, and say so in the Work Unit Report.
    - Every build, test and run command of the original files is still in `CLAUDE.md` or in a file it imports, unchanged. `git show HEAD:CLAUDE.md` prints the original root file, and `git show HEAD:.claude/CLAUDE.md` the original `.claude/CLAUDE.md`. Check each original the project had, both when it had both.
    - Every `@` import in `CLAUDE.md` names a file that exists. `grep -noE '(^|[[:space:]])@[^[:space:]]+' CLAUDE.md` lists them, and `ls <path>`, run from the root, finds each one.
    - `grep -nF '[' CLAUDE.md` lists every line that holds a bracket. Each listed line is a link or the project's own text, never a template placeholder.
