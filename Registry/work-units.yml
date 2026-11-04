@@ -1800,6 +1800,12 @@ work_units:
     milestone: Adoption
     delivers: Adapters/scripts/install.sh, Adapters/scripts/tests/run.sh, Registry/work-units.yml
 
+  - id: WU-IAENG-426
+    employee: Release Manager
+    title: Correct the v0.0.15 release notes and front doors from the release acceptance (Workflows/RELEASE.md Step 4, minor-defect route, Pull Request to release/v0.0.15) - the upgrade procedure regenerates the agents and checks them with generate-agents.sh --check, also in README Which ref to pin; Known issues gain the unclassifiable merge, cherry-pick and revert skipping commit-msg, the escape-hatch guard's multi-value payload and the quoted-substitution false positive of #272, and the #391 and #396 lines are corrected; a moved checkout's worktrees need git worktree repair; README Roadmap, the never-dispatched count, and the VERSION.md numbering sentence brought up to date
+    milestone: Adoption
+    delivers: CHANGELOG.md, README.md, VERSION.md, Registry/work-units.yml
+
   - id: WU-IAENG-427
     employee: Platform Engineer
     title: Pass every grep pattern taken from a variable after -- (Workflows/RELEASE.md Step 4, Director decision 3 Nov 2026) - a value that begins with a dash is compared as text and never read as an option; the Employee trailer value in the commit-msg hook and check-employee-trailers.sh, then every other grep in the repository whose pattern comes from a variable, in check-work-units.sh, check-risk-map.sh, release.sh, validate-framework.sh, usage-dashboard.sh and the hook and script test suites; the script tests compare values that begin with a dash with the roster, in the hook and in the CI check; CHANGELOG.md is left to the Release Manager's documentation Pull Request on the release branch
