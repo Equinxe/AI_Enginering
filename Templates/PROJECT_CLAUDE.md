@@ -25,11 +25,42 @@ Answer from the Project Charter (`Templates/PROJECT_CHARTER.md`, produced by `Wo
 
 Keep it short. This file is read in full at the start of every session; a contract nobody finishes reading is a contract nobody follows. If a section needs more than a screen, it belongs in a document this file links to.
 
+## A project that already has a `CLAUDE.md`
+
+An existing project that uses Claude Code usually has a `CLAUDE.md` already, holding its build and test commands and its own conventions. Do not replace that file with the template, and do not paste the template under it. Merge the two into one contract, in this order:
+
+1. **Keep one contract file, at the project root.** Claude Code reads project instructions from `CLAUDE.md` or `.claude/CLAUDE.md` ([memory documentation](https://code.claude.com/docs/en/memory)). The framework's session-start hook checks only the root `CLAUDE.md`. If the project's file is `.claude/CLAUDE.md`, move it first with `git mv .claude/CLAUDE.md CLAUDE.md`. If the project has both files, merge `.claude/CLAUDE.md` into `CLAUDE.md` as well, then remove it with `git rm .claude/CLAUDE.md`. Leave `CLAUDE.local.md` alone: it is personal and never committed.
+2. **Build the merged file from the template's block** (its contents only, Template below), and move the project's content into it:
+   - Content that answers a template section goes in that section and replaces its placeholder. The project's overview goes under `# Project`, its stack under `# Technology`, its directory layout under `# Repository`, and its own extra rules under `# Standards in Force`.
+   - Content no template section covers keeps its own heading, word for word, in a section placed after `# Technology`. This covers build, test, lint and run commands, local setup, and a guide to the modules. Copy every command exactly: a session runs it as written. An `@path` import line stays as it is.
+3. **Settle every contradiction with the Director.** When two instructions contradict each other, Claude may follow either one (memory documentation, above), so no contradiction stays in the file. Look for project lines that do any of these:
+   - commit or push to `main` directly;
+   - use a branch model without `develop`;
+   - use a commit format without the `Work Unit:` and `Employee:` trailers;
+   - implement a task inline instead of delegating it, or start work without a plan;
+   - skip a hook, a test or a review.
+
+   Also read the `CLAUDE.md` files in subdirectories and the files under `.claude/rules/`, because they reach the same session. For each contradiction, the Director chooses one of these outcomes:
+   - **The project's rule is stricter** than the framework's: it stays, under `# Standards in Force`.
+   - **The framework's rule applies**: delete the project's line.
+   - **The project keeps a looser rule for now**: that is a deviation. Delete the line from `CLAUDE.md`, and record the deviation in `.ia-engineering/SESSION_STATE.md` with the condition that ends it, once that file exists (`# Standards in Force` in the block below).
+
+   Also delete a project line that only restates a framework rule. The template's section already points to the rule, and two copies drift apart.
+4. **Fill or delete every bracketed field** (How to fill it in, above). An existing project has no Project Charter and no Stack Decision ADR. Answer from the existing file, the code and the Director (`Workflows/ONBOARDING.md` Steps 2 and 3). If nobody can answer a field yet, delete it and add the question under `# Open Questions`. Never guess an answer.
+5. **Check the result.**
+   - Every build, test and run command of the original file is still in `CLAUDE.md`, unchanged. `git show HEAD:CLAUDE.md` prints the original (`git show HEAD:.claude/CLAUDE.md` if you moved it).
+   - `grep -nF '[' CLAUDE.md` lists every line that holds a bracket. Each listed line is a link or the project's own text, never a template placeholder.
+6. **Commit it** in its own commit, after the adoption commit, signed `Employee: DevOps Engineer` (`Workflows/PROJECT_BOOTSTRAP.md` Step 4 item 5).
+
+**A project with an `AGENTS.md` and no `CLAUDE.md`.** By default, Claude Code reads `AGENTS.md` only while no `CLAUDE.md` exists (memory documentation, above). Creating the contract therefore stops Claude Code from reading `AGENTS.md`. Create `CLAUDE.md` from the block as for a new project. Then add the line `@AGENTS.md`, on its own and outside backticks, after `# Technology`: it imports the file. Step 3 applies to what `AGENTS.md` says.
+
 ---
 
 # Template
 
-```markdown
+**Copy only the contents of the fenced block below** into the project's `CLAUDE.md`, from the `# [Project Name]` line to the last line before the closing fence. Never copy this whole file. The sections above and below explain how to fill in the contract and are not part of it. A whole-file copy makes the project's `CLAUDE.md` this template's documentation, with the contract fenced inside it. A project that already has a `CLAUDE.md` merges the block into it instead (A project that already has a `CLAUDE.md`, above). The block's outer fence has four backticks, so the three-backtick fence under `# Repository` is part of the block.
+
+````markdown
 # [Project Name]
 
 > [One sentence: what this project is for, in the Director's words.]
@@ -204,7 +235,7 @@ direction. Move an answered one into the body of this file and delete it here.]
 ```
 [top-level layout, one line each — what a newcomer needs to find their way]
 ```
-```
+````
 
 ---
 
@@ -241,7 +272,7 @@ direction. Move an answered one into the body of this file and delete it here.]
 
 Owner: IA Engineering
 
-Version: 0.0.14
+Version: 0.0.15
 
 Status: Draft
 

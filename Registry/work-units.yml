@@ -1793,3 +1793,9 @@ work_units:
     title: Bump VERSION.md to v0.0.15 and finalize the CHANGELOG.md section for the Adoption release (Workflows/RELEASE.md Step 2) - the changelog fragments assembled by release.sh assemble, the 30 Oct 2026 release-readiness audit's editorial fixes (one ordered upgrade procedure, version-scoped Security and Fixed lines, document versions, the known issues), README pin and measured counts, CLAUDE.md Current Version, next milestone Usage (v0.0.16); this Work Unit's own fragment is an exemption
     milestone: Adoption
     delivers: VERSION.md, CHANGELOG.md, README.md, CLAUDE.md, Registry/work-units.yml, changelog.d/
+
+  - id: WU-IAENG-432
+    employee: Technical Writer
+    title: Adoption docs a newcomer can follow word for word in an existing project (Usage plan item W1.6; issues #446, #414, #253 docs part, #413, #208, #257, #379) - Templates/PROJECT_CLAUDE.md (0.0.15) gains a merge procedure for a project that already has a CLAUDE.md, which keeps its build commands and conventions, adds the contract, and settles each contradiction with the Director; it also says copy the block's contents only and gives the block a four-backtick outer fence; README.md, Workflows/ONBOARDING.md (0.0.17) Step 1, Workflows/PROJECT_BOOTSTRAP.md (0.0.16), Templates/SESSION_STATE.md (0.0.15) and the Claude Code hooks README name create-session-state.sh, with the by-hand copy as the fallback; the commit that adds a project's CLAUDE.md is signed by the DevOps Engineer (Director decision, 4 Nov 2026); PROJECT_BOOTSTRAP Step 4 says install-skills.sh adds /create-project and /dashboard and justifies its signer by pipelines and git hooks; the hooks README install paragraph is whole again
+    milestone: Usage
+    delivers: Templates/PROJECT_CLAUDE.md, Templates/SESSION_STATE.md, README.md, Workflows/ONBOARDING.md, Workflows/PROJECT_BOOTSTRAP.md, Adapters/ai-runtimes/claude-code/hooks/README.md, changelog.d/WU-IAENG-432.md, Registry/work-units.yml
