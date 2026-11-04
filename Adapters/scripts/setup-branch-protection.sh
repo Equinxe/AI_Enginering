@@ -44,6 +44,12 @@
 # second `gh` identity available to formally approve, and the Director must
 # still be able to merge a PR-based defect fix into a release branch.
 #
+# Those values apply only where a repository requires nothing more. On a
+# repository with protection of its own, a run keeps it: the required checks
+# become the union of the project's and the framework's, and no count or
+# setting is lowered (issue #447, WU-IAENG-433). See "Reading before writing"
+# below.
+#
 # Usage:
 #   ./setup-branch-protection.sh [owner/repo]
 #
@@ -153,21 +159,14 @@ echo "Configuring branch protection on $REPO for: main, develop, release/*"
 
 # The two GitHub APIs used below want the same list in different shapes:
 # classic branch protection takes a bare array of context strings, while the
-# Rulesets API takes objects. Both are derived from the one array above so the
-# release/* ruleset cannot end up requiring a different set than main/develop.
+# Rulesets API takes objects. Both are derived from this one list, given to
+# both merge programs below, so the release/* ruleset cannot end up requiring
+# a different set than main/develop.
 
 contexts_json() {
   local out="" c
   for c in "${REQUIRED_CHECKS[@]}"; do
     out="$out, \"$c\""
-  done
-  printf '%s' "${out#, }"
-}
-
-ruleset_checks_json() {
-  local out="" c
-  for c in "${REQUIRED_CHECKS[@]}"; do
-    out="$out, { \"context\": \"$c\" }"
   done
   printf '%s' "${out#, }"
 }
@@ -188,8 +187,14 @@ ruleset_checks_json() {
 # passed on its own head. main and release/* keep strict: what merges there is
 # what ships.
 #
+# This is the framework's value, and it never turns strict off. Where a
+# branch's own protection already has strict on, it stays on, develop
+# included (WU-IAENG-433): the merge below takes the repository's value OR
+# this one. So a run never makes develop strict, and never undoes a project
+# that made it so.
+#
 # release/* is not set here: its ruleset sets
-# `strict_required_status_checks_policy: true` in release_ruleset_payload().
+# `strict_required_status_checks_policy: true` in RULESET_JQ below.
 # A branch with no decided value fails rather than getting a guessed one.
 #
 # No run of this script reaches that refusal: the loop below names main and
@@ -208,46 +213,268 @@ strict_for() {
   esac
 }
 
-protect_branch() {
-  local branch="$1" strict
-  strict="$(strict_for "$branch")" || exit 1
-  echo "-> $branch (strict: $strict)"
-  gh api \
-    --method PUT \
-    -H "Accept: application/vnd.github+json" \
-    "repos/$REPO/branches/$branch/protection" \
-    --input - <<EOF > /dev/null
-{
-  "required_status_checks": {
-    "strict": $strict,
-    "contexts": [$(contexts_json)]
-  },
-  "enforce_admins": false,
-  "required_pull_request_reviews": {
-    "required_approving_review_count": 0,
-    "dismiss_stale_reviews": true
-  },
-  "restrictions": null,
-  "allow_force_pushes": false,
-  "allow_deletions": false
+# --- Reading before writing --------------------------------------------------
+#
+# AN EXISTING REPOSITORY KEEPS WHAT IT ALREADY ENFORCES (issue #447). Until
+# WU-IAENG-433 this script sent GitHub's PUT a body built from constants, and
+# that PUT replaces a branch's protection whole. A project's own required
+# checks were dropped, its approvals set to 0 and enforce_admins turned off,
+# and every setting the body left out went back to its default. On a real
+# repository that is a destructive change to a security boundary.
+#
+# Each branch's protection is now read first, then merged by PROTECTION_JQ.
+# The required checks are the union of the project's and REQUIRED_CHECKS.
+# Every setting the project turned on stays on, every count stays at least
+# what it was, and the framework's rules are added: no force-push, no
+# deletion, stale reviews dismissed, strict per strict_for. Nothing is
+# lowered. The release/* ruleset is merged the same way, by RULESET_JQ.
+#
+# EVERY READ COMES BEFORE THE FIRST WRITE, and every read fails closed. A
+# read that fails stops the run with nothing changed. It is never taken for
+# "no protection" or "no such branch", which `2>/dev/null || true` and an
+# unconditional "skipped" used to make of it.
+#
+# THE MERGE RUNS IN gh's OWN jq (`gh api -q`), so the script needs nothing but
+# gh. A branch with no protection has no answer to filter, so its body comes
+# from the same program run on `{}`, carried by a read of the repository that
+# has already succeeded. One program builds both bodies, and they cannot
+# drift apart. The program is passed on one line: a line break inside an
+# argument is the part of a command line least sure to reach gh.exe intact
+# on Windows.
+#
+# ONE KNOWN LIMIT. A required check pinned to a GitHub App (`checks[].app_id`)
+# is sent back by name, in `contexts`, which is what this script has always
+# sent. GitHub then pins it to the app that last reported it (REST docs,
+# Update branch protection, `contexts`), the same app in every ordinary case.
+
+TMP_DIR="$(mktemp -d)"
+trap 'rm -rf "$TMP_DIR"' EXIT
+APPLIED=""
+
+# gh_read <api path> [jq filter] — GET, its stdout in $TMP_DIR/out and its
+# stderr in $TMP_DIR/err; returns gh's exit status. On an HTTP error gh writes
+# the response body to stdout and "gh: <message> (HTTP <status>)" to stderr,
+# so answered() looks in both.
+gh_read() {
+  if [ $# -gt 1 ]; then
+    gh api "$1" -q "$2" > "$TMP_DIR/out" 2> "$TMP_DIR/err"
+  else
+    gh api "$1" > "$TMP_DIR/out" 2> "$TMP_DIR/err"
+  fi
 }
-EOF
-  echo "   protected."
+answered() { grep -qF -- "$1" "$TMP_DIR/out" "$TMP_DIR/err"; }
+
+# GitHub's answer when the repository's plan has no branch protection: HTTP
+# 403, "Upgrade to GitHub Pro or make this repository public to enable this
+# feature." (issue #448).
+refused_for_plan() { answered "Upgrade to GitHub" || answered "make this repository public"; }
+
+say_applied() {
+  if [ -z "$APPLIED" ]; then
+    echo "Nothing was changed."
+  else
+    echo "Already applied before the refusal: $APPLIED."
+  fi
 }
 
-for branch in main develop; do
-  if gh api "repos/$REPO/branches/$branch" > /dev/null 2>&1; then
-    protect_branch "$branch"
-  else
-    echo "-> $branch: branch not found on remote, skipped."
+# A private repository on GitHub Free (issue #448). The REST docs: "Protected
+# branches are available in public repositories with GitHub Free and GitHub
+# Free for organizations, and in public and private repositories with GitHub
+# Pro, GitHub Team, GitHub Enterprise Cloud, and GitHub Enterprise Server."
+refuse_plan() {
+  {
+    echo "GitHub refuses branch protection and rulesets on $REPO. It answered:"
+    sed 's/^/  /' "$TMP_DIR/err"
+    echo
+    echo "GitHub offers them on a private repository only with a paid plan (GitHub Pro,"
+    echo "Team or Enterprise): on GitHub Free they exist on public repositories only."
+    say_applied
+    echo
+    echo "Until the repository is public or on such a plan, nothing on GitHub enforces"
+    echo "the framework's rules. What still does is not a boundary:"
+    echo "  - the local git hooks, on each clone where install.sh installed them. A clone"
+    echo "    without them, or --no-verify, goes around them;"
+    echo "  - the CI checks. They still run on every Pull Request, but they cannot be required:"
+    echo "    a red check does not block a merge."
+    echo "On a private repository the checks also spend the plan's Actions minutes."
+    echo "See Governance/TROUBLESHOOTING.md, entry AD, for the cost and the options."
+  } >&2
+  exit 1
+}
+
+# refuse_read <what> — a read failed: say what, and what GitHub answered.
+refuse_read() {
+  refused_for_plan && refuse_plan
+  {
+    echo "setup-branch-protection.sh: cannot read $1. GitHub answered:"
+    if [ -s "$TMP_DIR/err" ]; then sed 's/^/  /' "$TMP_DIR/err"; else echo "  (nothing)"; fi
+    echo "Every read comes before the first write, so this stops the run."
+    say_applied
+  } >&2
+  exit 1
+}
+
+# apply <what> <gh api arguments...> — one write; a refusal stops the run and
+# says what was already applied.
+apply() {
+  local what="$1"
+  shift
+  if ! gh api "$@" > /dev/null 2> "$TMP_DIR/err"; then
+    : > "$TMP_DIR/out"
+    refused_for_plan && refuse_plan
+    {
+      echo "   FAILED: GitHub refused the change to $what. It answered:"
+      sed 's/^/     /' "$TMP_DIR/err"
+      say_applied
+    } >&2
+    exit 1
   fi
+  APPLIED="${APPLIED:+$APPLIED, }$what"
+}
+
+# PROTECTION_JQ — merge_protection($strict; $ours; $branch) reads a branch's
+# protection as GitHub's GET returns it, or {} for none, and prints three
+# lines: the PUT body, what it kept that the framework does not require ("-"
+# for nothing), and the strict value the body sends. Field names: REST docs,
+# Get and Update branch protection. The GET answers with objects
+# ({"enabled": true}, users with a login, teams and apps with a slug); the PUT
+# takes booleans and lists of names. A setting that is off in the GET is left
+# out of the body, which GitHub reads as its default, off. A branch with no
+# protection therefore gets the same body this script has always sent. No `#`
+# comment in here: the program is joined onto one line.
+PROTECTION_JQ="$(cat <<'JQ'
+def logins: [(. // [])[] | .login];
+def slugs: [(. // [])[] | .slug];
+def actors: {users: (.users | logins), teams: (.teams | slugs), apps: (.apps | slugs)};
+def merge_protection($strict; $ours; $branch):
+  . as $cur
+  | ($cur.required_pull_request_reviews // {}) as $rpr
+  | ($cur.required_status_checks // {}) as $rsc
+  | ($rsc.contexts // [($rsc.checks // [])[] | .context]) as $have
+  | {
+      required_status_checks: {
+        strict: (($rsc.strict // false) or $strict),
+        contexts: ($have + ($ours - $have))
+      },
+      enforce_admins: ($cur.enforce_admins.enabled // false),
+      required_pull_request_reviews: (
+        {
+          required_approving_review_count: ($rpr.required_approving_review_count // 0),
+          dismiss_stale_reviews: true
+        }
+        + ({
+            require_code_owner_reviews: ($rpr.require_code_owner_reviews // false),
+            require_last_push_approval: ($rpr.require_last_push_approval // false)
+          } | with_entries(select(.value == true)))
+        + (if $rpr.dismissal_restrictions then {dismissal_restrictions: ($rpr.dismissal_restrictions | actors)} else {} end)
+        + (if $rpr.bypass_pull_request_allowances then {bypass_pull_request_allowances: ($rpr.bypass_pull_request_allowances | actors)} else {} end)
+      ),
+      restrictions: (if $cur.restrictions then ($cur.restrictions | actors) else null end),
+      allow_force_pushes: false,
+      allow_deletions: false
+    }
+    + ({
+        required_linear_history: ($cur.required_linear_history.enabled // false),
+        block_creations: ($cur.block_creations.enabled // false),
+        required_conversation_resolution: ($cur.required_conversation_resolution.enabled // false),
+        lock_branch: ($cur.lock_branch.enabled // false),
+        allow_fork_syncing: ($cur.allow_fork_syncing.enabled // false)
+      } | with_entries(select(.value == true)))
+    as $body
+  | [ (($have - $ours) | select(length > 0) | "required checks of its own: " + join(", ")),
+      (($rpr.required_approving_review_count // 0) | select(. > 0) | "required approvals: " + tostring),
+      (select($cur.enforce_admins.enabled == true) | "enforce_admins"),
+      (select(($rsc.strict // false) and ($strict | not)) | "strict, up to date before merging"),
+      (select($rpr.require_code_owner_reviews == true) | "code-owner review"),
+      (select($rpr.require_last_push_approval == true) | "last-push approval"),
+      (select($rpr.dismissal_restrictions) | "who may dismiss reviews"),
+      (select($rpr.bypass_pull_request_allowances) | "who may bypass reviews"),
+      (select($cur.restrictions) | "push restrictions"),
+      (select($cur.required_linear_history.enabled == true) | "linear history"),
+      (select($cur.required_conversation_resolution.enabled == true) | "conversation resolution"),
+      (select($cur.block_creations.enabled == true) | "block_creations"),
+      (select($cur.lock_branch.enabled == true) | "lock_branch"),
+      (select($cur.allow_fork_syncing.enabled == true) | "allow_fork_syncing")
+    ] as $kept
+  | ($body | tojson),
+    (if ($kept | length) > 0 then "kept on " + $branch + ": " + ($kept | join("; ")) else "-" end),
+    ($body.required_status_checks.strict | tostring);
+JQ
+)"
+PROTECTION_JQ="$(printf '%s' "$PROTECTION_JQ" | tr '\n' ' ')"
+
+# save_merged <name> <what> — $TMP_DIR/out holds the lines a merge prints:
+# the body goes to $TMP_DIR/<name>.json, the kept line to <name>.kept and the
+# strict value, where there is one, to <name>.strict. An answer that is not a
+# JSON object is a failed read of <what>, never an empty body.
+save_merged() {
+  sed -n 1p "$TMP_DIR/out" > "$TMP_DIR/$1.json"
+  sed -n 2p "$TMP_DIR/out" > "$TMP_DIR/$1.kept"
+  sed -n 3p "$TMP_DIR/out" > "$TMP_DIR/$1.strict"
+  case "$(cat "$TMP_DIR/$1.json")" in
+    "{"*"}") ;;
+    *)
+      : > "$TMP_DIR/err"
+      refuse_read "$2: the answer is not a JSON object"
+      ;;
+  esac
+}
+
+# The repository: its default branch and its visibility.
+gh_read "repos/$REPO" '.default_branch + " " + .visibility' || refuse_read "the repository $REPO"
+DEFAULT_BRANCH="" VISIBILITY=""
+read -r DEFAULT_BRANCH VISIBILITY < "$TMP_DIR/out" || true
+[ -n "$DEFAULT_BRANCH" ] || refuse_read "the default branch of $REPO"
+
+# THE DEFAULT BRANCH IS PROTECTED, OR THE RUN REFUSES (issue #447). The script
+# protects main, develop and release/* (Standards/BRANCH_STANDARD.md). A
+# default branch with another name, master for example, would stay
+# unprotected while the run reported done. Protecting it with main's rules
+# would be a guess at what it is, the same guess strict_for() refuses.
+case "$DEFAULT_BRANCH" in
+  main | develop) ;;
+  *)
+    {
+      echo "The default branch of $REPO is '$DEFAULT_BRANCH'. This script protects main, develop"
+      echo "and release/* (Standards/BRANCH_STANDARD.md), so '$DEFAULT_BRANCH' would stay unprotected."
+      echo "Nothing was changed."
+      echo
+      echo "Either make main the default branch, a decision for the project (GitHub Docs,"
+      echo "\"Renaming a branch\"), then run this script again; or protect '$DEFAULT_BRANCH' by hand"
+      echo "in Settings > Branches with the rules main gets here."
+    } >&2
+    exit 1
+    ;;
+esac
+
+BRANCHES=()
+for branch in main develop; do
+  strict="$(strict_for "$branch")" || exit 1
+  if ! gh_read "repos/$REPO/branches/$branch"; then
+    if answered "Branch not found"; then
+      echo "-> $branch: branch not found on remote, skipped."
+      continue
+    fi
+    refuse_read "branch '$branch' of $REPO"
+  fi
+  filter="$PROTECTION_JQ merge_protection($strict; [$(contexts_json)]; \"$branch\")"
+  if gh_read "repos/$REPO/branches/$branch/protection" "$filter"; then
+    :
+  elif answered "Branch not protected"; then
+    gh_read "repos/$REPO" "$PROTECTION_JQ {} | merge_protection($strict; [$(contexts_json)]; \"$branch\")" \
+      || refuse_read "the repository $REPO"
+  else
+    refuse_read "the protection of branch '$branch' of $REPO"
+  fi
+  save_merged "$branch" "the protection of branch '$branch' of $REPO"
+  BRANCHES+=("$branch")
 done
 
 # --- release/* -------------------------------------------------------------
 #
 # Why this needs a different API than main/develop above:
 #
-# The classic protection endpoint used by `protect_branch()`
+# The classic protection endpoint used for main and develop
 # (`PUT /repos/{owner}/{repo}/branches/{branch}/protection`) takes an exact,
 # already-existing branch name in its path — it has no concept of a wildcard
 # pattern, so it can only ever protect one already-created branch at a time.
@@ -262,8 +489,8 @@ done
 # and is evaluated against every ref, present or future, matching that
 # pattern — exactly the "release/*" wildcard this Work Unit's audit finding
 # calls for. This is still a plain `gh api` REST call (POST to create, PUT to
-# update by id), consistent with how `protect_branch()` above already talks
-# to the GitHub API — no GraphQL needed.
+# update by id), consistent with how main and develop are protected above —
+# no GraphQL needed.
 #
 # Rule choices, mapped to the Definition of Done:
 #   - "deletion"          -> blocks branch deletion (the literal audit fix:
@@ -294,77 +521,138 @@ done
 # release-branch defect fix through a PR, so those were the only PRs in the
 # entire process running with no validation at all — on the branch that
 # becomes the production release.
+#
+# AN EXISTING release-branch-protection RULESET IS MERGED, NOT REPLACED
+# (issue #447), as main and develop are. Its own required checks stay, each
+# with the app it must come from (`integration_id`). Its approval count stays
+# at least what it was, and a rule the project added stays. Its bypass list is
+# kept as it is: the admin bypass below goes only into a ruleset this script
+# creates, never back into one whose bypass a project removed. Only the
+# repository's own ruleset of that name is updated: the list also returns an
+# organization's rulesets (`includes_parents` is true by default, REST docs,
+# Get all repository rulesets).
 RELEASE_RULESET_NAME="release-branch-protection"
 
-release_ruleset_payload() {
-  cat <<EOF
-{
-  "name": "$RELEASE_RULESET_NAME",
-  "target": "branch",
-  "enforcement": "active",
-  "bypass_actors": [
-    {
-      "actor_id": 5,
-      "actor_type": "RepositoryRole",
-      "bypass_mode": "always"
-    }
-  ],
-  "conditions": {
-    "ref_name": {
-      "include": ["refs/heads/release/*"],
-      "exclude": []
-    }
-  },
-  "rules": [
-    { "type": "deletion" },
-    { "type": "non_fast_forward" },
-    {
-      "type": "pull_request",
-      "parameters": {
-        "required_approving_review_count": 0,
-        "dismiss_stale_reviews_on_push": true,
-        "require_code_owner_review": false,
-        "require_last_push_approval": false,
-        "required_review_thread_resolution": false
-      }
-    },
-    {
-      "type": "required_status_checks",
-      "parameters": {
-        "strict_required_status_checks_policy": true,
-        "required_status_checks": [$(ruleset_checks_json)]
-      }
-    }
-  ]
+# RULESET_JQ — merge_ruleset($name; $ours) reads a ruleset as GitHub's GET
+# returns it, or {} for a new one, and prints the body and the kept line, as
+# merge_protection does. Field names: REST docs, Rules (Get and Update a
+# repository ruleset, and the pull_request and required_status_checks rule
+# parameters).
+RULESET_JQ="$(cat <<'JQ'
+def merge_ruleset($name; $ours):
+  . as $cur
+  | ($cur.rules // []) as $rules
+  | ([$rules[] | select(.type == "pull_request")][0].parameters // {}) as $pr
+  | ([$rules[] | select(.type == "required_status_checks")][0].parameters // {}) as $sc
+  | ($sc.required_status_checks // []) as $have
+  | [$have[] | .context] as $have_names
+  | ($cur.conditions.ref_name.include // []) as $include
+  | [$rules[] | select(.type | IN("deletion", "non_fast_forward", "pull_request", "required_status_checks") | not)
+      | {type} + (if has("parameters") then {parameters} else {} end)] as $others
+  | {
+      name: $name,
+      target: "branch",
+      enforcement: "active",
+      bypass_actors: (if ($cur | has("id")) then ($cur.bypass_actors // [])
+                      else [{actor_id: 5, actor_type: "RepositoryRole", bypass_mode: "always"}] end),
+      conditions: {ref_name: {
+        include: ($include + (["refs/heads/release/*"] - $include)),
+        exclude: ($cur.conditions.ref_name.exclude // [])
+      }},
+      rules: (
+        [ {type: "deletion"},
+          {type: "non_fast_forward"},
+          {type: "pull_request", parameters: ($pr + {
+            required_approving_review_count: ($pr.required_approving_review_count // 0),
+            dismiss_stale_reviews_on_push: true,
+            require_code_owner_review: ($pr.require_code_owner_review // false),
+            require_last_push_approval: ($pr.require_last_push_approval // false),
+            required_review_thread_resolution: ($pr.required_review_thread_resolution // false)
+          })},
+          {type: "required_status_checks", parameters: ($sc + {
+            strict_required_status_checks_policy: true,
+            required_status_checks: ($have + [($ours - $have_names)[] | {context: .}])
+          })}
+        ] + $others
+      )
+    } as $body
+  | [ (($have_names - $ours) | select(length > 0) | "required checks of its own: " + join(", ")),
+      (($pr.required_approving_review_count // 0) | select(. > 0) | "required approvals: " + tostring),
+      (select(($cur | has("id")) and (($cur.bypass_actors // []) | length) == 0) | "no bypass"),
+      ([$others[] | .type] | select(length > 0) | "rules of its own: " + join(", "))
+    ] as $kept
+  | ($body | tojson),
+    (if ($kept | length) > 0 then "kept on release/*: " + ($kept | join("; ")) else "-" end);
+JQ
+)"
+RULESET_JQ="$(printf '%s' "$RULESET_JQ" | tr '\n' ' ')"
+RULESET_CALL="merge_ruleset(\"$RELEASE_RULESET_NAME\"; [$(contexts_json)])"
+
+gh_read "repos/$REPO/rulesets" \
+  ".[] | select(.name == \"$RELEASE_RULESET_NAME\" and .source_type == \"Repository\") | .id" \
+  || refuse_read "the rulesets of $REPO"
+RULESET_ID="$(head -n 1 "$TMP_DIR/out")"
+case "$RULESET_ID" in
+  "")
+    gh_read "repos/$REPO" "$RULESET_JQ {} | $RULESET_CALL" || refuse_read "the repository $REPO"
+    ;;
+  *[!0-9]*)
+    : > "$TMP_DIR/err"
+    refuse_read "the rulesets of $REPO: the id of $RELEASE_RULESET_NAME is not a number"
+    ;;
+  *)
+    gh_read "repos/$REPO/rulesets/$RULESET_ID" "$RULESET_JQ $RULESET_CALL" \
+      || refuse_read "the ruleset $RELEASE_RULESET_NAME of $REPO"
+    ;;
+esac
+save_merged release "the ruleset $RELEASE_RULESET_NAME of $REPO"
+
+# A PRIVATE REPOSITORY WITH NEITHER main NOR develop ON GITHUB YET (issue
+# #448). The plan refusal above shows on a protection read, and with no
+# branch to read there was none. A ruleset created on a private repository
+# whose plan lacks rulesets may be accepted and still not enforced, which
+# would read as protection and be none. A public repository has protection on
+# every plan (REST docs, Branch protection), so only a non-public one stops.
+if [ "${#BRANCHES[@]}" -eq 0 ] && [ "$VISIBILITY" != public ]; then
+  {
+    echo "setup-branch-protection.sh: cannot tell whether GitHub enforces branch protection on $REPO."
+    echo "It is $VISIBILITY, and neither main nor develop exists on GitHub yet, so no protection"
+    echo "could be read. Push main first, then run this script again."
+    say_applied
+  } >&2
+  exit 1
+fi
+
+# --- Writing ------------------------------------------------------------------
+#
+# Every read above succeeded. A write that fails now stops the run, and the
+# message names what was already applied.
+show_kept() {
+  local kept
+  kept="$(cat "$TMP_DIR/$1.kept")"
+  [ "$kept" = "-" ] || echo "   $kept"
 }
-EOF
-}
 
-protect_release_branches() {
-  echo "-> release/* (ruleset)"
-
-  local existing_id
-  existing_id="$(gh api "repos/$REPO/rulesets" -q \
-    ".[] | select(.name == \"$RELEASE_RULESET_NAME\") | .id" 2>/dev/null || true)"
-
-  if [ -n "$existing_id" ]; then
-    release_ruleset_payload | gh api \
-      --method PUT \
-      -H "Accept: application/vnd.github+json" \
-      "repos/$REPO/rulesets/$existing_id" \
-      --input - > /dev/null
-  else
-    release_ruleset_payload | gh api \
-      --method POST \
-      -H "Accept: application/vnd.github+json" \
-      "repos/$REPO/rulesets" \
-      --input - > /dev/null
-  fi
-
+# ${BRANCHES[@]+...}: an empty array under `set -u` is an error in bash
+# before 4.4, macOS's /bin/bash 3.2 among them.
+for branch in ${BRANCHES[@]+"${BRANCHES[@]}"}; do
+  echo "-> $branch (strict: $(cat "$TMP_DIR/$branch.strict"))"
+  show_kept "$branch"
+  apply "$branch" --method PUT -H "Accept: application/vnd.github+json" \
+    "repos/$REPO/branches/$branch/protection" --input - < "$TMP_DIR/$branch.json"
   echo "   protected."
-}
+done
 
-protect_release_branches
+echo "-> release/* (ruleset)"
+show_kept release
+if [ -n "$RULESET_ID" ]; then
+  apply "release/*" --method PUT -H "Accept: application/vnd.github+json" \
+    "repos/$REPO/rulesets/$RULESET_ID" --input - < "$TMP_DIR/release.json"
+else
+  apply "release/*" --method POST -H "Accept: application/vnd.github+json" \
+    "repos/$REPO/rulesets" --input - < "$TMP_DIR/release.json"
+fi
+echo "   protected."
 
 # --- Automatic head-branch deletion -----------------------------------------
 #

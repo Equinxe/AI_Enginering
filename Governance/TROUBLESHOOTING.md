@@ -416,6 +416,28 @@ Do **not** use `git reset --hard origin/develop` or `git push --force`: both are
 
 ---
 
+## AD. On a private repository, GitHub refuses branch protection and nothing requires the checks
+
+**Symptom.** `setup-branch-protection.sh` stops with `GitHub refuses branch protection and rulesets on <owner>/<repo>`, after GitHub answered HTTP 403 `Upgrade to GitHub Pro or make this repository public to enable this feature.` Or, where the script never ran, a Pull Request whose `Employee Trailer` or `Work Unit Exists` check is red can still be merged.
+
+**Cause.** GitHub offers branch protection and rulesets on a private repository only with a paid plan. The REST docs (*Branch protection*) say: "Protected branches are available in public repositories with GitHub Free and GitHub Free for organizations, and in public and private repositories with GitHub Pro, GitHub Team, GitHub Enterprise Cloud, and GitHub Enterprise Server." On a private repository on GitHub Free, nothing on the server can make a check required. Before WU-IAENG-433 the script stopped on gh's raw 403 line and said nothing about what it meant (#448).
+
+**Remedy.** The repository's owner chooses one of three:
+
+- **Make the repository public**, if nothing in it must stay private (`Standards/DATA_PROTECTION_STANDARD.md`). Protection is then available, and standard runners are free.
+- **Move to a plan that has protection on private repositories**: GitHub Pro for a personal account, GitHub Team for an organization. One community report (github.com/orgs/community/discussions/209198) says the settings page of a personal private repository on Pro still warned that its rules would not be enforced until it moved to a Team organization. After the change, check Settings > Branches, then run the script again.
+- **Stay private on Free.** Then only two things enforce the framework's rules, and neither is a boundary (`SECURITY.md`, Where the boundary is):
+  - the local git hooks (`commit-msg`, `pre-commit`, `pre-push`), on each clone where `install.sh` installed them. A clone without them, or `--no-verify`, goes around them;
+  - the CI checks. They still run on every Pull Request and still turn red, but they cannot be *required*, so a red check does not block a merge. Whoever merges reads them first.
+
+  Also turn off Settings > General > *Automatically delete head branches* by hand. On such a repository nothing else stops a merge from deleting a release branch (`Workflows/RELEASE.md` Step 10).
+
+**What the checks cost on a private repository.** On a public repository, standard GitHub-hosted runners are free. On a private one, every job draws from the plan's included Actions usage. GitHub Free includes $12 USD a month (GitHub Docs, *GitHub Actions billing*), which is 2,000 minutes on the standard Linux runner at $0.006 USD a minute. "GitHub rounds the minutes and partial minutes each job uses up to the nearest whole minute" (GitHub Docs, *Actions runner pricing*). A push to a Pull Request's branch runs the framework's 14 jobs: the 11 of PR Validation, plus Framework Validation, Data Policy and Control Path Guard. The project's own build comes on top. An edit of the title or description, or a label change, re-runs most of them. Measured on this repository on 4 Nov 2026 (the heads of #436 and #437), one such run took 6.4 to 6.8 minutes of runner time and bills 18 minutes: 3 each for Script Tests and Hook Tests (2 to 3 minutes each), 1 each for the other 12. So the 2,000 minutes cover about 110 runs a month. A merge into `main` or `develop` adds 2 more minutes (Framework Validation and Data Policy on push). "If your account does not have a valid payment method on file, usage is blocked once you consume the included compute usage". From then on, the checks do not run at all.
+
+**Prevention.** `setup-branch-protection.sh` reads every protection before it writes anything. A 403 carrying GitHub's upgrade message stops it with this explanation, nothing changed, exit 1. A private repository with neither `main` nor `develop` on GitHub is refused too, because no read could show whether its plan enforces a ruleset (WU-IAENG-433, #448). `Adapters/scripts/tests/run.sh` pins both against a fake `gh` that answers as GitHub does.
+
+---
+
 # Adding an Entry
 
 1. The Work Unit that fixes the incident adds the entry — same commit, or the fix is not complete (`Governance/CONTRIBUTING.md`, Section 7).
@@ -441,7 +463,7 @@ Do **not** use `git reset --hard origin/develop` or `git push --force`: both are
 
 Owner: IA Engineering
 
-Version: 0.0.12
+Version: 0.0.13
 
 Status: Draft
 

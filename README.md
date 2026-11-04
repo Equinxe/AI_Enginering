@@ -143,6 +143,15 @@ protection, and the release-branch ruleset:
 On any other forge it changes nothing and prints the equivalent as a checklist
 to apply by hand.
 
+On a repository that already has protection, a run keeps it. Its required
+checks become the union of the project's and the framework's, and no setting
+is lowered. The default branch must be `main` or `develop`; for any other, the
+script refuses and names it. On a private repository on GitHub Free, GitHub
+refuses branch protection. The script says so, changes nothing and exits 1.
+Only the local hooks and the CI checks then enforce the rules, and the checks
+cannot be required ([`Governance/TROUBLESHOOTING.md`](Governance/TROUBLESHOOTING.md)
+entry AD, which also gives their cost in Actions minutes).
+
 ### The steps that are not commands
 
 Make the adoption commit, your first commit in a new repository: the submodule
