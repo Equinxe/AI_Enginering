@@ -1793,3 +1793,9 @@ work_units:
     title: Bump VERSION.md to v0.0.15 and finalize the CHANGELOG.md section for the Adoption release (Workflows/RELEASE.md Step 2) - the changelog fragments assembled by release.sh assemble, the 30 Oct 2026 release-readiness audit's editorial fixes (one ordered upgrade procedure, version-scoped Security and Fixed lines, document versions, the known issues), README pin and measured counts, CLAUDE.md Current Version, next milestone Usage (v0.0.16); this Work Unit's own fragment is an exemption
     milestone: Adoption
     delivers: VERSION.md, CHANGELOG.md, README.md, CLAUDE.md, Registry/work-units.yml, changelog.d/
+
+  - id: WU-IAENG-428
+    employee: Platform Engineer
+    title: check-risk-map.sh and check-pr-size.sh read the paths git lists with -z - a path with a byte outside ASCII, a double quote, a control character or a newline is matched by its name as git stores it instead of git's quoted form, so the Risk Map classifies it by the zone its name matches, a zone whose only files have such names is live, --explain prints the name as it is, and a linguist-generated file with such a name is left out of the review count; the zone patterns are matched against the whole name with bash's [[ =~ ]], and both checks exit 2 when they cannot create a scratch directory for the listings
+    milestone: Usage
+    delivers: Adapters/scripts/check-risk-map.sh, Adapters/scripts/check-pr-size.sh, Adapters/scripts/tests/run.sh, Registry/work-units.yml, changelog.d/WU-IAENG-428.md

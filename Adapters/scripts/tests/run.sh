@@ -116,6 +116,23 @@ $line"
   git commit -q -m "$msg"
 }
 
+# index_path <path> [<lines>] — stages a file of <lines> lines (default 1) at
+# <path> straight into the index, without creating it on disk (WU-IAENG-428).
+# The name reaches git byte for byte through stdin, never through argv or the
+# filesystem: Windows cannot hold a newline or a double quote in a file name,
+# and a non-ASCII argument may be re-encoded on its way to a native git. Git
+# for Windows refuses such a name in the index while core.protectNTFS is on,
+# because it could not be checked out there; it is never checked out here. A
+# path made this way exists only in the index and the next commit, so a
+# fixture never runs `git add -A` or `commit -a` after it, which would stage
+# its deletion.
+index_path() {
+  local blob
+  git config core.protectNTFS false
+  blob="$(seq "${2:-1}" | git hash-object -w --stdin)" || return 1
+  printf '100644 %s\t%s\0' "$blob" "$1" | git update-index -z --index-info
+}
+
 # expect <expected-exit> <description> -- <command...>
 expect() {
   local want="$1"; shift
@@ -630,6 +647,25 @@ i=0; while [ $i -lt 2000 ]; do echo "generated $i" >> built.txt; i=$((i + 1)); d
 git add -A && git commit -qm "regenerate"
 expect 0 "2000 lines in a linguist-generated file do not count" -- bash "$CHECK_SIZE" "$BASE" HEAD
 expect_output "1 generated"
+
+# WU-IAENG-428 — the exclusion looks a file up by its name as git stores it.
+# git diff --numstat without -z printed a non-ASCII or newline name as a
+# quoted C string ("gen-d\303\251.txt"), check-attr read the quotes literally,
+# found no attribute, and the generated file was counted. The 2000 lines are
+# over the 1500 limit, so a counted file shows as a finding.
+new_repo size-generated-names
+printf 'gen-* linguist-generated=true\n' > .gitattributes
+git add -A && git commit -qm "declare the generated files"
+BASE="$(git rev-parse HEAD)"
+index_path $'gen-d\303\251.txt' 2000 && git commit -qm "regenerate a file with a non-ASCII name"
+expect 0 "a generated file with a non-ASCII name does not count" -- bash "$CHECK_SIZE" "$BASE" HEAD
+expect_line "Files changed: 1 (1 generated, 0 binary — excluded)"
+expect_line "Lines to review: 0 (limit 1500)"
+BASE="$(git rev-parse HEAD)"
+index_path $'gen-two\nlines.txt' 2000 && git commit -qm "regenerate a file with a newline in its name"
+expect 0 "a generated file with a newline in its name does not count" -- bash "$CHECK_SIZE" "$BASE" HEAD
+expect_line "Files changed: 1 (1 generated, 0 binary — excluded)"
+expect_line "Lines to review: 0 (limit 1500)"
 
 expect 2 "wrong argument count is a usage error" -- bash "$CHECK_SIZE"
 
@@ -1290,6 +1326,78 @@ git switch -q "$RM_MAIN"
 echo same-edit > src/auth/login.js && git commit -qam "the base branch lands the identical edit after the fork point"
 expect 1 "a sensitive edit the base has since duplicated is still attributed to the change" -- bash "$CHECK_MAP" --range "$RM_MAIN" feature-auth .
 expect_output "Sensitive paths touched: src/auth/login.js"
+
+# WU-IAENG-428 — a path is classified by its name, whatever bytes it holds.
+# Without -z, git prints a name holding a byte outside ASCII, a control
+# character, a double quote or a backslash as a quoted C string (docs/dé.md as
+# "docs/d\303\251.md"), and the zone patterns were matched against that quoted
+# form instead of the name. The expected levels are the fixture map's, read by
+# hand: the first zone whose glob matches the whole name.
+risk_project rm-range-nonascii; sound_risk_map
+git commit -q -m "map"
+RM_BASE="$(git rev-parse HEAD)"
+index_path $'src/auth/d\303\251.js' && git commit -q -m "a module with a non-ASCII name"
+expect 1 "a path with a non-ASCII name is classified by its zone" -- bash "$CHECK_MAP" --range "$RM_BASE" HEAD .
+expect_line $'Sensitive paths touched: src/auth/d\303\251.js'
+
+risk_project rm-range-quote; sound_risk_map
+git commit -q -m "map"
+RM_BASE="$(git rev-parse HEAD)"
+index_path 'src/auth/say "hi".js' && git commit -q -m "a module with a double quote in its name"
+expect 1 "a path with a double quote in its name is classified by its zone" -- bash "$CHECK_MAP" --range "$RM_BASE" HEAD .
+expect_line 'Sensitive paths touched: src/auth/say "hi".js'
+
+# A newline: the name is one path, matched whole.
+risk_project rm-range-newline; sound_risk_map
+git commit -q -m "map"
+RM_BASE="$(git rev-parse HEAD)"
+index_path $'src/auth/two\nlines.js' && git commit -q -m "a module with a newline in its name"
+expect 1 "a path with a newline in its name is classified by its zone" -- bash "$CHECK_MAP" --range "$RM_BASE" HEAD .
+expect_line "Files changed: 1 — highest change zone: sensitive"
+
+# ...and a line inside the name is not a path of its own. This one is under
+# docs/ (routine); its second line alone would match "src/auth/*".
+risk_project rm-range-newline-whole; sound_risk_map
+git commit -q -m "map"
+RM_BASE="$(git rev-parse HEAD)"
+index_path $'docs/notes\nsrc/auth/x.md' && git commit -q -m "a note with a newline in its name"
+expect 0 "a line inside a name does not match a zone on its own" -- bash "$CHECK_MAP" --range "$RM_BASE" HEAD .
+expect_line "Files changed: 1 — highest change zone: routine"
+
+# A space was always read whole; pinned so the -z reading keeps it so.
+risk_project rm-range-space; sound_risk_map
+git commit -q -m "map"
+RM_BASE="$(git rev-parse HEAD)"
+echo x > "src/auth/two words.js" && git add -A && git commit -q -m "a module with a space in its name"
+expect 1 "a path with a space in its name is classified by its zone" -- bash "$CHECK_MAP" --range "$RM_BASE" HEAD .
+expect_line "Sensitive paths touched: src/auth/two words.js"
+
+# Validation reads the tracked names the same way. A zone whose only file has
+# such a name is live, and --explain prints the name as it is.
+risk_project rm-live-nonascii; sound_risk_map
+sed -i 's|- pattern: "docs/\*"|- pattern: "notes/*"|' .ia-engineering/risk-map.yml
+git add .ia-engineering/risk-map.yml
+index_path $'notes/d\303\251.md'
+expect 0 "a zone whose only tracked file has a non-ASCII name is live" -- bash "$CHECK_MAP" .
+expect_output "Risk Map is sound"
+expect 0 "--explain prints a non-ASCII name as it is, with its zone's level" -- bash "$CHECK_MAP" --explain .
+expect_line $'notes/d\303\251.md routine'
+
+# "notes/*.md" matches the whole name; neither of its two lines alone would.
+risk_project rm-live-newline; sound_risk_map
+sed -i 's|- pattern: "docs/\*"|- pattern: "notes/*.md"|' .ia-engineering/risk-map.yml
+git add .ia-engineering/risk-map.yml
+index_path $'notes/two\nlines.md'
+expect 0 "a zone whose only tracked file has a newline in its name is live" -- bash "$CHECK_MAP" .
+expect_output "Risk Map is sound"
+
+# The present-but-untracked advice reads the untracked names the same way.
+risk_project rm-untracked-nonascii; sound_risk_map
+sed -i 's|- pattern: "docs/\*"|- pattern: "staged-later/*"|' .ia-engineering/risk-map.yml
+mkdir -p staged-later; echo report > $'staged-later/r\303\251sum\303\251.md'   # deliberately NOT staged
+git add .ia-engineering/risk-map.yml
+expect 1 "a zone matching only an untracked non-ASCII file says stage it, not remove it" -- bash "$CHECK_MAP" .
+expect_output "not tracked yet"
 
 expect 2 "an unknown option is a usage error" -- bash "$CHECK_MAP" --nope .
 
@@ -10849,6 +10957,11 @@ expect_output "Could not compute the merge base"
 expect 2 "check-risk-map: a failed git diff is not evaluated (exit 2)" -- \
   "${G390[@]}" G390_FAIL="diff --name-only" bash "$SCRIPTS/check-risk-map.sh" --range "$RM390_BASE" HEAD .
 expect_output "git diff failed"
+# The path listings are kept in files (WU-IAENG-428); without a place for them
+# nothing is classified.
+expect 2 "check-risk-map: no scratch directory is not evaluated (exit 2)" -- \
+  env TMPDIR="$WORK/rm428-no-such-tmp" bash "$SCRIPTS/check-risk-map.sh" --range "$RM390_BASE" HEAD .
+expect_output "cannot create a scratch directory"
 # The record is there; a log that could not be read must not report it absent.
 expect 2 "check-risk-map: a commit log that cannot be read is not a missing record (exit 2)" -- \
   "${G390[@]}" G390_FAIL="log --format=%B" bash "$SCRIPTS/check-risk-map.sh" --range "$RM390_BASE" HEAD .
@@ -10862,6 +10975,9 @@ expect 0 "check-pr-size: a small change is within the limit" -- bash "$SCRIPTS/c
 expect 2 "check-pr-size: a failed git diff is not evaluated (exit 2)" -- \
   "${G390[@]}" G390_FAIL="diff --numstat" bash "$SCRIPTS/check-pr-size.sh" "$BASE" HEAD
 expect_output "git diff failed"
+expect 2 "check-pr-size: no scratch directory is not evaluated (exit 2)" -- \
+  env TMPDIR="$WORK/size428-no-such-tmp" bash "$SCRIPTS/check-pr-size.sh" "$BASE" HEAD
+expect_output "Could not create a scratch directory"
 git commit -q --allow-empty -m "changes nothing"
 expect 2 "check-pr-size: commits that cannot be counted are not evaluated (exit 2)" -- \
   "${G390[@]}" G390_FAIL="rev-list --count" bash "$SCRIPTS/check-pr-size.sh" HEAD~1 HEAD
