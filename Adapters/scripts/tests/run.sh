@@ -2418,13 +2418,19 @@ expect 0 "and creates the commit" -- test "$(git rev-list --count HEAD)" = "$((N
 # refused the same commit, and an `Employee:` line naming no Employee passed
 # as well.
 #
-# Checking a claim needs no classification. The expected verdicts are those of
-# the two CI checks, which validate a claim present on a merge whatever the
-# merge's kind (check-work-units.sh, SEC-IAENG-313-02; and
-# check-employee-trailers.sh), and the hook's own verdicts on a clean merge
-# carrying the same lines (above).
-# Whether the merge needed a trailer at all is still CI's call: a merge with
-# no claim is accepted with the warning, as before.
+# Checking a claim needs no classification. Each expected verdict has one of
+# two sources:
+#   - A REFUSAL: the rule of the CI checks, which validate a claim present
+#     on a merge whatever the merge's kind (check-work-units.sh,
+#     SEC-IAENG-313-02; check-employee-trailers.sh). These are also the
+#     hook's own verdicts on a clean merge carrying the same lines (above).
+#   - An ACCEPTANCE of a merge with no Employee line, or with no claim: the
+#     design decision of WU-IAENG-429 (issue #408). The hook requires no
+#     trailer of a merge it cannot classify, and leaves that to CI. That
+#     verdict is not CI's: on unrelated histories, check-employee-trailers.sh
+#     cannot classify the merge either, and fails closed (exit 2) on one that
+#     carries no Employee line.
+# A merge with no claim is accepted with the warning, as before.
 
 section "git-hooks/commit-msg — a merge it cannot classify still has its claims checked (WU-IAENG-429, #408)"
 
@@ -2539,6 +2545,7 @@ expect_output "claims 'WU-DEMO-999', which is not in the staged Registry/work-un
 printf "Merge branch 'side'\n\nEmployee: executor\n" > "$WORK/m429.txt"
 expect 1 "git < 2.38: an Employee line naming no Employee on an ordinary merge is refused" -- \
   env PATH="$WORK/shim-git237:$PATH" bash "$HOOK415" "$WORK/m429.txt"
+expect_output "cannot classify this merge locally; CI will."
 expect_output "commit-msg: rejected — 'Employee: executor' is not a recognized Employee."
 printf "Merge branch 'side'\n\nWork Unit: WU-DEMO-001\n" > "$WORK/m429.txt"
 expect 0 "git < 2.38: a registered claim on an ordinary merge is accepted, with the warning" -- \
@@ -2549,6 +2556,20 @@ expect 0 "git < 2.38: an ordinary merge with no claim is accepted, with the warn
   env PATH="$WORK/shim-git237:$PATH" bash "$HOOK415" "$WORK/m429.txt"
 expect_output "cannot classify this merge locally; CI will."
 git merge --abort
+
+# An ordinary commit, no merge in progress, still takes neither exit this
+# Work Unit changed: the clean-or-unknown exit for a message with no claim,
+# and the clean-or-unknown exit after Rule 4 for one with no Employee line
+# (PR #444 review, round 1). The oracle is Core/MAIN_AGENT_CONDUCT.md,
+# Dispatch Discipline: every commit names its Employee. Widening either exit
+# to every kind but `authored` would let these through.
+mk415 cm429-ordinary
+printf 'chore(x): an ordinary commit\n' > "$WORK/m429.txt"
+expect 1 "an ordinary commit with no claim at all is still refused for its missing Employee line" -- bash "$HOOK415" "$WORK/m429.txt"
+expect_output "commit-msg: rejected — missing 'Employee: <Name>' trailer."
+printf 'chore(x): an ordinary commit\n\nWork Unit: WU-DEMO-001\n' > "$WORK/m429.txt"
+expect 1 "an ordinary commit with a registered claim and no Employee line is still refused" -- bash "$HOOK415" "$WORK/m429.txt"
+expect_output "commit-msg: rejected — missing 'Employee: <Name>' trailer."
 
 # -------- check-work-units.sh --message: each refusal's reason (WU-IAENG-415) --
 #
