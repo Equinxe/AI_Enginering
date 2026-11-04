@@ -330,7 +330,7 @@ fi
 ROSTER_COUNT="$(roster_names | wc -l | tr -d ' ')"
 
 for field in file category tier; do
-  field_count="$(grep -cE "^    $field: " "$ROSTER")"
+  field_count="$(grep -cE -- "^    $field: " "$ROSTER")"
   if [ "$field_count" -ne "$ROSTER_COUNT" ]; then
     fail "roster has $ROSTER_COUNT entries but $field_count '$field:' lines" "Every entry needs name, file, category, and tier."
   else
@@ -397,7 +397,7 @@ section "3. Roster counts quoted in prose"
 
 check_quoted_count() {
   local file="$1" pattern="$2" label="$3" found
-  found="$(grep -ohE "$pattern" "$file" | grep -ohE '[0-9]+' | head -1)"
+  found="$(grep -ohE -- "$pattern" "$file" | grep -ohE '[0-9]+' | head -1)"
   if [ -z "$found" ]; then
     cannot "$file: could not find the $label count" "Expected text matching /$pattern/. If the wording changed, update this check."
   elif [ "$found" -ne "$ROSTER_COUNT" ]; then
@@ -539,7 +539,7 @@ section "7. Workflow and Standard completeness"
 for f in Workflows/*.md; do
   missing=""
   for s in Purpose Trigger Actors Escalation Metadata; do
-    grep -qE "^# $s" "$f" || missing="$missing$s, "
+    grep -qE -- "^# $s" "$f" || missing="$missing$s, "
   done
   # A Workflow needs a container heading for its numbered steps, so a step is
   # never an orphaned subsection under Prerequisites — which is what
@@ -564,7 +564,7 @@ done
 for f in Standards/*.md; do
   missing=""
   for s in Purpose Rationale Metadata; do
-    grep -qE "^# $s" "$f" || missing="$missing$s, "
+    grep -qE -- "^# $s" "$f" || missing="$missing$s, "
   done
   # Standards/STANDARDS_FIRST.md is the hierarchy itself, not a Standard
   # applying it, so it has no external standard to reference.
@@ -736,7 +736,7 @@ while IFS= read -r ref; do
 # into CHANGELOG.md. changelog.d/README.md is not an entry, and stays checked.
 done < <(git ls-files '*.md' \
            | grep -v -e '^CHANGELOG\.md$' -e '/TROUBLESHOOTING\.md$' -e '^changelog\.d/WU-' \
-           | xargs -r grep -hoE "$REF_PATTERN" \
+           | xargs -r grep -hoE -- "$REF_PATTERN" \
            | tr -d "$BT" | sort -u)
 
 if [ -n "$broken" ]; then
@@ -1131,7 +1131,7 @@ if [ -f Registry/chains.yml ]; then
   chains_missing=0
   while IFS= read -r chain; do
     chains_named=$((chains_named + 1))
-    if ! grep -qF "name: $chain" Registry/chains.yml; then
+    if ! grep -qF -- "name: $chain" Registry/chains.yml; then
       chains_missing=$((chains_missing + 1))
       fail "Core/AGENT_CHAINS.md defines '$chain' but Registry/chains.yml has no entry" "A runtime reading the Registry would not know this chain exists."
     fi
@@ -1371,7 +1371,7 @@ if [ -f Registry/workflows.yml ]; then
   fi
 
   for f in Workflows/*.md; do
-    grep -qF "$f" Registry/workflows.yml \
+    grep -qF -- "$f" Registry/workflows.yml \
       || fail "$f has no entry in Registry/workflows.yml" "A runtime reading the Registry would not know this Workflow exists."
   done
   pass "Registry/workflows.yml covers every Workflow document"
@@ -1383,7 +1383,7 @@ if [ -f Registry/workflows.yml ]; then
   # anything reading the Registry — including a gate lookup — one step short,
   # and every other check here would still pass.
   for f in Workflows/*.md; do
-    declared="$(grep -A3 "file: $f" Registry/workflows.yml | grep -m1 'step_count:' \
+    declared="$(grep -A3 -- "file: $f" Registry/workflows.yml | grep -m1 'step_count:' \
                   | sed 's/.*step_count: //' | tr -d '\015')"
     actual="$(grep -cE '^## (Step|Ceremony) [0-9]+' "$f")"
     if [ -z "$declared" ]; then
@@ -1487,7 +1487,7 @@ check_inventory() {
     suffix_note=", minus the trailing category word $suffix"
   fi
 
-  if ! grep -qE "^### $heading( \([0-9]+\))?\$" VERSION.md; then
+  if ! grep -qE -- "^### $heading( \([0-9]+\))?\$" VERSION.md; then
     cannot "VERSION.md has no '### $heading' section" "It lists every $dir document by name; a missing section cannot be checked and is not a pass. Restore the section or update this check deliberately."
     return
   fi
@@ -1554,7 +1554,7 @@ check_inventory() {
 
   # The parenthesised count is a third copy of the same fact. Checked only when
   # present: '### Standards' carries no count and is not required to grow one.
-  declared="$(grep -oE "^### $heading \([0-9]+\)\$" VERSION.md | grep -oE '[0-9]+' | head -1)"
+  declared="$(grep -oE -- "^### $heading \([0-9]+\)\$" VERSION.md | grep -oE '[0-9]+' | head -1)"
   if [ -n "$declared" ] && [ "$declared" -ne "$real_count" ]; then
     fail "VERSION.md says '$heading ($declared)' but $real_count exist under $dir/" "Update the heading in the same Work Unit as the document."
   fi
@@ -1816,7 +1816,7 @@ else
       cannot "CLAUDE.md is missing" "It is the contract every agent reads first and must restate the current version."
     else
       claude_block="$(sed -n '/^# Current Version/,/^# /p' CLAUDE.md | tr -d '\r')"
-      if grep -qF "$ver_version" <<< "$claude_block" && grep -qF "$ver_codename" <<< "$claude_block"; then
+      if grep -qF -- "$ver_version" <<< "$claude_block" && grep -qF -- "$ver_codename" <<< "$claude_block"; then
         pass "CLAUDE.md Current Version names '$ver_version' and '$ver_codename', matching $VER_FILE"
       else
         fail "CLAUDE.md's Current Version section does not name '$ver_version — $ver_codename'" "The contract every agent reads first has drifted. Fix CLAUDE.md's '# Current Version' section to name the version and codename $VER_FILE declares."
@@ -1855,7 +1855,7 @@ word2num() {
 # cardinal word); grep -oE extracts the phrase, and the leading token is read.
 check_front_page_count() {
   local label="$1" actual="$2" regex="$3" phrase tok claimed
-  phrase="$(grep -ohE "$regex" README.md | head -1 | tr -d '\r')"
+  phrase="$(grep -ohE -- "$regex" README.md | head -1 | tr -d '\r')"
   if [ -z "$phrase" ]; then
     cannot "README: could not find the $label count" "Expected a phrase matching /$regex/. If the front page reworded it, update this check — a count no check reads drifts silently (Workflows/CODE_REVIEW.md rule 5)."
     return
@@ -1965,7 +1965,7 @@ check_enum_completeness() {
     cannot "cannot check the $label enumeration: $dir/*.md matched nothing" "An empty input set is not a passing check."
     return
   fi
-  line="$(grep -oE "$label \\([^)]*\\)" README.md | head -1 | tr -d '\r')"
+  line="$(grep -oE -- "$label \\([^)]*\\)" README.md | head -1 | tr -d '\r')"
   if [ -z "$line" ]; then
     cannot "README: could not find the $label enumeration bullet" "Expected a line matching /$label \\([^)]*\\)/ in the 'Completed' section. If the wording changed, update this check — an unread enumeration drifts silently."
     return
@@ -2026,7 +2026,7 @@ else
       claude_next="$(grep -E '^Next:' CLAUDE.md | tr -d '\r')"
       if [ -z "$claude_next" ]; then
         cannot "CLAUDE.md has no 'Next:' line" "Expected a line starting 'Next:' naming '$next_ms', the in-progress milestone $VER_FILE declares."
-      elif grep -qF "$next_ms" <<< "$claude_next"; then
+      elif grep -qF -- "$next_ms" <<< "$claude_next"; then
         pass "CLAUDE.md's 'Next:' line names '$next_ms', matching $VER_FILE's Next Milestone"
       else
         fail "CLAUDE.md's 'Next:' line does not name '$next_ms'" "$VER_FILE's Next Milestone declares '$next_ms'; CLAUDE.md's 'Next:' line has drifted ('$claude_next'). Fix CLAUDE.md's 'Next:' line to name '$next_ms'."
@@ -2039,7 +2039,7 @@ else
       readme_planned="$(sed -n '/^Planned/,/^---/p' README.md | tr -d '\r')"
       if [ -z "$readme_planned" ]; then
         cannot "README.md has no 'Planned' section" "Expected a 'Planned' section naming '$next_ms', the in-progress milestone $VER_FILE declares."
-      elif grep -qF "$next_ms" <<< "$readme_planned"; then
+      elif grep -qF -- "$next_ms" <<< "$readme_planned"; then
         pass "README's 'Planned' section names '$next_ms', matching $VER_FILE's Next Milestone"
       else
         fail "README's 'Planned' section does not name '$next_ms'" "$VER_FILE's Next Milestone declares '$next_ms'; README's 'Planned' section has drifted. Fix it to name '$next_ms'."

@@ -1388,7 +1388,7 @@ collect_commits() {
        return 1 ;;
   esac
   # grep -c exits 1 when it counts none: no new commit is not a failure.
-  NEW_ROWS="$(grep -c "^"$'\036'"$nonce" "$TRAILERS")"
+  NEW_ROWS="$(grep -c -- "^"$'\036'"$nonce" "$TRAILERS")"
   return 0
 }
 

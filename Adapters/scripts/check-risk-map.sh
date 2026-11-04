@@ -207,7 +207,7 @@ level_of() {
     # as the pipeline's failure — so a real match reads as a miss whenever the
     # producer had more to write. Harmless for one filename, wrong for the large
     # producers below, uniform here so the footgun is not copied. TROUBLESHOOTING X.
-    if grep -qE "$re" <<< "$file"; then
+    if grep -qE -- "$re" <<< "$file"; then
       printf '%s\n' "$lvl"
       return 0
     fi
@@ -379,11 +379,11 @@ while IFS="$TAB" read -r pat lvl cat reason re; do
   # here-string, not `printf | grep -q`: $TRACKED is git ls-files, which in a
   # real project exceeds the pipe buffer, and grep -q short-circuiting it would
   # make a LIVE zone read as dead under pipefail. TROUBLESHOOTING X.
-  if ! grep -qE "$re" <<< "$TRACKED"; then
+  if ! grep -qE -- "$re" <<< "$TRACKED"; then
     # Present-but-untracked is not a dead zone. The file exists; it is not
     # committed yet. That is the expected state right after bootstrap, so the
     # honest fix is to stage it, not to delete the entry the installer wrote.
-    if untracked_hit="$(grep -m1 -E "$re" <<< "$UNTRACKED")" && [ -n "$untracked_hit" ]; then
+    if untracked_hit="$(grep -m1 -E -- "$re" <<< "$UNTRACKED")" && [ -n "$untracked_hit" ]; then
       fail "zone '$pat' matches a file that exists but is not tracked yet (e.g. $untracked_hit). The map classifies committed files; stage and commit it — right after bootstrap this is expected, since the installed files are not committed yet. Until then the zone protects nothing."
     else
       fail "zone '$pat' matches no tracked file. A dead entry reassures without keeping anything — trap 4 in Templates/RISK_MAP.md. Remove it, or fix the pattern."

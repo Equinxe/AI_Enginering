@@ -4065,7 +4065,7 @@ if ln -s "$FRAMEWORK_ROOT" ia-engineering 2>/dev/null; then
   for rule in '/.claude/settings.json' '/.claude/skills/**' '/.ia-engineering/stack' '/.ia-engineering/risk-map.yml' \
               '/Registry/work-units.yml' '/Dockerfile' '/.gitmodules'; do
     TOTAL=$((TOTAL + 1))
-    if grep -qxF "$rule text eol=lf" .gitattributes 2>/dev/null; then
+    if grep -qxF -- "$rule text eol=lf" .gitattributes 2>/dev/null; then
       [ -n "$VERBOSE" ] && printf '   ok   .gitattributes carries an LF rule for %s\n' "$rule"
     else
       printf '   FAIL .gitattributes has no LF rule for %s\n' "$rule"
@@ -4665,7 +4665,7 @@ wst_case() {
 }
 # wst_line <file> <heading prefix> — the line number of a heading, by grep.
 wst_line() {
-  grep -n "^$2" "$1" | head -n 1 | cut -d: -f1
+  grep -n -- "^$2" "$1" | head -n 1 | cut -d: -f1
 }
 
 # --- The real files, LF and CRLF.
@@ -6064,7 +6064,7 @@ printf '%s %s\n' "$FLIVE" "$(date +%s)" > "$FC/lock/owner"
 { usage_line msg_F341B 4; printf '\n'; } >> "$FT/s1.jsonl"
 expect 0 "lock: a refresh while another runs is skipped" -- "${FRUN[@]}" --refresh
 expect_output "another one is running (pid $FLIVE)"
-expect 0 "lock: the running one's lock is left alone" -- grep -qF "$FLIVE" "$FC/lock/owner"
+expect 0 "lock: the running one's lock is left alone" -- grep -qF -- "$FLIVE" "$FC/lock/owner"
 expect 0 "lock: the hook starts none either" -- "${FRUN[@]}" --refresh-in-background
 expect_output "one is already running (pid $FLIVE)"
 printf '%s %s\n' "$FDEAD" "$(date +%s)" > "$FC/lock/owner"
@@ -6818,7 +6818,7 @@ CO_STDOUT="$(bash "$CARRY" "$CO_A" "$CO_OK" --base develop 2> /dev/null)"
 expect 0 "on success stdout is exactly the record: full commit ids, the base, the checker's blobs" -- \
   test "$CO_STDOUT" = "Approval carry-over: $CO_A -> $CO_OK; base $(git rev-parse develop); $CO_TAIL; $CO_CHECKER"
 expect 0 "the record keeps its prefix, so a reader of an older record still finds the heads" -- \
-  grep -qxE "Approval carry-over: $CO_A -> $CO_OK; .+" <<< "$CO_STDOUT"
+  grep -qxE -- "Approval carry-over: $CO_A -> $CO_OK; .+" <<< "$CO_STDOUT"
 expect 0 "the record is one line" -- test "$(printf '%s\n' "$CO_STDOUT" | wc -l)" -eq 1
 CO_STDOUT_SHA="$(bash "$CARRY" "$CO_A" "$CO_OK" --base "$(git rev-parse develop)" 2> /dev/null)"
 expect 0 "the base is named by its commit id, whichever spelling --base used" -- \
@@ -8890,13 +8890,13 @@ expect 3 "--check --quiet keeps the switch" -- bash "$HK_357" --check --quiet
 expect_output "settings${T}disabled${T}.claude/settings.local.json"
 rm .claude/settings.local.json
 
-grep -vxF "$HOOKS_RULE_357" .gitattributes > ga.tmp && mv ga.tmp .gitattributes
+grep -vxF -- "$HOOKS_RULE_357" .gitattributes > ga.tmp && mv ga.tmp .gitattributes
 expect 3 "a missing settings.json LF rule alone is drift (exit 3)" -- bash "$HK_357" --check
 expect_output "gitattributes${T}missing${T}.gitattributes${T}$HOOKS_RULE_357"
 expect_output "# install-hooks.sh --check: 1 to act on."
 expect 0 "install-skills.sh --check, whose own rule is there, still exits 0" -- bash "$SK_357" --check
 git checkout -q -- .gitattributes
-grep -vxF "$SKILLS_RULE_357" .gitattributes > ga.tmp && mv ga.tmp .gitattributes
+grep -vxF -- "$SKILLS_RULE_357" .gitattributes > ga.tmp && mv ga.tmp .gitattributes
 expect 3 "a missing skills LF rule alone is drift (exit 3)" -- bash "$SK_357" --check
 expect_output "gitattributes${T}missing${T}.gitattributes${T}$SKILLS_RULE_357"
 expect_output "# install-skills.sh --check: 1 to act on. 2 skill(s): 2 current; 1 .gitattributes rule(s): 1 missing; 0 fault(s). absent/missing:"
@@ -8921,7 +8921,7 @@ git checkout -q -- .claude/skills
 # --- read-only with every kind of drift at once -----------------------------------
 jq_edit_357 '.hooks.PreToolUse |= map(if .matcher == "Bash" then .hooks[0].command += " || true" else . end)'
 printf '{"disableAllHooks": true}\n' > .claude/settings.local.json
-grep -vxF "$HOOKS_RULE_357" .gitattributes | grep -vxF "$SKILLS_RULE_357" > ga.tmp && mv ga.tmp .gitattributes
+grep -vxF -- "$HOOKS_RULE_357" .gitattributes | grep -vxF -- "$SKILLS_RULE_357" > ga.tmp && mv ga.tmp .gitattributes
 echo "edited by the project" >> .claude/skills/dashboard/SKILL.md
 rm -r .claude/skills/create-project
 SNAP_357B="$(snapshot_353)"
@@ -10606,6 +10606,55 @@ risk_project cr389-map-crlf; sound_risk_map
 sed -i "s/\$/${CR389}/" .ia-engineering/risk-map.yml && git add -A
 expect 0 "check-risk-map: a CRLF map is still sound" -- bash "$MAP389" .
 expect_output "Risk Map is sound"
+
+# --------- a trailer value that begins with a dash is text (WU-IAENG-427) -----
+#
+# The Employee value is compared with the roster names by `grep -qxF`, and it
+# reaches grep after `--`: a value that begins with a dash is a string to
+# match, never an option. None of the values below is a roster name, so the
+# hook and the CI check both refuse each one, and a roster name still resolves
+# beside them. `-e x` was refused before too (it names the pattern " x"); it
+# stays as a shape of the class. A Work Unit value never reaches its grep with
+# a dash, because the shape test refuses it first, as the last cases pin.
+
+section "trailer checks — a value that begins with a dash is compared as text (WU-IAENG-427)"
+
+DASH427=('--help' '--version' '-V' '-e x' '-ePlatform Engineer')
+
+new_repo dash427-hook
+write_employee_roster "Platform Engineer" "Release Manager"
+git add -A && git commit -q -m "roster"
+for v427 in "${DASH427[@]}"; do
+  printf 'fix(x): y\n\nEmployee: %s\n' "$v427" > msg427.txt
+  expect 1 "commit-msg: 'Employee: $v427' is refused" -- bash "$HOOK389" msg427.txt
+  expect_output "'Employee: $v427' is not a recognized Employee"
+done
+printf 'fix(x): y\n\nEmployee: Platform Engineer\n' > msg427.txt
+expect 0 "commit-msg: a roster name beside them still resolves" -- bash "$HOOK389" msg427.txt
+
+cr389_emp_repo dash427-emp
+for v427 in "${DASH427[@]}"; do
+  BASE="$(git rev-parse HEAD)"
+  commit_with "feat: x" "Employee: $v427"
+  expect 1 "check-employee-trailers: 'Employee: $v427' is refused" -- bash "$EMP389" "$BASE" HEAD
+  expect_output "has 'Employee: $v427', which is not in"
+done
+BASE="$(git rev-parse HEAD)"
+commit_with "feat: x" "Employee: Platform Engineer"
+expect 0 "check-employee-trailers: a roster name beside them still resolves" -- bash "$EMP389" "$BASE" HEAD
+expect_output "-> Platform Engineer"
+
+new_repo dash427-wu
+write_employee_roster "Platform Engineer"
+write_wu_registry WU-TEST-001
+git add -A && git commit -q -m "registry"
+printf 'fix(x): y\n\nWork Unit: --help\n\nEmployee: Platform Engineer\n' > msg427.txt
+expect 1 "commit-msg: 'Work Unit: --help' is refused by the shape test" -- bash "$HOOK389" msg427.txt
+expect_output "is empty or not a Work Unit id"
+BASE="$(git rev-parse HEAD)"
+commit_with "feat: x" "Work Unit: --help"
+expect 1 "check-work-units: 'Work Unit: --help' is refused by the shape test" -- bash "$WU389" "$BASE" HEAD
+expect_output "is empty or not a Work Unit id"
 
 # ------- a condition not evaluated exits 2, never 1 (WU-IAENG-390, #331) ------
 #

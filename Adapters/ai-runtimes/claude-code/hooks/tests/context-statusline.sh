@@ -606,7 +606,7 @@ ESCC="$(printf 'echo \033]0;PROJ-TITLE\007proj')"
 jq --arg c "$ESCC" '.statusLine = {type:"command", command:$c}' "$T/wrapped.json" | tr -d '\r' > "$T/s.json" && mv "$T/s.json" "$SET"
 jq -n --arg c "$(printf 'echo \033]0;LOCAL-TITLE\007local')" '{statusLine:{type:"command", command:$c}}' > "$IP/.claude/settings.local.json"
 inst
-if ! grep -q "$(printf '\033')" "$T/inst.out" "$T/inst.err" && grep -qF "PROJ-TITLE" "$T/inst.out" && grep -qF "LOCAL-TITLE" "$T/inst.err"; then ok "the installer prints statusLine commands with no control character, stdout and stderr"; else bad "the installer prints statusLine commands with no control character" "$(od -c "$T/inst.out" "$T/inst.err" | grep -m2 033)"; fi
+if ! grep -q -- "$(printf '\033')" "$T/inst.out" "$T/inst.err" && grep -qF -- "PROJ-TITLE" "$T/inst.out" && grep -qF -- "LOCAL-TITLE" "$T/inst.err"; then ok "the installer prints statusLine commands with no control character, stdout and stderr"; else bad "the installer prints statusLine commands with no control character" "$(od -c "$T/inst.out" "$T/inst.err" | grep -m2 033)"; fi
 rm -f "$IP/.claude/settings.local.json"
 
 # The script at an earlier framework path (cr-321 m2): updated in place, its
