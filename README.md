@@ -145,12 +145,14 @@ to apply by hand.
 
 ### The steps that are not commands
 
-Create `CLAUDE.md` from the fenced block under **Template** in
-`Templates/PROJECT_CLAUDE.md` (the block's contents only, not the whole file,
-whose other sections explain how to fill it in), and fill it in. If your
-project already has a `CLAUDE.md`, keep it and merge the block into it, as
-that template's section **A project that already has a `CLAUDE.md`** says:
-your build commands and conventions stay.
+Have the Main Agent dispatch the DevOps Engineer to create `CLAUDE.md` from
+the fenced block under **Template** in `Templates/PROJECT_CLAUDE.md` (the
+block's contents only, not the whole file, whose other sections explain how
+to fill it in) and fill it in with your answers. The Main Agent never writes
+the file itself (`Core/MAIN_AGENT_CONDUCT.md`, Dispatch Discipline). If your
+project already has a `CLAUDE.md`, it is kept: after the adoption commit below,
+the block is merged into it, as that template's section **A project that
+already has a `CLAUDE.md`** says, so your build commands and conventions stay.
 It is the contract every session reads first; a project without one starts every
 session with no context and no rules. Make your first commit (the adoption itself: the submodule and the installed
 tooling; `CLAUDE.md` goes in a later commit), signed `Employee: DevOps Engineer`
@@ -159,12 +161,14 @@ adoption Work Unit, registered in `Registry/work-units.yml` in that same commit.
 This commit goes to `main` without a Pull Request, so the trailer checks
 (`Work Unit Exists`, `Employee Trailer`), which run on Pull Requests only, never
 read it: the `commit-msg` hook refuses an unregistered Work Unit, but not a
-missing line. The later `CLAUDE.md` commit is signed
-`Employee: DevOps Engineer` too (Director decision, 4 November 2026), with a
-Work Unit of its own registered in that commit, so every commit of the
-adoption has the same signer. Then create
-`.ia-engineering/SESSION_STATE.md`. The helper
-`./ia-engineering/Adapters/scripts/create-session-state.sh` does it for you: it
+missing line. The later `CLAUDE.md` commit is made by the dispatched DevOps
+Engineer and signed `Employee: DevOps Engineer` (Director decision,
+4 November 2026), so every commit of the adoption has the same signer. It
+carries a `Work Unit:` line of its own, registered in that commit, because the
+hook does not require the line. Then create
+`.ia-engineering/SESSION_STATE.md`, and copy into its Governance Deviations in
+Force section any deviation the `CLAUDE.md` merge recorded. The helper
+`./ia-engineering/Adapters/scripts/create-session-state.sh` creates the file: it
 refuses before the first commit and never overwrites an existing file, writes the
 fenced block with the project name and today's date in the form described below,
 and checks that the file is gitignored. By hand, it comes from the fenced block under **Template** in

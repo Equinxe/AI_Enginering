@@ -27,32 +27,44 @@ Keep it short. This file is read in full at the start of every session; a contra
 
 ## A project that already has a `CLAUDE.md`
 
-An existing project that uses Claude Code usually has a `CLAUDE.md` already, holding its build and test commands and its own conventions. Do not replace that file with the template, and do not paste the template under it. Merge the two into one contract, in this order:
+An existing project that uses Claude Code usually has a `CLAUDE.md` already, holding its build and test commands and its own conventions. Do not replace that file with the template, and do not paste the template under it. Merge the two into one contract, in the order below.
 
-1. **Keep one contract file, at the project root.** Claude Code reads project instructions from `CLAUDE.md` or `.claude/CLAUDE.md` ([memory documentation](https://code.claude.com/docs/en/memory)). The framework's session-start hook checks only the root `CLAUDE.md`. If the project's file is `.claude/CLAUDE.md`, move it first with `git mv .claude/CLAUDE.md CLAUDE.md`. If the project has both files, merge `.claude/CLAUDE.md` into `CLAUDE.md` as well, then remove it with `git rm .claude/CLAUDE.md`. Leave `CLAUDE.local.md` alone: it is personal and never committed.
+**Who does it, and when.** The Main Agent dispatches the DevOps Engineer, through an Employee Brief (`Templates/EMPLOYEE_BRIEF.md`), to carry out steps 1 to 6 and make the commit. The Main Agent relays the Director's step 3 decisions. It never writes the file or signs the commit itself (`Core/MAIN_AGENT_CONDUCT.md`, Dispatch Discipline). Run the procedure after the adoption commit, and before any other commit. The adoption commit then holds none of the merge, and `HEAD` still holds the project's original instruction files, which step 5 compares against.
+
+1. **Keep one contract file, at the project root.** Claude Code reads project instructions from `CLAUDE.md` or `.claude/CLAUDE.md` ([memory documentation](https://code.claude.com/docs/en/memory)). The framework's session-start hook checks only the root `CLAUDE.md`.
+   - If the project's file is `.claude/CLAUDE.md`, move it with `git mv .claude/CLAUDE.md CLAUDE.md`.
+   - If the project has both files, merge `.claude/CLAUDE.md` into `CLAUDE.md` as well, then remove it with `git rm .claude/CLAUDE.md`.
+
+   Both commands stage the change at once, which is why the procedure runs after the adoption commit. In the text that came from `.claude/CLAUDE.md`, rewrite every relative `@` import so that it resolves from the root. The memory documentation says "Relative paths resolve relative to the file containing the import, not the working directory." So `@build.md` becomes `@.claude/build.md`, and `@../docs/build.md` becomes `@docs/build.md`. An absolute path or a `~/` path stays as it is. Leave `CLAUDE.local.md` alone: it is personal and never committed.
 2. **Build the merged file from the template's block** (its contents only, Template below), and move the project's content into it:
    - Content that answers a template section goes in that section and replaces its placeholder. The project's overview goes under `# Project`, its stack under `# Technology`, its directory layout under `# Repository`, and its own extra rules under `# Standards in Force`.
-   - Content no template section covers keeps its own heading, word for word, in a section placed after `# Technology`. This covers build, test, lint and run commands, local setup, and a guide to the modules. Copy every command exactly: a session runs it as written. An `@path` import line stays as it is.
-3. **Settle every contradiction with the Director.** When two instructions contradict each other, Claude may follow either one (memory documentation, above), so no contradiction stays in the file. Look for project lines that do any of these:
-   - commit or push to `main` directly;
-   - use a branch model without `develop`;
-   - use a commit format without the `Work Unit:` and `Employee:` trailers;
-   - implement a task inline instead of delegating it, or start work without a plan;
-   - skip a hook, a test or a review.
+   - Content no template section covers keeps its own heading, word for word, in a section placed after `# Technology`. This covers build, test, lint and run commands, local setup, and a guide to the modules. Copy every command exactly: a session runs it as written. Keep each `@path` import line, rewritten as step 1 says if it came from `.claude/CLAUDE.md`.
+3. **Settle every contradiction with the Director.** When two instructions contradict each other, Claude may follow either one (memory documentation, above), so no contradiction may stay. Look for at least these project lines:
+   - committing or pushing to `main` directly;
+   - a branch model without `develop`;
+   - a commit format without the `Work Unit:` and `Employee:` trailers;
+   - implementing a task inline instead of delegating it, or starting work without a plan;
+   - skipping a hook, a test or a review.
 
-   Also read the `CLAUDE.md` files in subdirectories and the files under `.claude/rules/`, because they reach the same session. For each contradiction, the Director chooses one of these outcomes:
+   Settle any other line that contradicts a framework rule the same way. Read the `CLAUDE.md` files in subdirectories, the files under `.claude/rules/` and every imported file too, because they reach the same session.
+
+   Present every contradiction to the Director, through the Main Agent, with the three outcomes below. Change none of those lines until the Director has chosen:
    - **The project's rule is stricter** than the framework's: it stays, under `# Standards in Force`.
-   - **The framework's rule applies**: delete the project's line.
-   - **The project keeps a looser rule for now**: that is a deviation. Delete the line from `CLAUDE.md`, and record the deviation in `.ia-engineering/SESSION_STATE.md` with the condition that ends it, once that file exists (`# Standards in Force` in the block below).
+   - **The framework's rule applies**: delete the project's line from the file that holds it.
+   - **The project keeps a looser rule for now**: that is a deviation. Delete the line from the file that holds it. Record the deviation, with the condition that ends it, in this Work Unit's Work Unit Report (`Templates/WORK_UNIT_REPORT.md`), and file it as an Issue. `.ia-engineering/SESSION_STATE.md` is created only after this commit. When the Main Agent creates it, it copies each deviation into the file's Governance Deviations in Force section (`# Standards in Force` in the block below; `Workflows/ONBOARDING.md` Step 1 item 3).
 
-   Also delete a project line that only restates a framework rule. The template's section already points to the rule, and two copies drift apart.
+   Delete without asking a project line that restates a framework rule exactly. The template's section already points to the rule, and two copies drift apart. A line that differs at all is a contradiction or a stricter rule: settle it as above.
 4. **Fill or delete every bracketed field** (How to fill it in, above). An existing project has no Project Charter and no Stack Decision ADR. Answer from the existing file, the code and the Director (`Workflows/ONBOARDING.md` Steps 2 and 3). If nobody can answer a field yet, delete it and add the question under `# Open Questions`. Never guess an answer.
 5. **Check the result.**
-   - Every build, test and run command of the original file is still in `CLAUDE.md`, unchanged. `git show HEAD:CLAUDE.md` prints the original (`git show HEAD:.claude/CLAUDE.md` if you moved it).
+   - Every build, test and run command of the original files is still in `CLAUDE.md` or in a file it imports, unchanged. `git show HEAD:CLAUDE.md` prints the original root file, and `git show HEAD:.claude/CLAUDE.md` the original `.claude/CLAUDE.md`. Check each original the project had, both when it had both.
+   - Every `@` import in `CLAUDE.md` names a file that exists. `grep -noE '(^|[[:space:]])@[^[:space:]]+' CLAUDE.md` lists them, and `ls <path>`, run from the root, finds each one.
    - `grep -nF '[' CLAUDE.md` lists every line that holds a bracket. Each listed line is a link or the project's own text, never a template placeholder.
-6. **Commit it** in its own commit, after the adoption commit, signed `Employee: DevOps Engineer` (`Workflows/PROJECT_BOOTSTRAP.md` Step 4 item 5).
+6. **Commit it**, as the dispatched DevOps Engineer, in its own commit after the adoption commit. Sign it `Employee: DevOps Engineer`. Give it a `Work Unit:` line naming a Work Unit registered in `Registry/work-units.yml` in that same commit, for example `WU-<PREFIX>-002` (`Workflows/PROJECT_BOOTSTRAP.md` Step 4 item 5). The `commit-msg` hook refuses an unregistered id, but it does not require the line (issue #384), so check that the line is there.
 
-**A project with an `AGENTS.md` and no `CLAUDE.md`.** By default, Claude Code reads `AGENTS.md` only while no `CLAUDE.md` exists (memory documentation, above). Creating the contract therefore stops Claude Code from reading `AGENTS.md`. Create `CLAUDE.md` from the block as for a new project. Then add the line `@AGENTS.md`, on its own and outside backticks, after `# Technology`: it imports the file. Step 3 applies to what `AGENTS.md` says.
+**A project with an `AGENTS.md` and no `CLAUDE.md`.** By default, Claude Code reads `AGENTS.md` only while there is no `CLAUDE.md`, `.claude/CLAUDE.md` or `CLAUDE.local.md` (memory documentation, above). Creating the contract therefore stops it reading every `AGENTS.md`: the root one, `.claude/AGENTS.md`, and those in subdirectories.
+- Create `CLAUDE.md` from the block as for a new project, with the same dispatch and the same commit as above.
+- Then import each `AGENTS.md`, on a line of its own and outside backticks. Put `@AGENTS.md` and `@.claude/AGENTS.md` in the root `CLAUDE.md`, after `# Technology`. For a subdirectory's `AGENTS.md`, create a `CLAUDE.md` beside it holding the line `@AGENTS.md`. Claude Code loads it when it works on a file in that subdirectory.
+- Step 3 applies to what each `AGENTS.md` says. A line it settles is changed in that `AGENTS.md` itself, and other coding tools read the same file, so the change reaches them too. Tell the Director so when presenting the contradiction.
 
 ---
 

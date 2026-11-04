@@ -1,7 +1,12 @@
 ### Added
 
-- `Templates/PROJECT_CLAUDE.md` (0.0.15) says how a project that already has a `CLAUDE.md` adopts the contract. It merges the template's block into its file instead of replacing it or pasting the template under it, and keeps its build, test and run commands word for word. It keeps one contract at the root (`.claude/CLAUDE.md` is moved there, since `session-start.sh` checks only the root file). It settles each contradiction with the Director: a stricter project rule stays, the framework's rule replaces a looser one, or the looser one becomes a deviation recorded in `SESSION_STATE.md`. With no Project Charter, it answers from the existing file, the code and the Director. A project with only an `AGENTS.md` imports it with `@AGENTS.md`, because Claude Code stops reading `AGENTS.md` once a `CLAUDE.md` exists. `README.md` and `Workflows/ONBOARDING.md` (0.0.17) Step 1 item 2 point to it (#446, WU-IAENG-432)
-- The commit that adds an adopting project's `CLAUDE.md` is signed `Employee: DevOps Engineer`, with a Work Unit of its own, so every commit of the adoption has the same signer (Director decision, 4 November 2026). `README.md`, `Workflows/ONBOARDING.md` Step 1 and `Workflows/PROJECT_BOOTSTRAP.md` (0.0.16) Steps 4 and 7 say so (#379, WU-IAENG-432)
+- `Templates/PROJECT_CLAUDE.md` (0.0.15) says how a project that already has a `CLAUDE.md` adopts the contract. It merges the template's block into its file, after the adoption commit, instead of replacing the file or pasting the template under it, and it keeps the project's build, test and run commands word for word.
+  - One contract stays at the root. `.claude/CLAUDE.md` is moved there, since `session-start.sh` checks only the root file, and each of its relative `@` imports is rewritten to resolve from the root.
+  - Each contradiction found in the instruction files is presented to the Director, and nothing changes until the Director chooses: a stricter project rule stays, the framework's rule replaces a looser one, or the looser one becomes a deviation. A deviation is held in the Work Unit Report and an Issue until `SESSION_STATE.md` is created.
+  - With no Project Charter, the answers come from the existing file, the code and the Director.
+  - A project that relies on `AGENTS.md` files imports each one, because Claude Code stops reading them once a `CLAUDE.md` exists.
+  - `README.md` and `Workflows/ONBOARDING.md` (0.0.17) Step 1 item 2 point to the procedure (#446, WU-IAENG-432)
+- An adopting project's `CLAUDE.md` is written by the DevOps Engineer, whom the Main Agent dispatches. Its commit is signed `Employee: DevOps Engineer`, with a `Work Unit:` line of its own, so every commit of the adoption has the same signer (Director decision, 4 November 2026). `README.md`, `Workflows/ONBOARDING.md` Step 1 and `Workflows/PROJECT_BOOTSTRAP.md` (0.0.16) Steps 4 and 7 say so (#379, WU-IAENG-432)
 
 ### Changed
 
