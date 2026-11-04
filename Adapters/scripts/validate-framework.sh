@@ -170,23 +170,52 @@ section() {
   printf '\n== %s\n' "$1"
 }
 
+# What is printed, never what is compared (SEC-IAENG-397-01). A value a check
+# quotes keeps a carriage return inside it (Standards/CODE_QUALITY_STANDARD.md,
+# The Check Convention, Shell Scripts, rule 3). Printed raw, that CR sends the
+# cursor back over the line it is in; in a workflow command, the runner can
+# read what follows it as a command of its own. So a terminal line shows each
+# CR as the two characters \r (show), and annotate escapes the annotation's
+# data.
+
+# show <text> — sets SHOWN to <text> as a terminal line prints it: each CR as
+# the two characters \r and each LF as \n, so a printed value with a line
+# break stays on one line.
+show() {
+  SHOWN="${1//$'\r'/\\r}"
+  SHOWN="${SHOWN//$'\n'/\\n}"
+}
+
+# annotate <error|warning> <text> — prints one workflow command whose data is
+# <text> with %, CR and LF written %25, %0D and %0A, so it is one line whatever
+# the text holds.
+annotate() {
+  local data="${2//\%/%25}"
+  data="${data//$'\r'/%0D}"
+  data="${data//$'\n'/%0A}"
+  printf '::%s::%s\n' "$1" "$data"
+}
+
 pass() {
   CHECKS=$((CHECKS + 1))
   if [ "$VERBOSE" -eq 1 ]; then
-    printf '   ok    %s\n' "$1"
+    show "$1"
+    printf '   ok    %s\n' "$SHOWN"
   fi
 }
 
 fail() {
   CHECKS=$((CHECKS + 1))
   FAILURES=$((FAILURES + 1))
-  printf '   FAIL  %s\n' "$1"
+  show "$1"
+  printf '   FAIL  %s\n' "$SHOWN"
   if [ -n "${2:-}" ]; then
-    printf '         %s\n' "$2"
+    show "$2"
+    printf '         %s\n' "$SHOWN"
   fi
   # Surface as an annotation when running under GitHub Actions.
   if [ -n "${GITHUB_ACTIONS:-}" ]; then
-    echo "::error::$1 ${2:-}"
+    annotate error "$1 ${2:-}"
   fi
 }
 
@@ -204,8 +233,12 @@ cannot() {
 # --- Roster helpers --------------------------------------------------------
 # The parsing contract lives in Registry/README.md: each entry's first line is
 # "  - name: <Name>" — two leading spaces, unquoted, no trailing comment.
-# "tr -d" strips a carriage return left by a CRLF checkout, which would
-# otherwise make every name comparison fail.
+# The carriage return a CRLF checkout leaves at the end of a line is removed,
+# which would otherwise make every name comparison fail; one inside a value is
+# kept (Standards/CODE_QUALITY_STANDARD.md, The Check Convention, Shell
+# Scripts, rule 3). Every reader in this script that removes a CR does so. Some
+# readers anchor a pattern at the end of the line without removing the CR
+# first, and miss a CRLF line on Linux: issue #433.
 
 roster_names() {
   printf '%s\n' "$ROSTER_NAMES"
@@ -222,24 +255,24 @@ flatten_roster() {
   awk '
     /^  - name: / {
       if (name != "") print name "\t" file "\t" category "\t" tier
-      name = $0; sub(/^  - name: /, "", name); gsub(/\015/, "", name)
+      name = $0; sub(/^  - name: /, "", name); sub(/\015$/, "", name)
       file = ""; category = ""; tier = ""
       next
     }
-    /^    file: /     { file = $0;     sub(/^    file: /, "", file);         gsub(/\015/, "", file) }
-    /^    category: / { category = $0; sub(/^    category: /, "", category); gsub(/\015/, "", category) }
-    /^    tier: /     { tier = $0;     sub(/^    tier: /, "", tier);         gsub(/\015/, "", tier) }
+    /^    file: /     { file = $0;     sub(/^    file: /, "", file);         sub(/\015$/, "", file) }
+    /^    category: / { category = $0; sub(/^    category: /, "", category); sub(/\015$/, "", category) }
+    /^    tier: /     { tier = $0;     sub(/^    tier: /, "", tier);         sub(/\015$/, "", tier) }
     END { if (name != "") print name "\t" file "\t" category "\t" tier }
   ' "$ROSTER"
 }
 
 employee_tier_from_file() {
   grep -m1 'Default Complexity Tier:' "$1" \
-    | sed 's/.*Default Complexity Tier: //' | tr -d '\015'
+    | sed $'s/.*Default Complexity Tier: //; s/\r$//'
 }
 
 employee_name_from_file() {
-  head -1 "$1" | sed 's/^# //' | tr -d '\015'
+  head -1 "$1" | sed $'s/^# //; s/\r$//'
 }
 
 # Exact-line membership test, in pure bash. Used in the hot loops in place of
@@ -489,7 +522,7 @@ for f in Employees/*/*.md; do
   # One grep collects the file's top-level headings; the required set is then
   # checked against them in memory, rather than grepping the file once per
   # required section.
-  headings="$(grep -oE '^# .+$' "$f" | sed 's/^# //' | tr -d '\015')"
+  headings="$(grep -oE '^# .+$' "$f" | sed $'s/^# //; s/\r$//')"
   missing=""
   for s in "${REQUIRED_EMPLOYEE_SECTIONS[@]}"; do
     has_line "$headings" "$s" || missing="$missing$s, "
@@ -591,7 +624,7 @@ for f in Core/*.md Standards/*.md Workflows/*.md Templates/*.md Governance/*.md 
   META_COUNT=$((META_COUNT + 1))
   # One grep per file collects the metadata field names present; membership is
   # then tested in memory rather than grepping each file three times.
-  fields="$(grep -oE '^(Owner|Version|Status): ' "$f" | sed 's/: $//' | tr -d '\015')"
+  fields="$(grep -oE '^(Owner|Version|Status): ' "$f" | sed $'s/: $//; s/\r$//')"
   for field in Owner Version Status; do
     if ! has_line "$fields" "$field"; then
       fail "$f has no '$field:' metadata field" "Governance/VERSIONING_POLICY.md requires a Version field on every governed document; Owner and Status accompany it throughout the repository."
@@ -994,7 +1027,7 @@ else
   printf '         lost. Verify from a git checkout, or check the modes by\n'
   printf '         hand: ls -l Adapters/git-hooks Adapters/scripts\n'
   if [ -n "${GITHUB_ACTIONS:-}" ]; then
-    echo "::warning::Index file modes were not evaluated — no git repository. Run this from a git checkout to verify the executable bit on shipped scripts."
+    annotate warning "Index file modes were not evaluated — no git repository. Run this from a git checkout to verify the executable bit on shipped scripts."
   fi
 fi
 
@@ -1100,7 +1133,7 @@ if [ -f Registry/chains.yml ]; then
       "Main Agent"|"Director"|"Engineer") continue ;;
     esac
     has_line "$roster_list" "$actor" || bad_actors="$bad_actors$actor; "
-  done < <(grep -E '^ +- employee: ' Registry/chains.yml | sed 's/^ *- employee: //' | tr -d '\015' | sort -u)
+  done < <(grep -E '^ +- employee: ' Registry/chains.yml | sed $'s/^ *- employee: //; s/\r$//' | sort -u)
   if [ -n "$bad_actors" ]; then
     fail "Registry/chains.yml names non-Employees: $bad_actors" "A chain step dispatches to a real Employee, or to the framework roles Main Agent / Director / Engineer. Core/MAIN_AGENT_CONDUCT.md's Dispatch Discipline is the reason: a step with no named Employee has no accountable owner."
   elif [ "$actors_checked" -eq 0 ]; then
@@ -1112,7 +1145,7 @@ if [ -f Registry/chains.yml ]; then
   missing_wf=""
   while IFS= read -r wf; do
     [ -f "$wf" ] || missing_wf="$missing_wf$wf; "
-  done < <(grep -E '^ +workflow: ' Registry/chains.yml | sed 's/^ *workflow: //' | tr -d '\015' | sort -u)
+  done < <(grep -E '^ +workflow: ' Registry/chains.yml | sed $'s/^ *workflow: //; s/\r$//' | sort -u)
   if [ -n "$missing_wf" ]; then
     fail "Registry/chains.yml references missing workflow documents: $missing_wf" "Each chain is governed by a Workflow document."
   else
@@ -1126,7 +1159,9 @@ if [ -f Registry/chains.yml ]; then
   # the loop saw, so an extraction that read no chain at all still claimed
   # coverage (issue #227). One measured way to read none: a CRLF checkout read
   # by a grep that keeps the carriage return, where "Chain$" never matches
-  # "# Feature Chain\r". The CR is stripped before the match for that reason.
+  # "# Feature Chain\r". The CR that ends the line is removed before the match
+  # for that reason; one inside a heading is kept, so that heading is not read
+  # as a chain (rule 3 of the Shell Scripts rules).
   chains_named=0
   chains_missing=0
   while IFS= read -r chain; do
@@ -1150,7 +1185,7 @@ if [ -f Registry/chains.yml ]; then
   # in the word. They are excluded by name anyway rather than by relying on
   # that, since a future heading like "# Custom Chain" would otherwise be read
   # as a chain.
-  done < <(tr -d '\015' < Core/AGENT_CHAINS.md \
+  done < <(sed $'s/\r$//' Core/AGENT_CHAINS.md \
              | grep -oE '^# [A-Za-z][A-Za-z ]*Chain$' \
              | sed 's/^# //' \
              | grep -vxE 'Chain Selection|Chain Conventions|Composing Custom Chain')
@@ -1361,7 +1396,7 @@ if [ -f Registry/workflows.yml ]; then
   while IFS= read -r wf; do
     wf_entries=$((wf_entries + 1))
     [ -f "$wf" ] || missing_doc="$missing_doc$wf; "
-  done < <(grep -E '^    file: ' Registry/workflows.yml | sed 's/^    file: //' | tr -d '\015')
+  done < <(grep -E '^    file: ' Registry/workflows.yml | sed $'s/^    file: //; s/\r$//')
   if [ -n "$missing_doc" ]; then
     fail "Registry/workflows.yml references missing documents: $missing_doc" ""
   elif [ "$wf_entries" -eq 0 ]; then
@@ -1384,7 +1419,7 @@ if [ -f Registry/workflows.yml ]; then
   # and every other check here would still pass.
   for f in Workflows/*.md; do
     declared="$(grep -A3 "file: $f" Registry/workflows.yml | grep -m1 'step_count:' \
-                  | sed 's/.*step_count: //' | tr -d '\015')"
+                  | sed $'s/.*step_count: //; s/\r$//')"
     actual="$(grep -cE '^## (Step|Ceremony) [0-9]+' "$f")"
     if [ -z "$declared" ]; then
       fail "Registry/workflows.yml declares no step_count for $f" ""
@@ -1423,7 +1458,7 @@ else
 fi
 
 if [ -f Registry/work-units.yml ]; then
-  bad_id="$(grep -E '^  - id: ' Registry/work-units.yml | sed 's/^  - id: //' | tr -d '\015' \
+  bad_id="$(grep -E '^  - id: ' Registry/work-units.yml | sed $'s/^  - id: //; s/\r$//' \
     | grep -vE '^WU-[A-Za-z0-9]+-[0-9]+$' || true)"
   if [ -n "$bad_id" ]; then
     fail "Registry/work-units.yml has malformed IDs: $(echo "$bad_id" | tr '\n' ' ')" "Templates/WORK_UNIT.md defines the format as WU-[project]-[number]."
@@ -1431,7 +1466,7 @@ if [ -f Registry/work-units.yml ]; then
     pass "every Work Unit ID matches WU-[project]-[number]"
   fi
 
-  dupes="$(grep -E '^  - id: ' Registry/work-units.yml | sed 's/^  - id: //' | tr -d '\015' \
+  dupes="$(grep -E '^  - id: ' Registry/work-units.yml | sed $'s/^  - id: //; s/\r$//' \
     | sort | uniq -d)"
   if [ -n "$dupes" ]; then
     fail "Registry/work-units.yml has duplicate IDs: $(echo "$dupes" | tr '\n' ' ')" "Templates/WORK_UNIT.md: IDs are unique per project."
@@ -1443,7 +1478,7 @@ if [ -f Registry/work-units.yml ]; then
   roster_list="$(roster_names)"
   while IFS= read -r owner; do
     has_line "$roster_list" "$owner" || bad_owner="$bad_owner$owner; "
-  done < <(grep -E '^    employee: ' Registry/work-units.yml | sed 's/^    employee: //' | tr -d '\015' | sort -u)
+  done < <(grep -E '^    employee: ' Registry/work-units.yml | sed $'s/^    employee: //; s/\r$//' | sort -u)
   if [ -n "$bad_owner" ]; then
     fail "Registry/work-units.yml credits non-Employees: $bad_owner" "A Work Unit's owner must be a real Employee, matching the 'Employee:' commit trailer the work landed under."
   else
@@ -1500,7 +1535,7 @@ check_inventory() {
   real=""
   while IFS= read -r f; do
     [ -n "$f" ] || continue
-    title="$(head -1 "$f" | sed 's/^# //' | tr -d '\015')"
+    title="$(head -1 "$f" | sed $'s/^# //; s/\r$//')"
     if [ -n "$suffix" ]; then title="${title% "$suffix"}"; fi
     real="$real$title
 "
@@ -1591,11 +1626,11 @@ GLOSSARY="Core/GLOSSARY.md"
 if [ ! -f "$GLOSSARY" ]; then
   cannot "$GLOSSARY is missing" "CLAUDE.md lists it as a Core document and every artifact is required to use its vocabulary. Its absence cannot be a pass."
 else
-  # \r? and tr -d '\015' throughout: the rest of this script guards a CRLF
-  # checkout and section 15 did not. Git Bash's awk happens to strip the
+  # \r? and the line-ending CR removed throughout: the rest of this script
+  # guards a CRLF checkout and section 15 did not. Git Bash's awk happens to strip the
   # carriage return, so the omission was latent here and would have reported
   # every term misfiled under a POSIX awk on a CRLF working tree.
-  glossary_letters="$(grep -E '^# [A-Z]\r?$' "$GLOSSARY" | sed 's/^# //' | tr -d '\015')"
+  glossary_letters="$(grep -E '^# [A-Z]\r?$' "$GLOSSARY" | sed $'s/^# //; s/\r$//')"
   letter_count="$(printf '%s\n' "$glossary_letters" | grep -c .)"
   term_count="$(grep -cE '^## ' "$GLOSSARY")"
 
@@ -1681,7 +1716,7 @@ if [ ! -f "$CHANGELOG_FILE" ]; then
 elif ! git rev-parse --git-dir >/dev/null 2>&1; then
   cannot "not a git repository, so no tag could be read" "This section compares CHANGELOG versions against tags. Outside a repository it can establish nothing, which is a failure and not a pass."
 else
-  changelog_versions="$(grep -oE '^## \[[0-9][0-9.]*\]' "$CHANGELOG_FILE" | tr -d '#[] ' | tr -d '\015')"
+  changelog_versions="$(grep -oE '^## \[[0-9][0-9.]*\]' "$CHANGELOG_FILE" | tr -d '#[] ' | sed $'s/\r$//')"
   changelog_count="$(printf '%s\n' "$changelog_versions" | grep -c . || true)"
   tag_count="$(git tag | grep -c . || true)"
 
@@ -1695,7 +1730,7 @@ else
     # VERSION.md's current version is the one exemption, resolved once.
     preparing=""
     if [ -f VERSION.md ]; then
-      preparing="$(grep -oE '^\*\*v[0-9][0-9.]*\*\*' VERSION.md | head -1 | tr -d '*v' | tr -d '\015')"
+      preparing="$(grep -oE '^\*\*v[0-9][0-9.]*\*\*' VERSION.md | head -1 | tr -d '*v' | sed $'s/\r$//')"
     fi
 
     # THE TAG IS LOOKED FOR FIRST, and the exemption applies only when it is
@@ -1748,7 +1783,7 @@ if [ ! -f "$BOOTSTRAP" ]; then
 elif [ ! -d "$DOCKERFILE_DIR" ]; then
   cannot "$DOCKERFILE_DIR is missing" "The stack half of bootstrap copies its starter Dockerfile from here; without the directory no stack can be adopted."
 else
-  declared_stacks="$(grep -E '^VALID_STACKS=' "$BOOTSTRAP" | head -1 | sed 's/^VALID_STACKS=//' | tr -d '"' | tr -d "'" | tr -d '\015')"
+  declared_stacks="$(grep -E '^VALID_STACKS=' "$BOOTSTRAP" | head -1 | sed 's/^VALID_STACKS=//' | tr -d '"' | tr -d "'" | sed $'s/\r$//')"
   if [ -z "$declared_stacks" ]; then
     cannot "could not read VALID_STACKS from $BOOTSTRAP" "The extraction reads a line 'VALID_STACKS=\"...\"'. Empty means the declaration moved and this section now verifies nothing — reported rather than passed."
   else
@@ -1789,9 +1824,14 @@ if [ ! -f "$VER_FILE" ]; then
   cannot "cannot check the front doors: $VER_FILE is missing" "It is the authoritative source the README and CLAUDE.md are checked against."
 else
   # VERSION.md: the '**vX.Y.Z**' after 'Current Version', the '**Codename**'
-  # after 'Codename'. tr -d '\r' so a CRLF checkout does not defeat the match.
-  ver_version="$(grep -A2 '^Current Version' "$VER_FILE" | grep -oE 'v[0-9]+\.[0-9]+\.[0-9.]+' | head -1 | tr -d '\r')"
-  ver_codename="$(grep -A2 '^Codename' "$VER_FILE" | grep -oE '\*\*[^*]+\*\*' | head -1 | tr -d '*\r')"
+  # after 'Codename'. The carriage return that ends a CRLF line is removed so
+  # a CRLF checkout does not defeat the match. The bold token ends at its
+  # closing '**', so that carriage return is never inside it; a CR before the
+  # '**' is inside the line, and is kept (rule 3 of the Shell Scripts rules).
+  # Read with read, not $(...): Git Bash's command substitution drops a CR
+  # before the final newline, which here is that CR.
+  ver_version="$(grep -A2 '^Current Version' "$VER_FILE" | grep -oE 'v[0-9]+\.[0-9]+\.[0-9.]+' | head -1 | sed $'s/\r$//')"
+  IFS= read -r ver_codename < <(grep -A2 '^Codename' "$VER_FILE" | grep -oE '\*\*[^*]+\*\*' | head -1 | tr -d '*') || true
   if [ -z "$ver_version" ] || [ -z "$ver_codename" ]; then
     cannot "could not read the current version and codename from $VER_FILE" "The extraction reads '**vX.Y.Z**' under 'Current Version' and '**Codename**' under 'Codename'. Empty means that header moved and this section now verifies nothing — reported rather than passed."
   else
@@ -1799,7 +1839,7 @@ else
     if [ ! -f README.md ]; then
       cannot "README.md is missing" "The front door must exist and restate the current version."
     else
-      readme_line="$(sed -n '/^## Current Status/,/^Completed/p' README.md | grep -oE 'v[0-9]+\.[0-9]+\.[0-9.]+ - .+' | head -1 | tr -d '\r')"
+      readme_line="$(sed -n '/^## Current Status/,/^Completed/p' README.md | grep -oE 'v[0-9]+\.[0-9]+\.[0-9.]+ - .+' | head -1 | sed $'s/\r$//')"
       expected="$ver_version - $ver_codename"
       if [ -z "$readme_line" ]; then
         cannot "README.md has no 'vX.Y.Z - Codename' line in its Current Status block" "Add it under '## Current Status' as '$expected', or this check reads nothing."
@@ -1815,7 +1855,7 @@ else
     if [ ! -f CLAUDE.md ]; then
       cannot "CLAUDE.md is missing" "It is the contract every agent reads first and must restate the current version."
     else
-      claude_block="$(sed -n '/^# Current Version/,/^# /p' CLAUDE.md | tr -d '\r')"
+      claude_block="$(sed -n '/^# Current Version/,/^# /p' CLAUDE.md | sed $'s/\r$//')"
       if grep -qF "$ver_version" <<< "$claude_block" && grep -qF "$ver_codename" <<< "$claude_block"; then
         pass "CLAUDE.md Current Version names '$ver_version' and '$ver_codename', matching $VER_FILE"
       else
@@ -1855,7 +1895,7 @@ word2num() {
 # cardinal word); grep -oE extracts the phrase, and the leading token is read.
 check_front_page_count() {
   local label="$1" actual="$2" regex="$3" phrase tok claimed
-  phrase="$(grep -ohE "$regex" README.md | head -1 | tr -d '\r')"
+  phrase="$(grep -ohE "$regex" README.md | head -1 | sed $'s/\r$//')"
   if [ -z "$phrase" ]; then
     cannot "README: could not find the $label count" "Expected a phrase matching /$regex/. If the front page reworded it, update this check — a count no check reads drifts silently (Workflows/CODE_REVIEW.md rule 5)."
     return
@@ -1965,7 +2005,7 @@ check_enum_completeness() {
     cannot "cannot check the $label enumeration: $dir/*.md matched nothing" "An empty input set is not a passing check."
     return
   fi
-  line="$(grep -oE "$label \\([^)]*\\)" README.md | head -1 | tr -d '\r')"
+  line="$(grep -oE "$label \\([^)]*\\)" README.md | head -1 | sed $'s/\r$//')"
   if [ -z "$line" ]; then
     cannot "README: could not find the $label enumeration bullet" "Expected a line matching /$label \\([^)]*\\)/ in the 'Completed' section. If the wording changed, update this check — an unread enumeration drifts silently."
     return
@@ -2015,15 +2055,17 @@ else
   # the two lines that follow it (heading, blank line, content line) — the
   # same '-A2' plus bold-token idiom section 18 uses for Codename. A TBD
   # line carries no bold token, so this is empty for the unscoped state, by
-  # design (see above).
-  next_ms="$(grep -A2 '^## Next Milestone' "$VER_FILE" | grep -oE '\*\*[^*]+\*\*' | head -1 | tr -d '*\r')"
+  # design (see above). As for Codename, the token ends at its closing '**',
+  # so only the '*' are removed: a CR inside it is inside the line, and it is
+  # read with read so that Git Bash keeps one just before the '**'.
+  IFS= read -r next_ms < <(grep -A2 '^## Next Milestone' "$VER_FILE" | grep -oE '\*\*[^*]+\*\*' | head -1 | tr -d '*') || true
   if [ -z "$next_ms" ]; then
     pass "$VER_FILE's Next Milestone is unscoped (TBD); the front doors are not required to name one"
   else
     if [ ! -f CLAUDE.md ]; then
       cannot "CLAUDE.md is missing" "It must restate the in-progress milestone $VER_FILE declares."
     else
-      claude_next="$(grep -E '^Next:' CLAUDE.md | tr -d '\r')"
+      claude_next="$(grep -E '^Next:' CLAUDE.md | sed $'s/\r$//')"
       if [ -z "$claude_next" ]; then
         cannot "CLAUDE.md has no 'Next:' line" "Expected a line starting 'Next:' naming '$next_ms', the in-progress milestone $VER_FILE declares."
       elif grep -qF "$next_ms" <<< "$claude_next"; then
@@ -2036,7 +2078,7 @@ else
     if [ ! -f README.md ]; then
       cannot "README.md is missing" "It must restate the in-progress milestone $VER_FILE declares."
     else
-      readme_planned="$(sed -n '/^Planned/,/^---/p' README.md | tr -d '\r')"
+      readme_planned="$(sed -n '/^Planned/,/^---/p' README.md | sed $'s/\r$//')"
       if [ -z "$readme_planned" ]; then
         cannot "README.md has no 'Planned' section" "Expected a 'Planned' section naming '$next_ms', the in-progress milestone $VER_FILE declares."
       elif grep -qF "$next_ms" <<< "$readme_planned"; then
@@ -2271,7 +2313,7 @@ chain_diagram_drift() {
 
     # Registry/chains.yml, the first operand.
     FILENAME == ARGV[1] {
-      gsub(/\015/, "")
+      sub(/\015$/, "")
       # The content of a block scalar is text, whatever it looks like. It runs
       # while lines are blank or deeper than the key that opened it.
       if (block >= 0) {
@@ -2324,7 +2366,7 @@ chain_diagram_drift() {
 
     # Core/AGENT_CHAINS.md, the second operand.
     FILENAME == ARGV[2] {
-      gsub(/\015/, "")
+      sub(/\015$/, "")
       if ($0 ~ /^[ \t]*```/) {
         if (fence) {
           fence = 0
@@ -2490,7 +2532,7 @@ changelog_fragment_check() {
   if [ ! -f "$dir/README.md" ]; then
     printf 'fail\t%s/README.md is missing\tIt is where an author learns the fragment format.\n' "$dir"
   fi
-  registered="$(grep -E '^  - id: ' "$registry" | sed 's/^  - id: //' | tr -d '\015')"
+  registered="$(grep -E '^  - id: ' "$registry" | sed $'s/^  - id: //; s/\r$//')"
   while IFS= read -r f; do
     [ -n "$f" ] || continue
     base="${f##*/}"
@@ -2567,7 +2609,7 @@ changelog_fragment_advisory() {
     [ -n "$id" ] || continue
     [ -f "$dir/$id.md" ] || printf '%s\n' "$id"
   done < <(git log --no-merges --format=%B "$base..$head" 2>/dev/null \
-             | awk '/^Work Unit: / { id = $0; sub(/^Work Unit: /, "", id); gsub(/\015/, "", id); print id }' \
+             | awk '/^Work Unit: / { id = $0; sub(/^Work Unit: /, "", id); sub(/\015$/, "", id); print id }' \
              | LC_ALL=C sort -u)
 }
 
@@ -2575,13 +2617,17 @@ if [ -n "${GITHUB_BASE_REF:-}" ] && [ -n "${GITHUB_WORKSPACE:-}" ] && [ "$GITHUB
   frag_adv="$(changelog_fragment_advisory changelog.d "origin/$GITHUB_BASE_REF" HEAD)"
   frag_adv_status=$?
   if [ "$frag_adv_status" -eq 2 ]; then
-    printf '   --    changelog fragment early warning not evaluated: origin/%s or HEAD is not a commit here\n' "$GITHUB_BASE_REF"
-    echo "::warning::Changelog fragment early warning not evaluated: origin/$GITHUB_BASE_REF or HEAD could not be read. release.sh check condition 5 still applies at the release."
+    show "$GITHUB_BASE_REF"
+    printf '   --    changelog fragment early warning not evaluated: origin/%s or HEAD is not a commit here\n' "$SHOWN"
+    annotate warning "Changelog fragment early warning not evaluated: origin/$GITHUB_BASE_REF or HEAD could not be read. release.sh check condition 5 still applies at the release."
   else
+    # The id is read from a commit message of the Pull Request: printed as
+    # every other value is (annotate, above), never raw.
     while IFS= read -r id; do
       [ -n "$id" ] || continue
-      printf '   note  %s has no changelog.d/%s.md in this Pull Request\n' "$id" "$id"
-      echo "::warning::$id has no changelog.d/$id.md and this Pull Request does not edit CHANGELOG.md. Add the fragment (changelog.d/README.md), or 'No changelog entry: <reason>'; release.sh check condition 5 blocks the release without one."
+      show "$id"
+      printf '   note  %s has no changelog.d/%s.md in this Pull Request\n' "$SHOWN" "$SHOWN"
+      annotate warning "$id has no changelog.d/$id.md and this Pull Request does not edit CHANGELOG.md. Add the fragment (changelog.d/README.md), or 'No changelog entry: <reason>'; release.sh check condition 5 blocks the release without one."
     done <<< "$frag_adv"
   fi
 fi
