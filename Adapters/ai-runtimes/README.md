@@ -151,7 +151,27 @@ An edited agent file is a second definition of an Employee, and it will diverge 
 
 **This repository does not commit its generated agents** — `.gitignore` excludes `.claude/agents/`. The reasoning: 42 files of roughly 210 lines each is about 9,000 lines of derived content in a repository whose entire source is 15,000, and every Employee edit would produce a large mechanical diff alongside the real one.
 
-That is a trade-off, not a rule, and it has a real cost: anyone cloning this repository must run the generator before the Employees exist as dispatchable agents, the same way they must run `install.sh` before the hooks exist. A project that would rather have the agents present on clone should commit them and add `generate-agents.sh --check` to its CI. Which way to go is the Director's call per project.
+That is a trade-off, not a rule, and it has a real cost: anyone cloning this repository must run the generator before the Employees exist as dispatchable agents, the same way they must run `install.sh` before the hooks exist. A project that would rather have the agents present on clone should commit them and add `generate-agents.sh --check` to its CI. Which way to go is the Director's call per project. In an adopting project, each agent names the framework by the absolute path of the clone that generated it (next section). Committed agents are therefore current only in a clone at that same path, and `--check` in any other clone, CI included, reports them as `framework location only`.
+
+---
+
+# In an Adopting Project: Where the Framework Is
+
+Every generated agent names framework documents by their path from the framework root: `Core/AGENT_CONDUCT.md`, `Standards/COMMIT_STANDARD.md`, and whatever its Employee definition cites. In this repository that root is the working directory of every session and every worktree. In an adopting project those paths resolved from no directory (issue #449). The project root does not work, because the framework sits under `ia-engineering/`. A linked git worktree does not work either: Claude Code gives one to an Employee dispatched with `isolation: worktree`, and the framework submodule is not initialised there, so `ia-engineering/` is empty. Measured on `develop` 75765ba, the 42 agents named 741 framework paths, and none of them resolved from the worktree. The Code Reviewer and the QA Engineer reviewed without the Standards they apply.
+
+So when the project is not the framework itself, every agent gets one more section, **Where the Framework Is**, placed before its Mission:
+
+- ``Framework root: `<path>` `` on a line of its own. The path is the absolute path of the framework the generator ran from, which is the main checkout's framework when it is run from the main checkout as documented. git already runs the hooks from that same directory in every worktree (`install.sh` writes an absolute `core.hooksPath`, WU-IAENG-414).
+- The rule the Employee applies: a framework path in its definition or its brief, with or without `ia-engineering/` in front, names that path under the root, and never a path under its working directory. The section gives one worked example, and says that a file missing from an empty submodule directory is not missing from the framework.
+- What to do when the root does not exist: stop and report it, then regenerate from the main checkout with `./ia-engineering/Adapters/ai-runtimes/generate-agents.sh`.
+
+Under Git Bash the root is written in the form `cygpath -m` gives, `C:/Users/...`. The runtime's file tools and Git Bash both open that form. The MSYS forms `/c/...` and `/tmp/...` that `pwd` prints are read only by MSYS. On other platforms the root is `pwd`'s absolute path.
+
+The framework repository's own agents carry no such section and are byte-identical to before. That is decided by identity (`-ef`, device and inode), not by comparing spellings, as `install.sh` does it (WU-IAENG-362). The summary line `framework root, named in every agent:` shows the root an adopting project's run wrote.
+
+**Initialising the submodule in each worktree was measured and rejected.** In a throwaway adopter on Windows, from a local one-commit framework repository, `git submodule update --init` in a worktree took 10.7 s. It added 3.9 MiB of checkout and a 1.8 MiB clone under `.git/worktrees/<name>/modules`, and a real adopter clones from the remote, history included. Afterwards `git worktree remove` refused with exit 128 (`working trees containing submodules cannot be moved or removed`), so every Employee worktree would need `--force` to be cleaned up. A path to the main checkout costs no network, no disk and no cleanup, and it reads the version of the framework the hooks run. The same holds for a branch that moves the submodule pointer, during a framework upgrade for example: its Employees read the framework checked out in the main checkout until that checkout is updated.
+
+**`--check` names a location difference as one.** An agent whose only difference is the framework root it names is reported as `differs: <file> (framework location only: on disk <A>; resolved <B>)`. One that also differs in its mapping is reported as `(mapping and framework location: ...)`. The verdict then says how many name another root: the project moved, or they were generated in another clone. Neither is reported as out of date with `Employees/`. The comparison replaces each file's own root with a fixed token, by text and never by regular expression, so a change to the section's wording is still reported as out of date.
 
 ---
 

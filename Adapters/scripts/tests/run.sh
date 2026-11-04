@@ -11595,6 +11595,171 @@ expect 0 "install-hooks --check: a settings.local.json statusLine is read" -- ba
 expect_output "statusline${T397}shadowed${T397}.claude/settings.local.json${T397}bash x/hooks/context-statu sline.sh: Claude Code runs this one instead of the project statusLine"
 rm .claude/settings.local.json
 
+# --------- generate-agents.sh: an Employee in a worktree (WU-IAENG-430) ------
+#
+# Issue #449. An Employee that Claude Code dispatches with `isolation: worktree`
+# works in a linked git worktree, where an adopter's framework submodule is not
+# initialised: ia-engineering/ is empty. The generated agents named every
+# framework file by its path from the framework root (Core/AGENT_CONDUCT.md),
+# which resolves from no directory of an adopter. On develop 75765ba: 741
+# framework paths named by 42 agents, 741 unresolved from the worktree, so the
+# Code Reviewer and QA reviewed without the Standards they apply.
+#
+# The fixture framework carries the whole document tree, not only Adapters/
+# and Registry/ as fw-353 does: these cases open every file an agent names.
+
+section "generate-agents.sh — an Employee in a linked worktree reads the framework (WU-IAENG-430, #449)"
+
+new_repo fw-430
+for d430 in Core Standards Templates Workflows Employees Registry Adapters Governance; do
+  cp -R "$SCRIPTS/../../$d430" "./$d430"
+done
+cp "$SCRIPTS/../../.gitattributes" ./.gitattributes
+git add -A && git commit -q -m "framework fixture"
+FW_430="$PWD"
+ROSTER_N_430="$(grep -cE '^  - name: ' Registry/employees.yml)"
+
+# root_430 <agent> — the framework root an agent tells its Employee to read
+# from, as the agent itself states it, or empty when it states none.
+root_430() { sed -n 's/^Framework root: `\(.*\)`$/\1/p' "$1" | head -n 1; }
+
+# unresolved_430 <agent> — from the working directory, every framework path
+# the agent names, read the way the agent tells its Employee to read it: under
+# the root it states, with an ia-engineering/ prefix dropped, or under the
+# working directory when it states none. Prints each path that does not exist.
+FWPATH_RE_430='(ia-engineering/)?(Core|Standards|Templates|Workflows|Registry|Employees|Governance|Adapters)/[A-Za-z0-9_./-]*'
+unresolved_430() {
+  local root p
+  root="$(root_430 "$1")"
+  [ -n "$root" ] || root="."
+  grep -oE "$FWPATH_RE_430" "$1" | while IFS= read -r p; do
+    p="${p%.}"; p="${p%,}"; p="${p#ia-engineering/}"
+    [ -e "$root/$p" ] || printf '%s: %s/%s\n' "${1##*/}" "$root" "$p"
+  done
+}
+
+# The adopter as README documents it: the framework a submodule at
+# ia-engineering/, the agents generated from the main checkout, then a linked
+# worktree as Claude Code creates one for an Employee. The runtime reads a
+# worktree subagent's definition from the main checkout's .claude/agents/.
+new_repo adopter-430
+git -c protocol.file.allow=always submodule add -q "$FW_430" ia-engineering >/dev/null 2>&1
+git commit -q -m "chore(adopt): add the framework submodule"
+MAIN_430="$PWD"
+expect 0 "adopter: the agents are generated from the main checkout" -- \
+  bash ./ia-engineering/Adapters/ai-runtimes/generate-agents.sh
+GEN_OUT_430="$LAST_OUTPUT"
+git worktree add -q "$WORK/adopter-430-wt" -b feature/wt-430 >/dev/null 2>&1
+cd "$WORK/adopter-430-wt" || exit 1
+
+# The premise. Initialised, the cases below would pass for a reason that is
+# not the fix.
+TOTAL=$((TOTAL + 1))
+if [ -d ia-engineering ] && [ -z "$(ls -A ia-engineering)" ]; then
+  [ -n "$VERBOSE" ] && printf '   ok   the linked worktree has an empty ia-engineering/ (the premise)\n'
+else
+  printf '   FAIL the linked worktree ia-engineering/ is missing or not empty: the cases test nothing\n'
+  FAILED=$((FAILED + 1))
+fi
+
+# The acceptance case. Fails if one framework path any generated agent names
+# does not resolve from the worktree. Counted against the roster and with at
+# least one path per agent, so an empty or pathless output cannot pass.
+AGENTS_430=0
+PATHLESS_430=0
+UNRES_430=""
+for a430 in "$MAIN_430"/.claude/agents/*.md; do
+  [ -f "$a430" ] || continue
+  AGENTS_430=$((AGENTS_430 + 1))
+  grep -qE "$FWPATH_RE_430" "$a430" || PATHLESS_430=$((PATHLESS_430 + 1))
+  # $(...) drops the last newline: put it back, or one agent's last line and
+  # the next one's first are counted as one.
+  u430="$(unresolved_430 "$a430")"
+  [ -n "$u430" ] && UNRES_430="$UNRES_430$u430"$'\n'
+done
+TOTAL=$((TOTAL + 1))
+if [ "$AGENTS_430" -eq "$ROSTER_N_430" ] && [ "$PATHLESS_430" -eq 0 ] && [ -z "$UNRES_430" ]; then
+  [ -n "$VERBOSE" ] && printf '   ok   worktree: every framework path of all %s agents resolves\n' "$AGENTS_430"
+else
+  printf '   FAIL worktree: %s agents for %s roster Employees, %s naming no framework path, %s path(s) unresolved\n' \
+    "$AGENTS_430" "$ROSTER_N_430" "$PATHLESS_430" "$(printf '%s' "$UNRES_430" | grep -c .)"
+  printf '%s\n' "$UNRES_430" | head -n 5 | sed 's/^/        | /'
+  FAILED=$((FAILED + 1))
+fi
+
+# The root named is the main checkout's framework, by identity: the one git
+# runs the hooks from (WU-IAENG-414), never a path inside this worktree.
+BADROOT_430=""
+for a430 in "$MAIN_430"/.claude/agents/*.md; do
+  r430="$(root_430 "$a430")"
+  if [ -z "$r430" ] || ! [ "$r430" -ef "$MAIN_430/ia-engineering" ]; then
+    BADROOT_430="$BADROOT_430 ${a430##*/}=${r430:-none}"
+  fi
+done
+TOTAL=$((TOTAL + 1))
+if [ -z "$BADROOT_430" ]; then
+  [ -n "$VERBOSE" ] && printf '   ok   every agent names the main checkout framework as its root\n'
+else
+  printf '   FAIL agents naming no root or another one:%s\n' "$(printf '%s' "$BADROOT_430" | cut -c1-300)"
+  FAILED=$((FAILED + 1))
+fi
+
+# Written as the runtime's file tools open it. Under Git Bash, pwd says /c/...
+# or /tmp/..., spellings only MSYS reads; a Windows path has a drive letter.
+ROOT_430="$(root_430 "$MAIN_430/.claude/agents/devops-engineer.md")"
+TOTAL=$((TOTAL + 1))
+if command -v cygpath >/dev/null 2>&1; then NATIVE_RE_430='^[A-Za-z]:/'; else NATIVE_RE_430='^/'; fi
+if grep -qE "$NATIVE_RE_430" <<< "$ROOT_430"; then
+  [ -n "$VERBOSE" ] && printf '   ok   the root is a native absolute path: %s\n' "$ROOT_430"
+else
+  printf '   FAIL the root %s is not a native absolute path (%s)\n' "${ROOT_430:-<none>}" "$NATIVE_RE_430"
+  FAILED=$((FAILED + 1))
+fi
+LAST_OUTPUT="$GEN_OUT_430"
+expect_output "  framework root, named in every agent: $ROOT_430"
+
+# The framework repository's own agents are unchanged: no section, no root,
+# and --check stays green there. Whether a project is the framework is a
+# question of identity, not of roster, so this copy of the fixture keeps two
+# Employees: each full pass costs minutes on a loaded Windows machine.
+mkdir -p "$WORK/fw-430-self"
+cp -R "$FW_430/Adapters" "$FW_430/Employees" "$FW_430/Registry" "$WORK/fw-430-self/"
+awk '/^  - name: /{ n++ } n <= 2' "$FW_430/Registry/employees.yml" > "$WORK/fw-430-self/Registry/employees.yml"
+cd "$WORK/fw-430-self" || exit 1
+expect 0 "framework: the agents are generated" -- bash Adapters/ai-runtimes/generate-agents.sh
+expect_no_output "framework root, named in every agent" "framework: the summary names no framework root"
+TOTAL=$((TOTAL + 1))
+if [ "$(find .claude/agents -name '*.md' | grep -c .)" -eq 2 ] \
+  && ! grep -lE '^## Where the Framework Is$|^Framework root: ' .claude/agents/*.md >/dev/null 2>&1; then
+  [ -n "$VERBOSE" ] && printf '   ok   framework: its own agents carry no framework location section\n'
+else
+  printf '   FAIL framework: its own agents carry a framework location section, or were not written\n'
+  FAILED=$((FAILED + 1))
+fi
+expect 0 "framework: --check stays green" -- bash Adapters/ai-runtimes/generate-agents.sh --check
+
+# --check after the project moves: every agent names the old root. A
+# Strategic tier now mapped to another model makes the Strategic agents
+# differ in their mapping too. Neither is blamed on Employees/. The command is
+# the remedy the section prints, run as printed from the main checkout: a
+# wrong path of the framework inside the project fails it with 127. The
+# expected new root is the validated old one with the move applied.
+cd "$MAIN_430" || exit 1
+REGEN_430="$(sed -n 's/^`\(\.\/[^`]*generate-agents\.sh\)`\.$/\1/p' .claude/agents/devops-engineer.md | head -n 1)"
+cd "$WORK" || exit 1
+mv adopter-430 adopter-430-moved
+cd "$WORK/adopter-430-moved" || exit 1
+mkdir -p .ia-engineering
+printf 'map=strategic=b-model\n' > .ia-engineering/tier-map
+MOVED_ROOT_430="${ROOT_430%/adopter-430/ia-engineering}/adopter-430-moved/ia-engineering"
+expect 1 "--check after a move, run as the section prints it: every agent is stale" -- \
+  bash "${REGEN_430:-<no command printed>}" --check
+expect_output "Result: 0 current, $ROSTER_N_430 stale or missing"
+expect_output "devops-engineer.md (framework location only: on disk $ROOT_430; resolved $MOVED_ROOT_430)"
+expect_output "software-architect.md (mapping and framework location: on disk opus, effort: high, root $ROOT_430; resolved b-model, effort: high, root $MOVED_ROOT_430)"
+expect_output "  $ROSTER_N_430 name a framework root other than this one ($MOVED_ROOT_430):"
+expect_no_output "out of date with Employees/" "--check: a framework root difference is not blamed on Employees/"
+
 # --------------------------------------------------------------- verdict ----
 
 cd "$HERE" || exit 1

@@ -259,6 +259,74 @@ if [ ! -d "$PROJECT" ]; then
 fi
 PROJECT="$(CDPATH='' cd -- "$PROJECT" && pwd)"
 
+# --- Where an adopting project's agents read the framework (WU-IAENG-430) ----
+#
+# Every generated agent names framework documents by their path from the
+# framework root: Core/AGENT_CONDUCT.md, Standards/COMMIT_STANDARD.md, and
+# whatever its Employee definition cites. In this repository that root is the
+# working directory of every session and of every worktree, so the paths
+# resolve. In an adopting project they resolved nowhere (issue #449): not from
+# the project root, where the framework sits under ia-engineering/, and not
+# from a linked git worktree, the directory Claude Code gives an Employee
+# dispatched with `isolation: worktree`. A worktree shares the clone's config
+# but not its initialised submodule, so ia-engineering/ is empty there.
+# Measured on develop 75765ba: 741 framework paths named by 42 agents, 741
+# unresolved from the worktree. The Code Reviewer and the QA Engineer reviewed
+# without the Standards they apply.
+#
+# So an adopting project's agents carry one more section, "Where the Framework
+# Is", naming the framework root as the absolute path of the checkout that
+# generated them: the main checkout's framework, the same one git already runs
+# the hooks from in every worktree (install.sh writes an absolute
+# core.hooksPath for that reason, WU-IAENG-414). A path naming the main
+# checkout reads from any worktree, needs no network, no disk and no cleanup.
+#
+# Initialising the submodule in each worktree was measured and rejected: 10.7 s
+# and 5.6 MiB per worktree from a local one-commit fixture (a real one clones
+# the framework, history included, from its remote), and `git worktree remove`
+# then refuses, exit 128, "working trees containing submodules cannot be moved
+# or removed", so every worktree would need --force to be removed.
+#
+# The path is written as the runtime's file tools take it. Under Git Bash, pwd
+# says /c/Users/... or even /tmp/..., MSYS spellings a Windows program does not
+# read; cygpath -m gives C:/Users/..., which the runtime's file tools and Git
+# Bash both open. Elsewhere pwd's path is already native.
+#
+# The framework repository itself gets no such section: its agents stay
+# byte-identical, because there the paths already resolve. That is decided by
+# identity (-ef, device and inode), not by comparing spellings, for the reason
+# install.sh gives (WU-IAENG-362): the same directory can be spelled in two
+# letter cases. The framework's path inside the project is found by walking up
+# from the framework the same way, so a nested import (vendor/ia-engineering)
+# reads right too; a framework outside the project leaves it empty.
+#
+# A moved project, or agents copied from another clone, name a root that is
+# not this one. --check reports that as its own kind of difference ("framework
+# location only"), never as an Employee definition out of date.
+FRAMEWORK_SHOWN=""
+FRAMEWORK_REL=""
+if ! [ "$ROOT" -ef "$PROJECT" ]; then
+  _probe="$ROOT"
+  _rel=""
+  while :; do
+    _parent="$(dirname "$_probe")"
+    # dirname of the root is the root: the framework is not inside the project.
+    [ "$_parent" = "$_probe" ] && break
+    _rel="$(basename "$_probe")${_rel:+/$_rel}"
+    _probe="$_parent"
+    if [ "$_probe" -ef "$PROJECT" ]; then
+      FRAMEWORK_REL="$_rel"
+      break
+    fi
+  done
+  unset _probe _rel _parent
+  FRAMEWORK_SHOWN="$ROOT"
+  if command -v cygpath > /dev/null 2>&1; then
+    FRAMEWORK_SHOWN="$(cygpath -m "$ROOT" 2> /dev/null)"
+    [ -n "$FRAMEWORK_SHOWN" ] || FRAMEWORK_SHOWN="$ROOT"
+  fi
+fi
+
 # --- Tier mapping: target defaults < project file < flags --------------------
 #
 # Core/CAPABILITY_TIERS.md: the tier-to-model mapping is PROJECT context. Until
@@ -637,6 +705,85 @@ DIFFERENT=0
 # The subset of DIFFERENT whose only difference is the tier mapping (see
 # without_mapping below). Lets --check say which of the two causes it found.
 MAPPING_DRIFT=0
+# The subset of DIFFERENT that names another framework root, alone or beside
+# a mapping difference (see without_location below), and the part of it that
+# differs in nothing else.
+LOCATION_DRIFT=0
+LOCATION_ONLY=0
+
+# The "Where the Framework Is" section of an adopting project's agents, built
+# once (see "Where an adopting project's agents read the framework" above). The
+# root is on a line of its own, "Framework root: `<path>`", the one line
+# without_location and location_of read it from. Every sentence speaks to the
+# Employee reading the file, who may be in the main checkout or in a worktree.
+LOCATION_SECTION=""
+if [ -n "$FRAMEWORK_SHOWN" ]; then
+  if [ -n "$FRAMEWORK_REL" ]; then
+    _imported="This project imports IA Engineering at \`$FRAMEWORK_REL/\`. Read every framework
+file from the framework root of the project's main checkout:"
+    _prefix=", with or without \`$FRAMEWORK_REL/\` in front,"
+    _regenerate="from the main checkout with
+\`./$FRAMEWORK_REL/Adapters/ai-runtimes/generate-agents.sh\`."
+  else
+    _imported="This project uses IA Engineering from outside its own tree. Read every
+framework file from this framework root:"
+    _prefix=","
+    _regenerate="with that framework's
+\`Adapters/ai-runtimes/generate-agents.sh\`, run from the project root."
+  fi
+  LOCATION_SECTION="## Where the Framework Is
+
+$_imported
+
+Framework root: \`$FRAMEWORK_SHOWN\`
+
+A framework path in this definition or in your brief, such as \`Core/…\`,
+\`Standards/…\`, \`Templates/…\`, \`Workflows/…\`, \`Employees/…\`, \`Registry/…\`
+or \`Adapters/…\`$_prefix names the file at that path under the framework
+root: \`Core/AGENT_CONDUCT.md\` is \`$FRAMEWORK_SHOWN/Core/AGENT_CONDUCT.md\`.
+Read it there, by that absolute path.
+
+Never look for a framework file under your working directory. In a git
+worktree, where an Employee usually works, a framework imported as a submodule
+is an empty directory, because the submodule is not initialised there: a file
+missing under your working directory is not missing from the framework. If the
+framework root above does not exist, stop and report it: the project moved, or
+this definition was generated in another clone. It is regenerated $_regenerate
+"
+  unset _imported _prefix _regenerate
+fi
+
+# Prints a generated agent file with the framework root its "Where the
+# Framework Is" section names replaced by a fixed token, everywhere in the
+# file. Two files equal under this filter differ in the root only. The root is
+# read from the file's own "Framework root:" line, so each side is normalised
+# by its own value, and the comparison is by text (index), never by regular
+# expression: a path is full of characters a regex reads as operators.
+# Reads its file argument, or stdin when there is none.
+without_location() {
+  awk '
+    root == "" && /^Framework root: `.*`$/ {
+      root = $0
+      sub(/^Framework root: `/, "", root)
+      sub(/`$/, "", root)
+    }
+    root != "" {
+      out = ""
+      rest = $0
+      while ((i = index(rest, root)) > 0) {
+        out = out substr(rest, 1, i - 1) "<framework root>"
+        rest = substr(rest, i + length(root))
+      }
+      $0 = out rest
+    }
+    { print }
+  ' "$@"
+}
+
+# The framework root a generated file names, or nothing.
+location_of() {
+  awk '/^Framework root: `.*`$/ { sub(/^Framework root: `/, ""); sub(/`$/, ""); print; exit }' "$1"
+}
 
 # Prints a generated agent file with what the MAPPING decides removed:
 # `model:` and `effort:` inside the frontmatter, and the " -> <model>..." tail
@@ -655,7 +802,7 @@ without_mapping() {
     fm == 1 && (/^model: / || /^effort: /) { next }
     /^  Tier:      / { sub(/ -> .*$/, ""); print; next }
     { print }
-  ' "$1"
+  ' "$@"
 }
 
 generate_claude_code() {
@@ -747,6 +894,10 @@ trailer, and the commit-msg hook validates that name against the roster.
 
 HEADER
 
+    # Before the first section that names a framework path, so the root is
+    # read before any path is. Empty in the framework repository itself.
+    [ -n "$LOCATION_SECTION" ] && printf '%s\n' "$LOCATION_SECTION"
+
     local i s body
     for i in "${!SECTION_NAMES[@]}"; do
       s="${SECTION_NAMES[$i]}"
@@ -832,12 +983,23 @@ FOOTER
   } > "$tmp"
 
   if [ "$CHECK" -eq 1 ]; then
+    local disk_root
     if [ -f "$dest" ] && diff -q "$tmp" "$dest" > /dev/null 2>&1; then
       UNCHANGED=$((UNCHANGED + 1))
-    elif [ -f "$dest" ] && diff -q <(without_mapping "$tmp") <(without_mapping "$dest") > /dev/null 2>&1; then
+    elif [ -f "$dest" ] && diff -q <(without_location "$tmp") <(without_location "$dest") > /dev/null 2>&1; then
+      # Same content once each side's framework root is set aside: the agent
+      # names another checkout's framework (WU-IAENG-430). Equal under the
+      # filter but not before it means the two roots differ.
+      DIFFERENT=$((DIFFERENT + 1))
+      LOCATION_DRIFT=$((LOCATION_DRIFT + 1))
+      LOCATION_ONLY=$((LOCATION_ONLY + 1))
+      disk_root="$(location_of "$dest")"
+      echo "  differs: $dest (framework location only: on disk ${disk_root:-none}; resolved ${FRAMEWORK_SHOWN:-none})"
+    elif [ -f "$dest" ] && diff -q <(without_location "$tmp" | without_mapping) <(without_location "$dest" | without_mapping) > /dev/null 2>&1; then
       # Same content once the mapping lines are set aside: the Employee
       # definition did not change, the mapping did. Said so, rather than
-      # sending the reader to Employees/ for a drift that is not there.
+      # sending the reader to Employees/ for a drift that is not there. The
+      # framework root is set aside too, and named when it also differs.
       DIFFERENT=$((DIFFERENT + 1))
       MAPPING_DRIFT=$((MAPPING_DRIFT + 1))
       # Both halves of the mapping, on both sides: an effort-only drift would
@@ -845,7 +1007,13 @@ FOOTER
       local disk_model disk_effort
       disk_model="$(awk '/^---$/{n++; next} n==1 && /^model: /{sub(/^model: /, ""); print; exit}' "$dest")"
       disk_effort="$(awk '/^---$/{n++; next} n==1 && /^effort: /{sub(/^effort: /, ""); print; exit}' "$dest")"
-      echo "  differs: $dest (mapping only: on disk $disk_model, effort: ${disk_effort:-inherit}; resolved $model, effort: ${effort:-inherit})"
+      disk_root="$(location_of "$dest")"
+      if [ "$disk_root" = "$FRAMEWORK_SHOWN" ]; then
+        echo "  differs: $dest (mapping only: on disk $disk_model, effort: ${disk_effort:-inherit}; resolved $model, effort: ${effort:-inherit})"
+      else
+        LOCATION_DRIFT=$((LOCATION_DRIFT + 1))
+        echo "  differs: $dest (mapping and framework location: on disk $disk_model, effort: ${disk_effort:-inherit}, root ${disk_root:-none}; resolved $model, effort: ${effort:-inherit}, root ${FRAMEWORK_SHOWN:-none})"
+      fi
     else
       DIFFERENT=$((DIFFERENT + 1))
       echo "  differs: $dest"
@@ -887,6 +1055,9 @@ if [ -n "$PROJECT_ROSTER" ]; then
   echo "  project roster: $PROJECT_ROSTER ($(grep -cE '^  - name: ' "$PROJECT_ROSTER") Domain Employee(s))"
 else
   echo "  project roster: none (no .ia-engineering/Registry/employees.yml under the project — no Domain Employees)"
+fi
+if [ -n "$FRAMEWORK_SHOWN" ]; then
+  echo "  framework root, named in every agent: $FRAMEWORK_SHOWN"
 fi
 echo "  mapping: $MAPPING_SOURCE"
 echo "  tiers:   Strategic Judgment -> $MAP_STRATEGIC (effort: ${EFFORT_STRATEGIC:-inherit}), Standard Execution -> $MAP_STANDARD (effort: ${EFFORT_STANDARD:-inherit})"
@@ -969,8 +1140,13 @@ if [ "$CHECK" -eq 1 ]; then
       echo "  Either regenerate with the resolved mapping, or record the mapping they were"
       echo "  generated with in .ia-engineering/tier-map (Adapters/ai-runtimes/README.md)."
     fi
-    if [ "$DIFFERENT" -gt "$MAPPING_DRIFT" ]; then
-      echo "  $((DIFFERENT - MAPPING_DRIFT)) out of date with Employees/ or the roster, or missing."
+    if [ "$LOCATION_DRIFT" -gt 0 ]; then
+      echo "  $LOCATION_DRIFT name a framework root other than this one (${FRAMEWORK_SHOWN:-none}):"
+      echo "  the project moved, or they were generated in another clone. An Employee"
+      echo "  reading them looks for the framework where it is not. Regenerate them here."
+    fi
+    if [ "$DIFFERENT" -gt $((MAPPING_DRIFT + LOCATION_ONLY)) ]; then
+      echo "  $((DIFFERENT - MAPPING_DRIFT - LOCATION_ONLY)) out of date with Employees/ or the roster, or missing."
     fi
     echo "  Regenerate:"
     echo "    ./Adapters/ai-runtimes/generate-agents.sh --target $TARGET"

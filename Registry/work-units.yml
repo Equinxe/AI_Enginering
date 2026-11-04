@@ -1793,3 +1793,9 @@ work_units:
     title: Bump VERSION.md to v0.0.15 and finalize the CHANGELOG.md section for the Adoption release (Workflows/RELEASE.md Step 2) - the changelog fragments assembled by release.sh assemble, the 30 Oct 2026 release-readiness audit's editorial fixes (one ordered upgrade procedure, version-scoped Security and Fixed lines, document versions, the known issues), README pin and measured counts, CLAUDE.md Current Version, next milestone Usage (v0.0.16); this Work Unit's own fragment is an exemption
     milestone: Adoption
     delivers: VERSION.md, CHANGELOG.md, README.md, CLAUDE.md, Registry/work-units.yml, changelog.d/
+
+  - id: WU-IAENG-430
+    employee: Platform Engineer
+    title: An Employee in a linked worktree of an adopting project reads the framework its definition names (issue #449, Usage plan W1.2) - in a worktree the framework submodule is empty and the generated agents named framework files by framework-root paths, 741 of 741 unresolved on develop 75765ba; an adopting project's agents now carry a Where the Framework Is section naming the main checkout's framework root as an absolute path, written with cygpath -m under Git Bash, the root the hooks already run from (WU-IAENG-414); the framework's own agents are byte-identical, decided by -ef identity; --check names an agent from another clone or a moved project as framework location only, never as out of date with Employees/; initialising the submodule per worktree was measured (10.7 s, 5.6 MiB, git worktree remove refuses with exit 128) and rejected; Templates/EMPLOYEE_BRIEF.md and Templates/PROJECT_CLAUDE.md say where a worktree Employee reads the framework
+    milestone: Usage
+    delivers: Adapters/ai-runtimes/generate-agents.sh, Adapters/ai-runtimes/README.md, Adapters/scripts/tests/run.sh, Templates/EMPLOYEE_BRIEF.md, Templates/PROJECT_CLAUDE.md, changelog.d/WU-IAENG-430.md, Registry/work-units.yml
