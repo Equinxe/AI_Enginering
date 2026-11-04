@@ -308,7 +308,7 @@ check_message() {
     # registry can exceed the pipe buffer, and grep -q short-circuiting it would
     # SIGPIPE the producer — pipefail returns that, and a registered Work Unit
     # reads as unregistered. TROUBLESHOOTING X.
-    if grep -qxF "$WU" <<< "$KNOWN"; then
+    if grep -qxF -- "$WU" <<< "$KNOWN"; then
       echo "  $sha -> $WU (resolved)"
     else
       err "$what claims '$WU', which is not in $REGISTRY_LABEL. Either it is a typo, or the Work Unit was never registered. Register it in the same commit that performs the work — see the registry's own header for the field shape. If this line is an EXAMPLE quoted in the message body, indent it so it does not start at column 0."

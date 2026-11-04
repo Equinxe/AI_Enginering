@@ -168,7 +168,8 @@ validate_employee_lines() {
     # here-string, not `printf | grep -q`: grep -q short-circuiting a roster
     # that exceeds the pipe buffer would SIGPIPE the producer, and pipefail
     # returns that — a valid name read as invalid. TROUBLESHOOTING X.
-    if grep -qxF "$EMPLOYEE_NAME" <<< "$VALID_NAMES"; then
+    # `--`: the value is compared as text even when it begins with a dash.
+    if grep -qxF -- "$EMPLOYEE_NAME" <<< "$VALID_NAMES"; then
       echo "  $sha -> $EMPLOYEE_NAME"
     else
       err "Commit $sha has 'Employee: $EMPLOYEE_NAME', which is not in $ROSTER${PROJECT_ROSTER:+ nor in the project roster $PROJECT_ROSTER}. A functional or tool label ('executor', 'coder', 'reviewer-bot') is not a valid Employee name — see Core/MAIN_AGENT_CONDUCT.md, 'Naming matters.' If this line is an EXAMPLE quoted in the message body, indent it so it does not start at column 0."

@@ -115,7 +115,7 @@ fi
 # Types kept in sync with Templates/PULL_REQUEST.md's Type checklist.
 CC_REGEX='^(feat|fix|docs|refactor|perf|test|chore)(\([a-zA-Z0-9,._-]+\))?: .+'
 
-if [ "$IS_MERGE" -eq 0 ] && ! grep -qE "$CC_REGEX" <<< "$SUBJECT"; then
+if [ "$IS_MERGE" -eq 0 ] && ! grep -qE -- "$CC_REGEX" <<< "$SUBJECT"; then
   echo "commit-msg: rejected — subject line does not follow the Commit Standard." >&2
   echo "  Expected: type(scope): description" >&2
   echo "  type is one of: feat, fix, docs, refactor, perf, test, chore" >&2
@@ -384,7 +384,8 @@ while IFS= read -r line; do
   [ -n "$line" ] || continue
   name="${line#Employee: }"
   name="${name%$'\r'}"
-  if ! grep -qxF "$name" <<< "$VALID_NAMES"; then
+  # `--`: the value is compared as text even when it begins with a dash.
+  if ! grep -qxF -- "$name" <<< "$VALID_NAMES"; then
     echo "commit-msg: rejected — 'Employee: $name' is not a recognized Employee." >&2
     REJECTED=1
   fi
