@@ -207,8 +207,12 @@ listed in `Adapters/scripts/setup-branch-protection.sh`; the runtime hooks in
 first (`git submodule update --init`, or clone with `--recurse-submodules`),
 since `install.sh` lives in the submodule, then re-run
 `./ia-engineering/Adapters/scripts/install.sh` from the main checkout. A git
-worktree, such as an Employee's, needs neither: its hooks are the main
-checkout's.
+worktree, such as an Employee's, needs neither, though its `ia-engineering/`
+stays empty: its hooks are the main checkout's, and each generated Employee
+reads the framework from the main checkout, at the absolute path its
+definition names under "Where the Framework Is". If the project moves, re-run
+`./ia-engineering/Adapters/ai-runtimes/generate-agents.sh` from the main
+checkout.
 
 ---
 
