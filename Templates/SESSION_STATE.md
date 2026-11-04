@@ -23,7 +23,7 @@ So: `.ia-engineering/SESSION_STATE.md` is in `.gitignore` from the project's fir
 ## Reading order on resume
 
 1. `CLAUDE.md` — the contract.
-2. `.ia-engineering/SESSION_STATE.md` — where things actually stand. Read **before any other action**, not only when in doubt. If it does not exist, create it from the fenced block under **Template** below before doing anything else.
+2. `.ia-engineering/SESSION_STATE.md` — where things actually stand. Read **before any other action**, not only when in doubt. If it does not exist, create it before doing anything else: run the framework's `Adapters/scripts/create-session-state.sh` from the project root, or copy the fenced block under **Template** below by hand.
 3. Only then, the task.
 
 ## Cadence
@@ -63,7 +63,9 @@ A handoff that skips any item is not a handoff — it is a session ending and ho
 
 # Template
 
-**Copy only the contents of the fenced block below** into `.ia-engineering/SESSION_STATE.md`, from the `<!--` line to the last line before the closing fence. Never copy this whole file. The sections above explain how to keep the state file and are not part of it. A whole-file copy leaves the session-start hook reading the placeholder `_Last updated:` line inside the fence and reporting "no parsable date". Then replace the placeholders. At minimum, the `_Last updated:` line takes today's absolute date as day, English month name, year (`6 October 2026`), which is the form `session-start.sh` parses.
+**The helper writes it for you.** From the project root, after the adoption commit, run `./ia-engineering/Adapters/scripts/create-session-state.sh`. It writes exactly the fenced block below into `.ia-engineering/SESSION_STATE.md`, with the project name and today's date in the form `session-start.sh` parses, and checks that git ignores the file. It refuses, and writes nothing, before the project's first commit, over an existing file, or on a path git does not ignore. `--name` and `--by` set the project name and the author. `Adapters/README.md` lists every refusal. Then fill in the other placeholders.
+
+**By hand**, as the fallback: **copy only the contents of the fenced block below** into `.ia-engineering/SESSION_STATE.md`, from the `<!--` line to the last line before the closing fence. Never copy this whole file. The sections above explain how to keep the state file and are not part of it. A whole-file copy leaves the session-start hook reading the placeholder `_Last updated:` line inside the fence and reporting "no parsable date". Then replace the placeholders. At minimum, the `_Last updated:` line takes today's absolute date as day, English month name, year (`6 October 2026`), which is the form `session-start.sh` parses.
 
 ```markdown
 <!--
@@ -142,6 +144,7 @@ restart service X without clearing cache Y".]
 | Document | Relationship |
 |---|---|
 | `Workflows/ONBOARDING.md` | Step 1 creates this file alongside `CLAUDE.md`; Step 7 confirms both exist. |
+| `Adapters/scripts/create-session-state.sh` | Writes this template's fenced block into a project's `.ia-engineering/SESSION_STATE.md`, with the project name and today's date; the by-hand copy above is the fallback. |
 | `Workflows/PROJECT_BOOTSTRAP.md` | The `.gitignore` written in Step 3 excludes it from the first commit. |
 | `Standards/DATA_PROTECTION_STANDARD.md` | Classifies operational state as protected content; the `pre-commit` Adapter refuses this file by name. |
 | `Core/MAIN_AGENT_CONDUCT.md` | Durable Tracking of Findings: a finding recorded here and nowhere else is not durable — file it as an Issue too. |
@@ -156,7 +159,7 @@ restart service X without clearing cache Y".]
 
 Owner: IA Engineering
 
-Version: 0.0.14
+Version: 0.0.15
 
 Status: Draft
 

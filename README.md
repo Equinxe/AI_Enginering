@@ -145,18 +145,32 @@ to apply by hand.
 
 ### The steps that are not commands
 
-Copy `Templates/PROJECT_CLAUDE.md` to your project's `CLAUDE.md` and fill it in.
-It is the contract every session reads first; a project without one starts every
-session with no context and no rules. Make your first commit (the adoption itself: the submodule and the installed
-tooling; `CLAUDE.md` goes in a later commit), signed `Employee: DevOps Engineer`
+Make the adoption commit, your first commit in a new repository: the submodule
+and the installed tooling, without `CLAUDE.md`, signed `Employee: DevOps Engineer`
 (`Workflows/PROJECT_BOOTSTRAP.md` Step 4), with a `Work Unit:` line naming the
 adoption Work Unit, registered in `Registry/work-units.yml` in that same commit.
 This commit goes to `main` without a Pull Request, so the trailer checks
 (`Work Unit Exists`, `Employee Trailer`), which run on Pull Requests only, never
 read it: the `commit-msg` hook refuses an unregistered Work Unit, but not a
-missing line. Then create
-`.ia-engineering/SESSION_STATE.md`. The helper
-`./ia-engineering/Adapters/scripts/create-session-state.sh` does it for you: it
+missing line.
+
+Then have the Main Agent dispatch the DevOps Engineer to create `CLAUDE.md`
+from the fenced block under **Template** in `Templates/PROJECT_CLAUDE.md` (the
+block's contents only, not the whole file, whose other sections explain how
+to fill it in) and fill it in with your answers. The Main Agent never writes
+the file itself (`Core/MAIN_AGENT_CONDUCT.md`, Dispatch Discipline). If your
+project already has a `CLAUDE.md`, it is kept, and the block is merged into it
+as that template's section **A project that already has a `CLAUDE.md`** says,
+so your build commands and conventions stay. It is the contract every session
+reads first; a project without one starts every session with no context and
+no rules. The DevOps Engineer commits it on its own, after the adoption
+commit, signed `Employee: DevOps Engineer` (Director decision, 4 November
+2026), so every commit of the adoption has the same signer. That commit
+carries a `Work Unit:` line of its own, registered in that commit, because the
+hook does not require the line. Then create
+`.ia-engineering/SESSION_STATE.md`, and copy into its Governance Deviations in
+Force section any deviation the `CLAUDE.md` merge recorded. The helper
+`./ia-engineering/Adapters/scripts/create-session-state.sh` creates the file: it
 refuses before the first commit and never overwrites an existing file, writes the
 fenced block with the project name and today's date in the form described below,
 and checks that the file is gitignored. By hand, it comes from the fenced block under **Template** in
@@ -167,7 +181,7 @@ today's absolute date in the form `6 October 2026` (day, English month name,
 year). The session-start hook reads the date from that line and reports a
 placeholder as unparsable. This file is the project's dated operational state,
 read right after `CLAUDE.md` on every resume, and never committed (the install
-gitignores it). Create it **after** that commit, not before: the session-start
+gitignores it). Create it **after** those two commits, not before: the session-start
 hook compares the file's modification time with the latest commit, so a file
 that predates the first commit is reported as "1 commit(s) behind" on the very
 first session. `Workflows/PROJECT_BOOTSTRAP.md` walks

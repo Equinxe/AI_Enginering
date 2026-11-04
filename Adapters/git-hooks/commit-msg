@@ -6,7 +6,10 @@
 #   1. Standards/COMMIT_STANDARD.md — Conventional Commits subject line.
 #   2. Core/MAIN_AGENT_CONDUCT.md (Dispatch Discipline) — every commit must
 #      identify the Employee who produced it, by name, not by a generic tool
-#      label ("executor", "coder", etc.).
+#      label ("executor", "coder", etc.). (2a) Every trailer git reads as
+#      `Employee`, whatever its spelling, is a line spelt exactly
+#      `Employee: <Name>`, so the name git reads is the name validated
+#      (issue #338).
 #   3. Standards/COMMIT_STANDARD.md (Trailers) — at most one `Work Unit:` line,
 #      and (4) the one present names a Work Unit registered in the project's
 #      Registry/work-units.yml as staged, resolved by
@@ -70,6 +73,73 @@ SUBJECT="$(head -1 "$COMMIT_MSG_FILE")"
 # inside a value since WU-IAENG-389; the other control bytes are #427.
 shown() { printf '%s' "${1//$'\r'/\\r}"; }
 
+# --- Rule 2a: every Employee trailer git reads is spelt `Employee: <Name>` --
+# Issue #338 (SEC-IAENG-389-01). Rule 2 below validates the lines that start
+# `Employee: ` at column 0. git's trailer parser reads more lines than those
+# as an Employee trailer: the key in any case (`employee:`), with spaces or a
+# tab before the colon (`Employee :`), with no space after it (`Employee:x`),
+# and it folds an indented line that follows a trailer into that trailer's
+# value. Each such line passed this hook and CI, and
+# `git log --format='%(trailers:key=Employee)'`, the reader usage-dashboard.sh
+# uses, returned a name nobody had checked against the roster.
+#
+# Which lines are trailers is git's decision, not a pattern copied from it:
+# `git interpret-trailers --parse` lists the trailers git reads, each one
+# unfolded and written `key: value`. `--no-divider` reads the message as
+# `git log` reads a commit; without it, a `---` line in the body hides the
+# trailer block. Each trailer whose key is `Employee`, in any case, must be
+# accounted for by a line of the message spelt exactly `Employee: <value>`,
+# which is a line Rule 2 validates against the roster. One line accounts for
+# one trailer. So every Employee value git reads is one Rule 2 validated, and
+# a variant spelling is refused even when the name it carries is valid.
+#
+# Accepted by design: a variant whose reading is identical to an exact line
+# elsewhere in the message, outside the trailer block. git then reads that
+# validated value, and the variant itself carries nothing else.
+#
+# It runs before the merge classification below, so it applies to every
+# commit, merges of every kind included: it needs neither the roster nor the
+# classification. A message git cannot parse is refused, not passed.
+if ! GIT_TRAILERS="$(git interpret-trailers --parse --no-divider < "$COMMIT_MSG_FILE")"; then
+  echo "commit-msg: rejected — git interpret-trailers could not parse this message, so the Employee trailers git reads were not checked." >&2
+  exit 1
+fi
+# The lines Rule 2 validates, each with only a line-ending carriage return
+# removed, as Rule 2 removes it (git drops that one from the value it reads,
+# and keeps one inside a value). Newline-delimited at both ends, so one line
+# is matched whole and removed once.
+EXACT_EMPLOYEE_LINES=$'\n'
+while IFS= read -r exact_line; do
+  [ -n "$exact_line" ] || continue
+  EXACT_EMPLOYEE_LINES="$EXACT_EMPLOYEE_LINES${exact_line%$'\r'}"$'\n'
+done <<EOF
+$(grep -E '^Employee: ' "$COMMIT_MSG_FILE" || true)
+EOF
+UNACCOUNTED=0
+while IFS= read -r trailer; do
+  case "$trailer" in
+    [Ee][Mm][Pp][Ll][Oo][Yy][Ee][Ee]:*) ;;
+    *) continue ;;
+  esac
+  if [[ "$EXACT_EMPLOYEE_LINES" == *$'\n'"$trailer"$'\n'* ]]; then
+    EXACT_EMPLOYEE_LINES="${EXACT_EMPLOYEE_LINES/$'\n'"$trailer"$'\n'/$'\n'}"
+  else
+    echo "commit-msg: rejected — git reads '$(shown "$trailer")' as an Employee trailer, and no line of the message is spelt exactly so." >&2
+    UNACCOUNTED=1
+  fi
+done <<EOF
+$GIT_TRAILERS
+EOF
+if [ "$UNACCOUNTED" -eq 1 ]; then
+  echo "  This hook and CI check the name on each line spelt 'Employee: <Name>' at" >&2
+  echo "  column 0. git also reads the key in any case, with spaces or a tab before" >&2
+  echo "  the colon or no space after it, and folds an indented line into the" >&2
+  echo "  trailer above it, so a line spelt any other way reaches git log with a" >&2
+  echo "  name nobody checked (issue #338). Write each Employee trailer as exactly" >&2
+  echo "  'Employee: <Name>' on one line, with no indented line under it." >&2
+  exit 1
+fi
+
 # --- Merge commit exception ------------------------------------------------
 # Git creates MERGE_HEAD while a merge is in progress, and it still exists
 # when the commit-msg hook runs for the resulting merge commit. Its subject
@@ -91,8 +161,16 @@ MERGE_HEAD_PATH="$(git rev-parse --git-path MERGE_HEAD)"
 #                                         validated only if present, exit 0
 #   authored  tree differs, conflicts resolved, or several MERGE_HEAD lines
 #             (octopus)                -> no subject rule, Rule 2 REQUIRED
-#   unknown   git too old / merge-tree errors -> warn, keep the old behaviour
-#             (exit 0); CI (check-employee-trailers.sh) classifies it instead
+#   unknown   merge-tree errors          -> warn; then as clean: no subject
+#             rule, Employee lines validated only if present, the Work Unit
+#             claim resolved (Rules 3 and 4); whether it needed a trailer is
+#             left to CI (check-employee-trailers.sh, check-work-units.sh),
+#             which classifies it or fails closed (WU-IAENG-429, #408).
+#             Unrelated histories (`git merge --allow-unrelated-histories`)
+#             make merge-tree exit 128. A git older than 2.38 has no
+#             --write-tree: its merge-tree takes exactly three arguments and
+#             exits 129 (usage) on the four given below, so there every
+#             merge of two parents is unknown
 # Known friction, by design: `-s ours`, `-X theirs`, and conflicts resolved in
 # the GitHub web editor produce a tree that differs from the automatic merge,
 # so they need an Employee trailer (or, for the web editor, resolve locally).
@@ -117,7 +195,10 @@ if [ -f "$MERGE_HEAD_PATH" ]; then
     # A warning, not a refusal: behind a closed pipe its write fails, and
     # set -e must not turn it into one (PR #387 review, round 3).
     echo "commit-msg: warning — cannot classify this merge locally; CI will." >&2 || true
-    exit 0
+    # No exit here: checking a claim needs no classification. Until
+    # WU-IAENG-429 the hook exited 0 at this point, before any rule, so an
+    # unregistered `Work Unit:` claim, or an `Employee:` line naming no
+    # Employee, was merged locally while CI refused it (issue #408, S4-24).
   fi
 fi
 
@@ -133,10 +214,12 @@ if [ "$IS_MERGE" -eq 0 ] && ! grep -qE "$CC_REGEX" <<< "$SUBJECT"; then
   exit 1
 fi
 
-# A clean merge carrying no claim, neither Employee nor Work Unit, has nothing
-# left to check. A claim it does carry is validated (Rule 4 for a Work Unit),
-# as the CI checks validate a claim present on any merge.
-if [ "$MERGE_KIND" = clean ] \
+# A merge carrying no claim, neither Employee nor Work Unit, has nothing left
+# to check when it is clean, or when this hook cannot classify it. A claim
+# such a merge does carry is validated (Rule 2 for an Employee line, Rules 3
+# and 4 for a Work Unit), as the CI checks validate a claim present on any
+# merge.
+if { [ "$MERGE_KIND" = clean ] || [ "$MERGE_KIND" = unknown ]; } \
    && ! grep -qE '^Employee: ' "$COMMIT_MSG_FILE" \
    && ! grep -qE '^Work Unit: ' "$COMMIT_MSG_FILE"; then
   exit 0
@@ -373,8 +456,11 @@ fi
 
 if [ -z "$EMPLOYEE_LINES" ]; then
   # A clean merge reaches this point only to have its Work Unit claim resolved
-  # (Rule 4, above); it needs no Employee trailer.
+  # (Rule 4, above); it needs no Employee trailer. Nor is one required here of
+  # a merge this hook cannot classify: whether it authors content is decided
+  # in CI (check-employee-trailers.sh), which fails closed when it cannot tell.
   [ "$MERGE_KIND" = clean ] && exit 0
+  [ "$MERGE_KIND" = unknown ] && exit 0
   [ "$MERGE_KIND" = authored ] && echo "commit-msg: this merge changes content beyond its parents' automatic merge, so it is authored work." >&2
   echo "commit-msg: rejected — missing 'Employee: <Name>' trailer." >&2
   echo "  Per Core/MAIN_AGENT_CONDUCT.md (Dispatch Discipline), every commit must" >&2

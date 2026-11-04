@@ -45,12 +45,15 @@
 # Scripts rule 1):
 #   0  every commit, and every authored merge, carries an Employee that resolves
 #   1  a finding: a commit or authored merge without the trailer, or with a
-#      name that is not on the roster
+#      name that is not on the roster, or a commit of any kind with a trailer
+#      git reads as Employee that no line spelt `Employee: <Name>` accounts
+#      for (issue #338)
 #   2  could not evaluate, or a usage error: merge-classify.sh missing, no
 #      roster or one that yields no names, $IAENG_PROJECT_ROSTER naming no
-#      file, `git rev-list` failed, git too old to classify merges, or a merge
-#      that could not be classified. A finding elsewhere in the range does not
-#      lower it to 1: what was not evaluated is reported as such.
+#      file, `git rev-list` failed, `git log` could not read a commit's
+#      trailers, git too old to classify merges, or a merge that could not be
+#      classified. A finding elsewhere in the range does not lower it to 1:
+#      what was not evaluated is reported as such.
 # A range with no non-merge commits says so and still classifies its merges.
 
 set -uo pipefail
@@ -186,6 +189,55 @@ validate_employee_lines() {
   done < <(printf '%s\n' "$lines")
 }
 
+# validate_git_reading <sha> <employee-lines>
+# Issue #338 (SEC-IAENG-389-01). The lines validate_employee_lines checks are
+# those that start `Employee: ` at column 0. git's trailer parser reads more
+# lines than those as an Employee trailer: the key in any case, with spaces or
+# a tab before the colon, with no space after it, and with an indented line
+# that follows folded into the value. Each passed this check while
+# `git log --format='%(trailers:key=Employee)'` returned a name nobody had
+# checked against the roster.
+#
+# Which lines are trailers is git's decision, not a pattern copied from it.
+# This reads the commit with the placeholder usage-dashboard.sh reads it with,
+# `%(trailers:key=Employee,unfold)`: git matches the key in any case and
+# writes each trailer `key: value` on one line. Each must be accounted for by
+# one of <employee-lines>, spelt exactly so, with only a line-ending carriage
+# return removed (git drops that one, and keeps one inside a value). One line
+# accounts for one trailer. So every Employee value git reads is one
+# validate_employee_lines validated, and a variant spelling is refused even
+# when the name it carries is valid. Called on every commit, merges of every
+# kind included, before the absent-trailer and classification decisions.
+#
+# Accepted by design: a variant whose reading is identical to an exact line
+# elsewhere in the message, outside the trailer block. git then reads that
+# validated value, and the variant itself carries nothing else.
+#
+# Sets fail=1 on a trailer no line accounts for, unevaluated=1 when git
+# cannot read the commit's trailers.
+validate_git_reading() {
+  local sha="$1" lines="$2" read_by_git exact exact_line trailer
+  if ! read_by_git="$(git log -1 --format='%(trailers:key=Employee,unfold)' "$sha")"; then
+    err "git log could not read the trailers of commit $sha, so the Employee trailers git reads were not checked. Failing rather than passing it unexamined."
+    unevaluated=1
+    return
+  fi
+  exact=$'\n'
+  while IFS= read -r exact_line; do
+    [ -n "$exact_line" ] || continue
+    exact="$exact${exact_line%$'\r'}"$'\n'
+  done < <(printf '%s\n' "$lines")
+  while IFS= read -r trailer; do
+    [ -n "$trailer" ] || continue
+    if [[ "$exact" == *$'\n'"$trailer"$'\n'* ]]; then
+      exact="${exact/$'\n'"$trailer"$'\n'/$'\n'}"
+    else
+      err "Commit $sha: git reads '$trailer' as an Employee trailer, and no line of its message is spelt exactly so. This check validates the name on each line spelt 'Employee: <Name>' at column 0; git also reads the key in any case, with spaces or a tab before the colon or no space after it, and folds an indented line into the trailer above it, so a line spelt any other way reaches git log with a name nobody checked (issue #338). Write each Employee trailer as exactly 'Employee: <Name>' on one line, with no indented line under it."
+      fail=1
+    fi
+  done < <(printf '%s\n' "$read_by_git")
+}
+
 if [ -z "$COMMITS" ]; then
   echo "No non-merge commits to validate."
 else
@@ -195,6 +247,7 @@ fi
 for sha in $COMMITS; do
   MSG="$(git log -1 --format=%B "$sha")"
   EMPLOYEE_LINES="$(printf '%s\n' "$MSG" | grep -E '^Employee: ' || true)"
+  validate_git_reading "$sha" "$EMPLOYEE_LINES"
 
   if [ -z "$EMPLOYEE_LINES" ]; then
     err "Commit $sha is missing an 'Employee: <Name>' trailer. Per Core/MAIN_AGENT_CONDUCT.md (Dispatch Discipline), every commit must identify the Employee who produced it. This commit likely skipped the local commit-msg hook (--no-verify, or the hook was never installed)."
@@ -244,6 +297,7 @@ if [ -n "$MERGES" ]; then
 
   for sha in $MERGES; do
     EMPLOYEE_LINES="$(git log -1 --format=%B "$sha" | grep -E '^Employee: ' || true)"
+    validate_git_reading "$sha" "$EMPLOYEE_LINES"
     if [ -n "$EMPLOYEE_LINES" ]; then
       validate_employee_lines "$sha" "$EMPLOYEE_LINES"
       continue
