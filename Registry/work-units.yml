@@ -1793,3 +1793,9 @@ work_units:
     title: Bump VERSION.md to v0.0.15 and finalize the CHANGELOG.md section for the Adoption release (Workflows/RELEASE.md Step 2) - the changelog fragments assembled by release.sh assemble, the 30 Oct 2026 release-readiness audit's editorial fixes (one ordered upgrade procedure, version-scoped Security and Fixed lines, document versions, the known issues), README pin and measured counts, CLAUDE.md Current Version, next milestone Usage (v0.0.16); this Work Unit's own fragment is an exemption
     milestone: Adoption
     delivers: VERSION.md, CHANGELOG.md, README.md, CLAUDE.md, Registry/work-units.yml, changelog.d/
+
+  - id: WU-IAENG-431
+    employee: Platform Engineer
+    title: Make the escape-hatch guard fast under parallel load (issue #385, Usage plan W1.4, SEC-IAENG-410-01) - block-escape-hatches.sh matches its rules with bash's own [[ =~ ]], line by line as grep read them, instead of starting a grep per rule; reads both payload fields with one jq; skips the lexer for a command with none of the eleven bytes the lexer rewrites; refuses a command of more than 2,000 pipeline segments after expansion, and a rule pattern the shell cannot compile; the rule patterns are unchanged; tests/run.sh counts the processes a call starts and pins the fast path, the cap and the compile refusal; Governance/BLOCKING_HOOK_LATENCY_MEASUREMENT.md records the re-measurement
+    milestone: Usage
+    delivers: Adapters/ai-runtimes/claude-code/hooks/block-escape-hatches.sh, Adapters/ai-runtimes/claude-code/hooks/tests/run.sh, Adapters/ai-runtimes/claude-code/hooks/tests/escape-hatch-cases.tsv, Adapters/ai-runtimes/claude-code/hooks/README.md, Governance/BLOCKING_HOOK_LATENCY_MEASUREMENT.md, changelog.d/WU-IAENG-431.md, Registry/work-units.yml

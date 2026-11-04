@@ -202,6 +202,157 @@ expect_hint "hooksPath: a legacy read beside a -c write gets no read hint" \
 # for a command that disables the hooks (issue #275, item 4; WU-IAENG-364).
 expect_hint "hooksPath: a legacy read beside a -c write layered under a --get read gets no read hint" \
   'cd "/x" && git config core.hooksPath; git -c core.hooksPath=/dev/null config --get core.hooksPath' 0
+
+# --- Escape-hatch hook: matching in bash, the fast path, the cap (WU-IAENG-431)
+# The rules are matched by bash, line by line, as grep read them; one jq reads
+# both payload fields; a command with none of the eleven bytes the lexer rewrites
+# skips the lexer; and a command over MAX_SEGMENTS segments is refused
+# (issue #385, SEC-IAENG-410-01). Each case below pins one of those moves, so
+# that a change to it fails here rather than in a timing.
+mkbash() { jq -n --arg c "$1" '{tool_name:"Bash",tool_input:{command:$c}}'; }
+# expect_reason <label> <payload> <substring> — refused, with the substring in
+# the "iaeng: BLOCKED — " line.
+expect_reason() {
+  local label="$1" payload="$2" want="$3" out rc
+  TOTAL=$((TOTAL + 1))
+  out="$(printf '%s' "$payload" | bash "$HOOK" 2>&1 >/dev/null)"
+  rc=$?
+  if [ "$rc" -eq 2 ] && sed -n 's/^iaeng: BLOCKED — //p' <<< "$out" | grep -qF -- "$want"; then
+    [ "$VERBOSE" -eq 1 ] && printf '   ok    %s\n' "$label"
+  else
+    FAILED=$((FAILED + 1))
+    printf '   FAIL  %s: exit %s, want 2 with "%s"\n' "$label" "$rc" "$want"
+    printf '%s\n' "$out" | sed 's/^/         | /'
+  fi
+}
+# A line is a line. No match runs across a line break, and ^ anchors at the
+# start of every line, as it did under grep. A matcher that read the text
+# whole would refuse the first and allow the second.
+expect_rc "escape-hatch: a flag on the next line is not the push's flag" 0 "$HOOK" "$(mkbash $'git push origin main\necho -f')"
+expect_reason "escape-hatch: an assigning builtin that starts a later line is at command position" \
+  "$(mkbash $'echo x\nexport GIT_CONFIG_PARAMETERS')" "GIT_CONFIG_PARAMETERS (or an assigning builtin"
+# The payload's first line. The call is judged unless tool_name is a string
+# other than "" and Bash: no name, an empty one, or one that is not a string
+# is judged; another tool's call is not, even when it carries a command field.
+expect_rc "escape-hatch: a payload without tool_name is judged" 2 "$HOOK" '{"tool_input":{"command":"git push --force"}}'
+expect_rc "escape-hatch: an empty tool_name is judged" 2 "$HOOK" '{"tool_name":"","tool_input":{"command":"git push --force"}}'
+expect_rc "escape-hatch: a tool_name that is not a string is judged" 2 "$HOOK" '{"tool_name":5,"tool_input":{"command":"git push --force"}}'
+expect_rc "escape-hatch: another tool's call is not judged" 0 "$HOOK" '{"tool_name":"Read","tool_input":{"command":"git push --force"}}'
+# The fast path's control bytes that can change a verdict, which the case file
+# cannot hold. Each is refused only because the lexer ran: \001 ends one of
+# its records (the two halves of the flag are joined), \002 becomes the { that
+# puts export at command position. \003 (a }, which no rule pattern contains)
+# and a CR (whitespace to every rule at a line's end) cannot change a verdict;
+# they go to the lexer so that STRIPPED is always what the lexer would print,
+# and the budget checks below pin that.
+expect_reason "escape-hatch: \\001 inside a flag goes through the lexer" "$(mkbash $'git push --forc\001e')" "force-push or mirror-push"
+expect_reason "escape-hatch: \\002 before export goes through the lexer" "$(mkbash $'\002export GIT_CONFIG_KEY_0')" "an assigning builtin naming GIT_CONFIG_KEY_<n>"
+# The fast path's promise, kept by the lexer: every byte value but those eleven
+# (and NUL, which no shell string holds) is copied unchanged. One text holds
+# each such byte once, then 20,000 more drawn from them; the lexer must print
+# it back exactly. A lexer that starts rewriting one of them must also add it
+# to the hook's list, or this check fails. (A CR is one of the eleven: gawk
+# built for Windows reads CR LF as LF.)
+FP_ALPHA=()
+for ((fp_i = 1; fp_i < 256; fp_i++)); do
+  printf -v fp_hex '%02x' "$fp_i"
+  printf -v fp_ch '%b' "\\x$fp_hex"
+  case "$fp_ch" in [\\\$\`\'\"\<\{$'\001\002\003\r']) continue ;; esac
+  FP_ALPHA+=("$fp_ch")
+done
+FP_TEXT=""
+for fp_ch in "${FP_ALPHA[@]}"; do FP_TEXT+="$fp_ch"; done
+RANDOM=431
+for ((fp_i = 0; fp_i < 20000; fp_i++)); do FP_TEXT+="${FP_ALPHA[RANDOM % ${#FP_ALPHA[@]}]}"; done
+FP_TEXT+="x"
+FP_GOT="$(awk -f "$HOOKS/strip-quotes.awk" <<< "$FP_TEXT")"
+TOTAL=$((TOTAL + 1))
+if [ "${#FP_ALPHA[@]}" -eq 244 ] && [ "$FP_GOT" = "$FP_TEXT" ]; then
+  [ "$VERBOSE" -eq 1 ] && printf '   ok    %s\n' "escape-hatch: the lexer copies every byte outside the fast path's eleven unchanged"
+else
+  FAILED=$((FAILED + 1))
+  printf '   FAIL  escape-hatch: the lexer copies every byte outside the fast path'"'"'s eleven unchanged (%s bytes, %s in, %s out)\n' \
+    "${#FP_ALPHA[@]}" "${#FP_TEXT}" "${#FP_GOT}"
+fi
+# The segment cap. 2,000 segments are read; 2,001 are refused, with the cap's
+# own reason. Both cases are plain, so nothing else could refuse them.
+SEG_AT_CAP=""
+for ((seg_i = 1; seg_i < 2000; seg_i++)); do SEG_AT_CAP+="true;"; done
+SEG_AT_CAP+="true"
+expect_rc "escape-hatch: 2,000 segments are read" 0 "$HOOK" "$(mkbash "$SEG_AT_CAP")"
+expect_reason "escape-hatch: 2,001 segments are refused" "$(mkbash "$SEG_AT_CAP;true")" "pipeline segments after expansion"
+# A pattern bash cannot compile refuses the call rather than reading as "no
+# match". A copy of the hook gains one rule whose pattern is invalid, ahead of
+# the others; a plain command must then be refused with that reason.
+RX_BAD="$(mktemp -d)"
+cp "$HOOKS/lib.sh" "$HOOKS/strip-quotes.awk" "$RX_BAD/"
+awk '{ print } index($0, "check_key() {") == 1 { print "check \"(\" || :" }' "$HOOK" > "$RX_BAD/block-escape-hatches.sh"
+TOTAL=$((TOTAL + 1))
+if [ "$(grep -c '^check "(" || :$' "$RX_BAD/block-escape-hatches.sh")" -ne 1 ]; then
+  FAILED=$((FAILED + 1))
+  printf '   FAIL  escape-hatch: could not add the invalid rule to the copy (no check_key definition found)\n'
+else
+  RX_OUT="$(printf '%s' "$(mkbash 'git status')" | bash "$RX_BAD/block-escape-hatches.sh" 2>&1 >/dev/null)"
+  RX_RC=$?
+  if [ "$RX_RC" -eq 2 ] && grep -qF "does not compile" <<< "$RX_OUT"; then
+    [ "$VERBOSE" -eq 1 ] && printf '   ok    %s\n' "escape-hatch: a pattern that does not compile refuses the call"
+  else
+    FAILED=$((FAILED + 1))
+    printf '   FAIL  escape-hatch: a pattern that does not compile refuses the call: exit %s\n' "$RX_RC"
+  fi
+fi
+rm -rf "$RX_BAD"
+# THE PROCESS BUDGET (issue #385). Counted with recording stand-ins first on
+# PATH, as the stop-gate budget is below. A plain command starts lib.sh's cat
+# and one jq, and no awk; a quoted one adds the lexer's awk; an edit with a
+# quoted label list adds the KEEPQ awk. The old hook started a grep per rule:
+# 84 processes for `git status` (Governance/BLOCKING_HOOK_LATENCY_MEASUREMENT.md).
+# A log without jq means nothing was counted, which is not a pass.
+EH_BASE="$(mktemp -d)"
+EH_SHIMS="$EH_BASE/shims"
+EH_LOG="$EH_BASE/shims.log"
+EH_SHIMS_ON_PATH="$EH_SHIMS"
+command -v cygpath >/dev/null 2>&1 && EH_SHIMS_ON_PATH="$(cygpath -u "$EH_SHIMS")"
+EH_CMDS="awk cat cut grep head jq sed sort tr wc"
+mkdir -p "$EH_SHIMS"
+for eh_cmd in $EH_CMDS; do
+  eh_real="$(command -v "$eh_cmd")" || continue
+  printf '#!/bin/sh\necho %s >> "%s"\nexec "%s" "$@"\n' "$eh_cmd" "$EH_LOG" "$eh_real" > "$EH_SHIMS/$eh_cmd"
+  chmod +x "$EH_SHIMS/$eh_cmd"
+done
+# eh_budget <label> <command> <awk wanted> <most starts>
+eh_budget() {
+  local label="$1" cmd="$2" want_awk="$3" most="$4" payload rc n_jq n_awk n_all seen
+  TOTAL=$((TOTAL + 1))
+  payload="$(mkbash "$cmd")"
+  : > "$EH_LOG"
+  printf '%s' "$payload" | PATH="$EH_SHIMS_ON_PATH:$PATH" bash "$HOOK" >/dev/null 2>&1
+  rc=$?
+  n_jq="$(grep -c '^jq$' "$EH_LOG")"
+  n_awk="$(grep -c '^awk$' "$EH_LOG")"
+  n_all="$(wc -l < "$EH_LOG" | tr -d ' ')"
+  if [ "$rc" -eq 0 ] && [ "$n_jq" -eq 1 ] && [ "$n_awk" -eq "$want_awk" ] && [ "$n_all" -le "$most" ]; then
+    [ "$VERBOSE" -eq 1 ] && printf '   ok    %s\n' "$label"
+  else
+    FAILED=$((FAILED + 1))
+    seen="$(sort "$EH_LOG" | uniq -c | awk '{printf "%s x%s, ", $2, $1}')"
+    [ -n "$seen" ] || seen="nothing (no stand-in ran, so nothing was counted)"
+    printf '   FAIL  %s: exit %s, started %s(want jq x1, awk x%s, at most %s of: %s)\n' \
+      "$label" "$rc" "$seen" "$want_awk" "$most" "$EH_CMDS"
+  fi
+}
+eh_budget "escape-hatch: budget — a plain command starts cat and one jq, no awk" 'git status' 0 2
+eh_budget "escape-hatch: budget — a plain chain of commands starts no awk" 'cd /c/x && git log --oneline -5 | head -3' 0 2
+eh_budget "escape-hatch: budget — a quoted command adds the lexer" 'git commit -m "a message"' 1 3
+eh_budget "escape-hatch: budget — a quoted label list adds the KEEPQ lexer" 'gh pr edit 1 --add-label "help wanted,bug"' 2 4
+# Each of the eleven bytes the lexer rewrites sends the command to it, alone in
+# an otherwise plain command. A fast-path test that stopped naming one of them
+# fails here, whether or not that byte could change a verdict.
+for eh_byte in "\\" '$' '`' "'" '"' '<' '{' $'\001' $'\002' $'\003' $'\r'; do
+  printf -v eh_shown '%q' "$eh_byte"
+  eh_budget "escape-hatch: budget — a command holding $eh_shown starts the lexer" "echo a${eh_byte}b" 1 3
+done
+rm -rf "$EH_BASE"
 expect_rc "inline-suppression: refuses a directive in code" 2 "$HOOKS/block-inline-suppression.sh" "$PAY_CODE"
 expect_rc "inline-suppression: allows it in documentation"  0 "$HOOKS/block-inline-suppression.sh" "$PAY_DOC"
 

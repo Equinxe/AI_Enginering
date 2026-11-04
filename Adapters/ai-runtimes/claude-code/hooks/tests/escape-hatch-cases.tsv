@@ -758,3 +758,26 @@ allow	git commit -m 'export GIT_CONFIG_KEY_$i=$K and git -c alias.x=y are refuse
 allow	git commit -m "GIT_CONFIG_KEY_0=include.path is refused"
 allow	gh issue create --title 'git -c include.path and GIT_CONFIG_KEY_0=alias.x' --body x
 allow	sed -i 's/git -c alias.x=y//' notes.md
+# THE LEXER'S FAST PATH (WU-IAENG-431). A command with none of the eleven bytes
+# the lexer rewrites skips it. Each case below holds exactly one of those bytes
+# and is refused only because the lexer ran: without it, the rules see a command
+# that matches nothing. A fast-path test that stopped sending that byte to the
+# lexer would let the case through. The four control bytes (\001, \002, \003,
+# CR) cannot be written in this file; tests/run.sh holds their cases.
+block	git push --forc\e	force-push or mirror-push
+block	echo $(rm -rf /)	recursive removal
+block	echo `rm -rf /`	recursive removal
+block	git push --f''orce	force-push or mirror-push
+block	git push --f""orce	force-push or mirror-push
+block	cat <<EOF	could not be read in full
+block	git push --{force,x}	force-push or mirror-push
+# A separator inside a quoted global-option value. The lexer keeps a quoted word
+# with no whitespace whole, so the rules read `git -c k=a;b push --force`, and
+# git really pushes with --force. The rules match one LINE at a time, not one
+# segment: a matcher that also cut lines at ; & | would lose the push.
+block	git -c 'k=a;b' push --force	force-push or mirror-push
+block	git -C 'a|b' push --force	force-push or mirror-push
+# Bytes the lexer copies unchanged take the fast path and are judged as they are.
+allow	git status
+allow	cd /c/x && git log --oneline -5 | head -3
+block	cd /c/x && git push --force	force-push or mirror-push
