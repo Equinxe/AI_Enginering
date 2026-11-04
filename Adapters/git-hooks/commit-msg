@@ -6,7 +6,10 @@
 #   1. Standards/COMMIT_STANDARD.md — Conventional Commits subject line.
 #   2. Core/MAIN_AGENT_CONDUCT.md (Dispatch Discipline) — every commit must
 #      identify the Employee who produced it, by name, not by a generic tool
-#      label ("executor", "coder", etc.).
+#      label ("executor", "coder", etc.). (2a) Every trailer git reads as
+#      `Employee`, whatever its spelling, is a line spelt exactly
+#      `Employee: <Name>`, so the name git reads is the name validated
+#      (issue #338).
 #   3. Standards/COMMIT_STANDARD.md (Trailers) — at most one `Work Unit:` line,
 #      and (4) the one present names a Work Unit registered in the project's
 #      Registry/work-units.yml as staged, resolved by
@@ -69,6 +72,73 @@ SUBJECT="$(head -1 "$COMMIT_MSG_FILE")"
 # Scripts rule 3). The carriage return alone, the byte these checks keep
 # inside a value since WU-IAENG-389; the other control bytes are #427.
 shown() { printf '%s' "${1//$'\r'/\\r}"; }
+
+# --- Rule 2a: every Employee trailer git reads is spelt `Employee: <Name>` --
+# Issue #338 (SEC-IAENG-389-01). Rule 2 below validates the lines that start
+# `Employee: ` at column 0. git's trailer parser reads more lines than those
+# as an Employee trailer: the key in any case (`employee:`), with spaces or a
+# tab before the colon (`Employee :`), with no space after it (`Employee:x`),
+# and it folds an indented line that follows a trailer into that trailer's
+# value. Each such line passed this hook and CI, and
+# `git log --format='%(trailers:key=Employee)'`, the reader usage-dashboard.sh
+# uses, returned a name nobody had checked against the roster.
+#
+# Which lines are trailers is git's decision, not a pattern copied from it:
+# `git interpret-trailers --parse` lists the trailers git reads, each one
+# unfolded and written `key: value`. `--no-divider` reads the message as
+# `git log` reads a commit; without it, a `---` line in the body hides the
+# trailer block. Each trailer whose key is `Employee`, in any case, must be
+# accounted for by a line of the message spelt exactly `Employee: <value>`,
+# which is a line Rule 2 validates against the roster. One line accounts for
+# one trailer. So every Employee value git reads is one Rule 2 validated, and
+# a variant spelling is refused even when the name it carries is valid.
+#
+# Accepted by design: a variant whose reading is identical to an exact line
+# elsewhere in the message, outside the trailer block. git then reads that
+# validated value, and the variant itself carries nothing else.
+#
+# It runs before the merge classification below, so it applies to every
+# commit, merges of every kind included: it needs neither the roster nor the
+# classification. A message git cannot parse is refused, not passed.
+if ! GIT_TRAILERS="$(git interpret-trailers --parse --no-divider < "$COMMIT_MSG_FILE")"; then
+  echo "commit-msg: rejected — git interpret-trailers could not parse this message, so the Employee trailers git reads were not checked." >&2
+  exit 1
+fi
+# The lines Rule 2 validates, each with only a line-ending carriage return
+# removed, as Rule 2 removes it (git drops that one from the value it reads,
+# and keeps one inside a value). Newline-delimited at both ends, so one line
+# is matched whole and removed once.
+EXACT_EMPLOYEE_LINES=$'\n'
+while IFS= read -r exact_line; do
+  [ -n "$exact_line" ] || continue
+  EXACT_EMPLOYEE_LINES="$EXACT_EMPLOYEE_LINES${exact_line%$'\r'}"$'\n'
+done <<EOF
+$(grep -E '^Employee: ' "$COMMIT_MSG_FILE" || true)
+EOF
+UNACCOUNTED=0
+while IFS= read -r trailer; do
+  case "$trailer" in
+    [Ee][Mm][Pp][Ll][Oo][Yy][Ee][Ee]:*) ;;
+    *) continue ;;
+  esac
+  if [[ "$EXACT_EMPLOYEE_LINES" == *$'\n'"$trailer"$'\n'* ]]; then
+    EXACT_EMPLOYEE_LINES="${EXACT_EMPLOYEE_LINES/$'\n'"$trailer"$'\n'/$'\n'}"
+  else
+    echo "commit-msg: rejected — git reads '$(shown "$trailer")' as an Employee trailer, and no line of the message is spelt exactly so." >&2
+    UNACCOUNTED=1
+  fi
+done <<EOF
+$GIT_TRAILERS
+EOF
+if [ "$UNACCOUNTED" -eq 1 ]; then
+  echo "  This hook and CI check the name on each line spelt 'Employee: <Name>' at" >&2
+  echo "  column 0. git also reads the key in any case, with spaces or a tab before" >&2
+  echo "  the colon or no space after it, and folds an indented line into the" >&2
+  echo "  trailer above it, so a line spelt any other way reaches git log with a" >&2
+  echo "  name nobody checked (issue #338). Write each Employee trailer as exactly" >&2
+  echo "  'Employee: <Name>' on one line, with no indented line under it." >&2
+  exit 1
+fi
 
 # --- Merge commit exception ------------------------------------------------
 # Git creates MERGE_HEAD while a merge is in progress, and it still exists
