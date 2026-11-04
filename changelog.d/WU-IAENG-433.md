@@ -10,7 +10,7 @@
 
 ### Notes
 
-- `setup-branch-protection.sh` now needs `jq`, which reads every answer GitHub gives. Without it the script stops before reading any protection
+- `setup-branch-protection.sh` now needs `jq`, which reads every answer GitHub gives. Without it the script stops before reading any protection and says how to install it. Git for Windows does not include it: `winget install jqlang.jq`
 
 - If you ran `setup-branch-protection.sh` from an earlier version on a repository that had protection of its own, that run replaced it. Check Settings > Branches and the `release-branch-protection` ruleset. Restore by hand what the run dropped or lowered: your own required checks and the app each is tied to, the required approvals, `enforce_admins`, push restrictions, and the review, linear-history and conversation-resolution settings. Check required signed commits too. A run of this version keeps what it finds. It cannot restore what an earlier run removed
 - `develop` now keeps `strict` (branches up to date before merging) where it is on. A run from v0.0.15 turned it off, and this version leaves it as it finds it. If a run from before v0.0.15 turned it on and you want the framework's default, turn it off by hand

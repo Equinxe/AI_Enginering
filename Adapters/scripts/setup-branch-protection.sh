@@ -19,7 +19,8 @@
 #     to production." This script is what makes `allow_deletions: false`
 #     mechanically true for release branches, not just written policy.
 #
-# Requires: GitHub CLI (`gh`), authenticated (`gh auth status`).
+# Requires: GitHub CLI (`gh`), authenticated (`gh auth status`), and `jq`,
+# which reads every answer GitHub gives. Git for Windows does not include jq.
 #
 # This mutates shared repository settings. Review the payload below before
 # running it against a real repository.
@@ -160,7 +161,11 @@ fi
 # before it reads anything but the repository's name.
 if ! command -v jq > /dev/null 2>&1; then
   echo "setup-branch-protection.sh needs jq to read GitHub's answers, and jq is not installed." >&2
-  echo "Nothing was changed. Install jq (https://jqlang.org), then run this script again." >&2
+  echo "Nothing was changed. Install jq, then run this script again:" >&2
+  echo "  Windows (Git for Windows does not include it): winget install jqlang.jq" >&2
+  echo "  macOS: brew install jq" >&2
+  echo "  Debian or Ubuntu: sudo apt-get install jq" >&2
+  echo "  anything else: https://jqlang.org/download/" >&2
   exit 1
 fi
 
@@ -264,11 +269,17 @@ strict_for() {
 # framework's own checks, where the repository does not require them yet, are
 # tied to GitHub Actions, the app that runs them (ACTIONS_APP_ID below).
 #
-# The REST docs mark `contexts` required and do not say which of the two
-# lists GitHub reads when both are sent. The body sends both, with the same
-# names, so the set of required checks is the same whichever it reads. And
-# after each write the script reads the required checks back and stops unless
-# every one is there with the app it was sent with (verify_checks).
+# THE BODY SENDS `checks` ALONE, never `contexts` beside it. The REST docs
+# (Update branch protection, required_status_checks) give `contexts` a
+# "Closing down notice" and say "Use checks instead of contexts for more
+# fine-grained control". Two clients report that GitHub refuses a body with
+# both lists: google/go-github#2276 ("If you provide both or neither, you will
+# get an Invalid Request error") and #2976 (a raw PUT refused with both, and
+# accepted with checks alone), and sigmavirus24/github3.py#1112 (422, "More
+# than one subschema in \"oneOf\" matched"). Nothing is lost: a check with no
+# `app_id` gets the app GitHub selects, as `contexts` would. After each write
+# the script reads the required checks back and stops unless every one is
+# there with the app it was sent with (verify_checks).
 #
 # SIGNED COMMITS. The PUT body has no field for required signatures (REST
 # docs, Update branch protection; they have their own endpoint). Where a
@@ -417,7 +428,6 @@ def merge_protection($strict; $ours; $branch; $app):
   | ({
       required_status_checks: {
         strict: (($rsc.strict // false) or $strict),
-        contexts: [$checks[] | .context],
         checks: $checks
       },
       enforce_admins: ($cur.enforce_admins.enabled // false),
@@ -752,13 +762,19 @@ show_kept() {
 # verify_checks <branch> — read the branch's required checks back after its
 # PUT, and stop unless each one sent is there with the app it was sent with:
 # the same app id; for -1 (any app) no app or -1; for none, any. Both sides
-# are compared as jq's @tsv writes them, name and app on one line.
+# are compared as jq's @tsv writes them, name and app on one line. When it
+# stops, the branch's new protection is already written: the message says so,
+# and says where to restore it by hand.
 verify_checks() {
   local branch="$1" line ctx app gline state bad=""
+  local written="The new protection of $branch is already written: check it in
+Settings > Branches, and restore by hand any setting it should not have changed."
   gh_read "repos/$REPO/branches/$branch/protection/required_status_checks" \
-    || stop_after_write "cannot read back the required checks of $branch."
+    || stop_after_write "cannot read back the required checks of $branch.
+$written"
   from_answer '(.checks // [])[] | [.context, ((.app_id // "") | tostring)] | @tsv' \
-    || stop_after_write "cannot read back the required checks of $branch: jq could not read the answer."
+    || stop_after_write "cannot read back the required checks of $branch: jq could not read the answer.
+$written"
   while IFS= read -r line; do
     ctx="${line%%$'\t'*}"
     app="${line#*$'\t'}"
@@ -777,7 +793,8 @@ verify_checks() {
   done < "$TMP_DIR/$branch.sent"
   if [ -n "$bad" ]; then
     : > "$TMP_DIR/err"
-    stop_after_write "GitHub did not keep these required checks of $branch as sent: $(printf '%s' "$bad" | shown)."
+    stop_after_write "GitHub did not keep these required checks of $branch as sent: $(printf '%s' "$bad" | shown).
+$written"
   fi
 }
 

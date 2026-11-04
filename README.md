@@ -21,7 +21,9 @@ PowerShell finds is WSL, not Git Bash
 With Claude Code you also need `jq`: `install-hooks.sh` uses it to merge into an
 existing `.claude/settings.json` and to check that file. On GitHub,
 `setup-branch-protection.sh` needs the GitHub CLI, `gh`, signed in
-(`gh auth status`), and `jq`, which reads what GitHub answers.
+(`gh auth status`), and `jq`, which reads what GitHub answers. Git for
+Windows does not include `jq`: install it with `winget install jqlang.jq`
+(macOS: `brew install jq`; Debian or Ubuntu: `sudo apt-get install jq`).
 
 ```bash
 # from the root of your project (skip git init if it is already a repository)

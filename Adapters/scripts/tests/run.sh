@@ -1558,13 +1558,28 @@ cat > "$SBP_BIN/gh" <<'FAKEGH'
 # unexpected one. The branches are unprotected (404, as gh reports it), the
 # repository is public with main as its default branch, the GitHub Actions
 # app's id is 15368, and a read-back of a branch's required checks answers
-# what its PUT saved.
+# what its PUT saved. A protection PUT with both `contexts` and `checks`, or
+# neither, is refused with a 422, as GitHub refuses it.
 printf '%s\n' "$*" >> "$SBP_DATA/calls"
 [ "${1:-}" = api ] || exit 90
 case "$*" in
   *"--input -"*)
     for a in "$@"; do case "$a" in repos/*) p="$a" ;; esac; done
-    cat > "$SBP_DATA/$(printf '%s' "$p" | tr '/' '_').json" ;;
+    f="$SBP_DATA/$(printf '%s' "$p" | tr '/' '_').json"
+    cat > "$f"
+    # GitHub refuses a protection whose required_status_checks holds both
+    # contexts and checks, or neither (google/go-github#2276 and #2976,
+    # sigmavirus24/github3.py#1112): a 422, and nothing saved.
+    case "$p" in
+      */protection)
+        if ! jq -e '.required_status_checks as $r | $r == null or (($r | has("contexts")) != ($r | has("checks")))' \
+          "$f" > /dev/null 2>&1; then
+          rm -f "$f"
+          echo '{"message":"Invalid request.","status":"422"}'
+          echo 'gh: Invalid request. More than one subschema in "oneOf" matched. (HTTP 422)' >&2
+          exit 1
+        fi ;;
+    esac ;;
   "api repos/o/r") echo '{"default_branch":"main","visibility":"public","delete_branch_on_merge":false}' ;;
   "api apps/github-actions") echo '{"id":15368,"slug":"github-actions"}' ;;
   "api repos/o/r/rulesets --paginate") echo '[]' ;;
@@ -11626,8 +11641,13 @@ rm .claude/settings.local.json
 # "net" is no HTTP answer at all: the message on stderr only. A write (any
 # --method) is logged, and its body is saved as <METHOD>-<path>.json when it
 # succeeds, so a case reads exactly what was sent. "Nothing was changed" is
-# checked as a log with no --method in it. A branch's required checks read
-# back as its PUT sent them, unless a fixture says what GitHub kept instead.
+# checked as a log with no --method in it. A branch protection PUT whose
+# required_status_checks holds both `contexts` and `checks`, or neither, is
+# refused with a 422, as GitHub refuses it (google/go-github#2276 and #2976,
+# sigmavirus24/github3.py#1112). After a PATCH of the repository, its GET
+# answers as repos_o_r.after-patch.json or .error say, when one exists. A
+# branch's required checks read back as its PUT sent them, unless a fixture
+# says what GitHub kept instead.
 # The GitHub Actions app answers with id 15368 (GET /apps/github-actions).
 #
 # THE ORACLES. The fixtures follow the response schema of GitHub's REST docs
@@ -11670,7 +11690,21 @@ if [ -f "$SBP433_FIX/$key.error" ]; then
   exit 1
 fi
 if [ "$method" != GET ]; then
-  if [ "$input" = - ]; then cat > "$SBP433_OUT/$key.json"; else : > "$SBP433_OUT/$key.json"; fi
+  if [ "$input" = - ]; then cat > "$SBP433_OUT/body.tmp"; else : > "$SBP433_OUT/body.tmp"; fi
+  # GitHub refuses a branch protection whose required_status_checks holds both
+  # `contexts` and `checks`, or neither: google/go-github#2276 and #2976 ("If you provide
+  # both or neither, you will get an Invalid Request error") and
+  # sigmavirus24/github3.py#1112 (422, oneOf).
+  case "$key" in
+    PUT-*_protection)
+      if ! jq -e '.required_status_checks as $r | $r == null or (($r | has("contexts")) != ($r | has("checks")))' \
+        "$SBP433_OUT/body.tmp" > /dev/null 2>&1; then
+        printf '{"message":"Invalid request.","documentation_url":"https://docs.github.com/rest","status":"422"}\n'
+        printf 'gh: Invalid request. More than one subschema in "oneOf" matched. (HTTP 422)\n' >&2
+        exit 1
+      fi ;;
+  esac
+  mv "$SBP433_OUT/body.tmp" "$SBP433_OUT/$key.json"
   exit 0
 fi
 src="$SBP433_FIX/$key.json"
@@ -11687,7 +11721,12 @@ case "$key" in
   # repos_o_r.after-patch.json says GitHub answers instead.
   repos_o_r)
     if [ -f "$SBP433_OUT/PATCH-repos_o_r.json" ]; then
-      if [ -f "$SBP433_FIX/repos_o_r.after-patch.json" ]; then
+      if [ -f "$SBP433_FIX/repos_o_r.after-patch.error" ]; then
+        read -r status message < "$SBP433_FIX/repos_o_r.after-patch.error"
+        printf '{"message":"%s","status":"%s"}\n' "$message" "$status"
+        printf 'gh: %s (HTTP %s)\n' "$message" "$status" >&2
+        exit 1
+      elif [ -f "$SBP433_FIX/repos_o_r.after-patch.json" ]; then
         src="$SBP433_FIX/repos_o_r.after-patch.json"
       else
         jq -s '.[0] * .[1]' "$src" "$SBP433_OUT/PATCH-repos_o_r.json" > "$SBP433_OUT/state-$key.json"
@@ -11866,10 +11905,10 @@ sbp433_run 0 "existing protection: the run completes"
 SBP433_MAIN=PUT-repos_o_r_branches_main_protection.json
 SBP433_DEV=PUT-repos_o_r_branches_develop_protection.json
 SBP433_RS=PUT-repos_o_r_rulesets_7.json
-sbp433_sent "$SBP433_MAIN" '.required_status_checks.contexts | sort' "[$SBP433_TEN,\"build\",\"legacy-ci\"]" \
+sbp433_sent "$SBP433_MAIN" '[.required_status_checks.checks[] | .context] | sort' "[$SBP433_TEN,\"build\",\"legacy-ci\"]" \
   "main: the required checks are the project's (build, legacy-ci) and the framework's ten, each once"
-sbp433_sent "$SBP433_MAIN" '.required_status_checks | (.contexts == [.checks[] | .context])' 'true' \
-  "main: contexts and checks name the same checks, in the same order"
+sbp433_sent "$SBP433_MAIN" '.required_status_checks | [has("checks"), has("contexts")]' '[true,false]' \
+  "main: the body sends checks alone, never contexts beside it"
 sbp433_sent "$SBP433_MAIN" '[.required_status_checks.checks[] | select(.context == "build" or .context == "PR Compliance") | .app_id]' \
   '[9999,15368]' "main: each required check keeps the app it is tied to"
 sbp433_sent "$SBP433_MAIN" '[.required_status_checks.checks[] | select(.context == "legacy-ci") | has("app_id")]' \
@@ -11895,7 +11934,7 @@ sbp433_sent "$SBP433_MAIN" '[.required_linear_history, .required_conversation_re
 sbp433_sent "$SBP433_MAIN" '.required_status_checks.strict' 'true' "main: strict is on, the framework's value for main"
 sbp433_sent "$SBP433_MAIN" '[.allow_force_pushes, .allow_deletions]' '[false,false]' \
   "main: force-pushes and deletion are refused, the framework's rule over the project's allowance"
-sbp433_sent "$SBP433_DEV" '.required_status_checks.contexts | sort' "[$SBP433_TEN,\"lint\"]" \
+sbp433_sent "$SBP433_DEV" '[.required_status_checks.checks[] | .context] | sort' "[$SBP433_TEN,\"lint\"]" \
   "develop: the required checks are the project's (lint, in checks beside contexts: []) and the framework's ten"
 sbp433_sent "$SBP433_DEV" '[.required_status_checks.checks[] | select(.context == "lint") | .app_id]' \
   '[-1]' "develop: a check tied to no app is sent with -1, any app, as it was"
@@ -11958,8 +11997,8 @@ expect_output "-> develop (strict: true)"
 
 # A branch with no protection, and no ruleset yet: the body is the one this
 # script sent before WU-IAENG-433 (the heredoc of 75765ba, written out by hand
-# here), with each check also in `checks`, tied to GitHub Actions. Compared
-# key-sorted.
+# here), with the checks in `checks` instead of `contexts`, each tied to
+# GitHub Actions. Compared key-sorted.
 sbp433_new fresh
 sbp433_fix repos/o/r/branches/main '{"name":"main","protected":false}'
 sbp433_err repos/o/r/branches/main/protection 404 "Branch not protected"
@@ -11967,7 +12006,7 @@ sbp433_err repos/o/r/branches/develop 404 "Branch not found"
 sbp433_run 0 "no protection and no ruleset yet: the run completes"
 SBP433_CANON='walk(if type == "array" then sort elif type == "object" then (to_entries | sort_by(.key) | from_entries) else . end)'
 sbp433_sent PUT-repos_o_r_branches_main_protection.json "$SBP433_CANON" \
-  "$(jq -cn "{required_status_checks: {strict: true, contexts: [$SBP433_TEN],
+  "$(jq -cn "{required_status_checks: {strict: true,
       checks: ([$SBP433_TEN] | map({context: ., app_id: 15368}))}, enforce_admins: false,
     required_pull_request_reviews: {required_approving_review_count: 0, dismiss_stale_reviews: true},
     restrictions: null, allow_force_pushes: false, allow_deletions: false} | $SBP433_CANON" | strip_eol_cr)" \
@@ -11988,6 +12027,7 @@ sbp433_run 1 "a required check GitHub did not keep as sent: the run stops"
 expect_output "GitHub did not keep these required checks of main as sent:"
 expect_output "PR Size (missing)"
 expect_output "Data Policy (app changed)"
+expect_output "The new protection of main is already written: check it in"
 expect_output "Already applied before the refusal: main."
 
 # A check name with an ESC sequence in it, as GitHub would return one: the
@@ -12101,6 +12141,46 @@ expect_output "Must have admin rights to Repository."
 sbp433_absent "GitHub refuses branch protection" "a 403 for missing admin rights is not reported as the plan refusal"
 sbp433_no_write "a 403 for missing admin rights: nothing is written"
 
+# A read that succeeds with a body jq cannot parse fails closed too, before
+# any write. Above all the ruleset list: taken for "no ruleset", it would
+# create a second one after main and develop were written.
+sbp433_new garbled-rulesets
+sbp433_fix repos/o/r/branches/main '{"name":"main","protected":false}'
+sbp433_err repos/o/r/branches/main/protection 404 "Branch not protected"
+sbp433_fix repos/o/r/branches/develop '{"name":"develop","protected":false}'
+sbp433_err repos/o/r/branches/develop/protection 404 "Branch not protected"
+sbp433_fix repos/o/r/rulesets '<html>rate limited</html>'
+sbp433_run 1 "a ruleset list jq cannot read: the run refuses"
+expect_output "cannot read the rulesets of o/r: jq could not read the answer"
+sbp433_no_write "a ruleset list jq cannot read: nothing is written, no second ruleset"
+
+sbp433_new garbled-protection
+sbp433_fix repos/o/r/branches/main '{"name":"main","protected":true}'
+sbp433_fix repos/o/r/branches/main/protection '{"required_status_checks": '
+sbp433_run 1 "a protection jq cannot read: the run refuses"
+expect_output "the protection of branch 'main' of o/r: jq could not read the answer"
+sbp433_no_write "a protection jq cannot read: nothing is written"
+
+sbp433_new garbled-repo
+sbp433_fix repos/o/r '<html></html>'
+sbp433_run 1 "a repository answer jq cannot read: the run refuses"
+expect_output "cannot read the repository o/r: jq could not read the answer"
+sbp433_no_write "a repository answer jq cannot read: nothing is written"
+
+sbp433_new garbled-apps
+sbp433_fix apps/github-actions '{"id": '
+sbp433_run 1 "an Actions app answer jq cannot read: the run refuses"
+expect_output "cannot read the GitHub Actions app (apps/github-actions): jq could not read the answer"
+sbp433_no_write "an Actions app answer jq cannot read: nothing is written"
+
+# An app id that is not an integer would be sent as the app of every new
+# framework check.
+sbp433_new app-not-integer
+sbp433_fix apps/github-actions '{"id": 1.5, "slug": "github-actions"}'
+sbp433_run 1 "an Actions app id that is not an integer: the run refuses"
+expect_output "its id is not a number"
+sbp433_no_write "an Actions app id that is not an integer: nothing is written"
+
 section "setup-branch-protection.sh — writes, read-backs and the tools it needs (WU-IAENG-433)"
 
 # A write GitHub refuses for another reason than the plan: the run stops and
@@ -12125,6 +12205,7 @@ sbp433_err repos/o/r/branches/develop 404 "Branch not found"
 sbp433_err repos/o/r/branches/main/protection/required_status_checks 500 "Internal Server Error"
 sbp433_run 1 "a failed read-back of the required checks: the run stops"
 expect_output "cannot read back the required checks of main."
+expect_output "The new protection of main is already written: check it in"
 expect_output "Already applied before the refusal: main."
 
 # Automatic head-branch deletion on: its value is read with the repository,
@@ -12148,6 +12229,58 @@ sbp433_err repos/o/r/branches/develop 404 "Branch not found"
 sbp433_run 1 "automatic head-branch deletion still on after the PATCH: the run stops"
 expect_output "delete_branch_on_merge is still 'true' after the update."
 expect_output "Already applied before the refusal: main, release/*, automatic head-branch deletion."
+
+# The read-back of automatic head-branch deletion fails, or answers what jq
+# cannot read: said as such, never taken for a value.
+sbp433_new auto-delete-unread
+sbp433_fix repos/o/r '{"full_name":"o/r","default_branch":"main","visibility":"public","private":false,"delete_branch_on_merge":true}'
+sbp433_err repos/o/r.after-patch 502 "Server Error"
+sbp433_fix repos/o/r/branches/main '{"name":"main","protected":false}'
+sbp433_err repos/o/r/branches/main/protection 404 "Branch not protected"
+sbp433_err repos/o/r/branches/develop 404 "Branch not found"
+sbp433_run 1 "a failed read-back of automatic head-branch deletion: the run stops"
+expect_output "cannot read back automatic head-branch deletion."
+expect_output "gh: Server Error (HTTP 502)"
+
+sbp433_new auto-delete-garbled
+sbp433_fix repos/o/r '{"full_name":"o/r","default_branch":"main","visibility":"public","private":false,"delete_branch_on_merge":true}'
+sbp433_fix repos/o/r.after-patch '<html></html>'
+sbp433_fix repos/o/r/branches/main '{"name":"main","protected":false}'
+sbp433_err repos/o/r/branches/main/protection 404 "Branch not protected"
+sbp433_err repos/o/r/branches/develop 404 "Branch not found"
+sbp433_run 1 "a read-back of automatic head-branch deletion jq cannot read: the run stops"
+expect_output "cannot read back automatic head-branch deletion: jq could not read the answer."
+
+# The read-back of the required checks answers what jq cannot read.
+sbp433_new readback-garbled
+sbp433_fix repos/o/r/branches/main '{"name":"main","protected":false}'
+sbp433_err repos/o/r/branches/main/protection 404 "Branch not protected"
+sbp433_err repos/o/r/branches/develop 404 "Branch not found"
+sbp433_fix repos/o/r/branches/main/protection/required_status_checks '{"checks": ['
+sbp433_run 1 "a read-back of the required checks jq cannot read: the run stops"
+expect_output "cannot read back the required checks of main: jq could not read the answer."
+
+# "Any app" (-1, from a check GitHub returned with no app): GitHub may answer
+# it back with no app or with -1, and the run goes on; tied to an app, it was
+# not kept as sent.
+sbp433_new any-app-kept
+SBP433_ANY='{"required_status_checks": {"strict": true, "contexts": ["lint"], "checks": [{"context": "lint", "app_id": null}]}}'
+sbp433_fix repos/o/r/branches/main '{"name":"main","protected":true}'
+sbp433_fix repos/o/r/branches/main/protection "$SBP433_ANY"
+sbp433_err repos/o/r/branches/develop 404 "Branch not found"
+sbp433_fix repos/o/r/branches/main/protection/required_status_checks "$(jq -cn "{strict: true,
+  checks: ([{context: \"lint\", app_id: null}] + ([$SBP433_TEN] | map({context: ., app_id: 15368})))}")"
+sbp433_run 0 "a check sent as any app comes back with no app: the run completes"
+
+sbp433_new any-app-moved
+SBP433_ANY='{"required_status_checks": {"strict": true, "contexts": ["lint"], "checks": [{"context": "lint", "app_id": null}]}}'
+sbp433_fix repos/o/r/branches/main '{"name":"main","protected":true}'
+sbp433_fix repos/o/r/branches/main/protection "$SBP433_ANY"
+sbp433_err repos/o/r/branches/develop 404 "Branch not found"
+sbp433_fix repos/o/r/branches/main/protection/required_status_checks "$(jq -cn "{strict: true,
+  checks: ([{context: \"lint\", app_id: 42}] + ([$SBP433_TEN] | map({context: ., app_id: 15368})))}")"
+sbp433_run 1 "a check sent as any app comes back tied to an app: the run stops"
+expect_output "lint (app changed)"
 
 # Without jq the script cannot read what a repository enforces: it says so
 # before any call to GitHub. The PATH keeps every other tool: each directory
@@ -12178,6 +12311,7 @@ fi
 expect 1 "without jq: the run refuses" -- \
   env PATH="$SBP433_BIN:$SBP433_NOJQ" SBP433_FIX="$SBP433_FIX" SBP433_OUT="$SBP433_OUT" bash "$SBP" o/r
 expect_output "setup-branch-protection.sh needs jq to read GitHub's answers"
+expect_output "Windows (Git for Windows does not include it): winget install jqlang.jq"
 TOTAL=$((TOTAL + 1))
 if [ ! -s "$SBP433_OUT/calls" ]; then
   [ -n "$VERBOSE" ] && printf '   ok   without jq: no call to GitHub is made\n'
