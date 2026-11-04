@@ -106,7 +106,9 @@ The Incident Commander role is assigned at the start of the incident. It does no
 3. Form hypotheses about the root cause.
 4. Test hypotheses systematically — do not apply fixes before diagnosis is complete unless the impact is escalating.
 
-**Output:** Root cause hypothesis documented.
+The method is `Templates/ROOT_CAUSE_ANALYSIS.md`: observations kept apart from interpretation, competing hypotheses ranked before testing, evidence graded, the favourite refuted, and an escalation to the Technical Lead after three refuted hypotheses.
+
+**Output:** Root Cause Analysis record — the root cause, Confirmed or Provisional; when Provisional, the critical unknown and the discriminating probe.
 
 ---
 
@@ -163,7 +165,7 @@ Mandatory for all P1 and P2 incidents. Recommended for P3.
 1. Schedule the post-mortem within 48 hours of resolution.
 2. Write the post-mortem document:
    - Timeline of events
-   - Root cause (confirmed, not hypothesized)
+   - Root cause (confirmed, not hypothesized: status Confirmed in the Root Cause Analysis record)
    - Impact summary
    - What went well
    - What went wrong
@@ -194,6 +196,7 @@ This workflow is complete when:
 |---|---|
 | P1/P2 incident | Director — immediately upon declaration |
 | Security dimension detected | Security Engineer — immediately |
+| Three hypotheses refuted during diagnosis (`Templates/ROOT_CAUSE_ANALYSIS.md`, Circuit Breaker) | Technical Lead |
 | Resolution requires architectural change | Software Architect |
 | Incident involves data loss or breach | Director + Compliance Engineer + Security Engineer — immediately |
 
@@ -210,7 +213,7 @@ This workflow is complete when:
 
 Owner: IA Engineering
 
-Version: 0.0.4
+Version: 0.0.5
 
 Status: Draft
 

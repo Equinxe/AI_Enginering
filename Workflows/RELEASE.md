@@ -27,6 +27,7 @@ It governs every step from the version bump through release branch creation, tag
 | Director | Final approval to merge release into `main` |
 | Technical Lead | Resolves last-minute technical issues found during release testing |
 | Observability Engineer | Confirms production health during post-release verification |
+| Scrum Master | Runs the release retrospective (Step 11) |
 
 ---
 
@@ -55,7 +56,7 @@ Run `Adapters/scripts/release.sh check` from `develop`. It is read-only.
 | 2 | CI/CD is green on `develop` | **Yes** — the latest run's conclusion |
 | 3 | No open critical or high defects remain | **Reported, not failed** — see below |
 | 4 | The release version number and codename are agreed | **Partly** — `VERSION.md`'s version is read and compared against the one being asked about; whether that version and codename are the *agreed* ones is a Director judgment no script can make |
-| 5 | Pending `CHANGELOG.md` entries account for every significant change | **Partly** — the section's presence and size are checked; whether its content is complete is a reading task |
+| 5 | Pending changelog entries account for every significant change | **Partly** — in the framework repository, which keeps changelog fragments: every Work Unit registered against the milestone must have a fragment in `changelog.d/` (an entry, or `No changelog entry: <reason>`), or be named in the final parenthesised group of a bullet of the milestone's `CHANGELOG.md` section (the group on the bullet's last line; any id in that group counts) or in an exemption comment with its reason; after Step 2, a fragment still in `changelog.d/` fails. The section's presence and size are checked too. Whether each entry says the right thing is a reading task |
 
 The script additionally checks the current branch, working-tree cleanliness, sync with the remote, and `Adapters/scripts/validate-framework.sh`.
 
@@ -77,12 +78,15 @@ The version bump is a normal Work Unit merged into `develop` through the standar
 
 1. Branch from the latest `develop` (for example `chore/release-vX.X.X-bump`).
 2. Update VERSION.md to the new version number and codename.
-3. Update CHANGELOG.md to finalize the entries for this release.
-4. Commit following the Commit Standard.
-5. Open a Pull Request to `develop`.
-6. Merge the PR once CI passes.
+3. **If the repository keeps changelog fragments** (it has a `changelog.d/` directory, as the IA Engineering framework repository does), run `Adapters/scripts/release.sh assemble`. It folds every fragment in `changelog.d/` into the `## [Unreleased]` section of CHANGELOG.md, by category then Work Unit id, below the entries already there, and deletes the fragments. It refuses, changing nothing, if a fragment is malformed or CHANGELOG.md cannot be written. `changelog.d/README.md` describes the fragments. A repository without `changelog.d/` skips this item.
+4. Update CHANGELOG.md to finalize the entries for this release, and rename `## [Unreleased]` to the version.
+5. Commit following the Commit Standard: VERSION.md, CHANGELOG.md and, where item 3 ran, the fragment deletions, in the one bump commit.
+6. Open a Pull Request to `develop`.
+7. Merge the PR once CI passes.
 
 This is why the release branch created in Step 3 needs no separate version-bump commit: the bump already lives on `develop`.
+
+In a repository that keeps changelog fragments, Work Units do not edit CHANGELOG.md: each adds its fragment, `changelog.d/<Work Unit id>.md`, so two Pull Requests never conflict on the same category, and this step is the one place the fragments become CHANGELOG.md. In a repository without `changelog.d/`, Work Units keep editing CHANGELOG.md directly.
 
 **Output:** `develop` carries the final VERSION.md and CHANGELOG.md for this release.
 
@@ -216,6 +220,39 @@ The release branch `release/vX.X.X` is **never deleted**. It serves as a permane
 
 ---
 
+## Step 11 — Release retrospective
+
+**Actor:** Scrum Master, dispatched by the Main Agent once the release is tagged. The Director decides on every line, in one pass.
+
+**Bound:** one run per release, one list, recorded before the next milestone's first Work Unit is planned. The retrospective feeds that planning; recorded after it, it feeds nothing.
+
+A release is the point where the lessons of a whole milestone can be seen together. Read one report at a time, a missing check looks like bad luck; read across a release, the same friction shows up in four Work Units. This step collects both and sends each one to the place that owns its fix.
+
+1. **Collect from named sources only.** The same release read twice must produce the same list, so the Scrum Master reads these, and nothing else:
+   - the `LESSON:` lines of the Work Unit Reports — the Pull Request descriptions of the Work Units registered against this milestone in `Registry/work-units.yml` (`Templates/WORK_UNIT_REPORT.md`, Lessons → Location);
+   - the review threads and the failed CI runs of the release's merged Pull Requests;
+   - the findings Issues opened during the milestone by adopting projects (in this repository, the `adoption-finding` Issues);
+   - the Director's corrections and escalations made during the milestone, as recorded in the Pull Requests, the Issues, and the session state.
+2. **Keep only what has evidence.** A friction is something that cost the release time or a correction: a check that failed for a reason the author could have known earlier, a review that went more than one round on the same point, a Director correction, an escalation, a brief that lacked what the Employee needed, a step done by hand that could have been run. Each one cites its evidence from the sources above. A friction no one can point to is an opinion, and stays out of the record. Merge duplicates and count them: each friction line says in how many Work Units it appeared, because a friction seen in four is worth more than one seen once. Note, too, what worked — a check or a practice that saved this release time — so it is kept rather than lost in a later clean-up.
+3. **Name the surface that owns each friction's fix.** One of four:
+
+   | Surface | When it owns the fix | Example |
+   |---|---|---|
+   | Deterministic check | A script, hook, or CI job could have refused the mistake before review | a validator section, a commit-msg rule |
+   | Instruction | The rule exists nowhere an Employee reads, or is worded two ways — an Employee definition, a Standard, a Workflow, a Template | a missing Definition of Done item |
+   | Tool | The runtime, an Adapter, or the host got in the way | an installer that cannot be re-run |
+   | Missing information | The rule was right but the Employee did not have the fact — the brief, the session state, the project context | a brief that omitted the base branch |
+
+   Where a check and an instruction could both fix it, propose the check: an instruction can be skipped, a check cannot. Where the owning surface is unclear, the line says so and the Director decides it; the Scrum Master does not guess. The Scrum Master classifies; it does not choose the fix's design, which stays with the Employee that owns the surface.
+4. **Record the list, then the Director decides in one pass.** Open one Issue titled `Release retrospective vX.X.X` holding every lesson line, every friction line with its evidence, recurrence count and surface, and the "what worked" lines. The Director accepts or refuses each line in that Issue. A conversation is not a record.
+5. **File only what was accepted.** For each accepted line, open one Issue naming its surface and evidence, and link it from the line (`Core/MAIN_AGENT_CONDUCT.md`, Durable Tracking of Findings); it becomes a Work Unit when the next milestone is planned. A refused line opens no Issue: it stays in the retrospective record with the Director's reason, so the next retrospective does not raise it again without saying what changed.
+
+This step does not replace the Sprint Retrospective (`Workflows/SPRINT_CEREMONY.md`, Ceremony 4), which commits the team to one improvement for the next sprint. The release retrospective lists every friction it can evidence; which of them become work is the Director's choice in item 4.
+
+**Output:** The `Release retrospective vX.X.X` Issue, with the Director's decision on each line, one linked Issue per accepted line, recorded before the next milestone's first Work Unit is planned.
+
+---
+
 # Exit Criteria
 
 This workflow is complete when:
@@ -226,6 +263,7 @@ This workflow is complete when:
 - `develop` contains `main`'s tip, carried back by the Step 8 Pull Request. This is required on every release, not only when a defect fix was applied directly to the release branch — Step 6 always leaves a merge commit on `main` that `develop` would otherwise never see.
 - `release/vX.X.X` branch is preserved on remote.
 - Post-release health is confirmed.
+- The release retrospective is recorded, with the Director's decision on each line and an Issue for each accepted line, before the next milestone's first Work Unit is planned (Step 11).
 
 ---
 
@@ -244,6 +282,8 @@ This workflow is complete when:
 - Feature Development Workflow
 - Hotfix Workflow
 - Incident Response Workflow
+- Sprint Ceremony Workflow
+- Architecture Decision Workflow
 
 ---
 
@@ -251,7 +291,7 @@ This workflow is complete when:
 
 Owner: IA Engineering
 
-Version: 0.0.12
+Version: 0.0.14
 
 Status: Draft
 

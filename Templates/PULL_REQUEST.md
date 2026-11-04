@@ -41,6 +41,13 @@ Work Unit: [WU-ID]
 
 ---
 
+### Merge danger
+
+- Rollback: [easy — reverting this PR restores the previous state | hard — what a revert does not undo: data written, a migration, a published tag or release, a file adopting projects have already copied]
+- What breaks if this is wrong: [who or what fails, and how it would show]
+
+---
+
 ### How to test
 
 [Step-by-step instructions for the reviewer to verify the change works:]
@@ -64,6 +71,7 @@ Work Unit: [WU-ID]
 - [ ] This PR targets `develop`, not `main`.
 - [ ] The PR contains one Work Unit — not multiple unrelated changes.
 - [ ] Tests are written and passing locally.
+- [ ] Each new or changed test was seen red where `Standards/TESTING_STANDARD.md` (Falsifiability) requires it; the evidence is in the Work Unit Report.
 - [ ] No credentials, secrets, or sensitive data are in this diff.
 - [ ] The commit message follows the Commit Standard.
 - [ ] Documentation is updated if this PR changes a public interface.
@@ -91,21 +99,15 @@ Work Unit: [WU-ID]
 | Type | Categorizes the change for changelog generation | Selecting multiple types — one PR, one type |
 | What changed | Describes the concrete change | "Fixed bug" — not specific enough |
 | Why | Links to the requirement — traceability | Missing Work Unit ID, no business context |
+| Merge danger | Tells the approver in two lines how costly a wrong approval is: whether a revert undoes the change, and what fails if it is wrong. Its terms follow `Standards/RISK_STANDARD.md` (reversible path, blast radius) | "Low risk" with no reason; "easy" for a change a revert does not undo, such as a migration, a published tag or a file adopting projects copy |
 | How to test | Enables the reviewer to verify correctness | "Run tests" — not actionable for manual verification |
 | Checklist | Self-verification before requesting review | Submitting with unchecked items |
 
 ---
 
-# PR Size Guidelines
+# PR Size
 
-| Size | Lines changed | Guidance |
-|---|---|---|
-| Small | < 100 | Ideal. Fast to review, low risk. |
-| Medium | 100–400 | Acceptable. Split if possible. |
-| Large | 400–800 | Requires justification. Consider splitting. |
-| Extra large | > 800 | Block. Must be split into smaller PRs before review. |
-
-A PR that is too large to review carefully is a PR that will be approved without being reviewed. Keep PRs small.
+The size limit, what it counts, and the `size/approved` override are defined once, in `Standards/PULL_REQUEST_STANDARD.md` (Reviewability). The checklist item above restates the limit so an author can tick it; this template sets no other size rule.
 
 ---
 
@@ -113,7 +115,7 @@ A PR that is too large to review carefully is a PR that will be approved without
 
 Owner: IA Engineering
 
-Version: 0.0.5
+Version: 0.0.8
 
 Status: Draft
 

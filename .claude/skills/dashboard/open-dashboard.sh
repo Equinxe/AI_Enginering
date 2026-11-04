@@ -33,12 +33,12 @@
 set -uo pipefail
 
 case "$0" in
-  */*) HERE="$(cd "${0%/*}" && pwd)" ;;
+  */*) HERE="$(CDPATH='' cd -- "${0%/*}" && pwd)" ;;
   *) HERE="$PWD" ;;
 esac
 ROOT="$(cd "$HERE/../../.." && pwd)"
 if [ -n "${CLAUDE_PROJECT_DIR:-}" ] && [ -d "$CLAUDE_PROJECT_DIR" ]; then
-  ROOT="$(cd "$CLAUDE_PROJECT_DIR" && pwd)"
+  ROOT="$(CDPATH='' cd -- "$CLAUDE_PROJECT_DIR" && pwd)"
 fi
 
 SCRIPT=""

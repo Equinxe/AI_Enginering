@@ -100,13 +100,22 @@
 # breaks rule 1 just as surely as a check that never ran.
 #
 # Usage:
-#   ./Adapters/scripts/validate-framework.sh              # validate; exit 1 on failure
+#   ./Adapters/scripts/validate-framework.sh              # validate; exit codes below
 #   ./Adapters/scripts/validate-framework.sh --verbose    # also print passing checks
 #   ./Adapters/scripts/validate-framework.sh --regenerate-roster
 #                                                         # rewrite Registry/employees.yml
 #                                                         # from the Employee definitions
 #
 # Run from anywhere; paths resolve against the repository root.
+#
+# Exit codes (Standards/CODE_QUALITY_STANDARD.md, The Check Convention, Shell
+# Scripts rule 1):
+#   0  every check was evaluated and passed
+#   1  a finding: at least one check failed, and every check was evaluated
+#   2  at least one check could not be evaluated (its input missing or
+#      unreadable, or yielding nothing to compare: `cannot` below, reported
+#      "FAIL  not evaluated: ..."), whatever the others found; or a usage
+#      error, or a repository root this script cannot enter
 
 set -uo pipefail
 
@@ -145,13 +154,14 @@ done
 
 # Resolve the repository root from this script's own location, so the script
 # behaves the same however it is invoked.
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 cd "$ROOT" || exit 2
 
 ROSTER="Registry/employees.yml"
 
 FAILURES=0
+UNEVALUATED=0
 CHECKS=0
 
 # --- Reporting -------------------------------------------------------------
@@ -178,6 +188,17 @@ fail() {
   if [ -n "${GITHUB_ACTIONS:-}" ]; then
     echo "::error::$1 ${2:-}"
   fi
+}
+
+# cannot <message> [detail] — a check that could not be evaluated: its input
+# is missing or unreadable, or yielded nothing to compare. It is a failure,
+# never a pass (rule 1 of the convention above), and it is counted apart from
+# a finding, so that the run exits 2 and not 1: a caller can then tell "the
+# framework is wrong" from "this run could not tell" (the exit codes in the
+# header).
+cannot() {
+  UNEVALUATED=$((UNEVALUATED + 1))
+  fail "not evaluated: $1" "${2:-}"
 }
 
 # --- Roster helpers --------------------------------------------------------
@@ -288,7 +309,7 @@ section "1. Registry parsing contract"
 # validation time rather than as a hook that quietly stopped enforcing.
 
 if [ ! -f "$ROSTER" ]; then
-  fail "$ROSTER is missing" "Every mechanical consumer resolves the roster here; without it the commit-msg hook fails closed and no commit can land."
+  cannot "$ROSTER is missing" "Every mechanical consumer resolves the roster here; without it the commit-msg hook fails closed and no commit can land."
 else
   pass "$ROSTER exists"
 
@@ -309,7 +330,7 @@ fi
 ROSTER_COUNT="$(roster_names | wc -l | tr -d ' ')"
 
 for field in file category tier; do
-  field_count="$(grep -cE "^    $field: " "$ROSTER")"
+  field_count="$(grep -cE -- "^    $field: " "$ROSTER")"
   if [ "$field_count" -ne "$ROSTER_COUNT" ]; then
     fail "roster has $ROSTER_COUNT entries but $field_count '$field:' lines" "Every entry needs name, file, category, and tier."
   else
@@ -376,9 +397,9 @@ section "3. Roster counts quoted in prose"
 
 check_quoted_count() {
   local file="$1" pattern="$2" label="$3" found
-  found="$(grep -ohE "$pattern" "$file" | grep -ohE '[0-9]+' | head -1)"
+  found="$(grep -ohE -- "$pattern" "$file" | grep -ohE '[0-9]+' | head -1)"
   if [ -z "$found" ]; then
-    fail "$file: could not find the $label count" "Expected text matching /$pattern/. If the wording changed, update this check."
+    cannot "$file: could not find the $label count" "Expected text matching /$pattern/. If the wording changed, update this check."
   elif [ "$found" -ne "$ROSTER_COUNT" ]; then
     fail "$file states $found Employees, but the roster has $ROSTER_COUNT" "Governance/CONTRIBUTING.md Section 2 requires this updated in the same Work Unit as the roster change."
   else
@@ -400,11 +421,11 @@ section "4. Tier assignment vs. Core/CAPABILITY_TIERS.md"
 
 TIERS_DOC="Core/CAPABILITY_TIERS.md"
 if [ ! -f "$TIERS_DOC" ]; then
-  fail "$TIERS_DOC is missing" "Core/ORCHESTRATION.md Step 4 selects execution capability from it before every dispatch."
+  cannot "$TIERS_DOC is missing" "Core/ORCHESTRATION.md Step 4 selects execution capability from it before every dispatch."
 else
   TABLE_ROW="$(grep -E '^\| Strategic Judgment \|' "$TIERS_DOC" | head -1)"
   if [ -z "$TABLE_ROW" ]; then
-    fail "$TIERS_DOC has no Strategic Judgment row in its tier-assignment table" "If the table's shape changed, update this check."
+    cannot "$TIERS_DOC has no Strategic Judgment row in its tier-assignment table" "If the table's shape changed, update this check."
   else
     TABLE_NAMES="$(echo "$TABLE_ROW" | awk -F'|' '{print $3}' | tr ',' '\n' \
       | sed 's/^[[:space:]]*//; s/[[:space:]]*$//' | grep -v '^$' | sort)"
@@ -433,7 +454,7 @@ section "5. Dispatch triggers in Core/EMPLOYEE_SELECTION.md"
 
 SELECTION_DOC="Core/EMPLOYEE_SELECTION.md"
 if [ ! -f "$SELECTION_DOC" ]; then
-  fail "$SELECTION_DOC is missing" "Core/MAIN_AGENT_CONDUCT.md's Employee Selection section requires the Main Agent to check it before every dispatch."
+  cannot "$SELECTION_DOC is missing" "Core/MAIN_AGENT_CONDUCT.md's Employee Selection section requires the Main Agent to check it before every dispatch."
 else
   # One pass over the document collects every bolded Employee name it names;
   # the roster is then checked against that set in memory.
@@ -503,7 +524,7 @@ for f in Employees/*/*.md; do
   grep -qE '^- Standards First\r?$' "$f" || missing_sf="$missing_sf$(basename "$f"); "
 done
 if [ "$sf_checked" -eq 0 ]; then
-  fail "no Employee definitions found under Employees/*/*.md" "The glob matched nothing, so this check verified nothing. An empty input set is not a pass."
+  cannot "no Employee definitions found under Employees/*/*.md" "The glob matched nothing, so this check verified nothing. An empty input set is not a pass."
 elif [ -n "$missing_sf" ]; then
   fail "Employees whose Standards Applied omits Standards First: $missing_sf" "Standards/STANDARDS_FIRST.md is the root of the hierarchy in CLAUDE.md; every Employee applies it. Add '- Standards First' to the Standards Applied section."
 else
@@ -518,7 +539,7 @@ section "7. Workflow and Standard completeness"
 for f in Workflows/*.md; do
   missing=""
   for s in Purpose Trigger Actors Escalation Metadata; do
-    grep -qE "^# $s" "$f" || missing="$missing$s, "
+    grep -qE -- "^# $s" "$f" || missing="$missing$s, "
   done
   # A Workflow needs a container heading for its numbered steps, so a step is
   # never an orphaned subsection under Prerequisites — which is what
@@ -543,7 +564,7 @@ done
 for f in Standards/*.md; do
   missing=""
   for s in Purpose Rationale Metadata; do
-    grep -qE "^# $s" "$f" || missing="$missing$s, "
+    grep -qE -- "^# $s" "$f" || missing="$missing$s, "
   done
   # Standards/STANDARDS_FIRST.md is the hierarchy itself, not a Standard
   # applying it, so it has no external standard to reference.
@@ -590,7 +611,7 @@ done
 # Carrying the count also makes --verbose state what was actually verified
 # rather than only that nothing objected.
 if [ "$META_COUNT" -eq 0 ]; then
-  fail "metadata check inspected 0 governed documents" "The globs (Core/*.md, Standards/*.md, Workflows/*.md, Templates/*.md, Governance/*.md, Employees/*/*.md) matched nothing. Either the run is in the wrong directory or a directory was renamed — an empty input set is not a passing check."
+  cannot "metadata check inspected 0 governed documents" "The globs (Core/*.md, Standards/*.md, Workflows/*.md, Templates/*.md, Governance/*.md, Employees/*/*.md) matched nothing. Either the run is in the wrong directory or a directory was renamed — an empty input set is not a passing check."
 else
   pass "metadata fields checked across $META_COUNT governed documents"
 fi
@@ -707,15 +728,21 @@ while IFS= read -r ref; do
 # because there an unstaged NEW document is exactly the omission to report.
 # The difference is the subject: that check asks "is the inventory complete",
 # this one asks "does the committed corpus hang together".
+#
+# The changelog fragments, changelog.d/WU-*.md, are excluded for CHANGELOG.md's
+# reason: each is a CHANGELOG.md entry waiting for the version bump, and an
+# entry about a rename names the old path. Checking a fragment today would
+# fail the same sentence that passes once release.sh assemble has moved it
+# into CHANGELOG.md. changelog.d/README.md is not an entry, and stays checked.
 done < <(git ls-files '*.md' \
-           | grep -v -e '^CHANGELOG\.md$' -e '/TROUBLESHOOTING\.md$' \
-           | xargs -r grep -hoE "$REF_PATTERN" \
+           | grep -v -e '^CHANGELOG\.md$' -e '/TROUBLESHOOTING\.md$' -e '^changelog\.d/WU-' \
+           | xargs -r grep -hoE -- "$REF_PATTERN" \
            | tr -d "$BT" | sort -u)
 
 if [ -n "$broken" ]; then
   fail "documents reference paths that do not exist: $broken" "Governance/DEPRECATION_POLICY.md's Cross-Reference Check requires every reference to be updated or removed when its target moves."
 elif [ "$refs_checked" -eq 0 ]; then
-  fail "the cross-reference scan resolved 0 paths" "The pattern matches backtick-quoted paths under a hand-maintained list of top-level directories. Zero matches means the documentation convention changed, or a new top-level directory was added to the repository but not to that list — either way nothing was checked, which is not the same as everything passing."
+  cannot "the cross-reference scan resolved 0 paths" "The pattern matches backtick-quoted paths under a hand-maintained list of top-level directories. Zero matches means the documentation convention changed, or a new top-level directory was added to the repository but not to that list — either way nothing was checked, which is not the same as everything passing."
 else
   pass "every framework path referenced in prose resolves ($refs_checked checked)"
 fi
@@ -737,7 +764,7 @@ done < <(find Core Standards Workflows Templates Governance Employees -name '*.m
 if [ -n "$broken_local" ]; then
   fail "Depends On entries that resolve nowhere: $broken_local" "A bare filename in Depends On is read relative to the referring document's directory."
 elif [ "$deps_checked" -eq 0 ]; then
-  fail "the Depends On scan resolved 0 entries" "The extraction is a sed range between the literal headings 'Depends On:' and 'Referenced By:'. Renaming either heading collapses the range to nothing, and no entry is checked at all — reported here rather than passing silently."
+  cannot "the Depends On scan resolved 0 entries" "The extraction is a sed range between the literal headings 'Depends On:' and 'Referenced By:'. Renaming either heading collapses the range to nothing, and no entry is checked at all — reported here rather than passing silently."
 else
   pass "every Depends On entry resolves ($deps_checked checked)"
 fi
@@ -771,11 +798,15 @@ fi
 # Omitting the exclusion swapped one false positive for another: the first
 # version of this fix flagged `.github` on every run, which is the same defect
 # it was written to remove.
+#
+# changelog.d/ is excluded by name, for the same reason: it holds the pending
+# entries of CHANGELOG.md (section 23), release bookkeeping beside a file the
+# listing does not name either, not a part of the framework a reader adopts.
 if git rev-parse --git-dir > /dev/null 2>&1; then
-  TOP_DIRS="$(git ls-files | awk -F/ 'NF > 1 && $1 !~ /^\./ { print $1 }' | sort -u)"
+  TOP_DIRS="$(git ls-files | awk -F/ 'NF > 1 && $1 !~ /^\./ && $1 != "changelog.d" { print $1 }' | sort -u)"
 else
   TOP_DIRS="$(find . -maxdepth 1 -type d \
-    -not -name '.' -not -name '.git' -not -name '.github' -not -name '.omc' -not -name '.claude' \
+    -not -name '.' -not -name '.git' -not -name '.github' -not -name '.omc' -not -name '.claude' -not -name 'changelog.d' \
     | sed 's|^\./||' | sort)"
 fi
 
@@ -783,7 +814,7 @@ for doc in README.md CLAUDE.md; do
   # Each block lists one directory per line as "Name/" or "Name/  — description".
   listed="$(grep -oE '^[A-Z][A-Za-z]*/' "$doc" | tr -d '/' | sort -u)"
   if [ -z "$listed" ]; then
-    fail "$doc has no recognisable repository-structure listing" "If its shape changed, update this check."
+    cannot "$doc has no recognisable repository-structure listing" "If its shape changed, update this check."
     continue
   fi
   missing="$(comm -23 <(printf '%s\n' "$TOP_DIRS") <(printf '%s\n' "$listed") | tr '\n' ' ')"
@@ -1033,7 +1064,7 @@ for root in "${MARKER_ROOTS[@]}"; do
 done
 
 if [ -n "$missing_roots" ]; then
-  fail "work-marker scan roots do not exist: $missing_roots" "The scan cannot report a clean result for a directory it never read. If these paths moved, update this list; if they were removed, remove them from it deliberately."
+  cannot "work-marker scan roots do not exist: $missing_roots" "The scan cannot report a clean result for a directory it never read. If these paths moved, update this list; if they were removed, remove them from it deliberately."
 fi
 
 # Scanning only the roots that exist, so the failure above is the single report
@@ -1073,7 +1104,7 @@ if [ -f Registry/chains.yml ]; then
   if [ -n "$bad_actors" ]; then
     fail "Registry/chains.yml names non-Employees: $bad_actors" "A chain step dispatches to a real Employee, or to the framework roles Main Agent / Director / Engineer. Core/MAIN_AGENT_CONDUCT.md's Dispatch Discipline is the reason: a step with no named Employee has no accountable owner."
   elif [ "$actors_checked" -eq 0 ]; then
-    fail "Registry/chains.yml yielded 0 chain actors" "The extraction is an indentation-sensitive grep for '      - employee: '. Zero matches means the file was reformatted and the consumer reads nothing — section 1 enforces a parsing contract for employees.yml only, so nothing else would have caught this."
+    cannot "Registry/chains.yml yielded 0 chain actors" "The extraction is an indentation-sensitive grep for '      - employee: '. Zero matches means the file was reformatted and the consumer reads nothing — section 1 enforces a parsing contract for employees.yml only, so nothing else would have caught this."
   else
     pass "every chain step names a real Employee or framework role ($actors_checked checked)"
   fi
@@ -1090,9 +1121,20 @@ if [ -f Registry/chains.yml ]; then
 
   # Every named chain in Core/AGENT_CHAINS.md must appear, or a runtime reading
   # the Registry would silently not know a chain exists.
+  #
+  # Counted, and failed at zero (rule 3). The pass line used to print whatever
+  # the loop saw, so an extraction that read no chain at all still claimed
+  # coverage (issue #227). One measured way to read none: a CRLF checkout read
+  # by a grep that keeps the carriage return, where "Chain$" never matches
+  # "# Feature Chain\r". The CR is stripped before the match for that reason.
+  chains_named=0
+  chains_missing=0
   while IFS= read -r chain; do
-    grep -qF "name: $chain" Registry/chains.yml \
-      || fail "Core/AGENT_CHAINS.md defines '$chain' but Registry/chains.yml has no entry" "A runtime reading the Registry would not know this chain exists."
+    chains_named=$((chains_named + 1))
+    if ! grep -qF -- "name: $chain" Registry/chains.yml; then
+      chains_missing=$((chains_missing + 1))
+      fail "Core/AGENT_CHAINS.md defines '$chain' but Registry/chains.yml has no entry" "A runtime reading the Registry would not know this chain exists."
+    fi
   # Multi-word chain names included. The earlier pattern was
   # `^# [A-Za-z]+ Chain$` — single word only — so a chain named e.g.
   # "Incident Response Chain" would never have been extracted, and its failure
@@ -1108,13 +1150,210 @@ if [ -f Registry/chains.yml ]; then
   # in the word. They are excluded by name anyway rather than by relying on
   # that, since a future heading like "# Custom Chain" would otherwise be read
   # as a chain.
-  done < <(grep -oE '^# [A-Za-z][A-Za-z ]*Chain$' Core/AGENT_CHAINS.md \
+  done < <(tr -d '\015' < Core/AGENT_CHAINS.md \
+             | grep -oE '^# [A-Za-z][A-Za-z ]*Chain$' \
              | sed 's/^# //' \
              | grep -vxE 'Chain Selection|Chain Conventions|Composing Custom Chain')
-  pass "Registry/chains.yml covers every named chain"
+  if [ "$chains_named" -eq 0 ]; then
+    cannot "Core/AGENT_CHAINS.md yielded 0 named chains" "The extraction reads '# <Name> Chain' headings. Zero means the document is missing, its headings changed form, or the read failed, so no chain was checked against Registry/chains.yml. That is reported, not passed."
+  elif [ "$chains_missing" -eq 0 ]; then
+    pass "Registry/chains.yml covers every named chain ($chains_named checked)"
+  fi
 else
-  fail "Registry/chains.yml is missing" "It existed as of WU-IAENG-145 and Registry/README.md lists its consumers. Reporting a pass for an absent file is the same silent-skip shape as a gate that skips itself — if the Registry genuinely no longer carries chains, remove this check deliberately rather than letting a deletion look like a success."
+  cannot "Registry/chains.yml is missing" "It existed as of WU-IAENG-145 and Registry/README.md lists its consumers. Reporting a pass for an absent file is the same silent-skip shape as a gate that skips itself — if the Registry genuinely no longer carries chains, remove this check deliberately rather than letting a deletion look like a success."
 fi
+
+# WORKFLOW STEP TITLES (WU-IAENG-392, issue #332). The step_count comparison
+# below sees a step added or removed, and nothing else. Release Step 8's
+# Registry line kept "when the release branch diverged" for seven weeks after
+# the document made the back-merge always required (4f5fff4 to 0ef3ad4): the
+# count was right, so every check passed. The Director's decision of 27 Oct
+# 2026 (option A) removes the cause rather than detecting a symptom: a step's
+# `step:` value is its document's heading text after "## Step N — ", copied
+# byte for byte, with no summary or qualifier to drift. This compares them in
+# order, position by position, with no normalisation: a renamed heading, a
+# qualifier added to the Registry, and two steps swapped at equal count each
+# fail.
+#
+# WHAT IS READ FROM workflows.yml, at the fixed indentation its header's
+# parsing contract states: "  - name:" opens a workflow, "    file:" names its
+# document, "    steps:" opens its steps and any other four-space key closes
+# them, "      - n: <N>" opens a step, and "        step: <title>" is its
+# title. A double-quoted title loses its quotes, which is all YAML does to one
+# with no '"' or '\' inside. Refused rather than compared, because YAML would
+# not read the bytes on the line as the title: an empty value, a block scalar,
+# a double-quoted value with '"' or '\' inside, and a plain value that starts
+# with a YAML indicator (a single quote among them), contains ": " or " #",
+# ends in ":" or ends in whitespace. Also refused: any other "      - " line
+# inside steps, a second step: for one step, a step with none, and every line
+# inside steps that is neither blank nor a one-line eight-space key. YAML
+# folds an indented continuation line into the value above it, so a qualifier
+# written on a second line would otherwise be part of the title and never
+# compared (review of PR #339).
+#
+# WHAT IS READ FROM EACH DOCUMENT: every line the step_count check counts,
+# "## Step <N>" or "## Ceremony <N>"; its title is what follows
+# "## Step <N> — ". A counted heading without that separator is refused.
+#
+# CRLF is stripped at the end of a line only (Standards/CODE_QUALITY_STANDARD.md,
+# Shell Scripts rule 3). The first differing position of a workflow is
+# reported, with the number of positions that differ and both sequences. The
+# Registry side names the line of the step's step: value (its "- n:" line when
+# it has none).
+
+# workflow_step_title_drift <workflow-registry> <root>
+# Each document is read at <root>/<file:>. Prints tab-separated records:
+# "ok<TAB><message>" for each agreeing workflow, "fail<TAB><message><TAB><detail>"
+# for each difference, "error<TAB><message><TAB><detail>" for each refused
+# line or input that could not be compared, and last
+# "total<TAB><workflows compared><TAB><steps compared>". Exits 0 only when at
+# least one workflow was compared and nothing differed or was refused.
+# Self-contained, because Adapters/scripts/tests/run.sh extracts and runs it
+# on fixtures.
+workflow_step_title_drift() {
+  local reg="$1" root="$2"
+  if [ ! -f "$reg" ]; then
+    printf 'error\tcannot compare workflow step titles: %s is missing\tNothing was compared, which is not a pass.\n' "$reg"
+    printf 'total\t0\t0\n'
+    return 1
+  fi
+  LC_ALL=C awk -v reg="$reg" -v root="$root" '
+    function refuse(what) {
+      printf "error\t%s:%d: %s\tThis line is outside the parsing contract in the header of Registry/workflows.yml, so it was not compared.\n", reg, FNR, what
+      errors++
+    }
+    function render(w, i) {
+      return rnum[w, i] " " (((w SUBSEP i) in rtitle) ? rtitle[w, i] : "(no step: value)")
+    }
+    function registry_steps(w, n,   i, s) {
+      s = ""
+      for (i = 1; i <= n; i++)
+        s = s ((i > 1) ? "; " : "") render(w, i)
+      return s
+    }
+    function document_steps(dn,   i, s) {
+      s = ""
+      for (i = 1; i <= dn; i++)
+        s = s ((i > 1) ? "; " : "") dnum[i] " " dtitle[i]
+      return s
+    }
+    { sub(/\r$/, "") }
+    /^  - name: / { nw++; wname[nw] = substr($0, 11); in_steps = 0; k = 0; next }
+    /^    file: / { if (nw) wfile[nw] = substr($0, 11); in_steps = 0; next }
+    /^    [^ ]/   { in_steps = ($0 == "    steps:"); k = 0; next }
+    !in_steps     { next }
+    /^      - n: / { k = ++rn[nw]; rnum[nw, k] = substr($0, 12); rline[nw, k] = FNR; next }
+    /^      - /   { refuse("a step that does not open with \"- n:\": \"" $0 "\""); next }
+    /^        step:/ {
+      if (k == 0) { refuse("a step: line before the first \"- n:\" of this steps list"); next }
+      if ((nw SUBSEP k) in rtitle) { refuse("a second step: line for step " rnum[nw, k]); next }
+      v = substr($0, 14)
+      if (v == "" || v == " ") { refuse("an empty step: value"); next }
+      if (substr(v, 1, 1) != " ") { refuse("a step: key with no space before its value"); next }
+      v = substr(v, 2)
+      if (v ~ /^[>|]/) { refuse("a block scalar \"" v "\": the title is written on the step: line itself"); next }
+      if (substr(v, 1, 1) == "\"") {
+        inner = substr(v, 2, length(v) - 2)
+        if (length(v) < 2 || substr(v, length(v)) != "\"" || index(inner, "\"") || index(inner, "\\")) {
+          refuse("a double-quoted step: value this check does not decode: " v); next
+        }
+        v = inner
+      } else if (v ~ /^[-?:,{}#&*!%@`'\''[]/ || v ~ /^]/) {
+        refuse("a plain step: value starting with a YAML indicator: " v " (enclose it in double quotes)"); next
+      } else if (index(v, ": ") || index(v, " #") || v ~ /:$/ || v ~ /[ \t]$/) {
+        refuse("a plain step: value YAML reads differently: " v " (enclose it in double quotes)"); next
+      }
+      rtitle[nw, k] = v
+      rline[nw, k] = FNR
+      next
+    }
+    /^$/ { next }
+    /^        [a-z_]+: [^ ]/ { next }
+    { refuse("a line outside the steps grammar (a continuation YAML folds into the value above it, or a line at another indentation): \"" $0 "\""); next }
+    END {
+      for (w = 1; w <= nw; w++) {
+        name = wname[w]
+        if (wfile[w] == "") {
+          printf "error\t%s: %s records no file:\tWithout its document, no step title was compared, which is not a pass.\n", name, reg
+          bad++
+          continue
+        }
+        n = rn[w] + 0
+        if (n == 0) {
+          printf "error\t%s: %s records no steps\tAn empty steps list cannot be compared, which is not a pass.\n", name, reg
+          bad++
+          continue
+        }
+        for (i = 1; i <= n; i++) {
+          if (!((w SUBSEP i) in rtitle)) {
+            printf "error\t%s, step %s: %s:%d records no step: value\tA step with no title cannot be compared, which is not a pass.\n", name, rnum[w, i], reg, rline[w, i]
+            bad++
+          }
+        }
+        path = (root == "") ? wfile[w] : root "/" wfile[w]
+        dn = 0
+        ln = 0
+        while ((r = (getline line < path)) > 0) {
+          ln++
+          sub(/\r$/, "", line)
+          if (line !~ /^## (Step|Ceremony) [0-9]+/) continue
+          dn++
+          dline[dn] = ln
+          t = line
+          sub(/^## (Step|Ceremony) /, "", t)
+          match(t, /^[0-9]+/)
+          dnum[dn] = substr(t, 1, RLENGTH)
+          t = substr(t, RLENGTH + 1)
+          if (substr(t, 1, 5) == " \342\200\224 " && length(t) > 5) {
+            dtitle[dn] = substr(t, 6)
+          } else {
+            printf "error\t%s:%d: a step heading with no \" \342\200\224 <title>\": \"%s\"\tThe heading is counted as a step but has no title, so nothing was compared for it.\n", wfile[w], ln, line
+            dtitle[dn] = "(no title)"
+            bad++
+          }
+        }
+        close(path)
+        if (r < 0) {
+          printf "error\t%s: %s cannot be read\tNo step title of this workflow was compared, which is not a pass.\n", name, wfile[w]
+          bad++
+          continue
+        }
+        if (dn == 0) {
+          printf "error\t%s: %s has no \"## Step N\" or \"## Ceremony N\" heading\tAn empty set of headings cannot be compared, which is not a pass.\n", name, wfile[w]
+          bad++
+          continue
+        }
+        first = 0
+        ndiff = 0
+        for (i = 1; i <= dn || i <= n; i++) {
+          a = (i <= dn) ? dnum[i] " " dtitle[i] : ""
+          b = (i <= n) ? render(w, i) : ""
+          if (a != b) {
+            ndiff++
+            if (!first) first = i
+          }
+        }
+        compared++
+        steps += dn
+        if (!ndiff) {
+          printf "ok\t%s: every step title matches %s (%d steps)\n", name, wfile[w], dn
+          continue
+        }
+        bad++
+        a = (first <= dn) ? sprintf("%s:%d heads \"%s\"", wfile[w], dline[first], dnum[first] " \342\200\224 " dtitle[first]) : sprintf("%s has no heading at position %d (it ends at %d)", wfile[w], first, dn)
+        b = (first <= n) ? sprintf("%s:%d records \"%s\"", reg, rline[w, first], rnum[w, first] " \342\200\224 " (((w SUBSEP first) in rtitle) ? rtitle[w, first] : "(no step: value)")) : sprintf("%s records nothing at position %d (it ends at %d)", reg, first, n)
+        printf "fail\t%s, position %d: %s, %s\t%d of %d positions differ. Document, %d steps: %s. Registry, %d steps: %s. The document is authoritative: copy its heading text after \"## Step N \342\200\224 \" into step: byte for byte, with no qualifier (Registry/workflows.yml, header), unless the heading is what changed by mistake.\n", name, first, a, b, ndiff, ((dn > n) ? dn : n), dn, document_steps(dn), n, registry_steps(w, n)
+      }
+      if (compared == 0) {
+        printf "error\tno workflow step title was compared\t%s yielded no workflow with a readable document and steps. A comparison over an empty set is not a pass.\n", reg
+        bad++
+      }
+      printf "total\t%d\t%d\n", compared, steps
+      if (bad || errors) exit 1
+      exit 0
+    }
+  ' "$reg"
+}
 
 if [ -f Registry/workflows.yml ]; then
   missing_doc=""
@@ -1126,13 +1365,13 @@ if [ -f Registry/workflows.yml ]; then
   if [ -n "$missing_doc" ]; then
     fail "Registry/workflows.yml references missing documents: $missing_doc" ""
   elif [ "$wf_entries" -eq 0 ]; then
-    fail "Registry/workflows.yml yielded 0 workflow entries" "The extraction is an indentation-sensitive grep for '    file: '. Zero matches means the file was reformatted and every consumer reads nothing from it, including the gate lookups — reported here rather than passing."
+    cannot "Registry/workflows.yml yielded 0 workflow entries" "The extraction is an indentation-sensitive grep for '    file: '. Zero matches means the file was reformatted and every consumer reads nothing from it, including the gate lookups — reported here rather than passing."
   else
     pass "every workflow entry points at a real document ($wf_entries checked)"
   fi
 
   for f in Workflows/*.md; do
-    grep -qF "$f" Registry/workflows.yml \
+    grep -qF -- "$f" Registry/workflows.yml \
       || fail "$f has no entry in Registry/workflows.yml" "A runtime reading the Registry would not know this Workflow exists."
   done
   pass "Registry/workflows.yml covers every Workflow document"
@@ -1144,7 +1383,7 @@ if [ -f Registry/workflows.yml ]; then
   # anything reading the Registry — including a gate lookup — one step short,
   # and every other check here would still pass.
   for f in Workflows/*.md; do
-    declared="$(grep -A3 "file: $f" Registry/workflows.yml | grep -m1 'step_count:' \
+    declared="$(grep -A3 -- "file: $f" Registry/workflows.yml | grep -m1 'step_count:' \
                   | sed 's/.*step_count: //' | tr -d '\015')"
     actual="$(grep -cE '^## (Step|Ceremony) [0-9]+' "$f")"
     if [ -z "$declared" ]; then
@@ -1155,8 +1394,32 @@ if [ -f Registry/workflows.yml ]; then
       pass "$(basename "$f"): step_count $declared matches the document"
     fi
   done
+
+  # The step titles, step for step (workflow_step_title_drift, above).
+  wst_out="$(workflow_step_title_drift Registry/workflows.yml .)"
+  wst_status=$?
+  wst_total=""
+  wst_steps=""
+  wst_fails=0
+  while IFS=$'\t' read -r verdict message detail; do
+    case "$verdict" in
+      "") ;;
+      ok) pass "$message" ;;
+      fail) wst_fails=$((wst_fails + 1)); fail "$message" "$detail" ;;
+      error) wst_fails=$((wst_fails + 1)); cannot "$message" "$detail" ;;
+      total) wst_total="$message"; wst_steps="$detail" ;;
+      *) wst_fails=$((wst_fails + 1)); cannot "workflow_step_title_drift printed a record this section cannot read" "$verdict $message" ;;
+    esac
+  done <<< "$wst_out"
+  if [ -z "$wst_total" ]; then
+    cannot "the workflow step title comparison produced no verdict" "workflow_step_title_drift exited $wst_status without its closing 'total' record: awk did not run, or stopped early. Nothing was compared, which is not a pass."
+  elif [ "$wst_status" -eq 0 ] && [ "$wst_fails" -eq 0 ]; then
+    pass "all $wst_total workflows' step titles match their documents' headings ($wst_steps steps compared)"
+  elif [ "$wst_fails" -eq 0 ]; then
+    cannot "the workflow step title comparison failed without naming a difference" "workflow_step_title_drift exited $wst_status after comparing $wst_total workflows. Reported rather than passed."
+  fi
 else
-  fail "Registry/workflows.yml is missing" "It existed as of WU-IAENG-145. The gate positions recorded there are what makes Core/MAIN_AGENT_CONDUCT.md's autonomy-between-gates rule mechanically answerable; an absent file cannot be reported as a pass."
+  cannot "Registry/workflows.yml is missing" "It existed as of WU-IAENG-145. The gate positions recorded there are what makes Core/MAIN_AGENT_CONDUCT.md's autonomy-between-gates rule mechanically answerable; an absent file cannot be reported as a pass."
 fi
 
 if [ -f Registry/work-units.yml ]; then
@@ -1187,7 +1450,7 @@ if [ -f Registry/work-units.yml ]; then
     pass "every Work Unit credits a real Employee"
   fi
 else
-  fail "Registry/work-units.yml is missing" "It existed as of WU-IAENG-146, and the Work Unit Exists CI job resolves every referenced ID against it. Without it that required check fails closed, so this cannot be a pass here."
+  cannot "Registry/work-units.yml is missing" "It existed as of WU-IAENG-146, and the Work Unit Exists CI job resolves every referenced ID against it. Without it that required check fails closed, so this cannot be a pass here."
 fi
 
 # ==========================================================================
@@ -1224,8 +1487,8 @@ check_inventory() {
     suffix_note=", minus the trailing category word $suffix"
   fi
 
-  if ! grep -qE "^### $heading( \([0-9]+\))?\$" VERSION.md; then
-    fail "VERSION.md has no '### $heading' section" "It lists every $dir document by name; a missing section cannot be checked and is not a pass. Restore the section or update this check deliberately."
+  if ! grep -qE -- "^### $heading( \([0-9]+\))?\$" VERSION.md; then
+    cannot "VERSION.md has no '### $heading' section" "It lists every $dir document by name; a missing section cannot be checked and is not a pass. Restore the section or update this check deliberately."
     return
   fi
 
@@ -1253,11 +1516,11 @@ check_inventory() {
   listed_count="$(printf '%s\n' "$listed" | grep -c .)"
 
   if [ "$real_count" -eq 0 ]; then
-    fail "no documents found under $dir/" "The inventory check has nothing to compare against. Either the directory was renamed or the glob is wrong — an empty input set is not a passing check."
+    cannot "no documents found under $dir/" "The inventory check has nothing to compare against. Either the directory was renamed or the glob is wrong — an empty input set is not a passing check."
     return
   fi
   if [ "$listed_count" -eq 0 ]; then
-    fail "VERSION.md's '### $heading' section lists no '- [x]' items" "$real_count documents exist under $dir/. A section that enumerates nothing cannot be compared, so it fails rather than passing silently."
+    cannot "VERSION.md's '### $heading' section lists no '- [x]' items" "$real_count documents exist under $dir/. A section that enumerates nothing cannot be compared, so it fails rather than passing silently."
     return
   fi
 
@@ -1291,7 +1554,7 @@ check_inventory() {
 
   # The parenthesised count is a third copy of the same fact. Checked only when
   # present: '### Standards' carries no count and is not required to grow one.
-  declared="$(grep -oE "^### $heading \([0-9]+\)\$" VERSION.md | grep -oE '[0-9]+' | head -1)"
+  declared="$(grep -oE -- "^### $heading \([0-9]+\)\$" VERSION.md | grep -oE '[0-9]+' | head -1)"
   if [ -n "$declared" ] && [ "$declared" -ne "$real_count" ]; then
     fail "VERSION.md says '$heading ($declared)' but $real_count exist under $dir/" "Update the heading in the same Work Unit as the document."
   fi
@@ -1326,7 +1589,7 @@ section "15. Glossary ordering"
 
 GLOSSARY="Core/GLOSSARY.md"
 if [ ! -f "$GLOSSARY" ]; then
-  fail "$GLOSSARY is missing" "CLAUDE.md lists it as a Core document and every artifact is required to use its vocabulary. Its absence cannot be a pass."
+  cannot "$GLOSSARY is missing" "CLAUDE.md lists it as a Core document and every artifact is required to use its vocabulary. Its absence cannot be a pass."
 else
   # \r? and tr -d '\015' throughout: the rest of this script guards a CRLF
   # checkout and section 15 did not. Git Bash's awk happens to strip the
@@ -1337,7 +1600,7 @@ else
   term_count="$(grep -cE '^## ' "$GLOSSARY")"
 
   if [ "$letter_count" -eq 0 ] || [ "$term_count" -eq 0 ]; then
-    fail "$GLOSSARY yielded $letter_count letter section(s) and $term_count term(s)" "The extraction reads '# X' letter headings and '## Term' entries. Zero of either means the document was restructured and this check now reads nothing — reported rather than passed."
+    cannot "$GLOSSARY yielded $letter_count letter section(s) and $term_count term(s)" "The extraction reads '# X' letter headings and '## Term' entries. Zero of either means the document was restructured and this check now reads nothing — reported rather than passed."
   else
     if [ "$glossary_letters" != "$(printf '%s\n' "$glossary_letters" | sort)" ]; then
       fail "$GLOSSARY letter sections are not in alphabetical order: $(printf '%s' "$glossary_letters" | tr '\n' ' ')" "The document says they are. Reorder the sections, or change the claim."
@@ -1414,20 +1677,20 @@ section "16. Every shipped CHANGELOG version has a tag"
 
 CHANGELOG_FILE="CHANGELOG.md"
 if [ ! -f "$CHANGELOG_FILE" ]; then
-  fail "$CHANGELOG_FILE is missing" "Every released version's notes are built from it (Workflows/RELEASE.md Step 7). Its absence cannot be a pass."
+  cannot "$CHANGELOG_FILE is missing" "Every released version's notes are built from it (Workflows/RELEASE.md Step 7). Its absence cannot be a pass."
 elif ! git rev-parse --git-dir >/dev/null 2>&1; then
-  fail "not a git repository, so no tag could be read" "This section compares CHANGELOG versions against tags. Outside a repository it can establish nothing, which is a failure and not a pass."
+  cannot "not a git repository, so no tag could be read" "This section compares CHANGELOG versions against tags. Outside a repository it can establish nothing, which is a failure and not a pass."
 else
   changelog_versions="$(grep -oE '^## \[[0-9][0-9.]*\]' "$CHANGELOG_FILE" | tr -d '#[] ' | tr -d '\015')"
   changelog_count="$(printf '%s\n' "$changelog_versions" | grep -c . || true)"
   tag_count="$(git tag | grep -c . || true)"
 
   if [ "$changelog_count" -eq 0 ]; then
-    fail "$CHANGELOG_FILE yielded no version headings" "The extraction reads '## [x.y.z]'. Zero means the file was restructured and this check now reads nothing — reported rather than passed."
+    cannot "$CHANGELOG_FILE yielded no version headings" "The extraction reads '## [x.y.z]'. Zero means the file was restructured and this check now reads nothing — reported rather than passed."
   elif [ "$tag_count" -eq 0 ]; then
     # Universal failure would be a fact about the checkout, not the repository
     # — TROUBLESHOOTING entry T. Named as such instead of reported per version.
-    fail "no tags are present in this checkout, so $changelog_count CHANGELOG version(s) could not be compared" "A shallow clone carries no tags. Fetch them (actions/checkout with fetch-depth: 0, or 'git fetch --tags') and run again. Reporting every version untagged here would describe the clone and not the repository."
+    cannot "no tags are present in this checkout, so $changelog_count CHANGELOG version(s) could not be compared" "A shallow clone carries no tags. Fetch them (actions/checkout with fetch-depth: 0, or 'git fetch --tags') and run again. Reporting every version untagged here would describe the clone and not the repository."
   else
     # VERSION.md's current version is the one exemption, resolved once.
     preparing=""
@@ -1481,13 +1744,13 @@ section "17. Every declared stack has a starter Dockerfile, and no orphan Docker
 BOOTSTRAP="Adapters/scripts/setup-project-bootstrap.sh"
 DOCKERFILE_DIR="Adapters/dockerfiles"
 if [ ! -f "$BOOTSTRAP" ]; then
-  fail "$BOOTSTRAP is missing" "It declares VALID_STACKS, the closed list this section verifies against the shipped Dockerfiles."
+  cannot "$BOOTSTRAP is missing" "It declares VALID_STACKS, the closed list this section verifies against the shipped Dockerfiles."
 elif [ ! -d "$DOCKERFILE_DIR" ]; then
-  fail "$DOCKERFILE_DIR is missing" "The stack half of bootstrap copies its starter Dockerfile from here; without the directory no stack can be adopted."
+  cannot "$DOCKERFILE_DIR is missing" "The stack half of bootstrap copies its starter Dockerfile from here; without the directory no stack can be adopted."
 else
   declared_stacks="$(grep -E '^VALID_STACKS=' "$BOOTSTRAP" | head -1 | sed 's/^VALID_STACKS=//' | tr -d '"' | tr -d "'" | tr -d '\015')"
   if [ -z "$declared_stacks" ]; then
-    fail "could not read VALID_STACKS from $BOOTSTRAP" "The extraction reads a line 'VALID_STACKS=\"...\"'. Empty means the declaration moved and this section now verifies nothing — reported rather than passed."
+    cannot "could not read VALID_STACKS from $BOOTSTRAP" "The extraction reads a line 'VALID_STACKS=\"...\"'. Empty means the declaration moved and this section now verifies nothing — reported rather than passed."
   else
     # forward: every declared stack ships a non-empty Dockerfile.
     for s in $declared_stacks; do
@@ -1523,23 +1786,23 @@ section "18. Front doors name the current version"
 # the two files are restatements, so a mismatch names the restatement to fix.
 VER_FILE="VERSION.md"
 if [ ! -f "$VER_FILE" ]; then
-  fail "cannot check the front doors: $VER_FILE is missing" "It is the authoritative source the README and CLAUDE.md are checked against."
+  cannot "cannot check the front doors: $VER_FILE is missing" "It is the authoritative source the README and CLAUDE.md are checked against."
 else
   # VERSION.md: the '**vX.Y.Z**' after 'Current Version', the '**Codename**'
   # after 'Codename'. tr -d '\r' so a CRLF checkout does not defeat the match.
   ver_version="$(grep -A2 '^Current Version' "$VER_FILE" | grep -oE 'v[0-9]+\.[0-9]+\.[0-9.]+' | head -1 | tr -d '\r')"
   ver_codename="$(grep -A2 '^Codename' "$VER_FILE" | grep -oE '\*\*[^*]+\*\*' | head -1 | tr -d '*\r')"
   if [ -z "$ver_version" ] || [ -z "$ver_codename" ]; then
-    fail "could not read the current version and codename from $VER_FILE" "The extraction reads '**vX.Y.Z**' under 'Current Version' and '**Codename**' under 'Codename'. Empty means that header moved and this section now verifies nothing — reported rather than passed."
+    cannot "could not read the current version and codename from $VER_FILE" "The extraction reads '**vX.Y.Z**' under 'Current Version' and '**Codename**' under 'Codename'. Empty means that header moved and this section now verifies nothing — reported rather than passed."
   else
     # README: the exact 'vX.Y.Z - Codename' line in the Current Status block.
     if [ ! -f README.md ]; then
-      fail "README.md is missing" "The front door must exist and restate the current version."
+      cannot "README.md is missing" "The front door must exist and restate the current version."
     else
       readme_line="$(sed -n '/^## Current Status/,/^Completed/p' README.md | grep -oE 'v[0-9]+\.[0-9]+\.[0-9.]+ - .+' | head -1 | tr -d '\r')"
       expected="$ver_version - $ver_codename"
       if [ -z "$readme_line" ]; then
-        fail "README.md has no 'vX.Y.Z - Codename' line in its Current Status block" "Add it under '## Current Status' as '$expected', or this check reads nothing."
+        cannot "README.md has no 'vX.Y.Z - Codename' line in its Current Status block" "Add it under '## Current Status' as '$expected', or this check reads nothing."
       elif [ "$readme_line" = "$expected" ]; then
         pass "README Current Status names '$expected', matching $VER_FILE"
       else
@@ -1550,10 +1813,10 @@ else
     # the codename. It uses an em-dash rather than the README's hyphen, so the
     # two tokens are checked for presence rather than an exact 'X - Y' line.
     if [ ! -f CLAUDE.md ]; then
-      fail "CLAUDE.md is missing" "It is the contract every agent reads first and must restate the current version."
+      cannot "CLAUDE.md is missing" "It is the contract every agent reads first and must restate the current version."
     else
       claude_block="$(sed -n '/^# Current Version/,/^# /p' CLAUDE.md | tr -d '\r')"
-      if grep -qF "$ver_version" <<< "$claude_block" && grep -qF "$ver_codename" <<< "$claude_block"; then
+      if grep -qF -- "$ver_version" <<< "$claude_block" && grep -qF -- "$ver_codename" <<< "$claude_block"; then
         pass "CLAUDE.md Current Version names '$ver_version' and '$ver_codename', matching $VER_FILE"
       else
         fail "CLAUDE.md's Current Version section does not name '$ver_version — $ver_codename'" "The contract every agent reads first has drifted. Fix CLAUDE.md's '# Current Version' section to name the version and codename $VER_FILE declares."
@@ -1592,15 +1855,15 @@ word2num() {
 # cardinal word); grep -oE extracts the phrase, and the leading token is read.
 check_front_page_count() {
   local label="$1" actual="$2" regex="$3" phrase tok claimed
-  phrase="$(grep -ohE "$regex" README.md | head -1 | tr -d '\r')"
+  phrase="$(grep -ohE -- "$regex" README.md | head -1 | tr -d '\r')"
   if [ -z "$phrase" ]; then
-    fail "README: could not find the $label count" "Expected a phrase matching /$regex/. If the front page reworded it, update this check — a count no check reads drifts silently (Workflows/CODE_REVIEW.md rule 5)."
+    cannot "README: could not find the $label count" "Expected a phrase matching /$regex/. If the front page reworded it, update this check — a count no check reads drifts silently (Workflows/CODE_REVIEW.md rule 5)."
     return
   fi
   tok="$(printf '%s' "$phrase" | grep -oiE '^[A-Za-z0-9]+')"
   claimed="$(word2num "$tok")"
   if [[ ! "$claimed" =~ ^[0-9]+$ ]]; then
-    fail "README: could not read a number from '$phrase' for the $label count" "The leading token '$tok' is neither digits nor a cardinal one..twenty."
+    cannot "README: could not read a number from '$phrase' for the $label count" "The leading token '$tok' is neither digits nor a cardinal one..twenty."
   elif [ "$claimed" -ne "$actual" ]; then
     fail "README says '$phrase' but the framework has $actual $label" "Front-page count drift. Fix README.md to state $actual, or the set changed and the front page did not (Workflows/CODE_REVIEW.md rule 5)."
   else
@@ -1623,32 +1886,32 @@ gt_chains="$(grep -cE '^  - name:' Registry/chains.yml 2>/dev/null || true)"
 gt_examples="$(find Examples -maxdepth 1 -name '*.md' ! -name 'README.md' 2>/dev/null | grep -c . || true)"
 
 if [ ! -f README.md ]; then
-  fail "README.md is missing" "The front page must exist for its counts to be checked."
+  cannot "README.md is missing" "The front page must exist for its counts to be checked."
 else
   if [ "$gt_workflows" -gt 0 ]; then
     check_front_page_count "engineering workflows" "$gt_workflows" '[0-9]+ engineering workflows'
   else
-    fail "could not count Workflows/*.md" "The workflow count is derived from the directory; an empty count means the directory moved."
+    cannot "could not count Workflows/*.md" "The workflow count is derived from the directory; an empty count means the directory moved."
   fi
   if [ "$gt_checks" -gt 0 ]; then
     check_front_page_count "required status checks" "$gt_checks" '[A-Za-z0-9]+ required status checks'
   else
-    fail "could not count REQUIRED_CHECKS in setup-branch-protection.sh" "The required-checks count is derived from that array; an empty count means it moved."
+    cannot "could not count REQUIRED_CHECKS in setup-branch-protection.sh" "The required-checks count is derived from that array; an empty count means it moved."
   fi
   if [ "$gt_stacks_fc" -gt 0 ]; then
     check_front_page_count "first-class stacks" "$gt_stacks_fc" '[A-Za-z0-9]+ first-class stacks'
   else
-    fail "could not count VALID_STACKS in setup-project-bootstrap.sh" "The stack count is derived from that array; an empty count means it moved."
+    cannot "could not count VALID_STACKS in setup-project-bootstrap.sh" "The stack count is derived from that array; an empty count means it moved."
   fi
   if [ "$gt_chains" -gt 0 ]; then
     check_front_page_count "named Agent Chains" "$gt_chains" '[0-9]+ named Agent Chains'
   else
-    fail "could not count '  - name:' entries in Registry/chains.yml" "The named-Agent-Chains count is derived from that Registry; an empty count means it moved or was renamed."
+    cannot "could not count '  - name:' entries in Registry/chains.yml" "The named-Agent-Chains count is derived from that Registry; an empty count means it moved or was renamed."
   fi
   if [ "$gt_examples" -gt 0 ]; then
     check_front_page_count "end-to-end chain walkthroughs" "$gt_examples" '[0-9]+ end-to-end chain walkthroughs'
   else
-    fail "could not count Examples/*.md walkthroughs (excluding README.md)" "The walkthrough count is derived from the directory minus its index file; an empty count means the directory moved or the index was renamed."
+    cannot "could not count Examples/*.md walkthroughs (excluding README.md)" "The walkthrough count is derived from the directory minus its index file; an empty count means the directory moved or the index was renamed."
   fi
 fi
 
@@ -1694,17 +1957,17 @@ section "20. README enumeration completeness (Core, Templates, Standards)"
 check_enum_completeness() {
   local label="$1" dir="$2" line items n_items n_files
   if [ ! -d "$dir" ]; then
-    fail "cannot check the $label enumeration: $dir/ is missing" "README.md's 'Completed' section enumerates $dir/*.md; without the directory this check verifies nothing."
+    cannot "cannot check the $label enumeration: $dir/ is missing" "README.md's 'Completed' section enumerates $dir/*.md; without the directory this check verifies nothing."
     return
   fi
   n_files="$(find "$dir" -maxdepth 1 -name '*.md' 2>/dev/null | grep -c . || true)"
   if [ "$n_files" -eq 0 ]; then
-    fail "cannot check the $label enumeration: $dir/*.md matched nothing" "An empty input set is not a passing check."
+    cannot "cannot check the $label enumeration: $dir/*.md matched nothing" "An empty input set is not a passing check."
     return
   fi
-  line="$(grep -oE "$label \\([^)]*\\)" README.md | head -1 | tr -d '\r')"
+  line="$(grep -oE -- "$label \\([^)]*\\)" README.md | head -1 | tr -d '\r')"
   if [ -z "$line" ]; then
-    fail "README: could not find the $label enumeration bullet" "Expected a line matching /$label \\([^)]*\\)/ in the 'Completed' section. If the wording changed, update this check — an unread enumeration drifts silently."
+    cannot "README: could not find the $label enumeration bullet" "Expected a line matching /$label \\([^)]*\\)/ in the 'Completed' section. If the wording changed, update this check — an unread enumeration drifts silently."
     return
   fi
   items="$(sed -E 's/^[A-Za-z]+ \(//; s/\)$//' <<< "$line")"
@@ -1717,7 +1980,7 @@ check_enum_completeness() {
 }
 
 if [ ! -f README.md ]; then
-  fail "README.md is missing" "The Core, Templates, and Standards enumeration bullets checked here live in its 'Completed' section."
+  cannot "README.md is missing" "The Core, Templates, and Standards enumeration bullets checked here live in its 'Completed' section."
 else
   check_enum_completeness "Core" "Core"
   check_enum_completeness "Templates" "Templates"
@@ -1744,9 +2007,9 @@ section "21. In-progress milestone named consistently across the front doors"
 # milestone in VERSION.md that the front doors have not caught up to, not
 # the shape of the unscoped state's prose.
 if [ ! -f "$VER_FILE" ]; then
-  fail "cannot check the in-progress milestone: $VER_FILE is missing" "It is the authoritative source the README and CLAUDE.md are checked against."
+  cannot "cannot check the in-progress milestone: $VER_FILE is missing" "It is the authoritative source the README and CLAUDE.md are checked against."
 elif ! grep -q '^## Next Milestone' "$VER_FILE"; then
-  fail "cannot find '## Next Milestone' in $VER_FILE" "The extraction reads the first bold token in the two lines following that heading. A missing heading means it moved and this section verifies nothing."
+  cannot "cannot find '## Next Milestone' in $VER_FILE" "The extraction reads the first bold token in the two lines following that heading. A missing heading means it moved and this section verifies nothing."
 else
   # The milestone name is the first '**...**' token within the heading plus
   # the two lines that follow it (heading, blank line, content line) — the
@@ -1758,12 +2021,12 @@ else
     pass "$VER_FILE's Next Milestone is unscoped (TBD); the front doors are not required to name one"
   else
     if [ ! -f CLAUDE.md ]; then
-      fail "CLAUDE.md is missing" "It must restate the in-progress milestone $VER_FILE declares."
+      cannot "CLAUDE.md is missing" "It must restate the in-progress milestone $VER_FILE declares."
     else
       claude_next="$(grep -E '^Next:' CLAUDE.md | tr -d '\r')"
       if [ -z "$claude_next" ]; then
-        fail "CLAUDE.md has no 'Next:' line" "Expected a line starting 'Next:' naming '$next_ms', the in-progress milestone $VER_FILE declares."
-      elif grep -qF "$next_ms" <<< "$claude_next"; then
+        cannot "CLAUDE.md has no 'Next:' line" "Expected a line starting 'Next:' naming '$next_ms', the in-progress milestone $VER_FILE declares."
+      elif grep -qF -- "$next_ms" <<< "$claude_next"; then
         pass "CLAUDE.md's 'Next:' line names '$next_ms', matching $VER_FILE's Next Milestone"
       else
         fail "CLAUDE.md's 'Next:' line does not name '$next_ms'" "$VER_FILE's Next Milestone declares '$next_ms'; CLAUDE.md's 'Next:' line has drifted ('$claude_next'). Fix CLAUDE.md's 'Next:' line to name '$next_ms'."
@@ -1771,12 +2034,12 @@ else
     fi
 
     if [ ! -f README.md ]; then
-      fail "README.md is missing" "It must restate the in-progress milestone $VER_FILE declares."
+      cannot "README.md is missing" "It must restate the in-progress milestone $VER_FILE declares."
     else
       readme_planned="$(sed -n '/^Planned/,/^---/p' README.md | tr -d '\r')"
       if [ -z "$readme_planned" ]; then
-        fail "README.md has no 'Planned' section" "Expected a 'Planned' section naming '$next_ms', the in-progress milestone $VER_FILE declares."
-      elif grep -qF "$next_ms" <<< "$readme_planned"; then
+        cannot "README.md has no 'Planned' section" "Expected a 'Planned' section naming '$next_ms', the in-progress milestone $VER_FILE declares."
+      elif grep -qF -- "$next_ms" <<< "$readme_planned"; then
         pass "README's 'Planned' section names '$next_ms', matching $VER_FILE's Next Milestone"
       else
         fail "README's 'Planned' section does not name '$next_ms'" "$VER_FILE's Next Milestone declares '$next_ms'; README's 'Planned' section has drifted. Fix it to name '$next_ms'."
@@ -1821,7 +2084,10 @@ section "22. Chain diagrams match Registry/chains.yml step for step"
 # "→" whose text is anything but empty (box rules only) or the one branch label
 # the diagrams use, "Approved" - a named allow-list (rule 2), because a step
 # drawn in a box, or a branch typed with "->" or "⟶", would otherwise go
-# unchecked. It includes an output line that opens "[" and never closes "]".
+# unchecked. It includes an output line that opens "[" and never closes "]",
+# and one that holds more than one bracket pair: "[a] Step [b]" would hide a
+# step between two outputs, so an output line is "[" first, "]" last and no
+# bracket in between.
 #
 # WHAT IS COMPARED at each position: the kind (gate or employee), the name,
 # whether the step is conditional, whether it is parallel, and its loop
@@ -1863,14 +2129,16 @@ section "22. Chain diagrams match Registry/chains.yml step for step"
 
 # chain_diagram_drift <diagram-document> <chain-registry>
 # Prints tab-separated records: "ok<TAB><message>" for each agreeing chain,
-# "fail<TAB><message><TAB><detail>" for each difference or unreadable line,
-# and last "total<TAB><chains compared><TAB><steps compared>". Exits 0 only
+# "fail<TAB><message><TAB><detail>" for each difference,
+# "error<TAB><message><TAB><detail>" for each unreadable line or input that
+# could not be compared, and last
+# "total<TAB><chains compared><TAB><steps compared>". Exits 0 only
 # when at least one chain was compared and nothing differed. Self-contained,
 # because Adapters/scripts/tests/run.sh extracts and runs it on fixtures.
 chain_diagram_drift() {
   local doc="$1" reg="$2"
   if [ ! -f "$doc" ] || [ ! -f "$reg" ]; then
-    printf 'fail\tcannot compare chain diagrams: %s or %s is missing\tBoth files are required. Nothing was compared, which is not a pass.\n' "$doc" "$reg"
+    printf 'error\tcannot compare chain diagrams: %s or %s is missing\tBoth files are required. Nothing was compared, which is not a pass.\n' "$doc" "$reg"
     printf 'total\t0\t0\n'
     return 1
   fi
@@ -1881,7 +2149,7 @@ chain_diagram_drift() {
       return s
     }
     function unreadable(file, what) {
-      printf "fail\t%s:%d: %s\tThis line is outside the grammar section 22 of validate-framework.sh reads, so it was not compared. Rewrite it in that grammar, or extend the grammar and its tests.\n", file, FNR, what
+      printf "error\t%s:%d: %s\tThis line is outside the grammar section 22 of validate-framework.sh reads, so it was not compared. Rewrite it in that grammar, or extend the grammar and its tests.\n", file, FNR, what
       errors++
     }
     function add_step(side, chain, kind, name, cond, par,   i) {
@@ -1916,7 +2184,13 @@ chain_diagram_drift() {
       gsub(/[ \t]/, "", x)
       if (x == "") return
       if (substr(t, 1, 1) == "[") {
-        if (substr(t, length(t)) == "]") return
+        # Exactly one bracket pair: "[" first, "]" last, and neither bracket
+        # in between. Reading only the two ends skipped
+        # "[Containment] Compliance Engineer [Assessment]" as one output, so
+        # the step drawn between the two outputs went unchecked (issue #233).
+        inner = substr(t, 2, length(t) - 2)
+        if (length(t) >= 2 && substr(t, length(t)) == "]" &&
+            index(inner, "[") == 0 && index(inner, "]") == 0) return
         unreadable(ARGV[2], dchain ": unrecognised output line \"" t "\"")
         return
       }
@@ -2088,7 +2362,7 @@ chain_diagram_drift() {
       for (k = 1; k <= nd; k++) {
         c = dorder[k]
         if (!(c in dhas)) {
-          printf "fail\t%s: %s draws no diagram for it\tA chain diagram is the first fenced block after its heading, and this section has none, so nothing was compared.\n", c, ARGV[2]
+          printf "error\t%s: %s draws no diagram for it\tA chain diagram is the first fenced block after its heading, and this section has none, so nothing was compared.\n", c, ARGV[2]
           bad++
           continue
         }
@@ -2100,7 +2374,7 @@ chain_diagram_drift() {
         dn = count["d", c] + 0
         rn = count["r", c] + 0
         if (dn == 0) {
-          printf "fail\t%s: the diagram in %s yields no step\tAn empty diagram cannot be compared, which is not a pass.\n", c, ARGV[2]
+          printf "error\t%s: the diagram in %s yields no step\tAn empty diagram cannot be compared, which is not a pass.\n", c, ARGV[2]
           bad++
           continue
         }
@@ -2132,7 +2406,7 @@ chain_diagram_drift() {
         }
       }
       if (compared == 0) {
-        printf "fail\tno chain diagram was compared\t%s yielded no \"# <Name> Chain\" section with a diagram that %s also records. A comparison over an empty set is not a pass.\n", ARGV[2], ARGV[1]
+        printf "error\tno chain diagram was compared\t%s yielded no \"# <Name> Chain\" section with a diagram that %s also records. A comparison over an empty set is not a pass.\n", ARGV[2], ARGV[1]
         bad++
       }
       printf "total\t%d\t%d\n", compared, steps
@@ -2152,26 +2426,192 @@ while IFS=$'\t' read -r verdict message detail; do
     "") ;;
     ok) pass "$message" ;;
     fail) chain_fails=$((chain_fails + 1)); fail "$message" "$detail" ;;
+    error) chain_fails=$((chain_fails + 1)); cannot "$message" "$detail" ;;
     total) chain_total="$message"; chain_steps="$detail" ;;
-    *) chain_fails=$((chain_fails + 1)); fail "chain_diagram_drift printed a record this section cannot read" "$verdict $message" ;;
+    *) chain_fails=$((chain_fails + 1)); cannot "chain_diagram_drift printed a record this section cannot read" "$verdict $message" ;;
   esac
 done <<< "$chain_out"
 if [ -z "$chain_total" ]; then
-  fail "the chain diagram comparison produced no verdict" "chain_diagram_drift exited $chain_status without its closing 'total' record: awk did not run, or stopped early. Nothing was compared, which is not a pass."
+  cannot "the chain diagram comparison produced no verdict" "chain_diagram_drift exited $chain_status without its closing 'total' record: awk did not run, or stopped early. Nothing was compared, which is not a pass."
 elif [ "$chain_status" -eq 0 ] && [ "$chain_fails" -eq 0 ]; then
   pass "all $chain_total chain diagrams match Registry/chains.yml step for step ($chain_steps steps compared)"
 elif [ "$chain_fails" -eq 0 ]; then
-  fail "the chain diagram comparison failed without naming a difference" "chain_diagram_drift exited $chain_status after comparing $chain_total chains. Reported rather than passed."
+  cannot "the chain diagram comparison failed without naming a difference" "chain_diagram_drift exited $chain_status after comparing $chain_total chains. Reported rather than passed."
 fi
 
 # ==========================================================================
-printf '\n== Result\n'
+section "23. Changelog fragments (changelog.d/)"
+# ==========================================================================
+# Each Work Unit's changelog entry is a fragment, changelog.d/<Work Unit
+# id>.md, which Adapters/scripts/release.sh assemble folds into CHANGELOG.md
+# at the version bump (Workflows/RELEASE.md Step 2). Two Pull Requests that
+# each append to the same CHANGELOG.md category conflict; two that each add
+# their own fragment do not (Release Manager study of 23 Oct 2026, option 1).
+#
+# A malformed fragment found at the bump is found by the wrong person, weeks
+# after its author moved on. This section finds it on the Pull Request that
+# adds it, with the parser assemble uses, Adapters/scripts/
+# changelog-fragment.awk, so the two cannot disagree on what a fragment is:
+#
+#   - every entry of changelog.d/ other than README.md is a file named
+#     <Work Unit id>.md — assemble refuses to run while anything else is there;
+#   - that id is registered in Registry/work-units.yml;
+#   - the content is an entry under Keep a Changelog's six headings, plus
+#     "### Notes" for an upgrade note, each with a bullet and no HTML that
+#     could hide text, or the single line "No changelog entry: <reason>";
+#   - the parser ran and printed a record (a silent parser is no pass).
+#
+# THE DENOMINATOR MAY BE ZERO. Rule 3 asks a set-iterating check to fail at
+# zero, because an empty set usually means the input moved. Here the set is a
+# queue: assemble empties it at every release, and right after Step 2 zero
+# fragments is the correct state. What would mean "the input moved" — the
+# directory, its README.md, the parser or the registry missing — is a failure
+# of its own below, so a zero count is reported with its number, not passed
+# blind.
+#
+# The function prints the section 22 records: "fail<TAB>message<TAB>detail"
+# per problem, "error<TAB>message<TAB>detail" per input it could not evaluate,
+# and a closing "total<TAB>n".
+changelog_fragment_check() {
+  local dir="$1" registry="$2" parser="$3"
+  local f base id n=0 registered parsed status
+  if [ ! -d "$dir" ]; then
+    printf 'error\t%s/ is missing\tWorkflows/RELEASE.md Step 2 assembles the changelog from it. Without it no fragment can be checked, and an unevaluated condition is not a pass.\n' "$dir"
+    return 1
+  fi
+  if [ ! -f "$parser" ]; then
+    printf 'error\t%s is missing\tIt is the one definition of a fragment, shared with release.sh assemble. Nothing was checked.\n' "$parser"
+    return 1
+  fi
+  if [ ! -f "$registry" ]; then
+    printf 'error\t%s is missing\tA fragment is named after a registered Work Unit. Nothing was checked.\n' "$registry"
+    return 1
+  fi
+  if [ ! -f "$dir/README.md" ]; then
+    printf 'fail\t%s/README.md is missing\tIt is where an author learns the fragment format.\n' "$dir"
+  fi
+  registered="$(grep -E '^  - id: ' "$registry" | sed 's/^  - id: //' | tr -d '\015')"
+  while IFS= read -r f; do
+    [ -n "$f" ] || continue
+    base="${f##*/}"
+    [ "$base" = "README.md" ] && continue
+    # A symbolic link is refused even when it points at a valid fragment:
+    # assemble reads through it and deletes only the link, so the content
+    # would come from outside changelog.d/ (SEC-IAENG-378-01, N2).
+    if [ -L "$f" ] || [ ! -f "$f" ] || ! [[ "$base" =~ ^WU-[A-Za-z0-9]+-[0-9]+\.md$ ]]; then
+      printf 'fail\t%s is not a fragment\t%s/ holds README.md and regular files named <Work Unit id>.md, nothing else, no symbolic link; release.sh assemble refuses to run while anything else is there.\n' "$f" "$dir"
+      continue
+    fi
+    n=$((n + 1))
+    id="${base%.md}"
+    if ! grep -qxF -- "$id" <<< "$registered"; then
+      printf 'fail\t%s names %s, which %s does not register\tA fragment is the changelog entry of one registered Work Unit: register it, or rename the fragment to the Work Unit it belongs to.\n' "$f" "$id" "$registry"
+    fi
+    # A parse that succeeds always prints at least one ENTRY, EXEMPT or ERROR
+    # record: an empty fragment is itself an ERROR. A parser that exits
+    # non-zero, or prints no record, did not evaluate the fragment, and an
+    # unevaluated fragment is a failure, never a clean one.
+    parsed="$(awk -v id="$id" -f "$parser" "$f" 2>/dev/null)"
+    status=$?
+    if [ "$status" -ne 0 ] || ! grep -qE '^(ENTRY|EXEMPT|ERROR)'$'\t' <<< "$parsed"; then
+      printf 'error\t%s: the fragment parser did not run (exit %s) or printed no record\t%s is the one definition of a fragment. Nothing was evaluated, which is not a pass.\n' "$f" "$status" "$parser"
+      continue
+    fi
+    awk -F'\t' -v f="$f" '$1 == "ERROR" { printf "fail\t%s line %s: %s\tThe format is in changelog.d/README.md. release.sh assemble refuses a malformed fragment at the version bump.\n", f, $2, $3 }' <<< "$parsed"
+  done < <(find "$dir" -mindepth 1 -maxdepth 1 | LC_ALL=C sort)
+  printf 'total\t%d\n' "$n"
+}
 
-if [ "$FAILURES" -eq 0 ]; then
-  printf '   %s checks passed.\n' "$CHECKS"
-  exit 0
+frag_out="$(changelog_fragment_check changelog.d Registry/work-units.yml Adapters/scripts/changelog-fragment.awk)"
+frag_total=""
+frag_fails=0
+while IFS=$'\t' read -r verdict message detail; do
+  case "$verdict" in
+    "") ;;
+    fail) frag_fails=$((frag_fails + 1)); fail "$message" "$detail" ;;
+    error) frag_fails=$((frag_fails + 1)); cannot "$message" "$detail" ;;
+    total) frag_total="$message" ;;
+    *) frag_fails=$((frag_fails + 1)); cannot "changelog_fragment_check printed a record this section cannot read" "$verdict $message" ;;
+  esac
+done <<< "$frag_out"
+if [ "$frag_fails" -eq 0 ] && [ -z "$frag_total" ]; then
+  cannot "the changelog fragment check produced no verdict" "changelog_fragment_check stopped without its closing 'total' record. Nothing was checked, which is not a pass."
+elif [ "$frag_fails" -eq 0 ]; then
+  pass "changelog.d/: $frag_total fragment(s), each named after a registered Work Unit, with Keep a Changelog headings or an upgrade note only"
 fi
-printf '   %s of %s checks failed.\n' "$FAILURES" "$CHECKS"
-echo "   Each failure names the authoritative document to fix. The Registry is"
-echo "   derived; where the two disagree, the document wins (Registry/README.md)."
-exit 1
+
+# EARLY WARNING, on a Pull Request only, and never a failure.
+#
+# Condition 5 of release.sh check fails a release whose Work Unit has no
+# fragment, but the release is weeks after the Pull Request, and the author is
+# the one who knows what the entry should say. So the Pull Request that
+# carries a Work Unit's trailer and adds no changelog.d/<id>.md, and does not
+# edit CHANGELOG.md either (the way entries were written before fragments), is
+# told so here, as a warning annotation.
+#
+# A warning and not a failure: a Work Unit spread over several Pull Requests
+# has its fragment in one of them, and a back-merge carries trailers whose
+# fragments were assembled long ago. Neither is wrong, and a check that fails
+# on correct Pull Requests teaches people to ignore it. The gate is condition 5.
+#
+# Only where this repository IS the one under review — the framework's own CI.
+# In an adopting project this script validates the framework inside the
+# project's ia-engineering/ directory, and the Pull Request's trailers name
+# the project's Work Units, whose changelog is the project's business.
+changelog_fragment_advisory() {
+  local dir="$1" base="$2" head="$3" id
+  git rev-parse -q --verify "$base^{commit}" > /dev/null 2>&1 || return 2
+  git rev-parse -q --verify "$head^{commit}" > /dev/null 2>&1 || return 2
+  [ -z "$(git diff --name-only "$base...$head" -- CHANGELOG.md 2>/dev/null)" ] || return 0
+  while IFS= read -r id; do
+    [ -n "$id" ] || continue
+    [ -f "$dir/$id.md" ] || printf '%s\n' "$id"
+  done < <(git log --no-merges --format=%B "$base..$head" 2>/dev/null \
+             | awk '/^Work Unit: / { id = $0; sub(/^Work Unit: /, "", id); gsub(/\015/, "", id); print id }' \
+             | LC_ALL=C sort -u)
+}
+
+if [ -n "${GITHUB_BASE_REF:-}" ] && [ -n "${GITHUB_WORKSPACE:-}" ] && [ "$GITHUB_WORKSPACE" -ef "$ROOT" ]; then
+  frag_adv="$(changelog_fragment_advisory changelog.d "origin/$GITHUB_BASE_REF" HEAD)"
+  frag_adv_status=$?
+  if [ "$frag_adv_status" -eq 2 ]; then
+    printf '   --    changelog fragment early warning not evaluated: origin/%s or HEAD is not a commit here\n' "$GITHUB_BASE_REF"
+    echo "::warning::Changelog fragment early warning not evaluated: origin/$GITHUB_BASE_REF or HEAD could not be read. release.sh check condition 5 still applies at the release."
+  else
+    while IFS= read -r id; do
+      [ -n "$id" ] || continue
+      printf '   note  %s has no changelog.d/%s.md in this Pull Request\n' "$id" "$id"
+      echo "::warning::$id has no changelog.d/$id.md and this Pull Request does not edit CHANGELOG.md. Add the fragment (changelog.d/README.md), or 'No changelog entry: <reason>'; release.sh check condition 5 blocks the release without one."
+    done <<< "$frag_adv"
+  fi
+fi
+
+# ==========================================================================
+# validation_result <checks> <failures> <unevaluated> — prints the result
+# and returns the run's exit code: 0 every check passed, 1 a check found
+# something, 2 at least one check could not be evaluated (the exit codes in
+# the header). Self-contained, because Adapters/scripts/tests/run.sh extracts
+# and runs it.
+validation_result() {
+  local checks="$1" failures="$2" unevaluated="$3"
+  # Not evaluated is tested first. A check that could not be evaluated is a
+  # failed check, so it is counted as one even where the failure count missed
+  # it: such a run can never reach "passed", and it exits 2 (SEC-IAENG-390-01).
+  [ "$failures" -ge "$unevaluated" ] || failures="$unevaluated"
+  if [ "$failures" -eq 0 ]; then
+    printf '   %s checks passed.\n' "$checks"
+    return 0
+  fi
+  printf '   %s of %s checks failed.\n' "$failures" "$checks"
+  echo "   Each failure names the authoritative document to fix. The Registry is"
+  echo "   derived; where the two disagree, the document wins (Registry/README.md)."
+  if [ "$unevaluated" -gt 0 ]; then
+    printf '   %s of them could not be evaluated: nothing was compared for those, so the run exits 2, not 1.\n' "$unevaluated"
+    return 2
+  fi
+  return 1
+}
+
+printf '\n== Result\n'
+validation_result "$CHECKS" "$FAILURES" "$UNEVALUATED"
+exit $?

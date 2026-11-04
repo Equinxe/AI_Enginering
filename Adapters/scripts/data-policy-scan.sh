@@ -72,11 +72,22 @@
 #   IAENG_LOCAL_DATA_DIR    directory name treated as local-only (local_test_data)
 #   IAENG_DATA_ALLOW_FILE   allow file path (.ia-engineering/data-policy.allow)
 #
-# Exit codes: 0 clean, 1 findings, 2 usage or environment error.
+# Exit codes: 0 clean, 1 findings, 2 usage or environment error, or a scan
+# that could not evaluate: a --history scan that enumerated no path over a
+# range holding a non-merge commit (Standards/CODE_QUALITY_STANDARD.md, The
+# Check Convention, Shell Scripts rule 1).
 # Always prints what it scanned (path count, added-line count) so a clean
 # result shows its denominator rather than just an exit status.
 
 set -uo pipefail
+# SIGPIPE ignored (#397, SEC-IAENG-414-05): defence in depth, not the guard.
+# On the hook path the guard is pre-commit's own trap. A signal ignored there
+# stays ignored across its exec of this scanner, so this line changes nothing
+# for a commit (an equivalent mutant there, PR #387 review). It acts when the
+# scanner is run any other way: with its output going to a closed pipe, a
+# failed write is only a failed write, and the explicit exit 1 (findings) or
+# exit 0 (clean) at the end decides.
+trap '' PIPE
 export LC_ALL=C
 
 LOCAL_DATA_DIR="${IAENG_LOCAL_DATA_DIR:-local_test_data}"
@@ -448,7 +459,7 @@ if [ "$MODE" = history ] && [ "$PATHS_SCANNED" -eq 0 ]; then
   elif [ "${COMMITS:-0}" -gt 0 ]; then
     printf 'data-policy: mode=history scanned 0 path(s) over %s commit(s), %s of them not merges — the path enumeration produced nothing for a range that is not empty.\n' "$COMMITS" "$NONMERGE" >&2
     printf '  This is reported rather than passed: a scan that examined nothing has established nothing.\n' >&2
-    exit 1
+    exit 2
   fi
 fi
 

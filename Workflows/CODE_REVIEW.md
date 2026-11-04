@@ -24,7 +24,7 @@ It ensures every change is reviewed systematically, that feedback is actionable,
 | Engineer (author) | Responds to review comments and makes requested changes |
 | Security Engineer | Reviews security findings escalated by the Code Reviewer |
 | Compliance Engineer | Reviews compliance findings escalated by the Code Reviewer (regulated data handling, retention/deletion logic, cross-border data transfer) |
-| Prompt Engineer | Approves every change to an Employee definition (`Employees/`) or to any `Core/*.md` document (including a deletion or rename), in addition to the Code Reviewer, and never a change it authored (`Core/EMPLOYEE_SELECTION.md`, Prompt Engineer trigger) |
+| Prompt Engineer | Approves every change to a file Step 4 lists, in addition to the Code Reviewer, and never a change it authored (Step 4) |
 | Software Architect | Reviews architectural concerns escalated by the Code Reviewer |
 | Engineering Manager | Resolves blockers when review cycles exceed two rounds |
 | QA Engineer | Validates the change after approval when it is security-sensitive or high-risk (see "Security-Sensitive or High-Risk Changes") |
@@ -35,7 +35,7 @@ It ensures every change is reviewed systematically, that feedback is actionable,
 
 Before this workflow begins:
 
-- The Pull Request is open with a description that states what changed, why, and how to test it.
+- The Pull Request is open with a description that states what changed, why, its merge danger (`Templates/PULL_REQUEST.md`), and how to test it. A Pull Request opened from a template without the Merge danger section (before `Templates/PULL_REQUEST.md` 0.0.8, or from a stale installed copy) is not sent back for it: the Code Reviewer asks for the two lines in a review comment and reviews on.
 - CI/CD checks (lint, tests, build) are passing or failures are explained in the PR description.
 - The PR targets `develop`, not `main`.
 
@@ -49,7 +49,8 @@ Before this workflow begins:
 
 1. Read the PR description completely before opening any file.
 2. Identify the linked Work Unit and its Definition of Done.
-3. Confirm the PR scope matches the stated intent — nothing more, nothing less.
+3. Before opening any file, write the pre-commitment predictions (`Employees/Specialized/CODE_REVIEWER.md`, Process, step 2).
+4. Confirm the PR scope matches the stated intent — nothing more, nothing less.
 
 If the PR description is absent or insufficient: request the author to complete it before proceeding. Do not review an undescribed PR.
 
@@ -78,6 +79,7 @@ If the PR description is absent or insufficient: request the author to complete 
 2. Verify tests cover edge cases and failure paths, not just the happy path.
 3. Confirm tests are deterministic — no flaky or time-dependent assertions.
 4. Verify test coverage does not regress.
+5. Verify the red-run evidence for each test within the scope of `Standards/TESTING_STANDARD.md` (Falsifiability, item 7): its "fails if" names an observable behaviour of the system, and its red run fails on that behaviour. A missing red run, a tautological "fails if" (such as "fails if the test fails"), or an over-determined red run is a blocking finding.
 
 If tests are missing or insufficient: this is a blocking issue. Request changes.
 
@@ -99,9 +101,16 @@ If a security issue is found: escalate immediately to the Security Engineer. Do 
 
 If compliance-relevant content is found: escalate immediately to the Compliance Engineer, the same way a security issue escalates to the Security Engineer. Do not wait for the full review to complete.
 
-If the Pull Request makes a change to an Employee definition (`Employees/`) or to any `Core/*.md` document (including a deletion or rename): request the Prompt Engineer's review, whether or not a finding exists. The Prompt Engineer's **approval** is required before merge, in addition to this review, and must cover the `Employees/` and `Core/*.md` text the head carries. A later push that changes that text needs it again; a merge of `develop` into the branch keeps it only as condition 1 of `Core/MAIN_AGENT_CONDUCT.md` (Git Execution via Named Employee) allows. If the Prompt Engineer authored the change, its own review does not count: escalate to the Director, who names the second reviewer (`Core/EMPLOYEE_SELECTION.md`, Prompt Engineer trigger).
+If the Pull Request changes one of these files, including by deleting or renaming it, request the Prompt Engineer's review, whether or not a finding exists:
 
-**Output:** Security assessment. Escalation opened if needed (Security Engineer and/or Compliance Engineer). Prompt Engineer review requested for a change to `Employees/` or any `Core/*.md` document (including a deletion or rename).
+- an Employee definition (`Employees/`);
+- any `Core/*.md` document;
+- `Templates/EMPLOYEE_BRIEF.md`, the format of every Employee brief;
+- `Adapters/ai-runtimes/generate-agents.sh`, which writes the text around every generated agent and chooses what each agent carries from its Employee definition.
+
+Every other place in this Workflow that requires the Prompt Engineer's approval refers to this list. The Prompt Engineer's **approval** is required before merge, in addition to this review, and must cover the text of these files the head carries. A later push that changes that text needs it again; a merge of `develop` into the branch keeps it only as condition 1 of `Core/MAIN_AGENT_CONDUCT.md` (Git Execution via Named Employee) allows. If the Prompt Engineer authored the change, its own review does not count: escalate to the Director, who names the second reviewer (`Core/EMPLOYEE_SELECTION.md`, Prompt Engineer trigger, for `Employees/` and `Core/*.md`; Director, 28 Oct 2026, issue #206, for the template and the generator).
+
+**Output:** Security assessment. Escalation opened if needed (Security Engineer and/or Compliance Engineer). Prompt Engineer review requested for a change to a file Step 4 lists.
 
 ---
 
@@ -113,6 +122,7 @@ If the Pull Request makes a change to an Employee definition (`Employees/`) or t
 2. Verify the Code Quality Standard is respected.
 3. Check that no dead code, commented-out code, or debug statements are included.
 4. Verify that complexity is justified — no unnecessary abstractions.
+5. Apply the Minimal Code checklist, and what it never trims (`Employees/Specialized/CODE_REVIEWER.md`, Minimal Code).
 
 **Output:** Quality assessment.
 
@@ -124,7 +134,10 @@ If the Pull Request makes a change to an Employee definition (`Employees/`) or t
 
 1. Verify public interfaces are documented.
 2. Verify complex or non-obvious logic has an explanatory comment.
-3. Verify the CHANGELOG or relevant documentation is updated if the PR introduces a user-visible change.
+3. Verify the changelog and the documentation:
+   - **In a repository that keeps changelog fragments** (it has a `changelog.d/` directory, as the IA Engineering framework repository does): every Work Unit's PR adds exactly one fragment, `changelog.d/<Work Unit id>.md`, whether or not the change is user-visible. When nothing user-visible changed, the fragment is the single line `No changelog entry: <reason>`. The PR does not edit `CHANGELOG.md`; the fragment is assembled into it at the release. `changelog.d/README.md` gives the format.
+   - **Otherwise**: the PR updates `CHANGELOG.md` if it introduces a user-visible change.
+   - **In both cases**: the PR updates the relevant documentation if it introduces a user-visible change.
 
 **Output:** Documentation assessment.
 
@@ -155,6 +168,16 @@ If the Pull Request makes a change to an Employee definition (`Employees/`) or t
 - **Escalate** — security or architecture issue requires specialist review before a decision can be made.
 
 Document the decision with a summary comment stating **what was reviewed** — which files, which lenses (Steps 2–6), which claims in the description were verified against the repository — and what the blocking conditions are (if any). A review that found nothing states what it looked at; "LGTM" with no denominator is not a decision, it is an absence of one.
+
+Before deciding, the Code Reviewer self-audits its findings; an open question that came from a critical or major finding stays an approval condition until answered. It then gives Standards conformance and Intent a verdict each: an axis fails exactly when it carries an unresolved critical or major finding, so both pass exactly when this Step's Approve holds (`Employees/Specialized/CODE_REVIEWER.md`, Process, step 10, and Two Axes).
+
+Before approving, the Code Reviewer runs the Defect Hunt (`Employees/Specialized/CODE_REVIEWER.md`, Defect Hunt). It covers the whole Pull Request diff against its base at the head being approved, not only the changes since the last review round (Step 9): a round that requested changes did not hunt. Only when a hunt is already recorded on an earlier head of this Pull Request does it narrow to the changes since that head. The hunt:
+
+1. It names the two places in this diff where a critical or major defect would hide best, and checks both with evidence.
+2. It mutates every guard the diff adds or changes, deleting it or inverting its condition in a disposable copy (`Standards/TESTING_STANDARD.md`, Falsifiability, item 4), and runs the narrowest check that should catch it, one mutant at a time, under a time limit. A mutant that survives is a missing test, blocking under Step 3. A run stopped by the time limit is inconclusive and an equivalent mutant is declared (Falsifiability, item 6); neither counts as a survivor.
+3. It lists any guard it could not mutate, with why; that guard stays unverified and is never counted as caught.
+
+What the hunt finds is self-audited and filed like any other finding, and the decision is taken again. An approval whose summary comment lacks the hunt's results has not stated its denominator (Ten Review Lessons, 10).
 
 **Output:** PR approved, changes requested, or escalated.
 
@@ -191,7 +214,7 @@ Steps 2 through 6 are five **lenses** — correctness, tests, security and compl
 |---|---|---|
 | Correctness, quality, documentation (Steps 2, 5, 6) | Code Reviewer | The baseline pass |
 | Tests (Step 3) | QA Engineer | Whether the tests *can fail* is a question the author of the review checklist tends to answer optimistically |
-| Security and compliance (Step 4) | Security Engineer; Compliance Engineer when regulated data is in scope; Prompt Engineer for a change to `Employees/` or any `Core/*.md` document (including a deletion or rename) | Already the Escalation rule when a finding exists; for high-risk changes the pass runs whether or not the baseline reviewer noticed anything. The Prompt Engineer's approval is required on every such change, whatever its risk |
+| Security and compliance (Step 4) | Security Engineer; Compliance Engineer when regulated data is in scope; Prompt Engineer for a change to a file Step 4 lists | Already the Escalation rule when a finding exists; for high-risk changes the pass runs whether or not the baseline reviewer noticed anything. The Prompt Engineer's approval is required on every such change, whatever its risk |
 
 Three rules make separate passes worth more than one long one:
 
@@ -207,10 +230,10 @@ Recorded because each was learned by getting it wrong at least once, in this fra
 
 1. **Read the description before any file.** The review is of the change against its stated intent; without the intent there is nothing to review against.
 2. **Verify claims against the repository, not against the description.** "Tests pass" is checked by the CI log or by running them. "No trailers on these commits" was once reported on four commits that each carried one.
-3. **A test that cannot fail is not a test.** For every new test, ask what change to the code would make it red. If nothing would, it is a fixture.
+3. **A test that cannot fail is not a test.** For every new test, ask what change to the code would make it red. If nothing would, it is a fixture. The evidence this requires is set by `Standards/TESTING_STANDARD.md` (Falsifiability) and checked at Step 3, item 5.
 4. **Review what is absent.** The file that should have changed and did not; the test that should exist; the migration without a rollback; the documentation the change made stale. Diffs show additions; defects hide in omissions.
 5. **Count the things prose counts.** "Six checks", "three rules", "42 Employees" — every literal count in the changed documents is checked against the set it counts. They drift every time the set grows.
-6. **Run the falsifier.** When the author claims a mechanism behaves a certain way, enumerate what else it could do, then test the alternative. A claim that "splitting the trailers buys nothing" was accepted until the measurement showed 28 of 30 commits parsed only when split.
+6. **Run the falsifier.** When the author claims a mechanism behaves a certain way, enumerate what else it could do, then test the alternative. A claim that "splitting the trailers buys nothing" was accepted until the measurement showed 28 of 30 commits parsed only when split. For a test, the falsifier is the red run `Standards/TESTING_STANDARD.md` (Falsifiability) requires.
 7. **Severity follows consequence, not effort.** A one-character fix to an authorization check is `[critical]`; a two-hundred-line renaming is `[minor]`. Never let the size of the fix set the label.
 8. **Give direction, not a replacement.** A review comment that rewrites the author's code has stopped reviewing and started implementing — and the rewrite is now unreviewed.
 9. **Re-review only the new diff, but re-anchor every old finding.** Re-reading the whole PR each round is waste; losing a finding because its line moved is a defect shipped.
@@ -243,10 +266,10 @@ When in doubt: treat the change as security-sensitive and route it through QA En
 
 This workflow is complete when:
 
-- The PR has a documented approval from the Code Reviewer.
+- The PR has a documented approval from the Code Reviewer, with its Defect Hunt (Step 8).
 - All critical and major issues are resolved.
 - Security escalations are resolved or formally accepted by the Security Engineer and Director.
-- A change to `Employees/` or any `Core/*.md` document (including a deletion or rename) has the Prompt Engineer's approval on the `Employees/` and `Core/*.md` text the head carries, or, when the Prompt Engineer authored it, the approval of the reviewer the Director named (Step 4). A later push that changes that text needs it again; a merge of `develop` into the branch keeps it only as condition 1 of `Core/MAIN_AGENT_CONDUCT.md` (Git Execution via Named Employee) allows.
+- A change to a file Step 4 lists has the Prompt Engineer's approval on the text of those files the head carries, or, when the Prompt Engineer authored it, the approval of the reviewer the Director named (Step 4). A later push that changes that text needs it again; a merge of `develop` into the branch keeps it only as condition 1 of `Core/MAIN_AGENT_CONDUCT.md` (Git Execution via Named Employee) allows.
 
 ---
 
@@ -274,7 +297,7 @@ This workflow is complete when:
 
 Owner: IA Engineering
 
-Version: 0.0.8
+Version: 0.0.13
 
 Status: Draft
 

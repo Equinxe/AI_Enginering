@@ -51,8 +51,8 @@ A Test Plan is required for:
 
 [List the acceptance criteria from the Work Unit or feature specification that this test plan validates:]
 
-- AC-001: [criterion]
-- AC-002: [criterion]
+- AC-001: [criterion — fails if: ___ | not falsifiable: <reason>]
+- AC-002: [criterion — fails if: ___ | not falsifiable: <reason>]
 
 ---
 
@@ -74,6 +74,12 @@ A Test Plan is required for:
 
 **Expected result:**
 [What should happen — specific and verifiable]
+
+**Fails if:**
+[The observable behaviour of the system that makes this case fail — never "the test fails" (`Standards/TESTING_STANDARD.md`, Falsifiability)]
+
+**Seen red by:**
+[pre-fix base commit | hand mutant | mutation tool — and where the pasted evidence is, or "not applicable — no executable behaviour"]
 
 **Actual result:**
 [Filled in during test execution]
@@ -159,7 +165,7 @@ Defects are tracked in the project issue tracker and referenced in the Test Plan
 
 Owner: IA Engineering
 
-Version: 0.0.5
+Version: 0.0.6
 
 Status: Draft
 

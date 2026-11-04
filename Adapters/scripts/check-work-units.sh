@@ -41,11 +41,34 @@
 # USAGE
 #
 #   check-work-units.sh <base-ref> <head-ref>
+#   check-work-units.sh --message <message-file>
 #
-# Exit 0 when every commit (and every authored merge) resolves, 1 when any does
-# not, when a merge cannot be classified, or when the registry cannot be found.
+# Exit codes (Standards/CODE_QUALITY_STANDARD.md, The Check Convention, Shell
+# Scripts rule 1):
+#   0  every commit, and every authored merge, claims one registered Work Unit
+#   1  a finding: a commit or authored merge with no claim, more than one, a
+#      malformed one, or one the registry does not hold
+#   2  could not evaluate, or a usage error: merge-classify.sh missing, no
+#      registry or one that yields no ids, `git rev-list` failed, git too old
+#      to classify merges, or a merge that could not be classified. A finding
+#      elsewhere in the range does not lower it to 1: what was not evaluated
+#      is reported as such.
 # A range with no non-merge commits and only clean merges is a pass and says
 # so — a back-merge carries no authored commits to attribute.
+#
+# --message applies the same rule to ONE commit message that is not a commit
+# yet: Adapters/git-hooks/commit-msg calls it, so the hook resolves a claim
+# with this script's logic instead of a copy of it (WU-IAENG-415, issue #364).
+# The registry it reads is the one that commit records: Registry/work-units.yml
+# as staged (the index, which honours the GIT_INDEX_FILE git gives a hook),
+# because the entry is registered in the same commit as the work. A registry
+# present in the working tree but not in the index is refused, naming the
+# `git add`; one that is absent, or cannot be read, is refused as in a range.
+# $IAENG_REGISTRY_WORK_UNITS, when it names an existing file, overrides here
+# too, and says so on stderr. Exit codes as above: 0 when the message's one
+# claim resolves, 1 for a finding about the claim, 2 when it could not be
+# evaluated (the message file unreadable, not inside a git work tree, the
+# staged registry absent, unstaged, unreadable or yielding no ids).
 #
 # The registry is searched at $IAENG_REGISTRY_WORK_UNITS, then
 # Registry/work-units.yml relative to the working directory: this repository's
@@ -69,7 +92,7 @@ set -uo pipefail
 SCRIPT_DIR="$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 if [ ! -f "$SCRIPT_DIR/merge-classify.sh" ]; then
   echo "check-work-units: ERROR: $SCRIPT_DIR/merge-classify.sh not found; failing closed." >&2
-  exit 1
+  exit 2
 fi
 # shellcheck source=merge-classify.sh
 . "$SCRIPT_DIR/merge-classify.sh"
@@ -96,12 +119,25 @@ err() {
 
 if [ "$#" -ne 2 ]; then
   echo "Usage: $0 <base-ref> <head-ref>" >&2
-  echo "  Checks every non-merge commit, and every authored merge, in <base-ref>..<head-ref>." >&2
+  echo "       $0 --message <message-file>" >&2
+  echo "  Checks every non-merge commit, and every authored merge, in <base-ref>..<head-ref>;" >&2
+  echo "  with --message, one commit message about to be recorded, against the staged registry." >&2
   exit 2
 fi
 
-BASE_REF="$1"
-HEAD_REF="$2"
+# --message reads the message once, here, so one guard covers a missing,
+# unreadable or non-regular file before anything else is examined.
+MESSAGE_MODE=0
+if [ "$1" = "--message" ]; then
+  MESSAGE_MODE=1
+  if [ ! -f "$2" ] || ! MESSAGE="$(cat -- "$2")"; then
+    err "--message: cannot read the message file '$2'. Nothing was evaluated; failing rather than passing."
+    exit 2
+  fi
+else
+  BASE_REF="$1"
+  HEAD_REF="$2"
+fi
 
 # Whose registry is read. The Work Units a project executes are the PROJECT's;
 # the framework's Registry/work-units.yml lists the framework's own. They are
@@ -114,24 +150,64 @@ HEAD_REF="$2"
 # the working directory IS the framework, and Registry/work-units.yml there is
 # its own; in a consumer it is the project's file, at the same relative path.
 # Whether this is a consumer is decided by identity (-ef: device and inode),
-# not by comparing path spellings, for the reason install.sh gives.
+# not by comparing path spellings, for the reason install.sh gives. With
+# --message the project is the repository whose index is read, so its top
+# level stands in for the working directory.
+TOP=.
+if [ "$MESSAGE_MODE" -eq 1 ]; then
+  if ! TOP="$(git rev-parse --show-toplevel 2>/dev/null)" || [ -z "$TOP" ]; then
+    err "--message runs inside a git working tree: the registry it reads is the index's. Nothing was evaluated; failing rather than passing."
+    exit 2
+  fi
+fi
 FRAMEWORK_ROOT="$(CDPATH='' cd -- "$SCRIPT_DIR/../.." && pwd)"
-if [ "$FRAMEWORK_ROOT" -ef . ]; then
+if [ "$FRAMEWORK_ROOT" -ef "$TOP" ]; then
   CONSUMER=0
 else
   CONSUMER=1
 fi
 
+# REGISTRY is the file parsed; REGISTRY_LABEL names it in what is printed. They
+# differ only with --message, where the file is a copy of the staged blob.
 REGISTRY=""
-for candidate in \
-  "${IAENG_REGISTRY_WORK_UNITS:-}" \
-  "Registry/work-units.yml"
-do
-  if [ -n "$candidate" ] && [ -f "$candidate" ]; then
-    REGISTRY="$candidate"
-    break
+REGISTRY_LABEL=""
+if [ "$MESSAGE_MODE" -eq 0 ]; then
+  for candidate in \
+    "${IAENG_REGISTRY_WORK_UNITS:-}" \
+    "Registry/work-units.yml"
+  do
+    if [ -n "$candidate" ] && [ -f "$candidate" ]; then
+      REGISTRY="$candidate"
+      break
+    fi
+  done
+elif [ -n "${IAENG_REGISTRY_WORK_UNITS:-}" ] && [ -f "$IAENG_REGISTRY_WORK_UNITS" ]; then
+  # Said on stderr, which the commit-msg hook shows: a variable left exported
+  # would otherwise change, unannounced, what every later commit is checked
+  # against.
+  REGISTRY="$IAENG_REGISTRY_WORK_UNITS"
+  echo "check-work-units: note: IAENG_REGISTRY_WORK_UNITS is set; resolving against $REGISTRY, not the staged Registry/work-units.yml." >&2
+elif git cat-file -e ":Registry/work-units.yml" 2>/dev/null; then
+  # `:<path>` is the stage-0 index entry, relative to the top level. Copied to
+  # a file so the parsing below runs on it unchanged.
+  if ! STAGED_REGISTRY="$(mktemp)"; then
+    err "--message: could not create a temporary file to read the staged Registry/work-units.yml into. Nothing was evaluated; failing rather than passing."
+    exit 2
   fi
-done
+  trap 'rm -f "$STAGED_REGISTRY"' EXIT
+  if ! git cat-file blob ":Registry/work-units.yml" > "$STAGED_REGISTRY"; then
+    err "--message: the index lists Registry/work-units.yml but its content could not be read. Nothing was evaluated; failing rather than passing."
+    exit 2
+  fi
+  REGISTRY="$STAGED_REGISTRY"
+  REGISTRY_LABEL="the staged Registry/work-units.yml (the index: what this commit records)"
+elif [ -f "$TOP/Registry/work-units.yml" ]; then
+  # The registry this commit records is absent, as in the no-registry case
+  # below, so it is the same could-not-evaluate exit.
+  err "Registry/work-units.yml is in the working tree but not in the index, so this commit would not record it, and a Work Unit it claims could not resolve against the commit's own tree. Stage it with the work: git add Registry/work-units.yml"
+  exit 2
+fi
+REGISTRY_LABEL="${REGISTRY_LABEL:-$REGISTRY}"
 
 if [ -z "$REGISTRY" ]; then
   if [ "$CONSUMER" -eq 1 ]; then
@@ -139,12 +215,16 @@ if [ -z "$REGISTRY" ]; then
   else
     err "Could not locate Registry/work-units.yml (looked at \$IAENG_REGISTRY_WORK_UNITS and Registry/). A project that has not adopted the Work Unit registry should remove this check rather than have it pass without checking anything."
   fi
-  exit 1
+  exit 2
 fi
 
-echo "Registry: $REGISTRY"
+echo "Registry: $REGISTRY_LABEL"
 
-KNOWN="$(grep -E '^  - id: ' "$REGISTRY" | sed 's/^  - id: //' | tr -d '\r')"
+# A carriage return is removed only where it ends a line (a CRLF checkout),
+# never every one: one inside an id is data, and deleting it would register an
+# id YAML does not read (Standards/CODE_QUALITY_STANDARD.md, The Check
+# Convention, Shell Scripts rule 3; WU-IAENG-389, issue #325).
+KNOWN="$(grep -E '^  - id: ' "$REGISTRY" | sed $'s/^  - id: //; s/\r$//')"
 KNOWN_COUNT="$(printf '%s\n' "$KNOWN" | grep -c . || true)"
 echo "Registered Work Units: $KNOWN_COUNT"
 
@@ -159,26 +239,14 @@ echo "Registered Work Units: $KNOWN_COUNT"
 if [ "$KNOWN_COUNT" -eq 0 ] \
    && { ! grep -qE '^work_units:[[:space:]]*(\[\])?[[:space:]]*$' "$REGISTRY" \
         || grep -qE '^[[:space:]]*-[[:space:]]*id:' "$REGISTRY"; }; then
-  err "$REGISTRY yielded no Work Unit IDs. The parsing contract is a line of the exact form '  - id: <WU-ID>' (two spaces, dash, space). Failing rather than reporting every commit unregistered, which would describe the parser and not the commits."
-  exit 1
-fi
-
-if ! COMMITS="$(git rev-list --no-merges "${BASE_REF}..${HEAD_REF}")"; then
-  err "git rev-list failed over ${BASE_REF}..${HEAD_REF}. No commit was examined, so nothing was established; failing rather than reporting zero problems."
-  exit 1
-fi
-
-# Merge commits are classified, not skipped: a merge that AUTHORS content (its
-# tree differs from the automatic merge of its parents, or it has more than two
-# parents) is held to the same rule as any commit. A clean merge needs no
-# trailer. PT2-03 of the 1 Oct 2026 exercise: with `--no-merges` alone, an
-# authored merge adding content carried no Work Unit and passed.
-if ! MERGES="$(git rev-list --merges "${BASE_REF}..${HEAD_REF}")"; then
-  err "git rev-list --merges failed over ${BASE_REF}..${HEAD_REF}; failing rather than skipping merges unexamined."
-  exit 1
+  err "$REGISTRY_LABEL yielded no Work Unit IDs. The parsing contract is a line of the exact form '  - id: <WU-ID>' (two spaces, dash, space). Failing rather than reporting every commit unregistered, which would describe the parser and not the commits."
+  exit 2
 fi
 
 fail=0
+# Set when a merge could not be classified: the run then exits 2, whatever
+# else it found (the header's exit codes).
+unevaluated=0
 
 # Historical authored merges without a Work Unit are grandfathered by sha in
 # the constant below. It lives in THIS script, not in a data file, on purpose:
@@ -198,36 +266,41 @@ fail=0
 #   d097e2ed... v0.0.13 back-merge (11 Sep 2026) carries a cosmetic Work Unit: WU-IAENG-259 that was never registered; Registry forbids historical backfill
 readonly GRANDFATHERED_MERGES="3babf69d9664ddb590acd7381a99fa90d1e40f70 93c850a754a26a050b621d52ac1881645d21be5f d097e2ed66e3e2c45454725664b20abd94b07968"
 
-# check_commit <sha> <what>
+# check_message <message> <name> <short>
 # Exactly one `Work Unit:` line at column 0, naming a registered ID. Sets
-# fail=1 on any defect. <what> is "Commit" or "Merge" for the messages.
-check_commit() {
-  local sha="$1" what="$2" WU_LINES WU_COUNT wu_line WU
-  WU_LINES="$(git log -1 --format=%B "$sha" | grep -E '^Work Unit: ' || true)"
+# fail=1 on any defect. <name> names the message in an error ("Commit <sha>",
+# "Merge <sha>", "This commit message"); <short> heads its resolved line.
+# The one rule, for a range and for --message alike.
+check_message() {
+  local msg="$1" what="$2" sha="$3" WU_LINES WU_COUNT wu_line WU
+  WU_LINES="$(grep -E '^Work Unit: ' <<< "$msg" || true)"
 
   if [ -z "$WU_LINES" ]; then
-    err "$what $sha carries no 'Work Unit: <WU-ID>' trailer. Per CLAUDE.md one Work Unit is one commit, and per Templates/WORK_UNIT.md every change must trace to a Work Unit. A Work Unit ID in the Pull Request description does not substitute: a description can be reworded after review, a trailer cannot."
+    err "$what carries no 'Work Unit: <WU-ID>' trailer. Per CLAUDE.md one Work Unit is one commit, and per Templates/WORK_UNIT.md every change must trace to a Work Unit. A Work Unit ID in the Pull Request description does not substitute: a description can be reworded after review, a trailer cannot."
     fail=1
     return 0
   fi
 
   WU_COUNT="$(printf '%s\n' "$WU_LINES" | grep -c . || true)"
   if [ "$WU_COUNT" -gt 1 ]; then
-    err "$what $sha carries $WU_COUNT 'Work Unit:' lines at column 0. One Work Unit is one commit (Standards/COMMIT_STANDARD.md), and downstream readers rely on there being exactly one. If one is an EXAMPLE quoted in the body — a deferral note, a reference to earlier work — indent it so it does not start at column 0."
+    err "$what carries $WU_COUNT 'Work Unit:' lines at column 0. One Work Unit is one commit (Standards/COMMIT_STANDARD.md), and downstream readers rely on there being exactly one. If one is an EXAMPLE quoted in the body — a deferral note, a reference to earlier work — indent it so it does not start at column 0."
     fail=1
     return 0
   fi
 
   while IFS= read -r wu_line; do
     [ -n "$wu_line" ] || continue
-    WU="$(printf '%s' "${wu_line#Work Unit: }" | tr -d '\r')"
+    # Line-end carriage return only (rule 3, above): one inside the value
+    # stays, and the shape test below refuses it.
+    WU="${wu_line#Work Unit: }"
+    WU="${WU%$'\r'}"
     # An empty or malformed claim never resolves. With an empty registry (the
     # bootstrap's starter) KNOWN is empty, and `grep -qxF ""` matches the
     # here-string's single empty line, so a bare `Work Unit: ` line passed
     # (SEC-IAENG-320-01). The shape is Templates/WORK_UNIT.md's
     # `WU-<project>-<number>`, the same one PR Compliance matches.
     if ! [[ "$WU" =~ ^WU-[A-Za-z0-9]+-[0-9]+$ ]]; then
-      err "$what $sha has a 'Work Unit:' line whose value '$WU' is empty or not a Work Unit id. The form is WU-<project>-<number> (Templates/WORK_UNIT.md), for example WU-SHOP-042."
+      err "$what has a 'Work Unit:' line whose value '$WU' is empty or not a Work Unit id. The form is WU-<project>-<number> (Templates/WORK_UNIT.md), for example WU-SHOP-042."
       fail=1
       continue
     fi
@@ -235,14 +308,44 @@ check_commit() {
     # registry can exceed the pipe buffer, and grep -q short-circuiting it would
     # SIGPIPE the producer — pipefail returns that, and a registered Work Unit
     # reads as unregistered. TROUBLESHOOTING X.
-    if grep -qxF "$WU" <<< "$KNOWN"; then
+    if grep -qxF -- "$WU" <<< "$KNOWN"; then
       echo "  $sha -> $WU (resolved)"
     else
-      err "$what $sha claims '$WU', which is not in $REGISTRY. Either it is a typo, or the Work Unit was never registered. Register it in the same commit that performs the work — see the registry's own header for the field shape. If this line is an EXAMPLE quoted in the message body, indent it so it does not start at column 0."
+      err "$what claims '$WU', which is not in $REGISTRY_LABEL. Either it is a typo, or the Work Unit was never registered. Register it in the same commit that performs the work — see the registry's own header for the field shape. If this line is an EXAMPLE quoted in the message body, indent it so it does not start at column 0."
       fail=1
     fi
   done < <(printf '%s\n' "$WU_LINES")
 }
+
+# check_commit <sha> <what> — check_message on a commit's own message. <what>
+# is "Commit" or "Merge".
+check_commit() {
+  check_message "$(git log -1 --format=%B "$1")" "$2 $1" "$1"
+}
+
+# --- One commit message (--message) -----------------------------------------
+# A message is not a commit yet, so there is no range and no merge to
+# classify: whether a claim is required at all is the caller's decision (the
+# commit-msg hook calls this only for a message that carries one).
+if [ "$MESSAGE_MODE" -eq 1 ]; then
+  check_message "$MESSAGE" "This commit message" "message"
+  exit "$fail"
+fi
+
+if ! COMMITS="$(git rev-list --no-merges "${BASE_REF}..${HEAD_REF}")"; then
+  err "git rev-list failed over ${BASE_REF}..${HEAD_REF}. No commit was examined, so nothing was established; failing rather than reporting zero problems."
+  exit 2
+fi
+
+# Merge commits are classified, not skipped: a merge that AUTHORS content (its
+# tree differs from the automatic merge of its parents, or it has more than two
+# parents) is held to the same rule as any commit. A clean merge needs no
+# trailer. PT2-03 of the 1 Oct 2026 exercise: with `--no-merges` alone, an
+# authored merge adding content carried no Work Unit and passed.
+if ! MERGES="$(git rev-list --merges "${BASE_REF}..${HEAD_REF}")"; then
+  err "git rev-list --merges failed over ${BASE_REF}..${HEAD_REF}; failing rather than skipping merges unexamined."
+  exit 2
+fi
 
 if [ -z "$COMMITS" ]; then
   echo "No non-merge commits to check."
@@ -271,7 +374,7 @@ if [ -n "$MERGES" ]; then
 
   if ! merge_classify_git_ok; then
     err "git $(git version) cannot classify merge commits: 'git merge-tree --write-tree' with --attr-source needs git 2.40 or newer. Failing closed rather than passing merges unclassified."
-    exit 1
+    exit 2
   fi
 
   for sha in $MERGES; do
@@ -292,7 +395,7 @@ if [ -n "$MERGES" ]; then
     KIND="$(merge_classify "$sha")"
     if [ "${KIND#error}" != "$KIND" ]; then
       err "Merge $sha could not be classified (${KIND#error: }). Failing closed rather than passing an unclassified merge."
-      fail=1
+      unevaluated=1
       continue
     fi
 
@@ -304,4 +407,5 @@ if [ -n "$MERGES" ]; then
   done
 fi
 
+[ "$unevaluated" -eq 0 ] || exit 2
 exit "$fail"

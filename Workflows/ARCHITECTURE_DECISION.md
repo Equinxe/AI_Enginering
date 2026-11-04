@@ -69,8 +69,13 @@ Before this workflow begins:
 
 **Actor:** Software Architect
 
-1. Identify all viable options for addressing the problem. Minimum two options must be evaluated.
-2. Research each option against:
+1. **Search the earlier decisions first.** Before any option is researched, search the project's existing ADRs (`Templates/ADR.md`, Storage Convention) for the same idea: every ADR's **Options Considered**, and every ADR whose status is Rejected, Superseded, or Deprecated. Search for the idea's key terms and their synonyms, not only the exact title.
+   - **Found as rejected:** the new ADR cites that ADR and states **what changed** since — a new requirement, new evidence, a constraint that no longer holds, or an option that differs in a way the earlier rejection did not cover. If nothing changed, do not re-propose: stop and report the earlier ADR and its rationale to whoever raised the need.
+   - **Not found:** say so in the ADR's Context, with the terms searched, so a reviewer can repeat the search.
+
+   A direction already rejected comes back looking new because no one remembers why it was rejected. The ADR kept the reason; this search reads it.
+2. Identify all viable options for addressing the problem. Minimum two options must be evaluated.
+3. Research each option against:
    - Technical fit for the problem
    - Alignment with existing architecture
    - Operational complexity
@@ -78,9 +83,9 @@ Before this workflow begins:
    - Cost and licensing
    - Team expertise and learning curve
    - Long-term maintainability
-3. Consult official documentation for each option — do not rely on secondary sources alone.
+4. Consult official documentation for each option — do not rely on secondary sources alone.
 
-**Output:** Options researched and documented.
+**Output:** The earlier-decision search and its result, and the options researched and documented.
 
 ---
 
@@ -92,8 +97,8 @@ Write the ADR using the ADR Template:
 
 - **Title** — short, decision-oriented (e.g., "Use PostgreSQL for primary data storage")
 - **Status** — Proposed
-- **Context** — the problem and why a decision is needed
-- **Options considered** — each option with pros and cons
+- **Context** — the problem and why a decision is needed, and the result of the Step 2 search: the earlier ADR and what changed, or the terms searched and "no earlier rejection found"
+- **Options considered** — each option with pros and cons. A rejected option keeps its reason here: it is what the next Step 2 search will find
 - **Decision** — the chosen option
 - **Rationale** — why this option was chosen over the others
 - **Consequences** — what becomes easier, harder, or different as a result
@@ -109,8 +114,10 @@ Write the ADR using the ADR Template:
 
 1. Distribute the ADR draft to all reviewers.
 2. Allow minimum 48 hours for review (72 hours for P1-level architectural decisions).
-3. Collect feedback: technical concerns, missing options, risk identification.
+3. Collect feedback: technical concerns, missing options, risk identification, and an earlier ADR the Step 2 search missed.
 4. The Software Architect incorporates feedback or documents disagreements with rationale.
+
+The Technical Lead's review is its Plan Review (`Employees/Management/TECHNICAL_LEAD.md`, Process, Plan Review); its record is part of the feedback the Software Architect answers.
 
 **Output:** ADR reviewed, feedback incorporated.
 
@@ -209,7 +216,7 @@ This workflow is complete when:
 
 Owner: IA Engineering
 
-Version: 0.0.4
+Version: 0.0.6
 
 Status: Draft
 

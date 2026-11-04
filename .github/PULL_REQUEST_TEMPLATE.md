@@ -26,6 +26,13 @@ Work Unit: [WU-ID]
 
 ---
 
+### Merge danger
+
+- Rollback: [easy — reverting this PR restores the previous state | hard — what a revert does not undo: data written, a migration, a published tag or release, a file adopting projects have already copied]
+- What breaks if this is wrong: [who or what fails, and how it would show]
+
+---
+
 ### How to test
 
 [Step-by-step instructions for the reviewer to verify the change works:]
@@ -49,6 +56,7 @@ Work Unit: [WU-ID]
 - [ ] This PR targets `develop`, not `main`.
 - [ ] The PR contains one Work Unit — not multiple unrelated changes.
 - [ ] Tests are written and passing locally.
+- [ ] Each new or changed test was seen red where `Standards/TESTING_STANDARD.md` (Falsifiability) requires it; the evidence is in the Work Unit Report.
 - [ ] No credentials, secrets, or sensitive data are in this diff.
 - [ ] The commit message follows the Commit Standard.
 - [ ] Documentation is updated if this PR changes a public interface.

@@ -14,11 +14,20 @@ IA Engineering is imported into a project as a git submodule. It does not
 replace your stack, your CI, or your tooling — it adds standards, workflows and
 a roster of named Employees on top of them.
 
+**What you need first.** `git`, and `bash` to run the scripts. On Windows,
+that is the Git Bash that comes with Git for Windows. The `bash` that
+PowerShell finds is WSL, not Git Bash
+([`Governance/TROUBLESHOOTING.md`](Governance/TROUBLESHOOTING.md) entry AA).
+With Claude Code you also need `jq`: `install-hooks.sh` uses it to merge into an
+existing `.claude/settings.json` and to check that file. On GitHub,
+`setup-branch-protection.sh` needs the GitHub CLI, `gh`, signed in
+(`gh auth status`).
+
 ```bash
 # from the root of your project (skip git init if it is already a repository)
 git init -b main
 git submodule add https://github.com/Equinxe/AI_Enginering ia-engineering
-git -C ia-engineering checkout v0.0.14   # pin a release tag: see "Which ref to pin" below
+git -C ia-engineering checkout v0.0.15   # pin a release tag: see "Which ref to pin" below
 git add ia-engineering                   # records the pinned commit
 
 # CI checks, git hooks, data-protection rules, PR and issue templates
@@ -32,7 +41,7 @@ git add ia-engineering                   # records the pinned commit
 promises nothing across versions yet: `VERSION.md` Status is Active Development
 and no backward-compatibility guarantee applies
 (`Governance/VERSIONING_POLICY.md`). So pin a release tag, never a moving
-branch; the latest is `v0.0.14`. A fix that lands on `develop` after a tag
+branch; the latest is `v0.0.15`. A fix that lands on `develop` after a tag
 reaches you only with the next tag. An early adopter who needs one sooner pins
 a specific `develop` commit instead, and moves to the next tag when it is cut.
 Upgrading is a deliberate `git -C ia-engineering checkout <newer tag>` followed
@@ -44,12 +53,19 @@ lists with `!` each existing file it left alone. Leave the `already exists`
 stack files as they are. Copy an Adapter by hand over a file that `differs from
 the Adapter` only if you never edited that file, since `--force` replaces every
 existing file the script manages at once, your Dockerfile and Work Unit
-registry included. Then re-run `install-hooks.sh` and `install-skills.sh`. The
-version's `CHANGELOG.md` entry says what changed.
+registry included. Then re-run `install-hooks.sh` and `install-skills.sh`, and
+then `generate-agents.sh`: an Employee definition that changed upstream reaches
+your agents only through that run. `generate-agents.sh --check` exits 0 once
+every agent is current. The version's `CHANGELOG.md` entry says what changed.
 
 If the framework comes from a local directory instead of a URL, `git submodule
 add` fails with `fatal: transport 'file' not allowed`; see
 [`Governance/TROUBLESHOOTING.md`](Governance/TROUBLESHOOTING.md) entry Y.
+
+On Windows, `git submodule add` may also print `warning: in the working copy of
+'.gitmodules', LF will be replaced by CRLF the next time Git touches it`. That
+comes from Git for Windows' default `core.autocrlf=true` and concerns your
+working copy only: the committed `.gitmodules` keeps LF. Nothing needs doing.
 
 `<stack>` is one of `node`, `web`, `python`, `go`, `jvm`, `dotnet`, `php`,
 `generic`. **`web` is a static front end** — a site or single-page application
@@ -62,8 +78,62 @@ Using Claude Code as the runtime? Two more, both **required for Claude Code** (w
 
 ```bash
 ./ia-engineering/Adapters/ai-runtimes/claude-code/install-hooks.sh   # refuse before, not report after
-./ia-engineering/Adapters/ai-runtimes/claude-code/install-skills.sh  # adds /create-project
+./ia-engineering/Adapters/ai-runtimes/claude-code/install-skills.sh  # adds /create-project and /dashboard
 ```
+
+### Which model runs which task
+
+Each Employee has a default tier: Strategic Judgment or Standard Execution. The
+Main Agent sets the tier for each Work Unit from the task itself, and only
+reaches Frontier with the Director's approval each time
+([`Core/CAPABILITY_TIERS.md`](Core/CAPABILITY_TIERS.md)). Your project's tier
+map turns each tier into a model. On a real project, choose the model per task
+(Director decision, 28 Oct 2026):
+
+| Tier | The task | Claude Code alias | On the Anthropic API, 29 Oct 2026 |
+|---|---|---|---|
+| Lightweight Execution | a lookup, a status check, a mechanical edit with a pass/fail result | `haiku` | Haiku 5.5 |
+| Standard Execution | implementation against an existing contract, documentation, a test plan, review of a non-sensitive change | `sonnet` | Sonnet 5.5 |
+| Strategic Judgment | a tradeoff with no precedent, cross-cutting work, security, compliance or financial risk | `opus` | Opus 5.5 |
+| Frontier | Strategic work that has fallen short, with the Director's approval each time | `fable` | Fable 5.1 |
+
+Record that choice in `.ia-engineering/tier-map`, regenerate the agents, check
+the result, and commit the file:
+
+```
+# .ia-engineering/tier-map: the model follows the task (who decided, and when)
+map=strategic=opus,standard=sonnet,lightweight=haiku,frontier=fable
+effort-map=strategic=high,standard=,lightweight=,frontier=
+```
+
+```bash
+./ia-engineering/Adapters/ai-runtimes/generate-agents.sh                   # rewrites the agents from the map
+./ia-engineering/Adapters/ai-runtimes/generate-agents.sh --print-tier-map  # first line: # mapping: file (...)
+```
+
+**Without the file**, `generate-agents.sh` uses its own defaults: `opus` for
+the Strategic Judgment Employees, `sonnet` for every other Employee, and
+`haiku` and `fable` only when a Work Unit's tier is overridden.
+`--print-tier-map` then starts with `# mapping: defaults (target claude-code;
+no .ia-engineering/tier-map in the project)`. Those defaults belong to the
+framework, not to your project: they apply without anyone having chosen them.
+To see which mapping is in force at any time, run `--print-tier-map`. The
+Claude Code session-start hook prints the same mapping as `Tier map in force`
+at the start of every session. `generate-agents.sh --check` reports agents
+generated with another mapping as differing in the tier mapping only.
+
+Write the aliases, not full model IDs. A Tier Override passes the model on
+each dispatch, and a Claude Code dispatch takes an alias, so a full ID such as
+`claude-sonnet-5-5` makes every override that changes the model stop and ask
+the Director. An alias moves to the newer model when one ships. On Amazon
+Bedrock, Google Cloud's Agent Platform, Microsoft Foundry and Claude Platform
+on AWS, `sonnet` and `haiku` resolve to older models
+([code.claude.com/docs/en/model-config](https://code.claude.com/docs/en/model-config)),
+so pin them there with the provider's `ANTHROPIC_DEFAULT_*_MODEL` variable.
+[`Adapters/ai-runtimes/README.md`](Adapters/ai-runtimes/README.md) has the
+file's rules and the provider details.
+
+### Branch protection
 
 On GitHub, one command configures the ten required status checks, branch
 protection, and the release-branch ruleset:
@@ -81,8 +151,17 @@ Copy `Templates/PROJECT_CLAUDE.md` to your project's `CLAUDE.md` and fill it in.
 It is the contract every session reads first; a project without one starts every
 session with no context and no rules. Make your first commit (the adoption itself: the submodule and the installed
 tooling; `CLAUDE.md` goes in a later commit), signed `Employee: DevOps Engineer`
-(`Workflows/PROJECT_BOOTSTRAP.md` Step 4). Then create
-`.ia-engineering/SESSION_STATE.md` from the fenced block under **Template** in
+(`Workflows/PROJECT_BOOTSTRAP.md` Step 4), with a `Work Unit:` line naming the
+adoption Work Unit, registered in `Registry/work-units.yml` in that same commit.
+This commit goes to `main` without a Pull Request, so the trailer checks
+(`Work Unit Exists`, `Employee Trailer`), which run on Pull Requests only, never
+read it: the `commit-msg` hook refuses an unregistered Work Unit, but not a
+missing line. Then create
+`.ia-engineering/SESSION_STATE.md`. The helper
+`./ia-engineering/Adapters/scripts/create-session-state.sh` does it for you: it
+refuses before the first commit and never overwrites an existing file, writes the
+fenced block with the project name and today's date in the form described below,
+and checks that the file is gitignored. By hand, it comes from the fenced block under **Template** in
 `Templates/SESSION_STATE.md`: the block's contents only, not the whole file,
 whose other sections explain how to keep the state file and are not part of
 it. Fill in the placeholders, and at least the `_Last updated:` line with
@@ -96,6 +175,18 @@ that predates the first commit is reported as "1 commit(s) behind" on the very
 first session. `Workflows/PROJECT_BOOTSTRAP.md` walks
 through the questions behind it — including the one that decides whether your
 project needs a Domain Employee of its own.
+
+Complete `.ia-engineering/risk-map.yml` in one of your first Work Units. The
+bootstrap's starter maps only the files it installed. Until each of the eight
+categories of `Standards/RISK_STANDARD.md` is either mapped to your project's
+paths or declared absent with a reason someone else can check
+([`Templates/RISK_MAP.md`](Templates/RISK_MAP.md)),
+`./ia-engineering/Adapters/scripts/check-risk-map.sh .` fails with one error
+per category it cannot find: "category '…' is neither mapped to a path nor
+declared absent". The **Risk Map (advisory)** CI check runs that command on
+every Pull Request. It does not block a merge, but it stays red on every Pull
+Request until the map is complete, and a check that is always red teaches
+everyone to ignore red.
 
 ### Working on the framework itself
 
@@ -128,10 +219,10 @@ skipping it:
 
 | | |
 |---|---|
-| **Proven by execution** | as of v0.0.14: 200 framework self-validation checks, 1208 behaviour tests over the check scripts, 791 over the runtime hooks, and ten required CI checks — all green on every merge, on Linux |
+| **Proven by execution** | as of v0.0.15: 212 framework self-validation checks, 2521 behaviour tests over the check scripts, 1516 over the runtime hooks, and ten required CI checks — all green on every merge, on Linux |
 | **Proven once, end to end** | a fresh project importing the framework, bootstrapping, generating its 42 agents, installing hooks that refuse a bad commit and accept a good one |
 | **Not yet proven** | **the framework has only ever been used on itself.** No third-party project has adopted it. The first one will find things `Governance/TROUBLESHOOTING.md` does not yet contain |
-| **Not yet proven** | 29 of the 42 Employees have never been dispatched. Their definitions are careful; carefulness is not evidence |
+| **Not yet proven** | 24 of the 42 Employees have never been dispatched. Their definitions are careful; carefulness is not evidence |
 
 ---
 
@@ -198,7 +289,7 @@ Current Version
 
 ```
 
-v0.0.14 - Precision
+v0.0.15 - Adoption
 
 ```
 
@@ -208,7 +299,7 @@ Completed
 - ✅ Standards (Standards First, Git, Commit, Branch, Pull Request, Documentation, Code Quality, Testing, Risk, Data Protection)
 - ✅ Employees (42 AI Employee definitions across 8 categories, each with a Default Complexity Tier; projects add Domain Employees for their own business domain)
 - ✅ Workflows (10 engineering workflows, from feature development to incident response, project bootstrap, and multi-session autonomous delivery)
-- ✅ Templates (Work Unit, Work Unit Report, Pull Request, ADR, Incident Report, Test Plan, Employee Brief, Pole Brief, Domain Employee, Project Charter, Project CLAUDE.md, Session State, Risk Map)
+- ✅ Templates (Work Unit, Work Unit Report, Pull Request, ADR, Incident Report, Test Plan, Employee Brief, Pole Brief, Domain Employee, Project Charter, Project CLAUDE.md, Project Glossary, Session State, Risk Map, Root Cause Analysis)
 - ✅ Orchestration (Main Agent dispatch protocol, 6 named Agent Chains)
 - ✅ Examples (6 end-to-end chain walkthroughs on a single fictional project)
 - ✅ Capability Tiers (AI-agnostic execution tiers matching capability to Work Unit complexity)
@@ -220,10 +311,11 @@ Completed
 - ✅ Convergence (governance concepts absorbed from sibling frameworks and made framework-wide: a shared Risk scale with stop tiers, structural Data Protection with a pre-commit hook and a history-scanning CI check, the Work Unit Report and Session State contracts, Domain Employees with a project roster, a review-size gate, the escape-hatch ban list enforced by Claude Code hooks, multi-lens review, the dependent-task queue, the conductor/pole Autonomous Delivery workflow, and the Troubleshooting Catalog with its learning loop)
 - ✅ Portability (the framework made runnable off its own repository: the four Pull Request checks extracted from CI into scripts any forge can run with a real behaviour suite, a host seam where the host fetches and acts but never decides, seven first-class stacks each pinned to a starter Dockerfile, the Risk Map by which a project classifies its own paths, and an already-started-project adoption path that never overwrites the project's own work)
 - ✅ Precision (the framework made exact and usable: every front-facing surface audited and pinned against drift by the validator, the controls that grade a Pull Request attacked from the inside and each finding closed as a check, a hook rule or a stated limit, the newcomer path dogfooded on real adoptions, and a local usage dashboard for roster and chain tuning)
+- ✅ Adoption (the framework prepared for a project other than its own: an adopting project's drift from the framework shown at every session start, the adoption rehearsal's Blocker and Majors fixed, the context and guard hooks made to hold under parallel agents, and the Director's Core and Standards texts committed verbatim)
 
 Planned
 
-- **Adoption** (next, targets v0.0.15) — sustained adoption on a real project and the follow-ups it finds
+- **Usage** (next, targets v0.0.16) — begins with the eight Work Units deferred from Adoption
 
 ---
 
@@ -261,6 +353,9 @@ Adapters/
 - Automation
 - Convergence
 - Portability
+- Precision
+- Adoption
+- Usage
 - Public Release
 
 ---
@@ -276,8 +371,11 @@ and a rule into a mechanical control.
 Two things worth knowing before opening a Pull Request:
 
 - **Every commit carries a `Work Unit:` and an `Employee:` trailer**, and CI
-  resolves both against `Registry/`. The git hooks install these locally so the
-  failure happens before the push, not after it.
+  resolves both against `Registry/` on every Pull Request. The `commit-msg` hook
+  refuses the commit before it exists when the `Employee:` name is not on the
+  roster or the `Work Unit:` id is not in `Registry/work-units.yml` as staged,
+  so register the Work Unit in the same commit. A commit with no `Work Unit:`
+  line passes the hook; only the CI check refuses it.
 - **The review limit is 1,500 changed lines.** Past that a review is a skim.
   Split the change, or the Director accepts the size explicitly with a label.
 

@@ -60,7 +60,14 @@
 #                            count. When unset, any author's decision counts,
 #                            including the author of the change itself.
 #
-# Exit 0 when a decision is found, 1 otherwise, 2 on a usage error.
+# Exit codes (Standards/CODE_QUALITY_STANDARD.md, The Check Convention, Shell
+# Scripts rule 1):
+#   0  a decision was found
+#   1  a finding: every comment was read and none records a decision
+#   2  could not evaluate, or a usage error: the comments directory is
+#      missing, a comment file has no `author:` line, or the host reported a
+#      source it could not read (--fetch-incomplete) and no decision was found
+#      in the rest. Nothing was established either way.
 
 set -uo pipefail
 
@@ -111,7 +118,7 @@ fi
 # change set for a broken pipeline.
 if [ ! -d "$COMMENTS_DIR" ]; then
   err "No such directory: $COMMENTS_DIR. The host's fetch step is expected to create it, empty if the change set has no comments. Its absence means the fetch did not run, which is not the same as an unreviewed change set."
-  exit 1
+  exit 2
 fi
 
 REQUIRED_LOGIN="${IAENG_REVIEW_BOT_LOGIN:-}"
@@ -135,7 +142,7 @@ for f in "$COMMENTS_DIR"/*; do
     "author: "*) author="${header#author: }" ;;
     *)
       err "$f does not begin with an 'author: <login>' line. The host's fetch step writes it; a file without one cannot be attributed, and attributing it to nobody would let an unattributable comment satisfy an author-filtered check."
-      exit 1
+      exit 2
       ;;
   esac
 
@@ -170,7 +177,7 @@ fi
 
 if [ "$FETCH_INCOMPLETE" -eq 1 ]; then
   err "The host reported that at least one comment source could not be read, and no decision was found in what it did read. This is NOT the same as an unreviewed change set: nothing was established either way. See the host's warnings."
-  exit 1
+  exit 2
 fi
 
 err "No recorded Code Reviewer decision ('Decision: approved', per Employees/Specialized/CODE_REVIEWER.md's Review Decision block) was found among the $EXAMINED comment(s) on this change set. Per Workflows/CODE_REVIEW.md a Code Reviewer decision must be recorded before merge."

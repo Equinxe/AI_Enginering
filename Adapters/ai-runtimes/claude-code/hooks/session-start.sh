@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# IA Engineering — Claude Code SessionStart hook (matcher: startup|resume|compact)
+# IA Engineering — Claude Code SessionStart hook (matcher: startup|resume|clear|compact)
 #
 # Mechanically enforces Core/AGENT_CONDUCT.md, Read First: whatever this hook
 # prints to stdout is added to the model's context at the start of the
@@ -7,8 +7,22 @@
 # it is the first thing it sees. It prints the pointers and the *current*
 # state, never a copy of CLAUDE.md (one fact, one place — Templates/SESSION_STATE.md).
 
+# This hook's own directory, never the working directory (issue #344). It is
+# taken from $0 when $0 holds a / or \, because the environment cannot set $0.
+# A bare $0 means bash found the hook through PATH or in the working
+# directory, where dirname "$0" would name the working directory; then
+# BASH_SOURCE[0], the path bash found, is used. BASH_SOURCE is not taken first
+# because bash 5.3 imports it from the environment (SEC-IAENG-400-01). Both
+# separators count, as Git Bash's dirname reads both. Every file this hook
+# loads or runs comes from here.
+HOOKS_DIR="$0"
+case "$HOOKS_DIR" in */*|*\\*) ;; *) HOOKS_DIR="${BASH_SOURCE[0]}" ;; esac
+case "$HOOKS_DIR" in
+  */*|*\\*) HOOKS_DIR="${HOOKS_DIR%[/\\]*}" ;;
+  *) HOOKS_DIR=. ;;
+esac
 # shellcheck source=lib.sh
-. "$(dirname "$0")/lib.sh"
+. "$HOOKS_DIR/lib.sh"
 
 BASE="${CLAUDE_PROJECT_DIR:-.}"
 ROOT="$(iaeng_framework_root || true)"
@@ -99,24 +113,13 @@ if [ -f "$STATE" ]; then
     fi
   fi
 
-  # --- Warning 3: size ----------------------------------------------------
-  # Loaded on every resume (this hook prints it, unabridged, into context),
-  # so its size is occupation paid on every session, not just its author's —
-  # see Core/CONTEXT_BUDGET.md, rule 3 ("read what you will not use") and its
-  # own measured baseline for this file (6,456 characters). 15,000 characters
-  # (~3.75k tokens at the ~4 chars/token estimate CONTEXT_BUDGET.md uses) is
-  # a little over twice that healthy baseline, and well under the ~36,000
-  # characters / 224 lines this file had grown to when this Work Unit was
-  # opened — chosen as a threshold that catches "becoming a log" before it
-  # reaches "is one". Measured in characters; this is an estimate, not a
-  # token count.
-  STATE_CHARS="$(wc -c < "$STATE" | tr -d '[:space:]')"
-  if [ -n "$STATE_CHARS" ] && iaeng_is_int "$STATE_CHARS" && [ "$STATE_CHARS" -gt 15000 ]; then
-    echo "     WARNING: SESSION_STATE.md is $STATE_CHARS characters (Core/CONTEXT_BUDGET.md: measured in characters, ~4 chars/token estimate) — over the 15,000-character budget and loaded on every resume. Prune \"Where the Project Stands\" and \"Next Step\" to a snapshot; history belongs in git or the Journal, not here."
-  fi
+  # No size check. SESSION_STATE.md has no size limit, by Director decision
+  # (22 October 2026): it is the agent's memory of what was done, and the
+  # one file allowed to grow long and keep its history. The 15,000-character
+  # warning that stood here (WU-IAENG-287) was removed by WU-IAENG-368.
 else
   if [ -n "$ROOT" ] && [ -f "$ROOT/Templates/SESSION_STATE.md" ]; then
-    echo "  2. .ia-engineering/SESSION_STATE.md does not exist. Create it from $ROOT/Templates/SESSION_STATE.md before any other action; it is gitignored and refused by the pre-commit hook."
+    echo "  2. .ia-engineering/SESSION_STATE.md does not exist. Create it before any other action with $ROOT/Adapters/scripts/create-session-state.sh, which writes the Template block of $ROOT/Templates/SESSION_STATE.md with today's date (after the project's first commit); it is gitignored and refused by the pre-commit hook."
   else
     echo "  2. .ia-engineering/SESSION_STATE.md does not exist and the framework's template was not found (looked for Core/AGENT_CONDUCT.md at ., ia-engineering/, \$IAENG_FRAMEWORK)."
   fi
@@ -168,6 +171,363 @@ if git -C "$BASE" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   echo "Repository state now:"
   git -C "$BASE" status --short --branch 2>/dev/null | head -15 | sed 's/^/  /'
   echo
+fi
+
+# --- Framework drift, at a glance (WU-IAENG-359) ----------------------------
+# The Director's requirement (21 Oct 2026): checks run on their own in the
+# flow of the session, never behind a flag a person must remember, and say
+# nothing when everything is current. DEF-IAENG-REL014-01 is the case: an
+# adopter one upgrade behind failed a required check and nothing told it.
+#
+# check-framework-drift.sh --quick (A version, B files by plain diff, D hook
+# command paths) is read as tsv, and at most three lines are printed, one per
+# family, only for what is actionable, each naming the command that explains
+# it. Its result is kept in a user-level cache, so an unchanged project costs
+# a stat (the script's header, --QUICK). Never in the framework repository,
+# which validate-framework.sh covers. Bounded: TERM at 2.8 s, KILL 0.2 s later;
+# `timeout` ends the whole process group, so no process of that run outlives
+# the hook. A fault or an incomplete check is said ONCE (remembered beside the
+# cache) and then not again until it changes or a run completes. Nothing here
+# can fail the session.
+#
+# An overrun (WU-IAENG-418, issue #366). Under Git for Windows a cold --quick
+# took 4.9 to 5.6 s in the 28 Oct rehearsal, and on a machine busy with other
+# agents every process launch costs seconds, so even a cache hit can take
+# 20 s: no run cut at 2.8 s ever kept anything, and every later session was
+# cut too, in silence. Now the cut run is started again, detached from the
+# hook's output and bounded at 300 s. It keeps its result in the cache, and
+# beside the cache it leaves the next session two files, each beginning with
+# a "project TAB <path>" line: bg-<project>, then "started <pid>" and later
+# "done <exit>"; and bg-<project>.tsv, then its output.
+# A session whose own run is cut again reports from that output, read and
+# capped exactly as a run's (and said to come from an earlier run), so a
+# verdict reaches the session even when no run fits the budget. A run still
+# going is said once; a run that ended with no result is said at EVERY session
+# until one completes: no result is never silence (Adapters/README.md, the
+# Check Convention, rule 1). The command these lines name keeps its result in
+# the same cache by hand. Declared limit: the result reported after an
+# overrun is the earlier run's, so a change made since shows one session late.
+DRIFT_SH="${ROOT:+$ROOT/Adapters/scripts/check-framework-drift.sh}"
+if [ -n "$DRIFT_SH" ] && [ -f "$DRIFT_SH" ] && ! [ "$ROOT" -ef "$BASE" ]; then
+  DRIFT_SHOWN="$ROOT"
+  case "$ROOT" in "$BASE"/*) DRIFT_SHOWN="${ROOT#"$BASE"/}" ;; esac
+  DRIFT_SHOWN="${DRIFT_SHOWN#./}"
+  DRIFT_RUN="bash $DRIFT_SHOWN/Adapters/scripts/check-framework-drift.sh"
+  # The user's cache directory, or, when that lies inside the project (a
+  # $HOME that is itself a repository, a dev container), a per-user one in
+  # $TMPDIR; never one inside the project (lib.sh, iaeng_cache_dir). The
+  # script applies the same rule again, and trusts the directory only when
+  # the user alone can write it (SEC-IAENG-359-01, -03).
+  DRIFT_CACHE=""
+  D_PRIMARY=""
+  if [ -n "${XDG_CACHE_HOME:-}" ]; then
+    D_PRIMARY="$XDG_CACHE_HOME/ia-engineering"
+  elif [ -n "${HOME:-}" ]; then
+    D_PRIMARY="$HOME/.cache/ia-engineering"
+  fi
+  for d_c in "$D_PRIMARY" "${TMPDIR:-/tmp}/ia-engineering-${EUID:-0}"; do
+    if [ -n "$d_c" ] && iaeng_cache_dir "$d_c" "$BASE" DRIFT_CACHE; then
+      break
+    fi
+  done
+  case "$BASE" in
+    /*|[A-Za-z]:*) DRIFT_KEY="$BASE" ;;
+    *) DRIFT_KEY="$PWD/$BASE" ;;
+  esac
+  DRIFT_SAID="${DRIFT_CACHE:+$DRIFT_CACHE/said-${DRIFT_KEY//[^A-Za-z0-9._-]/_}}"
+  DRIFT_BG="${DRIFT_CACHE:+$DRIFT_CACHE/bg-${DRIFT_KEY//[^A-Za-z0-9._-]/_}}"
+  DRIFT_BGV="${DRIFT_BG:+$DRIFT_BG.tsv}"
+  # The command that runs the check as the hook does and keeps its result in
+  # the cache the next session reads: what an overrun line tells a person to
+  # run. Without a cache there is nothing to keep: the full check instead.
+  DRIFT_FILL="$DRIFT_RUN"
+  if [ -n "$DRIFT_CACHE" ]; then
+    printf -v d_q '%q' "$DRIFT_CACHE"
+    DRIFT_FILL="$DRIFT_RUN --quick --cache-dir $d_q"
+  fi
+
+  # drift_once <line> — prints it unless it is the line said last time. The
+  # memory is read only when the user alone could have written it, and
+  # written through a new file renamed into place: never through a link.
+  drift_once() {
+    local prev=""
+    if [ -n "$DRIFT_SAID" ] && [ -f "$DRIFT_SAID" ] \
+       && ! iaeng_untrusted "$DRIFT_CACHE" "$DRIFT_SAID"; then
+      IFS= read -r prev < "$DRIFT_SAID" || true
+    fi
+    [ "$prev" = "$1" ] && return 0
+    printf '%s\n\n' "$1"
+    [ -n "$DRIFT_SAID" ] && [ ! -L "$DRIFT_SAID" ] || return 0
+    if [ ! -d "$DRIFT_CACHE" ]; then
+      mkdir -p "${DRIFT_CACHE%/*}" 2>/dev/null
+      mkdir -m 700 "$DRIFT_CACHE" 2>/dev/null
+    fi
+    if [ -d "$DRIFT_CACHE" ] && ! iaeng_untrusted "$DRIFT_CACHE"; then
+      { (umask 077; printf '%s\n' "$1" > "$DRIFT_SAID.$$.tmp") \
+          && mv -f "$DRIFT_SAID.$$.tmp" "$DRIFT_SAID"; } 2>/dev/null
+      [ -e "$DRIFT_SAID.$$.tmp" ] && rm -f "$DRIFT_SAID.$$.tmp" 2>/dev/null
+    fi
+    return 0
+  }
+  # d_cap <text> — D_CAPPED: the text cut at 160 bytes. Every free-text
+  # field printed here was read from the check or its cache, and becomes the
+  # session's context: none can carry more than that (SEC-IAENG-359-01).
+  d_cap() {
+    D_CAPPED="$1"
+    [ "${#D_CAPPED}" -gt 160 ] && D_CAPPED="${D_CAPPED:0:160}..."
+    return 0
+  }
+
+  # The background run's two files begin with the project they are about:
+  # their names are the path with every other character made "_", so two
+  # projects can share them ("/w/a/b" and "/w/a_b"), and a file about another
+  # project is not this one's (as the script's cache_replay checks its own).
+  D_BGHEAD="project"$'\t'"$DRIFT_KEY"
+
+  # d_bg_load — what the background run of an earlier session left, read
+  # only when the user alone could have written it and it is about this
+  # project. Called only where DRIFT_BG is set. DRIFT_BGS is "" (nothing
+  # readable as this hook's own), running, ended (stopped from outside: gone
+  # with no report, or started more than 6 minutes ago, past its own 300 s
+  # bound, so a reused pid cannot keep it "running"), done, or failed <exit>.
+  # The status line is matched whole, so no text of it reaches the session.
+  # D_BGV is 1 when that run's output is in DRIFT_OUT, at most 400 lines, for
+  # d_result to read as it reads a run's. It is a file, so it is read as
+  # data: every control character but the TAB that separates fields becomes
+  # a space again, the C1 pairs as the script flattens them
+  # (SEC-IAENG-357-01, -358-01).
+  d_bg_load() {
+    local l="" p="" n=0 c1=$'\xc2' LC_ALL=C
+    local -a fs=()
+    DRIFT_BGS=""; D_BGV=0; DRIFT_OUT=""
+    [ -f "$DRIFT_BG" ] && fs+=("$DRIFT_BG")
+    [ -f "$DRIFT_BGV" ] && fs+=("$DRIFT_BGV")
+    [ "${#fs[@]}" -gt 0 ] || return 0
+    iaeng_untrusted "$DRIFT_CACHE" "${fs[@]}" && return 0
+    if [ -f "$DRIFT_BG" ]; then
+      { IFS= read -r p; IFS= read -r l; } < "$DRIFT_BG"
+      if [ "$p" = "$D_BGHEAD" ]; then
+        if [[ "$l" =~ ^started\ ([0-9]{1,10})$ ]]; then
+          # DRIFT_BG is absolute (DRIFT_CACHE is canonical): never an option.
+          if kill -0 "${BASH_REMATCH[1]}" 2>/dev/null \
+             && [ -z "$(find "$DRIFT_BG" -mmin +6 2>/dev/null)" ]; then
+            DRIFT_BGS=running
+          else
+            DRIFT_BGS=ended
+          fi
+        elif [[ "$l" =~ ^done\ ([0-9]{1,3})$ ]]; then
+          if [ "${BASH_REMATCH[1]}" = 0 ]; then DRIFT_BGS="done"; else DRIFT_BGS="failed ${BASH_REMATCH[1]}"; fi
+        fi
+      fi
+    fi
+    if [ -f "$DRIFT_BGV" ]; then
+      {
+        IFS= read -r p
+        if [ "$p" = "$D_BGHEAD" ]; then
+          while [ "$n" -lt 400 ] && IFS= read -r l; do
+            l="${l//[$'\x01'-$'\x08'$'\x0b'-$'\x1f'$'\x7f']/ }"
+            l="${l//"$c1"[$'\x80'-$'\x9f']/ }"
+            DRIFT_OUT="$DRIFT_OUT$l"$'\n'; n=$((n + 1))
+          done
+          D_BGV=1
+        fi
+      } < "$DRIFT_BGV"
+    fi
+    return 0
+  }
+  # d_bg_write <file> <text> — the project line, then the text, through a new
+  # file renamed into place, never through a link, only into a cache
+  # directory the user alone owns, made 0700 here when no run made it yet
+  # (as drift_once makes it).
+  d_bg_write() {
+    [ -n "$1" ] && [ -n "$DRIFT_CACHE" ] && [ ! -L "$1" ] || return 0
+    if [ ! -d "$DRIFT_CACHE" ]; then
+      mkdir -p "${DRIFT_CACHE%/*}" 2>/dev/null
+      mkdir -m 700 "$DRIFT_CACHE" 2>/dev/null
+    fi
+    [ -d "$DRIFT_CACHE" ] && ! iaeng_untrusted "$DRIFT_CACHE" || return 0
+    { (umask 077; printf '%s\n%s\n' "$D_BGHEAD" "$2" > "$1.$$.tmp") && mv -f "$1.$$.tmp" "$1"; } 2>/dev/null
+    [ -e "$1.$$.tmp" ] && rm -f "$1.$$.tmp" 2>/dev/null
+    return 0
+  }
+  # d_bg_start — the check again, exactly as the hook runs it, bounded at
+  # 300 s and detached: every descriptor goes to /dev/null, so Claude Code,
+  # which waits for the hook's output to close, does not wait for it. The
+  # script keeps its result in the cache itself (--cache-dir); this subshell
+  # keeps the output of a run that exited 0 for the next session, then its
+  # exit status. Called only where DRIFT_BG is set. $BASHPID is bash 4: on
+  # bash 3.2 "started " is written, which d_bg_load reads as nothing, so a
+  # second run may start; never a fault.
+  d_bg_start() {
+    (
+      d_bg_write "$DRIFT_BG" "started ${BASHPID:-}"
+      out="$(CDPATH='' cd -- "$BASE" 2>/dev/null && "$DRIFT_TO" -k 1 300 bash "$DRIFT_SH" "${DRIFT_ARGS[@]}" </dev/null 2>/dev/null)"
+      rc=$?
+      [ "$rc" -eq 0 ] && d_bg_write "$DRIFT_BGV" "$out"
+      d_bg_write "$DRIFT_BG" "done $rc"
+    ) </dev/null >/dev/null 2>&1 &
+    return 0
+  }
+
+  # d_list <max> <items...> — "a, b, c and 2 more"; a name read from the
+  # project is cut at 160 bytes (d_cap), so no line floods the context.
+  d_list() {
+    local max="$1" out="" i=0 x; shift
+    for x in "$@"; do
+      i=$((i + 1))
+      d_cap "$x"
+      [ "$i" -le "$max" ] && out="${out:+$out, }$D_CAPPED"
+    done
+    [ "$i" -gt "$max" ] && out="$out and $((i - max)) more"
+    printf '%s' "$out"
+  }
+  # d_result — reads DRIFT_OUT, the tsv output of a run that exited 0, into
+  # DRIFT_LINES (one line per family, each begun with D_HEAD) or DRIFT_ONCE.
+  # Every field arrives flattened: the script turns each control character
+  # into a space (SEC-IAENG-357-01).
+  d_result() {
+    D_VER=""; D_ABS=(); D_DIF=(); D_BRK=(); D_FILES=0; D_INDET=""; D_ACT=""; D_SUM=0
+    # The version line is built from fixed words, the tag and the count
+    # alone: no text of the record (or of a cache) reaches it.
+    D_RE_BEHIND='^last tag known locally: ([A-Za-z0-9._/+-]{1,64}), ([0-9]{1,4}) tag\(s\) behind'
+    while IFS=$'\t' read -r d_f d_s d_p d_r; do
+      case "$d_f" in
+        '# check-framework-drift:'*)
+          D_SUM=1
+          D_ACT="${d_f#'# check-framework-drift: '}"; D_ACT="${D_ACT%% to act on*}"
+          case "$D_ACT" in ''|*[!0-9]*) D_ACT="" ;; esac ;;
+        ''|'#'*) ;;
+        *)
+          [ "$d_f" = file ] && D_FILES=$((D_FILES + 1))
+          case "$d_f:$d_s" in
+            version:behind)
+              if [[ "$d_r" =~ $D_RE_BEHIND ]]; then
+                D_VER="${D_VER:+$D_VER; }last tag known locally: ${BASH_REMATCH[1]}, ${BASH_REMATCH[2]} tag(s) behind"
+              else
+                D_VER="${D_VER:+$D_VER; }behind the last tag known locally"
+              fi ;;
+            version:uncommitted)
+              D_VER="${D_VER:+$D_VER; }the checkout is not the commit the project recorded (gitlink +): an upgrade not committed" ;;
+            version:uninitialized)
+              D_VER="${D_VER:+$D_VER; }the submodule is not initialized (gitlink -)" ;;
+            file:absent) D_ABS+=("$d_p") ;;
+            file:differs|file:stale|file:modified) D_DIF+=("$d_p") ;;
+            path:broken) d_r="${d_r%%;*}"; d_cap "${d_r%%:*}"; D_BRK+=("$d_p ($D_CAPPED)") ;;
+            *:indeterminate)
+              if [ -z "$D_INDET" ]; then
+                d_cap "$d_p"; D_INDET="$D_CAPPED"
+                d_cap "${d_r%%. *}"; D_INDET="$D_INDET: $D_CAPPED"
+              fi ;;
+          esac ;;
+      esac
+    done <<< "$DRIFT_OUT"
+    if [ -n "$D_VER" ]; then
+      DRIFT_LINES+=("$D_HEAD: the framework ($DRIFT_SHOWN): $D_VER. Run: $DRIFT_RUN")
+    fi
+    if [ "${#D_ABS[@]}" -gt 0 ] || [ "${#D_DIF[@]}" -gt 0 ]; then
+      D_TXT=""
+      [ "${#D_ABS[@]}" -gt 0 ] && D_TXT="absent: $(d_list 3 "${D_ABS[@]}")"
+      [ "${#D_DIF[@]}" -gt 0 ] && D_TXT="${D_TXT:+$D_TXT; }differ from the framework: $(d_list 3 "${D_DIF[@]}")"
+      DRIFT_LINES+=("$D_HEAD: $(( ${#D_ABS[@]} + ${#D_DIF[@]} )) of $D_FILES framework-managed file(s) to act on ($D_TXT). Run: $DRIFT_RUN, which tells a stale file (copy it) from a modified one (review it)")
+    fi
+    if [ "${#D_BRK[@]}" -gt 0 ]; then
+      DRIFT_LINES+=("$D_HEAD: ${#D_BRK[@]} hook command(s) or core.hooksPath name a path that does not work, so that guard is silently off: $(d_list 2 "${D_BRK[@]}"). Run: $DRIFT_RUN")
+    fi
+    if [ "$D_SUM" -eq 0 ]; then
+      # Output cut short is not a result: nothing from it is shown.
+      DRIFT_LINES=()
+      DRIFT_ONCE="IA Engineering drift check: it gave no summary line, so nothing is reported (said once). Run it by hand: $DRIFT_RUN"
+    elif [ "${#DRIFT_LINES[@]}" -eq 0 ] && [ -n "$D_ACT" ] && [ "$D_ACT" != 0 ]; then
+      # A status this hook does not render is still never silence.
+      DRIFT_LINES+=("$D_HEAD: $D_ACT item(s) to act on. Run: $DRIFT_RUN")
+    elif [ "${#DRIFT_LINES[@]}" -eq 0 ] && [ -n "$D_INDET" ]; then
+      DRIFT_ONCE="IA Engineering drift check: incomplete, $D_INDET (said once). Run: $DRIFT_RUN"
+    fi
+    return 0
+  }
+
+  DRIFT_TO=""
+  if command -v timeout >/dev/null 2>&1; then DRIFT_TO=timeout
+  elif command -v gtimeout >/dev/null 2>&1; then DRIFT_TO=gtimeout
+  fi
+  DRIFT_ONCE=""
+  DRIFT_LINES=()
+  # 1 once this session's run completed with a result, 2 once an earlier
+  # background run's result was reported instead: either ends an episode.
+  D_DONE=0
+  D_BGV=0
+  if [ -z "$DRIFT_TO" ]; then
+    DRIFT_ONCE="IA Engineering drift check: not run at session start, no timeout command to bound it (said once). Run it by hand: $DRIFT_RUN"
+  else
+    DRIFT_ARGS=(--quick --format tsv)
+    [ -n "$DRIFT_CACHE" ] && DRIFT_ARGS+=(--cache-dir "$DRIFT_CACHE")
+    DRIFT_OUT="$(CDPATH='' cd -- "$BASE" 2>/dev/null && "$DRIFT_TO" -k 0.2 2.8 bash "$DRIFT_SH" "${DRIFT_ARGS[@]}" </dev/null 2>/dev/null)"
+    DRIFT_RC=$?
+    case "$DRIFT_RC" in
+      0)
+        D_HEAD="IA Engineering drift"
+        d_result
+        [ -z "$DRIFT_ONCE" ] && D_DONE=1 ;;
+      124|137)
+        D_OVER="IA Engineering drift check: not finished within the 3 s session-start budget"
+        D_BGNOTE="$D_OVER; it goes on in the background (5 min at most) and keeps its result for the next session (said once). To see it now: $DRIFT_FILL"
+        if [ -z "$DRIFT_BG" ]; then
+          # No cache to keep a result in: running it again would keep nothing.
+          DRIFT_ONCE="$D_OVER, so nothing is reported (said once). Run it by hand: $DRIFT_RUN"
+        else
+          d_bg_load
+          if [ "$D_BGV" -eq 1 ]; then
+            # For want of this session's result, the last one a background
+            # run kept: read and capped as a run's, and said to be older.
+            D_HEAD="IA Engineering drift, as found by the background run an earlier session started (this session's check did not finish within 3 s)"
+            d_result
+            [ -z "$DRIFT_ONCE" ] && D_DONE=2
+          fi
+          case "$DRIFT_BGS" in
+            running)
+              # Still going: its result is for the next session.
+              [ "$D_BGV" -eq 1 ] || DRIFT_ONCE="$D_BGNOTE" ;;
+            ended|failed*)
+              # No run kept a result since: said at every session, first.
+              if [ "$DRIFT_BGS" = ended ]; then D_WHY="stopped before it finished"; else D_WHY="did not finish (exit ${DRIFT_BGS#failed })"; fi
+              if [ "${#DRIFT_LINES[@]}" -gt 0 ]; then D_SO="so what is reported comes from an older run"; else D_SO="so nothing is reported"; fi
+              DRIFT_LINES=("$D_OVER, and the background run an earlier session started $D_WHY, $D_SO; it is started again. Run it by hand, which keeps its result for the next session: $DRIFT_FILL" ${DRIFT_LINES[@]+"${DRIFT_LINES[@]}"})
+              d_bg_start ;;
+            *)
+              [ "$D_BGV" -eq 1 ] || DRIFT_ONCE="$D_BGNOTE"
+              d_bg_start ;;
+          esac
+        fi ;;
+      *)
+        DRIFT_ONCE="IA Engineering drift check: it failed (exit $DRIFT_RC), so nothing is reported (said once). Run it by hand: $DRIFT_RUN" ;;
+    esac
+  fi
+  if [ "${#DRIFT_LINES[@]}" -gt 0 ]; then
+    printf '%s\n' "${DRIFT_LINES[@]:0:3}"
+    echo
+  fi
+  if [ -n "$DRIFT_ONCE" ]; then
+    drift_once "$DRIFT_ONCE"
+  elif [ "$D_DONE" -ge 1 ]; then
+    # A result reported: the next overrun or fault is said again.
+    [ -n "$DRIFT_SAID" ] && [ -f "$DRIFT_SAID" ] && rm -f "$DRIFT_SAID" 2>/dev/null
+    # This session's own result supersedes what a background run left.
+    if [ "$D_DONE" -eq 1 ] && [ -n "$DRIFT_BG" ] && { [ -f "$DRIFT_BG" ] || [ -f "$DRIFT_BGV" ]; }; then
+      rm -f "$DRIFT_BG" "$DRIFT_BGV" 2>/dev/null
+    fi
+  fi
+fi
+
+# --- Context alert threshold (WU-IAENG-380) ---------------------------------
+# context-alert.sh --session-start prints a line only when the context alert
+# would come after the estimated auto-compaction, or its threshold is not a
+# number; otherwise nothing. Run here rather than from a SessionStart entry of
+# its own, so the template keeps one SessionStart group. It reads only the
+# environment, exits 0 on every path, and its stderr is dropped.
+CTX_ALERT_SH="$HOOKS_DIR/context-alert.sh"
+if [ -f "$CTX_ALERT_SH" ]; then
+  CTX_WARN="$(bash "$CTX_ALERT_SH" --session-start </dev/null 2>/dev/null)"
+  [ -n "$CTX_WARN" ] && printf '%s\n\n' "$CTX_WARN"
 fi
 
 echo "Rules enforced by hooks in this session (Adapters/ai-runtimes/claude-code/hooks/): no escape hatch in shell commands (Standards/GIT_STANDARD.md), no inline lint/test suppression in code (Standards/CODE_QUALITY_STANDARD.md), no stopping with uncommitted tracked changes unexplained (Core/AGENT_CONDUCT.md, Reporting Contract). Every Work Unit ends with a Work Unit Report (Templates/WORK_UNIT_REPORT.md) — a bare Done is a failed Work Unit."
