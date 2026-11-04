@@ -693,11 +693,17 @@ JQ
 )"
 RULESET_JQ="$(printf '%s' "$RULESET_JQ" | tr '\n' ' ')"
 
+# RULESET_ID_JQ — the id of the repository's own ruleset named $name. In a
+# quoted heredoc like the other programs: $name is jq's, not the shell's.
+RULESET_ID_JQ="$(cat <<'JQ'
+.[] | select(.name == $name and .source_type == "Repository") | .id
+JQ
+)"
+
 # --paginate: each page is one JSON array, and jq reads them one after the
 # other.
 gh_read "repos/$REPO/rulesets" --paginate || refuse_read "the rulesets of $REPO"
-from_answer --arg name "$RELEASE_RULESET_NAME" \
-  '.[] | select(.name == $name and .source_type == "Repository") | .id' \
+from_answer --arg name "$RELEASE_RULESET_NAME" "$RULESET_ID_JQ" \
   || refuse_read "the rulesets of $REPO: jq could not read the answer"
 RULESET_ID="$(head -n 1 "$TMP_DIR/val")"
 case "$RULESET_ID" in
