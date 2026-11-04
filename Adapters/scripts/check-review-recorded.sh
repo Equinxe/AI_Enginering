@@ -137,7 +137,11 @@ for f in "$COMMENTS_DIR"/*; do
   [ -f "$f" ] || continue
   EXAMINED=$((EXAMINED + 1))
 
-  header="$(head -n 1 "$f" | tr -d '\r')"
+  # Only the carriage return that ends a CRLF line is removed: one inside the
+  # login is part of it, so "review<CR>bot" is not "reviewbot" (Check
+  # Convention, Shell Scripts, rule 3).
+  header="$(head -n 1 "$f")"
+  header="${header%$'\r'}"
   case "$header" in
     "author: "*) author="${header#author: }" ;;
     *)
