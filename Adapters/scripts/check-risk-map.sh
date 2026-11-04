@@ -40,7 +40,9 @@
 #                                                 highest level a change set touches
 #
 # --range diffs from the MERGE BASE of <base> and <head>, as check-pr-size.sh
-# does, so only what the change set itself changed is classified. When a
+# does, so only what the change set itself changed is classified. A renamed
+# file is classified by both its old and its new path, as check-pr-size.sh
+# already lists it. A printed path shows a CR as \r and an LF as \n. When a
 # sensitive zone is touched it requires the Risk Record of
 # Standards/RISK_STANDARD.md in a commit message of the range: a paragraph
 # starting with `RISK:` at column 0 that carries tier= (one of Low, Medium,
@@ -86,6 +88,16 @@ err() {
   else
     printf 'check-risk-map: ERROR: %s\n' "$msg" >&2
   fi
+}
+
+# show <text> — sets SHOWN to <text> as a terminal line prints it: each CR as
+# the two characters \r and each LF as \n, so a printed path with a line break
+# stays on one line, as validate-framework.sh's show does (WU-IAENG-397). Only
+# what is printed changes: every comparison reads the name as git stores it
+# (WU-IAENG-428).
+show() {
+  SHOWN="${1//$'\r'/\\r}"
+  SHOWN="${SHOWN//$'\n'/\\n}"
 }
 
 note() {
@@ -211,14 +223,16 @@ count_paths() {
   printf '%s\n' "$n"
 }
 
-# first_match <regex> <listing> — prints the first name in a NUL-separated
-# listing that <regex> matches, and fails when none does. The match is
-# level_of's, below.
+# first_match <regex> <listing> — sets FIRST_MATCH to the first name in a
+# NUL-separated listing that <regex> matches, and fails when none does. The
+# match is level_of's, below. A variable rather than printed output, because a
+# command substitution would drop a newline that ends a name.
 first_match() {
   local re="$1" p
+  FIRST_MATCH=""
   while IFS= read -r -d '' p; do
     if [[ $p =~ $re ]]; then
-      printf '%s\n' "$p"
+      FIRST_MATCH="$p"
       return 0
     fi
   done < "$2"
@@ -281,7 +295,8 @@ EOF
 if [ "$MODE" = explain ]; then
   while IFS= read -r -d '' f; do
     [ -n "$f" ] || continue
-    printf '%s %s\n' "$f" "$(level_of "$f")"
+    show "$f"
+    printf '%s %s\n' "$SHOWN" "$(level_of "$f")"
   done < "$TRACKED"
   exit 0
 fi
@@ -301,8 +316,11 @@ if [ "$MODE" = range ]; then
     exit 2
   fi
   # -z, as every listing above: a name as git stores it, ended by a NUL.
+  # --no-renames, as check-pr-size.sh lists a diff: a renamed file is listed
+  # under its old path and its new one, so it is classified by both. With
+  # rename detection, --name-only names only the new path.
   CHANGED="$SCRATCH/changed"
-  if ! git -c core.quotePath=false diff --name-only -z "$MERGE_BASE" "$HEAD_REF" > "$CHANGED"; then
+  if ! git -c core.quotePath=false diff --name-only --no-renames -z "$MERGE_BASE" "$HEAD_REF" > "$CHANGED"; then
     err "git diff failed between the merge base $MERGE_BASE and $HEAD_REF. Nothing was classified, so nothing is established."
     exit 2
   fi
@@ -319,7 +337,8 @@ if [ "$MODE" = range ]; then
     l="$(level_of "$f")"
     if [ "$l" = sensitive ]; then
       highest=sensitive
-      sensitive_paths="$sensitive_paths $f"
+      show "$f"
+      sensitive_paths="$sensitive_paths $SHOWN"
     elif [ "$l" != routine ] && [ "$highest" != sensitive ]; then
       highest=standard
     fi
@@ -436,12 +455,13 @@ while IFS="$TAB" read -r pat lvl cat reason re; do
   # Trap 4: a pattern matching nothing reassures without protecting anything.
   # Each tracked name is matched whole, as level_of matches it, so a zone is
   # live exactly when some tracked file would be classified by it.
-  if ! first_match "$re" "$TRACKED" > /dev/null; then
+  if ! first_match "$re" "$TRACKED"; then
     # Present-but-untracked is not a dead zone. The file exists; it is not
     # committed yet. That is the expected state right after bootstrap, so the
     # honest fix is to stage it, not to delete the entry the installer wrote.
-    if untracked_hit="$(first_match "$re" "$UNTRACKED")" && [ -n "$untracked_hit" ]; then
-      fail "zone '$pat' matches a file that exists but is not tracked yet (e.g. $untracked_hit). The map classifies committed files; stage and commit it — right after bootstrap this is expected, since the installed files are not committed yet. Until then the zone protects nothing."
+    if first_match "$re" "$UNTRACKED"; then
+      show "$FIRST_MATCH"
+      fail "zone '$pat' matches a file that exists but is not tracked yet (e.g. $SHOWN). The map classifies committed files; stage and commit it — right after bootstrap this is expected, since the installed files are not committed yet. Until then the zone protects nothing."
     else
       fail "zone '$pat' matches no tracked file. A dead entry reassures without keeping anything — trap 4 in Templates/RISK_MAP.md. Remove it, or fix the pattern."
     fi
