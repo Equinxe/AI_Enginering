@@ -11648,7 +11648,16 @@ unresolved_430() {
 # ia-engineering/, the agents generated from the main checkout, then a linked
 # worktree as Claude Code creates one for an Employee. The runtime reads a
 # worktree subagent's definition from the main checkout's .claude/agents/.
-new_repo adopter-430
+#
+# Its directory name holds a space, an accented letter and two CJK characters,
+# as a real user's folder does (C:/Users/Jérôme/..., Développement/). Under
+# the C locale cygpath wrote é as the byte \351 and cut the path off at 日本,
+# so every root named a directory that does not exist (Code Reviewer F1 on
+# PR #456). On Linux and macOS, where there is no cygpath, these are the same
+# checks on a path with the same bytes.
+ADOPTER_430="adopter-430 é日本"
+MOVED_430="adopter-430-moved é日本"
+new_repo "$ADOPTER_430"
 git -c protocol.file.allow=always submodule add -q "$FW_430" ia-engineering >/dev/null 2>&1
 git commit -q -m "chore(adopt): add the framework submodule"
 MAIN_430="$PWD"
@@ -11744,6 +11753,66 @@ else
 fi
 expect 0 "framework: --check stays green" -- bash Adapters/ai-runtimes/generate-agents.sh --check
 
+# ...and byte for byte where the section would go. On 75765ba the header's
+# last line is followed by one blank line and the first Employee section,
+# "## Mission". A generator that prints even an empty section there adds a
+# line to every framework agent, which the checks above do not see, and every
+# framework clone's --check then blames Employees/ (Code Reviewer F3).
+LAYOUT_BAD_430=""
+for a430 in .claude/agents/*.md; do
+  awk -v hdr="trailer, and the commit-msg hook validates that name against the roster." '
+    $0 == hdr && !at { at = NR; next }
+    at && NR == at + 1 { l1 = $0 }
+    at && NR == at + 2 { l2 = $0; exit }
+    END { exit (at && l1 == "" && l2 == "## Mission") ? 0 : 1 }
+  ' "$a430" || LAYOUT_BAD_430="$LAYOUT_BAD_430 ${a430##*/}"
+done
+TOTAL=$((TOTAL + 1))
+if [ -z "$LAYOUT_BAD_430" ]; then
+  [ -n "$VERBOSE" ] && printf '   ok   framework: the header is followed by one blank line and ## Mission, as on 75765ba\n'
+else
+  printf '   FAIL framework: the lines after the header changed in:%s\n' "$LAYOUT_BAD_430"
+  FAILED=$((FAILED + 1))
+fi
+
+# The framework outside the project: --project names a directory that does not
+# contain it. The walk up from the framework reaches the filesystem root and
+# must stop there; with that stop deleted it never ends (Code Reviewer F2), so
+# the run is bounded. The agents name the framework itself, in the outside
+# wording, with no prefix to drop.
+mkdir -p "$WORK/outside-430"
+expect 0 "outside: the generator terminates within 120 s and writes the agents" -- \
+  timeout 120 bash Adapters/ai-runtimes/generate-agents.sh --project "$WORK/outside-430"
+OUT_AGENT_430="$(find "$WORK/outside-430/.claude/agents" -name '*.md' 2>/dev/null | head -n 1)"
+OUT_ROOT_430="$(root_430 "${OUT_AGENT_430:-/dev/null}")"
+TOTAL=$((TOTAL + 1))
+if [ -n "$OUT_ROOT_430" ] && [ "$OUT_ROOT_430" -ef "$WORK/fw-430-self" ] \
+  && grep -qxF "This project uses IA Engineering from outside its own tree. Read every" "$OUT_AGENT_430" \
+  && ! grep -qF "This project imports IA Engineering at" "$OUT_AGENT_430"; then
+  [ -n "$VERBOSE" ] && printf '   ok   outside: the root is the framework, in the outside wording\n'
+else
+  printf '   FAIL outside: root %s, or not the outside wording, in %s\n' "${OUT_ROOT_430:-<none>}" "${OUT_AGENT_430:-<no agent>}"
+  FAILED=$((FAILED + 1))
+fi
+
+# A root that would not name the framework is refused and nothing is written
+# (F1). A cygpath first on PATH that answers with another directory stands in
+# for the C-locale conversion that wrote D\351veloppement; it works the same on
+# a platform with no cygpath of its own.
+mkdir -p "$WORK/fakebin-430" "$WORK/refuse-430"
+printf '#!/bin/sh\necho /nonexistent-430/ia-engineering\n' > "$WORK/fakebin-430/cygpath"
+chmod +x "$WORK/fakebin-430/cygpath"
+expect 2 "a framework root that names another directory is refused" -- \
+  env PATH="$WORK/fakebin-430:$PATH" bash Adapters/ai-runtimes/generate-agents.sh --project "$WORK/refuse-430"
+expect_output "generate-agents.sh: cannot write the framework root as a path that names it."
+TOTAL=$((TOTAL + 1))
+if [ -e "$WORK/refuse-430/.claude/agents" ]; then
+  printf '   FAIL a refused framework root still wrote agents\n'
+  FAILED=$((FAILED + 1))
+else
+  [ -n "$VERBOSE" ] && printf '   ok   a refused framework root writes no agent\n'
+fi
+
 # --check after the project moves: every agent names the old root. A
 # Strategic tier now mapped to another model makes the Strategic agents
 # differ in their mapping too. Neither is blamed on Employees/. The command is
@@ -11753,11 +11822,11 @@ expect 0 "framework: --check stays green" -- bash Adapters/ai-runtimes/generate-
 cd "$MAIN_430" || exit 1
 REGEN_430="$(sed -n "s/^${BT_430}\(\.\/[^${BT_430}]*generate-agents\.sh\)${BT_430}\.\$/\1/p" .claude/agents/devops-engineer.md | head -n 1)"
 cd "$WORK" || exit 1
-mv adopter-430 adopter-430-moved
-cd "$WORK/adopter-430-moved" || exit 1
+mv "$ADOPTER_430" "$MOVED_430"
+cd "$WORK/$MOVED_430" || exit 1
 mkdir -p .ia-engineering
 printf 'map=strategic=b-model\n' > .ia-engineering/tier-map
-MOVED_ROOT_430="${ROOT_430%/adopter-430/ia-engineering}/adopter-430-moved/ia-engineering"
+MOVED_ROOT_430="${ROOT_430%"/$ADOPTER_430/ia-engineering"}/$MOVED_430/ia-engineering"
 expect 1 "--check after a move, run as the section prints it: every agent is stale" -- \
   bash "${REGEN_430:-<no command printed>}" --check
 expect_output "Result: 0 current, $ROSTER_N_430 stale or missing"

@@ -151,7 +151,15 @@ An edited agent file is a second definition of an Employee, and it will diverge 
 
 **This repository does not commit its generated agents** — `.gitignore` excludes `.claude/agents/`. The reasoning: 42 files of roughly 210 lines each is about 9,000 lines of derived content in a repository whose entire source is 15,000, and every Employee edit would produce a large mechanical diff alongside the real one.
 
-That is a trade-off, not a rule, and it has a real cost: anyone cloning this repository must run the generator before the Employees exist as dispatchable agents, the same way they must run `install.sh` before the hooks exist. A project that would rather have the agents present on clone should commit them and add `generate-agents.sh --check` to its CI. Which way to go is the Director's call per project. In an adopting project, each agent names the framework by the absolute path of the clone that generated it (next section). Committed agents are therefore current only in a clone at that same path, and `--check` in any other clone, CI included, reports them as `framework location only`.
+That is a trade-off, and it has a real cost: anyone cloning this repository must run the generator before the Employees exist as dispatchable agents, the same way they must run `install.sh` before the hooks exist. For the framework repository itself, which names no framework root in its agents, committing them and adding `generate-agents.sh --check` to CI remains an option, and the Director's call.
+
+**In an adopting project the agents are per clone.** Each one names the framework by the absolute path of the clone that generated it (next section). So:
+
+- Keep the ignore rule `install.sh` writes for `.claude/agents/`, and do not commit the agents. Each clone runs `./ia-engineering/Adapters/ai-runtimes/generate-agents.sh` from its main checkout after `install.sh`, after every framework upgrade, and after the project moves. `--check` is a check run in the clone, not in CI: in any other clone, CI included, a committed agent is reported as `framework location only`, and the check can never pass.
+- Committed agents would also publish the absolute path of the user who generated them, which often contains that user's name (`C:/Users/<name>/...`).
+- An adopter that already commits its agents and runs `--check` in CI gets a red CI from this change. To fix it: untrack the agents (`git rm -r --cached .claude/agents`), restore the `.claude/agents/` ignore rule (re-running `install.sh` adds it back), remove the CI job, and regenerate in each clone.
+
+This is a Medium risk accepted by the Platform Engineer in WU-IAENG-430 (`Standards/RISK_STANDARD.md`). Both alternatives were measured and are worse (next section). `--check` says why each agent fails.
 
 ---
 
@@ -162,10 +170,11 @@ Every generated agent names framework documents by their path from the framework
 So when the project is not the framework itself, every agent gets one more section, **Where the Framework Is**, placed before its Mission:
 
 - ``Framework root: `<path>` `` on a line of its own. The path is the absolute path of the framework the generator ran from, which is the main checkout's framework when it is run from the main checkout as documented. git already runs the hooks from that same directory in every worktree (`install.sh` writes an absolute `core.hooksPath`, WU-IAENG-414).
-- The rule the Employee applies: a framework path in its definition or its brief, with or without `ia-engineering/` in front, names that path under the root, and never a path under its working directory. The section gives one worked example, and says that a file missing from an empty submodule directory is not missing from the framework.
+- The rule the Employee applies: a framework path in its definition or its brief names that path under the root, and never a path under its working directory. The same holds for such a path written with the `ia-engineering/` prefix, which the section names apart from the project's own `.ia-engineering/`. The section gives one worked example, and says that a file missing from an empty submodule directory is not missing from the framework.
+- The rule's limit: only framework documents are read under the root. A path to one of the project's own files stays under the working directory, even when its first directory has a framework name (a project's own `Core/` or `Templates/`), and so does everything under `.ia-engineering/`.
 - What to do when the root does not exist: stop and report it, then regenerate from the main checkout with `./ia-engineering/Adapters/ai-runtimes/generate-agents.sh`.
 
-Under Git Bash the root is written in the form `cygpath -m` gives, `C:/Users/...`. The runtime's file tools and Git Bash both open that form. The MSYS forms `/c/...` and `/tmp/...` that `pwd` prints are read only by MSYS. On other platforms the root is `pwd`'s absolute path.
+Under Git Bash the root is written in the form `cygpath -m` gives, `C:/Users/...`. The runtime's file tools and Git Bash both open that form. The MSYS forms `/c/...` and `/tmp/...` that `pwd` prints are read only by MSYS. On other platforms the root is `pwd`'s absolute path. cygpath runs under `LC_ALL=C.UTF-8`, not the C locale the generator otherwise uses. Under C, it wrote `Développement` as the single byte `\351`, which names no directory, and it cut a path off at `日本`. The written root must then be the framework directory itself (`-ef`). When it is not, the generator writes nothing and exits 2, so an Employee is never pointed at a framework that is not there.
 
 The framework repository's own agents carry no such section and are byte-identical to before. That is decided by identity (`-ef`, device and inode), not by comparing spellings, as `install.sh` does it (WU-IAENG-362). The summary line `framework root, named in every agent:` shows the root an adopting project's run wrote.
 

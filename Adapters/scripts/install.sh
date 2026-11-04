@@ -827,11 +827,15 @@ echo
 # Employees/ and Registry/employees.yml rendered into one file per Employee,
 # roughly 9,000 lines of derived content. It is a build artifact, not a
 # source, the same way a compiled binary is not a source: every Employee edit
-# would otherwise carry a large mechanical diff beside the real one, and
-# `generate-agents.sh --check` in CI catches drift without the files being
-# tracked. This repository ignores it for exactly that reason (.gitignore,
-# Adapters/ai-runtimes/README.md, "Generated Output Is a Build Artifact") —
-# an adopting project gets the same default unless it opts back in.
+# would otherwise carry a large mechanical diff beside the real one. This
+# repository ignores it for that reason (.gitignore,
+# Adapters/ai-runtimes/README.md, "Generated Output Is a Build Artifact").
+# In an adopting project it must stay ignored: each agent names the absolute
+# framework root of the clone that generated it (WU-IAENG-430), so the files
+# belong to one clone. Committed, they would fail `generate-agents.sh --check`
+# in every other clone, CI included, and publish the generating user's path,
+# which often holds the user name. Each clone runs the generator, and
+# `--check` runs in the clone, never in CI.
 #
 # .claude/worktrees/ is where this runtime creates isolated git worktrees for
 # subagents (the Agent tool's `isolation: "worktree"`). It is per-session

@@ -259,74 +259,6 @@ if [ ! -d "$PROJECT" ]; then
 fi
 PROJECT="$(CDPATH='' cd -- "$PROJECT" && pwd)"
 
-# --- Where an adopting project's agents read the framework (WU-IAENG-430) ----
-#
-# Every generated agent names framework documents by their path from the
-# framework root: Core/AGENT_CONDUCT.md, Standards/COMMIT_STANDARD.md, and
-# whatever its Employee definition cites. In this repository that root is the
-# working directory of every session and of every worktree, so the paths
-# resolve. In an adopting project they resolved nowhere (issue #449): not from
-# the project root, where the framework sits under ia-engineering/, and not
-# from a linked git worktree, the directory Claude Code gives an Employee
-# dispatched with `isolation: worktree`. A worktree shares the clone's config
-# but not its initialised submodule, so ia-engineering/ is empty there.
-# Measured on develop 75765ba: 741 framework paths named by 42 agents, 741
-# unresolved from the worktree. The Code Reviewer and the QA Engineer reviewed
-# without the Standards they apply.
-#
-# So an adopting project's agents carry one more section, "Where the Framework
-# Is", naming the framework root as the absolute path of the checkout that
-# generated them: the main checkout's framework, the same one git already runs
-# the hooks from in every worktree (install.sh writes an absolute
-# core.hooksPath for that reason, WU-IAENG-414). A path naming the main
-# checkout reads from any worktree, needs no network, no disk and no cleanup.
-#
-# Initialising the submodule in each worktree was measured and rejected: 10.7 s
-# and 5.6 MiB per worktree from a local one-commit fixture (a real one clones
-# the framework, history included, from its remote), and `git worktree remove`
-# then refuses, exit 128, "working trees containing submodules cannot be moved
-# or removed", so every worktree would need --force to be removed.
-#
-# The path is written as the runtime's file tools take it. Under Git Bash, pwd
-# says /c/Users/... or even /tmp/..., MSYS spellings a Windows program does not
-# read; cygpath -m gives C:/Users/..., which the runtime's file tools and Git
-# Bash both open. Elsewhere pwd's path is already native.
-#
-# The framework repository itself gets no such section: its agents stay
-# byte-identical, because there the paths already resolve. That is decided by
-# identity (-ef, device and inode), not by comparing spellings, for the reason
-# install.sh gives (WU-IAENG-362): the same directory can be spelled in two
-# letter cases. The framework's path inside the project is found by walking up
-# from the framework the same way, so a nested import (vendor/ia-engineering)
-# reads right too; a framework outside the project leaves it empty.
-#
-# A moved project, or agents copied from another clone, name a root that is
-# not this one. --check reports that as its own kind of difference ("framework
-# location only"), never as an Employee definition out of date.
-FRAMEWORK_SHOWN=""
-FRAMEWORK_REL=""
-if ! [ "$ROOT" -ef "$PROJECT" ]; then
-  _probe="$ROOT"
-  _rel=""
-  while :; do
-    _parent="$(dirname "$_probe")"
-    # dirname of the root is the root: the framework is not inside the project.
-    [ "$_parent" = "$_probe" ] && break
-    _rel="$(basename "$_probe")${_rel:+/$_rel}"
-    _probe="$_parent"
-    if [ "$_probe" -ef "$PROJECT" ]; then
-      FRAMEWORK_REL="$_rel"
-      break
-    fi
-  done
-  unset _probe _rel _parent
-  FRAMEWORK_SHOWN="$ROOT"
-  if command -v cygpath > /dev/null 2>&1; then
-    FRAMEWORK_SHOWN="$(cygpath -m "$ROOT" 2> /dev/null)"
-    [ -n "$FRAMEWORK_SHOWN" ] || FRAMEWORK_SHOWN="$ROOT"
-  fi
-fi
-
 # --- Tier mapping: target defaults < project file < flags --------------------
 #
 # Core/CAPABILITY_TIERS.md: the tier-to-model mapping is PROJECT context. Until
@@ -493,6 +425,93 @@ if [ "$PRINT_TIER_MAP" -eq 1 ]; then
   echo "map=strategic=$MAP_STRATEGIC,standard=$MAP_STANDARD,lightweight=$MAP_LIGHTWEIGHT,frontier=$MAP_FRONTIER"
   echo "effort-map=strategic=$EFFORT_STRATEGIC,standard=$EFFORT_STANDARD,lightweight=$EFFORT_LIGHTWEIGHT,frontier=$EFFORT_FRONTIER"
   exit 0
+fi
+
+# --- Where an adopting project's agents read the framework (WU-IAENG-430) ----
+#
+# Every generated agent names framework documents by their path from the
+# framework root: Core/AGENT_CONDUCT.md, Standards/COMMIT_STANDARD.md, and
+# whatever its Employee definition cites. In this repository that root is the
+# working directory of every session and of every worktree, so the paths
+# resolve. In an adopting project they resolved nowhere (issue #449): not from
+# the project root, where the framework sits under ia-engineering/, and not
+# from a linked git worktree, the directory Claude Code gives an Employee
+# dispatched with `isolation: worktree`. A worktree shares the clone's config
+# but not its initialised submodule, so ia-engineering/ is empty there.
+# Measured on develop 75765ba: 741 framework paths named by 42 agents, 741
+# unresolved from the worktree. The Code Reviewer and the QA Engineer reviewed
+# without the Standards they apply.
+#
+# So an adopting project's agents carry one more section, "Where the Framework
+# Is", naming the framework root as the absolute path of the checkout that
+# generated them: the main checkout's framework, the same one git already runs
+# the hooks from in every worktree (install.sh writes an absolute
+# core.hooksPath for that reason, WU-IAENG-414). A path naming the main
+# checkout reads from any worktree, needs no network, no disk and no cleanup.
+#
+# Initialising the submodule in each worktree was measured and rejected: 10.7 s
+# and 5.6 MiB per worktree from a local one-commit fixture (a real one clones
+# the framework, history included, from its remote), and `git worktree remove`
+# then refuses, exit 128, "working trees containing submodules cannot be moved
+# or removed", so every worktree would need --force to be removed.
+#
+# The path is written as the runtime's file tools take it. Under Git Bash, pwd
+# says /c/Users/... or even /tmp/..., MSYS spellings a Windows program does not
+# read; cygpath -m gives C:/Users/..., which the runtime's file tools and Git
+# Bash both open. Elsewhere pwd's path is already native.
+#
+# cygpath runs under a UTF-8 locale, not the LC_ALL=C exported above. Under C,
+# it writes a non-ASCII character in a single-byte charset and stops at the
+# first one it cannot write at all: .../Développement/... came out as
+# D\351veloppement, a directory that does not exist, and .../日本/... was cut
+# off there, so a moved project could truncate to the same root and --check
+# called it current (Code Reviewer F1 on PR #456). The file is read as UTF-8,
+# and C.UTF-8 gives those bytes. Then the written root must BE the framework
+# (-ef): a root no program can open is refused, never written, because an
+# Employee told to read there would read nothing and believe the instruction.
+# All of it runs after --print-tier-map has exited: that mode names no root,
+# and session-start.sh calls it on every session, so a refusal here must not
+# take the tier map in force down with it.
+#
+# The framework repository itself gets no such section: its agents stay
+# byte-identical, because there the paths already resolve. That is decided by
+# identity (-ef, device and inode), not by comparing spellings, for the reason
+# install.sh gives (WU-IAENG-362): the same directory can be spelled in two
+# letter cases. The framework's path inside the project is found by walking up
+# from the framework the same way, so a nested import (vendor/ia-engineering)
+# reads right too; a framework outside the project leaves it empty.
+#
+# A moved project, or agents copied from another clone, name a root that is
+# not this one. --check reports that as its own kind of difference ("framework
+# location only"), never as an Employee definition out of date.
+FRAMEWORK_SHOWN=""
+FRAMEWORK_REL=""
+if ! [ "$ROOT" -ef "$PROJECT" ]; then
+  _probe="$ROOT"
+  _rel=""
+  while :; do
+    _parent="$(dirname "$_probe")"
+    # dirname of the root is the root: the framework is not inside the project.
+    [ "$_parent" = "$_probe" ] && break
+    _rel="$(basename "$_probe")${_rel:+/$_rel}"
+    _probe="$_parent"
+    if [ "$_probe" -ef "$PROJECT" ]; then
+      FRAMEWORK_REL="$_rel"
+      break
+    fi
+  done
+  unset _probe _rel _parent
+  FRAMEWORK_SHOWN="$ROOT"
+  if command -v cygpath > /dev/null 2>&1; then
+    FRAMEWORK_SHOWN="$(LC_ALL=C.UTF-8 cygpath -m "$ROOT" 2> /dev/null)"
+  fi
+  if [ -z "$FRAMEWORK_SHOWN" ] || ! [ "$FRAMEWORK_SHOWN" -ef "$ROOT" ]; then
+    echo "generate-agents.sh: cannot write the framework root as a path that names it." >&2
+    echo "  The framework is $ROOT; the native form computed for it is" >&2
+    echo "  '$FRAMEWORK_SHOWN', which is not that directory. Every agent would tell its" >&2
+    echo "  Employee to read the framework where it is not, so nothing was written." >&2
+    exit 2
+  fi
 fi
 
 # --- Output and rosters ------------------------------------------------------
@@ -716,18 +735,31 @@ LOCATION_ONLY=0
 # root is on a line of its own, "Framework root: `<path>`", the one line
 # without_location and location_of read it from. Every sentence speaks to the
 # Employee reading the file, who may be in the main checkout or in a worktree.
+#
+# Interpolated values sit on lines of their own, so a long root or framework
+# path does not run one sentence past the wrapping width (Prompt Engineer,
+# PR #456). The prefix sentence names the framework's directory apart from
+# the project's own .ia-engineering/, one dot away; and the project-path
+# sentence keeps a project's own Core/ or Templates/ (a .NET or Django layout)
+# from being read under the framework root.
 LOCATION_SECTION=""
 if [ -n "$FRAMEWORK_SHOWN" ]; then
   if [ -n "$FRAMEWORK_REL" ]; then
-    _imported="This project imports IA Engineering at \`$FRAMEWORK_REL/\`. Read every framework
-file from the framework root of the project's main checkout:"
-    _prefix=", with or without \`$FRAMEWORK_REL/\` in front,"
+    _imported="This project imports IA Engineering at
+\`$FRAMEWORK_REL/\`.
+Read every framework file from the framework root of the project's main
+checkout:"
+    _prefix="So does such a path written with the prefix
+\`$FRAMEWORK_REL/\`,
+the framework's directory in the project, which is not the project's own
+\`.ia-engineering/\`.
+"
     _regenerate="from the main checkout with
 \`./$FRAMEWORK_REL/Adapters/ai-runtimes/generate-agents.sh\`."
   else
     _imported="This project uses IA Engineering from outside its own tree. Read every
 framework file from this framework root:"
-    _prefix=","
+    _prefix=""
     _regenerate="with that framework's
 \`Adapters/ai-runtimes/generate-agents.sh\`, run from the project root."
   fi
@@ -739,9 +771,15 @@ Framework root: \`$FRAMEWORK_SHOWN\`
 
 A framework path in this definition or in your brief, such as \`Core/…\`,
 \`Standards/…\`, \`Templates/…\`, \`Workflows/…\`, \`Employees/…\`, \`Registry/…\`
-or \`Adapters/…\`$_prefix names the file at that path under the framework
-root: \`Core/AGENT_CONDUCT.md\` is \`$FRAMEWORK_SHOWN/Core/AGENT_CONDUCT.md\`.
+or \`Adapters/…\`, names the file at that path under the framework root.
+${_prefix}For example, \`Core/AGENT_CONDUCT.md\` is
+\`$FRAMEWORK_SHOWN/Core/AGENT_CONDUCT.md\`.
 Read it there, by that absolute path.
+
+Only framework documents are read there. A path to one of the project's own
+files stays under your working directory, even when its first directory has
+a framework name such as \`Core/\` or \`Templates/\`, and so does everything
+under \`.ia-engineering/\`.
 
 Never look for a framework file under your working directory. In a git
 worktree, where an Employee usually works, a framework imported as a submodule
@@ -1116,9 +1154,11 @@ while IFS=$'\t' read -r name file category tier base roster_label; do
     # directory; $source_label is the roster-relative form the roster itself
     # declares, and it is what the generated header records. Passing the
     # absolute path into the header made every generated file differ between
-    # machines, which breaks the --check mode Adapters/ai-runtimes/README.md
-    # recommends adopters wire into CI. Introduced by WU-IAENG-189 and caught
-    # by review before it left the branch.
+    # machines (WU-IAENG-189, caught by review before it left the branch).
+    # That still holds for the framework repository's own agents, which name
+    # no root and may be committed and checked in CI. An adopting project's
+    # agents differ per clone anyway, by the framework root they name
+    # (WU-IAENG-430): they stay uncommitted and --check runs in each clone.
     claude-code) generate_claude_code "$name" "$source_file" "$category" "$tier" "$roster_label" "$file" ;;
   esac
 done < <(
