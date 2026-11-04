@@ -1131,8 +1131,10 @@ collect_registries() {
   # Tabs are written by awk, never by a sed replacement: `\t` in sed's
   # replacement is a GNU extension, and BSD sed (macOS) writes a literal `t`,
   # which would join every name to its source and show the whole roster as
-  # never used.
-  grep -E '^  - name: ' "$ROSTER" | sed 's/^  - name: //' | tr -d '\r' \
+  # never used. Every reader below removes the carriage return that ends a
+  # CRLF line and keeps one inside a value, which is data (Check Convention,
+  # Shell Scripts, rule 3).
+  grep -E '^  - name: ' "$ROSTER" | sed $'s/^  - name: //; s/\r$//' \
     | awk -v src=framework '{ print $0 "\t" src }' > "$ROSTER_TSV"
   if [ ! -s "$ROSTER_TSV" ]; then
     err "$ROSTER yielded no Employee names (parsing contract: '  - name: <Name>')."
@@ -1152,7 +1154,7 @@ collect_registries() {
   fi
   if [ -n "$PROJECT_ROSTER" ]; then
     before="$(grep -c . "$ROSTER_TSV")"
-    grep -E '^  - name: ' "$PROJECT_ROSTER" | sed 's/^  - name: //' | tr -d '\r' \
+    grep -E '^  - name: ' "$PROJECT_ROSTER" | sed $'s/^  - name: //; s/\r$//' \
       | awk -v src=project '{ print $0 "\t" src }' >> "$ROSTER_TSV"
     source_line "Project roster" found "$(show_path "$PROJECT_ROSTER") ($(( $(grep -c . "$ROSTER_TSV") - before )) Domain Employees)"
   else
@@ -1167,14 +1169,15 @@ collect_registries() {
   : > "$CHAINS_TSV"
   if CHAINS="$(first_file "$PROJECT/Registry/chains.yml" "$PROJECT/ia-engineering/Registry/chains.yml" \
       "$FRAMEWORK_DIR/Registry/chains.yml")"; then
-    tr -d '\r' < "$CHAINS" | awk -v OFS='\t' '
+    awk -v OFS='\t' '
       function flush() { if (kind != "") print chain, kind, name, cond; kind = "" }
+      { sub(/\r$/, "") }
       /^  - name: /         { flush(); chain = substr($0, 11); next }
       /^      - employee: / { flush(); kind = "employee"; name = substr($0, 19); cond = "always"; next }
       /^      - gate: /     { flush(); kind = "gate"; name = substr($0, 15); cond = "always"; next }
       /^        when: /     { if (kind != "" && substr($0, 15) != "Always") cond = "conditional"; next }
       END { flush() }
-    ' > "$CHAINS_TSV"
+    ' "$CHAINS" > "$CHAINS_TSV"
     source_line "Agent Chains" found "$(show_path "$CHAINS") ($(cut -f1 "$CHAINS_TSV" | sort -u | grep -c .) chains)"
   else
     source_line "Agent Chains" missing "no Registry/chains.yml"
@@ -1185,10 +1188,11 @@ collect_registries() {
   WUS_TSV="$TMPD/wus.tsv"
   : > "$WUS_TSV"
   if WUS="$(first_file "${IAENG_REGISTRY_WORK_UNITS:-}" "$PROJECT/Registry/work-units.yml")"; then
-    tr -d '\r' < "$WUS" | awk -v OFS='\t' '
+    awk -v OFS='\t' '
+      { sub(/\r$/, "") }
       /^  - id: /       { id = substr($0, 9); next }
       /^    employee: / { if (id != "") { print id, substr($0, 15); id = "" } }
-    ' > "$WUS_TSV"
+    ' "$WUS" > "$WUS_TSV"
     source_line "Work Unit registry" found "$(show_path "$WUS") ($(grep -c . "$WUS_TSV") Work Units)"
   else
     source_line "Work Unit registry" missing "no Registry/work-units.yml in the project"
@@ -1205,8 +1209,9 @@ collect_registries() {
   ACTIVE_TSV="$TMPD/active.tsv"
   : > "$ACTIVE_TSV"
   if [ -f "$PROJECT/CLAUDE.md" ]; then
-    tr -d '\r' < "$PROJECT/CLAUDE.md" | F_ROSTER="$ROSTER_TSV" awk '
+    F_ROSTER="$ROSTER_TSV" awk '
       BEGIN { while ((getline line < ENVIRON["F_ROSTER"]) > 0) { split(line, r, "\t"); onroster[r[1]] = 1 } }
+      { sub(/\r$/, "") }
       /^#+[ \t]/ { on = ($0 ~ /^#+[ \t]+Active Employees[ \t]*$/); stop = 0; next }
       /^---/ { on = 0; next }
       !on || stop { next }
@@ -1216,7 +1221,7 @@ collect_registries() {
         sub(/[ \t]+(—|–|-)[ \t].*$/, "", v); sub(/[:(].*$/, "", v); sub(/[ \t]+$/, "", v)
         if ((v in onroster) && !(v in seen)) { seen[v] = 1; print v }
       }
-    ' > "$ACTIVE_TSV"
+    ' "$PROJECT/CLAUDE.md" > "$ACTIVE_TSV"
   fi
   if [ -s "$ACTIVE_TSV" ]; then
     source_line "Active roster" found "CLAUDE.md, Active Employees ($(grep -c . "$ACTIVE_TSV") roster Employees)"
@@ -1542,7 +1547,7 @@ lock_renew
 PRICES_TSV="$TMPD/prices.tsv"
 : > "$PRICES_TSV"
 if [ -n "$PRICES" ]; then
-  tr -d '\r' < "$PRICES" | grep -vE '^[[:space:]]*(#|$)' > "$PRICES_TSV" || true
+  sed $'s/\r$//' "$PRICES" | grep -vE '^[[:space:]]*(#|$)' > "$PRICES_TSV" || true
   source_line "Prices" found "$(grep -c . "$PRICES_TSV") model price line(s), USD per million tokens"
 else
   source_line "Prices" missing "no --prices file; no cost is shown"

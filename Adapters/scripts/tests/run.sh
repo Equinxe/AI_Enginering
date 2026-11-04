@@ -2408,6 +2408,169 @@ msg415 "$WORK/git415.txt" "Work Unit: WU-DEMO-002"
 expect 0 "git commit <paths> resolves against the registry those paths stage" -- git commit -q -F "$WORK/git415.txt" Registry/work-units.yml x.txt
 expect 0 "and creates the commit" -- test "$(git rev-list --count HEAD)" = "$((N415 + 1))"
 
+# ---- a merge commit-msg cannot classify still has its claims checked (WU-IAENG-429) --
+#
+# Issue #408, case S4-24 of the v0.0.15 acceptance. On a merge it could not
+# classify, the hook printed "cannot classify this merge locally; CI will."
+# and exited 0 before any rule ran. `git merge --allow-unrelated-histories` is
+# such a merge: `git merge-tree` refuses unrelated histories and exits 128. So
+# `Work Unit: WU-DEMO-999` was merged locally while the Work Unit Exists check
+# refused the same commit, and an `Employee:` line naming no Employee passed
+# as well.
+#
+# Checking a claim needs no classification. Each expected verdict has one of
+# two sources:
+#   - A REFUSAL: the rule of the CI checks, which validate a claim present
+#     on a merge whatever the merge's kind (check-work-units.sh,
+#     SEC-IAENG-313-02; check-employee-trailers.sh). These are also the
+#     hook's own verdicts on a clean merge carrying the same lines (above).
+#   - An ACCEPTANCE of a merge with no Employee line, or with no claim: the
+#     design decision of WU-IAENG-429 (issue #408). The hook requires no
+#     trailer of a merge it cannot classify, and leaves that to CI. That
+#     verdict is not CI's: on unrelated histories, check-employee-trailers.sh
+#     cannot classify the merge either, and fails closed (exit 2) on one that
+#     carries no Employee line.
+# A merge with no claim is accepted with the warning, as before.
+
+section "git-hooks/commit-msg — a merge it cannot classify still has its claims checked (WU-IAENG-429, #408)"
+
+# orph429 — a branch `orph` whose root commit shares no history with main.
+# main is checked out again.
+orph429() {
+  git checkout -q --orphan orph
+  git rm -rqf .
+  echo other > other.txt && git add other.txt && git commit -q -m "chore: other root"
+  git checkout -q main
+}
+
+# msg429 <file> <line...> — a merge message, each line in a paragraph of its own.
+msg429() {
+  local f="$1" l
+  shift
+  {
+    printf 'Merge branch orph\n'
+    for l in "$@"; do printf '\n%s\n' "$l"; done
+  } > "$f"
+}
+
+mk415 cm429-unrelated
+orph429
+git merge -q --no-commit --no-ff --allow-unrelated-histories orph > /dev/null 2>&1
+# The premise, asserted: the hook's classifier cannot classify this merge. If a
+# later git merged unrelated histories by default, this section would fail
+# here rather than quietly test a merge the hook can classify.
+MT429=0
+git merge-tree --write-tree --no-messages HEAD orph > /dev/null 2>&1 || MT429=$?
+expect 0 "premise: git merge-tree exits above 1 on these unrelated histories (it exited $MT429)" -- test "$MT429" -gt 1
+
+msg429 "$WORK/m429.txt" "Work Unit: WU-DEMO-999"
+expect 1 "an unregistered Work Unit claim on a merge the hook cannot classify is refused (S4-24)" -- bash "$HOOK415" "$WORK/m429.txt"
+expect_output "claims 'WU-DEMO-999', which is not in the staged Registry/work-units.yml"
+expect_output "commit-msg: rejected — the 'Work Unit:' claim does not resolve"
+msg429 "$WORK/m429.txt" "Work Unit: WU-DEMO"
+expect 1 "a malformed Work Unit claim on the same merge is refused" -- bash "$HOOK415" "$WORK/m429.txt"
+expect_output "is empty or not a Work Unit id"
+msg429 "$WORK/m429.txt" "Work Unit: WU-DEMO-001" "Work Unit: WU-DEMO-001"
+expect 1 "two Work Unit claims on the same merge are refused" -- bash "$HOOK415" "$WORK/m429.txt"
+expect_output "rejected — 2 'Work Unit:' lines at column 0"
+msg429 "$WORK/m429.txt" "Employee: executor"
+expect 1 "an Employee line naming no Employee on the same merge is refused" -- bash "$HOOK415" "$WORK/m429.txt"
+expect_output "commit-msg: rejected — 'Employee: executor' is not a recognized Employee."
+msg429 "$WORK/m429.txt" "Work Unit: WU-DEMO-001"
+expect 0 "a registered claim on the same merge, with no Employee line, is accepted" -- bash "$HOOK415" "$WORK/m429.txt"
+expect_output "cannot classify this merge locally; CI will."
+msg429 "$WORK/m429.txt" "Work Unit: WU-DEMO-001" "Employee: DevOps Engineer"
+expect 0 "a registered claim and a valid Employee line on the same merge are accepted" -- bash "$HOOK415" "$WORK/m429.txt"
+msg429 "$WORK/m429.txt"
+expect 0 "the same merge with no claim is still accepted, with the warning" -- bash "$HOOK415" "$WORK/m429.txt"
+expect_output "cannot classify this merge locally; CI will."
+git merge --abort
+
+# Through git itself, hooks wired as install.sh wires them: S4-24's own
+# command. git keeps the merge in progress when commit-msg refuses it.
+git config core.hooksPath "$SCRIPTS/../git-hooks"
+H429="$(git rev-parse HEAD)"
+msg429 "$WORK/git429.txt" "Work Unit: WU-DEMO-999"
+expect 1 "git merge --allow-unrelated-histories refuses the unregistered claim (S4-24)" -- \
+  git merge --allow-unrelated-histories --no-ff -F "$WORK/git429.txt" orph
+expect_output "claims 'WU-DEMO-999', which is not in the staged Registry/work-units.yml"
+expect 0 "and creates no merge" -- test "$(git rev-parse HEAD)" = "$H429"
+git merge --abort
+msg429 "$WORK/git429.txt" "Work Unit: WU-DEMO-001"
+expect 0 "the same merge with a registered claim is created" -- \
+  git merge --allow-unrelated-histories --no-ff -F "$WORK/git429.txt" orph
+expect 0 "and its second parent is orph" -- test "$(git rev-parse HEAD^2)" = "$(git rev-parse orph)"
+
+# With no claim there is nothing to check, so no roster is looked up, as on a
+# clean merge and as before: a hook copied away from its framework, with no
+# roster to find, still accepts the merge, with the warning.
+new_repo cm429-no-roster
+orph429
+git merge -q --no-commit --no-ff --allow-unrelated-histories orph > /dev/null 2>&1
+msg429 "$WORK/m429.txt"
+expect 0 "the same merge with no claim needs no roster" -- env -u IAENG_REGISTRY -u IAENG_FRAMEWORK bash "$COPIED415" "$WORK/m429.txt"
+expect_output "cannot classify this merge locally; CI will."
+git merge --abort
+
+# Git older than 2.38 (#408 left it unverified; no such git was run here).
+# Its merge-tree has no --write-tree: the builtin calls usage() unless it is
+# given exactly three arguments, and usage() exits 129 (git v2.37.0,
+# builtin/merge-tree.c and usage.c). The hook gives it four, so every merge
+# of two parents is one it cannot classify. The shim answers merge-tree as
+# that git does and hands every other command to the real git. On such a git
+# an ordinary merge still has its claims checked.
+REAL_GIT429="$(command -v git)"
+mkdir -p "$WORK/shim-git237"
+cat > "$WORK/shim-git237/git" <<SHIM
+#!/usr/bin/env bash
+if [ "\$1" = "merge-tree" ]; then
+  echo "usage: git merge-tree <base-tree> <branch1> <branch2>" >&2
+  exit 129
+fi
+exec "$REAL_GIT429" "\$@"
+SHIM
+chmod +x "$WORK/shim-git237/git"
+
+mk415 cm429-old-git
+git checkout -qb side
+echo side > side.txt && git add -A && git commit -q -m "side work"
+git checkout -q main
+echo main > main.txt && git add -A && git commit -q -m "main work"
+git merge -q --no-commit --no-ff side > /dev/null 2>&1
+printf "Merge branch 'side'\n\nWork Unit: WU-DEMO-999\n" > "$WORK/m429.txt"
+expect 1 "git < 2.38 (merge-tree as it answers): an unregistered claim on an ordinary merge is refused" -- \
+  env PATH="$WORK/shim-git237:$PATH" bash "$HOOK415" "$WORK/m429.txt"
+expect_output "cannot classify this merge locally; CI will."
+expect_output "claims 'WU-DEMO-999', which is not in the staged Registry/work-units.yml"
+printf "Merge branch 'side'\n\nEmployee: executor\n" > "$WORK/m429.txt"
+expect 1 "git < 2.38: an Employee line naming no Employee on an ordinary merge is refused" -- \
+  env PATH="$WORK/shim-git237:$PATH" bash "$HOOK415" "$WORK/m429.txt"
+expect_output "cannot classify this merge locally; CI will."
+expect_output "commit-msg: rejected — 'Employee: executor' is not a recognized Employee."
+printf "Merge branch 'side'\n\nWork Unit: WU-DEMO-001\n" > "$WORK/m429.txt"
+expect 0 "git < 2.38: a registered claim on an ordinary merge is accepted, with the warning" -- \
+  env PATH="$WORK/shim-git237:$PATH" bash "$HOOK415" "$WORK/m429.txt"
+expect_output "cannot classify this merge locally; CI will."
+printf "Merge branch 'side'\n" > "$WORK/m429.txt"
+expect 0 "git < 2.38: an ordinary merge with no claim is accepted, with the warning" -- \
+  env PATH="$WORK/shim-git237:$PATH" bash "$HOOK415" "$WORK/m429.txt"
+expect_output "cannot classify this merge locally; CI will."
+git merge --abort
+
+# An ordinary commit, no merge in progress, still takes neither exit this
+# Work Unit changed: the clean-or-unknown exit for a message with no claim,
+# and the clean-or-unknown exit after Rule 4 for one with no Employee line
+# (PR #444 review, round 1). The oracle is Core/MAIN_AGENT_CONDUCT.md,
+# Dispatch Discipline: every commit names its Employee. Widening either exit
+# to every kind but `authored` would let these through.
+mk415 cm429-ordinary
+printf 'chore(x): an ordinary commit\n' > "$WORK/m429.txt"
+expect 1 "an ordinary commit with no claim at all is still refused for its missing Employee line" -- bash "$HOOK415" "$WORK/m429.txt"
+expect_output "commit-msg: rejected — missing 'Employee: <Name>' trailer."
+printf 'chore(x): an ordinary commit\n\nWork Unit: WU-DEMO-001\n' > "$WORK/m429.txt"
+expect 1 "an ordinary commit with a registered claim and no Employee line is still refused" -- bash "$HOOK415" "$WORK/m429.txt"
+expect_output "commit-msg: rejected — missing 'Employee: <Name>' trailer."
+
 # -------- check-work-units.sh --message: each refusal's reason (WU-IAENG-415) --
 #
 # Code Review of PR #386: four fail-closed paths of --message had no test, and
@@ -11121,6 +11284,663 @@ expect 2 "validate-framework: a checkout whose inputs are missing is not evaluat
   bash Adapters/scripts/validate-framework.sh
 expect_output "FAIL  not evaluated: Registry/employees.yml is missing"
 expect_output "could not be evaluated"
+
+# ---- A carriage return is removed only where it ends a line (WU-IAENG-397) --
+#
+# Standards/CODE_QUALITY_STANDARD.md, The Check Convention, Shell Scripts,
+# rule 3: one inside a value is data. validate-framework.sh, install-hooks.sh,
+# usage-dashboard.sh and check-review-recorded.sh removed every one (issue
+# #326), so a value with a CR inside read the same as the value without it.
+# Each case below puts a CR inside a value and expects the reader to keep it,
+# and keeps or adds a CRLF input, whose line-ending CR must still go.
+#
+# Every expected value is written into the fixture here, by hand, never read
+# back from the code under test (Standards/TESTING_STANDARD.md, Independent
+# Oracle). Git for Windows' awk, sed, grep and $(...) drop a CR that ends a
+# line on their own, so on a Windows run the CRLF cases can pass without the
+# strip: they prove it on the Linux runner. The CR-inside cases are red on the
+# base code on both.
+#
+# Sites with no observable effect, and why (Falsifiability item 6):
+#   validate-framework.sh, the metadata fields, CHANGELOG versions, VERSION.md's
+#   **vX.Y.Z** and the current version: grep -o of a pattern with no CR in it.
+#   The glossary letters: '^# [A-Z]\r?$' admits no CR inside the letter. The
+#   front-page counts: the five patterns match letters, digits and spaces.
+#   install-hooks.sh, merge_settings and the merged file: jq's JSON escapes a CR
+#   inside a string. The added, present and updated labels and the statusLine
+#   state: built from the framework's template and literals. A CR that ends a
+#   line in jq's output is written only by jq on Windows, never on the runner.
+
+section "Check Convention shell rule 3 — only a line-ending carriage return is removed (WU-IAENG-397, #326)"
+
+CR397=$'\r'
+T397=$'\t'
+# What validate-framework.sh prints for a CR inside a value: the two characters
+# \r on a terminal line (SEC-IAENG-397-01). The function cases below run the
+# readers with a stub fail(), so their records hold the raw CR.
+VCR397='\r'
+
+# show_397 <text> — the text with its control characters made visible: a raw
+# CR in a failure message would draw the rest of its line over the start.
+show_397() { printf '%s\n' "$1" | cat -v | sed 's/^/        | /'; }
+
+# expect_line_397 <description> <line> — the previous output holds a line equal
+# to <line>, byte for byte, a carriage return inside it included.
+expect_line_397() {
+  TOTAL=$((TOTAL + 1))
+  case $'\n'"$LAST_OUTPUT"$'\n' in
+    *$'\n'"$2"$'\n'*)
+      [ -n "$VERBOSE" ] && printf '   ok   %s\n' "$1"
+      return 0 ;;
+  esac
+  printf '   FAIL %s\n        expected a line equal to:\n' "$1"
+  show_397 "$2"
+  printf '        in the output:\n'
+  show_397 "$LAST_OUTPUT"
+  FAILED=$((FAILED + 1))
+  return 1
+}
+
+# expect_same_397 <description> <text> — the previous output is exactly <text>.
+expect_same_397() {
+  TOTAL=$((TOTAL + 1))
+  if [ "$LAST_OUTPUT" = "$2" ]; then
+    [ -n "$VERBOSE" ] && printf '   ok   %s\n' "$1"
+    return 0
+  fi
+  printf '   FAIL %s\n        expected:\n' "$1"
+  show_397 "$2"
+  printf '        got:\n'
+  show_397 "$LAST_OUTPUT"
+  FAILED=$((FAILED + 1))
+  return 1
+}
+
+# expect_contains_397 <description> <text> — the previous output contains
+# <text>, compared by the shell, so a carriage return in it is a byte like any
+# other and no grep reads it as a line ending.
+expect_contains_397() {
+  TOTAL=$((TOTAL + 1))
+  case "$LAST_OUTPUT" in
+    *"$2"*)
+      [ -n "$VERBOSE" ] && printf '   ok   %s\n' "$1"
+      return 0 ;;
+  esac
+  printf '   FAIL %s\n        expected the output to contain:\n' "$1"
+  show_397 "$2"
+  printf '        in the output:\n'
+  show_397 "$LAST_OUTPUT"
+  FAILED=$((FAILED + 1))
+  return 1
+}
+
+# expect_has_397 <description> <file> <text> — <file> contains <text>.
+expect_has_397() {
+  TOTAL=$((TOTAL + 1))
+  if grep -qF -- "$3" "$2"; then
+    [ -n "$VERBOSE" ] && printf '   ok   %s\n' "$1"
+    return 0
+  fi
+  printf '   FAIL %s\n        %s does not contain: %s\n' "$1" "$2" "$3"
+  FAILED=$((FAILED + 1))
+  return 1
+}
+
+# A fixture is written once, with <CR> where a value holds a carriage return,
+# and rendered one of two ways:
+#   inner_397 <file...> — each <CR> becomes a CR inside its line; LF endings.
+#   crlf_397 <file...>  — each line ends in CRLF and each <CR> is deleted: the
+#                         same values, with only a line-ending CR.
+# Never both CRs in one file. Git for Windows' grep, reading a file that has a
+# CRLF line, removes every CR in it, the one inside a value too (GNU grep's
+# DOS text mode; -U turns it off), so that case would never reach the script.
+inner_397() {
+  local f
+  for f in "$@"; do
+    awk '{ gsub(/<CR>/, "\r"); print }' "$f" > "$f.tmp" && mv "$f.tmp" "$f"
+  done
+}
+crlf_397() {
+  local f
+  for f in "$@"; do
+    awk '{ gsub(/<CR>/, ""); printf "%s\r\n", $0 }' "$f" > "$f.tmp" && mv "$f.tmp" "$f"
+  done
+}
+
+# --- check-review-recorded.sh: the author header.
+CDIR="$WORK/comments-397-cr-login"
+rm -rf "$CDIR"
+comment "$CDIR" 1 "review${CR397}bot" "Decision: approved"
+expect 1 "check-review-recorded: a CR inside the author login is part of it, so review<CR>bot is not reviewbot" -- \
+  env IAENG_REVIEW_BOT_LOGIN=reviewbot bash "$CHECK_REVIEW" "$CDIR"
+expect_output "skipped for author: 1"
+CDIR="$WORK/comments-397-crlf"
+rm -rf "$CDIR"; mkdir -p "$CDIR"
+printf 'author: reviewbot\r\nDecision: approved\r\n' > "$CDIR/1.txt"
+expect 0 "check-review-recorded: a CRLF comment file is still attributed to its login" -- \
+  env IAENG_REVIEW_BOT_LOGIN=reviewbot bash "$CHECK_REVIEW" "$CDIR"
+expect_output "decision found in 1.txt (author: reviewbot)"
+
+# --- validate-framework.sh: the functions, extracted as above.
+VF397_HARNESS="$WORK/vf397-harness.sh"
+VF397_FNS="flatten_roster employee_tier_from_file employee_name_from_file has_line check_inventory check_enum_completeness changelog_fragment_check changelog_fragment_advisory annotate"
+{
+  cat <<'STUBS'
+set -uo pipefail
+pass() { printf "ok\t%s\n" "$1"; }
+fail() { printf "fail\t%s\t%s\n" "$1" "${2:-}"; }
+cannot() { printf "error\t%s\t%s\n" "$1" "${2:-}"; }
+STUBS
+  for fn397 in $VF397_FNS; do
+    sed -n "/^$fn397() {/,/^}/p" "$VF"
+  done
+  cat <<'HARNESS'
+fn="$1"; shift
+"$fn" "$@"
+HARNESS
+} > "$VF397_HARNESS"
+VF397_MISSING=""
+for fn397 in $VF397_FNS; do
+  grep -q "^$fn397() {" "$VF397_HARNESS" || VF397_MISSING="$VF397_MISSING $fn397"
+done
+expect 0 "validate-framework: every function these cases call is extracted (missing:${VF397_MISSING:- none})" -- \
+  test -z "$VF397_MISSING"
+
+VF397_FIX="$WORK/vf397-functions"
+rm -rf "$VF397_FIX"; mkdir -p "$VF397_FIX"
+cat > "$VF397_FIX/roster-inner.yml" <<'EOF'
+employees:
+  - name: Platform Eng<CR>ineer
+    file: Employees/DevOps/PLATFORM_<CR>ENGINEER.md
+    category: Dev<CR>Ops
+    tier: Standard Exe<CR>cution
+  - name: Technical Writer
+    file: Employees/Documentation/TECHNICAL_WRITER.md
+    category: Documentation
+    tier: Standard Execution
+EOF
+cp "$VF397_FIX/roster-inner.yml" "$VF397_FIX/roster-crlf.yml"
+inner_397 "$VF397_FIX/roster-inner.yml"
+crlf_397 "$VF397_FIX/roster-crlf.yml"
+expect 0 "validate-framework flatten_roster: runs on a roster with a CR inside each field" -- \
+  env ROSTER="$VF397_FIX/roster-inner.yml" bash "$VF397_HARNESS" flatten_roster
+expect_same_397 "validate-framework flatten_roster: each field keeps the CR inside it" \
+  "Platform Eng${CR397}ineer${T397}Employees/DevOps/PLATFORM_${CR397}ENGINEER.md${T397}Dev${CR397}Ops${T397}Standard Exe${CR397}cution
+Technical Writer${T397}Employees/Documentation/TECHNICAL_WRITER.md${T397}Documentation${T397}Standard Execution"
+expect 0 "validate-framework flatten_roster: runs on a CRLF roster" -- \
+  env ROSTER="$VF397_FIX/roster-crlf.yml" bash "$VF397_HARNESS" flatten_roster
+expect_same_397 "validate-framework flatten_roster: each field loses the CR that ends its line" \
+  "Platform Engineer${T397}Employees/DevOps/PLATFORM_ENGINEER.md${T397}DevOps${T397}Standard Execution
+Technical Writer${T397}Employees/Documentation/TECHNICAL_WRITER.md${T397}Documentation${T397}Standard Execution"
+
+printf '# Platform Eng<CR>ineer\n\nDefault Complexity Tier: Standard Exe<CR>cution\n' > "$VF397_FIX/inner.md"
+cp "$VF397_FIX/inner.md" "$VF397_FIX/crlf.md"
+inner_397 "$VF397_FIX/inner.md"
+crlf_397 "$VF397_FIX/crlf.md"
+expect 0 "validate-framework employee_name_from_file: runs" -- bash "$VF397_HARNESS" employee_name_from_file "$VF397_FIX/inner.md"
+expect_same_397 "validate-framework employee_name_from_file: a CR inside the H1 is kept" "Platform Eng${CR397}ineer"
+expect 0 "validate-framework employee_name_from_file: runs on CRLF" -- bash "$VF397_HARNESS" employee_name_from_file "$VF397_FIX/crlf.md"
+expect_same_397 "validate-framework employee_name_from_file: the line-ending CR is removed" "Platform Engineer"
+expect 0 "validate-framework employee_tier_from_file: runs" -- bash "$VF397_HARNESS" employee_tier_from_file "$VF397_FIX/inner.md"
+expect_same_397 "validate-framework employee_tier_from_file: a CR inside the tier is kept" "Standard Exe${CR397}cution"
+expect 0 "validate-framework employee_tier_from_file: runs on CRLF" -- bash "$VF397_HARNESS" employee_tier_from_file "$VF397_FIX/crlf.md"
+expect_same_397 "validate-framework employee_tier_from_file: the line-ending CR is removed" "Standard Execution"
+
+# check_inventory reads git ls-files and VERSION.md from the working directory.
+new_repo vf397-inventory
+mkdir -p Docs
+printf '# Alpha Doc\n' > Docs/A.md
+printf '# Beta<CR>Doc\n' > Docs/B.md
+printf '### Docs\n\n- [x] Alpha Doc\n- [x] BetaDoc\n' > VERSION.md
+crlf_397 Docs/A.md
+inner_397 Docs/B.md
+expect 0 "validate-framework check_inventory: runs" -- bash "$VF397_HARNESS" check_inventory Docs Docs ""
+# Exact: the CRLF "Alpha Doc" is not missing, only the one with a CR inside.
+expect_line_397 "validate-framework check_inventory: an H1 with a CR inside is not the listed title; a CRLF one is" \
+  "fail${T397}VERSION.md's Docs list is missing: Beta${CR397}Doc; ${T397}Every document under Docs/ is listed there by its H1 title. Governance/CONTRIBUTING.md requires the inventory updated in the same Work Unit that adds the document."
+
+# check_enum_completeness: the enumeration ends at ")", so no line-ending CR is
+# ever in it; a CR inside it now reaches the message instead of vanishing.
+rm -rf "$VF397_FIX/enum"; mkdir -p "$VF397_FIX/enum/Core"
+printf '# A\n' > "$VF397_FIX/enum/Core/A.md"
+printf '# B\n' > "$VF397_FIX/enum/Core/B.md"
+printf '# C\n' > "$VF397_FIX/enum/Core/C.md"
+printf 'Completed\n\n- Core (A, B<CR>, C, D)\n' > "$VF397_FIX/enum/README.md"
+inner_397 "$VF397_FIX/enum/README.md"
+cd "$VF397_FIX/enum" || exit 1
+expect 0 "validate-framework check_enum_completeness: runs" -- bash "$VF397_HARNESS" check_enum_completeness Core Core
+expect_line_397 "validate-framework check_enum_completeness: the enumeration it quotes keeps its inner CR" \
+  "fail${T397}README's Core enumeration lists 4 entries but Core/ holds 3 files${T397}A file was added to or dropped from Core/ without the README enumeration following it. Compare 'Core (A, B${CR397}, C, D)' against Core/*.md."
+
+# changelog_fragment_check: the registered ids.
+rm -rf "$VF397_FIX/frag"; mkdir -p "$VF397_FIX/frag/changelog.d"
+printf '# Changelog Fragments\n' > "$VF397_FIX/frag/changelog.d/README.md"
+printf '### Fixed\n\n- a fix\n' > "$VF397_FIX/frag/changelog.d/WU-T-12.md"
+printf '### Fixed\n\n- another fix\n' > "$VF397_FIX/frag/changelog.d/WU-T-3.md"
+printf 'work_units:\n  - id: WU-T-1<CR>2\n  - id: WU-T-3\n' > "$VF397_FIX/frag/inner.yml"
+cp "$VF397_FIX/frag/inner.yml" "$VF397_FIX/frag/crlf.yml"
+inner_397 "$VF397_FIX/frag/inner.yml"
+crlf_397 "$VF397_FIX/frag/crlf.yml"
+expect 0 "validate-framework changelog_fragment_check: runs" -- \
+  bash "$VF397_HARNESS" changelog_fragment_check "$VF397_FIX/frag/changelog.d" "$VF397_FIX/frag/inner.yml" "$SCRIPTS/changelog-fragment.awk"
+expect_line_397 "validate-framework changelog_fragment_check: an id registered with a CR inside does not register the fragment" \
+  "fail${T397}$VF397_FIX/frag/changelog.d/WU-T-12.md names WU-T-12, which $VF397_FIX/frag/inner.yml does not register${T397}A fragment is the changelog entry of one registered Work Unit: register it, or rename the fragment to the Work Unit it belongs to."
+expect_line_397 "validate-framework changelog_fragment_check: both fragments were evaluated" "total${T397}2"
+expect 0 "validate-framework changelog_fragment_check: runs on a CRLF registry" -- \
+  bash "$VF397_HARNESS" changelog_fragment_check "$VF397_FIX/frag/changelog.d" "$VF397_FIX/frag/crlf.yml" "$SCRIPTS/changelog-fragment.awk"
+expect_same_397 "validate-framework changelog_fragment_check: ids on CRLF lines register both fragments" "total${T397}2"
+
+# changelog_fragment_advisory: the Work Unit trailers of the Pull Request.
+new_repo vf397-advisory
+mkdir -p changelog.d
+printf '### Fixed\n\n- a fix\n' > changelog.d/WU-T-12.md
+printf '### Fixed\n\n- another fix\n' > changelog.d/WU-T-3.md
+git add -A && git commit -q -m "fragments"
+VF397_BASE="$(git rev-parse HEAD)"
+printf 'feat: inner\n\nWork Unit: WU-T-1\r2\n' > "$WORK/vf397-msg1.txt"
+printf 'feat: crlf\n\nWork Unit: WU-T-3\r\n' > "$WORK/vf397-msg2.txt"
+git commit -q --allow-empty --cleanup=verbatim -F "$WORK/vf397-msg1.txt"
+git commit -q --allow-empty --cleanup=verbatim -F "$WORK/vf397-msg2.txt"
+expect 0 "validate-framework changelog_fragment_advisory: runs" -- \
+  bash "$VF397_HARNESS" changelog_fragment_advisory changelog.d "$VF397_BASE" HEAD
+expect_same_397 "validate-framework changelog_fragment_advisory: a trailer id with a CR inside has no fragment; a CRLF one has" \
+  "WU-T-1${CR397}2"
+
+# chain_diagram_drift (section 22), both operands; its CRLF cases are above.
+awk '$0 == "      - employee: SRE Engineer" { print "      - employee: SRE Eng\rineer"; next } { print }' \
+  "$CHAIN_FIX/base.yml" > "$CHAIN_FIX/cr397.yml"
+expect 1 "validate-framework chain_diagram_drift: a Registry step with a CR inside its name is not the diagram's step" -- \
+  bash "$CHAIN_HARNESS" "$CHAIN_FIX/base.md" "$CHAIN_FIX/cr397.yml"
+expect_contains_397 "validate-framework chain_diagram_drift: the Registry step is quoted with its CR" \
+  "records \"employee: SRE Eng${CR397}ineer\""
+awk '$0 == "SRE Engineer" { print "SRE Eng\rineer"; next } { print }' \
+  "$CHAIN_FIX/base.md" > "$CHAIN_FIX/cr397.md"
+expect 1 "validate-framework chain_diagram_drift: a diagram step with a CR inside its name is not the Registry's step" -- \
+  bash "$CHAIN_HARNESS" "$CHAIN_FIX/cr397.md" "$CHAIN_FIX/base.yml"
+expect_contains_397 "validate-framework chain_diagram_drift: the diagram step is quoted with its CR" \
+  "draws \"employee: SRE Eng${CR397}ineer\""
+
+# --- validate-framework.sh: the sections that read inline, on a framework
+# template written here with a CR inside one value per reader, rendered once
+# with that CR and once CRLF. VERSION.md's own CRs are a third fixture: a CR
+# inside its codename would change what the README and CLAUDE.md lines are
+# compared with.
+VF397_TPL="$WORK/vf397-template"
+rm -rf "$VF397_TPL"
+mkdir -p "$VF397_TPL"
+cd "$VF397_TPL" || exit 1
+mkdir -p Adapters/scripts Adapters/dockerfiles Core Employees/DevOps Employees/Documentation Registry Workflows
+cat > Registry/employees.yml <<'EOF'
+employees:
+  - name: Platform Engineer
+    file: Employees/DevOps/PLATFORM_ENGINEER.md
+    category: DevOps
+    tier: Standard Execution
+  - name: Technical Writer
+    file: Employees/Documentation/TECHNICAL_WRITER.md
+    category: Documentation
+    tier: Standard Execution
+EOF
+vf397_employee() { # <title> <mission heading>
+  printf '# %s\n\n# %s\n\n# Responsibilities\n\n# Authority\n\n# Standards Applied\n\n- Standards First\n\n# Inputs\n\n# Process\n\n# Outputs\n\n# Definition of Done\n\n# Escalation Rules\n\n# Failure Modes\n\n# Metadata\n\nOwner: IA Engineering\n\nVersion: 0.0.1\n\nStatus: Draft\n\nDefault Complexity Tier: Standard Execution\n' "$1" "$2"
+}
+vf397_employee "Platform Engineer" "Mis<CR>sion" > Employees/DevOps/PLATFORM_ENGINEER.md
+vf397_employee "Technical Writer" "Mission" > Employees/Documentation/TECHNICAL_WRITER.md
+cat > Registry/chains.yml <<'EOF'
+chains:
+
+  - name: Probe Chain
+    workflow: Workflows/PROBE.md
+    steps:
+      - employee: Platform Engineer
+      - employee: Technical Writer
+      - gate: Director
+
+  - name: Other Chain
+    workflow: Workflows/PRO<CR>BE.md
+    steps:
+      - employee: Platform Eng<CR>ineer
+EOF
+printf '# Agent Chains\n\n# Probe Chain\n\n# Other Chain\n\n# Unlisted Ch<CR>ain\n' > Core/AGENT_CHAINS.md
+printf '# Probe Workflow\n\n## Step 1 — One\n\n## Step 2 — Two\n' > Workflows/PROBE.md
+{
+  printf '# Twelve Workflow\n'
+  for n397 in 1 2 3 4 5 6 7 8 9 10 11 12; do printf '\n## Step %s — Step\n' "$n397"; done
+} > Workflows/TWELVE.md
+cat > Registry/workflows.yml <<'EOF'
+workflows:
+  - name: Probe
+    file: Workflows/PROBE.md
+    step_count: 2
+  - name: Twelve
+    file: Workflows/TWELVE.md
+    step_count: 1<CR>2
+  - name: Ghost
+    file: Workflows/PRO<CR>BE.md
+    step_count: 1
+EOF
+cat > Registry/work-units.yml <<'EOF'
+work_units:
+  - id: WU-T-1
+    employee: Platform Engineer
+  - id: WU-T-2
+    employee: Technical Writer
+  - id: WU-T-2
+    employee: Technical Writer
+  - id: WU-T-10
+    employee: Platform Engineer
+  - id: WU-T-1<CR>0
+    employee: Platform Eng<CR>ineer
+EOF
+printf 'VALID_STACKS="node py<CR>thon"\n' > Adapters/scripts/setup-project-bootstrap.sh
+printf 'FROM scratch\n' > Adapters/dockerfiles/node.Dockerfile
+printf 'FROM scratch\n' > Adapters/dockerfiles/python.Dockerfile
+printf '# Version\n\nCurrent Version\n\n**v9.9.9**\n\nCodename\n\n**Probe**\n\n## Next Milestone\n\n**Sequel**, targeting v9.9.10.\n' > VERSION.md
+printf '# Probe Framework\n\n## Current Status\n\nv9.9.9 - Pro<CR>be\n\nCompleted\n\nPlanned\n\n- Seq<CR>uel, targeting v9.9.10\n\n---\n' > README.md
+printf '# Probe Framework\n\n# Current Version\n\nv9.9.9 — Pr<CR>obe\n\nNext: **Seque<CR>l**, targeting v9.9.10.\n\n# Repository\n' > CLAUDE.md
+VF397_TEXT=(Employees/DevOps/PLATFORM_ENGINEER.md Employees/Documentation/TECHNICAL_WRITER.md Registry/employees.yml
+  Registry/chains.yml Core/AGENT_CHAINS.md Workflows/PROBE.md Workflows/TWELVE.md Registry/workflows.yml
+  Registry/work-units.yml Adapters/scripts/setup-project-bootstrap.sh VERSION.md README.md CLAUDE.md)
+
+# vf397_fixture <repository> <inner_397|crlf_397> — a repository holding the
+# template, rendered, beside the validator under test.
+vf397_fixture() {
+  new_repo "$1"
+  cp -R "$VF397_TPL/." .
+  "$2" "${VF397_TEXT[@]}"
+  cp "$VF" Adapters/scripts/validate-framework.sh
+  VF397_CRS="$(cat "${VF397_TEXT[@]}" | tr -cd '\r' | wc -c | tr -d ' ')"
+  VF397_LFS="$(cat "${VF397_TEXT[@]}" | tr -cd '\n' | wc -c | tr -d ' ')"
+}
+
+vf397_fixture vf397-sections inner_397
+expect 0 "validate-framework sections: the fixture holds 13 CRs, each inside a line ($VF397_CRS CR, $VF397_LFS LF)" -- \
+  test "$VF397_CRS" -eq 13
+# Not a whole framework: most sections cannot evaluate, so the run exits 2.
+expect 2 "validate-framework sections: the fixture run completes" -- bash Adapters/scripts/validate-framework.sh --verbose
+expect_line_397 "validate-framework 6: an Employee heading with a CR inside is not the required section" \
+  "   FAIL  Employees/DevOps/PLATFORM_ENGINEER.md is missing required sections: Mission"
+expect_line_397 "validate-framework 13: a chain step naming an Employee with a CR inside is not that Employee" \
+  "   FAIL  Registry/chains.yml names non-Employees: Platform Eng${VCR397}ineer; "
+expect_line_397 "validate-framework 13: a chain workflow path with a CR inside is not the document" \
+  "   FAIL  Registry/chains.yml references missing workflow documents: Workflows/PRO${VCR397}BE.md; "
+expect_line_397 "validate-framework 13: a chain heading with a CR inside is not a chain" \
+  "   ok    Registry/chains.yml covers every named chain (2 checked)"
+expect_line_397 "validate-framework 14: a workflow path with a CR inside is not the document" \
+  "   FAIL  Registry/workflows.yml references missing documents: Workflows/PRO${VCR397}BE.md; "
+expect_line_397 "validate-framework 14: a step_count with a CR inside is not the number" \
+  "   FAIL  Registry/workflows.yml says Workflows/TWELVE.md has 1${VCR397}2 steps; the document has 12"
+expect_line_397 "validate-framework 14: a Work Unit id with a CR inside is malformed" \
+  "   FAIL  Registry/work-units.yml has malformed IDs: WU-T-1${VCR397}0 "
+expect_line_397 "validate-framework 14: WU-T-1<CR>0 is not a duplicate of WU-T-10" \
+  "   FAIL  Registry/work-units.yml has duplicate IDs: WU-T-2 "
+expect_line_397 "validate-framework 14: a Work Unit owner with a CR inside is not that Employee" \
+  "   FAIL  Registry/work-units.yml credits non-Employees: Platform Eng${VCR397}ineer; "
+expect_line_397 "validate-framework 17: a stack with a CR inside is not the stack" \
+  "   FAIL  stack 'py${VCR397}thon' is in VALID_STACKS but Adapters/dockerfiles/py${VCR397}thon.Dockerfile is missing or empty"
+expect_line_397 "validate-framework 18: a README version line with a CR inside is not VERSION.md's" \
+  "   FAIL  README Current Status says 'v9.9.9 - Pro${VCR397}be' but VERSION.md declares 'v9.9.9 - Probe'"
+expect_line_397 "validate-framework 18: a CLAUDE.md codename with a CR inside is not the codename" \
+  "   FAIL  CLAUDE.md's Current Version section does not name 'v9.9.9 — Probe'"
+expect_line_397 "validate-framework 21: a CLAUDE.md Next: line with a CR inside the milestone does not name it" \
+  "   FAIL  CLAUDE.md's 'Next:' line does not name 'Sequel'"
+expect_line_397 "validate-framework 21: a README Planned section with a CR inside the milestone does not name it" \
+  "   FAIL  README's 'Planned' section does not name 'Sequel'"
+
+# The same template CRLF, its <CR> deleted: every value now reads as written.
+vf397_fixture vf397-sections-crlf crlf_397
+expect 0 "validate-framework sections CRLF: every line of the fixture ends in CRLF ($VF397_CRS CR, $VF397_LFS LF)" -- \
+  test "$VF397_LFS" -gt 0 -a "$VF397_CRS" = "$VF397_LFS"
+expect 2 "validate-framework sections CRLF: the fixture run completes" -- bash Adapters/scripts/validate-framework.sh --verbose
+expect_line_397 "validate-framework 6 CRLF: each Employee has every required section" \
+  "   ok    PLATFORM_ENGINEER.md: all required sections present"
+expect_line_397 "validate-framework 13 CRLF: every chain step names a roster Employee" \
+  "   ok    every chain step names a real Employee or framework role (2 checked)"
+expect_line_397 "validate-framework 13 CRLF: every chain workflow document exists" \
+  "   ok    every chain's workflow document exists"
+expect_line_397 "validate-framework 13 CRLF: the three chain headings are read, so the unlisted one is found" \
+  "   FAIL  Core/AGENT_CHAINS.md defines 'Unlisted Chain' but Registry/chains.yml has no entry"
+expect_line_397 "validate-framework 14 CRLF: every workflow path is a document" \
+  "   ok    every workflow entry points at a real document (3 checked)"
+expect_line_397 "validate-framework 14 CRLF: a step_count is the number" \
+  "   ok    TWELVE.md: step_count 12 matches the document"
+expect_line_397 "validate-framework 14 CRLF: every Work Unit id is well formed" \
+  "   ok    every Work Unit ID matches WU-[project]-[number]"
+expect_line_397 "validate-framework 14 CRLF: duplicates are still found" \
+  "   FAIL  Registry/work-units.yml has duplicate IDs: WU-T-10 WU-T-2 "
+expect_line_397 "validate-framework 14 CRLF: every Work Unit owner is a roster Employee" \
+  "   ok    every Work Unit credits a real Employee"
+expect_line_397 "validate-framework 17 CRLF: the last stack on the line is the stack" \
+  "   ok    stack 'python' has a starter Dockerfile"
+expect_line_397 "validate-framework 18 CRLF: the README version line is VERSION.md's" \
+  "   ok    README Current Status names 'v9.9.9 - Probe', matching VERSION.md"
+expect_line_397 "validate-framework 18 CRLF: CLAUDE.md names the version and the codename" \
+  "   ok    CLAUDE.md Current Version names 'v9.9.9' and 'Probe', matching VERSION.md"
+expect_line_397 "validate-framework 21 CRLF: CLAUDE.md's Next: line names the milestone" \
+  "   ok    CLAUDE.md's 'Next:' line names 'Sequel', matching VERSION.md's Next Milestone"
+expect_line_397 "validate-framework 21 CRLF: README's Planned section names the milestone" \
+  "   ok    README's 'Planned' section names 'Sequel', matching VERSION.md's Next Milestone"
+
+new_repo vf397-version
+mkdir -p Adapters/scripts
+cp "$VF" Adapters/scripts/validate-framework.sh
+# vf397_version <codename token> <milestone token> — VERSION.md with those bold
+# tokens, beside a README and a CLAUDE.md that name Probe and Sequel.
+vf397_version() {
+  printf '# Version\n\nCurrent Version\n\n**v9.9.9**\n\nCodename\n\n**%s**\n\n## Next Milestone\n\n**%s**, targeting v9.9.10.\n' "$1" "$2" > VERSION.md
+  inner_397 VERSION.md
+}
+printf '# Probe Framework\n\n## Current Status\n\nv9.9.9 - Probe\n\nCompleted\n\nPlanned\n\n- Sequel, targeting v9.9.10\n\n---\n' > README.md
+printf '# Probe Framework\n\n# Current Version\n\nv9.9.9 — Probe\n\nNext: **Sequel**, targeting v9.9.10.\n\n# Repository\n' > CLAUDE.md
+vf397_version "Pro<CR>be" "Seq<CR>uel"
+expect 2 "validate-framework VERSION.md: the fixture run completes" -- bash Adapters/scripts/validate-framework.sh --verbose
+expect_line_397 "validate-framework 18: a VERSION.md codename with a CR inside its bold token keeps it" \
+  "   FAIL  README Current Status says 'v9.9.9 - Probe' but VERSION.md declares 'v9.9.9 - Pro${VCR397}be'"
+expect_line_397 "validate-framework 21: a VERSION.md Next Milestone with a CR inside its bold token keeps it" \
+  "   FAIL  CLAUDE.md's 'Next:' line does not name 'Seq${VCR397}uel'"
+# A CR just before the closing '**' is inside the line too: removing a CR at
+# the end of the token, rather than none, would still read it as the
+# codename. On every platform: the readers use read, because Git Bash's $(...)
+# drops a CR before the final newline (QA R1 on PR #437).
+vf397_version "Probe<CR>" "Sequel<CR>"
+expect 2 "validate-framework VERSION.md, CR at the end of the token: the fixture run completes" -- \
+  bash Adapters/scripts/validate-framework.sh --verbose
+expect_line_397 "validate-framework 18: a codename token ending in a CR keeps it" \
+  "   FAIL  README Current Status says 'v9.9.9 - Probe' but VERSION.md declares 'v9.9.9 - Probe${VCR397}'"
+expect_line_397 "validate-framework 21: a milestone token ending in a CR keeps it" \
+  "   FAIL  CLAUDE.md's 'Next:' line does not name 'Sequel${VCR397}'"
+
+# --- validate-framework.sh: how a value it quotes is printed (SEC-IAENG-397-01).
+# A value kept with a CR inside is printed with that CR shown, never raw: as
+# the two characters \r on the terminal line, and as %0D in a workflow command
+# (% as %25 and LF as %0A), so each annotation stays one command.
+expect 0 "validate-framework annotate: runs" -- bash "$VF397_HARNESS" annotate warning "a%b${CR397}c
+d"
+expect_same_397 "validate-framework annotate: %, CR and LF in the data are %25, %0D and %0A" \
+  "::warning::a%25b%0Dc%0Ad"
+# End to end, under GitHub Actions and --verbose: a registry value with a CR
+# inside, one with a %, a CR inside a value quoted in a failure's detail and in
+# a passing line, and a Work Unit id with a CR inside read from a commit
+# message of the Pull Request (the changelog fragment early warning).
+new_repo vf397-annotate
+mkdir -p Adapters/scripts Registry Core
+cp "$VF" Adapters/scripts/validate-framework.sh
+printf 'work_units:\n  - id: WU-T-1<CR>2\n    employee: Platform 100%% Engineer\n' > Registry/work-units.yml
+printf '# Version\n\nCurrent Version\n\n**v9.9.9**\n\nCodename\n\n**Pro<CR>be**\n' > VERSION.md
+printf '# Probe\n\n## Current Status\n\nv9.9.9 - Pro<CR>be\n\nCompleted\n\n- Core (A, B<CR>, C, D)\n' > README.md
+printf '# A\n' > Core/A.md
+printf '# B\n' > Core/B.md
+printf '# C\n' > Core/C.md
+inner_397 Registry/work-units.yml VERSION.md README.md
+git add -A && git commit -q -m "fixture"
+git update-ref refs/remotes/origin/main HEAD
+printf 'feat: a change\n\nWork Unit: WU-T-1\r2\n' > "$WORK/vf397-annotate-msg.txt"
+git commit -q --allow-empty --cleanup=verbatim -F "$WORK/vf397-annotate-msg.txt"
+expect 2 "validate-framework under GitHub Actions: the fixture run completes" -- \
+  env GITHUB_ACTIONS=true GITHUB_BASE_REF=main GITHUB_WORKSPACE="$PWD" bash Adapters/scripts/validate-framework.sh --verbose
+expect_line_397 "validate-framework fail(): a CR inside a value quoted in the detail is shown as \\r" \
+  "         A file was added to or dropped from Core/ without the README enumeration following it. Compare 'Core (A, B${VCR397}, C, D)' against Core/*.md."
+expect_line_397 "validate-framework fail(): and is %0D in the detail part of its ::error:: line" \
+  "::error::README's Core enumeration lists 4 entries but Core/ holds 3 files A file was added to or dropped from Core/ without the README enumeration following it. Compare 'Core (A, B%0D, C, D)' against Core/*.md."
+expect_line_397 "validate-framework pass(): a CR inside a value a passing line quotes is shown as \\r" \
+  "   ok    README Current Status names 'v9.9.9 - Pro${VCR397}be', matching VERSION.md"
+expect_line_397 "validate-framework fail(): a CR inside a value is %0D in its one ::error:: line" \
+  "::error::Registry/work-units.yml has malformed IDs: WU-T-1%0D2  Templates/WORK_UNIT.md defines the format as WU-[project]-[number]."
+expect_line_397 "validate-framework fail(): a % inside a value is %25 in its ::error:: line" \
+  "::error::Registry/work-units.yml credits non-Employees: Platform 100%25 Engineer;  A Work Unit's owner must be a real Employee, matching the 'Employee:' commit trailer the work landed under."
+expect_line_397 "validate-framework fail(): the terminal line shows the CR as \\r" \
+  "   FAIL  Registry/work-units.yml has malformed IDs: WU-T-1${VCR397}2 "
+expect_line_397 "validate-framework fragment warning: a commit's Work Unit id with a CR inside is %0D in its one ::warning:: line" \
+  "::warning::WU-T-1%0D2 has no changelog.d/WU-T-1%0D2.md and this Pull Request does not edit CHANGELOG.md. Add the fragment (changelog.d/README.md), or 'No changelog entry: <reason>'; release.sh check condition 5 blocks the release without one."
+expect_line_397 "validate-framework fragment warning: its terminal line shows the CR as \\r" \
+  "   note  WU-T-1${VCR397}2 has no changelog.d/WU-T-1${VCR397}2.md in this Pull Request"
+TOTAL=$((TOTAL + 1))
+case "$LAST_OUTPUT" in
+  *"$CR397"*)
+    printf '   FAIL validate-framework under GitHub Actions: no carriage return reaches the output raw\n'
+    show_397 "$LAST_OUTPUT"
+    FAILED=$((FAILED + 1)) ;;
+  *) [ -n "$VERBOSE" ] && printf '   ok   validate-framework under GitHub Actions: no carriage return reaches the output raw\n' ;;
+esac
+
+# A printed value with a line break stays on one line: the terminal lines show
+# an LF as \n, as they show a CR as \r. The validator's own pass() and fail(),
+# extracted, in plain mode (0) and --verbose (1), with no annotation.
+LF397=$'\n'
+VLF397='\n'
+VF397_PRINT="$WORK/vf397-print.sh"
+{
+  cat <<'PRINT'
+set -uo pipefail
+CHECKS=0
+FAILURES=0
+VERBOSE="$1"
+shift
+PRINT
+  for fn397 in show annotate pass fail; do
+    sed -n "/^$fn397() {/,/^}/p" "$VF"
+  done
+  cat <<'PRINT'
+"$@"
+PRINT
+} > "$VF397_PRINT"
+expect 0 "validate-framework fail(), plain: runs" -- env GITHUB_ACTIONS= bash "$VF397_PRINT" 0 fail "first${LF397}second"
+expect_same_397 "validate-framework fail(), plain: a printed value with a line break stays on one line" \
+  "   FAIL  first${VLF397}second"
+expect 0 "validate-framework fail(), plain, with a detail: runs" -- \
+  env GITHUB_ACTIONS= bash "$VF397_PRINT" 0 fail "a${LF397}b" "c${LF397}d"
+expect_same_397 "validate-framework fail(), plain: the message and the detail stay on one line each" \
+  "   FAIL  a${VLF397}b${LF397}         c${VLF397}d"
+expect 0 "validate-framework fail(), --verbose: runs" -- env GITHUB_ACTIONS= bash "$VF397_PRINT" 1 fail "first${LF397}second"
+expect_same_397 "validate-framework fail(), --verbose: a printed value with a line break stays on one line" \
+  "   FAIL  first${VLF397}second"
+expect 0 "validate-framework pass(), --verbose: runs" -- env GITHUB_ACTIONS= bash "$VF397_PRINT" 1 pass "first${LF397}second"
+expect_same_397 "validate-framework pass(), --verbose: a printed value with a line break stays on one line" \
+  "   ok    first${VLF397}second"
+expect 0 "validate-framework pass(), plain: runs" -- env GITHUB_ACTIONS= bash "$VF397_PRINT" 0 pass "first${LF397}second"
+expect_same_397 "validate-framework pass(), plain: prints no line at all" ""
+
+# --- usage-dashboard.sh: the five registry readers and the prices, from one
+# template rendered with a CR inside one value each, then CRLF. The JSON in
+# the page writes a CR as the two characters \r.
+U397_TPL="$WORK/usage-397-template"
+rm -rf "$U397_TPL"
+mkdir -p "$U397_TPL/Registry" "$U397_TPL/.ia-engineering/Registry"
+cat > "$U397_TPL/Registry/employees.yml" <<'EOF'
+employees:
+  - name: DevOps Engineer
+    category: DevOps
+  - name: Scrum Mas<CR>ter
+    category: Management
+  - name: Observability Engineer
+    category: DevOps
+EOF
+cat > "$U397_TPL/.ia-engineering/Registry/employees.yml" <<'EOF'
+employees:
+  - name: Domain Exp<CR>ert
+    category: Domain
+EOF
+cat > "$U397_TPL/Registry/chains.yml" <<'EOF'
+chains:
+
+  - name: Probe Chain
+    steps:
+      - employee: DevOps Engineer
+        when: Always
+      - employee: DevOps Eng<CR>ineer
+EOF
+cat > "$U397_TPL/Registry/work-units.yml" <<'EOF'
+work_units:
+  - id: WU-T-1
+    employee: DevOps Engineer
+    title: one
+  - id: WU-T-2
+    employee: DevOps Eng<CR>ineer
+    title: two
+EOF
+printf '# Probe Project\n\n## Active Employees\n\n- DevOps Engineer\n- Observability Eng<CR>ineer\n' > "$U397_TPL/CLAUDE.md"
+printf 'claude-test-1\t1000<CR>000\t2000000\t3000000\t4000000\n' > "$U397_TPL/prices.tsv"
+U397_TEXT=(Registry/employees.yml .ia-engineering/Registry/employees.yml Registry/chains.yml Registry/work-units.yml
+  CLAUDE.md prices.tsv)
+new_repo usage-397
+commit_with "feat: one" "Work Unit: WU-T-1" "" "Employee: DevOps Engineer" \
+  "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+# u397_render <inner_397|crlf_397> — the template rendered into the project.
+u397_render() {
+  cp -R "$U397_TPL/." .
+  "$1" "${U397_TEXT[@]}"
+}
+UPAGE397="$WORK/usage-397-out/inner.html"
+u397_render inner_397
+expect 0 "dashboard: builds the page from registries with a CR inside one value each" -- \
+  bash "$DASH" --project-dir "$PWD" --out "$UPAGE397" --transcripts-dir "$UT" --prices prices.tsv
+expect_has_397 "dashboard: a framework roster name with a CR inside keeps it" "$UPAGE397" \
+  '"name":"Scrum Mas\rter","roster":"framework"'
+expect_has_397 "dashboard: a project roster name with a CR inside keeps it" "$UPAGE397" \
+  '"name":"Domain Exp\rert","roster":"project"'
+expect_has_397 "dashboard: a chain step with a CR inside its name is not the Employee" "$UPAGE397" \
+  '{"n":2,"kind":"employee","name":"DevOps Eng\rineer","conditional":false,'
+expect_has_397 "dashboard: a Work Unit owner with a CR inside is not the Employee" "$UPAGE397" \
+  '"name":"DevOps Engineer","roster":"framework","dispatches":1,"commits_range":1,"commits_all":1,"work_units":1,'
+expect_has_397 "dashboard: a CLAUDE.md Active Employees bullet with a CR inside is not a roster name" "$UPAGE397" \
+  'CLAUDE.md, Active Employees (1 roster Employees)'
+expect_has_397 "dashboard: a price with a CR inside is not a number, so input tokens cost nothing" "$UPAGE397" \
+  ">\$4140<"
+UPAGE397="$WORK/usage-397-out/crlf.html"
+u397_render crlf_397
+expect 0 "dashboard: builds the page from CRLF registries" -- \
+  bash "$DASH" --project-dir "$PWD" --out "$UPAGE397" --transcripts-dir "$UT" --prices prices.tsv
+expect_has_397 "dashboard CRLF: a framework roster name loses its line-ending CR" "$UPAGE397" \
+  '"name":"Scrum Master","roster":"framework"'
+expect_has_397 "dashboard CRLF: a project roster name loses its line-ending CR" "$UPAGE397" \
+  '"name":"Domain Expert","roster":"project"'
+expect_has_397 "dashboard CRLF: a 'when: Always' step is not conditional" "$UPAGE397" \
+  '{"n":1,"kind":"employee","name":"DevOps Engineer","conditional":false,'
+expect_has_397 "dashboard CRLF: both Work Units are the Employee's" "$UPAGE397" \
+  '"name":"DevOps Engineer","roster":"framework","dispatches":1,"commits_range":1,"commits_all":1,"work_units":2,'
+expect_has_397 "dashboard CRLF: both Active Employees bullets are roster names" "$UPAGE397" \
+  'CLAUDE.md, Active Employees (2 roster Employees)'
+expect_has_397 "dashboard CRLF: every price is a number" "$UPAGE397" \
+  ">\$4245<"
+
+# --- install-hooks.sh: what a run prints, and the statusLine settings.local.json sets.
+adopter_353 hk-397
+HK_397="./ia-engineering/Adapters/ai-runtimes/claude-code/install-hooks.sh"
+bash "$HK_397" >/dev/null 2>&1
+commit_353 "chore(adopt): install the runtime hooks"
+jq '.hooks.PreToolUse += [{"matcher": "Bash", "hooks": [{"type": "command", "command": "echo hooks/block-escape-hatches.sh\rX"}]}]
+    | .statusLine.command = "my\rstatus.sh"' .claude/settings.json | sed $'s/\r$//' > settings.tmp \
+  && mv settings.tmp .claude/settings.json
+expect 0 "install-hooks: a run merges settings holding a near miss and a statusLine with a CR inside" -- bash "$HK_397"
+expect_line_397 "install-hooks: a CR inside a near-miss command reaches the terminal as a space, never removed" \
+  "    PreToolUse [Bash]: echo hooks/block-escape-hatches.sh X"
+expect_line_397 "install-hooks: a CR inside the project statusLine it chains is shown as a space, never removed" \
+  "    added:   statusLine: context-statusline.sh, chaining the project statusLine my status.sh"
+git checkout -q -- .claude/settings.json
+printf '{"statusLine": {"type": "command", "command": "bash x/hooks/context-statu\\rsline.sh"}}\n' > .claude/settings.local.json
+expect 0 "install-hooks --check: a settings.local.json statusLine is read" -- bash "$HK_397" --check
+expect_output "statusline${T397}shadowed${T397}.claude/settings.local.json${T397}bash x/hooks/context-statu sline.sh: Claude Code runs this one instead of the project statusLine"
+rm .claude/settings.local.json
 
 # --------------------------------------------------------------- verdict ----
 
