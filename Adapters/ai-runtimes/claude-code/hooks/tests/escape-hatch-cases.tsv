@@ -808,3 +808,7 @@ allow	git push origin feature-à-f
 # Case folding ends with the check that asked for it: the gpgsign value check
 # folds case, and the stash rule after it must not (QA review of PR #463, M4).
 block	git -c commit.gpgSign=true stash LIST	git stash sets work aside
+# The approval-label rules judge one pipeline segment at a time: a read in one
+# segment does not exempt a write in another on the same line (code review of
+# PR #463, F2).
+block	gh api -X GET repos/o/r/issues; gh api repos/o/r/issues/170/labels -f labels[]=size/approved	only the Director applies these approval labels

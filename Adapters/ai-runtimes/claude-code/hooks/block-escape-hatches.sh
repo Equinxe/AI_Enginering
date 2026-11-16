@@ -20,12 +20,15 @@
 # WHAT A CALL COSTS (WU-IAENG-431, issue #385). This hook runs on every Bash
 # call, and on Windows every process it starts is the latency under parallel
 # agents (Governance/BLOCKING_HOOK_LATENCY_MEASUREMENT.md). It started 84 per
-# call: one grep for each rule. The rules are now matched by bash itself, so a
-# call starts lib.sh's cat, one jq and at most one awk (the lexer), and none
-# of those for a rule. A command made only of bytes the lexer passes through
-# unchanged skips the awk too. A carriage return is removed before matching,
-# as bash removes it before running. The rule patterns are unchanged; only the
-# engine that runs them moved. tests/run.sh counts what a call starts.
+# call: one grep for each rule. The rules are now matched by bash itself. A
+# call starts lib.sh's cat and one jq; the lexer's awk when the command holds
+# one of the ten bytes the lexer rewrites (a command without them skips it); a
+# second awk, the lexer in KEEPQ mode, for a gh pr|issue edit|create with a
+# label flag or a gh alias set|import; and one grep -o, the only process a
+# rule starts, for a command that names commit.gpgsign in a git -c or
+# --config-env option. A carriage return is removed before matching, as bash
+# removes it before running. The rule patterns are unchanged; only the engine
+# that runs them moved. tests/run.sh counts what a call starts.
 
 # This hook's own directory, never the working directory (issue #344). It is
 # taken from $0 when $0 holds a / or \, because the environment cannot set $0.
