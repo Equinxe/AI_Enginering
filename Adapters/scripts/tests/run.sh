@@ -116,6 +116,23 @@ $line"
   git commit -q -m "$msg"
 }
 
+# index_path <path> [<lines>] — stages a file of <lines> lines (default 1) at
+# <path> straight into the index, without creating it on disk (WU-IAENG-428).
+# The name reaches git byte for byte through stdin, never through argv or the
+# filesystem: Windows cannot hold a newline or a double quote in a file name,
+# and a non-ASCII argument may be re-encoded on its way to a native git. Git
+# for Windows refuses such a name in the index while core.protectNTFS is on,
+# because it could not be checked out there; it is never checked out here. A
+# path made this way exists only in the index and the next commit, so a
+# fixture never runs `git add -A` or `commit -a` after it, which would stage
+# its deletion.
+index_path() {
+  local blob
+  git config core.protectNTFS false
+  blob="$(seq "${2:-1}" | git hash-object -w --stdin)" || return 1
+  printf '100644 %s\t%s\0' "$blob" "$1" | git update-index -z --index-info
+}
+
 # expect <expected-exit> <description> -- <command...>
 expect() {
   local want="$1"; shift
@@ -630,6 +647,46 @@ i=0; while [ $i -lt 2000 ]; do echo "generated $i" >> built.txt; i=$((i + 1)); d
 git add -A && git commit -qm "regenerate"
 expect 0 "2000 lines in a linguist-generated file do not count" -- bash "$CHECK_SIZE" "$BASE" HEAD
 expect_output "1 generated"
+
+# WU-IAENG-428 — the exclusion looks a file up by its name as git stores it.
+# git diff --numstat without -z printed a non-ASCII or newline name as a
+# quoted C string ("gen-d\303\251.txt"), check-attr read the quotes literally,
+# found no attribute, and the generated file was counted. The 2000 lines are
+# over the 1500 limit, so a counted file shows as a finding.
+new_repo size-generated-names
+printf 'gen-* linguist-generated=true\n' > .gitattributes
+git add -A && git commit -qm "declare the generated files"
+BASE="$(git rev-parse HEAD)"
+index_path $'gen-d\303\251.txt' 2000 && git commit -qm "regenerate a file with a non-ASCII name"
+expect 0 "a generated file with a non-ASCII name does not count" -- bash "$CHECK_SIZE" "$BASE" HEAD
+expect_line "Files changed: 1 (1 generated, 0 binary — excluded)"
+expect_line "Lines to review: 0 (limit 1500)"
+BASE="$(git rev-parse HEAD)"
+index_path $'gen-two\nlines.txt' 2000 && git commit -qm "regenerate a file with a newline in its name"
+expect 0 "a generated file with a newline in its name does not count" -- bash "$CHECK_SIZE" "$BASE" HEAD
+expect_line "Files changed: 1 (1 generated, 0 binary — excluded)"
+expect_line "Lines to review: 0 (limit 1500)"
+# A tab inside a name. A --numstat -z record is <added> TAB <deleted> TAB
+# <path>, so the path is everything after the second tab: the whole of
+# gen-a<TAB>b.txt, which "gen-*" marks generated, and the whole of
+# src-a<TAB>gen-b.txt, which it does not.
+BASE="$(git rev-parse HEAD)"
+index_path $'gen-a\tb.txt' 2000 && git commit -qm "regenerate a file with a tab in its name"
+expect 0 "a generated file with a tab in its name does not count" -- bash "$CHECK_SIZE" "$BASE" HEAD
+expect_line "Files changed: 1 (1 generated, 0 binary — excluded)"
+expect_line "Lines to review: 0 (limit 1500)"
+BASE="$(git rev-parse HEAD)"
+index_path $'src-a\tgen-b.txt' 2000 && git commit -qm "a reviewable file with a tab in its name"
+expect 1 "the text after a tab in a name is not read as the whole name" -- bash "$CHECK_SIZE" "$BASE" HEAD
+expect_line "Files changed: 1 (0 generated, 0 binary — excluded)"
+expect_line "Lines to review: 2000 (limit 1500)"
+# A trailing space is part of the name: "notes.gen " does not end in ".gen".
+printf '*.gen linguist-generated=true\n' >> .gitattributes
+git add .gitattributes && git commit -qm "declare *.gen generated"
+BASE="$(git rev-parse HEAD)"
+index_path 'notes.gen ' 2000 && git commit -qm "a reviewable file whose name ends in a space"
+expect 1 "a trailing space is kept in a diffed name" -- bash "$CHECK_SIZE" "$BASE" HEAD
+expect_line "Lines to review: 2000 (limit 1500)"
 
 expect 2 "wrong argument count is a usage error" -- bash "$CHECK_SIZE"
 
@@ -1290,6 +1347,131 @@ git switch -q "$RM_MAIN"
 echo same-edit > src/auth/login.js && git commit -qam "the base branch lands the identical edit after the fork point"
 expect 1 "a sensitive edit the base has since duplicated is still attributed to the change" -- bash "$CHECK_MAP" --range "$RM_MAIN" feature-auth .
 expect_output "Sensitive paths touched: src/auth/login.js"
+
+# WU-IAENG-428 — a path is classified by its name, whatever bytes it holds.
+# Without -z, git prints a name holding a byte outside ASCII, a control
+# character, a double quote or a backslash as a quoted C string (docs/dé.md as
+# "docs/d\303\251.md"), and the zone patterns were matched against that quoted
+# form instead of the name. The expected levels are the fixture map's, read by
+# hand: the first zone whose glob matches the whole name.
+risk_project rm-range-nonascii; sound_risk_map
+git commit -q -m "map"
+RM_BASE="$(git rev-parse HEAD)"
+index_path $'src/auth/d\303\251.js' && git commit -q -m "a module with a non-ASCII name"
+expect 1 "a path with a non-ASCII name is classified by its zone" -- bash "$CHECK_MAP" --range "$RM_BASE" HEAD .
+expect_line $'Sensitive paths touched: src/auth/d\303\251.js'
+
+risk_project rm-range-quote; sound_risk_map
+git commit -q -m "map"
+RM_BASE="$(git rev-parse HEAD)"
+index_path 'src/auth/say "hi".js' && git commit -q -m "a module with a double quote in its name"
+expect 1 "a path with a double quote in its name is classified by its zone" -- bash "$CHECK_MAP" --range "$RM_BASE" HEAD .
+expect_line 'Sensitive paths touched: src/auth/say "hi".js'
+
+# A newline: the name is one path, matched whole.
+risk_project rm-range-newline; sound_risk_map
+git commit -q -m "map"
+RM_BASE="$(git rev-parse HEAD)"
+index_path $'src/auth/two\nlines.js' && git commit -q -m "a module with a newline in its name"
+expect 1 "a path with a newline in its name is classified by its zone" -- bash "$CHECK_MAP" --range "$RM_BASE" HEAD .
+expect_line "Files changed: 1 — highest change zone: sensitive"
+# A printed name stays on one line: its LF shows as \n (and a CR as \r, below),
+# as validate-framework.sh's show prints them (WU-IAENG-397).
+expect_line 'Sensitive paths touched: src/auth/two\nlines.js'
+
+risk_project rm-range-cr; sound_risk_map
+git commit -q -m "map"
+RM_BASE="$(git rev-parse HEAD)"
+index_path $'src/auth/car\rriage.js' && git commit -q -m "a module with a carriage return in its name"
+expect 1 "a path with a carriage return in its name is classified by its zone" -- bash "$CHECK_MAP" --range "$RM_BASE" HEAD .
+expect_line 'Sensitive paths touched: src/auth/car\rriage.js'
+
+# ...and a line inside the name is not a path of its own. This one is under
+# docs/ (routine); its second line alone would match "src/auth/*".
+risk_project rm-range-newline-whole; sound_risk_map
+git commit -q -m "map"
+RM_BASE="$(git rev-parse HEAD)"
+index_path $'docs/notes\nsrc/auth/x.md' && git commit -q -m "a note with a newline in its name"
+expect 0 "a line inside a name does not match a zone on its own" -- bash "$CHECK_MAP" --range "$RM_BASE" HEAD .
+expect_line "Files changed: 1 — highest change zone: routine"
+
+# ...nor does its first line decide alone. With a suffix glob, "notes/two"
+# matches only "*" (standard), while the whole name matches "notes/*.md"
+# (routine).
+risk_project rm-range-newline-first; sound_risk_map
+sed -i 's|- pattern: "docs/\*"|- pattern: "notes/*.md"|' .ia-engineering/risk-map.yml
+git add .ia-engineering/risk-map.yml && git commit -q -m "map"
+RM_BASE="$(git rev-parse HEAD)"
+index_path $'notes/two\nlines.md' && git commit -q -m "a note with a newline in its name"
+expect 0 "a name's first line alone does not decide its zone" -- bash "$CHECK_MAP" --range "$RM_BASE" HEAD .
+expect_line "Files changed: 1 — highest change zone: routine"
+
+# A leading space is part of the name: " src/auth/lead.js" lies under a
+# top-level directory named " src", so only "*" matches it.
+risk_project rm-range-lead-space; sound_risk_map
+git commit -q -m "map"
+RM_BASE="$(git rev-parse HEAD)"
+index_path ' src/auth/lead.js' && git commit -q -m "a module under a directory whose name starts with a space"
+expect 0 "a leading space is kept in a changed name" -- bash "$CHECK_MAP" --range "$RM_BASE" HEAD .
+expect_line "Files changed: 1 — highest change zone: standard"
+expect 0 "--explain keeps a leading space in a name" -- bash "$CHECK_MAP" --explain .
+expect_line " src/auth/lead.js standard"
+
+# A renamed file is classified by both its old and its new path, as
+# check-pr-size.sh already lists it.
+risk_project rm-range-rename; sound_risk_map
+git commit -q -m "map"
+RM_BASE="$(git rev-parse HEAD)"
+git mv src/auth/login.js docs/login.js && git commit -q -m "rename the module"
+expect 1 "a renamed file is classified by both its old and its new path" -- bash "$CHECK_MAP" --range "$RM_BASE" HEAD .
+expect_line "Files changed: 2 — highest change zone: sensitive"
+expect_line "Sensitive paths touched: src/auth/login.js"
+
+# A space was always read whole; pinned so the -z reading keeps it so.
+risk_project rm-range-space; sound_risk_map
+git commit -q -m "map"
+RM_BASE="$(git rev-parse HEAD)"
+echo x > "src/auth/two words.js" && git add -A && git commit -q -m "a module with a space in its name"
+expect 1 "a path with a space in its name is classified by its zone" -- bash "$CHECK_MAP" --range "$RM_BASE" HEAD .
+expect_line "Sensitive paths touched: src/auth/two words.js"
+
+# Validation reads the tracked names the same way. A zone whose only file has
+# such a name is live, and --explain prints the name as it is.
+risk_project rm-live-nonascii; sound_risk_map
+sed -i 's|- pattern: "docs/\*"|- pattern: "notes/*"|' .ia-engineering/risk-map.yml
+git add .ia-engineering/risk-map.yml
+index_path $'notes/d\303\251.md'
+expect 0 "a zone whose only tracked file has a non-ASCII name is live" -- bash "$CHECK_MAP" .
+expect_output "Risk Map is sound"
+expect 0 "--explain prints a non-ASCII name as it is, with its zone's level" -- bash "$CHECK_MAP" --explain .
+expect_line $'notes/d\303\251.md routine'
+
+# "notes/*.md" matches the whole name; neither of its two lines alone would.
+risk_project rm-live-newline; sound_risk_map
+sed -i 's|- pattern: "docs/\*"|- pattern: "notes/*.md"|' .ia-engineering/risk-map.yml
+git add .ia-engineering/risk-map.yml
+index_path $'notes/two\nlines.md'
+expect 0 "a zone whose only tracked file has a newline in its name is live" -- bash "$CHECK_MAP" .
+expect_output "Risk Map is sound"
+expect 0 "--explain prints a name with a newline on one line, at its whole name's level" -- bash "$CHECK_MAP" --explain .
+expect_line 'notes/two\nlines.md routine'
+
+# A trailing space is part of the name too: "notes/a.md " does not end in
+# ".md", so "notes/*.md" matches no tracked file.
+risk_project rm-live-trailing-space; sound_risk_map
+sed -i 's|- pattern: "docs/\*"|- pattern: "notes/*.md"|' .ia-engineering/risk-map.yml
+git add .ia-engineering/risk-map.yml
+index_path 'notes/a.md '
+expect 1 "a trailing space is kept in a tracked name" -- bash "$CHECK_MAP" .
+expect_output "zone 'notes/*.md' matches no tracked file"
+
+# The present-but-untracked advice reads the untracked names the same way.
+risk_project rm-untracked-nonascii; sound_risk_map
+sed -i 's|- pattern: "docs/\*"|- pattern: "staged-later/*"|' .ia-engineering/risk-map.yml
+mkdir -p staged-later; echo report > $'staged-later/r\303\251sum\303\251.md'   # deliberately NOT staged
+git add .ia-engineering/risk-map.yml
+expect 1 "a zone matching only an untracked non-ASCII file says stage it, not remove it" -- bash "$CHECK_MAP" .
+expect_output "not tracked yet"
 
 expect 2 "an unknown option is a usage error" -- bash "$CHECK_MAP" --nope .
 
@@ -11196,6 +11378,11 @@ expect_output "Could not compute the merge base"
 expect 2 "check-risk-map: a failed git diff is not evaluated (exit 2)" -- \
   "${G390[@]}" G390_FAIL="diff --name-only" bash "$SCRIPTS/check-risk-map.sh" --range "$RM390_BASE" HEAD .
 expect_output "git diff failed"
+# The path listings are kept in files (WU-IAENG-428); without a place for them
+# nothing is classified.
+expect 2 "check-risk-map: no scratch directory is not evaluated (exit 2)" -- \
+  env TMPDIR="$WORK/rm428-no-such-tmp" bash "$SCRIPTS/check-risk-map.sh" --range "$RM390_BASE" HEAD .
+expect_output "cannot create a scratch directory"
 # The record is there; a log that could not be read must not report it absent.
 expect 2 "check-risk-map: a commit log that cannot be read is not a missing record (exit 2)" -- \
   "${G390[@]}" G390_FAIL="log --format=%B" bash "$SCRIPTS/check-risk-map.sh" --range "$RM390_BASE" HEAD .
@@ -11209,6 +11396,9 @@ expect 0 "check-pr-size: a small change is within the limit" -- bash "$SCRIPTS/c
 expect 2 "check-pr-size: a failed git diff is not evaluated (exit 2)" -- \
   "${G390[@]}" G390_FAIL="diff --numstat" bash "$SCRIPTS/check-pr-size.sh" "$BASE" HEAD
 expect_output "git diff failed"
+expect 2 "check-pr-size: no scratch directory is not evaluated (exit 2)" -- \
+  env TMPDIR="$WORK/size428-no-such-tmp" bash "$SCRIPTS/check-pr-size.sh" "$BASE" HEAD
+expect_output "Could not create a scratch directory"
 git commit -q --allow-empty -m "changes nothing"
 expect 2 "check-pr-size: commits that cannot be counted are not evaluated (exit 2)" -- \
   "${G390[@]}" G390_FAIL="rev-list --count" bash "$SCRIPTS/check-pr-size.sh" HEAD~1 HEAD
@@ -11941,6 +12131,246 @@ printf '{"statusLine": {"type": "command", "command": "bash x/hooks/context-stat
 expect 0 "install-hooks --check: a settings.local.json statusLine is read" -- bash "$HK_397" --check
 expect_output "statusline${T397}shadowed${T397}.claude/settings.local.json${T397}bash x/hooks/context-statu sline.sh: Claude Code runs this one instead of the project statusLine"
 rm .claude/settings.local.json
+
+# --------- generate-agents.sh: an Employee in a worktree (WU-IAENG-430) ------
+#
+# Issue #449. An Employee that Claude Code dispatches with `isolation: worktree`
+# works in a linked git worktree, where an adopter's framework submodule is not
+# initialised: ia-engineering/ is empty. The generated agents named every
+# framework file by its path from the framework root (Core/AGENT_CONDUCT.md),
+# which resolves from no directory of an adopter. On develop 75765ba: 741
+# framework paths named by 42 agents, 741 unresolved from the worktree, so the
+# Code Reviewer and QA reviewed without the Standards they apply.
+#
+# The fixture framework carries the whole document tree, not only Adapters/
+# and Registry/ as fw-353 does: these cases open every file an agent names.
+
+section "generate-agents.sh — an Employee in a linked worktree reads the framework (WU-IAENG-430, #449)"
+
+new_repo fw-430
+for d430 in Core Standards Templates Workflows Employees Registry Adapters Governance; do
+  cp -R "$SCRIPTS/../../$d430" "./$d430"
+done
+cp "$SCRIPTS/../../.gitattributes" ./.gitattributes
+git add -A && git commit -q -m "framework fixture"
+FW_430="$PWD"
+ROSTER_N_430="$(grep -cE '^  - name: ' Registry/employees.yml)"
+
+# The markdown backtick around a path, held in a variable so each pattern that
+# names one is double-quoted: written inside single quotes, shellcheck reads it
+# as an unexpanded command substitution (SC2016), as validate-framework.sh
+# notes for its own REF_PATTERN.
+BT_430='`'
+
+# root_430 <agent> — the framework root an agent tells its Employee to read
+# from, as the agent itself states it, or empty when it states none.
+root_430() { sed -n "s/^Framework root: ${BT_430}\(.*\)${BT_430}\$/\1/p" "$1" | head -n 1; }
+
+# unresolved_430 <agent> — from the working directory, every framework path
+# the agent names, read the way the agent tells its Employee to read it: under
+# the root it states, with an ia-engineering/ prefix dropped, or under the
+# working directory when it states none. Prints each path that does not exist.
+FWPATH_RE_430='(ia-engineering/)?(Core|Standards|Templates|Workflows|Registry|Employees|Governance|Adapters)/[A-Za-z0-9_./-]*'
+unresolved_430() {
+  local root p
+  root="$(root_430 "$1")"
+  [ -n "$root" ] || root="."
+  grep -oE "$FWPATH_RE_430" "$1" | while IFS= read -r p; do
+    p="${p%.}"; p="${p%,}"; p="${p#ia-engineering/}"
+    [ -e "$root/$p" ] || printf '%s: %s/%s\n' "${1##*/}" "$root" "$p"
+  done
+}
+
+# The adopter as README documents it: the framework a submodule at
+# ia-engineering/, the agents generated from the main checkout, then a linked
+# worktree as Claude Code creates one for an Employee. The runtime reads a
+# worktree subagent's definition from the main checkout's .claude/agents/.
+#
+# Its directory name holds a space, an accented letter and two CJK characters,
+# as a real user's folder does (C:/Users/Jérôme/..., Développement/). Under
+# the C locale cygpath wrote é as the byte \351 and cut the path off at 日本,
+# so every root named a directory that does not exist (Code Reviewer F1 on
+# PR #456). On Linux and macOS, where there is no cygpath, these are the same
+# checks on a path with the same bytes.
+ADOPTER_430="adopter-430 é日本"
+MOVED_430="adopter-430-moved é日本"
+new_repo "$ADOPTER_430"
+git -c protocol.file.allow=always submodule add -q "$FW_430" ia-engineering >/dev/null 2>&1
+git commit -q -m "chore(adopt): add the framework submodule"
+MAIN_430="$PWD"
+expect 0 "adopter: the agents are generated from the main checkout" -- \
+  bash ./ia-engineering/Adapters/ai-runtimes/generate-agents.sh
+GEN_OUT_430="$LAST_OUTPUT"
+git worktree add -q "$WORK/adopter-430-wt" -b feature/wt-430 >/dev/null 2>&1
+cd "$WORK/adopter-430-wt" || exit 1
+
+# The premise. Initialised, the cases below would pass for a reason that is
+# not the fix.
+TOTAL=$((TOTAL + 1))
+if [ -d ia-engineering ] && [ -z "$(ls -A ia-engineering)" ]; then
+  [ -n "$VERBOSE" ] && printf '   ok   the linked worktree has an empty ia-engineering/ (the premise)\n'
+else
+  printf '   FAIL the linked worktree ia-engineering/ is missing or not empty: the cases test nothing\n'
+  FAILED=$((FAILED + 1))
+fi
+
+# The acceptance case. Fails if one framework path any generated agent names
+# does not resolve from the worktree. Counted against the roster and with at
+# least one path per agent, so an empty or pathless output cannot pass.
+AGENTS_430=0
+PATHLESS_430=0
+UNRES_430=""
+for a430 in "$MAIN_430"/.claude/agents/*.md; do
+  [ -f "$a430" ] || continue
+  AGENTS_430=$((AGENTS_430 + 1))
+  grep -qE "$FWPATH_RE_430" "$a430" || PATHLESS_430=$((PATHLESS_430 + 1))
+  # $(...) drops the last newline: put it back, or one agent's last line and
+  # the next one's first are counted as one.
+  u430="$(unresolved_430 "$a430")"
+  [ -n "$u430" ] && UNRES_430="$UNRES_430$u430"$'\n'
+done
+TOTAL=$((TOTAL + 1))
+if [ "$AGENTS_430" -eq "$ROSTER_N_430" ] && [ "$PATHLESS_430" -eq 0 ] && [ -z "$UNRES_430" ]; then
+  [ -n "$VERBOSE" ] && printf '   ok   worktree: every framework path of all %s agents resolves\n' "$AGENTS_430"
+else
+  printf '   FAIL worktree: %s agents for %s roster Employees, %s naming no framework path, %s path(s) unresolved\n' \
+    "$AGENTS_430" "$ROSTER_N_430" "$PATHLESS_430" "$(printf '%s' "$UNRES_430" | grep -c .)"
+  printf '%s\n' "$UNRES_430" | head -n 5 | sed 's/^/        | /'
+  FAILED=$((FAILED + 1))
+fi
+
+# The root named is the main checkout's framework, by identity: the one git
+# runs the hooks from (WU-IAENG-414), never a path inside this worktree.
+BADROOT_430=""
+for a430 in "$MAIN_430"/.claude/agents/*.md; do
+  r430="$(root_430 "$a430")"
+  if [ -z "$r430" ] || ! [ "$r430" -ef "$MAIN_430/ia-engineering" ]; then
+    BADROOT_430="$BADROOT_430 ${a430##*/}=${r430:-none}"
+  fi
+done
+TOTAL=$((TOTAL + 1))
+if [ -z "$BADROOT_430" ]; then
+  [ -n "$VERBOSE" ] && printf '   ok   every agent names the main checkout framework as its root\n'
+else
+  printf '   FAIL agents naming no root or another one:%s\n' "$(printf '%s' "$BADROOT_430" | cut -c1-300)"
+  FAILED=$((FAILED + 1))
+fi
+
+# Written as the runtime's file tools open it. Under Git Bash, pwd says /c/...
+# or /tmp/..., spellings only MSYS reads; a Windows path has a drive letter.
+ROOT_430="$(root_430 "$MAIN_430/.claude/agents/devops-engineer.md")"
+TOTAL=$((TOTAL + 1))
+if command -v cygpath >/dev/null 2>&1; then NATIVE_RE_430='^[A-Za-z]:/'; else NATIVE_RE_430='^/'; fi
+if grep -qE "$NATIVE_RE_430" <<< "$ROOT_430"; then
+  [ -n "$VERBOSE" ] && printf '   ok   the root is a native absolute path: %s\n' "$ROOT_430"
+else
+  printf '   FAIL the root %s is not a native absolute path (%s)\n' "${ROOT_430:-<none>}" "$NATIVE_RE_430"
+  FAILED=$((FAILED + 1))
+fi
+LAST_OUTPUT="$GEN_OUT_430"
+expect_output "  framework root, named in every agent: $ROOT_430"
+
+# The framework repository's own agents are unchanged: no section, no root,
+# and --check stays green there. Whether a project is the framework is a
+# question of identity, not of roster, so this copy of the fixture keeps two
+# Employees: each full pass costs minutes on a loaded Windows machine.
+mkdir -p "$WORK/fw-430-self"
+cp -R "$FW_430/Adapters" "$FW_430/Employees" "$FW_430/Registry" "$WORK/fw-430-self/"
+awk '/^  - name: /{ n++ } n <= 2' "$FW_430/Registry/employees.yml" > "$WORK/fw-430-self/Registry/employees.yml"
+cd "$WORK/fw-430-self" || exit 1
+expect 0 "framework: the agents are generated" -- bash Adapters/ai-runtimes/generate-agents.sh
+expect_no_output "framework root, named in every agent" "framework: the summary names no framework root"
+TOTAL=$((TOTAL + 1))
+if [ "$(find .claude/agents -name '*.md' | grep -c .)" -eq 2 ] \
+  && ! grep -lE '^## Where the Framework Is$|^Framework root: ' .claude/agents/*.md >/dev/null 2>&1; then
+  [ -n "$VERBOSE" ] && printf '   ok   framework: its own agents carry no framework location section\n'
+else
+  printf '   FAIL framework: its own agents carry a framework location section, or were not written\n'
+  FAILED=$((FAILED + 1))
+fi
+expect 0 "framework: --check stays green" -- bash Adapters/ai-runtimes/generate-agents.sh --check
+
+# ...and byte for byte where the section would go. On 75765ba the header's
+# last line is followed by one blank line and the first Employee section,
+# "## Mission". A generator that prints even an empty section there adds a
+# line to every framework agent, which the checks above do not see, and every
+# framework clone's --check then blames Employees/ (Code Reviewer F3).
+LAYOUT_BAD_430=""
+for a430 in .claude/agents/*.md; do
+  awk -v hdr="trailer, and the commit-msg hook validates that name against the roster." '
+    $0 == hdr && !at { at = NR; next }
+    at && NR == at + 1 { l1 = $0 }
+    at && NR == at + 2 { l2 = $0; exit }
+    END { exit (at && l1 == "" && l2 == "## Mission") ? 0 : 1 }
+  ' "$a430" || LAYOUT_BAD_430="$LAYOUT_BAD_430 ${a430##*/}"
+done
+TOTAL=$((TOTAL + 1))
+if [ -z "$LAYOUT_BAD_430" ]; then
+  [ -n "$VERBOSE" ] && printf '   ok   framework: the header is followed by one blank line and ## Mission, as on 75765ba\n'
+else
+  printf '   FAIL framework: the lines after the header changed in:%s\n' "$LAYOUT_BAD_430"
+  FAILED=$((FAILED + 1))
+fi
+
+# The framework outside the project: --project names a directory that does not
+# contain it. The walk up from the framework reaches the filesystem root and
+# must stop there; with that stop deleted it never ends (Code Reviewer F2), so
+# the run is bounded. The agents name the framework itself, in the outside
+# wording, with no prefix to drop.
+mkdir -p "$WORK/outside-430"
+expect 0 "outside: the generator terminates within 120 s and writes the agents" -- \
+  timeout 120 bash Adapters/ai-runtimes/generate-agents.sh --project "$WORK/outside-430"
+OUT_AGENT_430="$(find "$WORK/outside-430/.claude/agents" -name '*.md' 2>/dev/null | head -n 1)"
+OUT_ROOT_430="$(root_430 "${OUT_AGENT_430:-/dev/null}")"
+TOTAL=$((TOTAL + 1))
+if [ -n "$OUT_ROOT_430" ] && [ "$OUT_ROOT_430" -ef "$WORK/fw-430-self" ] \
+  && grep -qxF "This project uses IA Engineering from outside its own tree. Read every" "$OUT_AGENT_430" \
+  && ! grep -qF "This project imports IA Engineering at" "$OUT_AGENT_430"; then
+  [ -n "$VERBOSE" ] && printf '   ok   outside: the root is the framework, in the outside wording\n'
+else
+  printf '   FAIL outside: root %s, or not the outside wording, in %s\n' "${OUT_ROOT_430:-<none>}" "${OUT_AGENT_430:-<no agent>}"
+  FAILED=$((FAILED + 1))
+fi
+
+# A root that would not name the framework is refused and nothing is written
+# (F1). A cygpath first on PATH that answers with another directory stands in
+# for the C-locale conversion that wrote D\351veloppement; it works the same on
+# a platform with no cygpath of its own.
+mkdir -p "$WORK/fakebin-430" "$WORK/refuse-430"
+printf '#!/bin/sh\necho /nonexistent-430/ia-engineering\n' > "$WORK/fakebin-430/cygpath"
+chmod +x "$WORK/fakebin-430/cygpath"
+expect 2 "a framework root that names another directory is refused" -- \
+  env PATH="$WORK/fakebin-430:$PATH" bash Adapters/ai-runtimes/generate-agents.sh --project "$WORK/refuse-430"
+expect_output "generate-agents.sh: cannot write the framework root as a path that names it."
+TOTAL=$((TOTAL + 1))
+if [ -e "$WORK/refuse-430/.claude/agents" ]; then
+  printf '   FAIL a refused framework root still wrote agents\n'
+  FAILED=$((FAILED + 1))
+else
+  [ -n "$VERBOSE" ] && printf '   ok   a refused framework root writes no agent\n'
+fi
+
+# --check after the project moves: every agent names the old root. A
+# Strategic tier now mapped to another model makes the Strategic agents
+# differ in their mapping too. Neither is blamed on Employees/. The command is
+# the remedy the section prints, run as printed from the main checkout: a
+# wrong path of the framework inside the project fails it with 127. The
+# expected new root is the validated old one with the move applied.
+cd "$MAIN_430" || exit 1
+REGEN_430="$(sed -n "s/^${BT_430}\(\.\/[^${BT_430}]*generate-agents\.sh\)${BT_430}\.\$/\1/p" .claude/agents/devops-engineer.md | head -n 1)"
+cd "$WORK" || exit 1
+mv "$ADOPTER_430" "$MOVED_430"
+cd "$WORK/$MOVED_430" || exit 1
+mkdir -p .ia-engineering
+printf 'map=strategic=b-model\n' > .ia-engineering/tier-map
+MOVED_ROOT_430="${ROOT_430%"/$ADOPTER_430/ia-engineering"}/$MOVED_430/ia-engineering"
+expect 1 "--check after a move, run as the section prints it: every agent is stale" -- \
+  bash "${REGEN_430:-<no command printed>}" --check
+expect_output "Result: 0 current, $ROSTER_N_430 stale or missing"
+expect_output "devops-engineer.md (framework location only: on disk $ROOT_430; resolved $MOVED_ROOT_430)"
+expect_output "software-architect.md (mapping and framework location: on disk opus, effort: high, root $ROOT_430; resolved b-model, effort: high, root $MOVED_ROOT_430)"
+expect_output "  $ROSTER_N_430 name a framework root other than this one ($MOVED_ROOT_430):"
+expect_no_output "out of date with Employees/" "--check: a framework root difference is not blamed on Employees/"
 
 # --------------------------------------------------------------- verdict ----
 
