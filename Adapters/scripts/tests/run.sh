@@ -12401,14 +12401,13 @@ AD_434="$WORK/$AD_NAME_434"
 COPY_434="$WORK/adopter-434-copy é日本"
 G_434=./ia-engineering/Adapters/ai-runtimes/generate-agents.sh
 REGEN_CMD_434="./ia-engineering/Adapters/ai-runtimes/generate-agents.sh --target claude-code"
-# ss_434 <project> — session-start.sh's output in LAST_OUTPUT, its exit in
-# SS_RC, run as Claude Code runs it, with the drift check out of the way: a
+# ss_434 <project> — session-start.sh's output in LAST_OUTPUT, run as Claude
+# Code runs it, with the drift check out of the way: a
 # `timeout` first on PATH that runs nothing (the drift check has its own bench,
 # hooks/tests/drift.sh), and the user cache inside the test directory.
 ss_434() {
   LAST_OUTPUT="$(cd "$1" && env CLAUDE_PROJECT_DIR="$1" XDG_CACHE_HOME="$WORK/cache-434" \
     PATH="$WORK/notimeout-434:$PATH" bash ./ia-engineering/Adapters/ai-runtimes/claude-code/hooks/session-start.sh </dev/null 2>&1)"
-  SS_RC=$?
 }
 # regen_line — the command printed after "Regenerate" by the last --check run.
 regen_line() { sed -n '/^  Regenerate/{n;s/^    //;p;}' <<< "$LAST_OUTPUT" | head -n 1; }
@@ -12703,7 +12702,7 @@ done
 if [ -z "$MISSING_SLUG_434" ]; then
   pass_434 "slug: ux-ui-designer, r-d-ops-lead-2 and ric-data, as worked by hand"
 else
-  fail_434 "slug: ux-ui-designer, r-d-ops-lead-2 and ric-data, as worked by hand" "missing:$MISSING_SLUG_434; written: $(ls "$SLUG_434/.claude/agents" 2>&1 | tr '\n' ' ')"
+  fail_434 "slug: ux-ui-designer, r-d-ops-lead-2 and ric-data, as worked by hand" "missing:$MISSING_SLUG_434; written: $(find "$SLUG_434/.claude/agents" -name '*.md' 2>&1 | tr '\n' ' ')"
 fi
 expect 0 "slug: the quick check finds each of them" -- bash "$FW_434/Adapters/ai-runtimes/generate-agents.sh" --project "$SLUG_434" --check --quick --format tsv
 expect_output "0 to act on. 6 agent(s): 6 present, 0 missing, 0 stale."
