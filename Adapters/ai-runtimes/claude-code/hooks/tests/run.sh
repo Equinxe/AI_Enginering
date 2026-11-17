@@ -920,6 +920,51 @@ else
 fi
 rm -f "$SHAPES_COUNTS"
 
+# --- ... and those counts reach the verdict (WU-IAENG-437, PR #473 review F2) -
+# The block above is the only path by which a failing settings-shapes.sh
+# makes this run fail. With its FAILED addition deleted, every check stayed
+# green. So it is checked here as it is written: copied out of this file,
+# from its header line to its last line, and run from TOTAL=0 FAILED=0
+# against a stub settings-shapes.sh whose counts file and exit status each
+# case chooses. The expected totals are the block's contract: a suite's two
+# counts are added; a non-zero exit with no failed check counted is one
+# failure more; no counts, or counts that are not two numbers, is one
+# failure. A block that cannot be copied out (its header renamed) fails
+# every case, never passes one.
+echo "== the settings-shapes.sh counts reach the total"
+AGG_DIR="$(mktemp -d "${TMPDIR:-/tmp}/iaeng-shapes-agg.XXXXXX")"
+AGG_BLOCK="$(sed -n '/^# --- install-hooks\.sh, a settings\.json without "hooks" (WU-IAENG-437)/,/^rm -f "\$SHAPES_COUNTS"$/p' "$HERE/run.sh")"
+# agg_case <label> <the stub's counts line, empty for none> <its exit> <"TOTAL FAILED" the block must leave> [a line it must print]
+agg_case() {
+  local label="$1" counts="$2" rc="$3" want="$4" say="${5:-}" out got
+  TOTAL=$((TOTAL + 1))
+  {
+    echo '#!/usr/bin/env bash'
+    [ -z "$counts" ] || echo "echo \"$counts\" > \"\$IAENG_HOOK_TESTS_COUNTS\""
+    echo "exit $rc"
+  } > "$AGG_DIR/settings-shapes.sh"
+  {
+    echo '#!/usr/bin/env bash'
+    printf 'HERE=%q; DASH_ARGS=(); TOTAL=0; FAILED=0\n' "$AGG_DIR"
+    printf '%s\n' "$AGG_BLOCK"
+    echo "echo \"totals: \$TOTAL \$FAILED\""
+  } > "$AGG_DIR/block.sh"
+  out="$(bash "$AGG_DIR/block.sh" 2>&1)"
+  got="$(printf '%s\n' "$out" | sed -n 's/^totals: //p')"
+  if [ -n "$AGG_BLOCK" ] && [ "$got" = "$want" ] && { [ -z "$say" ] || grep -qF -- "$say" <<< "$out"; }; then
+    [ "$VERBOSE" -eq 1 ] && printf '   ok    %s\n' "$label"
+  else
+    FAILED=$((FAILED + 1))
+    printf '   FAIL  %s\n         totals [%s], want [%s]; output: %s\n' "$label" "$got" "$want" "$(printf '%s' "$out" | tr '\n' ' ' | head -c 300)"
+  fi
+}
+agg_case "a failing settings-shapes.sh (38 run, 2 failed, exit 1): both counts reach the total" "38 2" 1 "38 2"
+agg_case "a passing settings-shapes.sh (38 run, exit 0): 38 counted, none failed" "38 0" 0 "38 0"
+agg_case "exit 1 with no failed check counted: one failure more" "38 0" 1 "39 1" "exited 1 with no failed check counted"
+agg_case "no counts written (exit 2): one failure" "" 2 "1 1" "reported no counts (exit 2)"
+agg_case "counts that are not two numbers: one failure" "38 two" 0 "1 1" "reported no counts (exit 0)"
+rm -rf "$AGG_DIR"
+
 # --- Verdict ----------------------------------------------------------------
 
 echo
