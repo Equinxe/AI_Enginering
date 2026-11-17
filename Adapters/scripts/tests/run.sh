@@ -9328,6 +9328,13 @@ new_repo fw-358
 cp -R "$SCRIPTS/.." ./Adapters
 cp -R "$SCRIPTS/../../Registry" ./Registry
 cp "$SCRIPTS/../../.gitattributes" ./.gitattributes
+# The drift check compares the Employees' agents too (WU-IAENG-434), so the
+# fixture holds the Employee definitions, with a roster of one Employee to
+# keep each generation short, and install_358 generates the agents, as the
+# fresh-clone procedure does. An installed adopter is clean only with them.
+cp -R "$SCRIPTS/../../Employees" ./Employees
+awk '/^  - name: /{ seen = 1; keep = ($0 == "  - name: DevOps Engineer") } !seen || keep' \
+  "$SCRIPTS/../../Registry/employees.yml" > Registry/employees.yml
 head -n 60 Adapters/github-actions/pr-validation.yml > "$V1_358/pr-validation.yml"
 head -n 8 Adapters/ai-runtimes/claude-code/skills/dashboard/SKILL.md > "$V1_358/SKILL.md"
 cp "$V1_358/pr-validation.yml" Adapters/github-actions/pr-validation.yml
@@ -9360,6 +9367,7 @@ install_358() {
   bash ./ia-engineering/Adapters/scripts/setup-project-bootstrap.sh generic >/dev/null 2>&1
   bash ./ia-engineering/Adapters/ai-runtimes/claude-code/install-hooks.sh >/dev/null 2>&1
   bash ./ia-engineering/Adapters/ai-runtimes/claude-code/install-skills.sh >/dev/null 2>&1
+  bash ./ia-engineering/Adapters/ai-runtimes/generate-agents.sh >/dev/null 2>&1
 }
 
 # fields_358 — every record line of the previous output has four fields.
@@ -12371,6 +12379,426 @@ expect_output "devops-engineer.md (framework location only: on disk $ROOT_430; r
 expect_output "software-architect.md (mapping and framework location: on disk opus, effort: high, root $ROOT_430; resolved b-model, effort: high, root $MOVED_ROOT_430)"
 expect_output "  $ROSTER_N_430 name a framework root other than this one ($MOVED_ROOT_430):"
 expect_no_output "out of date with Employees/" "--check: a framework root difference is not blamed on Employees/"
+
+section "Every clone has its Employees, current, or is told (WU-IAENG-434, #411, #412, #418)"
+
+# pass_434 / fail_434 <label> [detail] — one check, counted.
+pass_434() { TOTAL=$((TOTAL + 1)); [ -n "$VERBOSE" ] && printf '   ok   %s\n' "$1"; return 0; }
+fail_434() {
+  TOTAL=$((TOTAL + 1)); FAILED=$((FAILED + 1))
+  printf '   FAIL %s\n' "$1"
+  [ -z "${2:-}" ] || printf '%s\n' "$2" | sed 's/^/        | /'
+  return 0
+}
+T434=$'\t'
+BT434='`'
+# The bench's paths. The adopter's directory name holds a space, an accented
+# letter and two CJK characters, as a real user's folder does
+# (C:/Users/Jérôme/...).
+FW_434="$WORK/fw-434"
+AD_NAME_434="adopter-434 é日本"
+AD_434="$WORK/$AD_NAME_434"
+COPY_434="$WORK/adopter-434-copy é日本"
+G_434=./ia-engineering/Adapters/ai-runtimes/generate-agents.sh
+REGEN_CMD_434="./ia-engineering/Adapters/ai-runtimes/generate-agents.sh --target claude-code"
+# ss_434 <project> — session-start.sh's output in LAST_OUTPUT, its exit in
+# SS_RC, run as Claude Code runs it, with the drift check out of the way: a
+# `timeout` first on PATH that runs nothing (the drift check has its own bench,
+# hooks/tests/drift.sh), and the user cache inside the test directory.
+ss_434() {
+  LAST_OUTPUT="$(cd "$1" && env CLAUDE_PROJECT_DIR="$1" XDG_CACHE_HOME="$WORK/cache-434" \
+    PATH="$WORK/notimeout-434:$PATH" bash ./ia-engineering/Adapters/ai-runtimes/claude-code/hooks/session-start.sh </dev/null 2>&1)"
+  SS_RC=$?
+}
+# regen_line — the command printed after "Regenerate" by the last --check run.
+regen_line() { sed -n '/^  Regenerate/{n;s/^    //;p;}' <<< "$LAST_OUTPUT" | head -n 1; }
+# root_434 <agent> — the framework root an agent names, or nothing.
+root_434() { sed -n "s/^Framework root: ${BT434}\(.*\)${BT434}\$/\1/p" "$1" | head -n 1; }
+
+# --- the bench -----------------------------------------------------------------
+# The framework fixture, with a roster of three Employees, two at Strategic
+# Judgment and one at Standard Execution: a 42-Employee generation costs
+# minutes on a loaded Windows machine, and every case below generates. Then the
+# adopter, as README documents it: the framework a submodule at ia-engineering/.
+new_repo fw-434
+for d434 in Core Standards Templates Workflows Employees Registry Adapters Governance; do
+  cp -R "$SCRIPTS/../../$d434" "./$d434"
+done
+cp "$SCRIPTS/../../.gitattributes" ./.gitattributes
+awk '/^  - name: /{ seen = 1; keep = ($0 ~ /^  - name: (Software Architect|Solution Architect|DevOps Engineer)$/) } !seen || keep' \
+  "$SCRIPTS/../../Registry/employees.yml" > Registry/employees.yml
+git add -A && git commit -q -m "framework fixture, three Employees"
+if [ "$(grep -cE '^  - name: ' Registry/employees.yml)" -eq 3 ]; then
+  pass_434 "bench: the fixture roster has three Employees"
+else
+  fail_434 "bench: the fixture roster has three Employees" "$(grep -E '^  - name: ' Registry/employees.yml)"
+fi
+new_repo "$AD_NAME_434"
+git -c protocol.file.allow=always submodule add -q "$FW_434" ia-engineering >/dev/null 2>&1
+git commit -q -m "chore(adopt): add the framework submodule"
+mkdir -p "$WORK/notimeout-434"
+printf '#!/bin/sh\nexit 0\n' > "$WORK/notimeout-434/timeout"
+chmod +x "$WORK/notimeout-434/timeout"
+
+# --- #418: a relative --project or --roster is read from where it was run ----
+cd "$AD_434" || exit 1
+mkdir -p .ia-engineering sub-434
+printf 'map=standard=adopter-model\n' > .ia-engineering/tier-map
+expect 0 "#418: --project . from the adopter root resolves the mapping" -- bash "$G_434" --project . --print-tier-map
+expect_line "# mapping: file ($AD_434/.ia-engineering/tier-map)"
+expect 0 "#418: --project . --dry-run" -- bash "$G_434" --project . --dry-run
+expect_line "  project: $AD_434"
+expect_line "  output:  $AD_434/.claude/agents"
+expect 0 "#418: --project sub-434 --dry-run" -- bash "$G_434" --project sub-434 --dry-run
+expect_line "  project: $AD_434/sub-434"
+mkdir -p roster-434
+printf '%s\n' "# Mission" "" "The Probe Lead tests names." > roster-434/PROBE.md
+printf '%s\n' "employees:" "  - name: Probe Lead" "    file: roster-434/PROBE.md" \
+  "    category: Testing" "    tier: Standard Execution" > roster-434/extra.yml
+expect 0 "#418: a relative --roster is read from the directory it was run from" -- \
+  bash "$G_434" --roster roster-434/extra.yml --dry-run
+expect_output "  project roster: $AD_434/roster-434/extra.yml (1 Domain Employee(s))"
+LAST_OUTPUT="$(cd "$AD_434" && env -u CLAUDE_PROJECT_DIR XDG_CACHE_HOME="$WORK/cache-434" \
+  PATH="$WORK/notimeout-434:$PATH" bash ./ia-engineering/Adapters/ai-runtimes/claude-code/hooks/session-start.sh </dev/null 2>&1)"
+expect_output "Tier map in force — mapping: file ("
+expect_output "map=strategic=opus,standard=adopter-model,"
+
+# --- the quick check, and session start, in a fresh clone (no agent) --------
+cd "$AD_434" || exit 1
+expect 1 "quick: no agent generated, each one missing" -- bash "$G_434" --check --quick --format tsv
+expect_output "# generate-agents.sh --check --quick: 3 to act on. 3 agent(s): 0 present, 3 missing, 0 stale."
+expect_line "agent${T434}missing${T434}.claude/agents/devops-engineer.md${T434}"
+expect_line "# regenerate: $REGEN_CMD_434"
+ss_434 "$AD_434"
+expect_line "IA Engineering agents: 3 of 3 roster Employees have no agent in .claude/agents/ (software-architect, solution-architect, devops-engineer). Agents are generated in each clone and never committed. Regenerate them before dispatching any Employee: $REGEN_CMD_434"
+SS_CMD_434="$(sed -n 's/.*Regenerate them before dispatching any Employee: //p' <<< "$LAST_OUTPUT" | head -n 1)"
+expect 0 "session start: the command it prints runs as printed from the project root" -- eval "$SS_CMD_434"
+if [ "$(find .claude/agents -name '*.md' 2>/dev/null | grep -c .)" -eq 3 ]; then
+  pass_434 "... and writes one agent per roster Employee"
+else
+  fail_434 "... and writes one agent per roster Employee" "$(ls -la .claude/agents 2>&1)"
+fi
+expect 0 "quick: every agent present and naming this framework" -- bash "$G_434" --check --quick --format tsv
+expect_output "# generate-agents.sh --check --quick: 0 to act on. 3 agent(s): 3 present, 0 missing, 0 stale."
+expect_no_output "# regenerate:" "quick: nothing to act on, no command printed"
+TOTAL=$((TOTAL + 1))
+if [ -z "$(printf '%s\n' "$LAST_OUTPUT" | awk -F'\t' '!/^#/ && NF && NF != 4')" ]; then
+  [ -n "$VERBOSE" ] && printf '   ok   quick: every tsv record has four fields\n'
+else
+  printf '   FAIL quick: a tsv record without four fields\n'; FAILED=$((FAILED + 1))
+fi
+ss_434 "$AD_434"
+expect_no_output "IA Engineering agents" "session start: every agent present and naming this framework, not one line"
+
+# --- the identity check: a root that exists is not trusted for existing -----
+# A copy of the project: its agents name the ORIGINAL's framework, which is
+# still there. Only identity tells it is not this project's.
+ROOT_434="$(root_434 "$AD_434/.claude/agents/devops-engineer.md")"
+cd "$WORK" || exit 1
+cp -R "$AD_NAME_434" "$COPY_434"
+cd "$COPY_434" || exit 1
+TOTAL=$((TOTAL + 1))
+if [ -d "$ROOT_434" ]; then
+  [ -n "$VERBOSE" ] && printf '   ok   the premise: the root the copied agents name exists\n'
+else
+  printf '   FAIL the premise: the root the copied agents name (%s) does not exist\n' "$ROOT_434"; FAILED=$((FAILED + 1))
+fi
+expect 1 "quick: in a copy, the agents name the original's framework, which exists: stale" -- \
+  bash "$G_434" --check --quick --format tsv
+expect_output "3 to act on. 3 agent(s): 0 present, 0 missing, 3 stale."
+expect_output "${T434}its framework root $ROOT_434 is not this project's framework: the project moved, or it was generated in another clone"
+ss_434 "$COPY_434"
+expect_output "IA Engineering agents: 3 of 3 agents are stale (software-architect, solution-architect, devops-engineer): the framework root each one names is not this project's framework"
+expect_output "Regenerate them before dispatching any Employee: $REGEN_CMD_434"
+expect 0 "the copy regenerates its own" -- bash "$G_434"
+expect 0 "quick: the copy's agents now name the copy's framework" -- bash "$G_434" --check --quick --format tsv
+
+# Each other root an agent can name, one agent at a time.
+A_434=.claude/agents/devops-engineer.md
+cp "$A_434" "$WORK/devops-434.md"
+# setroot_434 <root> — the saved agent with its root line naming <root>. The
+# root reaches awk through the environment: -v would read its backslashes as
+# escapes.
+setroot_434() {
+  R434="$1" awk -v bt="$BT434" 'BEGIN { r = ENVIRON["R434"] }
+    /^Framework root: `.*`$/ && !done { print "Framework root: " bt r bt; done = 1; next } { print }' \
+    "$WORK/devops-434.md" > "$A_434"
+}
+grep -v '^Framework root: ' "$WORK/devops-434.md" > "$A_434"
+expect 1 "quick: an agent naming no root (written before agents named one)" -- bash "$G_434" --check --quick --format tsv
+expect_line "agent${T434}stale${T434}.claude/agents/devops-engineer.md${T434}it names no framework root: it was written before agents named one, or for the framework repository itself"
+setroot_434 "//host-434/share/ia-engineering"
+expect 1 "quick: a network root is stale, and never opened" -- bash "$G_434" --check --quick --format tsv
+expect_output "${T434}its framework root //host-434/share/ia-engineering is a network path, never opened here"
+setroot_434 '\\host-434\share'
+expect 1 "quick: a network root in backslashes" -- bash "$G_434" --check --quick --format tsv
+expect_output "is a network path, never opened here"
+setroot_434 "ia-engineering"
+expect 1 "quick: a relative root" -- bash "$G_434" --check --quick --format tsv
+expect_output "${T434}its framework root ia-engineering is not an absolute path"
+COPY_ROOT_434="$(root_434 "$WORK/devops-434.md")"
+sed 's/$/\r/' "$WORK/devops-434.md" > "$A_434"
+expect 0 "quick: an agent with CRLF line endings still names its root" -- bash "$G_434" --check --quick --format tsv
+setroot_434 "$COPY_ROOT_434/../ia-engineering"
+expect 0 "quick: the same directory spelled another way is this framework (identity, not spelling)" -- \
+  bash "$G_434" --check --quick --format tsv
+setroot_434 "/x-434"$'\033'"[31m/y"
+expect 1 "quick: a root holding an escape sequence" -- bash "$G_434" --check --quick --format tsv
+TOTAL=$((TOTAL + 1))
+if grep -q $'\033' <<< "$LAST_OUTPUT"; then
+  printf '   FAIL quick: an escape sequence from an agent file reached the output\n'; FAILED=$((FAILED + 1))
+else
+  [ -n "$VERBOSE" ] && printf '   ok   quick: no escape sequence from an agent file reaches the output\n'
+fi
+# The generator's record sanitiser is the TSV emitters' one, byte for byte.
+SAN_REF_434="$(sed -n '/^# >>> record sanitiser/,/^# <<< record sanitiser/p' "$SCRIPTS/install.sh")"
+SAN_GEN_434="$(sed -n '/^# >>> record sanitiser/,/^# <<< record sanitiser/p' "$GEN")"
+if [ -n "$SAN_REF_434" ] && [ "$SAN_REF_434" = "$SAN_GEN_434" ]; then
+  pass_434 "generate-agents.sh: the record sanitiser block is byte-identical to install.sh's"
+else
+  fail_434 "generate-agents.sh: the record sanitiser block is byte-identical to install.sh's" "$(diff <(printf '%s\n' "$SAN_REF_434") <(printf '%s\n' "$SAN_GEN_434"))"
+fi
+ss_434 "$COPY_434"
+TOTAL=$((TOTAL + 1))
+if grep -q $'\033' <<< "$LAST_OUTPUT" || ! grep -q "1 of 3 agents are stale (devops-engineer)" <<< "$LAST_OUTPUT"; then
+  printf '   FAIL session start: the stale agent is not named alone, or an escape reached the session\n'; FAILED=$((FAILED + 1))
+else
+  [ -n "$VERBOSE" ] && printf '   ok   session start names the stale agent and nothing of its root\n'
+fi
+cp "$WORK/devops-434.md" "$A_434"
+
+# --- DEF-02: the tier map, and the quick check, survive a refused root -------
+# A cygpath first on PATH that answers with another directory: a generation
+# refuses that root (WU-IAENG-430). Session start's call names no root and
+# must go on.
+cd "$AD_434" || exit 1
+mkdir -p "$WORK/fakebin-434"
+printf '#!/bin/sh\necho /nonexistent-434/ia-engineering\n' > "$WORK/fakebin-434/cygpath"
+chmod +x "$WORK/fakebin-434/cygpath"
+expect 2 "DEF-02 premise: that root refuses a generation" -- env PATH="$WORK/fakebin-434:$PATH" bash "$G_434" --dry-run
+expect_output "cannot write the framework root as a path that names it."
+expect 0 "DEF-02: --print-tier-map survives a refused framework root" -- \
+  env PATH="$WORK/fakebin-434:$PATH" bash "$G_434" --print-tier-map
+expect_output "map=strategic=opus,standard=adopter-model,"
+expect 0 "DEF-02: session start's call survives it too, map and quick check" -- \
+  env PATH="$WORK/fakebin-434:$PATH" bash "$G_434" --print-tier-map --check --quick --format tsv
+expect_output "map=strategic=opus,standard=adopter-model,"
+expect_output "# generate-agents.sh --check --quick: 0 to act on."
+
+# --- DEF-01: --check's counts add up ----------------------------------------
+# One agent differs in its mapping only (Software Architect), one in its root
+# only (DevOps Engineer), one in both (Solution Architect). On 65524d2 the
+# "mapping only" line counted two, the location line two, three in all.
+cd "$AD_434" || exit 1
+ROOT_434="$(root_434 .claude/agents/devops-engineer.md)"
+printf 'map=strategic=s2-model,standard=adopter-model\n' > .ia-engineering/tier-map
+# Every occurrence of the root, as a move changes them all: the root line and
+# the worked example under it.
+for a434 in solution-architect devops-engineer; do
+  c434="$(cat ".claude/agents/$a434.md")"
+  printf '%s\n' "${c434//"$ROOT_434"/"/old-434/ia-engineering"}" > ".claude/agents/$a434.md"
+done
+expect 1 "DEF-01: one mapping only, one root only, one both" -- bash "$G_434" --check
+expect_output "Result: 0 current, 3 stale or missing"
+expect_line "  1 differ in the tier mapping only (model/effort), not in their"
+expect_line "  2 name a framework root other than this one ($ROOT_434):"
+expect_line "  1 of them also differ in the tier mapping (model/effort): the"
+expect_no_output "out of date with Employees/" "DEF-01: none of them is blamed on Employees/"
+SUM_434="$(awk '/^  [0-9]+ (differ in the tier mapping only|name a framework root other than|out of date with)/ { s += $1 } END { print s + 0 }' <<< "$LAST_OUTPUT")"
+if [ "$SUM_434" -eq 3 ]; then
+  pass_434 "DEF-01: the summary's groups add up to the 3 agents that differ"
+else
+  fail_434 "DEF-01: the summary's groups add up to the 3 agents that differ" "they add up to $SUM_434"
+fi
+
+# --- #412: the command --check prints runs as printed ------------------------
+REGEN_434="$(regen_line)"
+expect_line "    $REGEN_CMD_434"
+expect 0 "#412: the printed command runs as printed from the adopter root" -- eval "$REGEN_434"
+expect 0 "#412: ... and leaves every agent current" -- bash "$G_434" --check
+printf 'map=strategic=s3-model,standard=adopter-model\n' > .ia-engineering/tier-map
+cd "$AD_434/ia-engineering" || exit 1
+expect 1 "#412: --check run from inside the framework, --project .." -- \
+  bash ./Adapters/ai-runtimes/generate-agents.sh --check --project ..
+REGEN_434="$(regen_line)"
+expect_output "--project '$AD_434'"
+expect 0 "#412: the printed command runs as printed from there" -- eval "$REGEN_434"
+cd "$AD_434" || exit 1
+expect 0 "#412: ... and regenerated the project's agents" -- bash "$G_434" --check
+if [ -e "$AD_434/ia-engineering/.claude/agents" ]; then
+  fail_434 "#412: ... and wrote nothing into the framework's own .claude/agents"
+else
+  pass_434 "#412: ... and wrote nothing into the framework's own .claude/agents"
+fi
+expect 1 "#412: --check with --map" -- bash "$G_434" --check --map strategic=flag-model
+REGEN_434="$(regen_line)"
+expect_output "--map strategic=flag-model"
+expect 0 "#412: the printed command carries --map" -- eval "$REGEN_434"
+expect 0 "#412: ... and generates what was checked" -- bash "$G_434" --check --map strategic=flag-model
+expect 0 "back to the project's mapping" -- bash "$G_434"
+
+# --- #411: the drift check reports missing and stale agents ------------------
+cd "$AD_434" || exit 1
+DRIFT_434=./ia-engineering/Adapters/scripts/check-framework-drift.sh
+# act_434 — the "N to act on" of the last drift run's summary.
+act_434() { sed -n 's/^# check-framework-drift: \([0-9]*\) to act on.*/\1/p' <<< "$LAST_OUTPUT"; }
+expect 0 "#411: the drift check reads the agents" -- bash "$DRIFT_434" --format tsv
+expect_line "agent${T434}current${T434}.claude/agents/devops-engineer.md${T434}"
+expect_output "3 agent item(s): 3 current."
+ACT0_434="$(act_434)"
+# What an upgrade does to a definition: a sentence added to its Mission.
+sed 's/^# Mission$/# Mission\
+\
+An added sentence, as an upgrade adds one./' ia-engineering/Employees/DevOps/DEVOPS_ENGINEER.md > "$WORK/devops-def-434.md"
+cp "$WORK/devops-def-434.md" ia-engineering/Employees/DevOps/DEVOPS_ENGINEER.md
+rm .claude/agents/software-architect.md
+expect 0 "#411: an Employee definition changed and an agent deleted" -- bash "$DRIFT_434" --format tsv
+expect_line "agent${T434}stale${T434}.claude/agents/devops-engineer.md${T434}out of date with Employees/ or the roster. Regenerate: $REGEN_CMD_434"
+expect_line "agent${T434}missing${T434}.claude/agents/software-architect.md${T434}not generated in this clone (agents are generated per clone, never committed): $REGEN_CMD_434"
+expect_output "3 agent item(s): 1 current, 1 missing, 1 stale."
+ACT1_434="$(act_434)"
+if [ -n "$ACT0_434" ] && [ "$ACT1_434" = "$((ACT0_434 + 2))" ]; then
+  pass_434 "#411: the stale and the missing agent are two more items to act on ($ACT0_434, then $ACT1_434)"
+else
+  fail_434 "#411: the stale and the missing agent are two more items to act on" "before: ${ACT0_434:-none}, after: ${ACT1_434:-none}"
+fi
+DRIFT_CMD_434="$(awk -F'\t' '$1 == "agent" && $2 == "stale" { sub(/.*Regenerate: /, "", $4); print $4; exit }' <<< "$LAST_OUTPUT")"
+expect 0 "#411: the remedy runs as printed from the project root" -- eval "$DRIFT_CMD_434"
+expect 0 "#411: ... and the drift check then finds every agent current" -- bash "$DRIFT_434" --format tsv
+expect_output "3 agent item(s): 3 current."
+expect 0 "#411: --quick does not compare the agents, and says so" -- bash "$DRIFT_434" --quick --format tsv
+expect_line "agent${T434}not-evaluated${T434}.claude/agents/${T434}--quick compares no agent with Employees/; session start checks each one exists and names this project's framework. A run without --quick compares them: ia-engineering/Adapters/scripts/check-framework-drift.sh"
+printf 'nonsense\n' > .ia-engineering/tier-map
+expect 0 "#411: a generator that refuses is indeterminate, never clean" -- bash "$DRIFT_434" --format tsv
+expect_output "agent${T434}indeterminate${T434}.claude/agents/${T434}generate-agents.sh --check exited 2 without a result: generate-agents.sh: "
+ss_434 "$AD_434"
+expect_output "WARNING: the tier map could not be resolved"
+expect_no_output "IA Engineering agents" "session start: a refused tier map stops the check, said by the warning alone"
+printf 'map=standard=adopter-model\n' > .ia-engineering/tier-map
+git -C ia-engineering checkout -q -- Employees/DevOps/DEVOPS_ENGINEER.md
+expect 0 "restore: regenerate" -- bash "$G_434"
+mv ia-engineering/Registry/employees.yml "$WORK/employees-434.yml"
+ss_434 "$AD_434"
+expect_output "IA Engineering agents: not checked (generate-agents.sh: Registry/employees.yml not found.)"
+mv "$WORK/employees-434.yml" ia-engineering/Registry/employees.yml
+
+# --- the agent's file name: one rule, by hand ------------------------------
+# The generation and the quick check read the same name from the roster. The
+# expected names are worked by hand from the rule: lower-case A-Z, every run of
+# other characters one hyphen, none at either end.
+SLUG_434="$WORK/slug-434"
+mkdir -p "$SLUG_434/.ia-engineering/Registry" "$SLUG_434/emp"
+printf '%s\n' "# Mission" "" "The Probe tests names." > "$SLUG_434/emp/PROBE.md"
+{
+  echo "employees:"
+  for n434 in "UX/UI Designer" "R&D / Ops Lead 2" "Éric Data"; do
+    printf '%s\n' "  - name: $n434" "    file: emp/PROBE.md" "    category: Testing" "    tier: Standard Execution"
+  done
+} > "$SLUG_434/.ia-engineering/Registry/employees.yml"
+expect 0 "slug: the generation writes the Domain Employees" -- bash "$FW_434/Adapters/ai-runtimes/generate-agents.sh" --project "$SLUG_434"
+MISSING_SLUG_434=""
+for s434 in ux-ui-designer r-d-ops-lead-2 ric-data; do
+  [ -f "$SLUG_434/.claude/agents/$s434.md" ] || MISSING_SLUG_434="$MISSING_SLUG_434 $s434"
+done
+if [ -z "$MISSING_SLUG_434" ]; then
+  pass_434 "slug: ux-ui-designer, r-d-ops-lead-2 and ric-data, as worked by hand"
+else
+  fail_434 "slug: ux-ui-designer, r-d-ops-lead-2 and ric-data, as worked by hand" "missing:$MISSING_SLUG_434; written: $(ls "$SLUG_434/.claude/agents" 2>&1 | tr '\n' ' ')"
+fi
+expect 0 "slug: the quick check finds each of them" -- bash "$FW_434/Adapters/ai-runtimes/generate-agents.sh" --project "$SLUG_434" --check --quick --format tsv
+expect_output "0 to act on. 6 agent(s): 6 present, 0 missing, 0 stale."
+
+# --- the framework repository itself ----------------------------------------
+cd "$FW_434" || exit 1
+expect 0 "framework: its agents are generated" -- bash Adapters/ai-runtimes/generate-agents.sh
+expect 0 "framework: its agents name no root, which is right there" -- bash Adapters/ai-runtimes/generate-agents.sh --check --quick --format tsv
+expect_output "0 to act on. 3 agent(s): 3 present, 0 missing, 0 stale."
+
+# --- a committed agent is refused in an adopting project ---------------------
+# index_path stages a path without creating it, byte for byte.
+cd "$AD_434" || exit 1
+SCAN_434=./ia-engineering/Adapters/scripts/data-policy-scan.sh
+index_path ".claude/agents/devops-engineer.md"
+expect 1 "refused: an agent staged in an adopting project" -- bash "$SCAN_434" --staged
+expect_output "REFUSED  .claude/agents/devops-engineer.md"
+expect_output "an Employee agent of an adopting project — agents are generated in each clone and never committed"
+expect_output "Keep .claude/agents/ in .gitignore"
+git reset -q
+for p434 in "sub/.claude/agents/team/y.md" ".Claude/Agents/Z.MD"; do
+  index_path "$p434"
+  expect 1 "refused: $p434 (any depth, any letter case)" -- bash "$SCAN_434" --staged
+  expect_output "REFUSED  $p434"
+  git reset -q
+done
+for p434 in ".claude/agents/notes.txt" ".claude/agentsX/a.md" "docs/claude/agents/a.md"; do
+  index_path "$p434"
+  expect 0 "not this rule: $p434" -- bash "$SCAN_434" --staged
+  git reset -q
+done
+mkdir -p .ia-engineering
+printf '%s\n' '^\.claude/agents/own-agent\.md$' > .ia-engineering/data-policy.allow
+index_path ".claude/agents/own-agent.md"
+expect 0 "a hand-written agent of the project's own, in the allow file, is accepted" -- bash "$SCAN_434" --staged
+git reset -q
+rm .ia-engineering/data-policy.allow
+index_path ".claude/agents/committed.md"
+git commit -q -m "an agent committed without the hook"
+expect 1 "refused in the tree too (the server-side data-policy check)" -- bash "$SCAN_434" --tree HEAD
+expect_output "REFUSED  .claude/agents/committed.md"
+git reset -q --hard HEAD~1
+
+# The framework repository is out of scope: its own agents name no root.
+cd "$FW_434" || exit 1
+index_path ".claude/agents/devops-engineer.md"
+expect 0 "framework: its own agent is not refused" -- bash Adapters/scripts/data-policy-scan.sh --staged
+git reset -q
+# In a linked worktree of the framework, the hooks run from the main checkout
+# (core.hooksPath is absolute): the same repository, so not refused either.
+git worktree add -q "$WORK/fw-434-wt" -b wt-434 >/dev/null 2>&1
+cd "$WORK/fw-434-wt" || exit 1
+index_path ".claude/agents/devops-engineer.md"
+expect 0 "framework worktree, the main checkout's scanner: not refused" -- bash "$FW_434/Adapters/scripts/data-policy-scan.sh" --staged
+git reset -q
+# A plain copy of the framework inside a project is no checkout of its own.
+new_repo plain-434
+mkdir -p vendor/fw
+cp -R "$FW_434/Adapters" vendor/fw/Adapters
+index_path ".claude/agents/devops-engineer.md"
+expect 1 "a project with a plain copy of the framework: refused" -- bash vendor/fw/Adapters/scripts/data-policy-scan.sh --staged
+expect_output "an Employee agent of an adopting project"
+git reset -q
+
+# --- a fresh clone, following Templates/PROJECT_CLAUDE.md word for word ------
+# The commands are read from the template's fresh-clone block, so the
+# procedure and this test cannot drift apart. protocol.file.allow is the
+# fixture's: its submodule URL is a local path.
+FRESH_CMDS_434="$(awk '/In every fresh clone, and on every/,/^Run the third again/' "$SCRIPTS/../../Templates/PROJECT_CLAUDE.md" \
+  | sed -n "s/^[123]\. ${BT434}\([^${BT434}]*\)${BT434}.*/\1/p")"
+if [ "$(grep -c . <<< "$FRESH_CMDS_434")" -eq 3 ] && grep -q "generate-agents.sh" <<< "$FRESH_CMDS_434"; then
+  pass_434 "the template's fresh-clone block names three commands, the last the generator"
+else
+  fail_434 "the template's fresh-clone block names three commands, the last the generator" "$FRESH_CMDS_434"
+fi
+cd "$WORK" || exit 1
+git clone -q "$AD_434" "fresh-434 é日本" >/dev/null 2>&1
+cd "$WORK/fresh-434 é日本" || exit 1
+git config user.email test@example.invalid
+git config user.name "Test Runner"
+git config commit.gpgsign false
+git config core.autocrlf false
+while IFS= read -r c434; do
+  [ -n "$c434" ] || continue
+  expect 0 "fresh clone, as the template writes it: $c434" -- \
+    env GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=protocol.file.allow GIT_CONFIG_VALUE_0=always bash -c "$c434"
+done <<< "$FRESH_CMDS_434"
+if [ "$(find .claude/agents -name '*.md' 2>/dev/null | grep -c .)" -eq 3 ]; then
+  pass_434 "fresh clone: one agent per roster Employee in .claude/agents/"
+else
+  fail_434 "fresh clone: one agent per roster Employee in .claude/agents/" "$(ls -la .claude/agents 2>&1)"
+fi
+ss_434 "$WORK/fresh-434 é日本"
+expect_no_output "IA Engineering agents" "fresh clone: session start has nothing to say about the agents"
+cd "$HERE" || exit 1
 
 # --------------------------------------------------------------- verdict ----
 

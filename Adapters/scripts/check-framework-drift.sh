@@ -16,7 +16,7 @@
 # review it, never --force). That is the exact question the v0.0.14 note
 # left to the adopter.
 #
-# WHAT IT REPORTS, IN FOUR FAMILIES
+# WHAT IT REPORTS, IN FIVE FAMILIES
 #
 #   version  A. The framework checkout: the commit it is on and its tag (or
 #               that it is not on a tag), the last tag KNOWN LOCALLY and how
@@ -39,6 +39,11 @@
 #               "onFailure": "block" (the framework's two PreToolUse
 #               guards, Claude Code 2.1.295 or later) then refuses every
 #               call it guards (claude-code/TROUBLESHOOTING.md, entry C).
+#   agent    E. The Employees' agents in .claude/agents/, generated in each
+#               clone and never committed: one record per roster Employee,
+#               current, missing, or stale with its cause, from
+#               generate-agents.sh --check itself (WU-IAENG-434, issue
+#               #411). Not in --quick, which records it not-evaluated.
 #
 # B AND C COME FROM THE INSTALLERS, NOT FROM A THIRD LIST
 #
@@ -99,7 +104,8 @@
 #   --strict            exit 1 on drift, 2 when something is indeterminate
 #                       (2 wins: an incomplete evaluation is not a verdict)
 #   --remote            also ask the framework's remote for its tags
-#   --quick             the session-start form (below): A, B unclassified, D
+#   --quick             the session-start form (below): A, B unclassified, D;
+#                       E not evaluated
 #   --cache-dir DIR     --quick only, absolute: keep the --quick result there
 #   --help
 #
@@ -109,7 +115,10 @@
 # line only for what is actionable. It covers A (version), B counted by the
 # installers' plain diff — `differs`, not classified: telling stale from
 # modified reads the framework's history, which is what costs — and D (paths).
-# C is not evaluated; a `config not-evaluated` record says so. Measured on
+# C is not evaluated; a `config not-evaluated` record says so. E is not
+# either (an `agent not-evaluated` record): comparing an agent means
+# generating it, and session start runs generate-agents.sh --check --quick
+# itself, for presence and the framework root, outside this budget. Measured on
 # Windows (Git Bash), a full run takes 3 to 7 s, too slow for a session start.
 #
 # With --cache-dir, the result is kept in DIR (a user-level directory: never
@@ -249,18 +258,20 @@ finish() {
     # a fixed order so the line is stable for a caller.
     summary="$summary $(printf '%s' "$ROWS" | awk -F'\t' '
       BEGIN {
-        split("version file config path", fams, " ")
+        nf = split("version file config path agent", fams, " ")
         noun["version"] = "version item(s)"; noun["file"] = "file(s) compared"
         noun["config"] = "config item(s)"; noun["path"] = "command path(s)"
+        noun["agent"] = "agent item(s)"
         order["version"] = "tagged untagged latest behind remote-same behind-remote recorded uncommitted uninitialized not-a-submodule indeterminate"
         order["file"] = "current absent stale modified differs customized project-owned indeterminate"
         order["config"] = "current present absent missing differs stale modified customized near-miss not-executable shadowed disabled placeholder not-applicable skipped not-evaluated indeterminate"
         order["path"] = "ok broken unresolved indeterminate"
+        order["agent"] = "current missing stale not-evaluated indeterminate"
       }
       NF { total[$1]++; c[$1 SUBSEP $2]++ }
       END {
         out = ""
-        for (i = 1; i <= 4; i++) {
+        for (i = 1; i <= nf; i++) {
           f = fams[i]; s = ""; listed = 0
           k = split(order[f], st, " ")
           for (j = 1; j <= k; j++) if (c[f SUBSEP st[j]] > 0) { s = s (s == "" ? "" : ", ") c[f SUBSEP st[j]] " " st[j]; listed += c[f SUBSEP st[j]] }
@@ -892,6 +903,49 @@ while IFS=$'\t' read -r fam st path detail; do
     *) rec config "$st" "$path" "$detail" ;;
   esac
 done <<< "$CHECK_OUT"
+
+# ------------------------------------------- E. the Employees' agents ---
+#
+# .claude/agents/ is generated in each clone and never committed, so no
+# installer manages it: a fresh clone has no agent, and after an upgrade every
+# agent generated from the earlier Employees/ runs its old definition. The
+# upgrade note of v0.0.15 ran this check, and it said nothing of the 7 stale
+# agents generate-agents.sh --check found (issue #411). The generator's own
+# --check is run here, as it is the one place that knows what an agent should
+# hold (one record per roster Employee, current, missing or stale with its
+# cause), and its command to regenerate is the remedy.
+#
+# Not in --quick: it generates every agent to compare it, seconds on Windows,
+# over the session-start budget. Session start checks, on its own, that each
+# agent exists and names this project's framework (--check --quick).
+if [ "$QUICK" -eq 1 ]; then
+  rec agent not-evaluated ".claude/agents/" "--quick compares no agent with Employees/; session start checks each one exists and names this project's framework. A run without --quick compares them: $REL/Adapters/scripts/check-framework-drift.sh"
+else
+  AG_OUT="$(bash "$FRAMEWORK/Adapters/ai-runtimes/generate-agents.sh" --target claude-code --check --format tsv --project "$PROJECT" 2>&1)"
+  AG_RC=$?
+  AG_CMD=""; AG_SUM=0; AG_WHY=""
+  while IFS= read -r _l; do
+    case "$_l" in
+      '# regenerate: '*) AG_CMD="${_l#'# regenerate: '}" ;;
+      '# generate-agents.sh --check: '*) AG_SUM=1 ;;
+      agent$'\t'*) ;;
+      *) [ -n "$AG_WHY" ] || AG_WHY="$_l" ;;
+    esac
+  done <<< "$AG_OUT"
+  if { [ "$AG_RC" -eq 0 ] || [ "$AG_RC" -eq 1 ]; } && [ "$AG_SUM" -eq 1 ]; then
+    while IFS=$'\t' read -r fam st path detail; do
+      [ "$fam" = agent ] || continue
+      case "$st" in
+        current) rec agent current "$path" "" ;;
+        missing) rec agent missing "$path" "not generated in this clone (agents are generated per clone, never committed): $AG_CMD" ;;
+        stale) rec agent stale "$path" "$detail. Regenerate: $AG_CMD" ;;
+        *) rec agent indeterminate "$path" "generate-agents.sh --check gave the status '$st', not understood here" ;;
+      esac
+    done <<< "$AG_OUT"
+  else
+    rec agent indeterminate ".claude/agents/" "generate-agents.sh --check exited $AG_RC without a result${AG_WHY:+: $AG_WHY}"
+  fi
+fi
 
 # ------------------------------------------------- D. broken paths ---
 

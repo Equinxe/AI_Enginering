@@ -141,14 +141,42 @@ echo
 # defaults), never re-parsed here, so there is one parser and one set of
 # defaults. A file the generator refuses is reported, not skipped: a session
 # told nothing would go back to inventing a model.
+#
+# The same call checks the agents (WU-IAENG-434): --check --quick, below. Run
+# from the project, with --project ., so the command it prints to regenerate
+# them runs as printed from where a session works.
 GEN="${ROOT:+$ROOT/Adapters/ai-runtimes/generate-agents.sh}"
 if [ -n "$GEN" ] && [ -f "$GEN" ]; then
-  TIER_OUT="$(bash "$GEN" --target claude-code --project "$BASE" --print-tier-map 2>&1)"
+  TIER_OUT="$(CDPATH='' cd -- "$BASE" 2>&1 && bash "$GEN" --target claude-code --project . --print-tier-map --check --quick --format tsv 2>&1)"
   TIER_RC=$?
-  if [ "$TIER_RC" -eq 0 ]; then
-    TIER_SRC="$(sed -n 's/^# mapping: //p' <<< "$TIER_OUT")"
-    TIER_MAP="$(grep -m1 '^map=' <<< "$TIER_OUT")"
-    TIER_EFFORT="$(grep -m1 '^effort-map=' <<< "$TIER_OUT")"
+  # One pass over the output, in the shell: no process per line read. The
+  # map lines, the quick check's records, its summary and its command.
+  TIER_MAP=""; TIER_SRC=""; TIER_EFFORT=""
+  A_SUM=""; A_CMD=""; A_WHY=""; A_MISS=(); A_STALE=()
+  while IFS= read -r t_l; do
+    case "$t_l" in
+      map=*) [ -n "$TIER_MAP" ] || TIER_MAP="$t_l" ;;
+      effort-map=*) [ -n "$TIER_EFFORT" ] || TIER_EFFORT="$t_l" ;;
+      '# mapping: '*) [ -n "$TIER_SRC" ] || TIER_SRC="${t_l#'# mapping: '}" ;;
+      '# generate-agents.sh --check --quick: '*) A_SUM="$t_l" ;;
+      '# regenerate: '*) [ -n "$A_CMD" ] || A_CMD="${t_l#'# regenerate: '}" ;;
+      agent$'\t'*)
+        # agent TAB status TAB path TAB detail. Only the file's name is
+        # shown: the generator writes <slug>.md, the slug made of a-z, 0-9
+        # and - alone, and flattens every field. No other text of a record,
+        # the root an agent names included, reaches the session.
+        a_r="${t_l#agent$'\t'}"; a_s="${a_r%%$'\t'*}"; a_r="${a_r#*$'\t'}"
+        a_p="${a_r%%$'\t'*}"; a_p="${a_p##*/}"; a_p="${a_p%.md}"
+        case "$a_s" in
+          missing) A_MISS+=("$a_p") ;;
+          stale) A_STALE+=("$a_p") ;;
+        esac ;;
+      *) [ -n "$A_WHY" ] || A_WHY="$t_l" ;;
+    esac
+  done <<< "$TIER_OUT"
+  # 0 or 1 is the quick check's verdict; the map is printed either way. Any
+  # other exit, or no map line, is a refusal.
+  if [ "$TIER_RC" -le 1 ] && [ -n "$TIER_MAP" ]; then
     tier_of() { sed -n "s/.*[=,]$1=\([^,]*\).*/\1/p" <<< "$TIER_MAP"; }
     T_STRATEGIC="$(tier_of strategic)"
     T_STANDARD="$(tier_of standard)"
@@ -165,6 +193,53 @@ if [ -n "$GEN" ] && [ -f "$GEN" ]; then
     echo "  Fix .ia-engineering/tier-map (Adapters/ai-runtimes/README.md). Until then a Tier Override has no model to use: ask the Director rather than pick one."
   fi
   echo
+
+  # --- The Employees' agents, present and naming this framework (WU-IAENG-434)
+  # .claude/agents/ is per clone, gitignored and never committed, so a fresh
+  # clone or a second machine has none, and since WU-IAENG-430 an adopting
+  # project's agents name the absolute framework root of the clone that
+  # generated them. Session start checks each agent's framework root is the
+  # project's framework, by identity (generate-agents.sh --check --quick),
+  # never because that directory exists: a moved project or a copied clone
+  # would otherwise send every Employee to read the Standards somewhere else.
+  # Said at every session until they are regenerated, with the command that
+  # regenerates them, as the generator prints it. Nothing when every agent is
+  # present and names this framework. Their content is compared by
+  # check-framework-drift.sh without --quick, which costs a generation. When
+  # the tier map was refused, the generator stopped before this check, and the
+  # warning above says what to fix first.
+  if [ "$TIER_RC" -le 1 ] && [ -n "$TIER_MAP" ]; then
+    A_N="${A_SUM#*to act on. }"; A_N="${A_N%% agent(s)*}"
+    case "$A_N" in ''|*[!0-9]*) A_N="" ;; esac
+    if [ -z "$A_N" ]; then
+      # No verdict is never silence: the check did not run to its end.
+      A_WHY="${A_WHY//[[:cntrl:]]/ }"
+      [ "${#A_WHY}" -gt 160 ] && A_WHY="${A_WHY:0:160}..."
+      echo "IA Engineering agents: not checked (${A_WHY:-the check gave no result}). Check them by hand: bash $GEN --check --quick"
+      echo
+    elif [ "${#A_MISS[@]}" -gt 0 ] || [ "${#A_STALE[@]}" -gt 0 ]; then
+      # a_list <items...> — "a, b, c and 2 more".
+      a_list() {
+        local out="" i=0 x
+        for x in "$@"; do
+          i=$((i + 1))
+          [ "$i" -le 3 ] && out="${out:+$out, }$x"
+        done
+        [ "$i" -gt 3 ] && out="$out and $((i - 3)) more"
+        printf '%s' "$out"
+      }
+      A_TXT=""
+      if [ "${#A_MISS[@]}" -gt 0 ]; then
+        A_TXT="${#A_MISS[@]} of $A_N roster Employees have no agent in .claude/agents/ ($(a_list "${A_MISS[@]}"))"
+      fi
+      if [ "${#A_STALE[@]}" -gt 0 ]; then
+        A_TXT="${A_TXT:+$A_TXT; }${#A_STALE[@]} of $A_N agents are stale ($(a_list "${A_STALE[@]}")): the framework root each one names is not this project's framework, so its Employee would read the framework somewhere else. The project moved, or they were generated in another clone or before agents named a root"
+      fi
+      A_CMD="${A_CMD//[[:cntrl:]]/ }"
+      echo "IA Engineering agents: $A_TXT. Agents are generated in each clone and never committed. Regenerate them before dispatching any Employee: ${A_CMD:-bash $GEN}"
+      echo
+    fi
+  fi
 fi
 
 if git -C "$BASE" rev-parse --is-inside-work-tree >/dev/null 2>&1; then

@@ -31,6 +31,19 @@
 #     to data-bearing extensions only, because a hook that fires on ordinary
 #     source files is a hook developers learn to bypass — and --no-verify
 #     disarms every other hook in the same motion.
+#   - in an ADOPTING project only, a .md file under a .claude/agents/
+#     directory, at any depth (WU-IAENG-434). Those are the Employees' agents,
+#     generated in each clone: each names the absolute framework root of the
+#     clone that generated it, so a committed one is wrong in every other
+#     clone (and publishes that path, often with a user's name in it).
+#     install.sh's .gitignore rule `.claude/agents/` keeps them out; this
+#     refuses the commit that gets past it (git add -f, a rule removed).
+#     Claude Code reads .claude/agents/ recursively, hence any depth. The
+#     framework repository itself is out of scope: its agents name no root.
+#     It is recognised as the repository the scanner belongs to, by identity
+#     (-ef), or by the same git common directory for its linked worktrees,
+#     whose hooks run from the main checkout. Decided only when such a path
+#     is staged, so no other commit pays for it.
 #
 # WHAT IS FLAGGED (content, added lines only):
 #   High-confidence secret shapes: private key blocks, AWS access key IDs,
@@ -165,6 +178,43 @@ allowed_content() {
 # --- Path classification -------------------------------------------------------
 # Prints the reason a path is refused; prints nothing for an acceptable path.
 
+# agent_path <path> — true for a .md file under a .claude/agents/ directory, at
+# any depth and in any letter case: git on Windows reads the .gitignore rule
+# without case, and so does the filesystem Claude Code reads the agents from.
+agent_path() {
+  case "/$1" in
+    */.[Cc][Ll][Aa][Uu][Dd][Ee]/[Aa][Gg][Ee][Nn][Tt][Ss]/*.[Mm][Dd]) return 0 ;;
+  esac
+  return 1
+}
+
+# agents_rule_init — AGENTS_PER_CLONE is 1 in an adopting project (agents are
+# refused) and 0 in the framework repository itself, decided once and only
+# when a path under .claude/agents/ is met: called by the scan loops, in this
+# shell, so the $(classify_path) subshells inherit the answer. The framework
+# repository is the one this scanner belongs to: the scanner's framework is
+# the root of its own git checkout (-ef), and that checkout is of the
+# repository being scanned (the same git common directory). That holds in the
+# framework's main checkout and in each of its linked worktrees, which run the
+# main checkout's hooks (core.hooksPath is absolute). A framework imported as
+# a submodule has a git directory of its own, and a plain copy is the root of
+# no checkout: both are an adopting project. Anything git cannot answer
+# refuses.
+AGENTS_PER_CLONE=""
+agents_rule_init() {
+  [ -n "$AGENTS_PER_CLONE" ] && return 0
+  AGENTS_PER_CLONE=1
+  local src="${BASH_SOURCE[0]}" fw common="" fw_top="" fw_common=""
+  case "$src" in */*) fw="${src%/*}/../.." ;; *) fw="../.." ;; esac
+  common="$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null)"
+  { IFS= read -r fw_top; IFS= read -r fw_common; } \
+    < <(git -C "$fw" rev-parse --path-format=absolute --show-toplevel --git-common-dir 2>/dev/null)
+  if [ -n "$common" ] && [ -n "$fw_top" ] && [ "$fw_top" -ef "$fw" ] && [ "$fw_common" -ef "$common" ]; then
+    AGENTS_PER_CLONE=0
+  fi
+  return 0
+}
+
 classify_path() {
   local p="$1" base lower ext
   base="${p##*/}"
@@ -180,6 +230,12 @@ classify_path() {
     .ia-engineering/SESSION_STATE.md|SESSION_STATE.md)
       printf 'operational state file — never committed (Templates/SESSION_STATE.md)\n'; return 0 ;;
   esac
+  # AGENTS_PER_CLONE is set by agents_rule_init, which the scan loops call for
+  # such a path before this; anything but 0 refuses.
+  if agent_path "$p" && [ "${AGENTS_PER_CLONE:-1}" != 0 ]; then
+    printf '%s\n' "an Employee agent of an adopting project — agents are generated in each clone and never committed: each names the framework root of the clone that generated it, wrong in every other clone. Keep .claude/agents/ in .gitignore (install.sh writes that rule) and run generate-agents.sh in each clone; a hand-written agent of the project's own takes an anchored rule in the allow file"
+    return 0
+  fi
 
   lower="$(printf '%s' "$base" | tr '[:upper:]' '[:lower:]')"
 
@@ -322,6 +378,7 @@ scan_paths_nul() {
   while IFS= read -r -d '' p; do
     [ -n "$p" ] || continue
     PATHS_SCANNED=$((PATHS_SCANNED + 1))
+    agent_path "$p" && agents_rule_init
     reason="$(classify_path "$p")"
     [ -z "$reason" ] || report_path "$p" "$reason"
   done
@@ -332,6 +389,7 @@ scan_paths_lines() {
   while IFS= read -r p || [ -n "$p" ]; do
     [ -n "$p" ] || continue
     PATHS_SCANNED=$((PATHS_SCANNED + 1))
+    agent_path "$p" && agents_rule_init
     reason="$(classify_path "$p")"
     [ -z "$reason" ] || report_path "$p" "$reason"
   done
