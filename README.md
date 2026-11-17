@@ -247,10 +247,12 @@ Request from it to `develop`, its description filled in from the installed
 `.github/PULL_REQUEST_TEMPLATE.md`. The Pull Request runs the CI workflows
 that the adoption commit adds, and `Work Unit Exists` and `Employee Trailer`
 read the two adoption commits and none from before them. The adoption is
-larger than the 1,500-line review limit (1,753 and 1,850 lines in the two
-replays of WU-IAENG-436), so `PR Size` fails until the Director applies the
-`size/approved` label to the Pull Request (`Standards/PULL_REQUEST_STANDARD.md`,
-Reviewability), creating the label first if the repository has none. The
+larger than the 1,500-line review limit: its first commit alone adds about
+1,700 lines of the framework's files (1,660 and 1,741 in the two replays of
+WU-IAENG-436), before the merged `CLAUDE.md`. So `PR Size` fails until the
+Director applies the `size/approved` label to the Pull Request
+(`Standards/PULL_REQUEST_STANDARD.md`, Reviewability), creating the label
+first if the repository has none. The
 advisory `Risk Map` check stays red until the map is complete, as said below,
 and does not hold the merge. Merge the Pull Request only when the Code
 Reviewer has approved it, the Director has applied `size/approved`, and the
@@ -296,14 +298,19 @@ Until the first release, an existing repository's `main` stays as it was
 before the adoption. Whatever deploys from `main` keeps deploying that code,
 and work merged into `develop` reaches production only through a release
 (`Workflows/RELEASE.md`), which the Director may cut as soon as the adoption
-is merged. The framework's `ghcr-publish.yml` does not run before then, since
-it runs on pushes to `main` and on tags. A workflow of the project's own that
-runs only for Pull Requests to `main` does not run for those to `develop`
-until `develop` is added to its branches. A fix cannot go through
-`Workflows/HOTFIX.md` before that release: a branch cut from `main` has no
-`Registry/work-units.yml`, so the `commit-msg` hook refuses any commit there
-that claims a Work Unit. A fix that cannot wait goes out in that first
-release.
+is merged. An adopting project's first release has not been rehearsed yet:
+`release.sh check`, which that workflow's Step 1 runs, reads a `VERSION.md`
+and a `CHANGELOG.md` that the adoption does not install (issue #469). The
+framework's `ghcr-publish.yml` does not run before then, since it runs on
+pushes to `main` and on tags. A workflow of the project's own that runs only
+for Pull Requests to `main` does not run for those to `develop` until
+`develop` is added to its branches. A fix cannot go through
+`Workflows/HOTFIX.md` before that release. A branch cut from `main` has no
+`Registry/work-units.yml`, so the `commit-msg` hook refuses a commit there
+that claims a Work Unit, unless that commit creates the registry on `main`.
+Doing so would adopt `main` in part, against the route above, and the
+registry would collide with `develop`'s at the back-merge. A fix that cannot
+wait goes out in that first release.
 
 Complete `.ia-engineering/risk-map.yml` in one of your first Work Units. The
 bootstrap's starter maps only the files it installed. Until each of the eight

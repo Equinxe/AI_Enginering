@@ -9116,6 +9116,28 @@ expect_output "  main + develop         the remote's default branch is origin/ma
 expect_output "Director's decision (Workflows/ONBOARDING.md, The adoption route)"
 expect_no_output "git push -u origin main" "a repository on master is not told to push main"
 expect_no_output "never push it" "a repository on master is not given the route that needs main"
+expect_output "  SESSION_STATE.md       once the adoption's Pull Request is merged and develop pulled:"
+
+# A default that is neither main nor master: only <remote>/HEAD can say so,
+# since the no-HEAD fallback below looks for master (review of PR #465, M3).
+new_repo boot-436-trunk
+git update-ref refs/remotes/origin/trunk HEAD
+git symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/trunk
+report_436 "an existing repository whose default branch is trunk"
+expect_output "  main + develop         the remote's default branch is origin/trunk, not main: the hooks,"
+expect_no_output "git push -u origin main" "a repository on trunk is not told to push main"
+
+# A clone made before its remote renamed master to main keeps origin/HEAD on
+# master, since git fetch does not move it. With origin/main present, the
+# report says how to refresh the record before anyone stops on it (m2).
+new_repo boot-436-stale-head
+git update-ref refs/remotes/origin/main HEAD
+git update-ref refs/remotes/origin/master HEAD
+git symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/master
+report_436 "a stale origin/HEAD on master, with origin/main present"
+expect_output "origin/HEAD names origin/master, yet origin/main exists: run"
+expect_output "git remote set-head origin --auto, then this script again"
+expect_no_output "never push it" "a stale default is not taken for the route"
 
 # The same with no <remote>/HEAD recorded (a remote added by hand): a
 # <remote>/master with no <remote>/main is the default branch.

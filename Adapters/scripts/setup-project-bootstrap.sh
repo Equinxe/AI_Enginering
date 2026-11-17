@@ -537,6 +537,12 @@ echo
 #    is <remote>/HEAD, which a clone records; develop is a default the model
 #    allows. With no <remote>/HEAD, a <remote>/master and no <remote>/main
 #    mark the same case.
+#
+#    A STALE <remote>/HEAD. git fetch never moves it, so a clone made before
+#    its remote renamed master to main still names master. Where that
+#    remote's main exists too, the report asks for the record to be refreshed
+#    (git remote set-head <remote> --auto) and this script run again, rather
+#    than stopping on a default that may no longer be the remote's.
 REMOTE_REFS="$(git for-each-ref --format='%(refname:lstrip=2) %(symref:lstrip=2)' refs/remotes 2>/dev/null || true)"
 REMOTE_MAIN="$(printf '%s\n' "$REMOTE_REFS" | sed 's/ .*//' | grep -m1 -E '^[^/]+/main$' || true)"
 REMOTE_DEFAULT="$(printf '%s\n' "$REMOTE_REFS" | sed -n 's|^[^/ ]*/HEAD \([^ ]*\)$|\1|p' | head -n 1 || true)"
@@ -550,7 +556,14 @@ if [ -z "$REMOTE_DEFAULT" ] && [ -z "$REMOTE_MAIN" ]; then
 fi
 echo "--- Remaining Coverage Checklist items (Workflows/PROJECT_BOOTSTRAP.md) ---"
 echo "  Branch protection      ./$(relpath "$(pwd)" "$SCRIPT_DIR")/setup-branch-protection.sh"
-if [ -n "$NOT_MAIN_DEFAULT" ]; then
+DEFAULT_REMOTE="${NOT_MAIN_DEFAULT%%/*}"
+if [ -n "$NOT_MAIN_DEFAULT" ] && [ "$NOT_MAIN_DEFAULT" = "$REMOTE_DEFAULT" ] \
+   && printf '%s\n' "$REMOTE_REFS" | grep -qx -- "$DEFAULT_REMOTE/main "; then
+  echo "  main + develop         $DEFAULT_REMOTE/HEAD names $NOT_MAIN_DEFAULT, yet $DEFAULT_REMOTE/main exists: run"
+  echo "                         git remote set-head $DEFAULT_REMOTE --auto, then this script again. If the"
+  echo "                         default is still not main, stop: renaming it is the Director's decision"
+  echo "                         (Workflows/ONBOARDING.md, The adoption route)"
+elif [ -n "$NOT_MAIN_DEFAULT" ]; then
   echo "  main + develop         the remote's default branch is $NOT_MAIN_DEFAULT, not main: the hooks,"
   echo "                         the checks and Workflows/RELEASE.md name main. Stop: renaming it is the"
   echo "                         Director's decision (Workflows/ONBOARDING.md, The adoption route)"
@@ -589,7 +602,8 @@ fi
 echo "                         writes the Template block of Templates/SESSION_STATE.md, dated"
 echo "                         (Workflows/ONBOARDING.md Step 1 item 3; gitignored)"
 echo "  Adoption commit        signed Employee: DevOps Engineer; registers an adoption Work Unit"
-echo "                         (milestone: Bootstrap; Workflows/PROJECT_BOOTSTRAP.md Step 4 item 5)"
+echo "                         and carries a RISK: record (milestone: Bootstrap;"
+echo "                         Workflows/PROJECT_BOOTSTRAP.md Step 4 item 5)"
 echo "  Roster                 Workflows/ONBOARDING.md Step 4"
 echo "  Work Unit registry     Registry/work-units.yml — $WU_REGISTRY_NOTE; register each"
 echo "                         Work Unit in the commit that performs it"

@@ -190,11 +190,11 @@ The route needs `main` as the remote's default branch. `git ls-remote --symref o
    - the ten checks that `setup-branch-protection.sh` makes required all pass: PR Compliance, Work Unit Exists, Employee Trailer, Shellcheck Adapters, Validate Workflow YAML, Hook Tests, Script Tests, PR Size, Framework Validation and Data Policy.
 
    Merge with a merge commit, never a squash (`Standards/COMMIT_STANDARD.md`). Then the local clone takes the merge (`git switch develop`, then `git pull --ff-only`), and `SESSION_STATE.md` is created (Step 1 item 3). On a private repository on GitHub Free, nothing on GitHub can make these checks required (Step 5), so this list is the only lock on the merge.
-4. **`main` receives the adoption at the project's first release** (`Workflows/RELEASE.md`), which the Director may cut as soon as the adoption is merged. Until then `main` does not change:
+4. **`main` receives the adoption at the project's first release** (`Workflows/RELEASE.md`), which the Director may cut as soon as the adoption is merged. An adopting project's first release has not been rehearsed yet: `release.sh check`, which `Workflows/RELEASE.md` Step 1 runs, reads a `VERSION.md` and a `CHANGELOG.md` that the adoption does not install (issue #469). Until then `main` does not change:
    - Whatever deploys from `main` keeps deploying the code it had before the adoption. Work merged into `develop` reaches production only through that release.
    - The framework's `ghcr-publish.yml` does not run, since it runs on pushes to `main` and on tags.
    - A workflow of the project's own that runs only for Pull Requests to `main` does not run for those to `develop` until `develop` is added to its branches.
-   - `Workflows/HOTFIX.md` cannot be followed yet. A branch cut from `main` has no `Registry/work-units.yml`, so the `commit-msg` hook refuses any commit there that claims a Work Unit. A fix that cannot wait goes out in the first release.
+   - `Workflows/HOTFIX.md` cannot be followed yet. A branch cut from `main` has no `Registry/work-units.yml`, so the `commit-msg` hook refuses a commit there that claims a Work Unit, unless that commit creates the registry on `main`. Doing so would adopt `main` in part, against this route, and the registry would collide with `develop`'s at the back-merge. A fix that cannot wait goes out in the first release.
 
 ---
 
