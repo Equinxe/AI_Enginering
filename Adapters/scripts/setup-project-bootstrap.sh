@@ -557,8 +557,7 @@ fi
 echo "--- Remaining Coverage Checklist items (Workflows/PROJECT_BOOTSTRAP.md) ---"
 echo "  Branch protection      ./$(relpath "$(pwd)" "$SCRIPT_DIR")/setup-branch-protection.sh"
 DEFAULT_REMOTE="${NOT_MAIN_DEFAULT%%/*}"
-if [ -n "$NOT_MAIN_DEFAULT" ] && [ "$NOT_MAIN_DEFAULT" = "$REMOTE_DEFAULT" ] \
-   && printf '%s\n' "$REMOTE_REFS" | grep -qx -- "$DEFAULT_REMOTE/main "; then
+if [ -n "$NOT_MAIN_DEFAULT" ] && printf '%s\n' "$REMOTE_REFS" | grep -qx -- "$DEFAULT_REMOTE/main "; then
   echo "  main + develop         $DEFAULT_REMOTE/HEAD names $NOT_MAIN_DEFAULT, yet $DEFAULT_REMOTE/main exists: run"
   echo "                         git remote set-head $DEFAULT_REMOTE --auto, then this script again. If the"
   echo "                         default is still not main, stop: renaming it is the Director's decision"

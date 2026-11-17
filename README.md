@@ -40,13 +40,28 @@ v0.0.15 therefore reads every framework document from the `develop` branch of
 the framework repository, not from its own `develop` and not from the pinned
 submodule: this page, `Workflows/ONBOARDING.md` (The adoption route),
 `Workflows/PROJECT_BOOTSTRAP.md` (Step 4) and `Templates/PROJECT_CLAUDE.md`.
-Read them without checking that branch out, on GitHub, or with
-`git -C ia-engineering fetch origin develop` and then
-`git -C ia-engineering show FETCH_HEAD:<file>`. The submodule stays pinned to
-v0.0.15: only the scripts come from it. The route works with those scripts
-unchanged, with one exception: ignore the
-closing-report lines of `setup-project-bootstrap.sh` that issue #453 corrects
-(The steps that are not commands, below). The route ships in v0.0.16.
+Read them at one fixed point, the `develop` commit that merged Pull Request
+#465 (its page names that commit), until v0.0.16 is tagged, so that they do
+not change during the adoption. Read them without checking that commit out,
+on GitHub, or with `git -C ia-engineering fetch origin develop` and then
+`git -C ia-engineering show <that commit>:<file>`. The submodule stays pinned
+to v0.0.15: only the scripts come from it. The route works with those scripts
+unchanged, with two exceptions:
+
+- Ignore the closing-report lines of `setup-project-bootstrap.sh` that issue
+  #453 corrects (The steps that are not commands, below).
+- v0.0.15's `generate-agents.sh` does not write the section "Where the
+  Framework Is" (WU-IAENG-430) into the agents. In a linked git worktree,
+  `ia-engineering/` is empty, so an Employee dispatched there cannot read the
+  framework's Standards. Until v0.0.16, the Main Agent's default is to
+  dispatch every Employee in the main checkout, never with
+  `isolation: worktree`. The Director may change that default. In the
+  `CLAUDE.md` merged from the template, the paragraph on a git worktree keeps
+  v0.0.15's wording, which ends at "its hooks are the main checkout's", and
+  drops the sentences on an empty `ia-engineering/` and "Where the Framework
+  Is". It states that default in their place, so every session reads it.
+
+The route ships in v0.0.16.
 
 Every git step of the route, up to the opened Pull Request, is the DevOps
 Engineer's: the Main Agent dispatches them and never runs them itself
