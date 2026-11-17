@@ -9045,6 +9045,66 @@ expect_output "1 git hook problem(s)"
 expect_output "core.hooksPath now shadows"
 expect_no_output "differ from the framework's Adapter" "no differing-file wording when no file differs"
 
+section "setup-project-bootstrap.sh — the closing report follows the project it finds (issue #453, WU-IAENG-436)"
+
+# report_436 <label> — the closing report of a dry run in the repository the
+# shell is in. --dry-run writes nothing and still prints the report, which is
+# what is under test here; the exit status belongs to the install half and is
+# asserted elsewhere.
+report_436() {
+  TOTAL=$((TOTAL + 1))
+  LAST_OUTPUT="$(bash "$SCRIPTS/setup-project-bootstrap.sh" generic --dry-run 2>&1)"
+  if grep -qF -- "--- Remaining Coverage Checklist items" <<< "$LAST_OUTPUT"; then
+    [ -n "$VERBOSE" ] && printf '   ok   %s: the closing report is printed\n' "$1"
+    return 0
+  fi
+  printf '   FAIL %s: no closing report\n' "$1"
+  printf '%s\n' "$LAST_OUTPUT" | sed 's/^/        | /'
+  FAILED=$((FAILED + 1))
+  return 1
+}
+
+# A new project: no main on a remote and no CLAUDE.md. The report keeps the
+# lines a new project follows.
+new_repo boot-436-new
+report_436 "a new project"
+expect_output "git push -u origin main && git branch develop && git push -u origin develop"
+expect_output "  CLAUDE.md              from Templates/PROJECT_CLAUDE.md, before Onboarding Step 4"
+expect_output "  SESSION_STATE.md       after the adoption commit:"
+expect_no_output "never push it" "a new project is not told that main is on a remote"
+expect_no_output "already present: merge" "a new project is not told to merge into a CLAUDE.md it lacks"
+
+# An existing repository: main on a remote and a CLAUDE.md of its own. pre-push
+# refuses every update of that main, and a CLAUDE.md created from the template
+# could be copied over the project's own contract (#453).
+new_repo boot-436-existing
+git update-ref refs/remotes/origin/main HEAD
+printf '# Our contract\n' > CLAUDE.md
+report_436 "an existing repository"
+expect_output "  main + develop         main is already on a remote (origin/main): never push it, pre-push"
+expect_output "release (Workflows/ONBOARDING.md, The adoption route)"
+expect_no_output "git push -u origin main" "an existing repository is not told to push main"
+expect_output "  CLAUDE.md              already present: merge the Template block of Templates/PROJECT_CLAUDE.md"
+expect_output "into it, never copy the block over it (that file's section \"A project"
+expect_no_output "before Onboarding Step 4" "an existing CLAUDE.md is not created again from the template"
+expect_output "  SESSION_STATE.md       once the adoption's Pull Request is merged and develop pulled:"
+
+# .claude/CLAUDE.md is a project contract too: Claude Code reads either file.
+new_repo boot-436-dotclaude
+mkdir -p .claude
+printf '# Our contract\n' > .claude/CLAUDE.md
+report_436 "a project whose contract is .claude/CLAUDE.md"
+expect_output "  CLAUDE.md              already present: merge the Template block"
+
+# Only <remote>/main itself is main on a remote. A remote branch named
+# feature/main is not.
+new_repo boot-436-lookalike
+git update-ref refs/remotes/origin/feature/main HEAD
+report_436 "a remote branch feature/main only"
+expect_output "git push -u origin main && git branch develop && git push -u origin develop"
+expect_no_output "never push it" "origin/feature/main is not taken for main on a remote"
+cd "$WORK" || exit 1
+
 section "install-hooks.sh / install-skills.sh --check — the same decisions, reported, nothing written (WU-IAENG-357)"
 
 # The runtime installers' own decisions, read and never applied: the jq merge

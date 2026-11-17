@@ -23,6 +23,32 @@ existing `.claude/settings.json` and to check that file. On GitHub,
 `setup-branch-protection.sh` needs the GitHub CLI, `gh`, signed in
 (`gh auth status`).
 
+**An existing repository**, one whose `main` is already on its remote, adopts
+on a branch and merges it into `develop` through a Pull Request. `main`
+receives the adoption at the project's first release, never before (Director
+decision, 4 November 2026). The bootstrap installs a `pre-push` hook that
+refuses every update of an existing `main`, so an adoption committed on `main`
+could never be pushed. From the repository's root, before the commands below
+(where the remote already has a `develop`, replace the two `develop` lines with
+`git switch develop` and `git pull --ff-only`):
+
+```bash
+git config core.hooksPath                  # must print nothing: see below
+git switch main
+git pull --ff-only
+git switch -c develop                      # develop starts as a copy of main
+git push -u origin develop
+git switch -c chore/adopt-ia-engineering   # every adoption commit goes here
+```
+
+If `git config core.hooksPath` prints a path, the project already runs git
+hooks of its own from there (husky, for example, sets `.husky/_`).
+`install.sh`, which the bootstrap runs, points that setting at the
+framework's hooks without looking at the project's (issue #280), and the
+project's hooks then stop running with no message. Do not run the bootstrap
+until the Director has decided how both sets of hooks will run.
+`git config --show-origin core.hooksPath` names the file that sets it.
+
 ```bash
 # from the root of your project (skip git init if it is already a repository)
 git init -b main
@@ -145,14 +171,49 @@ to apply by hand.
 
 ### The steps that are not commands
 
-Make the adoption commit, your first commit in a new repository: the submodule
-and the installed tooling, without `CLAUDE.md`, signed `Employee: DevOps Engineer`
+In an existing repository, the bootstrap's closing report from a version
+before v0.0.16 prints two lines meant for a new project (issue #453):
+`git push -u origin main && git branch develop && git push -u origin develop`,
+and `CLAUDE.md from Templates/PROJECT_CLAUDE.md`. Follow neither as printed:
+`develop` exists already, and an existing `CLAUDE.md` is merged as below.
+
+First, decide what to keep of what the bootstrap wrote for a new, containerised
+project. Two of its files may not suit an existing one:
+
+- `./Dockerfile`, the stack's starter. The bootstrap writes it only where the
+  project has none, and lists an existing one with `!` as left untouched.
+- `.github/workflows/ghcr-publish.yml`. On every push to `main` and every `v*`
+  tag it builds `./Dockerfile` and publishes the image to
+  `ghcr.io/<owner>/<repo>`. On a private repository each run spends Actions
+  minutes.
+
+To decline one, delete it before the adoption commit, so it never enters the
+repository. Declining the starter `Dockerfile` means declining
+`ghcr-publish.yml` too, since it builds that file, and deleting the
+`Dockerfile` zone from `.ia-engineering/risk-map.yml`, because
+`check-risk-map.sh` fails on a zone that matches no file. The drift check
+cannot yet tell a declined file from a missing one: every session start
+reports each deleted file as one to act on, and advises re-running the
+bootstrap (issue #464). Do not re-run it for that line. To stop
+`ghcr-publish.yml` without that line, keep the file and make it run only when
+someone starts it: replace its `on:` block, the four lines down to
+`tags: ['v*']`, with the line `on: workflow_dispatch`. The drift check reads
+only that the file exists.
+
+Make the adoption commit: the submodule and the installed tooling, without
+`CLAUDE.md`, signed `Employee: DevOps Engineer`
 (`Workflows/PROJECT_BOOTSTRAP.md` Step 4), with a `Work Unit:` line naming the
 adoption Work Unit, registered in `Registry/work-units.yml` in that same commit.
-This commit goes to `main` without a Pull Request, so the trailer checks
-(`Work Unit Exists`, `Employee Trailer`), which run on Pull Requests only, never
-read it: the `commit-msg` hook refuses an unregistered Work Unit, but not a
-missing line.
+Its message also carries a `RISK:` record (`Standards/RISK_STANDARD.md`, The
+Risk Record), because the commit adds CI workflows, which the starter Risk Map
+classes as sensitive. For example, at the start of a line:
+`RISK: adds the CI checks and git hooks this project's changes are judged by | tier=Medium | mitigation=the framework's Adapters as shipped; the project's own files left untouched | decided_by=Director`.
+In a new repository it is your first commit, and it goes to `main` without a
+Pull Request, so the trailer checks (`Work Unit Exists`, `Employee Trailer`),
+which run on Pull Requests only, never read it: the `commit-msg` hook refuses
+an unregistered Work Unit, but not a missing line. In an existing repository
+it is the first commit of `chore/adopt-ia-engineering`, and both checks read it
+on the Pull Request below.
 
 Then have the Main Agent dispatch the DevOps Engineer to create `CLAUDE.md`
 from the fenced block under **Template** in `Templates/PROJECT_CLAUDE.md` (the
@@ -167,7 +228,33 @@ no rules. The DevOps Engineer commits it on its own, after the adoption
 commit, signed `Employee: DevOps Engineer` (Director decision, 4 November
 2026), so every commit of the adoption has the same signer. That commit
 carries a `Work Unit:` line of its own, registered in that commit, because the
-hook does not require the line. Then create
+hook does not require the line. In an existing repository it is the second
+commit of `chore/adopt-ia-engineering`.
+
+An existing repository then merges the adoption into `develop`. Push the
+branch with `git push -u origin chore/adopt-ia-engineering` and open a Pull
+Request from it to `develop`, its description filled in from the installed
+`.github/PULL_REQUEST_TEMPLATE.md`. The Pull Request runs the CI workflows
+that the adoption commit adds, and `Work Unit Exists` and `Employee Trailer`
+read the two adoption commits and none from before them. The adoption is
+larger than the 1,500-line review limit (1,753 and 1,850 lines in the two
+replays of WU-IAENG-436), so `PR Size` fails until the Director applies the
+`size/approved` label to the Pull Request (`Standards/PULL_REQUEST_STANDARD.md`,
+Reviewability), creating the label first if the repository has none. The
+advisory `Risk Map` check stays red until the map is complete, as said below.
+Merge the Pull Request once the other checks pass and the review is done, with
+a merge commit, never a squash, which would fold the two signed commits into
+one (`Standards/COMMIT_STANDARD.md`). Then `git switch develop` and
+`git pull --ff-only`. The switch prints `warning: unable to rmdir
+'ia-engineering': Directory not empty`, because the local `develop` has no
+submodule until the pull brings in the merge. Nothing needs doing. On a
+private repository on
+GitHub Free, GitHub offers no branch protection, so nothing can make a check
+required: only the local git hooks and the CI checks enforce the rules there,
+a red check does not block the merge, and whoever merges reads the checks
+first.
+
+Then create
 `.ia-engineering/SESSION_STATE.md`, and copy into its Governance Deviations in
 Force section any deviation the `CLAUDE.md` merge recorded. The helper
 `./ia-engineering/Adapters/scripts/create-session-state.sh` creates the file: it
@@ -184,9 +271,24 @@ read right after `CLAUDE.md` on every resume, and never committed (the install
 gitignores it). Create it **after** those two commits, not before: the session-start
 hook compares the file's modification time with the latest commit, so a file
 that predates the first commit is reported as "1 commit(s) behind" on the very
-first session. `Workflows/PROJECT_BOOTSTRAP.md` walks
+first session. In an existing repository, create it once `git pull --ff-only`
+has brought the merge into `develop`, since the merge commit is newer than
+both. `Workflows/PROJECT_BOOTSTRAP.md` walks
 through the questions behind it — including the one that decides whether your
 project needs a Domain Employee of its own.
+
+Until the first release, an existing repository's `main` stays as it was
+before the adoption. Whatever deploys from `main` keeps deploying that code,
+and work merged into `develop` reaches production only through a release
+(`Workflows/RELEASE.md`), which the Director may cut as soon as the adoption
+is merged. The framework's `ghcr-publish.yml` does not run before then, since
+it runs on pushes to `main` and on tags. A workflow of the project's own that
+runs only for Pull Requests to `main` does not run for those to `develop`
+until `develop` is added to its branches. A fix cannot go through
+`Workflows/HOTFIX.md` before that release: a branch cut from `main` has no
+`Registry/work-units.yml`, so the `commit-msg` hook refuses any commit there
+that claims a Work Unit. A fix that cannot wait goes out in that first
+release.
 
 Complete `.ia-engineering/risk-map.yml` in one of your first Work Units. The
 bootstrap's starter maps only the files it installed. Until each of the eight

@@ -516,11 +516,31 @@ echo
 #    are visible rather than assumed done. PROJECT_BOOTSTRAP.md's Exit Criteria
 #    requires every checklist item, and the items below need a decision, a
 #    Director, or an authenticated API call — not a file copy.
+#
+#    Three items depend on the project as found (issue #453, WU-IAENG-436). An
+#    EXISTING REPOSITORY with main already on a remote cannot push main again:
+#    pre-push refuses every update of an existing main, so the line that tells
+#    a new project to push it names the adoption route instead, and
+#    SESSION_STATE.md waits for the merge that route ends with. The evidence is
+#    a remote-tracking main, <remote>/main exactly, so a branch such as
+#    origin/feature/main is not taken for it. `|| true` keeps a directory that
+#    is not a repository, or has no such ref, on the new-project lines. And a
+#    project that already has a CLAUDE.md merges the template's block into it:
+#    told to create one "from Templates/PROJECT_CLAUDE.md", an adopter could
+#    copy the block over its own contract.
+REMOTE_MAIN="$(git for-each-ref --format='%(refname:lstrip=2)' refs/remotes 2>/dev/null | grep -m1 -E '^[^/]+/main$' || true)"
 echo "--- Remaining Coverage Checklist items (Workflows/PROJECT_BOOTSTRAP.md) ---"
 echo "  Branch protection      ./$(relpath "$(pwd)" "$SCRIPT_DIR")/setup-branch-protection.sh"
-echo "  main + develop created make the first commit first (git branch fails with none), then"
-echo "                         git push -u origin main && git branch develop && git push -u origin develop"
-echo "                         (pre-push allows creating them; every later change goes by PR)"
+if [ -n "$REMOTE_MAIN" ]; then
+  echo "  main + develop         main is already on a remote ($REMOTE_MAIN): never push it, pre-push"
+  echo "                         refuses every update of it. Adopt on a branch cut from develop and"
+  echo "                         merge it into develop by Pull Request; main receives it at the first"
+  echo "                         release (Workflows/ONBOARDING.md, The adoption route)"
+else
+  echo "  main + develop created make the first commit first (git branch fails with none), then"
+  echo "                         git push -u origin main && git branch develop && git push -u origin develop"
+  echo "                         (pre-push allows creating them; every later change goes by PR)"
+fi
 echo "  README.md              from the Phase A answers (project identity)"
 echo "  .gitignore             stack-appropriate for $STACK"
 echo "  Project Charter        Templates/PROJECT_CHARTER.md, from Phase A"
@@ -529,9 +549,20 @@ echo "                         Workflows/ARCHITECTURE_DECISION.md"
 echo "  Risk Map               .ia-engineering/risk-map.yml — the starter covers the installed"
 echo "                         files only; map your own zones and account for all eight"
 echo "                         categories (Templates/RISK_MAP.md), then run check-risk-map.sh"
-echo "  CLAUDE.md              from Templates/PROJECT_CLAUDE.md, before Onboarding Step 4"
-echo "                         (Workflows/ONBOARDING.md Step 1 item 2)"
-echo "  SESSION_STATE.md       after the adoption commit: ./$(relpath "$(pwd)" "$SCRIPT_DIR")/create-session-state.sh"
+if [ -f CLAUDE.md ] || [ -f .claude/CLAUDE.md ]; then
+  echo "  CLAUDE.md              already present: merge the Template block of Templates/PROJECT_CLAUDE.md"
+  echo "                         into it, never copy the block over it (that file's section \"A project"
+  echo "                         that already has a CLAUDE.md\"; Workflows/ONBOARDING.md Step 1 item 2)"
+else
+  echo "  CLAUDE.md              from Templates/PROJECT_CLAUDE.md, before Onboarding Step 4"
+  echo "                         (Workflows/ONBOARDING.md Step 1 item 2)"
+fi
+if [ -n "$REMOTE_MAIN" ]; then
+  echo "  SESSION_STATE.md       once the adoption's Pull Request is merged and develop pulled:"
+  echo "                         ./$(relpath "$(pwd)" "$SCRIPT_DIR")/create-session-state.sh"
+else
+  echo "  SESSION_STATE.md       after the adoption commit: ./$(relpath "$(pwd)" "$SCRIPT_DIR")/create-session-state.sh"
+fi
 echo "                         writes the Template block of Templates/SESSION_STATE.md, dated"
 echo "                         (Workflows/ONBOARDING.md Step 1 item 3; gitignored)"
 echo "  Adoption commit        signed Employee: DevOps Engineer; registers an adoption Work Unit"
