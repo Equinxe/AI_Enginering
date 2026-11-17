@@ -28,9 +28,21 @@ on a branch and merges it into `develop` through a Pull Request. `main`
 receives the adoption at the project's first release, never before (Director
 decision, 4 November 2026). The bootstrap installs a `pre-push` hook that
 refuses every update of an existing `main`, so an adoption committed on `main`
-could never be pushed. Every git step of that route, up to the opened Pull
-Request, is the DevOps Engineer's: the Main Agent dispatches it and never runs
-them itself (`Workflows/ONBOARDING.md`, The adoption route, which also names
+could never be pushed.
+
+**Adopting v0.0.15 into an existing repository.** v0.0.15's own documents,
+the ones in `ia-engineering/` once it is pinned, do not contain this route, the
+merge procedure for a project that already has a `CLAUDE.md`
+(`Templates/PROJECT_CLAUDE.md`), or the rule that the DevOps Engineer signs
+the `CLAUDE.md` commit (#379). An existing project adopting v0.0.15 follows
+this route from the documents on `develop`: this page,
+`Workflows/ONBOARDING.md` (The adoption route) and that template. The route
+works with v0.0.15's scripts unchanged, with one exception: ignore the
+closing-report lines of `setup-project-bootstrap.sh` that issue #453 corrects
+(The steps that are not commands, below). The route ships in v0.0.16.
+
+Every git step of the route, up to the opened Pull Request, is the DevOps
+Engineer's: the Main Agent dispatches them and never runs them itself (`Workflows/ONBOARDING.md`, The adoption route, which also names
 who reviews and who merges). From the repository's root, before the commands
 below (where the remote already has a `develop`, replace the two `develop`
 lines with `git switch develop` and `git pull --ff-only`):
@@ -181,11 +193,12 @@ to apply by hand.
 
 ### The steps that are not commands
 
-In an existing repository, the bootstrap's closing report from a version
-before v0.0.16 prints two lines meant for a new project (issue #453):
-`git push -u origin main && git branch develop && git push -u origin develop`,
-and `CLAUDE.md from Templates/PROJECT_CLAUDE.md`. Follow neither as printed:
-`develop` exists already, and an existing `CLAUDE.md` is merged as below.
+With v0.0.15 pinned, the bootstrap's closing report in an existing repository
+prints three lines meant for a new project: `main + develop created`
+(`git push -u origin main && git branch develop && git push -u origin develop`),
+`CLAUDE.md from Templates/PROJECT_CLAUDE.md` and `SESSION_STATE.md after the
+adoption commit`. Ignore all three and follow this page: v0.0.16 corrects them
+(issue #453).
 
 First, decide what to keep of what the bootstrap wrote for a new, containerised
 project. Two of its files may not suit an existing one:
