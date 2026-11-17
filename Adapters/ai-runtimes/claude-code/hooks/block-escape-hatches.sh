@@ -118,19 +118,28 @@ fi
 # property check lexes every other byte value and requires the output to
 # equal the input, so a lexer that starts rewriting one fails it too.
 #
-# AN awk THAT FAILS IS A COMMAND NOT READ (SEC-IAENG-431-04). A non-zero exit
-# of the lexer, or an empty result for this non-empty command, refuses the
-# call: an emptied command would match no rule. A command whose every word is
-# quoted text with spaces lexes to nothing too, and is refused with it; none
-# of the case file's rows and none of 4,504 real commands of this repository
-# is of that kind.
+# AN awk THAT FAILS IS A COMMAND NOT READ (SEC-IAENG-431-04). run_lexer NAME
+# KEEPQ sets NAME to the lexer's output for the command, in KEEPQ mode when
+# KEEPQ is 1. A command that is only quoted text with spaces, such as a lone
+# quoted path, lexes to nothing but a line break, matches no rule, and is
+# allowed, as on develop; $(...) would make that output look like none at
+# all. So the lexer is asked for an end mark (MARK), which it prints once,
+# after everything else: a non-zero exit, or an output without the mark,
+# refuses the call, since an emptied command would match no rule. The mark
+# and the line break the hook added are removed after.
+run_lexer() {
+  local _lx _kq=()
+  [ "$2" = 1 ] && _kq=(-v KEEPQ=1)
+  _lx="$(printf '%s\n' "$CMD" | awk ${_kq[@]+"${_kq[@]}"} -v MARK=. -f "$LEXER")" || _lx=""
+  case "$_lx" in
+    *.) _lx="${_lx%.}" ;;
+    *) iaeng_block "the lexer (awk) failed or printed nothing for this command, so it could not be read" \
+         "Adapters/ai-runtimes/claude-code/hooks/README.md — unread input is refused rather than allowed. Check that awk runs in this shell." ;;
+  esac
+  printf -v "$1" '%s' "${_lx%$'\n'}"
+}
 case "$CMD" in
-  *[\\\$\`\'\"\<\{$'\001\002\003']*)
-    if ! STRIPPED="$(printf '%s\n' "$CMD" | awk -f "$LEXER")" || [ -z "$STRIPPED" ]; then
-      iaeng_block "the lexer (awk) failed or printed nothing for this command, so it could not be read" \
-        "Adapters/ai-runtimes/claude-code/hooks/README.md — unread input is refused rather than allowed. Check that awk runs in this shell."
-    fi
-    ;;
+  *[\\\$\`\'\"\<\{$'\001\002\003']*) run_lexer STRIPPED 0 ;;
   *) STRIPPED="$CMD" ;;
 esac
 
@@ -314,7 +323,15 @@ fi
 # and an `=` with nothing after it, so a git global option with an
 # empty-looking value no longer hides the subcommand. This only over-matches:
 # G still accepts every form it did.
+#
+# GX, G WITH EVERY VALUE REQUIRED, IS FOR THE EXEMPTIONS (SEC-IAENG-431-05). A
+# rule that refuses may over-match; an exemption that allows may not. So the
+# read exemptions (stash list|show, the core.hooksPath reads) read the global
+# options with GX, where a value-taking option always takes the next word: a
+# word that can be read as an option's value is never read as the subcommand
+# that earns the exemption.
 G='git([[:space:]]+(-[Cc]([[:space:]]+[^[:space:]]+)?|--(git-dir|work-tree|namespace|exec-path|config-env|super-prefix|attr-source)(=[^[:space:]]*|[[:space:]]+[^[:space:]]+)|--[a-z][a-z-]*|-[pP]))*[[:space:]]+'
+GX='git([[:space:]]+(-[Cc][[:space:]]+[^[:space:]]+|--(git-dir|work-tree|namespace|exec-path|config-env|super-prefix|attr-source)(=|[[:space:]]+)[^[:space:]]+|--[a-z][a-z-]*|-[pP]))*[[:space:]]+'
 S='[[:space:]]'
 E='([[:space:]]|;|&|\||\)|$)'
 
@@ -394,7 +411,7 @@ fi
 # read match or carries a `-c` / `--config-env` that names hooksPath (a write
 # layered under a read, never exempted).
 READ_OPT="(--(global|system|local|worktree|show-origin|show-scope|includes|no-includes|null|name-only)|-z|--(file|blob|type|default)(=|${S}+)[^[:space:]]+)"
-READ_HOOKSPATH="^[[:space:](\`{]*([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*${S}+)*${G}config${S}+(${READ_OPT}${S}+)*(--get(-all|-regexp)?|--list|-l|get|list)${S}+(${READ_OPT}${S}+)*core\.hooksPath"
+READ_HOOKSPATH="^[[:space:](\`{]*([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*${S}+)*${GX}config${S}+(${READ_OPT}${S}+)*(--get(-all|-regexp)?|--list|-l|get|list)${S}+(${READ_OPT}${S}+)*core\.hooksPath"
 # LEGACY POSITIONAL GET (Refs #181). `git config [scope] core.hooksPath` with
 # NOTHING after the key reads the value, as `--get` does. It is exempt on the same
 # terms: the closed option list only, then the key, then end of segment. Any value
@@ -415,7 +432,7 @@ READ_HOOKSPATH="^[[:space:](\`{]*([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*${S}+)*${G
 # commit message that mentions the key beside a quote, or `x=$(git config
 # core.hooksPath)`, is refused; `--get` and the other keyword reads above are not
 # affected.
-READ_HOOKSPATH_LEGACY="^[[:space:](\`{]*([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*${S}+)*${G}config${S}+(${READ_OPT}${S}+)*core\.hooksPath${S}*\$"
+READ_HOOKSPATH_LEGACY="^[[:space:](\`{]*([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*${S}+)*${GX}config${S}+(${READ_OPT}${S}+)*core\.hooksPath${S}*\$"
 WRITE_HOOKSPATH_VIA_C="git[^|;&]*(-c${S}+|--config-env(=|${S}+))core\.hooksPath"
 case "$CMD" in
   *\'*|*\"*|*\\*|*'`'*|*\$\(*|*$'\n'*|*\{*|*\}*|*,*|*\[*|*\]*|*\?*|*\**) LEGACY_OK=0 ;;
@@ -621,12 +638,23 @@ DANGER_KEY_C='(include\.|includeif\.|alias\.|core\.fsmonitor([[:space:];&|)=]|$)
 # (a git -c or --config-env naming KEY), and grep -o's way of cutting a line
 # into successive matches has no counterpart in [[ =~ ]], which reports a match
 # but not where it starts.
+#
+# A grep THAT FAILS IS A TEXT NOT READ (SEC-IAENG-431-04). The gate has found
+# such an option on a line, and grep -o cuts the same lines with the same
+# option shape, so it prints at least one: a non-zero exit, or no output,
+# refuses the call. An empty list of options would judge none and allow.
 c_value_unsafe() {
-  local key="$1" safe="$2" tok
+  local key="$1" safe="$2" toks tok
   check_key "${G}(-c${S}+|--config-env(=|${S}+))${key}([[:space:];&|)=]|\$)" || return 1
-  while IFS= read -r tok; do
+  if ! toks="$(printf '%s\n' "$STRIPPED" | grep -oiE -- "(-c${S}+|--config-env(=|${S}+))${key}(=[^[:space:];&|)]*)?([[:space:];&|)]|\$)")" \
+     || [ -z "$toks" ]; then
+    iaeng_block "the option extraction (grep -o) failed or printed nothing for this command, so it could not be read" \
+      "Adapters/ai-runtimes/claude-code/hooks/README.md — unread input is refused rather than allowed. Check that grep runs in this shell."
+  fi
+  split_into $'\n' "$toks"
+  for tok in ${SPLIT[@]+"${SPLIT[@]}"}; do
     rx_any 1 "^-c[[:space:]]+${key}${safe}([[:space:];&|)])?\$" "$tok" || return 0
-  done < <(printf '%s\n' "$STRIPPED" | grep -oiE -- "(-c${S}+|--config-env(=|${S}+))${key}(=[^[:space:];&|)]*)?([[:space:];&|)]|\$)")
+  done
   return 1
 }
 if check_key "GIT_CONFIG_KEY_[0-9]+\+?=${DANGER_KEY}" \
@@ -635,7 +663,7 @@ if check_key "GIT_CONFIG_KEY_[0-9]+\+?=${DANGER_KEY}" \
   iaeng_block "GIT_CONFIG_KEY_<n> or git -c / --config-env sets commit.gpgsign, include.*, includeIf.*, alias.* or core.fsmonitor — keys that turn off signing, load config this hook cannot read, redefine a command or run a program — refused in every form, whatever the value (git -c commit.gpgsign passes only as the bare key or a literal true)" \
     "Standards/GIT_STANDARD.md, Escape Hatches. Use the setting the project already has, or ask a human to run it and describe why in the commit."
 fi
-if check "${G}stash$E" && ! check "${G}stash${S}+(list|show)$E"; then
+if check "${G}stash$E" && ! check "${GX}stash${S}+(list|show)$E"; then
   iaeng_block "git stash sets work aside with no record; it is local, unlabelled, and lost with the clone" \
     "Standards/GIT_STANDARD.md, Escape Hatches. Commit as work in progress on the feature branch, or open a second branch."
 fi
@@ -786,10 +814,7 @@ READ_M="${S}(-X${S}*|--method(=|${S}+))(GET|DELETE)${E}"
 # every text the rules read is: tests/run.sh checks the segments this function
 # returns.
 kept_view() {
-  if ! KEPT="$(printf '%s\n' "$CMD" | awk -v KEEPQ=1 -f "$LEXER")" || [ -z "$KEPT" ]; then
-    iaeng_block "the lexer (awk) failed or printed nothing for this command, so it could not be read" \
-      "Adapters/ai-runtimes/claude-code/hooks/README.md — unread input is refused rather than allowed. Check that awk runs in this shell."
-  fi
+  run_lexer KEPT 1
   ascii_map KEPT
   split_into $';&|\n' "$KEPT"
   KEPT_SEGS=(${SPLIT[@]+"${SPLIT[@]}"})

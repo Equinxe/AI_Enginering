@@ -405,7 +405,7 @@ fi
 # segment must come back with \006 in its place. A mapping made after the
 # split leaves the byte in the segments, which no class shows on Linux.
 KV_GOT="$(
-  eval "$CB_RX"$'\n'"$(hook_fn kept_view)"$'\n''iaeng_block() { exit 3; }'
+  eval "$CB_RX"$'\n'"$(hook_fn run_lexer)"$'\n'"$(hook_fn kept_view)"$'\n''iaeng_block() { exit 3; }'
   LEXER="$HOOKS/strip-quotes.awk" CMD=$'gh x\240y; z' kept_view
   printf '%s|' "${#KEPT_SEGS[@]}" "${KEPT_SEGS[@]}"
 )"
@@ -579,7 +579,7 @@ eh_budget "escape-hatch: budget — a plain command with a non-ASCII byte maps i
 eh_budget "escape-hatch: budget — a quoted label list with a non-ASCII byte maps the lexed text and the KEEPQ view (two tr)" "gh pr edit 1 --add-label \"help wanted,caf${EH_E}\" --title caf${EH_E}" 2 6 2
 eh_budget "escape-hatch: budget — check_raw maps the raw lines too (two tr)" "echo GIT_CONFIG_KEY_0 caf${EH_E}" 0 4 2
 rm -rf "$EH_BASE"
-# A tr OR AN awk THAT FAILS IS A COMMAND NOT READ (SEC-IAENG-431-04). A fake
+# A tr, AN awk OR A grep THAT FAILS IS A COMMAND NOT READ (SEC-IAENG-431-04). A fake
 # tool first on PATH, one that exits 1 and one that exits 0 and prints
 # nothing: the hook must refuse, with its reason, a command that needs that
 # tool. An emptied text matches no rule, so without the check the call was
@@ -611,6 +611,19 @@ fk_check "escape-hatch: a tr that prints nothing refuses the call" tr 'cat >/dev
 fk_check "escape-hatch: an awk that exits 1 refuses the call (the lexer)" awk 'exit 1' 'git push --force "x"' "the lexer (awk) failed"
 fk_check "escape-hatch: an awk that prints nothing refuses the call (the lexer)" awk 'cat >/dev/null; exit 0' 'git push --force "x"' "the lexer (awk) failed"
 fk_check "escape-hatch: an awk that exits 1 refuses the call (the KEEPQ view)" awk 'exit 1' 'gh pr edit 1 --add-label bug' "the lexer (awk) failed"
+# A tool that prints its full, correct output and then exits 1: only the exit
+# status shows the failure, so these pin it apart from the output checks
+# (code review of PR #463, F11). The fake runs the real tool by its path.
+FK_TR="$(command -v tr)"
+FK_AWK="$(command -v awk)"
+fk_check "escape-hatch: a tr that maps the text, then exits 1, refuses the call" tr "\"$FK_TR\" \"\$@\"; exit 1" "echo caf${FK_E}" "the byte mapping (tr) failed"
+fk_check "escape-hatch: an awk that lexes the command, then exits 1, refuses the call" awk "\"$FK_AWK\" \"\$@\"; exit 1" 'echo "hello"' "the lexer (awk) failed"
+# The same for the grep -o of the commit.gpgsign value check: a grep that
+# fails, one that prints nothing, and one that prints a safe option and then
+# fails. Each must refuse a value the real grep shows to be unsafe.
+fk_check "escape-hatch: a grep that exits 2 refuses the call (the gpgsign value check)" grep 'cat >/dev/null; exit 2' 'git -c commit.gpgsign=maybe status' "the option extraction (grep -o) failed"
+fk_check "escape-hatch: a grep that prints nothing refuses the call (the gpgsign value check)" grep 'cat >/dev/null; exit 0' 'git -c commit.gpgsign=maybe status' "the option extraction (grep -o) failed"
+fk_check "escape-hatch: a grep that prints a safe option, then exits 2, refuses the call" grep "cat >/dev/null; printf '%s\\n' '-c commit.gpgsign=true'; exit 2" 'git -c commit.gpgsign=maybe status' "the option extraction (grep -o) failed"
 rm -rf "$FK_BASE"
 expect_rc "inline-suppression: refuses a directive in code" 2 "$HOOKS/block-inline-suppression.sh" "$PAY_CODE"
 expect_rc "inline-suppression: allows it in documentation"  0 "$HOOKS/block-inline-suppression.sh" "$PAY_DOC"

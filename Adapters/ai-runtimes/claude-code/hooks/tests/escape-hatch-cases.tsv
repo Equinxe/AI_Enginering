@@ -828,3 +828,14 @@ block	git --work-tree=' ' push --force	force-push or mirror-push
 block	git -c ' ' push --force	force-push or mirror-push
 block	git -C ' ' commit --no-verify -m x	--no-verify disables
 block	git -C ' ' reset --hard	git reset --hard discards
+# The read exemptions read a git global option with its value, so a word that
+# can be that value does not earn the exemption (SEC-IAENG-431-05).
+block	git stash; git -C stash list	git stash sets work aside
+block	git -C config core.hooksPath	setting core.hooksPath disables
+block	git -C config --get core.hooksPath	setting core.hooksPath disables
+allow	git -C . stash list
+allow	git -C . config --get core.hooksPath
+# A lone quoted path lexes to nothing but a line break, and is allowed as
+# develop allowed it (code review of PR #463, F10).
+allow	"/c/Program Files/app/run.sh"
+allow	'C:\Program Files\app\app.exe'
