@@ -541,9 +541,9 @@ fi
 # each, 126 for the roster, which on Windows is seconds. The rule is the same,
 # byte for byte under LC_ALL=C: lower-case A-Z, a slash read as a space, every
 # run of characters other than a-z and 0-9 one hyphen, no hyphen at either end
-# ("UX/UI Designer" is ux-ui-designer).
-read_roster() {
-  awk -v base="$2" -v label="$3" '
+# ("UX/UI Designer" is ux-ui-designer). The function is held once, here, and
+# given to both awk programs that need it: this one and the quick check's.
+AWK_SLUG='
     function slug(n,   s) {
       s = tolower(n)
       gsub(/\//, " ", s)
@@ -551,7 +551,9 @@ read_roster() {
       sub(/^-/, "", s)
       sub(/-$/, "", s)
       return s
-    }
+    }'
+read_roster() {
+  awk -v base="$2" -v label="$3" "$AWK_SLUG"'
     function emit() { if (name != "") print name "\t" file "\t" category "\t" tier "\t" base "\t" label "\t" slug(name) }
     /^  - name: / {
       emit()
@@ -688,11 +690,46 @@ make_remedy() {
 # would read every Standard from it.
 #
 # Session start asks this on every session (claude-code/hooks/session-start.sh),
-# so it costs what it must and no more: no agent is generated, the rosters are
-# read once, and every agent's root is read by ONE awk process (each file only
-# up to its root line). A root that is a network path (// or \\, any mix) is
+# so it costs what it must and no more: no agent is generated, and ONE awk
+# process reads the rosters and every agent's root line (each file only up to
+# that line). A root that is a network path (// or \\, any mix) is
 # never handed to -ef: stat on Windows would open an SMB connection to the
 # host it names (SEC-IAENG-358-02).
+#
+# Identity alone is not enough (SEC-IAENG-467-01): -ef follows a symbolic
+# link, and under Git Bash a Windows junction, so a root that reaches this
+# framework through a link passed, and the link could then be pointed at other
+# Standards. A root is current only when it is also written as the generator
+# writes this framework (shown_root, below): another spelling of the same
+# directory is stale, as the full --check already says ("framework location
+# only"). Windows paths are compared without letter case, as Windows reads
+# them. That spelling is computed once, and only when an agent names a root.
+
+# shown_root — SHOWN_ROOT is this framework's root as a generated agent names
+# it, and the function is true when that path is this framework (-ef). Under
+# Git Bash, pwd's /c/... or /tmp/... are MSYS spellings a Windows program does
+# not read, so the root is written as cygpath -m gives it, C:/...; cygpath
+# runs under a UTF-8 locale, not the LC_ALL=C exported above, which wrote
+# Développement as D\351veloppement and cut a path off at 日本 (Code Reviewer
+# F1 on PR #456). Elsewhere pwd's path is already native.
+shown_root() {
+  SHOWN_ROOT="$ROOT"
+  if command -v cygpath > /dev/null 2>&1; then
+    SHOWN_ROOT="$(LC_ALL=C.UTF-8 cygpath -m "$ROOT" 2> /dev/null)"
+  fi
+  [ -n "$SHOWN_ROOT" ] && [ "$SHOWN_ROOT" -ef "$ROOT" ]
+}
+
+# same_spelling <a> <b> — true when two roots are written alike: without
+# letter case where Windows reads paths (cygpath is there), exactly elsewhere.
+same_spelling() {
+  if command -v cygpath > /dev/null 2>&1; then
+    [ "${1,,}" = "${2,,}" ]
+  else
+    [ "$1" = "$2" ]
+  fi
+}
+
 if [ "$QUICK" -eq 1 ]; then
   if [ "$FORMAT" = text ]; then
     echo "IA Engineering — checking agent definitions, quick: each one present and naming"
@@ -706,42 +743,20 @@ if [ "$QUICK" -eq 1 ]; then
     fi
     echo
   fi
-  Q_DESTS=()
-  Q_FILES=()
-  while IFS=$'\t' read -r _n _f _c _t _b _l q_slug; do
-    [ -n "$_n" ] || continue
-    Q_DESTS+=("$OUT/$q_slug.md")
-    [ -f "$OUT/$q_slug.md" ] && Q_FILES+=("$OUT/$q_slug.md")
-  done < <(roster_rows)
-  Q_ROOTS=()
-  if [ "${#Q_FILES[@]}" -gt 0 ]; then
-    # One line per file, in order: the root it names, empty when it names
-    # none, \001 when it cannot be read. The first such line only, as
-    # location_of below reads it; a CR ending the line is not part of it.
-    while IFS= read -r q_root; do
-      Q_ROOTS+=("$q_root")
-    done < <(awk 'BEGIN {
-      for (i = 1; i < ARGC; i++) {
-        r = ""; n = 0
-        while ((rc = (getline line < ARGV[i])) > 0) {
-          n++
-          sub(/\r$/, "", line)
-          if (line ~ /^Framework root: `.*`$/) {
-            r = line; sub(/^Framework root: `/, "", r); sub(/`$/, "", r); break
-          }
-        }
-        if (rc < 0 && n == 0) r = "\001"
-        close(ARGV[i])
-        print r
-      }
-    }' "${Q_FILES[@]}")
-  fi
-  Q_PRESENT=0; Q_MISSING=0; Q_STALE=0; q_i=0
-  for q_dest in ${Q_DESTS[@]+"${Q_DESTS[@]}"}; do
-    if [ ! -f "$q_dest" ]; then
+  # One awk process for the rosters and the agents (Code Reviewer, PR #467):
+  # it reads each roster entry's name, makes its agent's file name with the
+  # generation's own slug(), and reads that file's root line. One line per
+  # roster Employee, in roster order: the agent's path, TAB, the root it
+  # names, empty when it names none, \001 when the file cannot be opened
+  # (missing, or unreadable: told apart below). The first root line only, as
+  # location_of reads it; a CR ending the line is not part of it.
+  Q_N=0; Q_PRESENT=0; Q_MISSING=0; Q_STALE=0
+  while IFS=$'\t' read -r q_dest q_root; do
+    [ -n "$q_dest" ] || continue
+    Q_N=$((Q_N + 1))
+    if [ "$q_root" = $'\001' ] && [ ! -f "$q_dest" ]; then
       Q_MISSING=$((Q_MISSING + 1)); report missing "$q_dest"; continue
     fi
-    q_root="${Q_ROOTS[q_i]-}"; q_i=$((q_i + 1))
     q_why=""
     case "$q_root" in
       $'\001') q_why="it cannot be read" ;;
@@ -750,8 +765,20 @@ if [ "$QUICK" -eq 1 ]; then
           || q_why="it names no framework root: it was written before agents named one, or for the framework repository itself" ;;
       [/\\][/\\]*) q_why="its framework root $q_root is a network path, never opened here" ;;
       /*|[A-Za-z]:[/\\]*)
-        [ "$q_root" -ef "$ROOT" ] \
-          || q_why="its framework root $q_root is not this project's framework: the project moved, or it was generated in another clone" ;;
+        if ! [ "$q_root" -ef "$ROOT" ]; then
+          q_why="its framework root $q_root is not this project's framework: the project moved, or it was generated in another clone"
+        else
+          if [ -z "${Q_SHOWN_DONE:-}" ]; then
+            Q_SHOWN_DONE=1
+            Q_SHOWN=""
+            shown_root && Q_SHOWN="$SHOWN_ROOT"
+          fi
+          if [ -z "$Q_SHOWN" ]; then
+            q_why="this framework's root cannot be written as a path that names it, so no agent's root can be confirmed"
+          elif ! same_spelling "$q_root" "$Q_SHOWN"; then
+            q_why="its framework root $q_root reaches this framework, but is not written as the generator writes it ($Q_SHOWN): through a link, which can be pointed elsewhere, or another spelling"
+          fi
+        fi ;;
       *) q_why="its framework root $q_root is not an absolute path" ;;
     esac
     if [ -n "$q_why" ]; then
@@ -759,15 +786,36 @@ if [ "$QUICK" -eq 1 ]; then
     else
       Q_PRESENT=$((Q_PRESENT + 1)); report present "$q_dest"
     fi
-  done
+  done < <(awk -v out="$OUT" "$AWK_SLUG"'
+    function root_of(f,   line, r, n, rc) {
+      r = ""; n = 0
+      while ((rc = (getline line < f)) > 0) {
+        n++
+        sub(/\r$/, "", line)
+        if (line ~ /^Framework root: `.*`$/) {
+          r = line; sub(/^Framework root: `/, "", r); sub(/`$/, "", r); break
+        }
+      }
+      if (rc < 0 && n == 0) r = "\001"
+      close(f)
+      return r
+    }
+    function emit(   d) {
+      if (name == "") return
+      d = out "/" slug(name) ".md"
+      print d "\t" root_of(d)
+    }
+    /^  - name: / { emit(); name = $0; sub(/^  - name: /, "", name); gsub(/\015/, "", name); next }
+    END { emit() }
+  ' "$ROSTER" ${PROJECT_ROSTER:+"$PROJECT_ROSTER"})
   Q_ACT=$((Q_MISSING + Q_STALE))
   [ "$Q_ACT" -gt 0 ] && make_remedy
   if [ "$FORMAT" = tsv ]; then
-    echo "# generate-agents.sh --check --quick: $Q_ACT to act on. ${#Q_DESTS[@]} agent(s): $Q_PRESENT present, $Q_MISSING missing, $Q_STALE stale."
+    echo "# generate-agents.sh --check --quick: $Q_ACT to act on. $Q_N agent(s): $Q_PRESENT present, $Q_MISSING missing, $Q_STALE stale."
     [ "$Q_ACT" -gt 0 ] && echo "# regenerate: $REMEDY"
   else
     echo
-    echo "Result (quick): $Q_PRESENT present, $Q_ACT stale or missing, of ${#Q_DESTS[@]} roster Employee(s)"
+    echo "Result (quick): $Q_PRESENT present, $Q_ACT stale or missing, of $Q_N roster Employee(s)"
     if [ "$Q_ACT" -gt 0 ]; then
       echo "  Agents are generated per clone and never committed. Regenerate:"
       echo "    $REMEDY"
@@ -851,17 +899,15 @@ if ! [ "$ROOT" -ef "$PROJECT" ]; then
     fi
   done
   unset _probe _rel _parent
-  FRAMEWORK_SHOWN="$ROOT"
-  if command -v cygpath > /dev/null 2>&1; then
-    FRAMEWORK_SHOWN="$(LC_ALL=C.UTF-8 cygpath -m "$ROOT" 2> /dev/null)"
-  fi
-  if [ -z "$FRAMEWORK_SHOWN" ] || ! [ "$FRAMEWORK_SHOWN" -ef "$ROOT" ]; then
+  if ! shown_root; then
+    FRAMEWORK_SHOWN="$SHOWN_ROOT"
     echo "generate-agents.sh: cannot write the framework root as a path that names it." >&2
     echo "  The framework is $ROOT; the native form computed for it is" >&2
     echo "  '$FRAMEWORK_SHOWN', which is not that directory. Every agent would tell its" >&2
     echo "  Employee to read the framework where it is not, so nothing was written." >&2
     exit 2
   fi
+  FRAMEWORK_SHOWN="$SHOWN_ROOT"
 fi
 
 # --- Extraction ------------------------------------------------------------
@@ -1530,7 +1576,9 @@ if [ "$DRY_RUN" -eq 0 ] && [ "$WRITTEN" -gt 0 ]; then
   echo "These are build artifacts, generated in each clone. Regenerate after"
   echo "editing any Employee definition, after a framework upgrade and after the"
   echo "project moves; do not hand-edit them. .gitignore keeps them out, and an"
-  echo "adopting project never commits them: its pre-commit hook refuses them."
+  echo "adopting project never commits them: the pre-commit hook install.sh"
+  echo "installs refuses them. A session started before .claude/agents/ existed"
+  echo "loads them only once it is restarted."
 fi
 
 [ "$DIFFERENT" -gt 0 ] && exit 1

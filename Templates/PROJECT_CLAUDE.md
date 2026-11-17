@@ -204,7 +204,9 @@ Request.
 Enforcement installed here: [git hooks via `core.hooksPath`; the CI checks
 listed in `Adapters/scripts/setup-branch-protection.sh`; the runtime hooks in
 `Adapters/ai-runtimes/<runtime>/`]. In every fresh clone, and on every
-machine, run these three commands from the main checkout's root, in order:
+machine, run these three commands from the main checkout's root, in order,
+before starting Claude Code there: it loads `.claude/agents/` only if the
+directory existed when the session started.
 
 1. `git submodule update --init`, or clone with `--recurse-submodules`: the
    installers live in the framework submodule.
@@ -213,8 +215,9 @@ machine, run these three commands from the main checkout's root, in order:
    agent per roster Employee in `.claude/agents/`. The agents are generated in
    each clone and never committed, so a fresh clone has none until this runs.
 
-Run the third again after every framework upgrade, and after the project
-moves. Session start checks each agent's framework root is the project's
+Run the third again after every framework upgrade. After the project moves,
+run the second and the third again: `core.hooksPath` still names the old
+path, so no git hook runs until `install.sh` rewrites it. Session start checks each agent's framework root is the project's
 framework, and names any agent that is missing or stale, with the command
 that regenerates it. A git worktree, such as an Employee's, needs none of
 this, though its `ia-engineering/` stays empty: its hooks are the main
@@ -297,7 +300,7 @@ direction. Move an answered one into the body of this file and delete it here.]
 
 Owner: IA Engineering
 
-Version: 0.0.15
+Version: 0.0.16
 
 Status: Draft
 

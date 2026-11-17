@@ -12461,6 +12461,13 @@ LAST_OUTPUT="$(cd "$AD_434" && env -u CLAUDE_PROJECT_DIR XDG_CACHE_HOME="$WORK/c
   PATH="$WORK/notimeout-434:$PATH" bash ./ia-engineering/Adapters/ai-runtimes/claude-code/hooks/session-start.sh </dev/null 2>&1)"
 expect_output "Tier map in force — mapping: file ("
 expect_output "map=strategic=opus,standard=adopter-model,"
+# The new options refuse what they do not take (Code Reviewer, PR #467).
+expect 2 "--format takes text or tsv only" -- bash "$G_434" --check --format xml
+expect_output "Argument error: --format takes text or tsv."
+expect 2 "--quick without --check is refused" -- bash "$G_434" --quick
+expect_output "Argument error: --quick and --format qualify --check, which was not given."
+expect 2 "--format without --check is refused" -- bash "$G_434" --format tsv
+expect_output "Argument error: --quick and --format qualify --check, which was not given."
 
 # --- the quick check, and session start, in a fresh clone (no agent) --------
 cd "$AD_434" || exit 1
@@ -12470,6 +12477,9 @@ expect_line "agent${T434}missing${T434}.claude/agents/devops-engineer.md${T434}"
 expect_line "# regenerate: $REGEN_CMD_434"
 ss_434 "$AD_434"
 expect_line "IA Engineering agents: 3 of 3 roster Employees have no agent in .claude/agents/ (software-architect, solution-architect, devops-engineer). Agents are generated in each clone and never committed. Regenerate them before dispatching any Employee: $REGEN_CMD_434"
+# Claude Code loads an agents directory created after the session started only
+# in a new session: said, with the stop rule (Prompt Engineer, PR #467).
+expect_line "  .claude/agents/ did not exist when this session started, so Claude Code loads the agents only in a new session: run the command, then ask the Director to restart the session. Until a named Employee can be dispatched, dispatch none, and never a generic agent in its place (Core/MAIN_AGENT_CONDUCT.md, Dispatch Discipline). If the command fails, stop and report it to the Director."
 SS_CMD_434="$(sed -n 's/.*Regenerate them before dispatching any Employee: //p' <<< "$LAST_OUTPUT" | head -n 1)"
 expect 0 "session start: the command it prints runs as printed from the project root" -- eval "$SS_CMD_434"
 if [ "$(find .claude/agents -name '*.md' 2>/dev/null | grep -c .)" -eq 3 ]; then
@@ -12509,6 +12519,12 @@ expect_output "${T434}its framework root $ROOT_434 is not this project's framewo
 ss_434 "$COPY_434"
 expect_output "IA Engineering agents: 3 of 3 agents are stale (software-architect, solution-architect, devops-engineer): the framework root each one names is not this project's framework"
 expect_output "Regenerate them before dispatching any Employee: $REGEN_CMD_434"
+# The stop rule, in every case (Prompt Engineer, PR #467); no restart clause,
+# since .claude/agents/ existed when the session started. A stale agent may
+# mean a moved project, whose core.hooksPath still names the old path, so no
+# git hook runs until install.sh rewrites it (QA-467-02, #470).
+expect_line "  If the project moved, also re-run ./ia-engineering/Adapters/scripts/install.sh: core.hooksPath still names the old path, so no git hook runs. Until a named Employee can be dispatched, dispatch none, and never a generic agent in its place (Core/MAIN_AGENT_CONDUCT.md, Dispatch Discipline). If the command fails, stop and report it to the Director."
+expect_no_output "did not exist when this session started" "session start: no restart clause when .claude/agents/ existed at session start"
 expect 0 "the copy regenerates its own" -- bash "$G_434"
 expect 0 "quick: the copy's agents now name the copy's framework" -- bash "$G_434" --check --quick --format tsv
 
@@ -12538,9 +12554,52 @@ expect_output "${T434}its framework root ia-engineering is not an absolute path"
 COPY_ROOT_434="$(root_434 "$WORK/devops-434.md")"
 sed 's/$/\r/' "$WORK/devops-434.md" > "$A_434"
 expect 0 "quick: an agent with CRLF line endings still names its root" -- bash "$G_434" --check --quick --format tsv
+# SEC-IAENG-467-01. Identity alone accepted a root that reaches this framework
+# through a link, a symbolic link or a Windows junction, which can be pointed
+# elsewhere after the check. A root must also be written as the generator
+# writes this framework, so another spelling of the same directory is stale.
 setroot_434 "$COPY_ROOT_434/../ia-engineering"
-expect 0 "quick: the same directory spelled another way is this framework (identity, not spelling)" -- \
+expect 1 "quick: the same directory spelled another way is stale (SEC-IAENG-467-01)" -- \
   bash "$G_434" --check --quick --format tsv
+expect_output "${T434}its framework root $COPY_ROOT_434/../ia-engineering reaches this framework, but is not written as the generator writes it"
+# link_434 <link> <target> — a directory link: ln -s, or, where ln -s copies
+# (Git Bash), a Windows junction. True when <link> is a link to <target>.
+link_434() {
+  ln -s "$2" "$1" 2>/dev/null
+  if ! [ -L "$1" ]; then
+    rm -rf "$1"
+    if command -v cygpath >/dev/null 2>&1 && command -v cmd >/dev/null 2>&1; then
+      MSYS2_ARG_CONV_EXCL='*' cmd /c mklink /J "$(cygpath -w "$1")" "$(cygpath -w "$2")" >/dev/null 2>&1
+    fi
+  fi
+  [ -L "$1" ] && [ "$1" -ef "$2" ]
+}
+block_begin 3 "SEC-IAENG-467-01: a root that is a link to this framework"
+if link_434 "$WORK/link-434" "$COPY_ROOT_434"; then
+  LINK_434="$WORK/link-434"
+  command -v cygpath >/dev/null 2>&1 && LINK_434="$(LC_ALL=C.UTF-8 cygpath -m "$WORK/link-434")"
+  setroot_434 "$LINK_434"
+  expect 1 "quick: a root that is a link to this framework is stale (SEC-IAENG-467-01)" -- \
+    bash "$G_434" --check --quick --format tsv
+  expect_output "${T434}its framework root $LINK_434 reaches this framework, but is not written as the generator writes it"
+  ss_434 "$COPY_434"
+  expect_output "1 of 3 agents are stale (devops-engineer)"
+else
+  skip 3 "no directory link can be made here: ln -s copies and no junction could be made"
+fi
+block_end
+# On a filesystem that folds letter case, with cygpath (Windows), the
+# generator's spelling in another letter case is the same root.
+block_begin 1 "a root in another letter case"
+CASE_434="$(printf '%s' "$COPY_ROOT_434" | tr '[:lower:]' '[:upper:]')"
+if command -v cygpath >/dev/null 2>&1 && [ "$CASE_434" != "$COPY_ROOT_434" ] && [ "$CASE_434" -ef "$COPY_ROOT_434" ]; then
+  setroot_434 "$CASE_434"
+  expect 0 "quick: the generator's spelling in another letter case is this framework (Windows)" -- \
+    bash "$G_434" --check --quick --format tsv
+else
+  not_applicable 1 case-folded-path "the filesystem tells letter case apart, or there is no cygpath"
+fi
+block_end
 setroot_434 "/x-434"$'\033'"[31m/y"
 expect 1 "quick: a root holding an escape sequence" -- bash "$G_434" --check --quick --format tsv
 TOTAL=$((TOTAL + 1))
@@ -12564,7 +12623,42 @@ if grep -q $'\033' <<< "$LAST_OUTPUT" || ! grep -q "1 of 3 agents are stale (dev
 else
   [ -n "$VERBOSE" ] && printf '   ok   session start names the stale agent and nothing of its root\n'
 fi
+# An agent that exists but cannot be read is stale, never present (Code
+# Reviewer, PR #467). chmod 000 makes it so on Linux for a user other than
+# root; Git for Windows ignores chmod, so there a deny ACE does, and is taken
+# off again.
+block_begin 2 "an agent that exists but cannot be read"
 cp "$WORK/devops-434.md" "$A_434"
+chmod 000 "$A_434" 2>/dev/null
+if cat "$A_434" >/dev/null 2>&1 && command -v icacls >/dev/null 2>&1 && command -v cygpath >/dev/null 2>&1; then
+  MSYS2_ARG_CONV_EXCL='*' icacls "$(cygpath -w "$A_434")" /deny "${USERNAME:-}:(R)" >/dev/null 2>&1
+fi
+if [ -f "$A_434" ] && ! cat "$A_434" >/dev/null 2>&1; then
+  expect 1 "quick: an agent that cannot be read is stale" -- bash "$G_434" --check --quick --format tsv
+  expect_output "agent${T434}stale${T434}.claude/agents/devops-engineer.md${T434}it cannot be read"
+else
+  skip 2 "no file can be made unreadable here: chmod 000 as root, and no icacls"
+fi
+if command -v icacls >/dev/null 2>&1 && command -v cygpath >/dev/null 2>&1; then
+  MSYS2_ARG_CONV_EXCL='*' icacls "$(cygpath -w "$A_434")" /remove:d "${USERNAME:-}" >/dev/null 2>&1
+fi
+chmod 644 "$A_434"
+block_end
+cp "$WORK/devops-434.md" "$A_434"
+# Every field of a record is flattened, the path included (Code Reviewer,
+# PR #467): an output directory whose name holds a CSI pair (U+009B, a name
+# Windows and Linux both allow) is printed with a space in its place. The
+# generator runs under LC_ALL=C, where only the sanitiser's C1 rule removes
+# the pair.
+OUT_C1_434="$WORK/out-"$'\xc2\x9b'"-434"
+expect 1 "quick: --out in a directory whose name holds a C1 pair, every agent missing" -- \
+  bash "$G_434" --check --quick --format tsv --out "$OUT_C1_434"
+expect_output "agent${T434}missing${T434}"
+if grep "^agent${T434}" <<< "$LAST_OUTPUT" | grep -q $'\xc2\x9b'; then
+  fail_434 "quick: no C1 pair of an agent's path reaches a tsv record"
+else
+  pass_434 "quick: no C1 pair of an agent's path reaches a tsv record"
+fi
 
 # --- DEF-02: the tier map, and the quick check, survive a refused root -------
 # A cygpath first on PATH that answers with another directory: a generation
@@ -12579,10 +12673,14 @@ expect_output "cannot write the framework root as a path that names it."
 expect 0 "DEF-02: --print-tier-map survives a refused framework root" -- \
   env PATH="$WORK/fakebin-434:$PATH" bash "$G_434" --print-tier-map
 expect_output "map=strategic=opus,standard=adopter-model,"
-expect 0 "DEF-02: session start's call survives it too, map and quick check" -- \
+# Session start's call survives it too: the map, then a verdict. With no
+# spelling of this framework's root to compare against, no agent's root is
+# confirmed (SEC-IAENG-467-01), and each one says why.
+expect 1 "DEF-02: session start's call survives it too, map and quick check" -- \
   env PATH="$WORK/fakebin-434:$PATH" bash "$G_434" --print-tier-map --check --quick --format tsv
 expect_output "map=strategic=opus,standard=adopter-model,"
-expect_output "# generate-agents.sh --check --quick: 0 to act on."
+expect_output "# generate-agents.sh --check --quick: 3 to act on. 3 agent(s): 0 present, 0 missing, 3 stale."
+expect_output "${T434}this framework's root cannot be written as a path that names it, so no agent's root can be confirmed"
 
 # --- DEF-01: --check's counts add up ----------------------------------------
 # One agent differs in its mapping only (Software Architect), one in its root
@@ -12609,6 +12707,13 @@ if [ "$SUM_434" -eq 3 ]; then
 else
   fail_434 "DEF-01: the summary's groups add up to the 3 agents that differ" "they add up to $SUM_434"
 fi
+# The tsv form keeps the exit code the header documents (Code Reviewer, PR
+# #467): 1 while anything differs, 0 once every agent is current (#412,
+# below). Run before the text form's command is read, which comes next.
+DEF01_TEXT_434="$LAST_OUTPUT"
+expect 1 "--check --format tsv exits 1 while an agent differs" -- bash "$G_434" --check --format tsv
+expect_output "# generate-agents.sh --check: 3 to act on. 3 agent(s): 0 current, 0 missing, 3 stale."
+LAST_OUTPUT="$DEF01_TEXT_434"
 
 # --- #412: the command --check prints runs as printed ------------------------
 REGEN_434="$(regen_line)"
@@ -12634,7 +12739,19 @@ REGEN_434="$(regen_line)"
 expect_output "--map strategic=flag-model"
 expect 0 "#412: the printed command carries --map" -- eval "$REGEN_434"
 expect 0 "#412: ... and generates what was checked" -- bash "$G_434" --check --map strategic=flag-model
+# QA-467-01: --roster too. The Domain Employee of roster-434/extra.yml (the
+# #418 case) has no agent yet; the command must carry the roster, by its
+# absolute path, quoted for the space and é日本, or it regenerates the
+# framework's Employees alone and --check stays red.
+expect 1 "#412: --check with --roster" -- bash "$G_434" --check --roster roster-434/extra.yml
+REGEN_434="$(regen_line)"
+expect_output "--roster '$AD_434/roster-434/extra.yml'"
+expect 0 "#412: the printed command carries --roster" -- eval "$REGEN_434"
+expect 0 "#412: ... and generates what was checked, the Domain Employee included" -- \
+  bash "$G_434" --check --roster roster-434/extra.yml
 expect 0 "back to the project's mapping" -- bash "$G_434"
+expect 0 "--check --format tsv exits 0 once every agent is current" -- bash "$G_434" --check --format tsv
+expect_output "# generate-agents.sh --check: 0 to act on. 3 agent(s): 3 current, 0 missing, 0 stale."
 
 # --- #411: the drift check reports missing and stale agents ------------------
 cd "$AD_434" || exit 1
@@ -12676,10 +12793,60 @@ expect_no_output "IA Engineering agents" "session start: a refused tier map stop
 printf 'map=standard=adopter-model\n' > .ia-engineering/tier-map
 git -C ia-engineering checkout -q -- Employees/DevOps/DEVOPS_ENGINEER.md
 expect 0 "restore: regenerate" -- bash "$G_434"
+
+# --- session start with no verdict, and control bytes in a printed path -------
+cd "$AD_434" || exit 1
 mv ia-engineering/Registry/employees.yml "$WORK/employees-434.yml"
+# The drift check: a generator that exits 1 without its summary gave no
+# result, and that is indeterminate, never an empty family (Code Reviewer,
+# PR #467).
+expect 0 "#411: a generator that stops before its summary is indeterminate" -- \
+  bash ./ia-engineering/Adapters/scripts/check-framework-drift.sh --format tsv
+expect_output "agent${T434}indeterminate${T434}.claude/agents/${T434}generate-agents.sh --check exited 1 without a result: generate-agents.sh: Registry/employees.yml not found."
 ss_434 "$AD_434"
 expect_output "IA Engineering agents: not checked (generate-agents.sh: Registry/employees.yml not found.)"
+expect_output "Until the check passes, dispatch no Employee, and report the cause to the Director. Check them by hand: "
+# The command runs as printed from the project root, whose path holds a
+# space and é日本: quoted, it is not cut at the space (exit 127).
+BYHAND_434="$(sed -n 's/.*Check them by hand: //p' <<< "$LAST_OUTPUT" | head -n 1)"
 mv "$WORK/employees-434.yml" ia-engineering/Registry/employees.yml
+expect 0 "the not-checked command runs as printed from the project root" -- eval "$BYHAND_434"
+
+# Every control byte, C1 pairs included, is flattened in what the agents
+# lines print of a path (SEC-IAENG-467, review), in every locale: under the C
+# locale a [[:cntrl:]] pattern alone leaves a C1 pair whole. A project in a
+# directory whose name holds a CSI pair (U+009B), with its framework inside
+# it, then a project using that framework from outside, whose regenerate
+# command is the framework's absolute path. Only the agents lines are read:
+# the other lines of session start are not this check's.
+C1_434="$WORK/c1-"$'\xc2\x9b'"-434"
+# agents_lines_434 — the agents lines of the last session-start output.
+agents_lines_434() {
+  grep -E '^IA Engineering agents|^  (\.claude/agents/ did not exist|Until a named|If the project moved)' <<< "$LAST_OUTPUT"
+}
+rm -rf "$C1_434"
+cp -R "$AD_434" "$C1_434"
+mv "$C1_434/ia-engineering/Registry/employees.yml" "$WORK/employees-c1-434.yml"
+LAST_OUTPUT="$(cd "$C1_434" && env LC_ALL=C CLAUDE_PROJECT_DIR="$C1_434" XDG_CACHE_HOME="$WORK/cache-434" \
+  PATH="$WORK/notimeout-434:$PATH" bash ./ia-engineering/Adapters/ai-runtimes/claude-code/hooks/session-start.sh </dev/null 2>&1)"
+mv "$WORK/employees-c1-434.yml" "$C1_434/ia-engineering/Registry/employees.yml"
+expect_output "IA Engineering agents: not checked ("
+if agents_lines_434 | grep -q $'\xc2\x9b'; then
+  fail_434 "session start: no C1 pair of a project path reaches the not-checked line"
+else
+  pass_434 "session start: no C1 pair of a project path reaches the not-checked line"
+fi
+OUTSIDE_C1_434="$WORK/outside-c1-434"
+mkdir -p "$OUTSIDE_C1_434"
+LAST_OUTPUT="$(cd "$OUTSIDE_C1_434" && env LC_ALL=C CLAUDE_PROJECT_DIR="$OUTSIDE_C1_434" IAENG_FRAMEWORK="$C1_434/ia-engineering" \
+  XDG_CACHE_HOME="$WORK/cache-434" PATH="$WORK/notimeout-434:$PATH" \
+  bash "$C1_434/ia-engineering/Adapters/ai-runtimes/claude-code/hooks/session-start.sh" </dev/null 2>&1)"
+expect_output "IA Engineering agents: 3 of 3 roster Employees have no agent in .claude/agents/"
+if agents_lines_434 | grep -q $'\xc2\x9b'; then
+  fail_434 "session start: no C1 pair of the framework's path reaches the regenerate command"
+else
+  pass_434 "session start: no C1 pair of the framework's path reaches the regenerate command"
+fi
 
 # --- the agent's file name: one rule, by hand ------------------------------
 # The generation and the quick check read the same name from the roster. The
@@ -12734,6 +12901,28 @@ for p434 in ".claude/agents/notes.txt" ".claude/agentsX/a.md" "docs/claude/agent
   expect 0 "not this rule: $p434" -- bash "$SCAN_434" --staged
   git reset -q
 done
+# SEC-IAENG-467-02: a symbolic link committed in the place of .claude/ or
+# .claude/agents/ (pointing at cfg/, which holds agents) is refused: what it
+# points to would be read as the agents. Staged as git stores a link: mode
+# 120000, the target as the blob.
+link_entry_434() {
+  local b
+  git config core.protectNTFS false
+  b="$(printf 'cfg' | git hash-object -w --stdin)" || return 1
+  printf '120000 %s\t%s\0' "$b" "$1" | git update-index -z --index-info
+}
+for p434 in ".claude" ".claude/agents" "pkg/.CLAUDE"; do
+  link_entry_434 "$p434"
+  expect 1 "refused: a symbolic link committed as $p434 (SEC-IAENG-467-02)" -- bash "$SCAN_434" --staged
+  expect_output "REFUSED  $p434"
+  expect_output "an entry where the .claude/ or .claude/agents/ directory should be"
+  git reset -q
+done
+for p434 in ".claude/settings.json" ".claudeX" "x/.claude-agents"; do
+  index_path "$p434"
+  expect 0 "not this rule: $p434" -- bash "$SCAN_434" --staged
+  git reset -q
+done
 mkdir -p .ia-engineering
 printf '%s\n' '^\.claude/agents/own-agent\.md$' > .ia-engineering/data-policy.allow
 index_path ".claude/agents/own-agent.md"
@@ -12745,12 +12934,29 @@ git commit -q -m "an agent committed without the hook"
 expect 1 "refused in the tree too (the server-side data-policy check)" -- bash "$SCAN_434" --tree HEAD
 expect_output "REFUSED  .claude/agents/committed.md"
 git reset -q --hard HEAD~1
+# --history, the check that counts server-side: an agent committed and
+# untracked again inside the branch is in every clone that fetched it (Code
+# Reviewer, PR #467).
+index_path ".claude/agents/hist.md"
+git commit -q -m "an agent committed without the hook"
+git rm -q --cached ".claude/agents/hist.md"
+git commit -q -m "and untracked again"
+expect 1 "refused by --history: an agent committed and untracked inside the range" -- \
+  bash "$SCAN_434" --history HEAD~2..HEAD
+expect_output "REFUSED  .claude/agents/hist.md"
+git reset -q --hard HEAD~2
 
 # The framework repository is out of scope: its own agents name no root.
 cd "$FW_434" || exit 1
 index_path ".claude/agents/devops-engineer.md"
 expect 0 "framework: its own agent is not refused" -- bash Adapters/scripts/data-policy-scan.sh --staged
 git reset -q
+index_path ".claude/agents/hist.md"
+git commit -q -m "an agent committed"
+git rm -q --cached ".claude/agents/hist.md"
+git commit -q -m "and untracked again"
+expect 0 "framework: --history does not refuse its own agent" -- bash Adapters/scripts/data-policy-scan.sh --history HEAD~2..HEAD
+git reset -q --hard HEAD~2
 # In a linked worktree of the framework, the hooks run from the main checkout
 # (core.hooksPath is absolute): the same repository, so not refused either.
 git worktree add -q "$WORK/fw-434-wt" -b wt-434 >/dev/null 2>&1
@@ -12777,6 +12983,13 @@ if [ "$(grep -c . <<< "$FRESH_CMDS_434")" -eq 3 ] && grep -q "generate-agents.sh
   pass_434 "the template's fresh-clone block names three commands, the last the generator"
 else
   fail_434 "the template's fresh-clone block names three commands, the last the generator" "$FRESH_CMDS_434"
+fi
+# QA-467-02 (#470): after a move, core.hooksPath names the old path, so the
+# block says to run install.sh again too, not only the generator.
+if tr '\n' ' ' < "$SCRIPTS/../../Templates/PROJECT_CLAUDE.md" | grep -qF 'After the project moves, run the second and the third again: `core.hooksPath` still names the old path'; then
+  pass_434 "the template says to re-run install.sh after the project moves (QA-467-02)"
+else
+  fail_434 "the template says to re-run install.sh after the project moves (QA-467-02)"
 fi
 cd "$WORK" || exit 1
 git clone -q "$AD_434" "fresh-434 é日本" >/dev/null 2>&1

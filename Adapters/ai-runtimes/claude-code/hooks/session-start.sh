@@ -147,6 +147,11 @@ echo
 # them runs as printed from where a session works.
 GEN="${ROOT:+$ROOT/Adapters/ai-runtimes/generate-agents.sh}"
 if [ -n "$GEN" ] && [ -f "$GEN" ]; then
+  # Claude Code watches only the agents directories that existed when the
+  # session started: one created later is loaded by the next session. Read
+  # before anything can create it.
+  A_DIR_AT_START=0
+  [ -d "$BASE/.claude/agents" ] && A_DIR_AT_START=1
   TIER_OUT="$(CDPATH='' cd -- "$BASE" 2>&1 && bash "$GEN" --target claude-code --project . --print-tier-map --check --quick --format tsv 2>&1)"
   TIER_RC=$?
   # One pass over the output, in the shell: no process per line read. The
@@ -209,13 +214,33 @@ if [ -n "$GEN" ] && [ -f "$GEN" ]; then
   # the tier map was refused, the generator stopped before this check, and the
   # warning above says what to fix first.
   if [ "$TIER_RC" -le 1 ] && [ -n "$TIER_MAP" ]; then
+    # a_flat <text> — A_FLAT is the text with every control character a
+    # space, the C1 pairs \xc2\x80 to \xc2\x9f included, read byte by byte
+    # as the record sanitiser reads them (SEC-IAENG-358-01): what is printed
+    # of a path never carries a terminal escape into the session.
+    a_flat() {
+      local LC_ALL=C c1=$'\xc2'
+      A_FLAT="${1//[[:cntrl:]]/ }"
+      A_FLAT="${A_FLAT//"$c1"[$'\x80'-$'\x9f']/ }"
+    }
+    # a_sq <text> — A_SQ is the text as one single-quoted shell word, so a
+    # path with a space runs as printed.
+    a_sq() {
+      local q="'" e="'\\''"
+      A_SQ="$q${1//"$q"/"$e"}$q"
+    }
+    a_flat "$GEN"; a_sq "$A_FLAT"; A_GEN="$A_SQ"
     A_N="${A_SUM#*to act on. }"; A_N="${A_N%% agent(s)*}"
     case "$A_N" in ''|*[!0-9]*) A_N="" ;; esac
+    # Every case where an Employee cannot be dispatched by name ends on the
+    # same rule: no generic agent in its place (Core/MAIN_AGENT_CONDUCT.md,
+    # Dispatch Discipline), and a failure goes to the Director.
+    A_RULE="Until a named Employee can be dispatched, dispatch none, and never a generic agent in its place (Core/MAIN_AGENT_CONDUCT.md, Dispatch Discipline). If the command fails, stop and report it to the Director."
     if [ -z "$A_N" ]; then
       # No verdict is never silence: the check did not run to its end.
-      A_WHY="${A_WHY//[[:cntrl:]]/ }"
+      a_flat "$A_WHY"; A_WHY="$A_FLAT"
       [ "${#A_WHY}" -gt 160 ] && A_WHY="${A_WHY:0:160}..."
-      echo "IA Engineering agents: not checked (${A_WHY:-the check gave no result}). Check them by hand: bash $GEN --check --quick"
+      echo "IA Engineering agents: not checked (${A_WHY:-the check gave no result}). Until the check passes, dispatch no Employee, and report the cause to the Director. Check them by hand: bash $A_GEN --check --quick"
       echo
     elif [ "${#A_MISS[@]}" -gt 0 ] || [ "${#A_STALE[@]}" -gt 0 ]; then
       # a_list <items...> — "a, b, c and 2 more".
@@ -235,8 +260,27 @@ if [ -n "$GEN" ] && [ -f "$GEN" ]; then
       if [ "${#A_STALE[@]}" -gt 0 ]; then
         A_TXT="${A_TXT:+$A_TXT; }${#A_STALE[@]} of $A_N agents are stale ($(a_list "${A_STALE[@]}")): the framework root each one names is not this project's framework, so its Employee would read the framework somewhere else. The project moved, or they were generated in another clone or before agents named a root"
       fi
-      A_CMD="${A_CMD//[[:cntrl:]]/ }"
-      echo "IA Engineering agents: $A_TXT. Agents are generated in each clone and never committed. Regenerate them before dispatching any Employee: ${A_CMD:-bash $GEN}"
+      a_flat "$A_CMD"; A_CMD="$A_FLAT"
+      echo "IA Engineering agents: $A_TXT. Agents are generated in each clone and never committed. Regenerate them before dispatching any Employee: ${A_CMD:-bash $A_GEN}"
+      # A stale agent may mean a moved project, whose core.hooksPath still
+      # names the old path, so no git hook runs until install.sh rewrites it
+      # (QA-467-02, #470): said in one sentence, with the path from the
+      # project root, quoted only when it needs it.
+      A_MOVED=""
+      if [ "${#A_STALE[@]}" -gt 0 ]; then
+        A_INST="$ROOT/Adapters/scripts/install.sh"
+        case "$ROOT" in "$BASE"/*) A_INST="./${ROOT#"$BASE"/}/Adapters/scripts/install.sh" ;; esac
+        a_flat "$A_INST"; A_INST="$A_FLAT"
+        case "$A_INST" in *[!A-Za-z0-9_./:=,+@%-]*) a_sq "$A_INST"; A_INST="$A_SQ" ;; esac
+        A_MOVED="If the project moved, also re-run $A_INST: core.hooksPath still names the old path, so no git hook runs. "
+      fi
+      # The restart clause only when the directory did not exist at session
+      # start: a file added to a directory that did is loaded within seconds.
+      if [ "$A_DIR_AT_START" -eq 0 ]; then
+        echo "  .claude/agents/ did not exist when this session started, so Claude Code loads the agents only in a new session: run the command, then ask the Director to restart the session. $A_MOVED$A_RULE"
+      else
+        echo "  $A_MOVED$A_RULE"
+      fi
       echo
     fi
   fi

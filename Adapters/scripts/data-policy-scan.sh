@@ -38,6 +38,8 @@
 #     clone (and publishes that path, often with a user's name in it).
 #     install.sh's .gitignore rule `.claude/agents/` keeps them out; this
 #     refuses the commit that gets past it (git add -f, a rule removed).
+#     So is an entry standing where .claude/ or .claude/agents/ should be,
+#     such as a symbolic link to a directory holding agents (SEC-IAENG-467-02).
 #     Claude Code reads .claude/agents/ recursively, hence any depth. The
 #     framework repository itself is out of scope: its agents name no root.
 #     It is recognised as the repository the scanner belongs to, by identity
@@ -178,12 +180,18 @@ allowed_content() {
 # --- Path classification -------------------------------------------------------
 # Prints the reason a path is refused; prints nothing for an acceptable path.
 
-# agent_path <path> — true for a .md file under a .claude/agents/ directory, at
-# any depth and in any letter case: git on Windows reads the .gitignore rule
-# without case, and so does the filesystem Claude Code reads the agents from.
+# agent_path <path> — true for a path the agents rule judges, at any depth and
+# in any letter case (git on Windows reads the .gitignore rule without case,
+# and so does the filesystem Claude Code reads the agents from):
+#   - a .md file under a .claude/agents/ directory;
+#   - an entry whose path IS .claude or .claude/agents (SEC-IAENG-467-02).
+#     git tracks no directory, so such an entry stands where the directory
+#     should be: a symbolic link (to a cfg/ holding agents, say), a file or a
+#     submodule, and what it points to would be read as the project's agents.
 agent_path() {
   case "/$1" in
     */.[Cc][Ll][Aa][Uu][Dd][Ee]/[Aa][Gg][Ee][Nn][Tt][Ss]/*.[Mm][Dd]) return 0 ;;
+    */.[Cc][Ll][Aa][Uu][Dd][Ee]|*/.[Cc][Ll][Aa][Uu][Dd][Ee]/[Aa][Gg][Ee][Nn][Tt][Ss]) return 0 ;;
   esac
   return 1
 }
@@ -233,7 +241,12 @@ classify_path() {
   # AGENTS_PER_CLONE is set by agents_rule_init, which the scan loops call for
   # such a path before this; anything but 0 refuses.
   if agent_path "$p" && [ "${AGENTS_PER_CLONE:-1}" != 0 ]; then
-    printf '%s\n' "an Employee agent of an adopting project — agents are generated in each clone and never committed: each names the framework root of the clone that generated it, wrong in every other clone. Keep .claude/agents/ in .gitignore (install.sh writes that rule) and run generate-agents.sh in each clone; a hand-written agent of the project's own takes an anchored rule in the allow file"
+    case "$p" in
+      *.[Mm][Dd])
+        printf '%s\n' "an Employee agent of an adopting project — agents are generated in each clone and never committed: each names the framework root of the clone that generated it, wrong in every other clone. Keep .claude/agents/ in .gitignore (install.sh writes that rule) and run generate-agents.sh in each clone; a hand-written agent of the project's own takes an anchored rule in the allow file" ;;
+      *)
+        printf '%s\n' "an entry where the .claude/ or .claude/agents/ directory should be (a symbolic link, a file or a submodule) — what it points to would be read as the project's agents, which are generated in each clone and never committed. Commit the directory's own files instead, keep .claude/agents/ in .gitignore, and run generate-agents.sh in each clone" ;;
+    esac
     return 0
   fi
 
