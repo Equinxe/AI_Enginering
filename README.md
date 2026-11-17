@@ -55,11 +55,17 @@ unchanged, with two exceptions:
   `ia-engineering/` is empty, so an Employee dispatched there cannot read the
   framework's Standards. Until v0.0.16, the Main Agent's default is to
   dispatch every Employee in the main checkout, never with
-  `isolation: worktree`. The Director may change that default. In the
-  `CLAUDE.md` merged from the template, the paragraph on a git worktree keeps
-  v0.0.15's wording, which ends at "its hooks are the main checkout's", and
-  drops the sentences on an empty `ia-engineering/` and "Where the Framework
-  Is". It states that default in their place, so every session reads it.
+  `isolation: worktree`. The Director may change that default. Workspace
+  Isolation (`Core/MAIN_AGENT_CONDUCT.md`) still applies: while one
+  Employee's git-touching Work Unit is active in the main checkout, the Main
+  Agent waits for it, or gives a second Employee a separate clone made with
+  `--recurse-submodules`, where `install.sh` is run again. In the `CLAUDE.md`
+  merged from the template, replace the tail of the paragraph on a git
+  worktree, from "A git worktree" to its end, with this text, word for word:
+
+  ```
+  A git worktree needs neither: its hooks are the main checkout's. Until this project pins v0.0.16, the Main Agent dispatches every Employee in the main checkout, never with `isolation: worktree`, because a worktree's `ia-engineering/` is empty and v0.0.15's agents do not name the main checkout's framework. While one Employee's git-touching Work Unit is active there, a second waits or works in a separate clone made with `--recurse-submodules` (`Core/MAIN_AGENT_CONDUCT.md`, Workspace Isolation). The Director may change this default.
+  ```
 
 The route ships in v0.0.16.
 
