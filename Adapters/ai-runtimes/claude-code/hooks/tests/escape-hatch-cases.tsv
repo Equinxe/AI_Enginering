@@ -812,3 +812,19 @@ block	git -c commit.gpgSign=true stash LIST	git stash sets work aside
 # segment does not exempt a write in another on the same line (code review of
 # PR #463, F2).
 block	gh api -X GET repos/o/r/issues; gh api repos/o/r/issues/170/labels -f labels[]=size/approved	only the Director applies these approval labels
+# A git global option with an empty-looking value no longer hides the
+# subcommand: the lexer drops a quoted value that is empty or holds only
+# whitespace, and the option is then read with no value after it.
+block	git -C $'\t' push --force	force-push or mirror-push
+block	git -C ' ' push --force	force-push or mirror-push
+block	git -C '' push --force	force-push or mirror-push
+block	git -C "" push --force	force-push or mirror-push
+block	git -C$'\t' push --force	force-push or mirror-push
+block	git --git-dir=$'\t' push --force	force-push or mirror-push
+block	git --git-dir=' ' push --force	force-push or mirror-push
+block	git --git-dir='' push --force	force-push or mirror-push
+block	git --git-dir ' ' push --force	force-push or mirror-push
+block	git --work-tree=' ' push --force	force-push or mirror-push
+block	git -c ' ' push --force	force-push or mirror-push
+block	git -C ' ' commit --no-verify -m x	--no-verify disables
+block	git -C ' ' reset --hard	git reset --hard discards

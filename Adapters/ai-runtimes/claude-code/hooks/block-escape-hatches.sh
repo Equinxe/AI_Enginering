@@ -27,9 +27,11 @@
 # label flag or a gh alias set|import; one tr for each of those texts that
 # holds a byte above 0x7F (non-ASCII input is mapped once, in linear time);
 # and one grep -o, the only process a rule starts, for a command that names
-# commit.gpgsign in a git -c or --config-env option. A carriage return is
-# removed before matching, as bash removes it before running. The rule patterns are unchanged; only the engine
-# that runs them moved. tests/run.sh counts what a call starts.
+# commit.gpgsign in a git -c or --config-env option. jq, the awks, tr and
+# grep -o read their text from a pipe, never a here-string, so each adds the
+# bash that runs printf (split_into, below). A carriage return is removed before matching,
+# as bash removes it before running. The rule patterns are unchanged; only
+# the engine that runs them moved. tests/run.sh counts what a call starts.
 
 # This hook's own directory, never the working directory (issue #344). It is
 # taken from $0 when $0 holds a / or \, because the environment cannot set $0.
@@ -64,7 +66,7 @@ esac
 # drops only the last pair. So the first line may end in a CR, which is
 # removed before it is compared.
 if iaeng_have_jq; then
-  PAYLOAD="$(jq -r 'if (.tool_name | type) == "string" and .tool_name != "" and .tool_name != "Bash" then "other" else "bash" end, (.tool_input.command // empty)' 2>/dev/null <<< "$IAENG_INPUT")"
+  PAYLOAD="$(printf '%s\n' "$IAENG_INPUT" | jq -r 'if (.tool_name | type) == "string" and .tool_name != "" and .tool_name != "Bash" then "other" else "bash" end, (.tool_input.command // empty)' 2>/dev/null)"
   PAYLOAD_TOOL="${PAYLOAD%%$'\n'*}"
   [ "${PAYLOAD_TOOL%$'\r'}" = other ] && exit 0
   case "$PAYLOAD" in *$'\n'*) CMD="${PAYLOAD#*$'\n'}" ;; *) CMD="" ;; esac
@@ -115,8 +117,20 @@ fi
 # each that can change a verdict, refused only because the lexer ran; and a
 # property check lexes every other byte value and requires the output to
 # equal the input, so a lexer that starts rewriting one fails it too.
+#
+# AN awk THAT FAILS IS A COMMAND NOT READ (SEC-IAENG-431-04). A non-zero exit
+# of the lexer, or an empty result for this non-empty command, refuses the
+# call: an emptied command would match no rule. A command whose every word is
+# quoted text with spaces lexes to nothing too, and is refused with it; none
+# of the case file's rows and none of 4,504 real commands of this repository
+# is of that kind.
 case "$CMD" in
-  *[\\\$\`\'\"\<\{$'\001\002\003']*) STRIPPED="$(awk -f "$LEXER" <<< "$CMD")" ;;
+  *[\\\$\`\'\"\<\{$'\001\002\003']*)
+    if ! STRIPPED="$(printf '%s\n' "$CMD" | awk -f "$LEXER")" || [ -z "$STRIPPED" ]; then
+      iaeng_block "the lexer (awk) failed or printed nothing for this command, so it could not be read" \
+        "Adapters/ai-runtimes/claude-code/hooks/README.md — unread input is refused rather than allowed. Check that awk runs in this shell."
+    fi
+    ;;
   *) STRIPPED="$CMD" ;;
 esac
 
@@ -152,11 +166,28 @@ esac
 # [[ =~ ]] refuses the call: a rule that cannot run has not said the command
 # is safe.
 #
-# split_into NAME SEPARATORS TEXT sets the array NAME to the pieces of TEXT
-# between SEPARATORS, by read's word splitting: empty pieces between two
-# newlines are dropped, and no pattern is expanded as a file name.
+# split_into SEPARATORS TEXT sets the array SPLIT to the pieces of TEXT
+# between SEPARATORS, by the shell's word splitting, which is the splitting
+# `read -a` did: empty pieces between two newlines are dropped, and no piece is
+# expanded as a file name. The caller copies SPLIT into its own array.
+#
+# NO TEXT IS PASSED THROUGH A HERE-STRING. On Git for Windows, a here-string
+# of 65,536 to 65,663 bytes never finishes, so a command of that size held
+# the call until the guard's timeout. The hook splits its texts in the shell,
+# and hands them to jq, awk, tr and grep through a pipe from printf, which
+# finishes at every size (Governance/BLOCKING_HOOK_LATENCY_MEASUREMENT.md).
+# Each of the four reads its whole input, so pipefail cannot read an early
+# exit of the reader as a failure, as it did for `printf | grep -q` (check,
+# below); a reader that does fail is refused where it is called.
+SPLIT=()
 split_into() {
-  IFS="$2" read -r -d '' -a "$1" <<< "$3"
+  local IFS="$1" _w _noglob=0
+  case "$-" in *f*) _noglob=1 ;; esac
+  SPLIT=()
+  set -f
+  for _w in $2; do SPLIT+=("$_w"); done
+  [ "$_noglob" -eq 1 ] || set +f
+  return 0
 }
 
 # rx_any FOLD ERE LINE... — true when ERE matches one of the LINEs. FOLD is 1
@@ -194,20 +225,32 @@ rx_any() {
 # check_raw. tests/run.sh compares this function, followed by rx_any, with
 # grep on every byte value, for every class the rules use, and times a
 # 256 KB line of non-ASCII text.
+#
+# A tr THAT FAILS IS A TEXT NOT READ (SEC-IAENG-431-04). tr maps byte for
+# byte, so its output has the length of its input. A non-zero exit, or an
+# output of another length (none at all included), refuses the call: an
+# emptied text would match no rule.
 ascii_map() {
-  local _am
-  case "${!1}" in
+  local _am _in="${!1}"
+  case "$_in" in
     *[![:ascii:]]*)
-      _am="$(LC_ALL=C tr '\200-\377' '\006' <<< "${!1}"; printf x)"
-      _am="${_am%x}"
-      printf -v "$1" '%s' "${_am%$'\n'}"
+      _am="$(printf '%s\n' "$_in" | LC_ALL=C tr '\200-\377' '\006' && printf x)"
+      case "$_am" in
+        *$'\n'x) _am="${_am%$'\n'x}" ;;
+        *) _am="" ;;
+      esac
+      if [ "${#_am}" -ne "${#_in}" ]; then
+        iaeng_block "the byte mapping (tr) failed, so the command could not be read" \
+          "Adapters/ai-runtimes/claude-code/hooks/README.md — unread input is refused rather than allowed. Check that tr runs in this shell."
+      fi
+      printf -v "$1" '%s' "$_am"
       ;;
   esac
 }
 
 ascii_map STRIPPED
-STRIPPED_LINES=()
-split_into STRIPPED_LINES $'\n' "$STRIPPED"
+split_into $'\n' "$STRIPPED"
+STRIPPED_LINES=(${SPLIT[@]+"${SPLIT[@]}"})
 
 # --- Segments, and their cap (SEC-IAENG-410-01) ----------------------------------
 # Two rules below judge the command one pipeline segment at a time: the
@@ -231,8 +274,8 @@ split_into STRIPPED_LINES $'\n' "$STRIPPED"
 # Windows machine of the measurement. The large inputs timed there, before
 # and after this change, are in that Governance document.
 MAX_SEGMENTS=2000
-SEGS=()
-split_into SEGS $';&|\n' "$STRIPPED"
+split_into $';&|\n' "$STRIPPED"
+SEGS=(${SPLIT[@]+"${SPLIT[@]}"})
 if [ "${#SEGS[@]}" -gt "$MAX_SEGMENTS" ]; then
   iaeng_block "this command has more than $MAX_SEGMENTS pipeline segments after expansion, more than the hook will read" \
     "Adapters/ai-runtimes/claude-code/hooks/README.md — unread input is refused rather than allowed. Split the command, or write it to a script file and run that."
@@ -265,7 +308,13 @@ fi
 # --paginate add` (the -p consumed as global, not as add's -p/--patch
 # argument), which is correctly NOT the interactive-add rule below, because
 # that rule's own -p match sits strictly after the subcommand.
-G='git([[:space:]]+(-C[[:space:]]+[^[:space:]]+|-c[[:space:]]+[^[:space:]]+|--(git-dir|work-tree|namespace|exec-path|config-env|super-prefix|attr-source)(=|[[:space:]]+)[^[:space:]]+|--[a-z][a-z-]*|-[pP]))*[[:space:]]+'
+#
+# AN OPTION'S VALUE MAY BE ABSENT FROM THE STRIPPED TEXT, since the lexer
+# drops quoted text (strip-quotes.awk). G accepts -C and -c without a value,
+# and an `=` with nothing after it, so a git global option with an
+# empty-looking value no longer hides the subcommand. This only over-matches:
+# G still accepts every form it did.
+G='git([[:space:]]+(-[Cc]([[:space:]]+[^[:space:]]+)?|--(git-dir|work-tree|namespace|exec-path|config-env|super-prefix|attr-source)(=[^[:space:]]*|[[:space:]]+[^[:space:]]+)|--[a-z][a-z-]*|-[pP]))*[[:space:]]+'
 S='[[:space:]]'
 E='([[:space:]]|;|&|\||\)|$)'
 
@@ -512,10 +561,10 @@ fi
 # (`export GIT_CONFIG_KEY_$i`) is already refused by GCN above.
 # check_raw ERE — check, on the lines of the RAW command.
 check_raw() {
-  local raw_lines=() raw_text="$CMD"
+  local raw_text="$CMD"
   ascii_map raw_text
-  split_into raw_lines $'\n' "$raw_text"
-  rx_any 0 "$1" ${raw_lines[@]+"${raw_lines[@]}"}
+  split_into $'\n' "$raw_text"
+  rx_any 0 "$1" ${SPLIT[@]+"${SPLIT[@]}"}
 }
 if check 'GIT_CONFIG_KEY_[^[:space:];&|=+]*\$[^[:space:];&|=+]*\+?=' \
    || { check 'GIT_CONFIG_KEY_[0-9]*([[:space:]]|$)' \
@@ -577,7 +626,7 @@ c_value_unsafe() {
   check_key "${G}(-c${S}+|--config-env(=|${S}+))${key}([[:space:];&|)=]|\$)" || return 1
   while IFS= read -r tok; do
     rx_any 1 "^-c[[:space:]]+${key}${safe}([[:space:];&|)])?\$" "$tok" || return 0
-  done < <(grep -oiE -- "(-c${S}+|--config-env(=|${S}+))${key}(=[^[:space:];&|)]*)?([[:space:];&|)]|\$)" <<< "$STRIPPED")
+  done < <(printf '%s\n' "$STRIPPED" | grep -oiE -- "(-c${S}+|--config-env(=|${S}+))${key}(=[^[:space:];&|)]*)?([[:space:];&|)]|\$)")
   return 1
 }
 if check_key "GIT_CONFIG_KEY_[0-9]+\+?=${DANGER_KEY}" \
@@ -732,6 +781,20 @@ GHEDIT="${GHB}${GHF}${S}+(pr|issue)${GHF}${S}+(edit|create)"
 LABEL_FLAG="(${S}--add-label(=|${S}+)|${S}--label(=|${S}+)|${S}-l(=|${S}*))"
 WRITE_M="${S}(-X${S}*|--method(=|${S}+))(POST|PUT|PATCH)${E}"
 READ_M="${S}(-X${S}*|--method(=|${S}+))(GET|DELETE)${E}"
+# kept_view sets KEPT, the command lexed in KEEPQ mode, and KEPT_SEGS, its
+# pipeline segments. The text is mapped by ascii_map BEFORE it is split, as
+# every text the rules read is: tests/run.sh checks the segments this function
+# returns.
+kept_view() {
+  if ! KEPT="$(printf '%s\n' "$CMD" | awk -v KEEPQ=1 -f "$LEXER")" || [ -z "$KEPT" ]; then
+    iaeng_block "the lexer (awk) failed or printed nothing for this command, so it could not be read" \
+      "Adapters/ai-runtimes/claude-code/hooks/README.md — unread input is refused rather than allowed. Check that awk runs in this shell."
+  fi
+  ascii_map KEPT
+  split_into $';&|\n' "$KEPT"
+  KEPT_SEGS=(${SPLIT[@]+"${SPLIT[@]}"})
+}
+
 APPROVAL_LABEL=0
 GH_EDIT_LABELFLAG=0
 GH_ALIAS=0
@@ -768,13 +831,10 @@ if [ "$GH_SEEN" -eq 1 ]; then
     # inner whitespace replaced by PH, heredoc bodies still skipped. A flag or a
     # `gh` that sits INSIDE quoted prose has lost its whitespace boundary, so
     # only a real flag is matched; a real flag's quoted value is one word.
-    KEPT="$(awk -v KEEPQ=1 -f "$LEXER" <<< "$CMD")"
-    ascii_map KEPT
+    kept_view
     PHC=$'\004'
     LENDK="([[:space:]]|,|;|&|\||\)|$|${PHC})"
     LVALK="([^[:space:],]*,)*${PHC}*${LBL}${LENDK}"
-    KEPT_SEGS=()
-    split_into KEPT_SEGS $';&|\n' "$KEPT"
     for SEG in ${KEPT_SEGS[@]+"${KEPT_SEGS[@]}"}; do
       if [ "$GH_EDIT_LABELFLAG" -eq 1 ] \
          && rx_any 1 "${GHEDIT}[^|;&]*${LABEL_FLAG}${LVALK}" "$SEG"; then

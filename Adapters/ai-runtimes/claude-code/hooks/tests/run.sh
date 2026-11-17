@@ -333,10 +333,9 @@ else
           eval "$CB_RX"$'\n''iaeng_block() { exit 3; }'
           cb_all="$(< "$CB_FILE")"
           ascii_map cb_all
-          cb_lines=()
-          split_into cb_lines $'\n' "$cb_all"
+          split_into $'\n' "$cb_all"
           cb_n=0
-          for cb_line in "${cb_lines[@]}"; do
+          for cb_line in "${SPLIT[@]}"; do
             cb_n=$((cb_n + 1))
             rx_any "$cb_fold" "$cb_re" "$cb_line" && printf '%s ' "$cb_n"
           done
@@ -391,9 +390,8 @@ AM_ORDER="$(
   eval "$CB_RX"$'\n''iaeng_block() { exit 3; }'
   am_text=$'x\na\240b'
   ascii_map am_text
-  am_lines=()
-  split_into am_lines $'\n' "$am_text"
-  rx_any 0 $'^a\006b$' "${am_lines[@]}" && printf 'mapped'
+  split_into $'\n' "$am_text"
+  rx_any 0 $'^a\006b$' "${SPLIT[@]}" && printf 'mapped'
 )"
 TOTAL=$((TOTAL + 1))
 if [ "$AM_ORDER" = mapped ]; then
@@ -401,6 +399,22 @@ if [ "$AM_ORDER" = mapped ]; then
 else
   FAILED=$((FAILED + 1))
   printf '   FAIL  escape-hatch: a byte above 0x7F on a second line reaches the rules as \\006\n'
+fi
+# The same for the KEEPQ view (code review of PR #463, F7): kept_view, read
+# from the hook, lexes a command whose first segment holds 0xA0, and that
+# segment must come back with \006 in its place. A mapping made after the
+# split leaves the byte in the segments, which no class shows on Linux.
+KV_GOT="$(
+  eval "$CB_RX"$'\n'"$(hook_fn kept_view)"$'\n''iaeng_block() { exit 3; }'
+  LEXER="$HOOKS/strip-quotes.awk" CMD=$'gh x\240y; z' kept_view
+  printf '%s|' "${#KEPT_SEGS[@]}" "${KEPT_SEGS[@]}"
+)"
+TOTAL=$((TOTAL + 1))
+if [ "$KV_GOT" = $'2|gh x\006y| z|' ]; then
+  [ "$VERBOSE" -eq 1 ] && printf '   ok    %s\n' "escape-hatch: the KEEPQ view is mapped before it is split"
+else
+  FAILED=$((FAILED + 1))
+  printf '   FAIL  escape-hatch: the KEEPQ view is mapped before it is split (got %q)\n' "$KV_GOT"
 fi
 # The segment cap. 2,000 segments are read; 2,001 are refused, with the cap's
 # own reason. Both cases are plain, so nothing else could refuse them.
@@ -440,6 +454,46 @@ else
   FAILED=$((FAILED + 1))
   printf '   FAIL  escape-hatch: a 256 KB non-ASCII line is judged within %s s, and refused: exit %s after %s s\n' "$LT_BUDGET" "$LT_RC" "$LT_S"
 fi
+# A HERE-STRING OF 65,536 TO 65,663 BYTES NEVER FINISHES ON GIT FOR WINDOWS
+# (security and code reviews of PR #463), so a hook that passed a text of that
+# size through one held the call until the guard's timeout. Two commands of
+# 65,580 bytes, each judged within LT_BUDGET seconds. The first is allowed and
+# reaches every reader the hook starts, each on a text inside the window: jq
+# on the payload, the lexer and its KEEPQ mode on the command, tr on the
+# stripped text, the KEEPQ view and the raw command, grep -o on the stripped
+# text for commit.gpgsign, and the splitting of each. The second is refused
+# for its push. On Linux the window does not hang, and both pass at once.
+WS_DIR="$(mktemp -d)"
+ws_check() {  # <label> <command head> <exit wanted> [<reason substring>]
+  local label="$1" head="$2" want="$3" reason="${4:-}" fill=a n out rc t0 s
+  n=$((65580 - ${#head} - 2))
+  while [ "${#fill}" -lt "$n" ]; do fill="$fill$fill"; done
+  fill="${fill:0:$n}"
+  printf '%s%s\303\251' "$head" "$fill" > "$WS_DIR/cmd"
+  jq -n --rawfile c "$WS_DIR/cmd" '{tool_name:"Bash",tool_input:{command:$c}}' > "$WS_DIR/pay"
+  t0=$SECONDS
+  if command -v timeout >/dev/null 2>&1; then
+    out="$(timeout "$LT_BUDGET" bash "$HOOK" < "$WS_DIR/pay" 2>&1 >/dev/null)"
+    rc=$?
+  else
+    out="$(bash "$HOOK" < "$WS_DIR/pay" 2>&1 >/dev/null)"
+    rc=$?
+  fi
+  s=$((SECONDS - t0))
+  TOTAL=$((TOTAL + 1))
+  if [ "$(wc -c < "$WS_DIR/cmd")" -eq 65580 ] && [ "$rc" -eq "$want" ] && [ "$s" -le "$LT_BUDGET" ] \
+     && { [ -z "$reason" ] || grep -qF -- "$reason" <<< "$out"; }; then
+    [ "$VERBOSE" -eq 1 ] && printf '   ok    %s (%s s)\n' "$label" "$s"
+  else
+    FAILED=$((FAILED + 1))
+    printf '   FAIL  %s: exit %s after %s s, %s bytes\n' "$label" "$rc" "$s" "$(wc -c < "$WS_DIR/cmd")"
+  fi
+}
+ws_check "escape-hatch: a 65,580-byte command that reaches every reader is judged within ${LT_BUDGET} s, and allowed" \
+  'git -c commit.gpgsign=true status; gh pr edit 1 --add-label "bug"; grep GIT_CONFIG_KEY_ x; echo ' 0
+ws_check "escape-hatch: a 65,580-byte force-push is judged within ${LT_BUDGET} s, and refused" \
+  'git push --force; echo ' 2 "force-push or mirror-push"
+rm -rf "$WS_DIR"
 # A pattern bash cannot compile refuses the call rather than reading as "no
 # match". A copy of the hook gains one rule whose pattern is invalid, ahead of
 # the others; a plain command must then be refused with that reason.
@@ -525,6 +579,39 @@ eh_budget "escape-hatch: budget — a plain command with a non-ASCII byte maps i
 eh_budget "escape-hatch: budget — a quoted label list with a non-ASCII byte maps the lexed text and the KEEPQ view (two tr)" "gh pr edit 1 --add-label \"help wanted,caf${EH_E}\" --title caf${EH_E}" 2 6 2
 eh_budget "escape-hatch: budget — check_raw maps the raw lines too (two tr)" "echo GIT_CONFIG_KEY_0 caf${EH_E}" 0 4 2
 rm -rf "$EH_BASE"
+# A tr OR AN awk THAT FAILS IS A COMMAND NOT READ (SEC-IAENG-431-04). A fake
+# tool first on PATH, one that exits 1 and one that exits 0 and prints
+# nothing: the hook must refuse, with its reason, a command that needs that
+# tool. An emptied text matches no rule, so without the check the call was
+# allowed.
+FK_BASE="$(mktemp -d)"
+FK_N=0
+# fk_check <label> <tool> <fake body> <command> <reason substring>
+fk_check() {
+  local label="$1" tool="$2" body="$3" cmd="$4" want="$5" dir out rc
+  FK_N=$((FK_N + 1))
+  dir="$FK_BASE/fake$FK_N"
+  mkdir -p "$dir"
+  printf '#!/bin/sh\n%s\n' "$body" > "$dir/$tool"
+  chmod +x "$dir/$tool"
+  command -v cygpath >/dev/null 2>&1 && dir="$(cygpath -u "$dir")"
+  TOTAL=$((TOTAL + 1))
+  out="$(printf '%s' "$(mkbash "$cmd")" | PATH="$dir:$PATH" bash "$HOOK" 2>&1 >/dev/null)"
+  rc=$?
+  if [ "$rc" -eq 2 ] && grep -qF -- "$want" <<< "$out"; then
+    [ "$VERBOSE" -eq 1 ] && printf '   ok    %s\n' "$label"
+  else
+    FAILED=$((FAILED + 1))
+    printf '   FAIL  %s: exit %s, want 2 with "%s"\n' "$label" "$rc" "$want"
+  fi
+}
+FK_E=$'\xc3\xa9'
+fk_check "escape-hatch: a tr that exits 1 refuses the call" tr 'exit 1' "echo caf${FK_E}; git push --force" "the byte mapping (tr) failed"
+fk_check "escape-hatch: a tr that prints nothing refuses the call" tr 'cat >/dev/null; exit 0' "echo caf${FK_E}; git push --force" "the byte mapping (tr) failed"
+fk_check "escape-hatch: an awk that exits 1 refuses the call (the lexer)" awk 'exit 1' 'git push --force "x"' "the lexer (awk) failed"
+fk_check "escape-hatch: an awk that prints nothing refuses the call (the lexer)" awk 'cat >/dev/null; exit 0' 'git push --force "x"' "the lexer (awk) failed"
+fk_check "escape-hatch: an awk that exits 1 refuses the call (the KEEPQ view)" awk 'exit 1' 'gh pr edit 1 --add-label bug' "the lexer (awk) failed"
+rm -rf "$FK_BASE"
 expect_rc "inline-suppression: refuses a directive in code" 2 "$HOOKS/block-inline-suppression.sh" "$PAY_CODE"
 expect_rc "inline-suppression: allows it in documentation"  0 "$HOOKS/block-inline-suppression.sh" "$PAY_DOC"
 
