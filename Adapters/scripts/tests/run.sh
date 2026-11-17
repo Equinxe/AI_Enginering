@@ -9268,7 +9268,9 @@ git checkout -q -- .claude .gitattributes
 # --- faults: never read as current ------------------------------------------------
 printf '{ "hooks": { "Stop": [ }' > .claude/settings.json
 expect 1 "a settings.json that is not JSON is a fault (exit 1)" -- bash "$HK_357" --check
-expect_output "settings${T}fault${T}.claude/settings.json${T}it is not one JSON object with an object 'hooks'"
+# The reason names jq's own parse error (WU-IAENG-437), whose wording is
+# jq's and differs between versions: only the reason's fixed start is matched.
+expect_output "settings${T}fault${T}.claude/settings.json${T}jq cannot read it as JSON ("
 expect_output "1 fault(s). fault: read the fault record(s)"
 expect 1 "--check --quiet keeps the fault" -- bash "$HK_357" --check --quiet
 expect_output "settings${T}fault${T}"

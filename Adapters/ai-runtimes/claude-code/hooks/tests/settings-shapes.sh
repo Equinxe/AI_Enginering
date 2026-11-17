@@ -224,7 +224,11 @@ case_permissions() {
   fi
 }
 case_schema() {
-  printf '{\n  "$schema": "https://json.schemastore.org/claude-code-settings.json"\n}\n' > "$C/in.json"
+  cat > "$C/in.json" <<'EOF'
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json"
+}
+EOF
   merges "\$schema only" "$C/in.json"
 }
 case_empty() {
@@ -288,12 +292,22 @@ case_line_comment() {
     "line 2 holds a comment (// or /* */), which JSON does not allow and jq cannot read: remove it (a note can go in a \"\$comment\" key) and re-run"
 }
 case_block_comment() {
-  printf '{\n  "$schema": "https://json.schemastore.org/claude-code-settings.json",\n  "permissions": {"allow": ["Bash(ls)"]} /* the project note */\n}\n' > "$C/in.json"
+  cat > "$C/in.json" <<'EOF'
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "permissions": {"allow": ["Bash(ls)"]} /* the project note */
+}
+EOF
   refused "a /* */ comment after a \$schema URL" "$C/in.json" \
     "line 3 holds a comment (// or /* */)" "line 2 holds a comment"
 }
 case_trailing_comma() {
-  printf '{\n  "$schema": "https://json.schemastore.org/claude-code-settings.json",\n  "permissions": {"allow": ["Bash(ls)"]},\n}\n' > "$C/in.json"
+  cat > "$C/in.json" <<'EOF'
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "permissions": {"allow": ["Bash(ls)"]},
+}
+EOF
   refused "a trailing comma, a \$schema URL above it" "$C/in.json" \
     "jq cannot read it as JSON (" "holds a comment"
 }
@@ -303,16 +317,24 @@ case_hooks_false() {
     "it is not one JSON object whose 'hooks' is an object, absent or null"
 }
 
-CASES="permissions schema empty null control every_key line_comment block_comment trailing_comma hooks_false"
-for name in $CASES; do
-  (
-    RES="$T/res-$name"
-    : > "$RES"
-    project "$name"
-    "case_$name"
-    printf 'end\n' >> "$RES"
-  ) &
-done
+# enter <name> — in a case's background subshell: its results file and its
+# project. leave — the mark that the case reached its end.
+enter() { RES="$T/res-$1"; : > "$RES"; project "$1"; }
+leave() { printf 'end\n' >> "$RES"; }
+# One line per case: its name in CASES, which orders the count below, and its
+# function called by name, so a name and its function cannot drift apart
+# unseen (a name with no results file is a failure below).
+CASES=""
+CASES="$CASES permissions";    ( enter permissions;    case_permissions;    leave ) &
+CASES="$CASES schema";         ( enter schema;         case_schema;         leave ) &
+CASES="$CASES empty";          ( enter empty;          case_empty;          leave ) &
+CASES="$CASES null";           ( enter null;           case_null;           leave ) &
+CASES="$CASES control";        ( enter control;        case_control;        leave ) &
+CASES="$CASES every_key";      ( enter every_key;      case_every_key;      leave ) &
+CASES="$CASES line_comment";   ( enter line_comment;   case_line_comment;   leave ) &
+CASES="$CASES block_comment";  ( enter block_comment;  case_block_comment;  leave ) &
+CASES="$CASES trailing_comma"; ( enter trailing_comma; case_trailing_comma; leave ) &
+CASES="$CASES hooks_false";    ( enter hooks_false;    case_hooks_false;    leave ) &
 wait
 
 # The results, in the order the cases are listed.
