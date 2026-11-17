@@ -9103,6 +9103,36 @@ git update-ref refs/remotes/origin/feature/main HEAD
 report_436 "a remote branch feature/main only"
 expect_output "git push -u origin main && git branch develop && git push -u origin develop"
 expect_no_output "never push it" "origin/feature/main is not taken for main on a remote"
+
+# An existing repository whose default branch is master. The hooks, the checks
+# and Workflows/RELEASE.md name main, so the report names the branch and stops
+# at the Director instead of telling a new project to push main. The default
+# is read from <remote>/HEAD, which a clone records.
+new_repo boot-436-master
+git update-ref refs/remotes/origin/master HEAD
+git symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/master
+report_436 "an existing repository whose default branch is master"
+expect_output "  main + develop         the remote's default branch is origin/master, not main: the hooks,"
+expect_output "Director's decision (Workflows/ONBOARDING.md, The adoption route)"
+expect_no_output "git push -u origin main" "a repository on master is not told to push main"
+expect_no_output "never push it" "a repository on master is not given the route that needs main"
+
+# The same with no <remote>/HEAD recorded (a remote added by hand): a
+# <remote>/master with no <remote>/main is the default branch.
+new_repo boot-436-master-nohead
+git update-ref refs/remotes/origin/master HEAD
+report_436 "master on a remote with no <remote>/HEAD"
+expect_output "the remote's default branch is origin/master, not main"
+
+# A default branch of develop is part of the framework's model: with main on
+# the remote, the route applies.
+new_repo boot-436-default-develop
+git update-ref refs/remotes/origin/main HEAD
+git update-ref refs/remotes/origin/develop HEAD
+git symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/develop
+report_436 "a default branch of develop, with main on the remote"
+expect_output "main is already on a remote (origin/main): never push it"
+expect_no_output "not main: the hooks" "a default of develop is not refused"
 cd "$WORK" || exit 1
 
 section "install-hooks.sh / install-skills.sh --check — the same decisions, reported, nothing written (WU-IAENG-357)"

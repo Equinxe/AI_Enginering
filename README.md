@@ -28,12 +28,16 @@ on a branch and merges it into `develop` through a Pull Request. `main`
 receives the adoption at the project's first release, never before (Director
 decision, 4 November 2026). The bootstrap installs a `pre-push` hook that
 refuses every update of an existing `main`, so an adoption committed on `main`
-could never be pushed. From the repository's root, before the commands below
-(where the remote already has a `develop`, replace the two `develop` lines with
-`git switch develop` and `git pull --ff-only`):
+could never be pushed. Every git step of that route, up to the opened Pull
+Request, is the DevOps Engineer's: the Main Agent dispatches it and never runs
+them itself (`Workflows/ONBOARDING.md`, The adoption route, which also names
+who reviews and who merges). From the repository's root, before the commands
+below (where the remote already has a `develop`, replace the two `develop`
+lines with `git switch develop` and `git pull --ff-only`):
 
 ```bash
 git config core.hooksPath                  # must print nothing: see below
+git ls-remote --symref origin HEAD         # first line: ref: refs/heads/main (or develop)
 git switch main
 git pull --ff-only
 git switch -c develop                      # develop starts as a copy of main
@@ -48,6 +52,12 @@ framework's hooks without looking at the project's (issue #280), and the
 project's hooks then stop running with no message. Do not run the bootstrap
 until the Director has decided how both sets of hooks will run.
 `git config --show-origin core.hooksPath` names the file that sets it.
+
+If `git ls-remote` names another default branch, `master` for example, stop
+there too. The hooks, the checks and `Workflows/RELEASE.md` name `main` (a
+default of `develop` is part of the same model), and renaming the default
+branch is the Director's decision. The route starts once `main` is on the
+remote.
 
 ```bash
 # from the root of your project (skip git init if it is already a repository)
@@ -241,10 +251,15 @@ larger than the 1,500-line review limit (1,753 and 1,850 lines in the two
 replays of WU-IAENG-436), so `PR Size` fails until the Director applies the
 `size/approved` label to the Pull Request (`Standards/PULL_REQUEST_STANDARD.md`,
 Reviewability), creating the label first if the repository has none. The
-advisory `Risk Map` check stays red until the map is complete, as said below.
-Merge the Pull Request once the other checks pass and the review is done, with
-a merge commit, never a squash, which would fold the two signed commits into
-one (`Standards/COMMIT_STANDARD.md`). Then `git switch develop` and
+advisory `Risk Map` check stays red until the map is complete, as said below,
+and does not hold the merge. Merge the Pull Request only when the Code
+Reviewer has approved it, the Director has applied `size/approved`, and the
+ten checks `setup-branch-protection.sh` makes required all pass: PR
+Compliance, Work Unit Exists, Employee Trailer, Shellcheck Adapters, Validate
+Workflow YAML, Hook Tests, Script Tests, PR Size, Framework Validation and Data
+Policy. Who merges is `Workflows/FEATURE_DEVELOPMENT.md` Step 8. Merge with a
+merge commit, never a squash, which would fold the two signed commits into one
+(`Standards/COMMIT_STANDARD.md`). Then `git switch develop` and
 `git pull --ff-only`. The switch prints `warning: unable to rmdir
 'ia-engineering': Directory not empty`, because the local `develop` has no
 submodule until the pull brings in the merge. Nothing needs doing. On a

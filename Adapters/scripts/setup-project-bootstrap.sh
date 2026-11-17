@@ -528,10 +528,33 @@ echo
 #    project that already has a CLAUDE.md merges the template's block into it:
 #    told to create one "from Templates/PROJECT_CLAUDE.md", an adopter could
 #    copy the block over its own contract.
-REMOTE_MAIN="$(git for-each-ref --format='%(refname:lstrip=2)' refs/remotes 2>/dev/null | grep -m1 -E '^[^/]+/main$' || true)"
+#
+#    AN EXISTING REPOSITORY WHOSE DEFAULT BRANCH IS NOT main (review of PR #465).
+#    One on master has no <remote>/main, so it used to get the new-project
+#    lines and their `git push -u origin main`. The hooks, the checks and
+#    Workflows/RELEASE.md name main and develop only, so the report names the
+#    branch and stops at the Director, whose decision a rename is. The default
+#    is <remote>/HEAD, which a clone records; develop is a default the model
+#    allows. With no <remote>/HEAD, a <remote>/master and no <remote>/main
+#    mark the same case.
+REMOTE_REFS="$(git for-each-ref --format='%(refname:lstrip=2) %(symref:lstrip=2)' refs/remotes 2>/dev/null || true)"
+REMOTE_MAIN="$(printf '%s\n' "$REMOTE_REFS" | sed 's/ .*//' | grep -m1 -E '^[^/]+/main$' || true)"
+REMOTE_DEFAULT="$(printf '%s\n' "$REMOTE_REFS" | sed -n 's|^[^/ ]*/HEAD \([^ ]*\)$|\1|p' | head -n 1 || true)"
+NOT_MAIN_DEFAULT=""
+case "$REMOTE_DEFAULT" in
+  ''|*/main|*/develop) ;;
+  *) NOT_MAIN_DEFAULT="$REMOTE_DEFAULT" ;;
+esac
+if [ -z "$REMOTE_DEFAULT" ] && [ -z "$REMOTE_MAIN" ]; then
+  NOT_MAIN_DEFAULT="$(printf '%s\n' "$REMOTE_REFS" | sed 's/ .*//' | grep -m1 -E '^[^/]+/master$' || true)"
+fi
 echo "--- Remaining Coverage Checklist items (Workflows/PROJECT_BOOTSTRAP.md) ---"
 echo "  Branch protection      ./$(relpath "$(pwd)" "$SCRIPT_DIR")/setup-branch-protection.sh"
-if [ -n "$REMOTE_MAIN" ]; then
+if [ -n "$NOT_MAIN_DEFAULT" ]; then
+  echo "  main + develop         the remote's default branch is $NOT_MAIN_DEFAULT, not main: the hooks,"
+  echo "                         the checks and Workflows/RELEASE.md name main. Stop: renaming it is the"
+  echo "                         Director's decision (Workflows/ONBOARDING.md, The adoption route)"
+elif [ -n "$REMOTE_MAIN" ]; then
   echo "  main + develop         main is already on a remote ($REMOTE_MAIN): never push it, pre-push"
   echo "                         refuses every update of it. Adopt on a branch cut from develop and"
   echo "                         merge it into develop by Pull Request; main receives it at the first"
@@ -557,7 +580,7 @@ else
   echo "  CLAUDE.md              from Templates/PROJECT_CLAUDE.md, before Onboarding Step 4"
   echo "                         (Workflows/ONBOARDING.md Step 1 item 2)"
 fi
-if [ -n "$REMOTE_MAIN" ]; then
+if [ -n "$REMOTE_MAIN" ] || [ -n "$NOT_MAIN_DEFAULT" ]; then
   echo "  SESSION_STATE.md       once the adoption's Pull Request is merged and develop pulled:"
   echo "                         ./$(relpath "$(pwd)" "$SCRIPT_DIR")/create-session-state.sh"
 else
