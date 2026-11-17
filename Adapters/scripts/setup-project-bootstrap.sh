@@ -516,11 +516,66 @@ echo
 #    are visible rather than assumed done. PROJECT_BOOTSTRAP.md's Exit Criteria
 #    requires every checklist item, and the items below need a decision, a
 #    Director, or an authenticated API call — not a file copy.
+#
+#    Three items depend on the project as found (issue #453, WU-IAENG-436). An
+#    EXISTING REPOSITORY with main already on a remote cannot push main again:
+#    pre-push refuses every update of an existing main, so the line that tells
+#    a new project to push it names the adoption route instead, and
+#    SESSION_STATE.md waits for the merge that route ends with. The evidence is
+#    a remote-tracking main, <remote>/main exactly, so a branch such as
+#    origin/feature/main is not taken for it. `|| true` keeps a directory that
+#    is not a repository, or has no such ref, on the new-project lines. And a
+#    project that already has a CLAUDE.md merges the template's block into it:
+#    told to create one "from Templates/PROJECT_CLAUDE.md", an adopter could
+#    copy the block over its own contract.
+#
+#    AN EXISTING REPOSITORY WHOSE DEFAULT BRANCH IS NOT main (review of PR #465).
+#    One on master has no <remote>/main, so it used to get the new-project
+#    lines and their `git push -u origin main`. The hooks, the checks and
+#    Workflows/RELEASE.md name main and develop only, so the report names the
+#    branch and stops at the Director, whose decision a rename is. The default
+#    is <remote>/HEAD, which a clone records; develop is a default the model
+#    allows. With no <remote>/HEAD, a <remote>/master and no <remote>/main
+#    mark the same case.
+#
+#    A STALE <remote>/HEAD. git fetch never moves it, so a clone made before
+#    its remote renamed master to main still names master. Where that
+#    remote's main exists too, the report asks for the record to be refreshed
+#    (git remote set-head <remote> --auto) and this script run again, rather
+#    than stopping on a default that may no longer be the remote's.
+REMOTE_REFS="$(git for-each-ref --format='%(refname:lstrip=2) %(symref:lstrip=2)' refs/remotes 2>/dev/null || true)"
+REMOTE_MAIN="$(printf '%s\n' "$REMOTE_REFS" | sed 's/ .*//' | grep -m1 -E '^[^/]+/main$' || true)"
+REMOTE_DEFAULT="$(printf '%s\n' "$REMOTE_REFS" | sed -n 's|^[^/ ]*/HEAD \([^ ]*\)$|\1|p' | head -n 1 || true)"
+NOT_MAIN_DEFAULT=""
+case "$REMOTE_DEFAULT" in
+  ''|*/main|*/develop) ;;
+  *) NOT_MAIN_DEFAULT="$REMOTE_DEFAULT" ;;
+esac
+if [ -z "$REMOTE_DEFAULT" ] && [ -z "$REMOTE_MAIN" ]; then
+  NOT_MAIN_DEFAULT="$(printf '%s\n' "$REMOTE_REFS" | sed 's/ .*//' | grep -m1 -E '^[^/]+/master$' || true)"
+fi
 echo "--- Remaining Coverage Checklist items (Workflows/PROJECT_BOOTSTRAP.md) ---"
 echo "  Branch protection      ./$(relpath "$(pwd)" "$SCRIPT_DIR")/setup-branch-protection.sh"
-echo "  main + develop created make the first commit first (git branch fails with none), then"
-echo "                         git push -u origin main && git branch develop && git push -u origin develop"
-echo "                         (pre-push allows creating them; every later change goes by PR)"
+DEFAULT_REMOTE="${NOT_MAIN_DEFAULT%%/*}"
+if [ -n "$NOT_MAIN_DEFAULT" ] && printf '%s\n' "$REMOTE_REFS" | grep -qx -- "$DEFAULT_REMOTE/main "; then
+  echo "  main + develop         $DEFAULT_REMOTE/HEAD names $NOT_MAIN_DEFAULT, yet $DEFAULT_REMOTE/main exists: run"
+  echo "                         git remote set-head $DEFAULT_REMOTE --auto, then this script again. If the"
+  echo "                         default is still not main, stop: renaming it is the Director's decision"
+  echo "                         (Workflows/ONBOARDING.md, The adoption route)"
+elif [ -n "$NOT_MAIN_DEFAULT" ]; then
+  echo "  main + develop         the remote's default branch is $NOT_MAIN_DEFAULT, not main: the hooks,"
+  echo "                         the checks and Workflows/RELEASE.md name main. Stop: renaming it is the"
+  echo "                         Director's decision (Workflows/ONBOARDING.md, The adoption route)"
+elif [ -n "$REMOTE_MAIN" ]; then
+  echo "  main + develop         main is already on a remote ($REMOTE_MAIN): never push it, pre-push"
+  echo "                         refuses every update of it. Adopt on a branch cut from develop and"
+  echo "                         merge it into develop by Pull Request; main receives it at the first"
+  echo "                         release (Workflows/ONBOARDING.md, The adoption route)"
+else
+  echo "  main + develop created make the first commit first (git branch fails with none), then"
+  echo "                         git push -u origin main && git branch develop && git push -u origin develop"
+  echo "                         (pre-push allows creating them; every later change goes by PR)"
+fi
 echo "  README.md              from the Phase A answers (project identity)"
 echo "  .gitignore             stack-appropriate for $STACK"
 echo "  Project Charter        Templates/PROJECT_CHARTER.md, from Phase A"
@@ -529,13 +584,25 @@ echo "                         Workflows/ARCHITECTURE_DECISION.md"
 echo "  Risk Map               .ia-engineering/risk-map.yml — the starter covers the installed"
 echo "                         files only; map your own zones and account for all eight"
 echo "                         categories (Templates/RISK_MAP.md), then run check-risk-map.sh"
-echo "  CLAUDE.md              from Templates/PROJECT_CLAUDE.md, before Onboarding Step 4"
-echo "                         (Workflows/ONBOARDING.md Step 1 item 2)"
-echo "  SESSION_STATE.md       after the adoption commit: ./$(relpath "$(pwd)" "$SCRIPT_DIR")/create-session-state.sh"
+if [ -f CLAUDE.md ] || [ -f .claude/CLAUDE.md ]; then
+  echo "  CLAUDE.md              already present: merge the Template block of Templates/PROJECT_CLAUDE.md"
+  echo "                         into it, never copy the block over it (that file's section \"A project"
+  echo "                         that already has a CLAUDE.md\"; Workflows/ONBOARDING.md Step 1 item 2)"
+else
+  echo "  CLAUDE.md              from Templates/PROJECT_CLAUDE.md, before Onboarding Step 4"
+  echo "                         (Workflows/ONBOARDING.md Step 1 item 2)"
+fi
+if [ -n "$REMOTE_MAIN" ] || [ -n "$NOT_MAIN_DEFAULT" ]; then
+  echo "  SESSION_STATE.md       once the adoption's Pull Request is merged and develop pulled:"
+  echo "                         ./$(relpath "$(pwd)" "$SCRIPT_DIR")/create-session-state.sh"
+else
+  echo "  SESSION_STATE.md       after the adoption commit: ./$(relpath "$(pwd)" "$SCRIPT_DIR")/create-session-state.sh"
+fi
 echo "                         writes the Template block of Templates/SESSION_STATE.md, dated"
 echo "                         (Workflows/ONBOARDING.md Step 1 item 3; gitignored)"
 echo "  Adoption commit        signed Employee: DevOps Engineer; registers an adoption Work Unit"
-echo "                         (milestone: Bootstrap; Workflows/PROJECT_BOOTSTRAP.md Step 4 item 5)"
+echo "                         and carries a RISK: record (milestone: Bootstrap;"
+echo "                         Workflows/PROJECT_BOOTSTRAP.md Step 4 item 5)"
 echo "  Roster                 Workflows/ONBOARDING.md Step 4"
 echo "  Work Unit registry     Registry/work-units.yml — $WU_REGISTRY_NOTE; register each"
 echo "                         Work Unit in the commit that performs it"
