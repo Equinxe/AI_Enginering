@@ -9045,6 +9045,118 @@ expect_output "1 git hook problem(s)"
 expect_output "core.hooksPath now shadows"
 expect_no_output "differ from the framework's Adapter" "no differing-file wording when no file differs"
 
+section "setup-project-bootstrap.sh — the closing report follows the project it finds (issue #453, WU-IAENG-436)"
+
+# report_436 <label> — the closing report of a dry run in the repository the
+# shell is in. --dry-run writes nothing and still prints the report, which is
+# what is under test here; the exit status belongs to the install half and is
+# asserted elsewhere.
+report_436() {
+  TOTAL=$((TOTAL + 1))
+  LAST_OUTPUT="$(bash "$SCRIPTS/setup-project-bootstrap.sh" generic --dry-run 2>&1)"
+  if grep -qF -- "--- Remaining Coverage Checklist items" <<< "$LAST_OUTPUT"; then
+    [ -n "$VERBOSE" ] && printf '   ok   %s: the closing report is printed\n' "$1"
+    return 0
+  fi
+  printf '   FAIL %s: no closing report\n' "$1"
+  printf '%s\n' "$LAST_OUTPUT" | sed 's/^/        | /'
+  FAILED=$((FAILED + 1))
+  return 1
+}
+
+# A new project: no main on a remote and no CLAUDE.md. The report keeps the
+# lines a new project follows.
+new_repo boot-436-new
+report_436 "a new project"
+expect_output "git push -u origin main && git branch develop && git push -u origin develop"
+expect_output "  CLAUDE.md              from Templates/PROJECT_CLAUDE.md, before Onboarding Step 4"
+expect_output "  SESSION_STATE.md       after the adoption commit:"
+expect_no_output "never push it" "a new project is not told that main is on a remote"
+expect_no_output "already present: merge" "a new project is not told to merge into a CLAUDE.md it lacks"
+
+# An existing repository: main on a remote and a CLAUDE.md of its own. pre-push
+# refuses every update of that main, and a CLAUDE.md created from the template
+# could be copied over the project's own contract (#453).
+new_repo boot-436-existing
+git update-ref refs/remotes/origin/main HEAD
+printf '# Our contract\n' > CLAUDE.md
+report_436 "an existing repository"
+expect_output "  main + develop         main is already on a remote (origin/main): never push it, pre-push"
+expect_output "release (Workflows/ONBOARDING.md, The adoption route)"
+expect_no_output "git push -u origin main" "an existing repository is not told to push main"
+expect_output "  CLAUDE.md              already present: merge the Template block of Templates/PROJECT_CLAUDE.md"
+expect_output "into it, never copy the block over it (that file's section \"A project"
+expect_no_output "before Onboarding Step 4" "an existing CLAUDE.md is not created again from the template"
+expect_output "  SESSION_STATE.md       once the adoption's Pull Request is merged and develop pulled:"
+
+# .claude/CLAUDE.md is a project contract too: Claude Code reads either file.
+new_repo boot-436-dotclaude
+mkdir -p .claude
+printf '# Our contract\n' > .claude/CLAUDE.md
+report_436 "a project whose contract is .claude/CLAUDE.md"
+expect_output "  CLAUDE.md              already present: merge the Template block"
+
+# Only <remote>/main itself is main on a remote. A remote branch named
+# feature/main is not.
+new_repo boot-436-lookalike
+git update-ref refs/remotes/origin/feature/main HEAD
+report_436 "a remote branch feature/main only"
+expect_output "git push -u origin main && git branch develop && git push -u origin develop"
+expect_no_output "never push it" "origin/feature/main is not taken for main on a remote"
+
+# An existing repository whose default branch is master. The hooks, the checks
+# and Workflows/RELEASE.md name main, so the report names the branch and stops
+# at the Director instead of telling a new project to push main. The default
+# is read from <remote>/HEAD, which a clone records.
+new_repo boot-436-master
+git update-ref refs/remotes/origin/master HEAD
+git symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/master
+report_436 "an existing repository whose default branch is master"
+expect_output "  main + develop         the remote's default branch is origin/master, not main: the hooks,"
+expect_output "Director's decision (Workflows/ONBOARDING.md, The adoption route)"
+expect_no_output "git push -u origin main" "a repository on master is not told to push main"
+expect_no_output "never push it" "a repository on master is not given the route that needs main"
+expect_output "  SESSION_STATE.md       once the adoption's Pull Request is merged and develop pulled:"
+
+# A default that is neither main nor master: only <remote>/HEAD can say so,
+# since the no-HEAD fallback below looks for master (review of PR #465, M3).
+new_repo boot-436-trunk
+git update-ref refs/remotes/origin/trunk HEAD
+git symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/trunk
+report_436 "an existing repository whose default branch is trunk"
+expect_output "  main + develop         the remote's default branch is origin/trunk, not main: the hooks,"
+expect_no_output "git push -u origin main" "a repository on trunk is not told to push main"
+
+# A clone made before its remote renamed master to main keeps origin/HEAD on
+# master, since git fetch does not move it. With origin/main present, the
+# report says how to refresh the record before anyone stops on it (m2).
+new_repo boot-436-stale-head
+git update-ref refs/remotes/origin/main HEAD
+git update-ref refs/remotes/origin/master HEAD
+git symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/master
+report_436 "a stale origin/HEAD on master, with origin/main present"
+expect_output "origin/HEAD names origin/master, yet origin/main exists: run"
+expect_output "git remote set-head origin --auto, then this script again"
+expect_no_output "never push it" "a stale default is not taken for the route"
+
+# The same with no <remote>/HEAD recorded (a remote added by hand): a
+# <remote>/master with no <remote>/main is the default branch.
+new_repo boot-436-master-nohead
+git update-ref refs/remotes/origin/master HEAD
+report_436 "master on a remote with no <remote>/HEAD"
+expect_output "the remote's default branch is origin/master, not main"
+
+# A default branch of develop is part of the framework's model: with main on
+# the remote, the route applies.
+new_repo boot-436-default-develop
+git update-ref refs/remotes/origin/main HEAD
+git update-ref refs/remotes/origin/develop HEAD
+git symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/develop
+report_436 "a default branch of develop, with main on the remote"
+expect_output "main is already on a remote (origin/main): never push it"
+expect_no_output "not main: the hooks" "a default of develop is not refused"
+cd "$WORK" || exit 1
+
 section "install-hooks.sh / install-skills.sh --check — the same decisions, reported, nothing written (WU-IAENG-357)"
 
 # The runtime installers' own decisions, read and never applied: the jq merge
