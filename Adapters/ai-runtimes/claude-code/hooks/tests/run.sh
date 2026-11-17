@@ -261,6 +261,9 @@ expect_reason "escape-hatch: a carriage return is removed before matching (4)" "
 expect_reason "escape-hatch: a carriage return is removed before matching (5)" "${CR_P}"'git push --for\rce'"${CR_S}" "force-push or mirror-push"
 expect_reason "escape-hatch: a carriage return is removed before matching (6)" "${CR_P}"'rm -r\rf /'"${CR_S}" "recursive removal"
 expect_reason "escape-hatch: a carriage return is removed before matching (7)" "${CR_P}"'git config core.hooks\rPath x'"${CR_S}" "setting core.hooksPath disables"
+# Inside quotes too, and in the KEEPQ view, which re-lexes the command after
+# the CR is gone (code review S1): Git Bash drops a CR inside quotes as well.
+expect_reason "escape-hatch: a carriage return is removed before matching (8, a quoted label list)" "${CR_P}"'gh pr edit 1 --add-label \"help wanted,size/app\rroved\"'"${CR_S}" "only the Director applies these approval labels"
 # The fast path's promise, kept by the lexer: every byte value but those ten,
 # a CR (which never reaches the lexer: the hook removes it first) and NUL
 # (which no shell string holds) is copied unchanged. One text holds each such
@@ -289,14 +292,17 @@ else
     "${#FP_ALPHA[@]}" "${#FP_TEXT}" "${#FP_GOT}"
 fi
 # THE RULE CLASSES MATCH THE SAME BYTES AS GREP DID (SEC-IAENG-431-02). The
-# hook's own rx_any, read from its source, against grep -E, on every byte value
-# from 1 to 255 but the line feed: for every POSIX class the hook names, alone
-# and negated, with case folded and not. grep reads the bytes as text (-a) and
-# keeps a CR (-U). A class the hook starts to use is tested without a change
-# here. [:ascii:] is left out: it is the bash pattern class of the mapping
-# itself, in no rule. A grep that cannot compile a class, or a class that
-# holds no byte or every byte, fails the check, so it cannot pass empty.
-CB_RX="$(awk 'index($0, "rx_any() {") == 1 { on = 1 } on { print } on && $0 == "}" { exit }' "$HOOK")"
+# hook's own functions, read from its source and run in its order (ascii_map
+# over the whole text, split_into, rx_any), against grep -E on the raw bytes:
+# every byte value from 1 to 255 but the line feed, for every POSIX class the
+# hook names, alone and negated, with case folded and not. grep reads the
+# bytes as text (-a) and keeps a CR (-U). A class the hook starts to use is
+# tested without a change here. [:ascii:] is left out: it is the bash pattern
+# class of the mapping itself, in no rule. A grep that cannot compile a class,
+# or a class that holds no byte or every byte, fails the check, so it cannot
+# pass empty.
+hook_fn() { awk -v f="$1() {" 'index($0, f) == 1 { on = 1 } on { print } on && $0 == "}" { exit }' "$HOOK"; }
+CB_RX="$(hook_fn rx_any)"$'\n'"$(hook_fn ascii_map)"$'\n'"$(hook_fn split_into)"
 CB_CLASSES=()
 read -r -d '' -a CB_CLASSES <<< "$(grep -o '\[:[a-z]*:\]' "$HOOK" | grep -vxF '[:ascii:]' | sort -u)"
 CB_FILE="$(mktemp)"
@@ -309,8 +315,8 @@ done > "$CB_FILE"
 CB_LABEL="escape-hatch: rule classes match the same bytes as grep did, every byte, every class the hook names"
 CB_BAD=""
 TOTAL=$((TOTAL + 1))
-if [ -z "$CB_RX" ] || [ "${#CB_CLASSES[@]}" -eq 0 ]; then
-  CB_BAD=" (rx_any or the classes could not be read from the hook)"
+if [ "$(grep -c -E '^(rx_any|ascii_map|split_into)\(\) \{' <<< "$CB_RX")" -ne 3 ] || [ "${#CB_CLASSES[@]}" -eq 0 ]; then
+  CB_BAD=" (rx_any, ascii_map, split_into or the classes could not be read from the hook)"
 else
   for cb_cls in "${CB_CLASSES[@]}"; do
     for cb_re in "^[${cb_cls}]\$" "^[^${cb_cls}]\$"; do
@@ -325,11 +331,15 @@ else
         cb_bash="$(
           # rx_any calls iaeng_block only on a pattern that does not compile.
           eval "$CB_RX"$'\n''iaeng_block() { exit 3; }'
+          cb_all="$(< "$CB_FILE")"
+          ascii_map cb_all
+          cb_lines=()
+          split_into cb_lines $'\n' "$cb_all"
           cb_n=0
-          while IFS= read -r cb_line; do
+          for cb_line in "${cb_lines[@]}"; do
             cb_n=$((cb_n + 1))
             rx_any "$cb_fold" "$cb_re" "$cb_line" && printf '%s ' "$cb_n"
-          done < "$CB_FILE"
+          done
         )"
         [ "$cb_grep" = "$cb_bash" ] || CB_BAD="$CB_BAD $cb_re (fold $cb_fold)"
       done
@@ -343,6 +353,55 @@ else
   FAILED=$((FAILED + 1))
   printf '   FAIL  %s: differ on%s\n' "$CB_LABEL" "$CB_BAD"
 fi
+# NON-ASCII INPUT IS MAPPED ONCE, ON EVERY LINE (SEC-IAENG-431-03, code review
+# F5). Two checks that name \006 itself, so that no class is involved and they
+# mean the same on every platform. First, ascii_map alone: every byte from
+# 0x80 to 0xFF becomes \006 and every other byte stays, on three lines, the
+# trailing line breaks included. Second, the hook's own order on a text whose
+# SECOND line holds 0xA0: ascii_map, split_into, then rx_any with ^a\006b$
+# must match that line. A mapping that is gone, or that reaches only the first
+# line, fails one of them.
+AM_RAW=""
+AM_WANT=""
+for ((am_i = 1; am_i < 256; am_i++)); do
+  [ "$am_i" -eq 10 ] && continue
+  printf -v am_hex '%02x' "$am_i"
+  printf -v am_ch '%b' "\\x$am_hex"
+  AM_RAW+="$am_ch"
+  if [ "$am_i" -lt 128 ]; then AM_WANT+="$am_ch"; else AM_WANT+=$'\006'; fi
+done
+AM_RAW="$AM_RAW"$'\n'"$AM_RAW"$'\n'"$AM_RAW"$'\n\n'
+AM_WANT="$AM_WANT"$'\n'"$AM_WANT"$'\n'"$AM_WANT"$'\n\n'
+AM_GOT="$(
+  eval "$CB_RX"$'\n''iaeng_block() { exit 3; }'
+  am_text="$AM_RAW"
+  ascii_map am_text
+  printf '%sx' "$am_text"
+)"
+AM_GOT="${AM_GOT%x}"
+TOTAL=$((TOTAL + 1))
+if [ "$AM_GOT" = "$AM_WANT" ]; then
+  [ "$VERBOSE" -eq 1 ] && printf '   ok    %s\n' "escape-hatch: ascii_map turns every byte above 0x7F into \\006, on every line, and keeps every other byte"
+else
+  FAILED=$((FAILED + 1))
+  printf '   FAIL  escape-hatch: ascii_map turns every byte above 0x7F into \\006, on every line, and keeps every other byte (%s bytes in, %s out, %s wanted)\n' \
+    "${#AM_RAW}" "${#AM_GOT}" "${#AM_WANT}"
+fi
+AM_ORDER="$(
+  eval "$CB_RX"$'\n''iaeng_block() { exit 3; }'
+  am_text=$'x\na\240b'
+  ascii_map am_text
+  am_lines=()
+  split_into am_lines $'\n' "$am_text"
+  rx_any 0 $'^a\006b$' "${am_lines[@]}" && printf 'mapped'
+)"
+TOTAL=$((TOTAL + 1))
+if [ "$AM_ORDER" = mapped ]; then
+  [ "$VERBOSE" -eq 1 ] && printf '   ok    %s\n' "escape-hatch: a byte above 0x7F on a second line reaches the rules as \\006"
+else
+  FAILED=$((FAILED + 1))
+  printf '   FAIL  escape-hatch: a byte above 0x7F on a second line reaches the rules as \\006\n'
+fi
 # The segment cap. 2,000 segments are read; 2,001 are refused, with the cap's
 # own reason. Both cases are plain, so nothing else could refuse them.
 SEG_AT_CAP=""
@@ -350,6 +409,37 @@ for ((seg_i = 1; seg_i < 2000; seg_i++)); do SEG_AT_CAP+="true;"; done
 SEG_AT_CAP+="true"
 expect_rc "escape-hatch: 2,000 segments are read" 0 "$HOOK" "$(mkbash "$SEG_AT_CAP")"
 expect_reason "escape-hatch: 2,001 segments are refused" "$(mkbash "$SEG_AT_CAP;true")" "pipeline segments after expansion"
+# NON-ASCII INPUT IS MAPPED ONCE, IN LINEAR TIME (SEC-IAENG-431-03). One line
+# of 256 KB, U+00E9 repeated after echo, then a force-push: the call must be
+# refused, for the push, within LT_BUDGET seconds, a quarter of the guard's
+# 120 s timeout (the budget the Security review set; develop took 18.7 s in
+# its measurement). The cap above counts segments, not bytes, so this is the
+# check on the length of a line. timeout(1) stops a run that passes the
+# budget; where it is missing, the elapsed time decides. The cost this pins
+# showed on Git for Windows (121 s at 6745846); on Linux it may not.
+LT_BUDGET=30
+LT_DIR="$(mktemp -d)"
+lt_s=$'\xc3\xa9'
+while [ "${#lt_s}" -lt 262144 ]; do lt_s="$lt_s$lt_s"; done
+printf 'echo %s; git push --force' "$lt_s" > "$LT_DIR/cmd"
+jq -n --rawfile c "$LT_DIR/cmd" '{tool_name:"Bash",tool_input:{command:$c}}' > "$LT_DIR/pay"
+lt_t0=$SECONDS
+if command -v timeout >/dev/null 2>&1; then
+  LT_OUT="$(timeout "$LT_BUDGET" bash "$HOOK" < "$LT_DIR/pay" 2>&1 >/dev/null)"
+  LT_RC=$?
+else
+  LT_OUT="$(bash "$HOOK" < "$LT_DIR/pay" 2>&1 >/dev/null)"
+  LT_RC=$?
+fi
+LT_S=$((SECONDS - lt_t0))
+rm -rf "$LT_DIR"
+TOTAL=$((TOTAL + 1))
+if [ "$LT_RC" -eq 2 ] && [ "$LT_S" -le "$LT_BUDGET" ] && grep -qF "force-push or mirror-push" <<< "$LT_OUT"; then
+  [ "$VERBOSE" -eq 1 ] && printf '   ok    %s (%s s)\n' "escape-hatch: a 256 KB non-ASCII line is judged within ${LT_BUDGET} s, and refused" "$LT_S"
+else
+  FAILED=$((FAILED + 1))
+  printf '   FAIL  escape-hatch: a 256 KB non-ASCII line is judged within %s s, and refused: exit %s after %s s\n' "$LT_BUDGET" "$LT_RC" "$LT_S"
+fi
 # A pattern bash cannot compile refuses the call rather than reading as "no
 # match". A copy of the hook gains one rule whose pattern is invalid, ahead of
 # the others; a plain command must then be refused with that reason.
@@ -389,9 +479,11 @@ for eh_cmd in $EH_CMDS; do
   printf '#!/bin/sh\necho %s >> "%s"\nexec "%s" "$@"\n' "$eh_cmd" "$EH_LOG" "$eh_real" > "$EH_SHIMS/$eh_cmd"
   chmod +x "$EH_SHIMS/$eh_cmd"
 done
-# eh_budget <label> <command> <awk wanted> <most starts>
+# eh_budget <label> <command> <awk wanted> <most starts> [<tr wanted>]
+# The tr count is checked when given: ascii_map starts one tr per text that
+# holds a byte above 0x7F, and none for a text that holds none.
 eh_budget() {
-  local label="$1" cmd="$2" want_awk="$3" most="$4" payload rc n_jq n_awk n_all seen
+  local label="$1" cmd="$2" want_awk="$3" most="$4" want_tr="${5:-}" payload rc n_jq n_awk n_tr n_all seen
   TOTAL=$((TOTAL + 1))
   payload="$(mkbash "$cmd")"
   : > "$EH_LOG"
@@ -399,15 +491,17 @@ eh_budget() {
   rc=$?
   n_jq="$(grep -c '^jq$' "$EH_LOG")"
   n_awk="$(grep -c '^awk$' "$EH_LOG")"
+  n_tr="$(grep -c '^tr$' "$EH_LOG")"
   n_all="$(wc -l < "$EH_LOG" | tr -d ' ')"
-  if [ "$rc" -eq 0 ] && [ "$n_jq" -eq 1 ] && [ "$n_awk" -eq "$want_awk" ] && [ "$n_all" -le "$most" ]; then
+  if [ "$rc" -eq 0 ] && [ "$n_jq" -eq 1 ] && [ "$n_awk" -eq "$want_awk" ] && [ "$n_all" -le "$most" ] \
+     && { [ -z "$want_tr" ] || [ "$n_tr" -eq "$want_tr" ]; }; then
     [ "$VERBOSE" -eq 1 ] && printf '   ok    %s\n' "$label"
   else
     FAILED=$((FAILED + 1))
     seen="$(sort "$EH_LOG" | uniq -c | awk '{printf "%s x%s, ", $2, $1}')"
     [ -n "$seen" ] || seen="nothing (no stand-in ran, so nothing was counted)"
-    printf '   FAIL  %s: exit %s, started %s(want jq x1, awk x%s, at most %s of: %s)\n' \
-      "$label" "$rc" "$seen" "$want_awk" "$most" "$EH_CMDS"
+    printf '   FAIL  %s: exit %s, started %s(want jq x1, awk x%s, tr x%s, at most %s of: %s)\n' \
+      "$label" "$rc" "$seen" "$want_awk" "${want_tr:-any}" "$most" "$EH_CMDS"
   fi
 }
 eh_budget "escape-hatch: budget — a plain command starts cat and one jq, no awk" 'git status' 0 2
@@ -421,6 +515,15 @@ for eh_byte in "\\" '$' '`' "'" '"' '<' '{' $'\001' $'\002' $'\003'; do
   printf -v eh_shown '%q' "$eh_byte"
   eh_budget "escape-hatch: budget — a command holding $eh_shown starts the lexer" "echo a${eh_byte}b" 1 3
 done
+# Each text the rules read is mapped where it is made (SEC-IAENG-431-03): the
+# lexed command, the KEEPQ view, and the raw lines of check_raw. One tr per
+# text that holds a byte above 0x7F; an ASCII command starts none (the plain
+# budgets above). A call site that stopped mapping fails here on every
+# platform.
+EH_E=$'\xc3\xa9'
+eh_budget "escape-hatch: budget — a plain command with a non-ASCII byte maps it once (one tr)" "echo caf${EH_E} && git status" 0 3 1
+eh_budget "escape-hatch: budget — a quoted label list with a non-ASCII byte maps the lexed text and the KEEPQ view (two tr)" "gh pr edit 1 --add-label \"help wanted,caf${EH_E}\" --title caf${EH_E}" 2 6 2
+eh_budget "escape-hatch: budget — check_raw maps the raw lines too (two tr)" "echo GIT_CONFIG_KEY_0 caf${EH_E}" 0 4 2
 rm -rf "$EH_BASE"
 expect_rc "inline-suppression: refuses a directive in code" 2 "$HOOKS/block-inline-suppression.sh" "$PAY_CODE"
 expect_rc "inline-suppression: allows it in documentation"  0 "$HOOKS/block-inline-suppression.sh" "$PAY_DOC"

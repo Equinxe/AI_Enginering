@@ -24,10 +24,11 @@
 # call starts lib.sh's cat and one jq; the lexer's awk when the command holds
 # one of the ten bytes the lexer rewrites (a command without them skips it); a
 # second awk, the lexer in KEEPQ mode, for a gh pr|issue edit|create with a
-# label flag or a gh alias set|import; and one grep -o, the only process a
-# rule starts, for a command that names commit.gpgsign in a git -c or
-# --config-env option. A carriage return is removed before matching, as bash
-# removes it before running. The rule patterns are unchanged; only the engine
+# label flag or a gh alias set|import; one tr for each of those texts that
+# holds a byte above 0x7F (non-ASCII input is mapped once, in linear time);
+# and one grep -o, the only process a rule starts, for a command that names
+# commit.gpgsign in a git -c or --config-env option. A carriage return is
+# removed before matching, as bash removes it before running. The rule patterns are unchanged; only the engine
 # that runs them moved. tests/run.sh counts what a call starts.
 
 # This hook's own directory, never the working directory (issue #344). It is
@@ -161,19 +162,12 @@ split_into() {
 # rx_any FOLD ERE LINE... — true when ERE matches one of the LINEs. FOLD is 1
 # to ignore case (grep -i), 0 otherwise.
 #
-# THE RULE CLASSES MATCH THE SAME BYTES AS GREP DID (SEC-IAENG-431-02). Under
-# LC_ALL=C, grep puts no byte from 0x80 to 0xFF in any class. bash's matcher
-# on Git for Windows puts some of them in [[:space:]] and [[:alnum:]]. So each
-# such byte is replaced, in the copy of the line that is matched, by \006: a
-# byte no pattern names and no class holds, as no class held the byte under
-# grep. Every text the rules read passes through here. tests/run.sh compares
-# this function with grep on every byte value, for every class the rules use.
+# Every text rx_any reads has been through ascii_map first (below).
 rx_any() {
   local fold="$1" re="$2" line rc
   shift 2
   [ "$fold" -eq 1 ] && shopt -s nocasematch
   for line in "$@"; do
-    line="${line//[![:ascii:]]/$'\006'}"
     [[ $line =~ $re ]]
     rc=$?
     if [ "$rc" -eq 0 ]; then shopt -u nocasematch; return 0; fi
@@ -187,6 +181,31 @@ rx_any() {
   return 1
 }
 
+# THE RULE CLASSES MATCH THE SAME BYTES AS GREP DID (SEC-IAENG-431-02), AND
+# NON-ASCII INPUT IS MAPPED ONCE, IN LINEAR TIME (SEC-IAENG-431-03). Under
+# LC_ALL=C, grep puts no byte from 0x80 to 0xFF in any class. bash's matcher
+# on Git for Windows puts some of them in [[:space:]] and [[:alnum:]]. So
+# ascii_map replaces each such byte, in the variable it is named, by \006: a
+# byte no pattern names and no class holds, as no class held the byte under
+# grep. It runs once per text, before the text is split, in one pass of tr;
+# a text with no such byte is left as it is and starts no process. The texts
+# the rules read are the lexed command (its lines, its segments and the
+# grep -o tokens all come from it), the KEEPQ view, and the raw lines of
+# check_raw. tests/run.sh compares this function, followed by rx_any, with
+# grep on every byte value, for every class the rules use, and times a
+# 256 KB line of non-ASCII text.
+ascii_map() {
+  local _am
+  case "${!1}" in
+    *[![:ascii:]]*)
+      _am="$(LC_ALL=C tr '\200-\377' '\006' <<< "${!1}"; printf x)"
+      _am="${_am%x}"
+      printf -v "$1" '%s' "${_am%$'\n'}"
+      ;;
+  esac
+}
+
+ascii_map STRIPPED
 STRIPPED_LINES=()
 split_into STRIPPED_LINES $'\n' "$STRIPPED"
 
@@ -199,15 +218,18 @@ split_into STRIPPED_LINES $'\n' "$STRIPPED"
 # A COMMAND WITH MORE THAN MAX_SEGMENTS SEGMENTS IS REFUSED. The per-segment
 # work grows with the count, and a call that runs past the guard's 120 s
 # timeout is refused with no reason given, or, on a Claude Code older than
-# 2.1.295, allowed (Governance/BLOCKING_HOOK_LATENCY_MEASUREMENT.md). A cap
-# in this script bounds that work on every version. 2,000 is four times the
-# most segments seen in 4,504 real commands of this repository (463, where a
-# brace expansion multiplied a 1,235-character command; the 99.9th percentile
-# is 137, the median 5). The count is taken after the lexer, so brace
-# alternatives count. At the cap, the heaviest command (2,000 lines, each a
-# `gh` segment) was read in 2.5 s on the loaded Windows machine of the
-# measurement, and every large input tried there ran faster in this hook than
-# in the one before it.
+# 2.1.295, allowed (Governance/BLOCKING_HOOK_LATENCY_MEASUREMENT.md). This cap
+# bounds the number of segments, on every version; it does not bound time. A
+# long line is bounded by the rest being linear in its length (non-ASCII
+# input is mapped once, above), and tests/run.sh requires a 256 KB line to be
+# judged within 30 s; past the guard's timeout, the version decides, as just
+# said. 2,000 is four times the most segments seen in 4,504 real commands of
+# this repository (463, where a brace expansion multiplied a 1,235-character
+# command; the 99.9th percentile is 137, the median 5). The count is taken
+# after the lexer, so brace alternatives count. At the cap, the heaviest
+# command (2,000 lines, each a `gh` segment) was read in 2.5 s on the loaded
+# Windows machine of the measurement. The large inputs timed there, before
+# and after this change, are in that Governance document.
 MAX_SEGMENTS=2000
 SEGS=()
 split_into SEGS $';&|\n' "$STRIPPED"
@@ -490,8 +512,9 @@ fi
 # (`export GIT_CONFIG_KEY_$i`) is already refused by GCN above.
 # check_raw ERE — check, on the lines of the RAW command.
 check_raw() {
-  local raw_lines=()
-  split_into raw_lines $'\n' "$CMD"
+  local raw_lines=() raw_text="$CMD"
+  ascii_map raw_text
+  split_into raw_lines $'\n' "$raw_text"
   rx_any 0 "$1" ${raw_lines[@]+"${raw_lines[@]}"}
 }
 if check 'GIT_CONFIG_KEY_[^[:space:];&|=+]*\$[^[:space:];&|=+]*\+?=' \
@@ -746,6 +769,7 @@ if [ "$GH_SEEN" -eq 1 ]; then
     # `gh` that sits INSIDE quoted prose has lost its whitespace boundary, so
     # only a real flag is matched; a real flag's quoted value is one word.
     KEPT="$(awk -v KEEPQ=1 -f "$LEXER" <<< "$CMD")"
+    ascii_map KEPT
     PHC=$'\004'
     LENDK="([[:space:]]|,|;|&|\||\)|$|${PHC})"
     LVALK="([^[:space:],]*,)*${PHC}*${LBL}${LENDK}"

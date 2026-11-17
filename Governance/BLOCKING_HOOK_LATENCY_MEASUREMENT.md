@@ -244,7 +244,7 @@ The 120 s timeout was set from the modelled p99 of a median-cost call, 84 proces
 
 ### The Segment Cap (SEC-IAENG-410-01)
 
-The hook now refuses a command of more than **2,000 pipeline segments** after expansion: the lexed text split on `;`, `&`, `|` and line breaks. Before, the `core.hooksPath` and approval-label loops ran at least one `grep` per segment, unbounded, so a long chain could pass the 120 s timeout, and on a Claude Code older than 2.1.295 the call then went through. The cap is in the script, so it holds on every version.
+The hook now refuses a command of more than **2,000 pipeline segments** after expansion: the lexed text split on `;`, `&`, `|` and line breaks. Before, the `core.hooksPath` and approval-label loops ran at least one `grep` per segment, unbounded, so a long chain could pass the 120 s timeout, and on a Claude Code older than 2.1.295 the call then went through. The cap is in the script, so it holds on every version. It bounds the number of segments, not time: a long line is bounded by the hook's work being linear in its length, which `tests/run.sh` checks on a 256 KB line (below). Past the guard's 120 s timeout the version decides: Claude Code 2.1.295 or later refuses the call, an earlier one lets it through.
 
 Its value comes from the 4,504 real Bash commands of this repository recorded on 28 October, split as the hook splits them: a median of 5 segments, a 99th percentile of 34, a 99.9th of 137, a maximum of 463 (a brace expansion that multiplied a 1,235-character command). None had more than 1,000. 2,000 is four times the maximum.
 
@@ -259,7 +259,17 @@ Large inputs, timed on the loaded machine of this measurement, one run each:
 | 2,000 segments, each a `gh` call, the last a `core.hooksPath` read | 10 KB | not run (2 to 8 processes per segment) | 8.3 s |
 | 2,000 lines, each a `gh` segment, at the cap | 10 KB | not run | 2.5 s |
 
-Most of the brace-expansion case is the lexer's own time, which this change does not touch. No input tried ran longer after the change than before.
+Most of the brace-expansion case is the lexer's own time, which this change does not touch.
+
+**Non-ASCII input (SEC-IAENG-431-03).** The second round's first mapping of bytes above 0x7F (at 6745846) ran on every line at every rule, and its cost grew faster than the input, so on one long line of non-ASCII text that head passed the 120 s timeout. The third round maps each text once, in one linear pass, before it is split. One line of U+00E9 repeated, then `; git push --force`, on Windows, one run each, every run refused for the push:
+
+| Line | develop | 6745846 | third round |
+|---|---:|---:|---:|
+| 16 KB | 8.7 s, 5.3 s | 2.2 s | 1.4 s |
+| 128 KB | 10.2 s, 8.5 s | 31.3 s | 6.3 s |
+| 256 KB | 2.9 s, 8.7 s | 121.4 s | 4.0 s |
+
+Develop was timed twice, beside each of the other two, on a machine whose load moved between runs. With the third round, no input tried runs longer than on develop. `tests/run.sh` requires the 256 KB line to be judged and refused within 30 s, the budget the Security review set; at 6745846 that check fails.
 
 ### What the Rules Decide Is Unchanged
 
