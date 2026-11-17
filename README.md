@@ -34,10 +34,17 @@ could never be pushed.
 the ones in `ia-engineering/` once it is pinned, do not contain this route, the
 merge procedure for a project that already has a `CLAUDE.md`
 (`Templates/PROJECT_CLAUDE.md`), or the rule that the DevOps Engineer signs
-the `CLAUDE.md` commit (#379). An existing project adopting v0.0.15 follows
-this route from the documents on `develop`: this page,
-`Workflows/ONBOARDING.md` (The adoption route) and that template. The route
-works with v0.0.15's scripts unchanged, with one exception: ignore the
+the `CLAUDE.md` commit (#379), and v0.0.15's `Workflows/PROJECT_BOOTSTRAP.md`
+still sends the adoption commit to `main`. An existing project adopting
+v0.0.15 therefore reads every framework document from the `develop` branch of
+the framework repository, not from its own `develop` and not from the pinned
+submodule: this page, `Workflows/ONBOARDING.md` (The adoption route),
+`Workflows/PROJECT_BOOTSTRAP.md` (Step 4) and `Templates/PROJECT_CLAUDE.md`.
+Read them without checking that branch out, on GitHub, or with
+`git -C ia-engineering fetch origin develop` and then
+`git -C ia-engineering show FETCH_HEAD:<file>`. The submodule stays pinned to
+v0.0.15: only the scripts come from it. The route works with those scripts
+unchanged, with one exception: ignore the
 closing-report lines of `setup-project-bootstrap.sh` that issue #453 corrects
 (The steps that are not commands, below). The route ships in v0.0.16.
 
@@ -321,17 +328,18 @@ and work merged into `develop` reaches production only through a release
 (`Workflows/RELEASE.md`), which the Director may cut as soon as the adoption
 is merged. An adopting project's first release has not been rehearsed yet:
 `release.sh check`, which that workflow's Step 1 runs, reads a `VERSION.md`
-and a `CHANGELOG.md` that the adoption does not install (issue #469). The
-framework's `ghcr-publish.yml` does not run before then, since it runs on
+and a `CHANGELOG.md` that the adoption does not install (issue #469). Until
+that issue is resolved, bring the first release to the Director before
+`Workflows/RELEASE.md` Step 1. The framework's `ghcr-publish.yml` does not run before then, since it runs on
 pushes to `main` and on tags. A workflow of the project's own that runs only
 for Pull Requests to `main` does not run for those to `develop` until
 `develop` is added to its branches. A fix cannot go through
 `Workflows/HOTFIX.md` before that release. A branch cut from `main` has no
 `Registry/work-units.yml`, so the `commit-msg` hook refuses a commit there
-that claims a Work Unit, unless that commit creates the registry on `main`.
-Doing so would adopt `main` in part, against the route above, and the
-registry would collide with `develop`'s at the back-merge. A fix that cannot
-wait goes out in that first release.
+that claims a Work Unit. Do not create the registry on `main` to get around
+this: it would adopt `main` in part, against the route above, and collide
+with `develop`'s registry at the back-merge. A fix that cannot wait goes out
+in that first release.
 
 Complete `.ia-engineering/risk-map.yml` in one of your first Work Units. The
 bootstrap's starter maps only the files it installed. Until each of the eight
