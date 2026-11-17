@@ -13098,7 +13098,8 @@ else
 fi
 # QA-467-02 (#470): after a move, core.hooksPath names the old path, so the
 # block says to run install.sh again too, not only the generator.
-if tr '\n' ' ' < "$SCRIPTS/../../Templates/PROJECT_CLAUDE.md" | grep -qF 'After the project moves, run the second and the third again: `core.hooksPath` still names the old path'; then
+if tr -d '\r' < "$SCRIPTS/../../Templates/PROJECT_CLAUDE.md" | tr '\n' ' ' \
+  | grep -qF "After the project moves, run the second and the third again: ${BT434}core.hooksPath${BT434} still names the old path"; then
   pass_434 "the template says to re-run install.sh after the project moves (QA-467-02)"
 else
   fail_434 "the template says to re-run install.sh after the project moves (QA-467-02)"
