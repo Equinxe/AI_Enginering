@@ -901,6 +901,25 @@ else
 fi
 rm -f "$OWN_COUNTS"
 
+# --- install-hooks.sh, a settings.json without "hooks" (WU-IAENG-437) --------
+# Its own file too (tests/settings-shapes.sh), counted here the same way.
+SHAPES_COUNTS="$(mktemp "${TMPDIR:-/tmp}/iaeng-shapes-counts.XXXXXX")"
+IAENG_HOOK_TESTS_COUNTS="$SHAPES_COUNTS" bash "$HERE/settings-shapes.sh" ${DASH_ARGS[@]+"${DASH_ARGS[@]}"}
+SHAPES_RC=$?
+if read -r SHAPES_TOTAL SHAPES_FAILED < "$SHAPES_COUNTS" 2>/dev/null \
+    && [[ "$SHAPES_TOTAL" =~ ^[0-9]+$ ]] && [[ "$SHAPES_FAILED" =~ ^[0-9]+$ ]] && [ "$SHAPES_TOTAL" -gt 0 ]; then
+  TOTAL=$((TOTAL + SHAPES_TOTAL))
+  FAILED=$((FAILED + SHAPES_FAILED))
+  if [ "$SHAPES_RC" -ne 0 ] && [ "$SHAPES_FAILED" -eq 0 ]; then
+    TOTAL=$((TOTAL + 1)); FAILED=$((FAILED + 1))
+    echo "   FAIL  tests/settings-shapes.sh exited $SHAPES_RC with no failed check counted"
+  fi
+else
+  TOTAL=$((TOTAL + 1)); FAILED=$((FAILED + 1))
+  echo "   FAIL  tests/settings-shapes.sh reported no counts (exit $SHAPES_RC) — it could not run"
+fi
+rm -f "$SHAPES_COUNTS"
+
 # --- Verdict ----------------------------------------------------------------
 
 echo
