@@ -42,34 +42,42 @@ closing-report lines of `setup-project-bootstrap.sh` that issue #453 corrects
 (The steps that are not commands, below). The route ships in v0.0.16.
 
 Every git step of the route, up to the opened Pull Request, is the DevOps
-Engineer's: the Main Agent dispatches them and never runs them itself (`Workflows/ONBOARDING.md`, The adoption route, which also names
-who reviews and who merges). From the repository's root, before the commands
-below (where the remote already has a `develop`, replace the two `develop`
-lines with `git switch develop` and `git pull --ff-only`):
+Engineer's: the Main Agent dispatches them and never runs them itself
+(`Workflows/ONBOARDING.md`, The adoption route, which also names who reviews
+and who merges).
+
+First, two checks, from the repository's root. Run them on their own and read
+both results before anything else:
 
 ```bash
-git config core.hooksPath                  # must print nothing: see below
-git ls-remote --symref origin HEAD         # first line: ref: refs/heads/main (or develop)
+git config core.hooksPath             # must print nothing
+git ls-remote --symref origin HEAD    # first line must be: ref: refs/heads/main (or develop)
+```
+
+- If `git config core.hooksPath` prints a path, the project already runs git
+  hooks of its own from there (husky, for example, sets `.husky/_`).
+  `install.sh`, which the bootstrap runs, points that setting at the
+  framework's hooks without looking at the project's (issue #280), and the
+  project's hooks then stop running with no message. Stop: go on only once
+  the Director has decided how both sets of hooks will run.
+  `git config --show-origin core.hooksPath` names the file that sets it.
+- If `git ls-remote` names another default branch, `master` for example,
+  stop. The hooks, the checks and `Workflows/RELEASE.md` name `main` (a
+  default of `develop` is part of the same model), and renaming the default
+  branch is the Director's decision. The route starts once `main` is the
+  remote's default.
+
+Then, with both checks passed, create `develop` and the adoption branch (where
+the remote already has a `develop`, replace the two `develop` lines with
+`git switch develop` and `git pull --ff-only`):
+
+```bash
 git switch main
 git pull --ff-only
 git switch -c develop                      # develop starts as a copy of main
 git push -u origin develop
 git switch -c chore/adopt-ia-engineering   # every adoption commit goes here
 ```
-
-If `git config core.hooksPath` prints a path, the project already runs git
-hooks of its own from there (husky, for example, sets `.husky/_`).
-`install.sh`, which the bootstrap runs, points that setting at the
-framework's hooks without looking at the project's (issue #280), and the
-project's hooks then stop running with no message. Do not run the bootstrap
-until the Director has decided how both sets of hooks will run.
-`git config --show-origin core.hooksPath` names the file that sets it.
-
-If `git ls-remote` names another default branch, `master` for example, stop
-there too. The hooks, the checks and `Workflows/RELEASE.md` name `main` (a
-default of `develop` is part of the same model), and renaming the default
-branch is the Director's decision. The route starts once `main` is on the
-remote.
 
 ```bash
 # from the root of your project (skip git init if it is already a repository)
