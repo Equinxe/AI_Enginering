@@ -122,6 +122,16 @@ Present the plan to the Director and wait for approval before executing,
 whatever the runtime's effort or orchestration mode (Claude Code's `ultracode`
 dynamic workflows included).
 
+Before your first dispatch in a session, read the parallel-agent cap in
+`ia-engineering/Core/ORCHESTRATION.md` (Step 4, Dispatch Rules), and keep
+every dispatch within it: never have more subagents running at once than it
+allows, Employees included. It
+counts every Claude Code session on this machine, an IA Engineering framework
+session's included, and every dispatch, reviews included. Count your own,
+plus the main sessions and subagents the Director reports. At or above the
+cap, tell the Director what waits, and dispatch it when the count falls below
+the cap. The cap delays a dispatch; it never refuses or drops one.
+
 ---
 
 # What Constitutes PROOF
@@ -276,7 +286,7 @@ direction. Move an answered one into the body of this file and delete it here.]
 | What Constitutes PROOF | The difference between "it ran" and "it is right" | Left empty because it is hard — that is the sign it is needed |
 | Active Employees | Dispatch without deliberation | A roster with no triggers; listing all 42 |
 | Standards in Force | Additions, never subtractions | A relaxation recorded here as if it were policy |
-| Main Agent | Dispatch and plan-first rule, loaded every session | Restating `Core/MAIN_AGENT_CONDUCT.md` instead of pointing to it |
+| Main Agent | Dispatch, plan-first and parallel-agent cap rules, loaded every session | Restating `Core/MAIN_AGENT_CONDUCT.md` instead of pointing to it; raising the cap without a measurement |
 | Director | Names who decides | "The team" |
 | Domain Glossary | Points to where domain words are defined | Definitions written into this file instead; a glossary created empty |
 | Open Questions | Prevents invented answers | Questions that were answered and never removed |
@@ -301,7 +311,7 @@ direction. Move an answered one into the body of this file and delete it here.]
 
 Owner: IA Engineering
 
-Version: 0.0.16
+Version: 0.0.18
 
 Status: Draft
 

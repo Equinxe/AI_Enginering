@@ -71,6 +71,9 @@ The Director states, and the conductor records verbatim in the conductor's Sessi
 
 1. Partition the Work Units into pole groups by **write scope**: the paths, modules, and documents each group changes. Groups must be disjoint. Where a Work Unit reads another group's output, that is a dependency between poles, and it is recorded — see 3.
 2. Write one **Pole Brief** per group (`Templates/POLE_BRIEF.md`): mandate, owned paths, forbidden paths, branch name, Work Units in order, budget share, integration contract, escalation channel, stop conditions.
+   - The budget share includes the pole's **share of the parallel-agent cap** (`Core/ORCHESTRATION.md`, Step 4, Dispatch Rules). The conductor and every pole are main sessions, so each one beyond the first lowers the cap by one, as does every other session open on the machine. The shares add up to what is left.
+   - Example: with the default 3 poles and no other session open, the cap of 6 falls to 3, one subagent per pole.
+   - A partition that leaves a pole less than one subagent runs fewer poles.
 3. Order poles by dependency. A pole whose brief depends on another pole's output **does not start** until that pole's report is `COMPLETE` and verified by the conductor — the same rule `Core/ORCHESTRATION.md` Step 4's queue applies to Work Units. Prefer partitions with no inter-pole dependency; a partition that needs three levels of ordering is one queue pretending to be several.
 4. Create each pole's branch from the same base commit, named per `Standards/BRANCH_STANDARD.md` with the pole identifier.
 
@@ -212,7 +215,7 @@ Stated because federation is where rules quietly weaken:
 
 Owner: IA Engineering
 
-Version: 0.0.13
+Version: 0.0.14
 
 Status: Draft
 

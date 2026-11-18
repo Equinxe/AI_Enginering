@@ -15,6 +15,13 @@ The measurement was taken on 28 October 2026 and the decision was made on 29 Oct
 3. **Under load, the latency comes from process creation, not from the hooks' own work.** In production, `stop-gate.sh` (29 processes per call) has a p95 of 16 s and a p99 of 26 s. That is 3 to 4 times a hook that starts almost nothing, measured on the same Stop events. `block-escape-hatches.sh` starts 84 processes on every Bash call. Its modelled production latency is a p50 of 9 s and a p99 of 61 s, rising to about 90 s with 8 or more agents.
 4. **Director decision, 29 October 2026:** record this measurement; give both guards `"onFailure": "block"` and an explicit timeout; lighten the hooks that start many processes. The guards now have a **120 s** timeout and fail closed. `stop-gate.sh` starts **4 commands instead of 8** on its common path. Benched under load, that is 15 processes per call instead of 29, and a p50 and p99 46 % lower (Decisions Taken).
 5. **4 November 2026, WU-IAENG-431:** `block-escape-hatches.sh` matches its rules in bash and starts 9 to 15 processes per call instead of 80 to 216. Benched under load, its p50 and p95 fall to 13 % and 15 % of before. In the production model with 8 or more agents, they fall from 21 s and 50 s to 3.7 s and 13.5 s, and the slowest event from 88 s to 21 s. A command of more than 2,000 pipeline segments is now refused (The Escape-Hatch Guard Matches in Bash).
+6. **17 November 2026, Director decision D3, completed on 18 November:** at most **6 subagents run at once per machine, Employees included**, counting the subagents of every Claude Code session on it, from the `develop` commit that merged WU-IAENG-431.
+   - The cap is 3 while any session on the machine runs v0.0.15 or earlier.
+   - Every main session beyond the first lowers the cap by one.
+   - Every dispatch counts, reviews included.
+   - At or above the cap a dispatch waits and the Director is told; the cap never refuses one.
+   - With 6 calls at a time, on a machine at 100 % CPU but a lighter process-creation load than the heaviest measured, the slowest guard call took 9.8 s, 8 % of the timeout.
+   - The cap is decided again after the edit guard is re-measured (Usage plan W2.3) (The Parallel-Agent Cap).
 
 ---
 
@@ -300,10 +307,97 @@ The guard's matching is its security boundary, so the change was checked four wa
 
 ### Limits of This Re-measurement
 
-- One run on one loaded machine, a lighter load than on 28 October. The ratios are the result; the absolute values move with the load. The Performance Engineer re-measures in review.
-- The model's new `k` is a ratio of this run's medians applied to the published `k`, not a measurement against the 29-process gate.
+- One run on one loaded machine, a lighter load than on 28 October. The ratios are the result; the absolute values move with the load. The Performance Engineer re-measured in review, three times from 4 to 17 November: with 8 calls at a time, the p50 is 13 to 17 % of before (The Parallel-Agent Cap, below).
+- The model's new `k` is a ratio of this run's medians applied to the published `k`, not a measurement against the 29-process gate. The Performance Engineer measured it directly against that gate in review: 0.297 (The Parallel-Agent Cap, below).
 - Claude Code still records no PreToolUse hook that succeeds, so the effect in production is modelled, as before.
 - Linux and macOS were not measured. There, `[[ =~ ]]` is the C library's regular expression engine, not grep's; the case corpus runs on Linux in the Hook Tests job. macOS, with its bash 3.2, was not tested at all.
+
+## The Parallel-Agent Cap
+
+Director decision D3 of 17 November 2026, Usage plan item W1.5, carried out in WU-IAENG-435. On 18 November 2026, the Director completed it on the review of that Work Unit, carried out in WU-IAENG-443:
+
+- At most **6 subagents run at once per machine, Employees included**. This holds from the `develop` commit that merged PR #463 (2e5341b), and so from v0.0.16.
+- At most **3** while any session on the machine runs v0.0.15 or earlier, whose `block-escape-hatches.sh` starts 80 or more processes per call. The lowest cap binds, because no measurement supports a mixed allowance: the old guard's calls are the ones that passed 120 s (Why 6 With PR #463, below).
+- **Every main session open on the machine beyond the first lowers the cap by one.** The measurement counts transcripts, main sessions included (Method), so one main session and 6 subagents are 7 in its terms, and a second main session would make 8, where the edit guard doubles (Why 6 With PR #463).
+- The cap is **machine-wide**. The subagents of every Claude Code session on the machine count toward it, a framework session's as much as an adopting project's. What slows a guard is process creation, and every session on the machine shares it (The Load Dependence, above).
+- **Every dispatch counts**, whatever the size of the plan: a Work Unit, a review, a validation, a search. A dispatch counts as 1 plus the subagents its Employee Brief allows the Employee to start. An Employee starts none unless its Employee Brief allows it.
+- The Main Agent counts its own subagents, plus the main sessions and subagents the Director reports. A pole of `Workflows/AUTONOMOUS_DELIVERY.md` counts against the share of the cap its Pole Brief gives it.
+- **At or above the cap, a dispatch waits**, and the Main Agent tells the Director what waits and on which count. If no counted subagent is its own, it asks the Director to say when the count falls. A queue whose every dispatchable Work Unit waits is held, a state of its own. The cap delays a dispatch and never refuses one.
+
+`Core/ORCHESTRATION.md` (Step 4, Dispatch Rules, Parallel-agent cap; and the Queue — held layer) gives the cap to every Main Agent, the framework's own included. The Director approved those lines word for word. `Templates/PROJECT_CLAUDE.md` (Main Agent) points an adopting project's Main Agent to that rule, in the contract it reads first. `Templates/EMPLOYEE_BRIEF.md` and `Templates/POLE_BRIEF.md` carry the number of subagents an Employee may start and a pole's share. `Adapters/ai-runtimes/claude-code/TROUBLESHOOTING.md` entry C states the cap, 3 with v0.0.15 included.
+
+### Why 3 With v0.0.15
+
+The Director left a machine limit until after this measurement (Mitigations Not Taken Here, item 5). The load tables count agents as transcripts active in the same minute, main sessions included (Method). With up to 3 of them, the 29-process gate passed 10 s in 4 to 6 % of production events, against 18 % with 4 to 7 (The Load Dependence). A cap of 3 subagents and its main session are 4 transcripts, in the 4 to 7 bin, not in the bin of 3 or fewer. The escape-hatch guard before WU-IAENG-431, modelled with 3 agents or fewer, has a p50 of 7.7 s and a p95 of 34 s per Bash call. The Security Engineer's sign-off of the v0.0.15 release (PR #452) sets the same limit as a pilot condition: "Run at most 3 agents in parallel". No v0.0.15 document carries it.
+
+### Why 6 With PR #463: the Measurement
+
+The Performance Engineer re-measured PR #463 three times in review, with an independent harness and the method of this document. Every process of a run was counted through a Job Object, and develop's guard and the PR's ran interleaved, so that both met the same load. Each round ran 8 hook calls at a time. The payloads were 100 real Bash commands of this repository, recorded from 29 October to 4 November, and the 100 of the 28 October bench. They are not committed, for the reason given in Sources.
+
+| 8 calls at a time (ms) | PR head | PR runs | no-op p50 | develop's guard p50 / p95 | PR's guard p50 / p95 | ratio p50 / p95 | PR's slowest |
+|---|---|---:|---:|---|---|---|---:|
+| 4 November | `1e0796a` | 288 | 1,426 | 26,356 / 47,314 | 3,426 / 5,946 | 13.0 % / 12.6 % | 8,108 |
+| 16 November | `6745846` | 200 | 961 | 17,544 / 40,568 | 2,672 / 6,259 | 15.2 % / 15.4 % | 11,105 |
+| 17 November | `445fcfc` | 77 | 4,041 | 75,011 / 123,876 | 12,651 / 17,994 | 16.9 % / 14.5 % | 22,495 |
+
+The heads after `445fcfc`, up to the merged `23b3b84`, add no process and no loop, so the 17 November figures carry to them. With 8 calls at a time, the new guard's p50 is 13 to 17 % of the old one's. The 17 November round met the heaviest load measured so far. There, the old guard passed the 120 s timeout: its p95 was 123.9 s, and the harness cut one run at 130 s. The new guard's slowest run took 22.5 s, 19 % of the timeout.
+
+The first round also measured `k` directly against the 29-process gate (`90be675`): **0.297** by wall time (bootstrap 90 % interval 0.215 to 0.402), and 0.286 by CPU. The model at 0.297 is within about 1 % of The Production Model, Re-applied. In that model, with 6 to 7 agents, the new escape-hatch guard has a p50 of 2.4 s and a p95 of 7.3 s.
+
+**The binding guard is now `block-inline-suppression.sh`.** It still starts 55 processes per edit (model, `k` 1.84). Its modelled p50 is 4.5 s with 3 agents or fewer, 4.8 s with 5 or fewer, 6.2 s at exactly 6 and 6.9 s at exactly 7. At 6 and 7, 40 to 41 % of its calls pass 10 s. With 8 or more it doubles: a p50 of 12.1 s, a p95 of 31 s, and 56 % of calls over 10 s. **With its main session, a cap of 6 subagents is 7 agents in the model's terms: the last bin below that jump, with no margin left for a second main session.** That bin is also the thinnest measured: 41 production events at exactly 7 and 59 at 8 or more, against 657 of the 757 at 6 or fewer. Each main session beyond the first therefore lowers the cap by one.
+
+Guard wait per dispatch, as the modelled mean latency times a dispatch's median of 78 Bash calls and about 47 edits. The rows count transcripts, main sessions included. A cap of 6 subagents with one main session is 7, the "6 to 7" row. A cap of 3 with one main session is 4, between the first two rows: the model was not cut at exactly 4, and is re-run in W2.3's measurement.
+
+| Agents (transcripts) | Escape-hatch guard | Guard wait per dispatch |
+|---|---|---:|
+| 3 or fewer | before WU-IAENG-431 | 19.8 min |
+| 3 or fewer | after | 7.8 min |
+| 6 or fewer | after | 8.9 min |
+| 6 to 7 | after | 11.3 min |
+| 8 or more | after | 16.8 min, most of it the edit guard |
+
+### Checked at 6 Calls at a Time, on One Load
+
+The Performance Engineer took this measurement on 18 November 2026, from 10:50:17 to 10:51:39 UTC, for this decision. It checks the margin to the timeout at one load. It does not confirm the cap for every load (below). It ran on `develop` at 2e5341b, whose escape-hatch guard is blob `40518f7` and edit guard blob `276d8bb`.
+
+- **Harness.** A shorter harness, written for this check. It has no Job Object, so it gives no process count and no CPU. Each call is started as Claude Code starts it on Windows, `Git\bin\bash.exe -c "bash \"$CLAUDE_PROJECT_DIR/.../<hook>\""`, with the payload on a stdin pipe. The hooks of 2e5341b were exported to a scratch directory. A queue fed 6 workers, so that 6 calls were in flight at all times. For each payload, the queue held the escape-hatch guard, the edit guard and, one payload in two, the no-op, in an order rotated per payload. There were 180 runs, three passes over the payloads.
+- **Synthetic payloads.** There were 24 Bash commands of the shapes the framework's sessions run: `git`, `gh`, `grep`, `sed`, a loop, a heredoc, quotes and `$`, and one `git push --force`. There were also 24 edits of one TypeScript line. No recorded command was used.
+- **Load.** A sampler logged the machine every 10 s and took 7 samples. CPU was at 100 % in all 7. The run queue averaged 82 (maximum 100), with about 537 processes and 4.4 GB of free RAM. There were on average 48 bash processes (the bench's own included), 10 node and 5 claude. Defender's CPU could not be read. The no-op's p50 was 574 ms. 8 at a time, it was 961 ms on 16 November and 4.0 s on 17 November. So the CPU was saturated, but process creation was less contended than in the 17 November round.
+
+| 6 calls at a time, `develop` 2e5341b (ms) | runs | p50 | p95 | max | > 10 s | max against 120 s |
+|---|---:|---:|---:|---:|---:|---:|
+| no-op (calibration, reads its stdin with a builtin) | 36 | 574 | 925 | 991 | 0 | — |
+| `block-escape-hatches.sh` | 72 | 1,151 | 2,928 | 3,759 | 0 | 3 % |
+| `block-inline-suppression.sh` | 72 | 4,805 | 7,989 | 9,831 | 0 | 8 % |
+
+Every run exited as expected. All exited 0, except the 3 runs of the `git push --force` payload, which the escape-hatch guard refused with its force-push rule (exit 2). No run was cut. **At this load, with 6 calls at a time, both guards stay well under the 120 s timeout.** The slowest of 144 guard calls took 9.8 s, and it was an edit guard call.
+
+What this check does not show:
+
+- **The load was light on process creation.** The no-op's p50 was 574 ms, against 4,041 ms 8 at a time on 17 November.
+- **Only hooks ran.** 6 calls at the same instant are harsher than 6 agents in hook concurrency only. Six real agents also run git, builds, tests and node beside their hooks.
+- **The edit guard under the heaviest load is unknown.** Between 17 November (8 at a time) and this check, the escape-hatch guard's p50 differs 11.0-fold and its maximum 6.0-fold. Scaled by those ratios, which is not a measurement, the edit guard would reach about 50 to 60 s under a 17-November load. The production model gives it a maximum of 49 to 54 s with 8 or more agents (The Guards in Production, Modelled).
+- Either way, the binding guard was never measured under the heaviest load. W2.3's measurement does that (below).
+
+### Condition for Raising or Lifting the Cap
+
+The cap stays at 6 until the edit guard, now the binding one, is measured again under load in Usage plan item W2.3.
+
+- **The measurement.** It uses this document's method, with the no-op and both guards interleaved, at 6 calls at a time and at 8. It runs on a load whose no-op p50 is 2 s or more, so that the binding guard is measured under heavy load. It re-runs the model at exactly 4 and exactly 7 transcripts, the caps of 3 and 6 with their main session. It is the measurement W2.3 already starts with.
+- **The Performance Engineer's threshold.** A fixed number of seconds is passed or failed by the day's load: the no-op's p50 has ranged from 201 ms to 4,041 ms in this document. The test is therefore floor-relative, at 6 calls at a time. W2.3 closes on that measurement, with no code change, when both of these hold:
+  - the edit guard's own cost above the interleaved no-op is 1 s or less at p50;
+  - on the heavy load, no call of either guard passes 60 s, half the timeout.
+
+  Otherwise the measurement is taken again on the lightened guard. The Usage plan's W2.3 acceptance states an absolute 1 s p50 and is to be aligned with this test by its owner.
+- **The decision.** From that measurement, the Performance Engineer recommends keeping, raising or lifting the cap, and the Director decides, as for D3.
+- **Until then.** No higher cap has a measurement behind it: with 8 agents or more, the edit guard's modelled p50 doubles. A change that adds processes to either guard re-opens the decision as well.
+
+### Limits of the Cap
+
+- **Main sessions count as agents of the model.** Each main session beyond the first lowers the cap by one, so that the machine stays at 7 transcripts at most, inside the measured range. A main session that waits for its Employees makes few hook calls, but its share of the load was not measured on its own: counting it as a full agent errs on the safe side.
+- **A Main Agent sees only its own subagents.** It counts the main sessions and subagents of other sessions only when the Director reports them. The cap holds machine-wide only as far as those reports do. A pole sees neither, which is why it counts against a fixed share of the cap.
+- **Nested subagents are counted as their brief declares them.** A dispatch counts as 1 plus the subagents its Employee Brief allows. An Employee that starts more than its brief allows breaks the cap without the Main Agent seeing it.
+- **The check at 6 was short.** It is one run of 82 s, at one load, on one machine, Windows only. Linux and macOS start processes far more cheaply (Limits, below).
 
 ---
 
@@ -315,7 +409,7 @@ Ranked by the cost they would remove. Each needs its own Work Unit.
 2. **`block-inline-suppression.sh`: 55 processes on every edit.** Same remedy, same review (Usage plan item W2.3).
 3. **`session-start.sh`: 102 processes**, once per session and per `/clear`. It runs rarely, so it is lower on the list.
 4. **The plugin hooks.** Four node hooks on Stop and one on PreToolUse, which times out 33 % of the time. They belong to the user's configuration, not the framework's. The Director has been told.
-5. **A machine-wide limit on parallel agents.** WU-IAENG-409 left this decision until after this measurement. The load table above is the input: the share of gate runs over 10 s is 4 to 6 % with up to 3 agents, 18 % with 4 to 7, and 38 % with 8 or more.
+5. **A machine-wide limit on parallel agents.** WU-IAENG-409 left this decision until after this measurement. The load table above is the input: the share of gate runs over 10 s is 4 to 6 % with up to 3 agents, 18 % with 4 to 7, and 38 % with 8 or more. Taken since, as Director decision D3: see The Parallel-Agent Cap, above.
 
 ---
 
@@ -336,6 +430,9 @@ Ranked by the cost they would remove. Each needs its own Work Unit.
 - The working notes of the measurement, in French, are not committed: they are `.ia-engineering/handoff-2026-10-28-hook-latency.md`, in the gitignored state directory. The bench harness, its raw data and the model scripts are in the session's scratch directory. They are not committed, because they hold transcript-derived data (`Standards/DATA_PROTECTION_STANDARD.md`).
 - Issue #351 (the question), #368 (the uninitialised submodule in a worktree), #385 (lightening `block-escape-hatches.sh`).
 - The re-measurement of 4 November 2026 (WU-IAENG-431) used the same harness, the same 100 recorded Bash payloads and the same production Stop events, copied to that session's scratch directory, and is not committed for the same reason. Its differential and mutation scripts are there too; `tests/run.sh` holds what is committed of them.
+- The Performance Engineer's re-measurements of PR #463 are in its comments of 4, 16 and 17 November 2026. Their harness and raw data stay in that session's scratch directory, for the same reason.
+- Director decision D3 of 17 November 2026 is Usage plan item W1.5. The 6-at-a-time confirmation of 18 November 2026 (WU-IAENG-435) used synthetic payloads only. Its harness, payloads and runs are in that session's scratch directory and are not committed.
+- The Director's code review of `develop` at 67ad444 (18 November 2026) raised 15 findings on the cap. The Performance Engineer triaged them, and the Director chose the completed rule, which WU-IAENG-443 carries out. The triage is in that session's scratch directory.
 
 ---
 
@@ -343,7 +440,7 @@ Ranked by the cost they would remove. Each needs its own Work Unit.
 
 Owner: IA Engineering
 
-Version: 0.0.16
+Version: 0.0.18
 
 Status: Draft
 
