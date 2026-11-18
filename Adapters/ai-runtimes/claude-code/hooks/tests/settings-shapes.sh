@@ -37,14 +37,24 @@
 #   - Stricter shape validation (WU-IAENG-441). Refused the same way, each
 #     fixture holding every template entry so that only one thing is wrong:
 #       an event written as an object; a group whose "hooks" is an object;
-#       NaN, -Infinity and +1, each named with its line; a byte order mark.
+#       NaN, -Infinity, +1, 01 and .5, each named with its line; a byte
+#       order mark; an event named with U+0085, which the reason writes as
+#       \xc2\x85, with no raw C1 or CR in the output.
+#   - A carriage return is JSON whitespace wherever it stands: a bare CR
+#     inside a line and after a number, CR-only and CRLF line endings, each
+#     merged as a file without "hooks" is, as on develop (DEF-IAENG-480-01).
 #   - Every write goes beside the file and is renamed over it (WU-IAENG-441):
 #       a symbolic link to no file: a run refuses, keeps the link and creates
 #         nothing where it points; --check reports a fault, not an absent
 #         file; once the link is removed a run writes the template;
 #       --force on a link: refused, the file it points at byte-identical;
 #       --force on a regular file: the template in place, and a hard link to
-#         the old file keeps the old content (a rename, not a write into it).
+#         the old file keeps the old content (a rename, not a write into it);
+#       a directory at the path: refused, nothing written into it, and a
+#         fault in --check;
+#       a write that reads back other content (a cat first on PATH that
+#         corrupts the temporary file's read-back): refused, no settings.json,
+#         no temporary file left.
 #
 # ORACLES (Standards/TESTING_STANDARD.md, Independent Oracle). None is taken
 # from install-hooks.sh's output:
@@ -67,8 +77,9 @@
 #     hook event a list of matcher groups and each group a "hooks" list (read
 #     in the local Claude Code 2.1.327 for this Work Unit);
 #   - tokens: RFC 8259's grammar has no NaN or Infinity, and a number has no
-#     leading + (section 6); a JSON text is not written with a byte order
-#     mark (section 8.1);
+#     leading +, no leading 0 before other digits and an integer part
+#     (section 6); whitespace is space, tab, LF and CR (section 2); a JSON
+#     text is not written with a byte order mark (section 8.1);
 #   - links and renames: POSIX, a write through a path follows a symbolic
 #     link, and rename() replaces the name, not the file it named.
 #
@@ -369,9 +380,46 @@ case_plus() {
   with_line2 '"x": +1,' > "$C/in.json"
   refused "a number with a leading +" "$C/in.json" "line 2 holds +1, which is not a JSON value"
 }
+case_leading_zero() {
+  with_line2 '"x": 01,' > "$C/in.json"
+  refused "a number with a leading 0" "$C/in.json" "line 2 holds 01, which is not a JSON value"
+}
+case_bare_fraction() {
+  with_line2 '"x": .5,' > "$C/in.json"
+  refused "a number with no integer part" "$C/in.json" "line 2 holds .5, which is not a JSON value"
+}
 case_bom() {
   { printf '\357\273\277'; cat "$TPL"; } > "$C/in.json"
   refused "a byte order mark before the template" "$C/in.json" "it begins with a byte order mark (BOM)"
+}
+# A carriage return is JSON whitespace wherever it stands (RFC 8259, section
+# 2), so these merge as on develop (DEF-IAENG-480-01): a bare CR inside a
+# line, one right after a number, and a file whose only line ending is CR.
+case_cr_inside() {
+  printf '{\n  "model":\r "opus",\n  "cleanupPeriodDays": 30\r,\n  "permissions": {"allow": ["Bash(ls)"]}\n}\n' > "$C/in.json"
+  merges "a bare CR inside a line and after a number" "$C/in.json"
+}
+case_cr_only() {
+  printf '{\r  "model": "opus",\r  "permissions": {"allow": ["Bash(ls)"]}\r}\r' > "$C/in.json"
+  merges "CR-only line endings" "$C/in.json"
+}
+case_crlf() {
+  printf '{\r\n  "model": "opus",\r\n  "cleanupPeriodDays": 30,\r\n  "permissions": {"allow": ["Bash(ls)"]}\r\n}\r\n' > "$C/in.json"
+  merges "CRLF line endings" "$C/in.json"
+}
+# A refusal that quotes the file shows a control character as an escape: an
+# event named with U+0085 (NEXT LINE, a C1 control), which jq's tojson
+# leaves raw, is named "Pre\xc2\x85", and no raw C1 or CR reaches the run's
+# output or --check's record (DEF-IAENG-480-01).
+case_control_name() {
+  printf '{"hooks": {"Pre\302\205": {}}}\n' > "$C/in.json"
+  refused "an event named with a control character" "$C/in.json" \
+    "\"hooks\" > \"Pre\\xc2\\x85\" is a JSON object, not a list (JSON array) of matcher groups"
+  if ! LC_ALL=C grep -q $'\302[\200-\237]\\|\r' "$C/run.err" "$C/inst.out"; then
+    ok "an event named with a control character: no raw C1 or CR in the run's output or in --check's"
+  else
+    bad "an event named with a control character: no raw C1 or CR in the run's output or in --check's" "$(od -c "$C/run.err" | head -3)"
+  fi
 }
 
 # mklink <target> <link> — a symbolic link. Git for Windows without the right
@@ -435,6 +483,47 @@ case_force_link() {
     bad "--force on a link: refused (exit 1), the file it points at byte-identical, the link kept" "rc=$INST_RC $(head -c 300 "$C/inst.err")"
   fi
 }
+# A directory at settings.json: refused, nothing written into it; --check
+# reports the same as a fault.
+case_dir() {
+  local rec
+  mkdir -p "$SET"
+  inst
+  if [ "$INST_RC" -eq 1 ] && [ -d "$SET" ] && [ -z "$(ls -A "$SET")" ] \
+      && grep -qF "exists and is not a regular file. Not changed." "$C/inst.err" && no_tmp_left; then
+    ok "a directory at settings.json: a run refuses (exit 1), nothing written into it"
+  else
+    bad "a directory at settings.json: a run refuses (exit 1), nothing written into it" "rc=$INST_RC in it: $(ls -A "$SET" | tr '\n' ' ') $(head -c 300 "$C/inst.err")"
+  fi
+  inst --check
+  rec="$(awk -F '\t' '$1 == "settings" && $2 == "fault" { print $4 }' "$C/inst.out")"
+  if [ "$INST_RC" -eq 1 ] && [ "$rec" = "it exists and is not a regular file; a run refuses to replace it" ]; then
+    ok "a directory at settings.json: --check reports a fault (exit 1), not an absent file"
+  else
+    bad "a directory at settings.json: --check reports a fault (exit 1), not an absent file" "rc=$INST_RC $(head -c 300 "$C/inst.out")"
+  fi
+}
+# The written file is read back before it replaces anything: a cat first on
+# PATH that reads back other content for the temporary file (a corrupted
+# write) makes the run refuse, with nothing installed and nothing left.
+case_readback() {
+  local real_cat
+  real_cat="$(command -v cat)"
+  mkdir -p "$C/fakebin"
+  {
+    printf '#!/usr/bin/env bash\n'
+    printf 'case "${1:-}" in *.iaeng-write.*) printf "{}\\n"; exit 0 ;; esac\n'
+    printf 'exec "%s" "$@"\n' "$real_cat"
+  } > "$C/fakebin/cat"
+  chmod +x "$C/fakebin/cat"
+  ( cd "$IP" && PATH="$C/fakebin:$PATH" bash "$IFW/install-hooks.sh" ) > "$C/inst.out" 2> "$C/inst.err"; INST_RC=$?
+  if [ "$INST_RC" -eq 1 ] && [ ! -e "$SET" ] && no_tmp_left \
+      && grep -qF "the file could not be written. Not changed." "$C/inst.err"; then
+    ok "a write that reads back wrong: refused (exit 1), no settings.json, no temporary file left"
+  else
+    bad "a write that reads back wrong: refused (exit 1), no settings.json, no temporary file left" "rc=$INST_RC exists: $(if [ -e "$SET" ]; then echo yes; else echo no; fi) $(head -c 300 "$C/inst.err")"
+  fi
+}
 # --force on a regular file: the template is written beside it and renamed
 # over it, so a second name (a hard link) of the old file keeps the old
 # content; a write into the file would have changed both names.
@@ -478,6 +567,14 @@ CASES="$CASES nan";            ( enter nan;            case_nan;            leav
 CASES="$CASES infinity";       ( enter infinity;       case_infinity;       leave ) &
 CASES="$CASES plus";           ( enter plus;           case_plus;           leave ) &
 CASES="$CASES bom";            ( enter bom;            case_bom;            leave ) &
+CASES="$CASES leading_zero";   ( enter leading_zero;   case_leading_zero;   leave ) &
+CASES="$CASES bare_fraction";  ( enter bare_fraction;  case_bare_fraction;  leave ) &
+CASES="$CASES cr_inside";      ( enter cr_inside;      case_cr_inside;      leave ) &
+CASES="$CASES cr_only";        ( enter cr_only;        case_cr_only;        leave ) &
+CASES="$CASES crlf";           ( enter crlf;           case_crlf;           leave ) &
+CASES="$CASES control_name";   ( enter control_name;   case_control_name;   leave ) &
+CASES="$CASES dir";            ( enter dir;            case_dir;            leave ) &
+CASES="$CASES readback";       ( enter readback;       case_readback;       leave ) &
 CASES="$CASES dangling";       ( enter dangling;       case_dangling;       leave ) &
 CASES="$CASES force_link";     ( enter force_link;     case_force_link;     leave ) &
 CASES="$CASES force_rename";   ( enter force_rename;   case_force_rename;   leave ) &

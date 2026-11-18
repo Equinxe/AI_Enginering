@@ -41,7 +41,8 @@
 # event or group out of that shape are refused the same way, each named
 # (WU-IAENG-441). Every write, new file and --force included, goes to a
 # temporary file beside settings.json that is then renamed over it; a
-# symbolic link at that path is refused on every path. A project that does not want one of the
+# symbolic link at that path, or anything there that is not a regular file,
+# is refused on every path. A project that does not want one of the
 # framework's hooks does not delete its entry — a re-run adds it back — but
 # uses the hook's own switch where it has one (hooks/README.md).
 #
@@ -104,7 +105,8 @@
 # A closing `#` line counts each family and gives the remedies. Exit codes:
 # 0 nothing to act on, 3 drift, 1 a fault (something could not be evaluated:
 # no jq for an existing file, a symbolic link to no file or to one that is not
-# current, a file that is not one strict JSON object in that shape), 2 usage
+# current, a path that is not a regular file, a file that is not one strict
+# JSON object in that shape), 2 usage
 # (--check with --print or --force; --quiet without
 # --check). settings.json is parsed with jq and never evaluated; a run
 # under --check writes no file and runs no git command.
@@ -446,19 +448,40 @@ SHAPE_DEFS='def shape_fault:
 # that is not JSON: not a structural character, true, false, null or a number
 # in RFC 8259's grammar. Strings are removed line by line first, as the
 # comment test below does; jq refuses a raw line feed inside a string, so a
-# string never spans two lines of a file jq reads. A byte order mark is such
-# a token too: its three bytes stand outside every string. Prints nothing
-# when every token is JSON.
+# string never spans two lines of a file jq reads. Tokens are separated by
+# JSON's whitespace (RFC 8259, section 2): space, tab, line feed and carriage
+# return, a CR anywhere, inside a line or as the only line ending, as much as
+# at a line's end (DEF-IAENG-480-01). A byte order mark is a token that is
+# not JSON: its three bytes stand outside every string. Prints nothing when
+# every token is JSON.
 settings_bad_token() {
   sed -E 's/"([^"\\]|\\.)*"/""/g' "$DEST" | awk '
-    { line = $0; sub(/\r$/, "", line); gsub(/[][{}:,]/, " ", line)
-      n = split(line, tok, /[ \t]+/)
+    { line = $0; gsub(/[][{}:,]/, " ", line)
+      n = split(line, tok, /[ \t\r]+/)
       for (i = 1; i <= n; i++) {
         t = tok[i]
         if (t == "" || t == "\"\"" || t == "true" || t == "false" || t == "null") continue
         if (t ~ /^-?(0|[1-9][0-9]*)([.][0-9]+)?([eE][-+]?[0-9]+)?$/) continue
         print NR ":" substr(t, 1, 40); exit
       } }'
+}
+# visible <text> — sets VIS: <text> with every byte outside printable ASCII
+# written as an escape, a CR as \r, a tab as \t, any other as \xHH. A refusal
+# that quotes the file (a token, an event's name) then shows each character
+# it names, never one that is invisible or that the terminal would act on
+# (DEF-IAENG-480-01). flat, which makes such a character a space, keeps a
+# record on one line; this keeps the culprit findable.
+visible() {
+  local h c out=""
+  for h in $(printf '%s' "$1" | od -An -v -tx1); do
+    case "$h" in
+      0d) out+='\r' ;;
+      09) out+='\t' ;;
+      2[0-9a-f]|[3-6][0-9a-f]|7[0-9a-e]) printf -v c '%b' "\\x$h"; out+="$c" ;;
+      *) out+="\\x$h" ;;
+    esac
+  done
+  VIS="$out"
 }
 settings_mergeable() {
   [ -z "$(settings_bad_token)" ] || return 1
@@ -491,14 +514,14 @@ settings_refusal() {
   fi
   tok="$(settings_bad_token)"
   if [ -n "$tok" ]; then
-    flat "${tok#*:}"
-    printf '%s' "line ${tok%%:*} holds $FLAT, which is not a JSON value: write a JSON number, true, false or null there and re-run"
+    visible "${tok#*:}"
+    printf '%s' "line ${tok%%:*} holds $VIS, which is not a JSON value: write a JSON number, true, false or null there and re-run"
     return 0
   fi
   shape="$(jq -rs "$SHAPE_DEFS"' if length == 1 and (.[0] | type == "object") then first(.[0].hooks | shape_fault) else empty end' "$DEST" 2>/dev/null | sed $'s/\r$//')"
   if [ -n "$shape" ]; then
-    flat "$shape"
-    printf '%s' "$FLAT"
+    visible "$shape"
+    printf '%s' "$VIS"
     return 0
   fi
   printf '%s' "it is not one JSON object whose 'hooks' is an object, absent or null"
@@ -647,6 +670,8 @@ if [ "$CHECK" -eq 1 ]; then
   MERGED=""
   if [ -L "$DEST" ] && [ ! -f "$DEST" ]; then
     check_fault settings "$REL_DEST" "it is a symbolic link; a run refuses to write through it"
+  elif [ -e "$DEST" ] && [ ! -f "$DEST" ]; then
+    check_fault settings "$REL_DEST" "it exists and is not a regular file; a run refuses to replace it"
   elif [ ! -f "$DEST" ]; then
     record settings absent "$REL_DEST" "a run writes it from settings.example.json"
   elif settings_current; then
@@ -698,6 +723,21 @@ if [ "$CHECK" -eq 1 ]; then
   fi
   check_report
 fi
+
+# tmp_beside <kind> — sets TMP to a new, empty file beside settings.json,
+# settings.json.iaeng-<kind>.XXXXXX, made by mktemp: a name no other file has
+# and none can be known in advance. It gets the mode a plain write would have
+# (mktemp makes it 0600), and it is removed on every exit, a signal included,
+# unless it has been renamed over settings.json by then. Returns 1, TMP empty,
+# when it cannot be made. Both writes below use it (WU-IAENG-441).
+TMP=""
+tmp_beside() {
+  TMP="$(mktemp "$DEST.iaeng-$1.XXXXXX")" || { TMP=""; return 1; }
+  trap 'rm -f "$TMP"' EXIT
+  trap 'exit 1' HUP INT TERM
+  chmod "$(umask -S | sed 's/x//g')" "$TMP" 2>/dev/null
+  return 0
+}
 
 if [ -f "$DEST" ] && [ "$FORCE" -eq 0 ]; then
   if settings_current; then
@@ -754,7 +794,7 @@ if [ -f "$DEST" ] && [ "$FORCE" -eq 0 ]; then
     printf '%s\n' "$PRESENT" | sed 's/^/    present: /'
     finish; exit $?
   fi
-  TMP="$DEST.iaeng-merge.$$"
+  tmp_beside merge || merge_by_hand "no temporary file could be created beside it"
   if ! printf '%s\n' "$MERGED" | jq '.m' | sed $'s/\r$//' > "$TMP" || ! jq -e 'type == "object"' "$TMP" >/dev/null 2>&1; then
     rm -f "$TMP"
     merge_by_hand "the merged file could not be written"
@@ -774,8 +814,8 @@ if [ -f "$DEST" ] && [ "$FORCE" -eq 0 ]; then
 fi
 
 # A NEW FILE, OR --force: WRITTEN BESIDE IT, THEN MOVED (WU-IAENG-441). The
-# file is written to a temporary file in the same directory (mktemp: a name
-# no other file has), compared with what was meant, then renamed over the
+# file is written to a temporary file in the same directory (tmp_beside),
+# read back and compared with what was meant, then renamed over the
 # path, as the merge above does. A symbolic link at the path is refused on
 # this path too, dangling or not: a write would follow it to what it points
 # at, and a rename would detach it.
@@ -784,11 +824,17 @@ if [ -L "$DEST" ]; then
   echo "  Replace the link with the file itself, or remove it, and re-run." >&2
   exit 1
 fi
+# Anything else at the path that is not a regular file (a directory, a
+# device) is refused too: the rename would move the file into a directory
+# rather than replace it.
+if [ -e "$DEST" ] && [ ! -f "$DEST" ]; then
+  echo "! $DEST exists and is not a regular file. Not changed." >&2
+  echo "  Remove or rename what is there, and re-run." >&2
+  exit 1
+fi
 write_fail() { rm -f "$TMP"; echo "! $DEST: $1. Not changed." >&2; exit 1; }
 mkdir -p "$PROJECT/.claude"
-TMP="$(mktemp "$DEST.iaeng-write.XXXXXX")" || { TMP=""; write_fail "no temporary file could be created beside it"; }
-# mktemp creates the file 0600; a plain write would have given the umask's mode.
-chmod "$(umask -S | sed 's/x//g')" "$TMP" 2>/dev/null
+tmp_beside write || write_fail "no temporary file could be created beside it"
 if ! printf '%s\n' "$RENDERED" > "$TMP" || [ "$(cat "$TMP")" != "$RENDERED" ]; then
   write_fail "the file could not be written"
 fi
