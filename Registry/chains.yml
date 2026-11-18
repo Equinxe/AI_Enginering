@@ -170,13 +170,21 @@ chains:
     workflow: Workflows/HOTFIX.md
     trigger: A production defect requires a fix outside the normal release cycle.
     steps:
+      - employee: Main Agent
+        produces: Work Unit decomposition and the hotfix plan, per Core/ORCHESTRATION.md Step 3
+        note: >-
+          The Main Agent's own planning, not a dispatch, and not hotfix work
+          (Workflows/HOTFIX.md Step 1). A plan that carries a Medium-or-higher
+          action goes through the Technical Lead's Plan Review before it
+          reaches the Director.
       - gate: Director
         when: Always
         blocks: Any hotfix work at all
         note: >-
           Workflows/HOTFIX.md Step 1 — "No hotfix work begins without this
-          authorization." This gate is first in the chain, not a checkpoint
-          partway through.
+          authorization." The Director authorizes the hotfix and approves its
+          plan in one decision, recorded as both. Only the planning and its
+          Plan Review come before this gate.
       - employee: Engineer
         produces: Minimal fix plus a regression test, branched from main
         resolve_via: Core/EMPLOYEE_SELECTION.md

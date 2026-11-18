@@ -128,7 +128,7 @@ set -uo pipefail
 # versus MLOPS_ENGINEER.md ordering differently under Git Bash and Linux).
 export LC_ALL=C
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
 # Captured BEFORE the cd into the framework: this is the project the caller
@@ -257,7 +257,7 @@ if [ ! -d "$PROJECT" ]; then
   echo "generate-agents.sh: --project '$PROJECT' is not a directory." >&2
   exit 2
 fi
-PROJECT="$(cd "$PROJECT" && pwd)"
+PROJECT="$(CDPATH='' cd -- "$PROJECT" && pwd)"
 
 # --- Tier mapping: target defaults < project file < flags --------------------
 #
@@ -457,7 +457,7 @@ if [ -n "$PROJECT_ROSTER" ]; then
     echo "  Employees undispatchable while reporting success. Fix the path or drop the flag." >&2
     exit 2
   fi
-  PROJECT_ROSTER="$(cd "$(dirname "$PROJECT_ROSTER")" && pwd)/$(basename "$PROJECT_ROSTER")"
+  PROJECT_ROSTER="$(CDPATH='' cd -- "$(dirname -- "$PROJECT_ROSTER")" && pwd)/$(basename "$PROJECT_ROSTER")"
 elif [ -f "$DEFAULT_PROJECT_ROSTER" ]; then
   # No "only when the project is not the framework" guard. Registry/README.md
   # states that all three consumers — the commit-msg hook, the Employee

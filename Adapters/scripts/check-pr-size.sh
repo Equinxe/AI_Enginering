@@ -51,6 +51,14 @@
 # unavailable — the change set must be split. That is a real reduction in what
 # the check can offer off-platform, and it is stated rather than papered over
 # with a weaker substitute.
+#
+# EXIT CODES (Standards/CODE_QUALITY_STANDARD.md, The Check Convention, Shell
+# Scripts rule 1)
+#   0  within the limit, a back-merge, or over it with `size/approved`
+#   1  a finding: over the limit without `size/approved`
+#   2  could not evaluate, or a usage error: the merge base, `git diff` or
+#      `git rev-list` failed, or the diff lists no files while the range holds
+#      no commits or a non-merge commit. The size was never measured.
 
 set -uo pipefail
 
@@ -88,7 +96,7 @@ LABELS="${IAENG_PR_LABELS:-}"
 # change set can be blocked by someone else's churn.
 if ! MERGE_BASE="$(git merge-base "$BASE_REF" "$HEAD_REF")"; then
   err "Could not compute the merge base of $BASE_REF and $HEAD_REF. The size was therefore never measured; failing rather than reporting a size of zero."
-  exit 1
+  exit 2
 fi
 
 # THE DIFF IS CAPTURED BEFORE IT IS COUNTED, and its failure is fatal. Feeding
@@ -101,7 +109,7 @@ fi
 # instead are also the ones a reviewer actually reads.
 if ! NUMSTAT="$(git diff --numstat --no-renames "$MERGE_BASE" "$HEAD_REF")"; then
   err "git diff failed between $MERGE_BASE and $HEAD_REF. The size was never measured; failing rather than reporting a size of zero."
-  exit 1
+  exit 2
 fi
 
 TOTAL=0; FILES=0; GENERATED=0; BINARY=0
@@ -137,20 +145,20 @@ EOF
 if [ "$FILES" -eq 0 ]; then
   if ! RANGE_COMMITS="$(git rev-list --count "$MERGE_BASE..$HEAD_REF")"; then
     err "git rev-list failed over $MERGE_BASE..$HEAD_REF, so the reason for the empty diff was never established. Failing rather than guessing which of the two it was."
-    exit 1
+    exit 2
   fi
   if ! NONMERGE_COMMITS="$(git rev-list --count --no-merges "$MERGE_BASE..$HEAD_REF")"; then
     err "git rev-list --no-merges failed over $MERGE_BASE..$HEAD_REF, so the reason for the empty diff was never established. Failing rather than guessing which of the two it was."
-    exit 1
+    exit 2
   fi
 
   if [ "$RANGE_COMMITS" -eq 0 ]; then
     err "The diff between $MERGE_BASE and $HEAD_REF lists no changed files, and the range holds no commits either. Nothing was measured — check the base and head refs."
-    exit 1
+    exit 2
   fi
   if [ "$NONMERGE_COMMITS" -gt 0 ]; then
     err "The diff between $MERGE_BASE and $HEAD_REF lists no changed files, yet $NONMERGE_COMMITS of its $RANGE_COMMITS commits are not merges. A non-merge commit that changes nothing is not a back-merge; check the base and head refs, or drop the empty commits."
-    exit 1
+    exit 2
   fi
   note "No file changes, and the range holds $RANGE_COMMITS commit(s), every one a merge — a back-merge (Workflows/RELEASE.md Step 8). There is nothing for a reviewer to read, so the review limit does not apply."
   exit 0

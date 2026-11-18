@@ -35,22 +35,44 @@
 # merge.conflictStyle=diff3 or zdiff3 makes git less eager to resolve
 # overlapping changes, so a merge that is clean by default conflicts;
 # merge.renames=false and merge.directoryRenames change how renames merge;
+# a low merge.renameLimit, or the diff.renameLimit it falls back to, skips
+# rename detection, so an edit to a renamed file conflicts (issue #237);
 # merge.renormalize rewrites line endings before merging. Each is pinned to
 # git's documented default, so two machines compute the same merge from the
 # same two commits — the record check-approval-carry-over.sh prints has to be
 # reproducible by whoever audits it, and a classification must not depend on
 # the config of the machine that runs it.
 #
+# AND ALWAYS GIT'S BUILT-IN 3-WAY MERGE DRIVER (Security Engineer on PR #249,
+# SEC-IAENG-351-F1 and F4). With the attributes pinned to the empty tree,
+# every path's `merge` attribute is unset, and for an unset attribute git
+# merges with the driver merge.default names: `union` made a union-shaped
+# hand resolution "clean", and a custom driver's command ran. Pinning
+# merge.default=text did not close it, because a named driver is looked up
+# among the user's merge.<name>.driver entries before the built-ins, so a
+# local merge.text.driver then replaced git's merge outright. A SET attribute
+# (`* merge`, no value) is the one form that selects the built-in driver
+# before any name is looked up, so neither merge.default nor any
+# merge.<name>.driver is read. It is set through core.attributesFile, a file
+# holding that single line, written for each merge and removed after it.
+# For text it is the merge git makes with no attribute and no config; a
+# binary file still merges as git's binary driver does.
+#
 # NOR THE MACHINE'S OWN ATTRIBUTE FILES AND REPLACE REFS (WU-IAENG-344,
 # Security Engineer on PR #232). --attr-source replaces only the in-tree
 # .gitattributes: a `merge=union` in core.attributesFile or the system
 # attributes file still turned a union-shaped hand resolution into the
 # "automatic" merge, and a local refs/replace entry made git read one merge
-# as another. core.attributesFile=/dev/null (Git for Windows maps it too),
+# as another. core.attributesFile pointed at the `* merge` file above,
 # GIT_ATTR_NOSYSTEM=1 and GIT_NO_REPLACE_OBJECTS=1 close those. A non-empty
-# $GIT_DIR/info/attributes cannot be switched off by an option; the
-# carry-over check refuses to run with one. In CI none of these exist, so the
-# required checks classify exactly as before.
+# $GIT_DIR/info/attributes cannot be switched off by an option, nor can
+# grafts ($GIT_DIR/info/grafts or $GIT_GRAFT_FILE), which rewrite a commit's
+# parents and survive GIT_NO_REPLACE_OBJECTS (SEC-IAENG-351-F2); the
+# carry-over check refuses to run with either. Nor can a commit-graph file,
+# which records parents that git trusts (SEC-IAENG-351-F3): the carry-over
+# check runs this file's git commands, as all its own, with
+# core.commitGraph=false. In CI none of these exist, so the required checks
+# classify exactly as before.
 #
 # ONE AUTOMATIC MERGE. merge_classify_automatic is the only place the automatic
 # merge is computed: merge_classify below and check-approval-carry-over.sh both
@@ -104,14 +126,23 @@ merge_classify_automatic() {
   p1="$1"
   p2="$2"
   shift 2
-  GIT_NO_REPLACE_OBJECTS=1 GIT_ATTR_NOSYSTEM=1 \
-    git -c core.attributesFile=/dev/null \
-      -c merge.conflictStyle="$style" \
-      -c merge.renames=true \
-      -c merge.directoryRenames=conflict \
-      -c merge.renormalize=false \
-      --attr-source="$MERGE_CLASSIFY_EMPTY_TREE" \
-      merge-tree --write-tree --no-messages "$@" "$p1" "$p2"
+  # A subshell, so the EXIT trap that removes the attributes file is its own
+  # and leaves the caller's traps alone. Exit 125 (an error to every caller,
+  # never 0 or 1) when the file cannot be written.
+  (
+    attrs="$(mktemp 2> /dev/null)" || exit 125
+    trap 'rm -f "$attrs"' EXIT
+    printf '* merge\n' > "$attrs" || exit 125
+    GIT_NO_REPLACE_OBJECTS=1 GIT_ATTR_NOSYSTEM=1 \
+      git -c core.attributesFile="$attrs" \
+        -c merge.conflictStyle="$style" \
+        -c merge.renames=true \
+        -c merge.renameLimit=7000 \
+        -c merge.directoryRenames=conflict \
+        -c merge.renormalize=false \
+        --attr-source="$MERGE_CLASSIFY_EMPTY_TREE" \
+        merge-tree --write-tree --no-messages "$@" "$p1" "$p2"
+  )
 }
 
 merge_classify() {

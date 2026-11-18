@@ -1327,8 +1327,487 @@ work_units:
     milestone: Precision
     delivers: VERSION.md, CHANGELOG.md, README.md, CLAUDE.md, Registry/work-units.yml
 
+  - id: WU-IAENG-346
+    employee: Observability Engineer
+    title: Fix what the usage dashboard measures (the 6 Oct 2026 check-up, issues #205 and #231, formerly WU-IAENG-332) - a commit whose Employee or runtime co-author trailer git does not parse is attributed from its first column-0 line, the line check-employee-trailers.sh validates, and a message line imitating git's record marker moves nothing; the Engineer step sums every Employee who committed or registered a Work Unit instead of eight Development Employees; Main Agent and Director steps are framework roles, never "not on roster" or NEVER exercised; a sub-agent an Employee started inside its own work (a fork, a helper) is credited to that Employee through the transcript's toolUseId instead of listed as a dispatch without an Employee; a Measurement windows table gives the dates of the range, the whole history and the retained transcripts; a top-2 concentration figure shows the share of attributed commits the two busiest Employees hold; the project's CLAUDE.md Active Employees list, when present, marks other idle Employees "not active here" instead of NEVER USED; after new commits on top of the cached HEAD only those are read from git, the registries and the range re-read and every in-range flag recomputed, a rewritten history, a malformed cached row or a newer script reading the whole history
+    milestone: Adoption
+    delivers: Adapters/scripts/usage-dashboard.sh, Adapters/ai-runtimes/claude-code/usage-collect.sh, Adapters/scripts/tests/run.sh, Governance/DISPATCH_IN_PRACTICE.md, Registry/work-units.yml
+
+  - id: WU-IAENG-347
+    employee: Platform Engineer
+    title: Close the install-hooks.sh and install-skills.sh residuals of PR #239 (issues #241, #242) - an existing hook entry counts as present only when every field equals the template's (command with the project directory's spelling normalised, type, timeout, any other; key order aside), so the exact guard command with "timeout" 1 or an extra field gets the real entry added beside it and is reported as a near miss naming the fields that differ; "disableAllHooks" true in .claude/settings.json or settings.local.json is named on stderr and in the report on every run and never changed; each installer appends its LF rule (/.claude/settings.json, /.claude/skills/**) to the project's .gitattributes when missing, found in an LF or CRLF file, and install.sh lists the skills rule among the adopter rules; tests/dashboard.sh grows to 114 checks, including a real core.autocrlf=true clone with a CRLF control file (19 of the new checks fail against the pre-fix installers)
+    milestone: Adoption
+    delivers: Adapters/ai-runtimes/claude-code/install-hooks.sh, Adapters/ai-runtimes/claude-code/install-skills.sh, Adapters/scripts/install.sh, Adapters/scripts/tests/run.sh, Adapters/ai-runtimes/claude-code/hooks/tests/dashboard.sh, Adapters/ai-runtimes/claude-code/hooks/README.md, Adapters/README.md, Registry/work-units.yml
+
+  - id: WU-IAENG-348
+    employee: Platform Engineer
+    title: Create an adopter's .ia-engineering/SESSION_STATE.md with a helper instead of by hand (issue #218) - Adapters/scripts/create-session-state.sh refuses outside a git work tree or inside a submodule, before the first commit, over an existing file or link, through a linked .ia-engineering and on a path git does not ignore; writes only the fenced block under Template in Templates/SESSION_STATE.md (carriage returns dropped) with the project name and _Last updated - D Month YYYY taken under LC_ALL=C, the form session-start.sh parses; fails closed when the template or its two filled lines are not where it expects; prints the header as the hook reads it; the bootstrap summary, the README adoption step, session-start.sh's missing-file line and stop-gate.sh's reminder name it; tested end to end with the real session-start.sh in a throwaway adopter
+    milestone: Adoption
+    delivers: Adapters/scripts/create-session-state.sh, Adapters/scripts/setup-project-bootstrap.sh, Adapters/ai-runtimes/claude-code/hooks/session-start.sh, Adapters/ai-runtimes/claude-code/hooks/stop-gate.sh, Adapters/scripts/tests/run.sh, Adapters/ai-runtimes/claude-code/hooks/tests/run.sh, README.md, Registry/work-units.yml
+
+  - id: WU-IAENG-349
+    employee: Platform Engineer
+    title: Close the git config gaps of issue #236 under option B (Director, 20 Oct 2026) - block-escape-hatches.sh keeps judging a literal GIT_CONFIG_KEY_<n> key and adds two rules; a GIT_CONFIG_KEY_ name with a variable or substituted index ($i, ${i}, $(...), backtick) is refused in every form (inline, export, declare -x, typeset, readonly, local, env), and commit.gpgsign, include.*, includeIf.*, alias.* and core.fsmonitor are refused case-insensitively, whatever the value, as a literal GIT_CONFIG_KEY_<n> value in any of those forms and as a git -c or --config-env key, except that git -c commit.gpgsign passes as the bare key or a literal true (an older allow case), while every git -c core.fsmonitor value stays refused (a literal-false exception, issue #268, needs the raw value judged first; PR #258 review F5); a key built in pieces (+= on GIT_CONFIG_KEY_<n>, ${GIT_CONFIG_KEY_<n>:=...}) is refused as unreadable (PR #258 review F1); core.hooksPath stays with its own rule, now pinned in the KEY forms; COUNT, VALUE, other literal keys, a subcommand's own -c, reads, removals, prefix searches and quoted mentions stay allowed; config read from a file (GIT_CONFIG_GLOBAL, GIT_CONFIG_SYSTEM, include) is issue #245
+    milestone: Adoption
+    delivers: Adapters/ai-runtimes/claude-code/hooks/block-escape-hatches.sh, Adapters/ai-runtimes/claude-code/hooks/tests/escape-hatch-cases.tsv, Adapters/ai-runtimes/claude-code/hooks/README.md, Registry/work-units.yml
+
+  - id: WU-IAENG-350
+    employee: Documentation Engineer
+    title: Refuse a chain diagram output line that holds more than one bracket pair - validate-framework.sh section 22 read any line opening "[" and closing "]" as one output, so a step drawn between two outputs on one line went unchecked; an output line is now "[" first, "]" last and no bracket in between, anything else unreadable (issue #233, falsifier and nested pair in Script Tests, mutant caught); section 13 counts the chains Core/AGENT_CHAINS.md names, strips the CR before matching, and fails at zero instead of passing unconditionally (issue #227); the Adapters/README.md validator row names sections 13 to 21 and points to the printed section headers as the authoritative list (issue #228)
+    milestone: Adoption
+    delivers: Adapters/scripts/validate-framework.sh, Adapters/scripts/tests/run.sh, Adapters/README.md, Registry/work-units.yml
+
+  - id: WU-IAENG-351
+    employee: Platform Engineer
+    title: Close the script-side follow-ups of the approval carry-over checker (#237, the script half of #240) - merge_classify_automatic pins merge.renameLimit=7000, git's merge default, so a local merge.renameLimit or the diff.renameLimit it falls back to no longer skips rename detection and turns an honest merge into a conflicted one (a rename lab pins it for merge_classify and check-approval-carry-over.sh); the carry-over record, still one 7-bit ASCII line with its prefix unchanged, names the base commit and the blob ids of check-approval-carry-over.sh and merge-classify.sh so an auditor can rerun the same checker against the same base; from the Security Engineer's reviews of PR #249, merge_classify_automatic always merges with git's built-in 3-way driver, selected by a set `merge` attribute in a run-time core.attributesFile, so neither merge.default nor any merge.<name>.driver is read (a local union, custom or merge.text driver made a hand resolution git's own merge, or an honest merge authored, and ran its command), and the carry-over check refuses a non-empty info/grafts and GIT_GRAFT_FILE and reads no commit-graph (both rewrite parents despite GIT_NO_REPLACE_OBJECTS); the required checks give byte-identical output on v0.0.13..develop
+    milestone: Adoption
+    delivers: Adapters/scripts/merge-classify.sh, Adapters/scripts/check-approval-carry-over.sh, Adapters/scripts/tests/run.sh, Registry/work-units.yml
+
   - id: WU-IAENG-352
     employee: Release Manager
     title: Complete the v0.0.14 upgrade note before the tag (QA acceptance DEF-IAENG-REL014-01, Director 20 Oct 2026, Workflows/RELEASE.md Step 4 minor defect) - re-run setup-project-bootstrap.sh <stack> without --force first (adds Registry/work-units.yml and control-path-guard.yml, appends missing .gitattributes and .gitignore rules to commit with the upgrade, overwrites no installed file; of the files it marks, only pr-validation.yml and the PR template changed upstream, the already-exists stack files are left as they are), copy an unedited Adapter over by hand because --force replaces every managed file at once (Dockerfile, Risk Map, stack, issue-template config, Work Unit registry), then install-hooks.sh and install-skills.sh; in the CHANGELOG [0.0.14] Notes and WU-IAENG-342 line, and the README upgrade paragraph
     milestone: Precision
     delivers: CHANGELOG.md, README.md, Registry/work-units.yml
+
+  - id: WU-IAENG-353
+    employee: Platform Engineer
+    title: install.sh --check and setup-project-bootstrap.sh --check, the first half of the adopter drift check (plan of 20 Oct 2026, WU-1) - the same install decisions reported instead of applied, one tab-separated record per managed file (current, absent, differs, customized; line endings aside), .gitattributes and .gitignore rule, the local data directory and each project-owned file, a closing count line with its remedies, exit 0/3/1/2 and --quiet; read-only proven by a before/after snapshot (tree, every file under .git, status --ignored, local config, refs, object count), the git hooks section and commit probes reported unchecked; the write path records the same decisions into IAENG_INSTALL_REPORT so the bootstrap's closing message names the files that differ and keeps the hook wording for real hook faults (#262); a CRLF copy of an Adapter is current on both paths
+    milestone: Adoption
+    delivers: Adapters/scripts/install.sh, Adapters/scripts/setup-project-bootstrap.sh, Adapters/scripts/tests/run.sh, CHANGELOG.md, Registry/work-units.yml
+
+  - id: WU-IAENG-354
+    employee: Technical Lead
+    title: Falsifiability in the Testing Standard (plan of 20 Oct 2026, WU-1; Director go on the WU-0 measurement, 21 Oct 2026) - every acceptance criterion states "This fails if ___" against an observable behaviour or is declared not falsifiable; every new or changed test that guards a criterion or a fix is seen red once (base commit, hand mutant in a disposable copy, or mutation tool), on the behaviour the criterion names and not only an exit code another rule also produces, so an over-determined case does not count; evidence pasted in the Work Unit Report; bounded runs, equivalent mutants declared; no score threshold, not retroactive; ISO/IEC/IEEE 29119-1 and -3, the ISTQB Glossary and the mutation literature added to Official References; CODE_REVIEW Step 3 item 5 blocks on missing, tautological or over-determined red runs and Lessons 3 and 6 point to the Standard; FEATURE_DEVELOPMENT Step 7 has QA replay one red run per criterion
+    milestone: Adoption
+    delivers: Standards/TESTING_STANDARD.md, Workflows/CODE_REVIEW.md, Workflows/FEATURE_DEVELOPMENT.md, CHANGELOG.md, Registry/work-units.yml
+
+  - id: WU-IAENG-355
+    employee: DevOps Engineer
+    title: The git hooks part of install.sh --check (plan of 20 Oct 2026, WU-2) - the write path's own hooks decisions reported, never applied - core.hooksPath current, absent or differs, each framework hook current or not-executable, project hooks in .git/hooks that core.hooksPath would shadow reported shadowed (drift, exit 3) where a real run faults; git config read, never set, nothing chmod-ed, commit probes still skipped and unchecked, --no-hooks unchecked; a test proves every git command under --check carries GIT_OPTIONAL_LOCKS=0; the OWNER/REPO placeholder todo is recorded under --check, never drift (#274)
+    milestone: Adoption
+    delivers: Adapters/scripts/install.sh, Adapters/scripts/tests/run.sh, CHANGELOG.md, Registry/work-units.yml
+
+  - id: WU-IAENG-356
+    employee: Technical Lead
+    title: The templates ask for Falsifiability (plan of 20 Oct 2026, WU-2) - Work Unit and Employee Brief criteria carry "fails if: ___", the brief's test item "and each was seen red"; each Test Plan case has Fails if and Seen red by; the Work Unit Report's Gate Evidence has a Falsification block; the three Pull Request templates, kept identical, gain a seen-red checklist item; every addition points to Standards/TESTING_STANDARD.md (Falsifiability) without restating it, and Adapters/README.md Check Convention rule 4 now does the same (issue #277)
+    milestone: Adoption
+    delivers: Templates/WORK_UNIT.md, Templates/EMPLOYEE_BRIEF.md, Templates/TEST_PLAN.md, Templates/WORK_UNIT_REPORT.md, Templates/PULL_REQUEST.md, Adapters/github/PULL_REQUEST_TEMPLATE.md, .github/PULL_REQUEST_TEMPLATE.md, Adapters/README.md, CHANGELOG.md, Registry/work-units.yml
+
+  - id: WU-IAENG-357
+    employee: Platform Engineer
+    title: install-hooks.sh --check and install-skills.sh --check (plan of 20 Oct 2026, WU-3) - the runtime installers' own decisions reported, never applied, in install.sh --check's record format, closing line, exit 0/3/1/2 and --quiet; settings.json current, absent, customized or fault, each framework hook entry present, absent or near-miss from the same jq merge computation (one definition of present exactly), disableAllHooks reported disabled, each skill current, absent, differs or not-applicable from the same diff -r, the LF rules present or missing; records flattened against forged lines, settings.json parsed with jq and never evaluated, no new file sourced; read-only proven by a before/after snapshot; a CRLF settings.json is current on both paths, and the LF rule match drops a line-ending CR only
+    milestone: Adoption
+    delivers: Adapters/ai-runtimes/claude-code/install-hooks.sh, Adapters/ai-runtimes/claude-code/install-skills.sh, Adapters/scripts/tests/run.sh, CHANGELOG.md, Registry/work-units.yml
+  - id: WU-IAENG-358
+    employee: Platform Engineer
+    title: check-framework-drift.sh (plan of 20 Oct 2026, WU-4) - orchestrates the four installer --check modes and adds the framework version (pinned commit and tag, last tag known locally, tags behind, gitlink + and -, --remote by git ls-remote), the stale or modified classification of every differing file and skill (line-ending CR dropped, git hash-object --stdin without -w against every blob the template has had; shallow or copied framework is indeterminate), and every command path of settings.json and settings.local.json resolved and never run, plus core.hooksPath; text or tsv, a denominator summary line, exit 0 by default, --strict 1 drift and 2 indeterminate; not applicable in the framework repository; no-jq and an absent settings.json are never clean (#282); read-only proven by a snapshot and a logging git wrapper
+    milestone: Adoption
+    delivers: Adapters/scripts/check-framework-drift.sh, Adapters/scripts/tests/run.sh, CHANGELOG.md, Registry/work-units.yml
+
+  - id: WU-IAENG-359
+    employee: Platform Engineer
+    title: Framework drift at session start (plan of 20 Oct 2026, WU-5; the Director's requirement of 21 Oct 2026 - checks run on their own in the session, silent when current) - session-start.sh runs check-framework-drift.sh --quick (A version, B files by the installers' plain diff, D hook command paths; C not evaluated, said) and prints at most three lines, one per family, only for what is actionable, each naming the command to run; the result is kept in a user-level cache (never in the project) and replayed while the framework commit, the recorded gitlink and every file it was read from are unchanged; bounded by timeout (TERM 2.8 s, KILL 0.2 s later), the installers' records kept on their own so a cut run still progresses, an overrun, a fault or an incomplete check said once; never run in the framework repository; the hook always exits 0; read-only proven by snapshots
+    milestone: Adoption
+    delivers: Adapters/ai-runtimes/claude-code/hooks/session-start.sh, Adapters/ai-runtimes/claude-code/hooks/lib.sh, Adapters/scripts/check-framework-drift.sh, Adapters/ai-runtimes/claude-code/hooks/tests/drift.sh, Adapters/ai-runtimes/claude-code/hooks/tests/run.sh, Adapters/ai-runtimes/claude-code/hooks/README.md, CHANGELOG.md, Registry/work-units.yml
+
+  - id: WU-IAENG-360
+    employee: Technical Writer
+    title: One size limit for a Pull Request (cleanup plan of 22 Oct 2026, Phase 1 item 1) - the PR Size Guidelines table of Templates/PULL_REQUEST.md blocked a Pull Request above 800 changed lines, against the 1,500-line limit of Standards/PULL_REQUEST_STANDARD.md (Reviewability) and the template's own checklist; the table is removed and the section points to the Standard, which alone defines the limit, what it counts and the size/approved override; the two installed Pull Request templates carry no size table and keep the same 1,500-line checklist item
+    milestone: Adoption
+    delivers: Templates/PULL_REQUEST.md, CHANGELOG.md, Registry/work-units.yml
+
+  - id: WU-IAENG-361
+    employee: DevOps Engineer
+    title: The Control Path Guard's decision moved out of its workflow (plan of 22 Oct 2026, Phase 1 item 2) - the head-SHA race checks, the listing reconciled with changed_files, the matcher's verdict and the Director's label as the last event on this head move from inline shell in control-path-guard.yml to Adapters/scripts/check-control-path-approval.sh, run from the BASE checkout beside check-control-paths.sh, inputs by environment, verdict by exit code with the same messages; the locate step requires both scripts and fails closed on a base without it; the .github copy stays byte-identical; a CHANGED_FILES that is not a count, or an empty REPO, PR_NUMBER or APPROVAL_LABEL, now fails closed instead of skipping the size and count guards; lab tests with a stubbed gh and the real matcher, old against new diffed case by case, 15 hand mutants seen red
+    milestone: Adoption
+    delivers: Adapters/scripts/check-control-path-approval.sh, Adapters/github-actions/control-path-guard.yml, .github/workflows/control-path-guard.yml, Adapters/scripts/tests/run.sh, Adapters/README.md, CHANGELOG.md, Registry/work-units.yml
+
+  - id: WU-IAENG-362
+    employee: Platform Engineer
+    title: install.sh recognises the framework repository by identity, not spelling (plan of 22 Oct 2026, Phase 1 #3) - the two sites that decided "this is the framework repository" by comparing FRAMEWORK and PROJECT as strings (the framework-only .gitattributes rules, the adopter next steps) now read one answer, HOOKS_REL = "." from the existing -ef walk, so a framework repository invoked through a differently-cased or symlinked path is no longer installed as an adopter; tests through a differently-cased path (case-folding filesystem) and a symlinked path (real symlinks), with the adopter still an adopter
+    milestone: Adoption
+    delivers: Adapters/scripts/install.sh, Adapters/scripts/tests/run.sh, CHANGELOG.md, Registry/work-units.yml
+
+  - id: WU-IAENG-363
+    employee: Test Automation Engineer
+    title: The check-script suite counts what it runs (plan of 22 Oct 2026, Phase 1 item 4; issue #275 items 1, 2, 3 and 5) - block_begin <n> / block_end declare the size of every block that runs only when ln -s works, the skip path takes its count from the declaration, and a block whose path that ran accounts for a different number, or a block left open at the verdict, is a FAILED check everywhere, CI included; not applicable is reported apart from skipped and allowed only for a key on the closed NA_ALLOWED list (the case-folded path, whose premise now requires -ef); the install.sh adopter block no longer holds a framework-only check its skip forgot; the symlinked and case-folded install-hooks.sh cases are counted as skipped or not applicable instead of vanishing; the workflow guard's job-name case is counted when it passes; the IAENG_REGISTRY_WORK_UNITS case says what it tests, and three new cases read an existing file, its precedence over Registry/work-units.yml and the fallback when it names a missing one
+    milestone: Adoption
+    delivers: Adapters/scripts/tests/run.sh, CHANGELOG.md, Registry/work-units.yml
+
+  - id: WU-IAENG-366
+    employee: Platform Engineer
+    title: One record sanitiser in the four TSV emitters (cleanup plan of 22 Oct 2026, Phase 1 item 6) - install.sh flattened TAB and LF in the detail only, install-hooks.sh and install-skills.sh TAB, LF and CR in fields 3 and 4, check-framework-drift.sh every control character and the UTF-8 C1 pairs in fields 2 to 4; all four now carry the same flat() block, byte-identical because none sources another (install-hooks.sh sources nothing by design), applied to fields 2 to 4 and to the free text of each closing line (the framework path and the configured hooks directory in install.sh, both through the environment, the script path in the runtime installers); a contract test feeds one hostile string (TAB, LF, CR, ESC, DEL, C2 80, C2 9B, C2 9F, C2 85, a kept NBSP, e acute, em dash) to each script's own record function under the C locale and a checked C.UTF-8 and asserts the same two four-field records, and compares the four blocks; install.sh --check is driven end to end with a hostile core.hooksPath and a hostile framework path (SEC-IAENG-355-02, SEC-IAENG-357-01, SEC-IAENG-358-01, SEC-IAENG-366-01)
+    milestone: Adoption
+    delivers: Adapters/scripts/install.sh, Adapters/ai-runtimes/claude-code/install-hooks.sh, Adapters/ai-runtimes/claude-code/install-skills.sh, Adapters/scripts/check-framework-drift.sh, Adapters/scripts/tests/run.sh, CHANGELOG.md, Registry/work-units.yml
+
+  - id: WU-IAENG-364
+    employee: Test Automation Engineer
+    title: The escape-hatch hook tests prove their own rule (issue #275 item 4; plan of 22 Oct 2026, Phase 1 #5) - an expect_hint case reaches the -c write mark of the hooksPath rule (block-escape-hatches.sh, the HOOKSPATH_REAL_WRITE set after WRITE_HOOKSPATH_VIA_C), which no case reached; escape-hatch-cases.tsv gains an optional third column, a reason substring the refusal must contain, legal on block cases only and required to name exactly one of the hook's reasons; it is filled for the block cases that more than one rule refuses; the ten exact duplicate cases are removed; the hook itself is unchanged
+    milestone: Adoption
+    delivers: Adapters/ai-runtimes/claude-code/hooks/tests/run.sh, Adapters/ai-runtimes/claude-code/hooks/tests/escape-hatch-cases.tsv, CHANGELOG.md, Registry/work-units.yml
+
+  - id: WU-IAENG-367
+    employee: Technical Writer
+    title: Adapters inventory and stale lines (plan of 22 Oct 2026, Phase 2 item 9) - Adapters/README.md rows for check-framework-drift.sh (families, read-only guarantee, --format tsv, --strict, --remote, exit 0/1/2/64, server-side checks remain the boundary), create-session-state.sh, resolve-host.sh and scripts/hosts/<host>/, resolve-stack.sh, ci-build-test.yml, ghcr-publish.yml, dockerfiles/ and the issue templates, each checked against the code; a Layout section on the four homes of GitHub content, nothing moved; Prompts/README.md lines 7 and 9 corrected and the redundant Prompts/.gitkeep removed; Registry/ added to Governance/CONTRIBUTING.md's scope; Governance/DISPATCH_IN_PRACTICE.md counts twenty-two validator sections; CLAUDE.md's Core Documents list names Core/CONTEXT_BUDGET.md, in the Director's approved wording; the check-framework-drift.sh exit-code header is left for the Director
+    milestone: Adoption
+    delivers: Adapters/README.md, CLAUDE.md, Prompts/README.md, Prompts/.gitkeep, Governance/CONTRIBUTING.md, Governance/DISPATCH_IN_PRACTICE.md, CHANGELOG.md, Registry/work-units.yml
+
+  - id: WU-IAENG-365
+    employee: Platform Engineer
+    title: An exported CDPATH no longer moves a script's own directory (cleanup plan of 22 Oct 2026, Phase 1 item 7) - every relative cd in Adapters/ now runs as CDPATH='' cd --, the form check-employee-trailers.sh already used; with CDPATH=.:<dir> exported, bash's cd printed the directory it found, so SCRIPT_DIR held the path twice on two lines and every sibling path built from it was wrong, and with a same-named directory under a CDPATH entry the cd landed in the wrong tree; the 9 SCRIPT_DIR sites named by the plan, release.sh host_dir, the runtime installers, the pre-commit, inline-suppression and session-start hooks, check-inline-suppression.sh, check-risk-map.sh's cd to a caller-given root, generate-agents.sh --project and --roster, open-dashboard.sh and the HERE of the four test runners; a test runs install.sh --check, install-hooks.sh --check, generate-agents.sh --print-tier-map, validate-framework.sh and check-risk-map.sh under both CDPATH orders and requires the same exit and output as without it
+    milestone: Adoption
+    delivers: Adapters/scripts/install.sh, Adapters/scripts/release.sh, Adapters/scripts/validate-framework.sh, Adapters/scripts/check-framework-drift.sh, Adapters/scripts/create-session-state.sh, Adapters/scripts/setup-branch-protection.sh, Adapters/scripts/setup-project-bootstrap.sh, Adapters/scripts/check-approval-carry-over.sh, Adapters/scripts/check-inline-suppression.sh, Adapters/ai-runtimes/generate-agents.sh, Adapters/ai-runtimes/claude-code/install-hooks.sh, Adapters/ai-runtimes/claude-code/install-skills.sh, Adapters/ai-runtimes/claude-code/hooks/block-inline-suppression.sh, Adapters/ai-runtimes/claude-code/skills/dashboard/open-dashboard.sh, .claude/skills/dashboard/open-dashboard.sh, Adapters/git-hooks/pre-commit, Adapters/scripts/check-risk-map.sh, Adapters/ai-runtimes/claude-code/hooks/tests/run.sh, Adapters/ai-runtimes/claude-code/hooks/tests/dashboard.sh, Adapters/ai-runtimes/claude-code/hooks/session-start.sh, Adapters/ai-runtimes/claude-code/hooks/tests/drift.sh, Adapters/scripts/tests/run.sh, CHANGELOG.md, Registry/work-units.yml
+
+  - id: WU-IAENG-368
+    employee: Platform Engineer
+    title: SESSION_STATE.md has no size limit (Director decision of 22 Oct 2026 - it is the agent's memory and the one file that may be very long) - session-start.sh no longer warns above 15,000 characters and still prints the header, Next Step and Blocked on; Templates/SESSION_STATE.md drops the size budget and the obligation to prune the Journal, states the file may keep its history, and keeps the snapshot rule for Where the Project Stands and Next Step; the hooks README says two warnings, not three; an ~80,000-character fixture must produce no size warning and still be read to its last section, seen red against the old hook
+    milestone: Adoption
+    delivers: Adapters/ai-runtimes/claude-code/hooks/session-start.sh, Adapters/ai-runtimes/claude-code/hooks/tests/run.sh, Adapters/ai-runtimes/claude-code/hooks/README.md, Templates/SESSION_STATE.md, CHANGELOG.md, Registry/work-units.yml
+
+  - id: WU-IAENG-369
+    employee: Prompt Engineer
+    title: Root Cause Analysis template (OMC comparison of 22 Oct 2026, item 1; approved by the Director 22 Oct) - Templates/ROOT_CAUSE_ANALYSIS.md adapted from the oh-my-claudecode tracer and debugger prompts, read as data; observation apart from interpretation and redacted before entry, 3 to 5 hypotheses ranked before testing across frames, evidence for and against graded on a six-level ladder, a refutation pass against the favourite, Confirmed only on controlled reproduction else the critical unknown and the discriminating probe, one DEBUG tag for temporary instrumentation removed before commit, the fix's regression test seen red per Falsifiability or the missing seam reported as the finding, three refuted hypotheses escalate to the Technical Lead; official methods cited by reference (IEEE 1044, ISTQB Glossary, SRE book Effective Troubleshooting, Ishikawa, 5 Whys); pointers from Workflows/INCIDENT_RESPONSE.md, Templates/INCIDENT_REPORT.md and the Test Automation Engineer, SRE Engineer and Technical Lead definitions; no Core change
+    milestone: Adoption
+    delivers: Templates/ROOT_CAUSE_ANALYSIS.md, Templates/INCIDENT_REPORT.md, Workflows/INCIDENT_RESPONSE.md, Employees/Quality/TEST_AUTOMATION_ENGINEER.md, Employees/DevOps/SRE_ENGINEER.md, Employees/Management/TECHNICAL_LEAD.md, VERSION.md, README.md, CHANGELOG.md, Registry/work-units.yml
+
+  - id: WU-IAENG-370
+    employee: Technical Writer
+    title: AMELIORATION.md, the Director's working document in French (request of 22 Oct 2026) - fourteen strengths of our workflow, each naming the peer it beats and our evidence; twenty-nine weaknesses in one table (weakness and evidence, who does better among Kevin, Yoann, OMC and shipyard, what they do, a lead for us, governance cost, priority against the target of an operational framework in mid to late November 2026, follow-up); two weaknesses already closed since the 20 Oct reviews, struck with their PRs; what we do not adopt and why; how each line becomes a Work Unit or an issue and is struck with its PR number. Sources are the local peer reviews of 20 and 22 Oct 2026 and the cleanup plan, re-measured on develop d3ce687. Referenced from neither README.md nor CLAUDE.md; where to reference it is left to the Director
+    milestone: Adoption
+    delivers: AMELIORATION.md, CHANGELOG.md, Registry/work-units.yml
+
+  - id: WU-IAENG-372
+    employee: Prompt Engineer
+    title: Lessons close-out and rejected-ideas check (OMC shipyard study of 22 Oct 2026, items 1 and 3; OMC comparison revision item 8; approved by the Director 23 Oct) - Templates/WORK_UNIT_REPORT.md gains a Lessons → Location block, each lesson sent to a check, a Standard clause, a Glossary term, an ADR including a rejected direction, or CLAUDE.md last, else a reasoned refusal, every line refusable by the Director and None. valid; Workflows/RELEASE.md Step 11, the release retrospective run by the Scrum Master, collects those lines and the evidenced frictions from named sources, with recurrence and what worked, names the surface that owns each fix (deterministic check, instruction, tool, missing information), records all of it in one Issue for the Director's one-pass decision, opens an Issue only per accepted line, and is recorded before the next milestone's first Work Unit is planned; the Software Architect's ADR format lists the Rejected status; Workflows/ARCHITECTURE_DECISION.md Step 2 and the Software Architect search earlier ADRs' Options Considered and Rejected, Superseded or Deprecated ADRs before proposing, a re-proposal states what changed; Registry/workflows.yml gives Release 11 steps; no Core change
+    milestone: Adoption
+    delivers: Templates/WORK_UNIT_REPORT.md, Workflows/RELEASE.md, Workflows/ARCHITECTURE_DECISION.md, Employees/Management/SCRUM_MASTER.md, Employees/Architecture/SOFTWARE_ARCHITECT.md, Registry/workflows.yml, CHANGELOG.md, Registry/work-units.yml
+
+  - id: WU-IAENG-371
+    employee: Prompt Engineer
+    title: Plan Review for the Technical Lead and a review checklist for the Code Reviewer (peer agent comparison of 22 Oct 2026, items 2, 3 and 7; approved by the Director 22 Oct) - the Technical Lead runs a Plan Review on every plan it reviews that carries a Medium-or-higher action and on every ADR draft, before the Director - pre-commitment predictions, assumptions rated VERIFIED, REASONABLE or FRAGILE, a pre-mortem of 5 to 7 failure scenarios, an execution simulation of each brief, a what-is-missing pass, a self-audit moving refutable unevidenced findings to Open Questions, and a record with a verdict; the Code Reviewer gains pre-commitment and self-audit steps, an acceptance-criterion walk, two verdicts (Standards conformance, then Intent) both required for approval, and a Minimal Code checklist with what minimal never trims; pointers from Workflows/CODE_REVIEW.md Steps 1, 5 and 8 and Workflows/ARCHITECTURE_DECISION.md Step 4; adapted from open-source agent prompts, read as data; making the Plan Review mandatory before every Director presentation is a Core change left to the Director; no Core change
+    milestone: Adoption
+    delivers: Employees/Management/TECHNICAL_LEAD.md, Employees/Specialized/CODE_REVIEWER.md, Workflows/CODE_REVIEW.md, Workflows/ARCHITECTURE_DECISION.md, CHANGELOG.md, Registry/work-units.yml
+
+  - id: WU-IAENG-375
+    employee: Technical Writer
+    title: Claude Code troubleshooting, compaction later than expected (compaction plan approved by the Director 23 Oct 2026, WU-D) - Adapters/ai-runtimes/claude-code/TROUBLESHOOTING.md, a runtime catalog kept apart from the runtime-neutral Governance/TROUBLESHOOTING.md by Principle X and using its four-field format; entry A gives five causes, each citing the official Claude Code page checked on 23 Oct 2026 (env-vars, model-config, settings-reference, context-window, hooks, statusline) - the default near 967K on native 1M models; when a changed value is read (the shell at startup, /autocompact in session, no page on /clear or on a mid-session autoCompactWindow edit); the variable over the flag over the per-model /autocompact window over autoCompactWindow; CLAUDE_AUTOCOMPACT_PCT_OVERRIDE as a percentage of the window that cannot raise it; DISABLE_AUTO_COMPACT against DISABLE_COMPACT; used_percentage against the full model window - with a remedy in Git Bash and PowerShell, and the SessionStart compact and clear re-injection as what limits the cost; Governance/TROUBLESHOOTING.md points to it
+    milestone: Adoption
+    delivers: Adapters/ai-runtimes/claude-code/TROUBLESHOOTING.md, Governance/TROUBLESHOOTING.md, CHANGELOG.md, Registry/work-units.yml
+
+  - id: WU-IAENG-376
+    employee: Prompt Engineer
+    title: The Director-approved Core and Standards texts of 23 Oct 2026, part 1 (reserved by WU-IAENG-381), committed verbatim - Standing Authorisations, a new subsection of Standards/RISK_STANDARD.md (0.0.15) after The Risk Record (a general go-ahead holds only when written with six fields - source, scope, permitted actions, preconditions, exceptions, review and revocation; it never lowers a tier; a failed precondition voids it for that action; one that relaxes a control is a deviation recorded in SESSION_STATE, never in the repository it weakens; every action under it names it); one paragraph in Core/MAIN_AGENT_CONDUCT.md (0.0.9), Git Execution via Named Employee, naming the 1 Oct develop-merge exception a standing authorisation, reviewed at each release approval and revocable by the Director's word; and a new section, Presenting a Decision to the Director (alternatives, never a single proposal; the decision restated before it is signed; questions in one numbered batch with recommended answers; unblocked work continues within an approved plan), with the Director's decided insertion of "within an approved plan" in item 4 and the option note removed; Core/MAIN_AGENT_CONDUCT.md added to the Risk Standard's Referenced By; text 1-C, the 23 Oct label-suspension deviation, stays in SESSION_STATE and is not committed
+    milestone: Adoption
+    delivers: Standards/RISK_STANDARD.md, Core/MAIN_AGENT_CONDUCT.md, CHANGELOG.md, Registry/work-units.yml
+
+  - id: WU-IAENG-377
+    employee: Technical Lead
+    title: The Director-approved Standards texts of 23 Oct 2026, part 2 - Independent Oracle in the Testing Standard (the expected value comes from a source independent of the code under test, the code is never its own oracle, a baseline is an oracle only for behaviour-preserving changes, a missing seam is a finding; scope as Falsifiability item 7) and Throwaway Prototype Branches in the Branch Standard (spike/* prefix, answer recorded in the ADR, never merged, ends with its ADR or its Milestone, deletion a High action); one Forbidden Practice each; both at 0.0.4
+    milestone: Adoption
+    delivers: Standards/TESTING_STANDARD.md, Standards/BRANCH_STANDARD.md, CHANGELOG.md, Registry/work-units.yml
+
+  - id: WU-IAENG-378
+    employee: Platform Engineer
+    title: Changelog fragments (Release Manager study of 23 Oct 2026, option 1, approved by the Director 23 Oct 2026) - one changelog.d/ fragment per Work Unit, parsed by one shared Adapters/scripts/changelog-fragment.awk; release.sh assemble folds them into CHANGELOG.md at the version bump by category then Work Unit id and deletes them; release.sh check condition 5 requires every milestone Work Unit to have a fragment or a line in its CHANGELOG.md section; validate-framework.sh section 23 checks fragment names and headings and warns on a Pull Request whose Work Unit adds none
+    milestone: Adoption
+    delivers: changelog.d/README.md, changelog.d/WU-IAENG-378.md, Adapters/scripts/changelog-fragment.awk, Adapters/scripts/release.sh, Adapters/scripts/validate-framework.sh, Adapters/scripts/tests/run.sh, Adapters/README.md, Workflows/RELEASE.md, Workflows/CODE_REVIEW.md, Registry/work-units.yml
+
+  - id: WU-IAENG-379
+    employee: Platform Engineer
+    title: Context statusLine wrapper (compaction plan of 23 Oct 2026, WU-B, issue #304) - a statusLine command, on by default through install-hooks.sh, that writes the context occupancy percentage to a per-user file with the peer kit's guards and a session id shape check, and runs the user's own statusLine or wraps the project's instead of hiding it
+    milestone: Adoption
+    delivers: Adapters/ai-runtimes/claude-code/hooks/context-statusline.sh, Adapters/ai-runtimes/claude-code/hooks/tests/context-statusline.sh, Adapters/ai-runtimes/claude-code/hooks/tests/run.sh, Adapters/ai-runtimes/claude-code/hooks/README.md, Adapters/ai-runtimes/claude-code/TROUBLESHOOTING.md, Adapters/ai-runtimes/claude-code/install-hooks.sh, Adapters/ai-runtimes/claude-code/settings.example.json, Adapters/scripts/check-framework-drift.sh, Adapters/scripts/tests/run.sh, .claude/settings.json, changelog.d/WU-IAENG-379.md, Registry/work-units.yml
+
+  - id: WU-IAENG-380
+    employee: Platform Engineer
+    title: Context alert hook (compaction plan of 23 Oct 2026, WU-C; issue #304) - hooks/context-alert.sh on UserPromptSubmit and PostToolBatch tells the Main Agent once per step, at IAENG_CTX_ALERT_PCT (default 60, Director's provisional default) and at the last call (+10, from WU-IAENG-374's measurement), to finish the Work Unit in progress, dispatch no new Employee and run the Handoff checklist of Templates/SESSION_STATE.md; it reads the percentage only from the WU-IAENG-379 file, validated (directory and file not links, owned by the user, not group- or world-writable, one integer 0-100), ignores subagents (agent_id), keeps what it said beside that file, never blocks (exit 0 on every path), starts no process when there is nothing to say; session-start.sh runs it with --session-start to warn when the alert is at or above the estimated auto-compaction threshold; installed by default by install-hooks.sh and reported by --check
+    milestone: Adoption
+    delivers: Adapters/ai-runtimes/claude-code/hooks/context-alert.sh, Adapters/ai-runtimes/claude-code/hooks/session-start.sh, Adapters/ai-runtimes/claude-code/hooks/tests/context-alert.sh, Adapters/ai-runtimes/claude-code/hooks/tests/run.sh, Adapters/ai-runtimes/claude-code/hooks/README.md, Adapters/ai-runtimes/claude-code/settings.example.json, Adapters/ai-runtimes/claude-code/install-hooks.sh, .claude/settings.json, Adapters/scripts/tests/run.sh, Adapters/README.md, changelog.d/WU-IAENG-380.md, Registry/work-units.yml
+
+  - id: WU-IAENG-381
+    employee: Release Manager
+    title: Reserve Work Units 376 to 380 and document up-front reservation (Director decision of 23 Oct 2026, changelog study option 2b) - the five Work Units of the 23 Oct plans registered in one bookkeeping Pull Request before their dispatch, so each Work Unit's own Pull Request edits only its own entry; Workflows/FEATURE_DEVELOPMENT.md Step 4 (0.0.14) says a plan's Work Units may be reserved this way and that a reserved Work Unit not delivered is moved or removed at release (release.sh condition 1)
+    milestone: Adoption
+    delivers: Registry/work-units.yml, Workflows/FEATURE_DEVELOPMENT.md, CHANGELOG.md
+
+  - id: WU-IAENG-373
+    employee: Platform Engineer
+    title: SessionStart fires on /clear (compaction work, step 1, AMELIORATION.md W2b; approved by the Director 23 Oct 2026) - the SessionStart matcher of settings.example.json and of the framework's own .claude/settings.json becomes startup|resume|clear|compact, so a session started by /clear gets the read-first context, SESSION_STATE and the drift check, as a startup does; session-start.sh reads no source and is unchanged; install-hooks.sh updates the framework's earlier entry in place - a SessionStart group whose matcher is exactly startup|resume|compact and whose entries are exactly the template's, nothing else in it - by changing its matcher alone, instead of appending a second group beside it that would run session-start.sh twice; any other group is the project's and is never rewritten (near miss, current entry added beside it, as before); --check reports the entry absent with the in-place update named, never as a near miss; tests prove every source gets the startup output (seen red against two hand mutants), the drift line on clear, the template matcher and the upgrade with its five refusals, each check seen red on its own guard (base commit or a hand mutant); fork is left out, a forked session carrying its parent transcript
+    milestone: Adoption
+    delivers: Adapters/ai-runtimes/claude-code/settings.example.json, .claude/settings.json, Adapters/ai-runtimes/claude-code/install-hooks.sh, Adapters/ai-runtimes/claude-code/hooks/session-start.sh, Adapters/ai-runtimes/claude-code/hooks/README.md, Adapters/ai-runtimes/claude-code/TROUBLESHOOTING.md, Adapters/ai-runtimes/claude-code/hooks/tests/run.sh, Adapters/ai-runtimes/claude-code/hooks/tests/dashboard.sh, Adapters/ai-runtimes/claude-code/hooks/tests/drift.sh, CHANGELOG.md, Registry/work-units.yml
+
+  - id: WU-IAENG-374
+    employee: Data Scientist
+    title: Context compaction measurement and threshold (compaction plan of 23 Oct 2026, WU-A) - usage-collect.sh --context-series prints the Main Agent's occupancy per call (input + cache creation + cache read), the runtime's compact_boundary entries (trigger, pre and post tokens, duration), occupancy drops, and subagents in flight from entry timestamps only, numbers only with a hashed session id; context-simulate.sh replays the series under T in {30..80, default} with a percentile bootstrap over sessions; Governance/CONTEXT_COMPACTION_MEASUREMENT.md on the Director's transcripts reports the decision gate failed (8 long sessions, not 10), so no IAENG_CTX_ALERT_PCT default is recommended; measured 1M window, auto compaction at a median 96.8 %, 9 auto compactions with an Employee in flight in 8.1 weeks (WU-E figure); cache read is 0.05x input on Claude Opus 5.5, not 0.1x; where to reference it from Core/CONTEXT_BUDGET.md is left to the Director
+    milestone: Adoption
+    delivers: Adapters/ai-runtimes/claude-code/usage-collect.sh, Adapters/ai-runtimes/claude-code/context-simulate.sh, Adapters/scripts/tests/run.sh, Adapters/README.md, Governance/CONTEXT_COMPACTION_MEASUREMENT.md, CHANGELOG.md, Registry/work-units.yml
+
+  - id: WU-IAENG-382
+    employee: Prompt Engineer
+    title: The Director-approved Core and Standards texts of 23 Oct 2026, batch 2, committed verbatim (all three in version A) - Standards/RISK_STANDARD.md (0.0.16) splits branch deletion out of the High Operational row - a branch whose head is on no protected branch as the remote holds it (every spike/* branch included) stays High, and a branch other than main, develop or release/* whose head is an ancestor of develop or main as the remote holds them, checked after a fetch immediately before the deletion, is Low; Core/ORCHESTRATION.md (0.0.14) Step 3 sends every plan carrying a Medium-or-higher action to the Technical Lead's Plan Review before the Director, and Core/EMPLOYEE_SELECTION.md (0.0.7) adds that dispatch to the Technical Lead trigger; Core/MAIN_AGENT_CONDUCT.md (0.0.10, then 0.0.11) lets the Main Agent, under the existing develop-merge standing authorisation, update an open Pull Request's branch from develop through the forge's own conflict-free server-side merge when no Work Unit is in flight on it, recorded on the Pull Request, approvals carried over only by the carry-over check; and Text 4 (version A, approved 23 Oct) - condition 2 of that authorisation reads the Director's Core/ approval against the Pull Request's diff against develop, so a push that leaves that diff unchanged in Core/ does not void it
+    milestone: Adoption
+    delivers: Standards/RISK_STANDARD.md, Core/ORCHESTRATION.md, Core/EMPLOYEE_SELECTION.md, Core/MAIN_AGENT_CONDUCT.md, CHANGELOG.md, Registry/work-units.yml
+
+  - id: WU-IAENG-385
+    employee: Technical Writer
+    title: Add the missing changelog fragments of WU-IAENG-346 to WU-IAENG-351 (Code Reviewer ruling on PR #313 - six real entries, not exemptions) - one changelog.d/ fragment each, in the Keep a Changelog category the merged diff and Pull Request support, with Security entries for the escape-hatch gaps of WU-IAENG-349 and the Security Engineer findings of WU-IAENG-351; this Work Unit's own fragment is an exemption
+    milestone: Adoption
+    delivers: changelog.d/WU-IAENG-346.md, changelog.d/WU-IAENG-347.md, changelog.d/WU-IAENG-348.md, changelog.d/WU-IAENG-349.md, changelog.d/WU-IAENG-350.md, changelog.d/WU-IAENG-351.md, changelog.d/WU-IAENG-385.md, Registry/work-units.yml
+
+  - id: WU-IAENG-383
+    employee: Prompt Engineer
+    title: Plan Review reads Step 3's Work Units, and hotfix plans go through Step 3 (#315) - the Technical Lead's execution simulation (Employees/Management/TECHNICAL_LEAD.md 0.0.6) reads each Work Unit as Core/ORCHESTRATION.md Step 3 defines it (objective, named Employee, inputs, outputs, Definition of Done, applicable Standards, expected commit message), together with what the plan states around it, instead of its Employee Brief, which is written only at Step 4, after the Plan Review, and adds context and boundaries but never another objective, input, output or Definition of Done; Workflows/HOTFIX.md (0.0.10) Step 1 says the Director's authorization starts the hotfix but is not the approval of its plan, which is made and approved per ORCHESTRATION Step 3 before this workflow's Step 2 is dispatched, through the Technical Lead's Plan Review when it carries a Medium-or-higher action; planning and its Plan Review are not hotfix work, so the plan and its record may go with the authorization request and one Director decision gives both; no Core change
+    milestone: Adoption
+    delivers: Employees/Management/TECHNICAL_LEAD.md, Workflows/HOTFIX.md, changelog.d/WU-IAENG-383.md, Registry/work-units.yml
+
+  - id: WU-IAENG-386
+    employee: Prompt Engineer
+    title: The Director-approved Core and Standards texts of 26 Oct 2026, batch 3, committed verbatim (approved 27 Oct 2026, 1:A 2:A 3:A 4:A) - Core/MAIN_AGENT_CONDUCT.md (0.0.12) names the carry-over check of a Pull Request update as condition 1 of the merge into develop and its script, and states the develop-merge standing authorisation's exact scope (develop and the head branch of a Pull Request that targets develop, other than a release/* or hotfix/* branch, whose back-merge is the Release Manager's) and its permitted actions (the merge, the deletion of the merged head branch, the update); Core/ORCHESTRATION.md (0.0.15) Step 3 sends an escalate verdict of the Plan Review to whom the record names - the Software Architect for an architectural finding, the Director for a product decision - as Employees/Management/TECHNICAL_LEAD.md already does; Standards/RISK_STANDARD.md (0.0.17) widens the High branch-deletion row to a branch whose ancestry was not checked after a fetch immediately before the deletion and a branch merged only into a release/* branch, tier unchanged
+    milestone: Adoption
+    delivers: Core/MAIN_AGENT_CONDUCT.md, Core/ORCHESTRATION.md, Standards/RISK_STANDARD.md, changelog.d/WU-IAENG-386.md, Registry/work-units.yml
+
+  - id: WU-IAENG-384
+    employee: DevOps Engineer
+    title: Adapter header drift and develop strict=false codified (issue #299) - setup-branch-protection.sh sends strict per branch through strict_for() (main true, develop false, any other branch refused; release/* keeps strict_required_status_checks_policy true), so a re-run no longer restores strict on develop after the Director turned it off on 22 Oct 2026, and its off-GitHub checklist says the up-to-date rule is for main and release/* only; tests in run.sh stub gh and assert the body sent per branch, seen red first (3 of 8); the headers of ci-build-test.yml (no first-match precedence, all seven stacks plus generic, ambiguity fails), ghcr-publish.yml (full version tag only, no 1.2; latest also on a non-pre-release tag; sha- prefix) and generic.Dockerfile (all seven stacks) match their code
+    milestone: Adoption
+    delivers: Adapters/scripts/setup-branch-protection.sh, Adapters/scripts/tests/run.sh, Adapters/github-actions/ci-build-test.yml, Adapters/github-actions/ghcr-publish.yml, Adapters/dockerfiles/generic.Dockerfile, changelog.d/WU-IAENG-384.md, Registry/work-units.yml
+
+  - id: WU-IAENG-388
+    employee: DevOps Engineer
+    title: release.sh publish names Workflows/RELEASE.md Step 11 (#306) - the closing text of release.sh publish listed Steps 8 to 10 only, so the operator never saw the release retrospective WU-IAENG-372 added; it now names Step 11 in RELEASE.md's own words (Scrum Master, dispatched by the Main Agent once the release is tagged; one Issue, Release retrospective vX.X.X; recorded before the next milestone's first Work Unit is planned), and Adapters/scripts/tests/run.sh asserts each phrase against both RELEASE.md's Step 11 section and the shipped heredoc; Registry/workflows.yml Release step 8 no longer says the back-merge happens only when the release branch diverged, matching RELEASE.md Step 8 (always required); the step-title check the issue suggests is not built here
+    milestone: Adoption
+    delivers: Adapters/scripts/release.sh, Adapters/scripts/tests/run.sh, Registry/workflows.yml, changelog.d/WU-IAENG-388.md, Registry/work-units.yml
+
+  - id: WU-IAENG-387
+    employee: Software Architect
+    title: The Check Convention becomes a Standard (point e of the Director texts of 26 Oct 2026, approved 27 Oct 2026 as 5:B 6:B 7:oui 8:oui) - Standards/CODE_QUALITY_STANDARD.md (0.0.4) gains The Check Convention under IA Engineering Additions, the four rules binding every check in any project and three shell rules (exit codes are an interface, set -u and pipefail rather than set -e by default, a carriage return removed only where it ends a line) binding the framework's scripts and a project's unless it records another convention, and one Forbidden Practices bullet; Adapters/README.md keeps its The Check Convention heading so the 37 citations in 24 files still resolve, replaces the rules with a pointer to the Standard, keeps the two history paragraphs unchanged and adds the Exit Code Families register, whose Checks row states that most checks exit 1 on a failure to evaluate, against shell rule 1 (Director, 27 Oct 2026: keep the rule, correct the register; issue #331); Governance/CONTRIBUTING.md now sends a new Check Convention rule to the Standard; no script changed, the non-conforming sites are filed as issues #325 to #328 and #331
+    milestone: Adoption
+    delivers: Standards/CODE_QUALITY_STANDARD.md, Adapters/README.md, Governance/CONTRIBUTING.md, changelog.d/WU-IAENG-387.md, Registry/work-units.yml
+
+  - id: WU-IAENG-389
+    employee: Platform Engineer
+    title: Strip only a line-ending CR in the trailer and registry checks (issue #325) - Check Convention shell rule 3; the commit-msg hook, check-employee-trailers.sh, check-work-units.sh and check-risk-map.sh stripped carriage returns inside values instead of only the one that ends a line, so a value with a carriage return inside it matched the value without one
+    milestone: Adoption
+    delivers: Adapters/git-hooks/commit-msg, Adapters/scripts/check-employee-trailers.sh, Adapters/scripts/check-work-units.sh, Adapters/scripts/check-risk-map.sh, Adapters/scripts/tests/run.sh, changelog.d/WU-IAENG-389.md, Registry/work-units.yml
+
+  - id: WU-IAENG-390
+    employee: Platform Engineer
+    title: A distinct exit code for a failure to evaluate in the checks (issue #331) - Check Convention shell rule 1; the ten checks the issue names exited 1, the finding code, when they could not evaluate, and now exit 2 (check-framework-drift.sh reports it as indeterminate, its own contract); validate-framework.sh counts a check it could not evaluate apart and exits 2; every caller fails on any non-zero code, so 2 fails closed as 1 did
+    milestone: Adoption
+    delivers: Adapters/scripts/check-employee-trailers.sh, Adapters/scripts/check-work-units.sh, Adapters/scripts/check-inline-suppression.sh, Adapters/scripts/check-control-path-approval.sh, Adapters/scripts/check-risk-map.sh, Adapters/scripts/check-review-recorded.sh, Adapters/scripts/check-pr-size.sh, Adapters/scripts/validate-framework.sh, Adapters/scripts/data-policy-scan.sh, Adapters/scripts/check-framework-drift.sh, Adapters/README.md, Adapters/scripts/tests/run.sh, changelog.d/WU-IAENG-390.md, Registry/work-units.yml
+
+  - id: WU-IAENG-391
+    employee: Prompt Engineer
+    title: The Hotfix Chain gets its planning step (issue #318), the Director-approved texts of 27 Oct 2026 committed verbatim (1:A 2:non 3:oui) - Core/AGENT_CHAINS.md (0.0.11) and Registry/chains.yml draw the Main Agent's Work Unit decomposition (Orchestration Step 3, with its Plan Review when required) before the Director gate, which becomes authorization and plan approval in one decision; the Plan Review is not drawn as its own step; Workflows/HOTFIX.md (0.0.11) Step 1 says the Main Agent presents the plan with the request for authorization, drops the "or after it" path, states that an authorization without the plan's approval does not dispatch Step 2, and its Prerequisites no longer list the authorization its own Step 1 gives; Examples/HOTFIX_CHAIN_EXAMPLE.md (0.0.9) shows the request with its plan and Plan Review record; the HOTFIX Trigger line is left to issue #209
+    milestone: Adoption
+    delivers: Core/AGENT_CHAINS.md, Registry/chains.yml, Workflows/HOTFIX.md, Examples/HOTFIX_CHAIN_EXAMPLE.md, changelog.d/WU-IAENG-391.md, Registry/work-units.yml
+
+  - id: WU-IAENG-392
+    employee: Platform Engineer
+    title: The validator compares workflow step titles (#332; Director decision of 27 Oct 2026, option A) - every step value of Registry/workflows.yml becomes its document's "## Step N" heading text copied byte for byte, qualifiers dropped (51 of 80 values rewritten, Code Review step 9's lost condition restored by the same rewrite); validate-framework.sh section 13 compares them in order with no normalisation, reports its denominator, fails at zero, and refuses a step value YAML would read differently; the Registry header and Registry/README.md state the rule; actor is not compared here
+    milestone: Adoption
+    delivers: Adapters/scripts/validate-framework.sh, Adapters/scripts/tests/run.sh, Registry/workflows.yml, Registry/README.md, changelog.d/WU-IAENG-392.md, Registry/work-units.yml
+
+  - id: WU-IAENG-393
+    employee: Technical Writer
+    title: Reserve Work Units 389 to 392 before dispatch (Workflows/FEATURE_DEVELOPMENT.md Step 4, precedent WU-IAENG-381) - the four Work Units of issues #325, #331, #318 and #332 registered in one bookkeeping Pull Request, so each Work Unit's own Pull Request edits only its own entry; this Work Unit's own fragment is an exemption
+    milestone: Adoption
+    delivers: Registry/work-units.yml, changelog.d/WU-IAENG-393.md
+
+  - id: WU-IAENG-394
+    employee: Platform Engineer
+    title: Reader and writer agree on a backslash '..' TMPDIR (issue #340) - the context statusLine writer refused a TMPDIR with a backslash . or .. component and fell back to /tmp, while the context alert reader had no backslash handling and looked under the TMPDIR as given, so the alert never fired for that user; the rule now lives once in hooks/context-dir.sh, which both source, and one test runs the real writer then the real reader under every TMPDIR form
+    milestone: Adoption
+    delivers: Adapters/ai-runtimes/claude-code/hooks/context-dir.sh, Adapters/ai-runtimes/claude-code/hooks/context-statusline.sh, Adapters/ai-runtimes/claude-code/hooks/context-alert.sh, Adapters/ai-runtimes/claude-code/hooks/tests/context-alert.sh, Adapters/ai-runtimes/claude-code/hooks/README.md, changelog.d/WU-IAENG-394.md, Registry/work-units.yml
+
+  - id: WU-IAENG-395
+    employee: Platform Engineer
+    title: Reserved 27 Oct 2026 before dispatch (WU-IAENG-398) - refusal messages show a mid-value CR visibly (issue #337) - the commit-msg hook, check-employee-trailers.sh, check-work-units.sh and check-risk-map.sh print a refused value raw, so a carriage return inside it garbles the line and the byte that caused the refusal is not visible
+    milestone: Usage
+    delivers: planned - Adapters/git-hooks/commit-msg, Adapters/scripts/check-employee-trailers.sh, Adapters/scripts/check-work-units.sh, Adapters/scripts/check-risk-map.sh, Adapters/scripts/tests/run.sh, changelog.d/WU-IAENG-395.md, Registry/work-units.yml
+
+  - id: WU-IAENG-396
+    employee: Platform Engineer
+    title: Reserved 27 Oct 2026 before dispatch (WU-IAENG-398) - trailer key variants git reads as Employee are refused (issue #338, SEC-IAENG-389-01) - the commit-msg hook and check-employee-trailers.sh validate only lines matching ^Employee: exactly, while git reads a key in any case, with whitespace before the colon or no space after it, and folds continuation lines into the value
+    milestone: Usage
+    delivers: planned - Adapters/git-hooks/commit-msg, Adapters/scripts/check-employee-trailers.sh, Adapters/scripts/tests/run.sh, changelog.d/WU-IAENG-396.md, Registry/work-units.yml
+
+  - id: WU-IAENG-397
+    employee: Platform Engineer
+    title: Reserved 27 Oct 2026 before dispatch (WU-IAENG-398) - strip only a line-ending CR in the other production sites (issue #326) - Check Convention shell rule 3; validate-framework.sh, install-hooks.sh, usage-dashboard.sh and check-review-recorded.sh remove every carriage return instead of only the one that ends a line
+    milestone: Usage
+    delivers: planned - Adapters/scripts/validate-framework.sh, Adapters/ai-runtimes/claude-code/install-hooks.sh, Adapters/scripts/usage-dashboard.sh, Adapters/scripts/check-review-recorded.sh, Adapters/scripts/tests/run.sh, changelog.d/WU-IAENG-397.md, Registry/work-units.yml
+
+  - id: WU-IAENG-398
+    employee: Technical Writer
+    title: Reserve Work Units 394 to 397 before dispatch (Workflows/FEATURE_DEVELOPMENT.md Step 4, precedent WU-IAENG-381 and WU-IAENG-393) - the four Work Units of issues #340, #337, #338 and #326 registered in one bookkeeping Pull Request, so each Work Unit's own Pull Request edits only its own entry; this Work Unit's own fragment is an exemption
+    milestone: Adoption
+    delivers: Registry/work-units.yml, changelog.d/WU-IAENG-398.md
+
+  - id: WU-IAENG-399
+    employee: Platform Engineer
+    title: The drift cache directory never resolves inside the project through a backslash (issue #342) - lib.sh iaeng_cache_dir and check-framework-drift.sh cache_dir_canon split the path on / alone, so the part still to be made (..\proj\cache, or proj\cache with no .. at all) was kept as one name below a directory outside the project, never tested, and created inside it on Windows; both now read every backslash as a separator before the . and .. test and in the walk, --cache-dir refuses a \.. component (64) as it refuses a /.. one, and one hand-written table of /, \, mixed and drive-letter spellings drives both copies of the rule; after review (sec-360, qa-360, cr-360) both copies also refuse a directory whose existing part resolves to the root, which the join turned into a //host network path into the project (SEC-IAENG-399-01), and end the walk at the root of a drive that does not exist, where it looped forever, as it did for a Windows cache home not yet made spelt the way the hook spells it
+    milestone: Adoption
+    delivers: Adapters/ai-runtimes/claude-code/hooks/lib.sh, Adapters/scripts/check-framework-drift.sh, Adapters/ai-runtimes/claude-code/hooks/tests/drift.sh, changelog.d/WU-IAENG-399.md, Registry/work-units.yml
+
+  - id: WU-IAENG-400
+    employee: Platform Engineer
+    title: Hooks load their files from their own directory, not the working directory (issue #344, SEC-IAENG-394-03) - block-escape-hatches.sh, block-inline-suppression.sh, post-edit-lint.sh, session-start.sh and stop-gate.sh found their directory from dirname of $0, which is the working directory when bash finds the hook through PATH, so a lib.sh, strip-quotes.awk, context-alert.sh, suppression patterns file or tests/ exemption planted there was used; they now take $0, or BASH_SOURCE only when $0 is a bare name (bash 5.3 imports BASH_SOURCE from the environment), cut at its last / or backslash, and tests/own-dir.sh runs each hook from a working directory holding a planted copy of every file it loads
+    milestone: Adoption
+    delivers: Adapters/ai-runtimes/claude-code/hooks/block-escape-hatches.sh, Adapters/ai-runtimes/claude-code/hooks/block-inline-suppression.sh, Adapters/ai-runtimes/claude-code/hooks/post-edit-lint.sh, Adapters/ai-runtimes/claude-code/hooks/session-start.sh, Adapters/ai-runtimes/claude-code/hooks/stop-gate.sh, Adapters/ai-runtimes/claude-code/hooks/tests/own-dir.sh, Adapters/ai-runtimes/claude-code/hooks/tests/run.sh, Adapters/ai-runtimes/claude-code/hooks/README.md, changelog.d/WU-IAENG-400.md, Registry/work-units.yml
+
+  - id: WU-IAENG-401
+    employee: Platform Engineer
+    title: Context hooks clean orphan temp files and tests stay out of the real state directory (issue #345) - the context statusLine writer's cleanup removes only .pct and .alert files older than 24 h, so the .tmp files of a render killed before its rename accumulate, and a context hook test writes into the real iaeng-ctx state directory; with the #343 Code Reviewer minors in context-dir.sh and the tests
+    milestone: Adoption
+    delivers: Adapters/ai-runtimes/claude-code/hooks/context-statusline.sh, Adapters/ai-runtimes/claude-code/hooks/context-dir.sh, Adapters/ai-runtimes/claude-code/hooks/tests/context-statusline.sh, Adapters/ai-runtimes/claude-code/hooks/tests/context-alert.sh, Adapters/ai-runtimes/claude-code/hooks/tests/real-ctx-dir.sh, Adapters/ai-runtimes/claude-code/hooks/README.md, changelog.d/WU-IAENG-401.md, Registry/work-units.yml
+
+  - id: WU-IAENG-402
+    employee: Technical Writer
+    title: Reserve Work Units 399 to 401 and 403 before dispatch (Workflows/FEATURE_DEVELOPMENT.md Step 4, precedent WU-IAENG-381, WU-IAENG-393 and WU-IAENG-398) - the four Work Units of issues #342, #344, #345 and #335 registered in one bookkeeping Pull Request, so each Work Unit's own Pull Request edits only its own entry; this Work Unit's own fragment is an exemption
+    milestone: Adoption
+    delivers: Registry/work-units.yml, changelog.d/WU-IAENG-402.md
+
+  - id: WU-IAENG-403
+    employee: Prompt Engineer
+    title: HOTFIX Step 1 names its planning, its time to resolution and its revised-plan rule, and the Feature Chain's decomposition names the Plan Review (issue #335 items 1 to 4 and 6) - Workflows/HOTFIX.md (0.0.12) Step 1 is retitled Hotfix plan and Director authorization, its Actor names the Main Agent, the Technical Lead and the Director, and the Actors table gains the Main Agent; the plan may propose the maximum time to resolution, which the Director approves or replaces in the same decision; a revised plan that carries a Medium-or-higher action goes back to the Technical Lead, who runs its Plan Review again or records on the earlier record that the revision leaves unchanged everything that review examined, and a revised plan whose actions are all Low is presented again without one; the gate sentence is unchanged; Registry/workflows.yml step 1 copies the new title; Examples/HOTFIX_CHAIN_EXAMPLE.md's RISK line says Step 1 authorization and plan approval; Core/AGENT_CHAINS.md (0.0.12) Feature Chain Decomposition gains the Plan Review sentence the Director approved word for word on 28 Oct 2026 (item 4)
+    milestone: Adoption
+    delivers: Workflows/HOTFIX.md, Registry/workflows.yml, Examples/HOTFIX_CHAIN_EXAMPLE.md, Core/AGENT_CHAINS.md, changelog.d/WU-IAENG-403.md, Registry/work-units.yml
+
+  - id: WU-IAENG-404
+    employee: Platform Engineer
+    title: Reserved 28 Oct 2026 before dispatch (WU-IAENG-408) - install.sh's pre-commit probe counts only a finding as a refusal, never a scanner that could not evaluate (issue #348) - install.sh tests the installed pre-commit hook with a staged .xlsx and reads any non-zero exit as a refusal, so data-policy-scan.sh --staged exiting 2 because it could not evaluate is reported as a healthy hook; Check Convention rule 1
+    milestone: Usage
+    delivers: planned - Adapters/scripts/install.sh, Adapters/scripts/tests/run.sh, changelog.d/WU-IAENG-404.md, Registry/work-units.yml
+
+  - id: WU-IAENG-405
+    employee: Test Automation Engineer
+    title: Reserved 28 Oct 2026 before dispatch (WU-IAENG-408) - strip only a line-ending CR in the test suites (issue #327) - Check Convention shell rule 3; hooks/tests/dashboard.sh and scripts/tests/run.sh remove every carriage return instead of only the one that ends a line, so a test cannot see a carriage return the script under test left in the middle of a value
+    milestone: Usage
+    delivers: planned - Adapters/ai-runtimes/claude-code/hooks/tests/dashboard.sh, Adapters/scripts/tests/run.sh, changelog.d/WU-IAENG-405.md, Registry/work-units.yml
+
+  - id: WU-IAENG-406
+    employee: Platform Engineer
+    title: Reserved 28 Oct 2026 before dispatch (WU-IAENG-408) - scripts that set -e state their reason, and hooks/lib.sh says it sets its callers' options (issue #328) - Check Convention shell rule 2; commit-msg, pre-commit, pre-push, setup-branch-protection.sh and setup-project-bootstrap.sh run set -euo pipefail without stating in their header why any unhandled non-zero status is a correct fail-closed verdict, and lib.sh sets -uo pipefail for the hooks that source it without its header saying so
+    milestone: Usage
+    delivers: planned - Adapters/git-hooks/commit-msg, Adapters/git-hooks/pre-commit, Adapters/git-hooks/pre-push, Adapters/scripts/setup-branch-protection.sh, Adapters/scripts/setup-project-bootstrap.sh, Adapters/ai-runtimes/claude-code/hooks/lib.sh, changelog.d/WU-IAENG-406.md, Registry/work-units.yml
+
+  - id: WU-IAENG-407
+    employee: DevOps Engineer
+    title: Reserved 28 Oct 2026 before dispatch (WU-IAENG-408) - setup-branch-protection.sh review follow-ups and the RELEASE and HOTFIX up-to-date wording (issue #329) - the strict_for refusal of an unknown branch is tested or recorded as not falsifiable beside it, the off-GitHub test asserts that no gh call was made, and Workflows/RELEASE.md Step 8 and Workflows/HOTFIX.md word the head-main back-merge warning as conditional now that develop does not require branches to be up to date
+    milestone: Usage
+    delivers: planned - Adapters/scripts/setup-branch-protection.sh, Adapters/scripts/tests/run.sh, Workflows/RELEASE.md, Workflows/HOTFIX.md, changelog.d/WU-IAENG-407.md, Registry/work-units.yml
+
+  - id: WU-IAENG-408
+    employee: Technical Writer
+    title: Reserve Work Units 404 to 407 and 409 to 413 before dispatch (Workflows/FEATURE_DEVELOPMENT.md Step 4, precedent WU-IAENG-381, WU-IAENG-393, WU-IAENG-398 and WU-IAENG-402) - the nine Work Units of issues #348, #327, #328, #329, #350, #351, #352, #353 and #354 registered in one bookkeeping Pull Request, so each Work Unit's own Pull Request edits only its own entry; this Work Unit's own fragment is an exemption
+    milestone: Adoption
+    delivers: Registry/work-units.yml, changelog.d/WU-IAENG-408.md
+
+  - id: WU-IAENG-409
+    employee: Prompt Engineer
+    title: An Employee runs the tests that cover its change first and one full test suite at a time, under a timeout, and CI runs every suite (issue #350, peer K1) - Templates/EMPLOYEE_BRIEF.md (0.0.10) Constraints and Boundaries gains fixed text binding every Work Unit that runs tests - touched tests first where the suite can run one section, at most one full suite at a time with no background job or fan-out, every full-suite run under a timeout, a run the timeout ended is not evaluated and never passed, the required CI checks are the gate evidence for the suites not run - with its rationale outside the block; Workflows/FEATURE_DEVELOPMENT.md (0.0.15) Step 3 item 4 and its Output say the same instead of run existing tests locally; no Core change and no machine-wide limit (Director, 28 Oct 2026; a machine limit is decided after WU-IAENG-410)
+    milestone: Adoption
+    delivers: Templates/EMPLOYEE_BRIEF.md, Workflows/FEATURE_DEVELOPMENT.md, changelog.d/WU-IAENG-409.md, Registry/work-units.yml
+
+  - id: WU-IAENG-410
+    employee: Performance Engineer
+    title: Blocking-hook latency under parallel load on Windows, and the guards fail closed (issue #351, peer K2; Director decision 29 Oct 2026) - Governance/BLOCKING_HOOK_LATENCY_MEASUREMENT.md records that the guards had no timeout of their own (the 600 s default, not 10 s, after which Claude Code let the call through, observed once), the per-hook p50, p95 and p99 from 1,490 production Stop-gate runs, 758 paired Stop events and a 610-run process-counting bench, the load dependence, and that latency under load is process count; both PreToolUse guards get "onFailure" "block" and a 120 s timeout (1.25 times the slowest guard's worst modelled p99) in settings.example.json and .claude/settings.json, the Stop gate neither (no effect on Stop); install-hooks.sh adds the two fields in place to the framework's exact earlier guard entries instead of doubling them; stop-gate.sh starts 4 commands instead of 8 on its common path, its decisions unchanged and held by tests/run.sh; TROUBLESHOOTING.md entry C; lightening block-escape-hatches.sh is issue #385
+    milestone: Adoption
+    delivers: Governance/BLOCKING_HOOK_LATENCY_MEASUREMENT.md, Adapters/ai-runtimes/claude-code/settings.example.json, .claude/settings.json, Adapters/ai-runtimes/claude-code/install-hooks.sh, Adapters/ai-runtimes/claude-code/hooks/stop-gate.sh, Adapters/ai-runtimes/claude-code/hooks/lib.sh, Adapters/ai-runtimes/claude-code/hooks/README.md, Adapters/ai-runtimes/claude-code/TROUBLESHOOTING.md, Adapters/ai-runtimes/claude-code/hooks/tests/run.sh, Adapters/ai-runtimes/claude-code/hooks/tests/dashboard.sh, Adapters/scripts/check-framework-drift.sh, changelog.d/WU-IAENG-410.md, Registry/work-units.yml
+
+  - id: WU-IAENG-411
+    employee: Prompt Engineer
+    title: A Merge danger section in the Pull Request template, and the Code Reviewer hunts the defect before approving (issue #352, peer K3 and K4) - Templates/PULL_REQUEST.md (0.0.8) and its two GitHub copies gain a Merge danger section after Why, stating whether a revert undoes the change and what fails if it is wrong, with a Field Reference row tied to Standards/RISK_STANDARD.md; Employees/Specialized/CODE_REVIEWER.md (0.0.5) gains a Defect Hunt run at step 12 before any approval, over the whole Pull Request diff at the approving head (narrowed to the changes since an already hunted head only) - the two places in the diff where a critical or major defect would hide best, named and checked along four angles (false green, bypass, scope with sibling files, limits), and every guard the diff adds or changes deleted or inverted in a disposable copy per Standards/TESTING_STANDARD.md Falsifiability items 4 and 6, one mutant at a time with the narrowest check under a time limit, a surviving mutant being a missing test that blocks under Workflows/CODE_REVIEW.md Step 3, an equivalent mutant declared (a redundant guard, Minimal Code item 7) and a timed-out run inconclusive, a guard that cannot be mutated listed with why and left unverified - recorded in the Review Decision and the Definition of Done; Workflows/CODE_REVIEW.md (0.0.12) Step 8 runs it before approving, its Prerequisites name the merge danger and do not send back a Pull Request opened from the earlier template (the reviewer asks for the two lines in a comment), and its Exit Criteria name the hunt; the predictions, the Two Axes, Minimal Code and the Ten Review Lessons are unchanged
+    milestone: Adoption
+    delivers: Templates/PULL_REQUEST.md, Adapters/github/PULL_REQUEST_TEMPLATE.md, .github/PULL_REQUEST_TEMPLATE.md, Employees/Specialized/CODE_REVIEWER.md, Workflows/CODE_REVIEW.md, changelog.d/WU-IAENG-411.md, Registry/work-units.yml
+
+  - id: WU-IAENG-412
+    employee: Prompt Engineer
+    title: A project domain glossary from the first settled term, and the Business Analyst asks in numbered rounds (issue #353, peer K5) - Templates/PROJECT_GLOSSARY.md (0.0.15) is new - an adopting project keeps its domain terms in .ia-engineering/DOMAIN_GLOSSARY.md, committed, one entry per term with its definition, source and date, created when the first domain term is settled and never empty; the path is fixed beside the Domain Employees and named DOMAIN_GLOSSARY so it is never mistaken for the framework's Core/GLOSSARY.md, which is not touched; Employees use and cite its meanings and a term with no entry is a question, never a guess; Employees/Specialized/BUSINESS_ANALYST.md (0.0.4) gains Clarification Rounds - questions in numbered rounds ordered by dependency, each with a recommended answer and what it unblocks, a recommendation never recorded as an answer - and keeps the glossary; Templates/PROJECT_CLAUDE.md (0.0.14), Workflows/ONBOARDING.md (0.0.16) Step 2, Workflows/PROJECT_BOOTSTRAP.md (0.0.15) Phase A and Templates/EMPLOYEE_BRIEF.md (0.0.11) point to it; README.md and VERSION.md list the template
+    milestone: Adoption
+    delivers: Templates/PROJECT_GLOSSARY.md, Employees/Specialized/BUSINESS_ANALYST.md, Templates/PROJECT_CLAUDE.md, Templates/EMPLOYEE_BRIEF.md, Workflows/ONBOARDING.md, Workflows/PROJECT_BOOTSTRAP.md, README.md, VERSION.md, changelog.d/WU-IAENG-412.md, Registry/work-units.yml
+
+  - id: WU-IAENG-413
+    employee: Technical Writer
+    title: AMELIORATION.md strikes through what develop delivered between 23 and 28 Oct 2026 and adds the strengths and weaknesses seen since (issue #354) - each line checked against develop 607cae9; W9, W14, W15, W16, W18, W20 and W21 struck through with their Pull Requests; W2 a, b and d, W3, W19 and W29 delivered in part, with what remains in Suivi; strengths F15 to F17 (context statusLine and alert, Check Convention in a Standard, step-title validator); weaknesses W30 to W37 (parallel test suites, blocking-hook timeouts, merge danger in the Pull Request, active Employees per machine, issues not closed by a develop merge, worktree hooks, Work Unit existence in commit-msg, Windows drift check at session start); section 3.4 maps peer ideas K1 to K5 to issues 350 to 353
+    milestone: Adoption
+    delivers: AMELIORATION.md, changelog.d/WU-IAENG-413.md, Registry/work-units.yml
+
+  - id: WU-IAENG-414
+    employee: Platform Engineer
+    title: An adopting project's git hooks run in every linked git worktree, and no hook fails open into a closed pipe (issues #368 and #397, 28 Oct 2026 adoption rehearsal Blocker and SEC-IAENG-414-05) - a worktree has the framework submodule empty, and the relative core.hooksPath ia-engineering/Adapters/git-hooks named a missing directory there, so commit-msg and the data-policy pre-commit did not run and a commit signed Employee Claude or staging an xlsx went through in silence; install.sh now sets an adopter's core.hooksPath to the main working tree's framework hooks as an absolute path, also when run from a worktree, for a standalone clone, a project that is itself a submodule and a bare repository with worktrees, and the framework repository keeps ./Adapters/git-hooks; commit-msg reads its own framework's roster before the worktree's submodule path; install.sh --check and check-framework-drift.sh, --quick included, report the old relative value; commit-msg, pre-commit, pre-push and data-policy-scan.sh ignore SIGPIPE, so a commit piped into head is still refused under Git for Windows; a worktree subagent's Claude Code hooks were checked and run with CLAUDE_PROJECT_DIR set to the main checkout, so they were not affected
+    milestone: Adoption
+    delivers: Adapters/scripts/install.sh, Adapters/git-hooks/commit-msg, Adapters/git-hooks/pre-commit, Adapters/git-hooks/pre-push, Adapters/scripts/data-policy-scan.sh, Adapters/scripts/check-framework-drift.sh, Adapters/scripts/tests/run.sh, Adapters/README.md, Templates/PROJECT_CLAUDE.md, Governance/TROUBLESHOOTING.md, changelog.d/WU-IAENG-414.md, Registry/work-units.yml
+
+  - id: WU-IAENG-415
+    employee: Platform Engineer
+    title: commit-msg checks that the Work Unit exists, as the README says (issue #364, 28 Oct 2026 adoption rehearsal Major) - the hook only counted the Work Unit lines, so an unregistered Work Unit passed locally and, on the adoption commit pushed straight to main, was never seen by the Work Unit Exists CI check; the hook now hands a present claim to check-work-units.sh --message, the same rule, against the project's Registry/work-units.yml as staged in the index, and refuses a claim it cannot evaluate (no registry, an unstaged or unreadable one, the script not found); a message with no Work Unit line still passes and only CI requires one; README.md, Workflows/PROJECT_BOOTSTRAP.md Step 4, Standards/COMMIT_STANDARD.md, Adapters/README.md and Registry/README.md say what each layer enforces
+    milestone: Adoption
+    delivers: Adapters/git-hooks/commit-msg, Adapters/scripts/check-work-units.sh, Adapters/scripts/tests/run.sh, README.md, Workflows/PROJECT_BOOTSTRAP.md, Standards/COMMIT_STANDARD.md, Adapters/README.md, Registry/README.md, changelog.d/WU-IAENG-415.md, Registry/work-units.yml
+
+  - id: WU-IAENG-416
+    employee: Technical Lead
+    title: The Prompt Engineer review covers Templates/EMPLOYEE_BRIEF.md and generate-agents.sh (issue #206, Director 28 Oct 2026, not Workflows/; part of issue #221) - Workflows/CODE_REVIEW.md (0.0.13) Step 4 holds the single list of files whose change, deletion or rename needs the Prompt Engineer's approval, an Employee definition, any Core/*.md document, Templates/EMPLOYEE_BRIEF.md and Adapters/ai-runtimes/generate-agents.sh as a whole, with the provenance of each; the Actors table, the Step 4 Output, the Multi-Lens Review table and the Exit Criteria refer to that list, and the Code Review blocking condition in Registry/workflows.yml refers to Step 4; Workflows/ documents stay outside it; Workflows/CODE_REVIEW.md and Registry/workflows.yml change together; Core/EMPLOYEE_SELECTION.md is unchanged (Director, 29 Oct 2026, option A)
+    milestone: Adoption
+    delivers: Workflows/CODE_REVIEW.md, Registry/workflows.yml, changelog.d/WU-IAENG-416.md, Registry/work-units.yml
+
+  - id: WU-IAENG-417
+    employee: Technical Writer
+    title: Adopter README gains a project tier-map step, and the 28 Oct 2026 rehearsal's doc Minors are fixed (issue #365, reserved by WU-IAENG-420) - Getting Started's Which model runs which task step maps each tier to a model per task (Director decision, 28 Oct 2026 - haiku Lightweight, sonnet Standard, opus Strategic, fable Frontier) in the project's .ia-engineering/tier-map, says that without it the generator's defaults apply and nobody chose them, and checks it with generate-agents.sh --print-tier-map; the doc Minors fixed are install-skills.sh adding /dashboard too, the git, bash, jq and gh prerequisites, the Windows .gitmodules CRLF warning, completing the Risk Map's eight categories early, Workflows/FEATURE_DEVELOPMENT.md (0.0.16) Step 4 giving an adopter its milestone, and Templates/PROJECT_CLAUDE.md (0.0.14) fetching the submodule before install.sh in a fresh clone; the signer of the project CLAUDE.md commit needs a decision and moved to issue #379
+    milestone: Adoption
+    delivers: README.md, Workflows/FEATURE_DEVELOPMENT.md, Templates/PROJECT_CLAUDE.md, changelog.d/WU-IAENG-417.md, Registry/work-units.yml
+
+  - id: WU-IAENG-418
+    employee: Platform Engineer
+    title: A session-start drift check cut by its budget finishes in the background and its result reaches the next session (issue #366, 28 Oct 2026 adoption rehearsal Major) - check-framework-drift.sh --quick took 4.9 to 5.6 s cold under Git Bash in the rehearsal and 46 to 70 s on a machine shared with other agents, against 2.8 s, so the cut run kept nothing and every later session was cut too, in silence; session-start.sh now starts the cut run again detached and bounded at 300 s, it keeps its result in the user-level cache and leaves its output and exit status beside it, a later session cut too reports that output as an earlier run's, a background run that ended with no result is said at every session until a run completes, and the overrun lines name the --quick --cache-dir command that fills the hook's cache
+    milestone: Adoption
+    delivers: Adapters/ai-runtimes/claude-code/hooks/session-start.sh, Adapters/ai-runtimes/claude-code/hooks/tests/drift.sh, Adapters/ai-runtimes/claude-code/hooks/README.md, CHANGELOG.md, changelog.d/WU-IAENG-418.md, Registry/work-units.yml
+
+  - id: WU-IAENG-420
+    employee: Technical Writer
+    title: Reserve Work Units 414 to 418 before dispatch (Workflows/FEATURE_DEVELOPMENT.md Step 4, precedent WU-IAENG-381, WU-IAENG-393, WU-IAENG-398, WU-IAENG-402 and WU-IAENG-408) - the five Work Units of issues #368, #364, #206 with #221, #365 and #366 registered in one bookkeeping Pull Request, so each Work Unit's own Pull Request edits only its own entry; the v0.0.15 release Work Unit is not reserved, because release.sh check runs at Step 1 before the bump and would fail on it, so the bump Pull Request registers its own as #250 did for WU-IAENG-345; this Work Unit's own fragment is an exemption
+    milestone: Adoption
+    delivers: Registry/work-units.yml, changelog.d/WU-IAENG-420.md
+
+  - id: WU-IAENG-421
+    employee: Platform Engineer
+    title: Reserved 30 Oct 2026 before dispatch (WU-IAENG-422) - status line redesign, context tokens used/total, 5h and weekly quotas with reset and projected-cap times, thresholds shared with the context alert, and the chained HUD replaced in a project by a local opt-in file (issue #390, Director decisions 29 Oct 2026) - context-statusline.sh shows the context as tokens used out of the window's total, the 5-hour and weekly quotas as a percentage only (they have no token budget) with their reset and projected-cap times always shown, and colours at the thresholds the context alert uses; when the gitignored file .ia-engineering/statusline-own exists the script prints its own line instead of the user's chained statusLine, deleting the file restores it, and ~/.claude/settings.json is never touched
+    milestone: Usage
+    delivers: planned - Adapters/ai-runtimes/claude-code/hooks/context-statusline.sh, Adapters/ai-runtimes/claude-code/hooks/context-alert.sh, Adapters/ai-runtimes/claude-code/hooks/tests/context-statusline.sh, Adapters/ai-runtimes/claude-code/hooks/tests/context-alert.sh, Adapters/ai-runtimes/claude-code/hooks/README.md, changelog.d/WU-IAENG-421.md, Registry/work-units.yml
+
+  - id: WU-IAENG-422
+    employee: Technical Writer
+    title: Reserve Work Unit 421 before dispatch (Workflows/FEATURE_DEVELOPMENT.md Step 4, precedent WU-IAENG-381, WU-IAENG-393, WU-IAENG-398, WU-IAENG-402, WU-IAENG-408 and WU-IAENG-420) - the Work Unit of issue #390 registered in one bookkeeping Pull Request, so its own Pull Request edits only its own entry; this Work Unit's own fragment is an exemption
+    milestone: Adoption
+    delivers: Registry/work-units.yml, changelog.d/WU-IAENG-422.md
+
+  - id: WU-IAENG-423
+    employee: Technical Writer
+    title: Defer Work Units 395, 396, 397, 404, 405, 406, 407 and 421 from Adoption to the next milestone, Usage (Director decision, 30 Oct 2026; Workflows/FEATURE_DEVELOPMENT.md Step 4, a reserved Work Unit not delivered by the release is moved to a later milestone) - none of the eight is delivered on develop, so release.sh check condition 1 would refuse v0.0.15 while they are registered against Adoption; only their milestone field changes, and none of them gets a changelog fragment here, because each brings its own with its Pull Request; with Adoption and Usage both unreleased, release.sh check derives no milestone and is run with --milestone Adoption; this Work Unit's own fragment is an exemption
+    milestone: Adoption
+    delivers: Registry/work-units.yml, changelog.d/WU-IAENG-423.md
+
+  - id: WU-IAENG-424
+    employee: Release Manager
+    title: Bump VERSION.md to v0.0.15 and finalize the CHANGELOG.md section for the Adoption release (Workflows/RELEASE.md Step 2) - the changelog fragments assembled by release.sh assemble, the 30 Oct 2026 release-readiness audit's editorial fixes (one ordered upgrade procedure, version-scoped Security and Fixed lines, document versions, the known issues), README pin and measured counts, CLAUDE.md Current Version, next milestone Usage (v0.0.16); this Work Unit's own fragment is an exemption
+    milestone: Adoption
+    delivers: VERSION.md, CHANGELOG.md, README.md, CLAUDE.md, Registry/work-units.yml, changelog.d/
+
+  - id: WU-IAENG-425
+    employee: Platform Engineer
+    title: install.sh reads a CRLF .gitignore line by line (v0.0.15 release acceptance DEF-01, cases S1-45 and S2-34, issue #396, Workflows/RELEASE.md Step 4 minor defect) - Git for Windows' default core.autocrlf=true checks .gitignore out CRLF, and since WU-IAENG-353 the presence test read it raw, so a real install.sh run, and setup-project-bootstrap.sh through it, appended the six rules again on every fresh clone, and --check disagreed with that run on .ia-engineering/usage/; both reads now go through read_ignore, which reads the file with a sentinel so command substitution strips nothing, then removes the CR that ends a line and only that one, as git reads it (Standards/CODE_QUALITY_STANDARD.md, The Check Convention, shell rule 3; the sentinel closes Security review F1, a last line .env followed by two CRs read as .env on Git for Windows); the script tests cover LF, CRLF with every rule present (two real runs, byte for byte), CRLF missing one rule, a CR inside a line, and five last-line shapes checked against git check-ignore; CHANGELOG.md is left to the Release Manager's documentation Pull Request on the release branch
+    milestone: Adoption
+    delivers: Adapters/scripts/install.sh, Adapters/scripts/tests/run.sh, Registry/work-units.yml
+
+  - id: WU-IAENG-426
+    employee: Release Manager
+    title: Correct the v0.0.15 release notes and front doors from the release acceptance (Workflows/RELEASE.md Step 4, minor-defect route, Pull Request to release/v0.0.15) - the upgrade procedure regenerates the agents and checks them with generate-agents.sh --check, also in README Which ref to pin; Known issues gain the unclassifiable merge, cherry-pick and revert skipping commit-msg, the escape-hatch guard's multi-value payload and the quoted-substitution false positive of #272, and the #391 and #396 lines are corrected; a moved checkout's worktrees need git worktree repair; README Roadmap, the never-dispatched count, and the VERSION.md numbering sentence brought up to date
+    milestone: Adoption
+    delivers: CHANGELOG.md, README.md, VERSION.md, Registry/work-units.yml
+
+  - id: WU-IAENG-427
+    employee: Platform Engineer
+    title: Pass every grep pattern taken from a variable after -- (Workflows/RELEASE.md Step 4, Director decision 3 Nov 2026) - a value that begins with a dash is compared as text and never read as an option; the Employee trailer value in the commit-msg hook and check-employee-trailers.sh, then every other grep in the repository whose pattern comes from a variable, in check-work-units.sh, check-risk-map.sh, release.sh, validate-framework.sh, usage-dashboard.sh and the hook and script test suites; the script tests compare values that begin with a dash with the roster, in the hook and in the CI check; CHANGELOG.md is left to the Release Manager's documentation Pull Request on the release branch
+    milestone: Adoption
+    delivers: Adapters/git-hooks/commit-msg, Adapters/scripts/check-employee-trailers.sh, Adapters/scripts/check-work-units.sh, Adapters/scripts/check-risk-map.sh, Adapters/scripts/release.sh, Adapters/scripts/validate-framework.sh, Adapters/scripts/usage-dashboard.sh, Adapters/scripts/tests/run.sh, Adapters/ai-runtimes/claude-code/hooks/tests/dashboard.sh, Adapters/ai-runtimes/claude-code/hooks/tests/real-ctx-dir.sh, Adapters/ai-runtimes/claude-code/hooks/tests/context-statusline.sh, Registry/work-units.yml

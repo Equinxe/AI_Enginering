@@ -4,9 +4,9 @@
 
 # Status
 
-**Reserved and empty.** This directory has held only a `.gitkeep` since the repository's first commit.
+**Reserved.** This file is the only thing in this directory. Before it, the directory held only a `.gitkeep` placeholder, from the repository's first commit.
 
-It is listed in `README.md`'s Repository Structure, in `CLAUDE.md`'s Repository block, and in `Governance/CONTRIBUTING.md`'s scope, described in `CLAUDE.md` as "Reusable prompts". That is the only description of it anywhere: `Core/GLOSSARY.md` — which defines Adapter, Artifact, Chain, Employee, Template, Work Unit, and Workflow — has no entry for a Prompt, and no Standard, Workflow, or Employee definition references this directory or says what belongs in it.
+It is listed in `README.md`'s Repository Structure, in `CLAUDE.md`'s Repository block, and in `Governance/CONTRIBUTING.md`'s scope. `CLAUDE.md` describes it as "Reserved" and points here; nothing else describes it: `Core/GLOSSARY.md` — which defines Adapter, Artifact, Chain, Employee, Template, Work Unit, and Workflow — has no entry for a Prompt, and no Standard, Workflow, or Employee definition references this directory or says what belongs in it.
 
 This file exists so that a reader who follows the structure listing here is not left inferring the answer from an empty directory. It does not invent one.
 

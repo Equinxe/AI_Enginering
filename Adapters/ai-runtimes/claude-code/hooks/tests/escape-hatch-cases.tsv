@@ -31,7 +31,8 @@ block	git filter-branch --tree-filter x
 block	rm -rf .git
 block	rm -rf /
 block	git commit --no-gpg-sign -m x
-block	git -c commit.gpgsign=false commit -m x
+# Also refused by the git -c key rule (WU-IAENG-349); the reason pins the signing rule, which fires first (WU-IAENG-364).
+block	git -c commit.gpgsign=false commit -m x	disabling commit signing
 allow	git commit -m "docs: never use --no-verify"
 allow	git commit -q -m "feat(x): a" -m "mentions --no-verify and git push --force in prose"
 allow	grep -rn -- --no-verify Standards/
@@ -97,8 +98,10 @@ block	git commit --no-veri\fy -m x
 block	git push --for\ce origin main
 block	git reset --ha\rd HEAD
 block	git \reset --hard HEAD
-block	git -c commit.gpgSign=false commit -m x
-block	git -c commit.GPGSIGN=0 commit -m x
+# Also refused by the git -c key rule (WU-IAENG-349); the reason pins the signing rule, which fires first (WU-IAENG-364).
+block	git -c commit.gpgSign=false commit -m x	disabling commit signing
+# Also refused by the git -c key rule (WU-IAENG-349); the reason pins the signing rule, which fires first (WU-IAENG-364).
+block	git -c commit.GPGSIGN=0 commit -m x	disabling commit signing
 block	git config commit.gpgsign false
 block	git config --global commit.gpgSign off
 block	git branch --delete --force feature/x
@@ -111,7 +114,6 @@ block	git switch --force other
 block	git update-ref -d refs/heads/main
 block	bash -lc "git push -f origin main"
 block	sh -ec 'git reset --hard'
-allow	git -c commit.gpgsign=true commit -m x
 allow	git config --get commit.gpgsign
 allow	git branch -d feature/x
 allow	git push origin feat/x:feat/x
@@ -132,7 +134,6 @@ block	git commit $'--no-verify' -m x
 block	git push $"--force" origin main
 block	git push $'\x2d\x2dforce' origin main
 block	git reset $'\055\055hard' HEAD
-block	git push $'--force' origin main
 block	git push --{f,f}orce origin main
 block	git commit --no-{verify,verify} -m x
 block	git reset --{hard,hard} HEAD
@@ -146,7 +147,8 @@ block	git branch --force -d feature/x
 block	git restore :/
 block	git checkout -- :/
 block	git config alias.yolo "push --force"
-block	git config --global alias.nv "commit --no-verify"
+# Two rules: --no-verify fires first and is pinned; the alias rule is shadowed here (the alias.yolo/alias.nuke cases prove it alone) (WU-IAENG-364).
+block	git config --global alias.nv "commit --no-verify"	--no-verify disables the commit-msg
 block	git config alias.nuke "reset --hard"
 allow	git config alias.st status
 allow	git config alias.lg "log --oneline --graph"
@@ -198,11 +200,9 @@ block	git $'stash\c@D'
 block	git branch $'-D\c@D' x
 block	git $'filter-repo\c@DECOY' --path x
 block	git update-ref $'-d\c@D' refs/heads/main
-allow	mkdir -p dir{1..3}
 allow	mkdir -p dir{1..9..2}
 allow	touch file{a..e}.txt
 allow	printf $'\x41\x42'
-allow	echo $'hello\tworld'
 allow	cat <<<hello
 allow	cat <<< "hello world"
 allow	grep -q foo <<<"$VAR"
@@ -295,7 +295,8 @@ block	git -c core.hookspath=/dev/null commit -m x
 block	git -c CORE.HOOKSPATH=/dev/null commit -m x
 block	git config core.HooksPath /dev/null
 block	git --config-env=core.hooksPath=/dev/null commit -m x
-block	git config alias.yolo "-c core.hookspath=/dev/null commit"
+# Two rules: core.hooksPath fires first and is pinned; the alias rule is shadowed here (WU-IAENG-364).
+block	git config alias.yolo "-c core.hookspath=/dev/null commit"	setting core.hooksPath disables every git hook
 allow	GIT_CONFIG_KEY_0=safe.directory GIT_CONFIG_VALUE_0=/repo git status
 allow	GIT_CONFIG_GLOBAL=/dev/null git commit -m x
 allow	printenv GIT_CONFIG_PARAMETERS
@@ -344,10 +345,8 @@ block	git config set --comment list core.hooksPath /dev/null
 block	GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=$K GIT_CONFIG_VALUE_0=/dev/null git commit -m x
 block	GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0="$K" GIT_CONFIG_VALUE_0=/dev/null git commit -m x
 block	GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.$X GIT_CONFIG_VALUE_0=/dev/null git commit -m x
-allow	git config --show-origin --get core.hooksPath
 allow	git config --global --get core.hooksPath
 allow	git config --get core.hooksPath && git status
-allow	git config get core.hooksPath
 # --- Approval-label guard (WU-IAENG-311): the labels control-change/approved and size/approved are Director-only.
 block	gh pr edit 170 --add-label control-change/approved
 block	gh pr edit 170 --add-label=control-change/approved
@@ -475,7 +474,8 @@ block	gh pr edit 170 --add-label "a b" --add-label "c, size/approved"
 block	gh pr edit 170 --body "see docs" --add-label "help wanted,size/approved"
 block	gh pr create --body "x; y" --label "help wanted,control-change/approved"
 # --- GIT_CONFIG_* set through an assigning builtin (WU-IAENG-316, PT2-07): the name is the operand, no NAME= token.
-block	printf -v GIT_CONFIG_PARAMETERS '%s' "'core.hooksPath'='/dev/null'"; git commit -m x
+# Two rules: core.hooksPath fires first and is pinned; the assigning-builtin rule is shadowed here (the next case proves it alone) (WU-IAENG-364).
+block	printf -v GIT_CONFIG_PARAMETERS '%s' "'core.hooksPath'='/dev/null'"; git commit -m x	setting core.hooksPath disables every git hook
 block	printf -v GIT_CONFIG_PARAMETERS %s "$P"
 block	printf -vGIT_CONFIG_PARAMETERS %s "$P"
 block	printf -- -v GIT_CONFIG_PARAMETERS %s x
@@ -521,9 +521,7 @@ block	export GIT_CONFIG_KEY_$n
 block	readonly GIT_CONFIG_KEY_12
 block	local GIT_CONFIG_KEY_0
 block	GIT_CONFIG_KEY_0+=$K git commit -m x
-allow	printenv GIT_CONFIG_PARAMETERS
 allow	printenv GIT_CONFIG_KEY_0
-allow	unset GIT_CONFIG_PARAMETERS
 allow	unset GIT_CONFIG_KEY_0
 allow	unset -v GIT_CONFIG_PARAMETERS
 allow	grep GIT_CONFIG_PARAMETERS file
@@ -600,11 +598,9 @@ block	git config --add core.hooksPath x
 block	git config --local --add core.hooksPath x
 block	git config --replace-all core.hooksPath x
 block	git config set core.hooksPath x
-block	git config --unset core.hooksPath
 block	git config --local --unset core.hooksPath
 block	git config --unset-all core.hooksPath
 block	git config --local --unset-all core.hooksPath
-block	git -c core.hooksPath=/dev/null commit -m x
 block	git -c core.hooksPath=/dev/null config --local core.hooksPath
 block	git config --local core.hooksPath; git config core.hooksPath x
 block	git config --local core.hooksPath && git config --add core.hooksPath x
@@ -613,3 +609,152 @@ allow	git commit -m "printf -v GIT_CONFIG_PARAMETERS and read -r GIT_CONFIG_PARA
 allow	git commit -m 'declare -x GIT_CONFIG_KEY_0' -m "mapfile GIT_CONFIG_PARAMETERS"
 allow	echo export GIT_CONFIG_PARAMETERS
 allow	sed -i 's/export GIT_CONFIG_PARAMETERS//' notes.md
+# --- WU-IAENG-349 (issue #236; option B, Director, 20 Oct 2026): the literal-key design stays; a variable or
+# substituted GIT_CONFIG_KEY index is refused in every form, and commit.gpgsign, include.*, includeIf.*, alias.*
+# and core.fsmonitor are refused as a literal GIT_CONFIG_KEY_<n> value in every form and in git -c / --config-env.
+# Variable or substituted index:
+block	export GIT_CONFIG_KEY_$i=$K
+block	export GIT_CONFIG_KEY_${i}=safe.directory
+block	export GIT_CONFIG_KEY_${i}+=x
+block	declare -x GIT_CONFIG_KEY_$i=$K
+block	typeset -x GIT_CONFIG_KEY_$n=x
+block	readonly GIT_CONFIG_KEY_$n=x
+block	f() { local -x GIT_CONFIG_KEY_$n=x; }
+block	env GIT_CONFIG_KEY_$i=x git commit -m x
+block	env GIT_CONFIG_KEY_$((i+1))=x git status
+block	GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_$i=x GIT_CONFIG_VALUE_$i=y git commit -m x
+block	(export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_$i=x GIT_CONFIG_VALUE_$i=y; git commit -m x)
+block	export GIT_CONFIG_KEY_"$i"=x
+block	export GIT_CONFIG_KEY_$i'=x'
+block	export GIT_CONFIG_KEY_$(echo 0)=x
+block	export GIT_CONFIG_KEY_`echo 0`=x
+block	env GIT_CONFIG_KEY_`echo 0`=x git status
+# A key that turns off or redirects a control, written literally, in every assigning form:
+block	(export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=include.path GIT_CONFIG_VALUE_0=/tmp/a; bash chk.sh)
+block	GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=commit.gpgsign GIT_CONFIG_VALUE_0=false git commit -m x
+block	export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=commit.gpgSign GIT_CONFIG_VALUE_0=false; git commit -m x
+block	declare -x GIT_CONFIG_KEY_0=COMMIT.GPGSIGN
+block	env GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=include.path GIT_CONFIG_VALUE_0=/tmp/evil git commit -m x
+block	typeset -x GIT_CONFIG_KEY_1=includeIf.gitdir:/repo/.path
+block	readonly -x GIT_CONFIG_KEY_0=alias.c
+block	f() { local -x GIT_CONFIG_KEY_0=Alias.ci; }
+block	export GIT_CONFIG_KEY_0=core.fsmonitor
+block	GIT_CONFIG_KEY_0=core.fsMonitor GIT_CONFIG_VALUE_0=/tmp/x.sh git status
+# Two rules: the += key rule fires first and is pinned; it refuses every +=, so the dangerous-key rule never decides one (WU-IAENG-364).
+block	GIT_CONFIG_KEY_0+=alias.x git x	names a git config key this hook cannot read
+block	env GIT_CONFIG_KEY_0'=core.fsmonitor' git status
+block	GIT_CONFIG_KEY_0=ali''as.x git x
+block	GIT_CONFIG_KEY_0=include{If.x,}.path git x
+# ... and as a git -c / --config-env global option, whatever the value:
+block	git -c commit.gpgsign= commit -m x
+block	git -c commit.gpgsign=$V commit -m x
+block	git -c commit.gpgsign=maybe commit -m x
+block	git --config-env=commit.gpgsign=V commit -m x
+block	git -c commit.gpgsign=true -c commit.gpgsign=$V commit -m x
+block	git -c include.path=/tmp/evil commit -m x
+block	git -c Include.Path=/tmp/evil status
+block	git -c 'include.path=/tmp/evil' status
+block	git -c include."path"=/tmp/evil status
+block	git -c includeIf.onbranch:main.path=/tmp/evil commit -m x
+block	git -c alias.c=commit c -m x
+block	git -c "alias.x=!sh -c id" x
+block	git -C . -c alias.st=status st
+block	git --config-env=alias.c=CMD c
+block	git --config-env include.path=P status
+block	git -c core.fsmonitor=/tmp/x.sh status
+block	git --no-pager -c core.fsmonitor=/tmp/x.sh status
+# PR #258 review F5: no literal-false exception for core.fsmonitor through git -c (issue #268 stays open). The hook
+# judges de-quoted text, where a quoted or escaped separator inside the value is a token boundary, so `=false;x`
+# would read as false while git runs x as the fsmonitor hook. Every -c core.fsmonitor value is refused.
+block	git -c core.fsmonitor=false status
+block	git -c core.fsmonitor=false diff --stat
+block	git -c core.fsmonitor=FALSE status
+block	git -c core.fsmonitor=no status
+block	git -c core.fsmonitor=off status
+block	git -c core.fsmonitor=0 status
+block	git -c core.fsmonitor="false" status
+block	git -c core.fsmonitor=false -c commit.gpgsign=true commit -m x
+block	git -c core.fsmonitor=false\;/tmp/x.sh status
+block	git -c "core.fsmonitor=false;/tmp/x.sh" status
+block	git -c core.fsmonitor="false;/tmp/x.sh" status
+block	git -c 'core.fsmonitor=false||/tmp/x.sh' status
+block	git -c core.fsmonitor=false\|\|/tmp/x.sh status
+block	git -c core.fsmonitor=false\&/tmp/x.sh status
+block	git -c core.fsmonitor='false)'/tmp/x.sh status
+block	git -c "core.fsmonitor=false /tmp/x.sh" status
+allow	git -c core.fsmonitorHookVersion=2 status
+block	git -c core.fsmonitor=true status
+block	git -c core.fsmonitor status
+block	git -c core.fsmonitor= status
+block	git -c core.fsmonitor=$V status
+block	git -c core.fsmonitor=$(echo false) status
+block	git -c core.fsmonitor=false1 status
+block	git --config-env=core.fsmonitor=V status
+block	git -c core.fsmonitor=false -c core.fsmonitor=/tmp/x.sh status
+block	GIT_CONFIG_KEY_0=core.fsmonitor GIT_CONFIG_VALUE_0=false git status
+# core.hooksPath stays with the hooksPath rule, which already refuses it as a GIT_CONFIG_KEY_<n> value (pinned):
+block	GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.hooksPath GIT_CONFIG_VALUE_0=/dev/null git commit -m x
+block	export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=Core.HooksPath GIT_CONFIG_VALUE_0=/dev/null; git commit -m x
+block	env GIT_CONFIG_KEY_0=core.hookspath git commit -m x
+block	declare -x GIT_CONFIG_KEY_0=CORE.HOOKSPATH
+# Still allowed: a literal key not on the list (issue #236's own key included), COUNT and VALUE in every form,
+# a subcommand's own -c, persistent alias writes (the alias rule's scope), reads, removals and quoted mentions.
+allow	(export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.attributesFile GIT_CONFIG_VALUE_0=/tmp/a; bash chk.sh)
+allow	export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=safe.directory GIT_CONFIG_VALUE_0=/repo
+allow	env GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=safe.directory GIT_CONFIG_VALUE_0=/repo git status
+allow	declare -x GIT_CONFIG_COUNT=1
+allow	typeset -x GIT_CONFIG_VALUE_0=/repo
+allow	readonly -x GIT_CONFIG_COUNT=1
+allow	GIT_CONFIG_KEY_0=core.editor GIT_CONFIG_VALUE_0=vim git commit
+allow	GIT_CONFIG_KEY_0=aliases.x git status
+allow	GIT_CONFIG_KEY_0=core.fsmonitorHookVersion git status
+allow	git -c safe.directory=/repo status
+allow	git -c user.name=x commit -m y
+allow	git -c color.ui=false log
+allow	git show -c include.md
+allow	git log -c --stat
+allow	git grep include.path
+allow	git config alias.co checkout
+allow	git config --get alias.co
+allow	git config --get include.path
+allow	printenv GIT_CONFIG_KEY_$i
+allow	unset GIT_CONFIG_KEY_$i
+allow	echo GIT_CONFIG_KEY_$i
+allow	echo ${GIT_CONFIG_KEY_0}
+allow	grep -rn GIT_CONFIG_KEY_ Adapters/
+allow	grep -rn 'export GIT_CONFIG_KEY_$i=' Adapters/
+allow	git -c commit.gpgsign commit -m x
+allow	git -c commit.gpgSign=YES commit -m x
+allow	git -c commit.gpgsign="true" commit -m x
+# Known false positive, by the lexer's contract: a quoted word with no whitespace is kept as a command token.
+block	grep -rn 'GIT_CONFIG_KEY_$i=' Adapters/
+# PR #258 review F1: a key built in pieces is literal nowhere in the text, so += on GIT_CONFIG_KEY_<n> is refused
+# whatever is appended, in every form and across statements; ${GIT_CONFIG_KEY_<n>:=…} and ${…=…} likewise.
+block	GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=ali GIT_CONFIG_KEY_0+=as.x GIT_CONFIG_VALUE_0=status git x
+block	export GIT_CONFIG_KEY_0=core.fs; export GIT_CONFIG_KEY_0+=monitor
+block	export GIT_CONFIG_KEY_0=incl GIT_CONFIG_KEY_0+=ude.path
+block	export GIT_CONFIG_KEY_0=commit.gpg; export GIT_CONFIG_KEY_0+=sign
+block	GIT_CONFIG_KEY_0=core.hooks GIT_CONFIG_KEY_0+=Path GIT_CONFIG_VALUE_0=/dev/null git commit -m x
+# Two rules: the trailing export fires the assigning-builtin rule first, pinned; the += rule is shadowed here (the cases around prove it alone) (WU-IAENG-364).
+block	GIT_CONFIG_KEY_0=core.fs; GIT_CONFIG_KEY_0+=monitor; export GIT_CONFIG_KEY_0	an assigning builtin naming GIT_CONFIG_KEY_<n>
+block	declare -x GIT_CONFIG_KEY_0+=monitor
+block	typeset -x GIT_CONFIG_KEY_1+=sign
+block	readonly GIT_CONFIG_KEY_0+=x
+block	f() { local -x GIT_CONFIG_KEY_0+=x; }
+block	env GIT_CONFIG_KEY_0+=x git status
+block	GIT_CONFIG_KEY_0+=safe.directory git status
+block	set -a; : ${GIT_CONFIG_KEY_0:=alias.x}; git x
+block	: ${GIT_CONFIG_KEY_0=core.fsmonitor}
+allow	GIT_CONFIG_VALUE_0+=x git status
+allow	export GIT_CONFIG_VALUE_0+=/x
+allow	export GIT_CONFIG_COUNT+=1
+allow	export PATH+=:/opt/bin
+allow	echo ${GIT_CONFIG_KEY_0:-none}
+allow	echo "an append such as GIT_CONFIG_KEY_0+=alias.x is refused"
+allow	git commit -m "GIT_CONFIG_KEY_0=core.hooks GIT_CONFIG_KEY_0+=Path is refused"
+allow	echo "export GIT_CONFIG_KEY_$i=$K"
+allow	echo 'GIT_CONFIG_KEY_`n`'
+allow	git commit -m 'export GIT_CONFIG_KEY_$i=$K and git -c alias.x=y are refused'
+allow	git commit -m "GIT_CONFIG_KEY_0=include.path is refused"
+allow	gh issue create --title 'git -c include.path and GIT_CONFIG_KEY_0=alias.x' --body x
+allow	sed -i 's/git -c alias.x=y//' notes.md

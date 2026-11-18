@@ -52,6 +52,10 @@
 # ones escalates the standard rather than patching the hook.
 
 set -euo pipefail
+# SIGPIPE ignored (#397, SEC-IAENG-414-05): see commit-msg. A refusal written
+# to a closed pipe fails the write instead of killing the hook, and set -e or
+# the explicit exit 1 still refuses the push.
+trap '' PIPE
 
 PROTECTED_BRANCHES=("main" "develop")
 RELEASE_PREFIX="release/"

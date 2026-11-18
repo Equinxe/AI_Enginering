@@ -18,6 +18,17 @@
 # CASE FILE FORMAT — one case per line, TAB-separated:
 #   block<TAB><shell command>    the hook must refuse it (exit 2)
 #   allow<TAB><shell command>    the hook must permit it (exit 0)
+#   block<TAB><shell command><TAB><reason substring>
+#                                the hook must refuse it, and its
+#                                "iaeng: BLOCKED — " line must contain the
+#                                substring (fixed string, case-sensitive)
+# The third column is optional and only legal on a block case. It is for a
+# command that more than one rule refuses: an exit code alone stays 2 when the
+# rule the case is about is broken and another rule still fires, so the case
+# proves nothing about its own rule (Standards/TESTING_STANDARD.md,
+# Falsifiability item 3). The hook exits at its FIRST refusal, so the substring
+# must name the first rule that fires. It must also occur in exactly one reason
+# of the hook's source, or it would not tell the rules apart; both are checked.
 # Blank lines and lines beginning with # are ignored. The commands live in a
 # FILE rather than in a command line on purpose: a corpus full of escape
 # hatches, typed into a terminal, is refused by the very hook under test.
@@ -41,7 +52,7 @@ for arg in "$@"; do
   esac
 done
 
-HERE="$(cd "$(dirname "$0")" && pwd)"
+HERE="$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)"
 HOOKS="$(cd "$HERE/.." && pwd)"
 
 command -v jq >/dev/null 2>&1 || {
@@ -61,24 +72,46 @@ CASES="$HERE/escape-hatch-cases.tsv"
 [ -f "$CASES" ] || { echo "run.sh: $CASES is missing" >&2; exit 2; }
 
 echo "== block-escape-hatches.sh"
+# The hook's reason texts, one per line: the first argument of every
+# iaeng_block and the hooksPath rule's HOOKSPATH_REASON assignments, without the
+# Standard reference that follows (one rule has both on a line). A reason
+# substring must occur in exactly one of them, or it would pass whichever of two
+# rules fired.
+HOOK_REASONS="$(sed -nE -e 's/^[[:space:]]*iaeng_block "([^"]*)".*/\1/p' \
+  -e 's/^[[:space:]]*HOOKSPATH_REASON="([^"]*)".*/\1/p' "$HOOK")"
+[ "$(printf '%s\n' "$HOOK_REASONS" | grep -c .)" -ge 2 ] \
+  || { echo "run.sh: no refusal reasons could be read from $HOOK" >&2; exit 2; }
 cases_run=0
-while IFS=$'\t' read -r want cmd; do
+while IFS=$'\t' read -r want cmd reason; do
   case "${want:-}" in ''|'#'*) continue ;; esac
   [ -n "${cmd:-}" ] || continue
   cases_run=$((cases_run + 1))
   TOTAL=$((TOTAL + 1))
 
-  printf '%s' "$(jq -n --arg c "$cmd" '{tool_name:"Bash",tool_input:{command:$c}}')" \
-    | bash "$HOOK" >/dev/null 2>/dev/null
+  err="$(printf '%s' "$(jq -n --arg c "$cmd" '{tool_name:"Bash",tool_input:{command:$c}}')" \
+    | bash "$HOOK" 2>&1 >/dev/null)"
   rc=$?
   got=allow
   [ "$rc" -eq 2 ] && got=block
 
-  if [ "$got" = "$want" ]; then
-    [ "$VERBOSE" -eq 1 ] && printf '   ok    [%s] %s\n' "$want" "$cmd"
-  else
+  if [ "$got" != "$want" ]; then
     FAILED=$((FAILED + 1))
     printf '   FAIL  want=%-5s got=%-5s (exit %s)  %s\n' "$want" "$got" "$rc" "$cmd"
+  elif [ -n "${reason:-}" ] && [ "$want" != block ]; then
+    FAILED=$((FAILED + 1))
+    printf '   FAIL  a reason column on an allow case (only a block case has one)  %s\n' "$cmd"
+  elif [ -n "${reason:-}" ] \
+       && [ "$(grep -cF -- "$reason" <<< "$HOOK_REASONS")" -ne 1 ]; then
+    FAILED=$((FAILED + 1))
+    printf '   FAIL  reason "%s" is in %s of the hook'"'"'s reasons, want exactly 1  %s\n' \
+      "$reason" "$(grep -cF -- "$reason" <<< "$HOOK_REASONS")" "$cmd"
+  elif [ -n "${reason:-}" ] \
+       && ! sed -n 's/^iaeng: BLOCKED — //p' <<< "$err" | grep -qF -- "$reason"; then
+    FAILED=$((FAILED + 1))
+    printf '   FAIL  want reason "%s", got "%s"  %s\n' \
+      "$reason" "$(sed -n 's/^iaeng: BLOCKED — //p' <<< "$err")" "$cmd"
+  else
+    [ "$VERBOSE" -eq 1 ] && printf '   ok    [%s] %s\n' "$want" "$cmd"
   fi
 done < "$CASES"
 
@@ -162,6 +195,13 @@ expect_hint "hooksPath: a legacy read beside a real set gets no read hint (one m
   'cd "/x" && git config core.hooksPath && git config core.hooksPath /dev/null' 0
 expect_hint "hooksPath: a legacy read beside a -c write gets no read hint" \
   'cd "/x" && git config core.hooksPath; git -c core.hooksPath=/dev/null commit' 0
+# The case above is a write by its own shape (`commit` is not a read), so the hook
+# marks it a real write before it looks at the -c. Here the -c write rides on a
+# segment that IS a read (`config --get`): the read exemption passes it, and only
+# the -c check marks the real write. Without that mark the hint would be printed
+# for a command that disables the hooks (issue #275, item 4; WU-IAENG-364).
+expect_hint "hooksPath: a legacy read beside a -c write layered under a --get read gets no read hint" \
+  'cd "/x" && git config core.hooksPath; git -c core.hooksPath=/dev/null config --get core.hooksPath' 0
 expect_rc "inline-suppression: refuses a directive in code" 2 "$HOOKS/block-inline-suppression.sh" "$PAY_CODE"
 expect_rc "inline-suppression: allows it in documentation"  0 "$HOOKS/block-inline-suppression.sh" "$PAY_DOC"
 
@@ -302,7 +342,9 @@ ss_repo() {
 # ss_run <dir> <hook> [stdin]  — sets SS_OUT (stdout+stderr) and SS_RC.
 ss_run() {
   local dir="$1" hook="$2" stdin="${3:-{\}}"
-  SS_OUT="$( (export CLAUDE_PROJECT_DIR="$dir"; printf '%s' "$stdin" | bash "$hook") 2>&1 )"
+  # XDG_CACHE_HOME: session-start.sh keeps its drift result in the user's
+  # cache (WU-IAENG-359); a test run must never write there.
+  SS_OUT="$( (export CLAUDE_PROJECT_DIR="$dir" XDG_CACHE_HOME="$SSBASE/cache"; printf '%s' "$stdin" | bash "$hook") 2>&1 )"
   SS_RC=$?
 }
 
@@ -372,6 +414,14 @@ mkdir -p "$CLAUDETEMPLATE/Core" "$CLAUDETEMPLATE/Templates"
 echo 'placeholder' > "$CLAUDETEMPLATE/Core/AGENT_CONDUCT.md"
 echo 'placeholder' > "$CLAUDETEMPLATE/Templates/PROJECT_CLAUDE.md"
 
+# "state-template": no SESSION_STATE.md, but the repo satisfies
+# iaeng_framework_root and carries Templates/SESSION_STATE.md — the branch
+# where both hooks name Adapters/scripts/create-session-state.sh (#218).
+STATETEMPLATE="$(ss_repo state-template)"
+mkdir -p "$STATETEMPLATE/Core" "$STATETEMPLATE/Templates"
+echo 'placeholder' > "$STATETEMPLATE/Core/AGENT_CONDUCT.md"
+echo 'placeholder' > "$STATETEMPLATE/Templates/SESSION_STATE.md"
+
 # "unparsable": a header with no recognisable "DD Month YYYY".
 UNPARSABLE="$(ss_repo unparsable)"
 echo '_Last updated: some day by Tester_' > "$UNPARSABLE/.ia-engineering/SESSION_STATE.md"
@@ -383,13 +433,19 @@ STALEHDR="$(ss_repo stale-header)"
 echo '_Last updated: 1 January 2020, morning by Tester_' > "$STALEHDR/.ia-engineering/SESSION_STATE.md"
 touch "$STALEHDR/.ia-engineering/SESSION_STATE.md"
 
-# "big": current header and mtime, body over the 15,000-character budget.
+# "big": a SESSION_STATE of about 80,000 characters. The file has no size
+# limit (Director decision, 22 October 2026: it is the agent's memory and
+# may keep history), so the hook must not warn about its size — and must
+# still read it to the end: the Next Step sits after the long history.
 BIG="$(ss_repo big)"
 {
   echo '_Last updated: 24 September 2026, afternoon by Tester_'
   echo '## Where the Project Stands'
-  yes 'padding padding padding padding padding' | head -n 400
+  yes 'padding padding padding padding padding' | head -n 2000
+  echo '## Next Step'
+  echo 'resume after a very long history'
 } > "$BIG/.ia-engineering/SESSION_STATE.md"
+BIG_CHARS="$(wc -c < "$BIG/.ia-engineering/SESSION_STATE.md" | tr -d '[:space:]')"
 touch "$BIG/.ia-engineering/SESSION_STATE.md"
 
 # "dirty": stale SESSION_STATE, plus an uncommitted change to a tracked file —
@@ -476,6 +532,11 @@ ss_check_rc   "stop-gate: passes when SESSION_STATE is newer than HEAD" 0
 ss_run "$MISSING" "$STOPGATE"
 ss_check_rc   "stop-gate: passes (non-blocking) when SESSION_STATE is missing" 0
 ss_check_has  "stop-gate: reminds when SESSION_STATE is missing" yes "does not exist"
+ss_check_has  "stop-gate: the reminder names the helper that creates it (#218)" yes "the framework's Adapters/scripts/create-session-state.sh"
+
+ss_run "$STATETEMPLATE" "$STOPGATE"
+ss_check_rc   "stop-gate: missing SESSION_STATE with the framework found — still not blocking" 0
+ss_check_has  "stop-gate: framework found — the reminder gives the helper's path (#218)" yes "run $STATETEMPLATE/Adapters/scripts/create-session-state.sh"
 
 ss_run "$STALE" "$STOPGATE" '{"stop_hook_active":true}'
 ss_check_rc   "stop-gate: loop guard still yields even when SESSION_STATE is stale" 0
@@ -484,8 +545,22 @@ ss_run "$DIRTY" "$STOPGATE"
 ss_check_rc   "stop-gate: uncommitted tracked changes still block first" 2
 ss_check_has  "stop-gate: dirty-tree message unchanged by the new gate" yes "uncommitted changes"
 
+# ss_check_silent <label>  — the most recent ss_run exited 0 and printed nothing.
+ss_check_silent() {
+  TOTAL=$((TOTAL + 1))
+  if [ "$SS_RC" -eq 0 ] && [ -z "$SS_OUT" ]; then
+    [ "$VERBOSE" -eq 1 ] && printf '   ok    %s\n' "$1"
+  else
+    FAILED=$((FAILED + 1))
+    printf '   FAIL  %s: want exit 0 and no output, got exit %s and [%s]\n' "$1" "$SS_RC" "$(printf '%s' "$SS_OUT" | head -c 200)"
+  fi
+}
+
 ss_run "$NOGIT" "$STOPGATE"
 ss_check_rc   "stop-gate: fail-safe — not a git repo does not block" 0
+# Outside a git directory the gate says nothing at all: no reminder, no
+# "cannot verify", on every stop (WU-IAENG-410: git status, then rev-parse).
+ss_check_silent "stop-gate: not a git repo — exits without a word"
 
 ss_run "$SKEW" "$STOPGATE"
 ss_check_rc   "stop-gate: a future-dated HEAD commit does not block a freshly-touched state (clock skew)" 0
@@ -495,6 +570,104 @@ ss_check_has  "stop-gate: clock-skew case does not print the behind-repository m
 ss_run "$SKEWOLD" "$STOPGATE"
 ss_check_rc   "stop-gate: stays unblocked under clock skew even with an old, real mtime" 0
 ss_check_has  "stop-gate: old-mtime clock-skew case still names the reason" yes "dated after the system clock"
+
+# A SESSION_STATE.md whose mtime is not a non-negative integer, here one
+# before 1970 (date -r prints a negative number), gives no value: the gate
+# says it cannot verify and does not block, as lib.sh's helper always did.
+# Where touch or the filesystem cannot set such a mtime, the case is said
+# to be skipped, with the reason, and counts neither way.
+PRE1970="$(ss_repo pre1970)"
+echo '_Last updated: 1 January 1960_' > "$PRE1970/.ia-engineering/SESSION_STATE.md"
+touch -t 196001010000 "$PRE1970/.ia-engineering/SESSION_STATE.md" 2>/dev/null
+case "$(date -r "$PRE1970/.ia-engineering/SESSION_STATE.md" +%s 2>/dev/null)" in
+  -[0-9]*)
+    ss_run "$PRE1970" "$STOPGATE"
+    ss_check_rc   "stop-gate: a pre-1970 SESSION_STATE mtime — not blocking" 0
+    ss_check_has  "stop-gate: a pre-1970 SESSION_STATE mtime — says it cannot verify" yes "could not determine"
+    ;;
+  *) printf '   skip  %s\n' "stop-gate: a pre-1970 SESSION_STATE mtime — touch or this filesystem cannot set a mtime before 1970 here" ;;
+esac
+
+# THE LOOP GUARD SILENCES EVERY OUTPUT, NOT ONLY THE BLOCKS (WU-IAENG-410).
+# stop-gate.sh reads stop_hook_active only when it is about to block or
+# remind, so the path most stops take starts no jq. On the continuation a
+# block gave, every path that would block or remind is still exit 0 and
+# silent, as when the guard was read first. NOHEAD: a repository with no
+# commit, where HEAD's time cannot be read and the hook says so.
+NOHEAD="$SSBASE/nohead"
+mkdir -p "$NOHEAD/.ia-engineering"
+git -C "$NOHEAD" init -q
+touch "$NOHEAD/.ia-engineering/SESSION_STATE.md"
+ss_run "$NOHEAD" "$STOPGATE"
+ss_check_has  "stop-gate: no commit yet — says it cannot verify (the fixture reaches that path)" yes "could not determine"
+for case_dir in "$DIRTY" "$STALE" "$MISSING" "$SKEW" "$NOHEAD"; do
+  ss_run "$case_dir" "$STOPGATE" '{"stop_hook_active":true}'
+  ss_check_silent "stop-gate: loop guard — ${case_dir##*/}: exit 0, nothing printed"
+done
+
+# THE COMMON PATH'S PROCESS BUDGET (WU-IAENG-410, issue #351). On Windows
+# every command a hook starts is a process creation, and under parallel
+# agents that, not the hook's own work, is its latency
+# (Governance/BLOCKING_HOOK_LATENCY_MEASUREMENT.md). The path most stops take,
+# a clean tree and a current SESSION_STATE, starts cat (lib.sh reading the
+# payload), git twice (the status, HEAD's time) and date once (the file's
+# mtime), and no jq. Counted with recording stand-ins, first on PATH, for
+# the commands the hook used to start there and the text tools a hook
+# reaches for; a command not in that list is not counted.
+#
+# A COUNT OF NOTHING IS NOT A PASS (CR M1 and QA F1 of PR #388). Under a
+# drive-letter TMPDIR, mktemp -d gives C:/..., and C:/.../shims on PATH is
+# split at the drive's colon: no stand-in ran and an empty log passed. So
+# the directory goes on PATH in its POSIX form where cygpath can give it,
+# and the check requires git in the log: the common path always starts git
+# status, so a log without git means nothing was counted.
+SHIMS="$SSBASE/shims"
+SHIMLOG="$SSBASE/shims.log"
+SHIMS_ON_PATH="$SHIMS"
+command -v cygpath >/dev/null 2>&1 && SHIMS_ON_PATH="$(cygpath -u "$SHIMS")"
+SHIM_CMDS="awk basename cat date dirname git grep head jq sed sort tr"
+mkdir -p "$SHIMS"
+for shim_cmd in $SHIM_CMDS; do
+  shim_real="$(command -v "$shim_cmd")" || continue
+  printf '#!/bin/sh\necho %s >> "%s"\nexec "%s" "$@"\n' "$shim_cmd" "$SHIMLOG" "$shim_real" > "$SHIMS/$shim_cmd"
+  chmod +x "$SHIMS/$shim_cmd"
+done
+: > "$SHIMLOG"
+PATH="$SHIMS_ON_PATH:$PATH" ss_run "$FRESH" "$STOPGATE"
+ss_check_rc   "stop-gate: budget — the fresh path still passes with the stand-ins on PATH" 0
+SHIM_GIT="$(grep -c '^git$' "$SHIMLOG")"
+SHIM_JQ="$(grep -c '^jq$' "$SHIMLOG")"
+SHIM_ALL="$(wc -l < "$SHIMLOG" | tr -d ' ')"
+SHIM_LABEL="stop-gate: budget — clean tree, current state: git counted, no jq, at most 4 starts of: $SHIM_CMDS"
+TOTAL=$((TOTAL + 1))
+if [ "$SHIM_GIT" -ge 1 ] && [ "$SHIM_JQ" -eq 0 ] && [ "$SHIM_ALL" -le 4 ]; then
+  [ "$VERBOSE" -eq 1 ] && printf '   ok    %s\n' "$SHIM_LABEL"
+else
+  FAILED=$((FAILED + 1))
+  SHIM_SEEN="$(sort "$SHIMLOG" | uniq -c | awk '{printf "%s x%s, ", $2, $1}')"
+  [ -n "$SHIM_SEEN" ] || SHIM_SEEN="nothing (no stand-in ran, so nothing was counted)"
+  printf '   FAIL  %s: started %s\n' "$SHIM_LABEL" "$SHIM_SEEN"
+fi
+# git rev-parse now runs only when git status fails, and decides as it did
+# when it ran first: a bare repository fails git status but is a git
+# directory, so the gate goes on to the state check (here, the reminder).
+BARE="$SSBASE/bare.git"
+git init -q --bare "$BARE"
+ss_run "$BARE" "$STOPGATE"
+ss_check_rc   "stop-gate: a bare repository (git status fails, rev-parse does not) — not blocking" 0
+ss_check_has  "stop-gate: a bare repository — still reaches the state check, as before" yes "does not exist"
+
+# Without dirname, lib.sh is still found from the hook's own path: by a bare
+# name from its own directory, and where Windows spellings exist (cygpath),
+# by a path with backslashes only, which MSYS dirname also splits.
+SS_OUT="$(cd "$HOOKS" && printf '{}' | CLAUDE_PROJECT_DIR="$FRESH" bash stop-gate.sh 2>&1)"
+SS_RC=$?
+ss_check_silent "stop-gate: run by a bare name from its own directory — finds lib.sh, passes silently"
+if command -v cygpath >/dev/null 2>&1; then
+  SS_OUT="$(printf '{}' | CLAUDE_PROJECT_DIR="$FRESH" bash "$(cygpath -w "$STOPGATE")" 2>&1)"
+  SS_RC=$?
+  ss_check_silent "stop-gate: run by a Windows path with backslashes only — finds lib.sh, passes silently"
+fi
 
 # --- session-start.sh ------------------------------------------------------
 
@@ -511,10 +684,11 @@ ss_run "$UNPARSABLE" "$SESSTART" ''
 ss_check_has  "session-start: reports an unparsable header rather than staying silent" yes "no parsable date found"
 
 ss_run "$BIG" "$SESSTART" ''
-ss_check_has  "session-start: warns when SESSION_STATE exceeds the size budget" yes "15,000-character budget"
-
-ss_run "$FRESH" "$SESSTART" ''
-ss_check_has  "session-start: no size warning when SESSION_STATE is small" no "15,000-character budget"
+ss_check_has  "session-start: no size warning for an ~80,000-character SESSION_STATE (no size limit)" no "character budget"
+ss_check_has  "session-start: no character-count warning of any size for a long SESSION_STATE" no " characters (Core/CONTEXT_BUDGET.md"
+ss_check_has  "session-start: the long SESSION_STATE's size ($BIG_CHARS characters) is not reported" no "$BIG_CHARS"
+ss_check_has  "session-start: a long SESSION_STATE is still read — its header is printed" yes "Last updated: 24 September 2026"
+ss_check_has  "session-start: a long SESSION_STATE is still read to the end — its Next Step is printed" yes "resume after a very long history"
 
 ss_run "$SKEW" "$SESSTART" ''
 ss_check_has  "session-start: no behind-warning when HEAD has a future committer date (clock skew)" no "behind the repository"
@@ -535,6 +709,9 @@ ss_run "$MISSING" "$SESSTART" ''
 ss_check_has  "session-start: CLAUDE.md missing, template not found — says so" yes "CLAUDE.md does not exist yet and the framework's template was not found"
 ss_check_has  "session-start: CLAUDE.md missing — does not print the stable-contract line" no "1. CLAUDE.md — the project's stable contract."
 
+ss_run "$STATETEMPLATE" "$SESSTART" ''
+ss_check_has  "session-start: SESSION_STATE missing, template found — names the helper that creates it (#218)" yes "Create it before any other action with $STATETEMPLATE/Adapters/scripts/create-session-state.sh, which writes the Template block of $STATETEMPLATE/Templates/SESSION_STATE.md"
+
 ss_run "$CLAUDETEMPLATE" "$SESSTART" ''
 ss_check_has  "session-start: CLAUDE.md missing, template found — points to PROJECT_BOOTSTRAP Phase B and Templates/PROJECT_CLAUDE.md" yes "CLAUDE.md does not exist yet — this project has not completed Workflows/PROJECT_BOOTSTRAP.md Phase B. It is created from $CLAUDETEMPLATE/Templates/PROJECT_CLAUDE.md at Workflows/ONBOARDING.md Step 1"
 ss_check_has  "session-start: CLAUDE.md missing, template found — does not print the stable-contract line" no "1. CLAUDE.md — the project's stable contract."
@@ -547,6 +724,37 @@ ss_check_has  "session-start: framework root not found — no Main Agent pointer
 rm -f "$CLAUDETEMPLATE/Core/MAIN_AGENT_CONDUCT.md"
 ss_run "$CLAUDETEMPLATE" "$SESSTART" ''
 ss_check_has  "session-start: root found but MAIN_AGENT_CONDUCT.md absent — no Main Agent pointer" no "The Main Agent follows"
+
+# --- Every SessionStart source, the same read-first context (WU-IAENG-373) ---
+# /clear starts a new session (payload "source": "clear"); it must get what a
+# startup gets — SESSION_STATE read, its Next Step printed — not a shorter or
+# different context. The payload is the one Claude Code sends, per source;
+# the output is compared whole, so any branch on the source would show.
+{
+  echo '# SESSION STATE — test'
+  echo '_Last updated: 24 September 2026, afternoon by Tester_'
+  echo '## Next Step'
+  echo 'resume the Work Unit after /clear'
+} > "$FRESH/.ia-engineering/SESSION_STATE.md"
+touch "$FRESH/.ia-engineering/SESSION_STATE.md"
+ss_payload() { printf '{"session_id":"t","transcript_path":"/nonexistent","cwd":"%s","hook_event_name":"SessionStart","source":"%s"}' "$FRESH" "$1"; }
+ss_run "$FRESH" "$SESSTART" "$(ss_payload startup)"
+SS_STARTUP_OUT="$SS_OUT"
+ss_check_rc   "session-start: source startup — exits 0" 0
+ss_check_has  "session-start: source startup — SESSION_STATE's Next Step is printed" yes "resume the Work Unit after /clear"
+for ss_src in clear resume compact; do
+  ss_run "$FRESH" "$SESSTART" "$(ss_payload "$ss_src")"
+  ss_check_rc   "session-start: source $ss_src — exits 0" 0
+  ss_check_has  "session-start: source $ss_src — SESSION_STATE's Next Step is printed" yes "resume the Work Unit after /clear"
+  TOTAL=$((TOTAL + 1))
+  if [ "$SS_OUT" = "$SS_STARTUP_OUT" ]; then
+    [ "$VERBOSE" -eq 1 ] && printf '   ok    %s\n' "session-start: source $ss_src — output identical to startup"
+  else
+    FAILED=$((FAILED + 1))
+    printf '   FAIL  %s\n' "session-start: source $ss_src — output identical to startup"
+    diff <(printf '%s\n' "$SS_STARTUP_OUT") <(printf '%s\n' "$SS_OUT") | head -10 | sed 's/^/         /'
+  fi
+done
 
 # --- Tier map in force (WU-IAENG-336, issue #212) ------------------------
 # A Main Agent applying a Lightweight Tier Override in a project whose
@@ -616,6 +824,82 @@ else
   echo "   FAIL  tests/dashboard.sh reported no counts (exit $DASH_RC) — it could not run"
 fi
 rm -f "$DASH_COUNTS"
+
+# --- Framework drift at session start (WU-IAENG-359) -------------------------
+# Its own file too (tests/drift.sh), counted here the same way.
+DRIFT_COUNTS="$(mktemp "${TMPDIR:-/tmp}/iaeng-drift-counts.XXXXXX")"
+IAENG_HOOK_TESTS_COUNTS="$DRIFT_COUNTS" bash "$HERE/drift.sh" ${DASH_ARGS[@]+"${DASH_ARGS[@]}"}
+DRIFT_RC=$?
+if read -r DRIFT_TOTAL DRIFT_FAILED < "$DRIFT_COUNTS" 2>/dev/null \
+    && [[ "$DRIFT_TOTAL" =~ ^[0-9]+$ ]] && [[ "$DRIFT_FAILED" =~ ^[0-9]+$ ]] && [ "$DRIFT_TOTAL" -gt 0 ]; then
+  TOTAL=$((TOTAL + DRIFT_TOTAL))
+  FAILED=$((FAILED + DRIFT_FAILED))
+  if [ "$DRIFT_RC" -ne 0 ] && [ "$DRIFT_FAILED" -eq 0 ]; then
+    TOTAL=$((TOTAL + 1)); FAILED=$((FAILED + 1))
+    echo "   FAIL  tests/drift.sh exited $DRIFT_RC with no failed check counted"
+  fi
+else
+  TOTAL=$((TOTAL + 1)); FAILED=$((FAILED + 1))
+  echo "   FAIL  tests/drift.sh reported no counts (exit $DRIFT_RC) — it could not run"
+fi
+rm -f "$DRIFT_COUNTS"
+
+# --- Context alert (WU-IAENG-380) ---------------------------------------------
+# Its own file too (tests/context-alert.sh), counted here the same way.
+ALERT_COUNTS="$(mktemp "${TMPDIR:-/tmp}/iaeng-alert-counts.XXXXXX")"
+IAENG_HOOK_TESTS_COUNTS="$ALERT_COUNTS" bash "$HERE/context-alert.sh" ${DASH_ARGS[@]+"${DASH_ARGS[@]}"}
+ALERT_RC=$?
+if read -r ALERT_TOTAL ALERT_FAILED < "$ALERT_COUNTS" 2>/dev/null \
+    && [[ "$ALERT_TOTAL" =~ ^[0-9]+$ ]] && [[ "$ALERT_FAILED" =~ ^[0-9]+$ ]] && [ "$ALERT_TOTAL" -gt 0 ]; then
+  TOTAL=$((TOTAL + ALERT_TOTAL))
+  FAILED=$((FAILED + ALERT_FAILED))
+  if [ "$ALERT_RC" -ne 0 ] && [ "$ALERT_FAILED" -eq 0 ]; then
+    TOTAL=$((TOTAL + 1)); FAILED=$((FAILED + 1))
+    echo "   FAIL  tests/context-alert.sh exited $ALERT_RC with no failed check counted"
+  fi
+else
+  TOTAL=$((TOTAL + 1)); FAILED=$((FAILED + 1))
+  echo "   FAIL  tests/context-alert.sh reported no counts (exit $ALERT_RC) — it could not run"
+fi
+rm -f "$ALERT_COUNTS"
+
+# --- Context statusLine (WU-IAENG-379) -----------------------------------------
+# Its own file too (tests/context-statusline.sh), counted here the same way.
+CTX_COUNTS="$(mktemp "${TMPDIR:-/tmp}/iaeng-ctx-counts.XXXXXX")"
+IAENG_HOOK_TESTS_COUNTS="$CTX_COUNTS" bash "$HERE/context-statusline.sh" ${DASH_ARGS[@]+"${DASH_ARGS[@]}"}
+CTX_RC=$?
+if read -r CTX_TOTAL CTX_FAILED < "$CTX_COUNTS" 2>/dev/null \
+    && [[ "$CTX_TOTAL" =~ ^[0-9]+$ ]] && [[ "$CTX_FAILED" =~ ^[0-9]+$ ]] && [ "$CTX_TOTAL" -gt 0 ]; then
+  TOTAL=$((TOTAL + CTX_TOTAL))
+  FAILED=$((FAILED + CTX_FAILED))
+  if [ "$CTX_RC" -ne 0 ] && [ "$CTX_FAILED" -eq 0 ]; then
+    TOTAL=$((TOTAL + 1)); FAILED=$((FAILED + 1))
+    echo "   FAIL  tests/context-statusline.sh exited $CTX_RC with no failed check counted"
+  fi
+else
+  TOTAL=$((TOTAL + 1)); FAILED=$((FAILED + 1))
+  echo "   FAIL  tests/context-statusline.sh reported no counts (exit $CTX_RC) — it could not run"
+fi
+rm -f "$CTX_COUNTS"
+
+# --- Own directory (WU-IAENG-400) ----------------------------------------------
+# Its own file too (tests/own-dir.sh), counted here the same way.
+OWN_COUNTS="$(mktemp "${TMPDIR:-/tmp}/iaeng-own-counts.XXXXXX")"
+IAENG_HOOK_TESTS_COUNTS="$OWN_COUNTS" bash "$HERE/own-dir.sh" ${DASH_ARGS[@]+"${DASH_ARGS[@]}"}
+OWN_RC=$?
+if read -r OWN_TOTAL OWN_FAILED < "$OWN_COUNTS" 2>/dev/null \
+    && [[ "$OWN_TOTAL" =~ ^[0-9]+$ ]] && [[ "$OWN_FAILED" =~ ^[0-9]+$ ]] && [ "$OWN_TOTAL" -gt 0 ]; then
+  TOTAL=$((TOTAL + OWN_TOTAL))
+  FAILED=$((FAILED + OWN_FAILED))
+  if [ "$OWN_RC" -ne 0 ] && [ "$OWN_FAILED" -eq 0 ]; then
+    TOTAL=$((TOTAL + 1)); FAILED=$((FAILED + 1))
+    echo "   FAIL  tests/own-dir.sh exited $OWN_RC with no failed check counted"
+  fi
+else
+  TOTAL=$((TOTAL + 1)); FAILED=$((FAILED + 1))
+  echo "   FAIL  tests/own-dir.sh reported no counts (exit $OWN_RC) — it could not run"
+fi
+rm -f "$OWN_COUNTS"
 
 # --- Verdict ----------------------------------------------------------------
 

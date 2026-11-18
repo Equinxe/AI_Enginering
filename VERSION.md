@@ -2,11 +2,11 @@
 
 Current Version
 
-**v0.0.14**
+**v0.0.15**
 
 Codename
 
-**Precision**
+**Adoption**
 
 Status
 
@@ -66,7 +66,7 @@ Status
 
 ---
 
-### Templates (13)
+### Templates (15)
 
 - [x] Work Unit
 - [x] Work Unit Report
@@ -78,9 +78,11 @@ Status
 - [x] Pole Brief
 - [x] Project Charter
 - [x] Project CLAUDE.md
+- [x] Project Glossary
 - [x] Session State
 - [x] Domain Employee
 - [x] Risk Map
+- [x] Root Cause Analysis
 
 ---
 
@@ -258,6 +260,21 @@ The milestone that made the framework exact and usable. Two halves: every front-
 - [x] Review and merge discipline -- the Prompt Engineer review of Core/Employees changes in the Code Review workflow, and approvals carried over an update merge of develop decided mechanically by `check-approval-carry-over.sh` (WU-IAENG-340, 343, 344)
 - [x] Validator and suite reliability -- SIGPIPE read as a missing path, skip accounting, single-pass agent generation, `release.sh publish` text matching Step 8 (WU-IAENG-300, 301, 319, 322, 335)
 
+### Adoption (v0.0.15)
+
+The milestone that prepared the framework for a project other than its own. An adopting project now sees how far it has drifted from the framework at every session start, without a flag to type; the 28 Oct 2026 adoption rehearsal's Blocker and Majors are fixed; the context and guard hooks hold under the load of parallel agents on Windows; and the Director's Core and Standards texts of 23 to 28 Oct 2026 are committed verbatim.
+
+- [x] Adopter drift, seen at session start -- the four installers' `--check` modes, `check-framework-drift.sh`, the drift line at session start, its cache kept outside the project, and a run cut by its budget finished in the background (WU-IAENG-353, 355, 357, 358, 359, 399, 418)
+- [x] The 28 Oct 2026 adoption rehearsal -- the git hooks in an adopting project's worktree (#368, #397), `commit-msg` checks that the Work Unit exists, the adopter README's tier-map step and its doc Minors (WU-IAENG-414, 415, 417)
+- [x] Context compaction -- the measurement behind a threshold, the context status line and alert, SessionStart on `/clear`, the Claude Code troubleshooting catalog (WU-IAENG-373, 374, 375, 379, 380, 394, 401)
+- [x] Guards under load -- blocking-hook latency measured on Windows, the two guards failing closed with a 120 s timeout, a lighter Stop gate, hooks loading their files from their own directory (WU-IAENG-400, 410)
+- [x] The Check Convention made a Standard, and the checks brought to it -- a distinct exit code for a condition not evaluated, a carriage return removed only at a line end (WU-IAENG-387, 389, 390)
+- [x] The Director's Core and Standards texts -- standing authorisations, presenting a decision, Falsifiability, Independent Oracle, spike branches, branch deletion tiers, the Plan Review before the Director (WU-IAENG-354, 356, 376, 377, 382, 386)
+- [x] Review and planning discipline -- the Plan Review and the Code Reviewer's checklist, the Defect Hunt and the Merge danger section, the Hotfix planning step, the Prompt Engineer review's file list, one full test suite at a time (WU-IAENG-371, 383, 391, 403, 409, 411, 416)
+- [x] Templates and working documents -- Root Cause Analysis, the lessons close-out and release retrospective, the project domain glossary, `AMELIORATION.md` (WU-IAENG-369, 370, 372, 412, 413)
+- [x] Release and registry tooling -- changelog fragments and `release.sh assemble`, Work Units reserved up front, workflow step titles compared byte for byte, `release.sh publish` naming Step 11, the deferral to Usage and this bump (WU-IAENG-378, 381, 385, 388, 392, 393, 398, 402, 408, 420, 422, 423, 424)
+- [x] Hardening and cleanup -- usage dashboard measurement, installer residuals, the SESSION_STATE helper and no size limit, the git config gaps of #236, carry-over and chain-diagram follow-ups, one Pull Request size limit, the Control Path Guard's script, the framework repository by identity, suite counting, one record sanitiser, `CDPATH`, the Adapters inventory, `develop` strict=false codified (WU-IAENG-346, 347, 348, 349, 350, 351, 360, 361, 362, 363, 364, 365, 366, 367, 368, 384)
+
 ---
 
 ## Versioning Policy
@@ -270,13 +287,13 @@ The full, authoritative versioning policy — segment semantics, the `.FIX` vs. 
 
 ## Planned
 
-- The next milestone is **Adoption**, targeting **v0.0.15**: sustained adoption of the framework on a real project, and the follow-ups it finds. WU-IAENG-332 (usage dashboard measurement fixes) moves here from Precision. Several open issues exist as individual maintenance/tech-debt items, but none alone constitutes this milestone.
-- Portability made the framework adoptable off its own repository, and a first adoption was rehearsed against a real project to find what greenfield never surfaces. A sustained adoption on a real published project outside this repository is what Adoption is for; what it finds decides the scope after it, and `Governance/TROUBLESHOOTING.md` exists for what it finds.
+- The next milestone is **Usage**, targeting **v0.0.16** (Director decision, 30 Oct 2026). Its first Work Units are the eight deferred from Adoption: the Check Convention follow-ups, the trailer key variants of #338, the install.sh pre-commit probe and the setup-branch-protection.sh review follow-ups (WU-IAENG-395, 396, 397, 404 to 407), and the status line redesign of #390 (WU-IAENG-421). Several open issues exist as individual maintenance/tech-debt items, but none alone constitutes this milestone.
+- Adoption rehearsed the adoption path end to end on 28 Oct 2026 and fixed its Blocker and Majors. A sustained adoption on a real published project outside this repository is still to come; what it finds decides the scope after it, and `Governance/TROUBLESHOOTING.md` exists for what it finds.
 
 ---
 
 ## Next Milestone
 
-**Adoption** — next, targets **v0.0.15**. Sustained adoption on a real project and the follow-ups it finds; WU-IAENG-332 and the open follow-up issues are its first Work Units. Its Work Units are registered under this milestone name in `Registry/work-units.yml`.
+**Usage** — next, targets **v0.0.16** (Director decision, 30 Oct 2026). Its first Work Units are the eight deferred from Adoption (WU-IAENG-395, 396, 397, 404 to 407 and 421). Its Work Units are registered under this milestone name in `Registry/work-units.yml`.
 
-v0.0.12 carried two milestones under one number: Automation and Convergence both completed on `develop` before either shipped, so both are named in that release's `CHANGELOG.md` heading. A number is not reserved for a milestone that never had a release of its own — so nothing was skipped, Portability took **0.0.13**, and the next takes 0.0.14. `Governance/VERSIONING_POLICY.md` records why v0.0.12's two milestones shipped together, and why that is not the naming shortcut the same document forbids.
+v0.0.12 carried two milestones under one number: Automation and Convergence both completed on `develop` before either shipped, so both are named in that release's `CHANGELOG.md` heading. A number is not reserved for a milestone that never had a release of its own — so nothing was skipped: Portability took **0.0.13**, Precision **0.0.14** and Adoption **0.0.15**, and Usage targets **0.0.16**. `Governance/VERSIONING_POLICY.md` records why v0.0.12's two milestones shipped together, and why that is not the naming shortcut the same document forbids.

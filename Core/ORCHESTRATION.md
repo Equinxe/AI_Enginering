@@ -80,6 +80,8 @@ For each Work Unit:
 
 Work Units must be atomic: one independently reviewable engineering task each.
 
+A plan that carries a Medium-or-higher action (`Standards/RISK_STANDARD.md`) first goes to the Technical Lead for its Plan Review (`Employees/Management/TECHNICAL_LEAD.md`, Process, Plan Review). It reaches the Director only on the verdict *ready for the Director*, with the record attached; a *revise* verdict is answered first, and so is an *escalate* verdict, by whom the record names: the Software Architect for an architectural finding, the Director for a product decision, put as the question it raises. A plan whose actions are all Low goes to the Director without one.
+
 The plan is presented to the Director before execution begins.
 
 **Director approval is required before Step 4.**
@@ -261,7 +263,7 @@ The one-to-one rows carry the same name or an exact synonym. The two that do not
 
 Owner: IA Engineering
 
-Version: 0.0.13
+Version: 0.0.15
 
 Status: Draft
 

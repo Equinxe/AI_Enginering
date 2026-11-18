@@ -51,8 +51,14 @@
 # advisory: it verifies the record is there and has its fields, not that the
 # tier or the decision is the right one.
 #
-# Exit 0 when the map is sound (or, in --range, when the change set is
-# acceptable), 1 otherwise, 2 on a usage error.
+# Exit codes (Standards/CODE_QUALITY_STANDARD.md, The Check Convention, Shell
+# Scripts rule 1):
+#   0  the map is sound (or, in --range, the change set is acceptable)
+#   1  a finding: the map is unsound, or a sensitive zone is touched without
+#      a Risk Record
+#   2  could not evaluate, or a usage error: the project root is not a
+#      directory, there is no Risk Map or it yields no zones, or a git command
+#      failed (`ls-files`, `merge-base`, `diff`). Nothing was classified.
 
 set -uo pipefail
 export LC_ALL=C
@@ -101,21 +107,27 @@ done
 
 if [ ! -d "$ROOT" ]; then
   err "no such directory: $ROOT"
-  exit 1
+  exit 2
 fi
-cd "$ROOT" || exit 1
+# The root is the caller's, often relative: an exported CDPATH must neither
+# redirect this cd nor print into the output.
+CDPATH='' cd -- "$ROOT" || exit 2
 
 MAP=".ia-engineering/risk-map.yml"
 if [ ! -f "$MAP" ]; then
   err "no Risk Map at $MAP. Standards/RISK_STANDARD.md: a project without one is UNCLASSIFIED, not safe — every path falls back to standard and the sensitive ones silently lose what the project requires of them. Write one from Templates/RISK_MAP.md, and commit it: a map CI cannot read classifies nothing."
-  exit 1
+  exit 2
 fi
 
 # --- parse -------------------------------------------------------------------
 #
 # The parsing contract, the same shape Registry/ uses: a zone opens with a line
 # `  - pattern: <glob>` and its fields are `    level:`, `    category:` and
-# `    reason:`. Quotes around the glob are optional and stripped.
+# `    reason:`. Quotes around the glob are optional and stripped. A carriage
+# return is removed only where it ends a line (a CRLF checkout), never every
+# one: one inside a field is data, and deleting it would read a pattern, level
+# or category YAML does not contain (Standards/CODE_QUALITY_STANDARD.md, The
+# Check Convention, Shell Scripts rule 3; WU-IAENG-389, issue #325).
 #
 # Each zone becomes one tab-separated record ending in the regex its glob
 # translates to, computed ONCE here rather than per file — the alternative is
@@ -140,13 +152,13 @@ ZONES="$(awk '
   }
   /^  - pattern:/ {
     flush()
-    pat = $0; sub(/^  - pattern:[ \t]*/, "", pat); gsub(/\r/, "", pat)
+    pat = $0; sub(/^  - pattern:[ \t]*/, "", pat); sub(/\r$/, "", pat)
     gsub(/^"|"$/, "", pat)
     lvl = ""; cat = ""; reason = ""
     next
   }
-  /^    level:/    { lvl = $0; sub(/^    level:[ \t]*/, "", lvl); gsub(/\r/, "", lvl); next }
-  /^    category:/ { cat = $0; sub(/^    category:[ \t]*/, "", cat); gsub(/\r/, "", cat); next }
+  /^    level:/    { lvl = $0; sub(/^    level:[ \t]*/, "", lvl); sub(/\r$/, "", lvl); next }
+  /^    category:/ { cat = $0; sub(/^    category:[ \t]*/, "", cat); sub(/\r$/, "", cat); next }
   /^    reason:/   { reason = "yes"; next }
   END { flush() }
 ' "$MAP")"
@@ -154,12 +166,12 @@ ZONES="$(awk '
 ZONE_COUNT="$(printf '%s\n' "$ZONES" | grep -c . || true)"
 if [ "$ZONE_COUNT" -eq 0 ]; then
   err "$MAP yielded no zones. The parsing contract is a line of the exact form '  - pattern: <glob>' with '    level:' beneath it (two spaces, dash, space). Failing rather than treating an unreadable map as an empty one, which would classify the whole project as unmapped without ever saying the file could not be read."
-  exit 1
+  exit 2
 fi
 
 if ! TRACKED="$(git ls-files)"; then
   err "git ls-files failed. The map is checked against tracked paths; without them nothing can be verified."
-  exit 1
+  exit 2
 fi
 TRACKED_COUNT="$(printf '%s\n' "$TRACKED" | grep -c . || true)"
 
@@ -195,7 +207,7 @@ level_of() {
     # as the pipeline's failure — so a real match reads as a miss whenever the
     # producer had more to write. Harmless for one filename, wrong for the large
     # producers below, uniform here so the footgun is not copied. TROUBLESHOOTING X.
-    if grep -qE "$re" <<< "$file"; then
+    if grep -qE -- "$re" <<< "$file"; then
       printf '%s\n' "$lvl"
       return 0
     fi
@@ -228,11 +240,11 @@ if [ "$MODE" = range ]; then
   # below uses `<base>..<head>`, which is already merge-base-relative.
   if ! MERGE_BASE="$(git merge-base "$BASE" "$HEAD_REF")"; then
     err "Could not compute the merge base of $BASE and $HEAD_REF. Nothing was classified, so nothing is established."
-    exit 1
+    exit 2
   fi
   if ! CHANGED="$(git diff --name-only "$MERGE_BASE" "$HEAD_REF")"; then
     err "git diff failed between the merge base $MERGE_BASE and $HEAD_REF. Nothing was classified, so nothing is established."
-    exit 1
+    exit 2
   fi
   n="$(printf '%s\n' "$CHANGED" | grep -c . || true)"
   if [ "$n" -eq 0 ]; then
@@ -273,7 +285,12 @@ EOF
   # while git keeps writing — SIGPIPE, which `set -o pipefail` returns as the
   # pipeline's status. The check would then report NO record while one is right
   # there, and block a valid change. TROUBLESHOOTING X.
-  RANGE_MSGS="$(git log --format=%B "$BASE..$HEAD_REF")"
+  # A log that could not be read is not a range without a record: that would
+  # report a finding nobody established.
+  if ! RANGE_MSGS="$(git log --format=%B "$BASE..$HEAD_REF")"; then
+    err "git log failed over $BASE..$HEAD_REF, so no commit message was read for a Risk Record. Nothing is established."
+    exit 2
+  fi
 
   # THE RECORD MUST BE A RECORD, not a mention of one (PT2-06). The line is
   # the one Standards/RISK_STANDARD.md defines —
@@ -362,11 +379,11 @@ while IFS="$TAB" read -r pat lvl cat reason re; do
   # here-string, not `printf | grep -q`: $TRACKED is git ls-files, which in a
   # real project exceeds the pipe buffer, and grep -q short-circuiting it would
   # make a LIVE zone read as dead under pipefail. TROUBLESHOOTING X.
-  if ! grep -qE "$re" <<< "$TRACKED"; then
+  if ! grep -qE -- "$re" <<< "$TRACKED"; then
     # Present-but-untracked is not a dead zone. The file exists; it is not
     # committed yet. That is the expected state right after bootstrap, so the
     # honest fix is to stage it, not to delete the entry the installer wrote.
-    if untracked_hit="$(grep -m1 -E "$re" <<< "$UNTRACKED")" && [ -n "$untracked_hit" ]; then
+    if untracked_hit="$(grep -m1 -E -- "$re" <<< "$UNTRACKED")" && [ -n "$untracked_hit" ]; then
       fail "zone '$pat' matches a file that exists but is not tracked yet (e.g. $untracked_hit). The map classifies committed files; stage and commit it — right after bootstrap this is expected, since the installed files are not committed yet. Until then the zone protects nothing."
     else
       fail "zone '$pat' matches no tracked file. A dead entry reassures without keeping anything — trap 4 in Templates/RISK_MAP.md. Remove it, or fix the pattern."
@@ -396,7 +413,8 @@ fi
 # reason. A false declaration of absence is worse than an omission, so the
 # declaration is required to EXIST — whether it is true is a reading task, and
 # Templates/RISK_MAP.md says to have someone else do it.
-declared_absent="$(grep -E '^[[:space:]]*- category:' "$MAP" | sed 's/.*category:[[:space:]]*//' | tr -d '\r' | tr '\n' ' ')"
+# Line-end carriage return only (rule 3, see the parse above).
+declared_absent="$(grep -E '^[[:space:]]*- category:' "$MAP" | sed $'s/.*category:[[:space:]]*//; s/\r$//' | tr '\n' ' ')"
 for c in $CATEGORIES; do
   case " $seen_categories " in *" $c "*) continue ;; esac
   case " $declared_absent " in *" $c "*) continue ;; esac

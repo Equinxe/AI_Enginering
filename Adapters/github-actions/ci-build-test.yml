@@ -25,14 +25,22 @@ name: IA Engineering - CI Build & Test
 # falling back to sniffing, because a typo that silently switched builds would
 # report success for a stack nobody chose.
 #
-# Manifest detection remains, and applies only when there is no declaration,
-# so a project predating it builds exactly as before. Precedence, first match
-# wins:
+# The stacks this file builds, one step block each: node, web, python, go,
+# jvm, dotnet, php, and generic (the placeholder fallback). They are
+# KNOWN_STACKS in resolve-stack.sh.
+#
+# Manifest detection remains, and applies only when there is no declaration.
+# Every manifest is checked; there is no precedence order:
 #   package.json                              -> node
-#   pyproject.toml OR requirements.txt        -> python
+#   composer.json                             -> php
 #   go.mod                                    -> go
+#   pyproject.toml OR requirements.txt        -> python
 #   pom.xml OR build.gradle(.kts)             -> jvm
-#   (none of the above)                       -> generic  (explicit fallback)
+#   *.csproj OR *.fsproj OR *.sln             -> dotnet
+# Exactly one match is the stack. No match is `generic`. More than one match
+# FAILS the step and asks the project to declare its stack, because a Laravel
+# application has composer.json AND package.json and both are true. `web` is
+# never inferred: it exists only as a declaration.
 #
 # Inference is the weaker mechanism and is bounded by design: one manifest can
 # belong to more than one stack — a React site and a Node server both have
@@ -225,7 +233,7 @@ jobs:
       - name: Generic build & test (placeholder)
         if: steps.detect.outputs.stack == 'generic'
         run: |
-          echo "No first-class stack (Node, Python, Go, JVM) was detected."
+          echo "No first-class stack (Node, web, Python, Go, JVM, .NET, PHP) was declared or detected."
           # TODO(adopting project): replace the lines below with your project's
           # real build and test commands, e.g.:
           #   make build

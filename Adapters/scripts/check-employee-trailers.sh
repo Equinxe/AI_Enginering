@@ -41,9 +41,17 @@
 #
 #   check-employee-trailers.sh <base-ref> <head-ref>
 #
-# Exit 0 when every commit (and every authored merge) resolves, 1 when any does
-# not, when a merge cannot be classified, or when the roster cannot be found. A
-# range with no non-merge commits says so and still classifies its merges.
+# Exit codes (Standards/CODE_QUALITY_STANDARD.md, The Check Convention, Shell
+# Scripts rule 1):
+#   0  every commit, and every authored merge, carries an Employee that resolves
+#   1  a finding: a commit or authored merge without the trailer, or with a
+#      name that is not on the roster
+#   2  could not evaluate, or a usage error: merge-classify.sh missing, no
+#      roster or one that yields no names, $IAENG_PROJECT_ROSTER naming no
+#      file, `git rev-list` failed, git too old to classify merges, or a merge
+#      that could not be classified. A finding elsewhere in the range does not
+#      lower it to 1: what was not evaluated is reported as such.
+# A range with no non-merge commits says so and still classifies its merges.
 
 set -uo pipefail
 
@@ -55,7 +63,7 @@ set -uo pipefail
 SCRIPT_DIR="$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 if [ ! -f "$SCRIPT_DIR/merge-classify.sh" ]; then
   echo "check-employee-trailers: ERROR: $SCRIPT_DIR/merge-classify.sh not found; failing closed." >&2
-  exit 1
+  exit 2
 fi
 # shellcheck source=merge-classify.sh
 . "$SCRIPT_DIR/merge-classify.sh"
@@ -95,12 +103,17 @@ done
 
 if [ -z "$ROSTER" ]; then
   err "Could not locate Registry/employees.yml (looked at \$IAENG_REGISTRY, Registry/, ia-engineering/Registry/). The Employee roster is the single source of truth for this check; failing closed rather than passing without validating anything."
-  exit 1
+  exit 2
 fi
 
 echo "Roster: $ROSTER"
 
-VALID_NAMES="$(grep -E '^  - name: ' "$ROSTER" | sed 's/^  - name: //' | tr -d '\r')"
+# A carriage return is removed only where it ends a line (a CRLF checkout),
+# never every one: one inside a name is data, and deleting it would make a
+# roster line YAML does not read as that name match it
+# (Standards/CODE_QUALITY_STANDARD.md, The Check Convention, Shell Scripts
+# rule 3; WU-IAENG-389, issue #325).
+VALID_NAMES="$(grep -E '^  - name: ' "$ROSTER" | sed $'s/^  - name: //; s/\r$//')"
 ROSTER_COUNT="$(printf '%s\n' "$VALID_NAMES" | grep -c . || true)"
 echo "Roster entries: $ROSTER_COUNT"
 
@@ -108,7 +121,7 @@ echo "Roster entries: $ROSTER_COUNT"
 # would describe the commits when the fault is in the parser or the file shape.
 if [ "$ROSTER_COUNT" -eq 0 ]; then
   err "$ROSTER yielded no Employee names. The parsing contract is a line of the exact form '  - name: <Name>' (two spaces, dash, space). Failing rather than refusing every commit, which would describe the parser and not the commits."
-  exit 1
+  exit 2
 fi
 
 PROJECT_ROSTER=""
@@ -117,14 +130,14 @@ if [ -n "${IAENG_PROJECT_ROSTER:-}" ]; then
     PROJECT_ROSTER="$IAENG_PROJECT_ROSTER"
   else
     err "IAENG_PROJECT_ROSTER is set to '$IAENG_PROJECT_ROSTER' but no such file exists. Validating against the framework roster alone would silently refuse every Domain Employee; fix the path or unset the variable."
-    exit 1
+    exit 2
   fi
 elif [ -f ".ia-engineering/Registry/employees.yml" ]; then
   PROJECT_ROSTER=".ia-engineering/Registry/employees.yml"
 fi
 
 if [ -n "$PROJECT_ROSTER" ]; then
-  PROJECT_NAMES="$(grep -E '^  - name: ' "$PROJECT_ROSTER" | sed 's/^  - name: //' | tr -d '\r')"
+  PROJECT_NAMES="$(grep -E '^  - name: ' "$PROJECT_ROSTER" | sed $'s/^  - name: //; s/\r$//')"
   echo "Project roster: $PROJECT_ROSTER ($(printf '%s\n' "$PROJECT_NAMES" | grep -c . || true) Domain Employee(s))"
   VALID_NAMES="$(printf '%s\n%s\n' "$VALID_NAMES" "$PROJECT_NAMES")"
 else
@@ -133,10 +146,13 @@ fi
 
 if ! COMMITS="$(git rev-list --no-merges "${BASE_REF}..${HEAD_REF}")"; then
   err "git rev-list failed over ${BASE_REF}..${HEAD_REF}. No commit was examined, so nothing was established; failing rather than reporting zero problems."
-  exit 1
+  exit 2
 fi
 
 fail=0
+# Set when a merge could not be classified: the run then exits 2, whatever
+# else it found (the header's exit codes).
+unevaluated=0
 
 # validate_employee_lines <sha> <employee-lines>
 # Every claim is checked against the roster; the caller decides what an absent
@@ -145,11 +161,15 @@ validate_employee_lines() {
   local sha="$1" lines="$2" emp_line EMPLOYEE_NAME
   while IFS= read -r emp_line; do
     [ -n "$emp_line" ] || continue
-    EMPLOYEE_NAME="$(printf '%s' "${emp_line#Employee: }" | tr -d '\r')"
+    # Line-end carriage return only: git keeps one inside the value, so
+    # `Platform Engi<CR>neer` is not `Platform Engineer` (rule 3, above).
+    EMPLOYEE_NAME="${emp_line#Employee: }"
+    EMPLOYEE_NAME="${EMPLOYEE_NAME%$'\r'}"
     # here-string, not `printf | grep -q`: grep -q short-circuiting a roster
     # that exceeds the pipe buffer would SIGPIPE the producer, and pipefail
     # returns that — a valid name read as invalid. TROUBLESHOOTING X.
-    if grep -qxF "$EMPLOYEE_NAME" <<< "$VALID_NAMES"; then
+    # `--`: the value is compared as text even when it begins with a dash.
+    if grep -qxF -- "$EMPLOYEE_NAME" <<< "$VALID_NAMES"; then
       echo "  $sha -> $EMPLOYEE_NAME"
     else
       err "Commit $sha has 'Employee: $EMPLOYEE_NAME', which is not in $ROSTER${PROJECT_ROSTER:+ nor in the project roster $PROJECT_ROSTER}. A functional or tool label ('executor', 'coder', 'reviewer-bot') is not a valid Employee name — see Core/MAIN_AGENT_CONDUCT.md, 'Naming matters.' If this line is an EXAMPLE quoted in the message body, indent it so it does not start at column 0."
@@ -203,7 +223,7 @@ readonly GRANDFATHERED_MERGES="3babf69d9664ddb590acd7381a99fa90d1e40f70 93c850a7
 # unclassifiable merge is the check-that-passes-without-evaluating shape.
 if ! MERGES="$(git rev-list --merges "${BASE_REF}..${HEAD_REF}")"; then
   err "git rev-list --merges failed over ${BASE_REF}..${HEAD_REF}; failing rather than skipping merges unexamined."
-  exit 1
+  exit 2
 fi
 
 if [ -n "$MERGES" ]; then
@@ -211,7 +231,7 @@ if [ -n "$MERGES" ]; then
 
   if ! merge_classify_git_ok; then
     err "git $(git version) cannot classify merge commits: 'git merge-tree --write-tree' with --attr-source needs git 2.40 or newer. Failing closed rather than passing merges unclassified."
-    exit 1
+    exit 2
   fi
 
   for sha in $MERGES; do
@@ -224,7 +244,7 @@ if [ -n "$MERGES" ]; then
     KIND="$(merge_classify "$sha")"
     if [ "${KIND#error}" != "$KIND" ]; then
       err "Merge $sha could not be classified (${KIND#error: }). Failing closed rather than passing an unclassified merge."
-      fail=1
+      unevaluated=1
       continue
     fi
 
@@ -239,4 +259,5 @@ if [ -n "$MERGES" ]; then
   done
 fi
 
+[ "$unevaluated" -eq 0 ] || exit 2
 exit "$fail"

@@ -26,14 +26,17 @@
 # a suite that reports "all passed" without saying how many is not evidence
 # (Adapters/README.md, The Check Convention, rule 3). A check that is skipped
 # for a genuine platform limitation is reported too (WU-IAENG-300): it is
-# never folded into "passed" and never silently absent from the total.
+# never folded into "passed" and never silently absent from the total. A
+# block that runs only where a precondition holds declares its size with
+# block_begin, and a path that accounts for a different number of checks
+# fails the run (WU-IAENG-363).
 
 set -uo pipefail
 
 VERBOSE=""
 [ "${1:-}" = "--verbose" ] && VERBOSE=1
 
-HERE="$(cd "$(dirname "$0")" && pwd)"
+HERE="$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)"
 SCRIPTS="$(cd "$HERE/.." && pwd)"
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
@@ -178,6 +181,85 @@ skip() {
   return 0
 }
 
+# not_applicable <n> <key> <reason...> — records <n> checks whose premise is
+# a property of the filesystem that no platform in CI provides and no fix can
+# break: a case-folding filesystem on Linux. Reported apart from skips in the
+# Result line, and not refused under CI=true, because there it is the
+# expected outcome, not a symptom. Anything a fix could cause (a failed
+# `ln -s`, a missing tool) is a `skip`, never this (WU-IAENG-363).
+#
+# That rule is enforced, not only written: <key> must be on NA_ALLOWED, the
+# closed list below, or the call is a FAILED check on every platform, CI
+# included. A new use is therefore a reviewed edit of this list, never a
+# quiet green.
+NA_ALLOWED="case-folded-path"
+NOT_APPLICABLE=0
+NA_REASONS=""
+not_applicable() {
+  local n="$1" key="$2"; shift 2
+  case " $NA_ALLOWED " in
+    *" $key "*) ;;
+    *)
+      TOTAL=$((TOTAL + n))
+      FAILED=$((FAILED + n))
+      printf '   FAIL (not_applicable refused: "%s" is not on NA_ALLOWED) %s\n' "$key" "$*"
+      return 1
+      ;;
+  esac
+  NOT_APPLICABLE=$((NOT_APPLICABLE + n))
+  NA_REASONS="${NA_REASONS:+$NA_REASONS; }$*"
+  printf '   N/A  (%s not applicable) %s\n' "$n" "$*"
+  return 0
+}
+
+# block_begin <n> <label> ... block_end — the declared size of a block whose
+# checks run only when a precondition holds (WU-IAENG-363, issue #275).
+#
+# Such a block has two paths: the checks, or `skip "$BLOCK_N" ...` when the
+# precondition fails. Each path must account for the same <n> checks, or the
+# denominator of a run depends on the platform: a `skip 5` in front of six
+# checks, or a nested `if` with no `else skip` whose case vanishes from both
+# TOTAL and SKIPPED where its precondition is false, as on MSYS where `ln -s`
+# copies instead of linking. block_end compares what the path that ran
+# accounted for (TOTAL plus SKIPPED plus NOT_APPLICABLE, so a nested skip
+# counts) against <n>, and a difference is a FAILED check everywhere, CI
+# included: it is a defect of this suite, deterministic, and never a platform
+# limitation. A block still open when the verdict is reached fails too.
+#
+# The skip path takes its count from $BLOCK_N, so the number is written once.
+BLOCK_N=""
+BLOCK_LABEL=""
+BLOCK_T0=0
+BLOCK_S0=0
+BLOCK_A0=0
+block_begin() {
+  if [ -n "$BLOCK_N" ]; then
+    printf '   FAIL (block) block_begin "%s" inside the open block "%s"\n' "$2" "$BLOCK_LABEL"
+    TOTAL=$((TOTAL + 1)); FAILED=$((FAILED + 1))
+  fi
+  BLOCK_N="$1"
+  BLOCK_LABEL="$2"
+  BLOCK_T0=$TOTAL
+  BLOCK_S0=$SKIPPED
+  BLOCK_A0=$NOT_APPLICABLE
+}
+block_end() {
+  if [ -z "$BLOCK_N" ]; then
+    printf '   FAIL (block) block_end with no open block\n'
+    TOTAL=$((TOTAL + 1)); FAILED=$((FAILED + 1))
+    return 1
+  fi
+  local got=$(( TOTAL - BLOCK_T0 + SKIPPED - BLOCK_S0 + NOT_APPLICABLE - BLOCK_A0 )) want="$BLOCK_N" label="$BLOCK_LABEL"
+  BLOCK_N=""
+  BLOCK_LABEL=""
+  if [ "$got" -ne "$want" ]; then
+    printf '   FAIL (block size) %s: declares %s checks, the path that ran accounted for %s\n' "$label" "$want" "$got"
+    TOTAL=$((TOTAL + 1)); FAILED=$((FAILED + 1))
+    return 1
+  fi
+  return 0
+}
+
 section() { printf '\n== %s\n' "$1"; }
 
 # ------------------------------------------------- check-work-units.sh ------
@@ -277,7 +359,7 @@ expect_output "carries no"
 new_repo wu-no-registry
 BASE="$(git rev-parse HEAD)"
 commit_with "feat: anything" "Work Unit: WU-TEST-001"
-expect 1 "an absent registry fails closed" -- bash "$CHECK_WU" "$BASE" HEAD
+expect 2 "an absent registry fails closed" -- bash "$CHECK_WU" "$BASE" HEAD
 expect_output "This project has no Work Unit registry"
 
 # A registry that parses to nothing must name the parser, not blame the
@@ -289,7 +371,7 @@ printf 'work_units:\n- id: WU-TEST-001\n' > Registry/work-units.yml
 git add -A && git commit -q -m "registry with the wrong indentation"
 BASE="$(git rev-parse HEAD)"
 commit_with "feat: anything" "Work Unit: WU-TEST-001"
-expect 1 "a registry that parses to zero IDs fails as a parsing fault" -- bash "$CHECK_WU" "$BASE" HEAD
+expect 2 "a registry that parses to zero IDs fails as a parsing fault" -- bash "$CHECK_WU" "$BASE" HEAD
 expect_output "parsing contract"
 
 new_repo wu-one-bad-of-three
@@ -305,7 +387,7 @@ expect_output "WU-TEST-404"
 new_repo wu-bad-refs
 write_wu_registry WU-TEST-001
 git add -A && git commit -q -m "registry"
-expect 1 "an unresolvable range fails rather than reporting zero problems" -- bash "$CHECK_WU" "does-not-exist" HEAD
+expect 2 "an unresolvable range fails rather than reporting zero problems" -- bash "$CHECK_WU" "does-not-exist" HEAD
 
 expect 2 "wrong argument count is a usage error, not a pass" -- bash "$CHECK_WU"
 
@@ -383,7 +465,7 @@ expect_output "missing an 'Employee: <Name>' trailer"
 new_repo emp-no-roster
 BASE="$(git rev-parse HEAD)"
 commit_with "feat: anything" "Employee: Release Manager"
-expect 1 "an absent roster fails closed" -- bash "$CHECK_EMP" "$BASE" HEAD
+expect 2 "an absent roster fails closed" -- bash "$CHECK_EMP" "$BASE" HEAD
 expect_output "Could not locate Registry/employees.yml"
 
 new_repo emp-unparseable-roster
@@ -394,7 +476,7 @@ printf 'employees:
 git add -A && git commit -q -m "roster with the wrong indentation"
 BASE="$(git rev-parse HEAD)"
 commit_with "feat: anything" "Employee: Release Manager"
-expect 1 "a roster that parses to zero names fails as a parsing fault" -- bash "$CHECK_EMP" "$BASE" HEAD
+expect 2 "a roster that parses to zero names fails as a parsing fault" -- bash "$CHECK_EMP" "$BASE" HEAD
 expect_output "parsing contract"
 
 # A Domain Employee is a real Employee for its project and unknown to the
@@ -422,7 +504,7 @@ write_employee_roster "Release Manager"
 git add -A && git commit -q -m "roster"
 BASE="$(git rev-parse HEAD)"
 commit_with "feat: anything" "Employee: Release Manager"
-expect 1 "a missing IAENG_PROJECT_ROSTER path fails rather than narrowing silently" --   env IAENG_PROJECT_ROSTER=nope/employees.yml bash "$CHECK_EMP" "$BASE" HEAD
+expect 2 "a missing IAENG_PROJECT_ROSTER path fails rather than narrowing silently" --   env IAENG_PROJECT_ROSTER=nope/employees.yml bash "$CHECK_EMP" "$BASE" HEAD
 expect_output "no such file exists"
 
 expect 2 "wrong argument count is a usage error" -- bash "$CHECK_EMP"
@@ -472,13 +554,13 @@ expect_output "every one a merge"
 
 new_repo size-empty-range
 BASE="$(git rev-parse HEAD)"
-expect 1 "identical refs fail: no commits and no files means nothing measured" -- bash "$CHECK_SIZE" "$BASE" HEAD
+expect 2 "identical refs fail: no commits and no files means nothing measured" -- bash "$CHECK_SIZE" "$BASE" HEAD
 expect_output "no commits either"
 
 new_repo size-empty-commit
 BASE="$(git rev-parse HEAD)"
 git commit -q --allow-empty -m "an empty non-merge commit"
-expect 1 "an empty non-merge commit fails: it is not a back-merge" -- bash "$CHECK_SIZE" "$BASE" HEAD
+expect 2 "an empty non-merge commit fails: it is not a back-merge" -- bash "$CHECK_SIZE" "$BASE" HEAD
 expect_output "not merges"
 
 new_repo size-merge-plus-empty
@@ -488,12 +570,12 @@ git checkout -q main
 git merge -q --no-ff side -m "merge side"
 BASE="$(git rev-parse HEAD)"
 git commit -q --allow-empty -m "an empty commit after the merge"
-expect 1 "a merge plus an empty commit still fails" -- bash "$CHECK_SIZE" "$BASE" HEAD
+expect 2 "a merge plus an empty commit still fails" -- bash "$CHECK_SIZE" "$BASE" HEAD
 
 # WU-IAENG-198. An unresolvable ref must not be counted as zero lines: the
 # inline version printed "Within the review limit" and exited 0.
 new_repo size-bad-ref
-expect 1 "an unresolvable base fails rather than measuring zero" -- bash "$CHECK_SIZE" "does-not-exist" HEAD
+expect 2 "an unresolvable base fails rather than measuring zero" -- bash "$CHECK_SIZE" "does-not-exist" HEAD
 
 # linguist-generated files are excluded from the count, and the exclusion is
 # declared in a committed file so it is itself reviewable.
@@ -549,14 +631,14 @@ expect_output "Comments examined: 0"
 
 # A directory the host never created means the fetch did not run. Blaming the
 # change set for a broken pipeline is the failure this distinguishes.
-expect 1 "a missing directory is a pipeline fault, not an unreviewed change" --   bash "$CHECK_REVIEW" "$WORK/comments-never-created"
+expect 2 "a missing directory is a pipeline fault, not an unreviewed change" --   bash "$CHECK_REVIEW" "$WORK/comments-never-created"
 expect_output "fetch did not run"
 
 # "Could not read everything" is not "nothing was recorded".
 CDIR="$WORK/comments-partial"
 rm -rf "$CDIR"
 comment "$CDIR" 1 alice "Only some sources could be read."
-expect 1 "an incomplete fetch says nothing was established either way" --   bash "$CHECK_REVIEW" "$CDIR" --fetch-incomplete
+expect 2 "an incomplete fetch says nothing was established either way" --   bash "$CHECK_REVIEW" "$CDIR" --fetch-incomplete
 expect_output "NOT the same as an unreviewed change set"
 
 # ...but a decision found in what WAS read still counts: the check is satisfied
@@ -595,7 +677,7 @@ expect_output "skipped for author: 1"
 CDIR="$WORK/comments-no-header"
 rm -rf "$CDIR"; mkdir -p "$CDIR"
 printf 'Decision: approved\n' > "$CDIR/1.txt"
-expect 1 "a file with no author header fails closed" -- bash "$CHECK_REVIEW" "$CDIR"
+expect 2 "a file with no author header fails closed" -- bash "$CHECK_REVIEW" "$CDIR"
 expect_output "cannot be attributed"
 
 # The decision block is matched case-insensitively and tolerates leading
@@ -816,6 +898,37 @@ expect 0 "publish closing text: Step 8 back-merge is stated as always required" 
 expect 1 "publish closing text no longer says the back-merge is conditional" -- \
   grep -qF -- "Not needed when the release branch never diverged" "$WORK/publish-closing.txt"
 
+# WU-IAENG-388 (issue #306): WU-IAENG-372 added Step 11, the release
+# retrospective, to Workflows/RELEASE.md, and the closing text still listed
+# Steps 8 to 10, so the operator who had just published never saw it. Each
+# phrase is RELEASE.md's own wording and is asserted against RELEASE.md as
+# well: the expectation comes from the workflow, not from the script, and a
+# reworded Step 11 fails here instead of leaving the script quoting text the
+# workflow no longer holds. The oracle is the Step 11 section only, from its
+# heading to the next heading of any level or the `---` rule that closes it
+# (the section after Step 11 is `# Exit Criteria`, a level-1 heading): a
+# phrase that moved to another step, or survives elsewhere in the file, no
+# longer describes Step 11.
+RELEASE_MD_388="$SCRIPTS/../../Workflows/RELEASE.md"
+awk '/^## Step 11 /{f=1; print; next} f && (/^#/ || /^---\r?$/){exit} f' "$RELEASE_MD_388" \
+  | tr -d '\r' | tr -s ' \n' '  ' > "$WORK/release-step11.txt"
+# The step's title, read from its heading rather than restated, so the
+# closing text is held to whatever RELEASE.md calls the step.
+title_388="$(sed -n 's/^## Step 11 — //p' "$RELEASE_MD_388" | tr -d '\r')"
+expect 0 "RELEASE.md Step 11 heading holds: Step 11 — Release retrospective" -- \
+  test "$title_388" = "Release retrospective"
+expect 0 "publish closing text names Step 11 by RELEASE.md's title: Step 11 $title_388" -- \
+  grep -qF -- "Step 11 $title_388" "$WORK/publish-closing.txt"
+for phrase_388 in \
+  "Scrum Master, dispatched by the Main Agent once the release is tagged" \
+  "Release retrospective vX.X.X" \
+  "recorded before the next milestone's first Work Unit is planned"; do
+  expect 0 "RELEASE.md Step 11 holds: $phrase_388" -- \
+    grep -qF -- "$phrase_388" "$WORK/release-step11.txt"
+  expect 0 "publish closing text quotes Step 11: $phrase_388" -- \
+    grep -qF -- "$phrase_388" "$WORK/publish-closing.txt"
+done
+
 # Exit 3 again, and it must leave the directory behind: check-review-recorded
 # treats an ABSENT directory as a broken pipeline and an EMPTY one as "read,
 # nothing there". Only the second is true here.
@@ -832,7 +945,7 @@ fi
 
 # ...and the caller reads that correctly: an empty directory plus
 # --fetch-incomplete is "nothing established", never "no decision recorded".
-expect 1 "an empty corpus with --fetch-incomplete establishes nothing" -- bash "$SCRIPTS/check-review-recorded.sh" "$D" --fetch-incomplete
+expect 2 "an empty corpus with --fetch-incomplete establishes nothing" -- bash "$SCRIPTS/check-review-recorded.sh" "$D" --fetch-incomplete
 expect_output "NOT the same as an unreviewed change set"
 
 # Every host implements every operation. A missing file is a silently skipped
@@ -914,14 +1027,14 @@ expect_output "Risk Map is sound"
 # standard and the sensitive ones would lose what the project requires of them,
 # with nothing reporting the loss.
 risk_project rm-absent
-expect 1 "no map at all fails, and says unclassified rather than safe" -- bash "$CHECK_MAP" .
+expect 2 "no map at all fails, and says unclassified rather than safe" -- bash "$CHECK_MAP" .
 expect_output "UNCLASSIFIED, not safe"
 
 # An unreadable map is not an empty one. Treating it as empty would classify the
 # whole project as unmapped without ever saying the file could not be read.
 risk_project rm-garbled
 printf 'zones: []\n' > .ia-engineering/risk-map.yml && git add -A
-expect 1 "a map that parses to zero zones fails as a parsing fault" -- bash "$CHECK_MAP" .
+expect 2 "a map that parses to zero zones fails as a parsing fault" -- bash "$CHECK_MAP" .
 expect_output "parsing contract"
 
 # Trap 4 — a pattern matching nothing reassures without keeping anything.
@@ -1273,6 +1386,7 @@ section "install.sh — adopter ignore rules and framework-only eol rules (WU-IA
 FRAMEWORK_ROOT="$(cd "$SCRIPTS/../.." && pwd)"
 
 new_repo inst-adopter
+block_begin 5 "install.sh adopter ignore/eol rules"
 if ln -s "$FRAMEWORK_ROOT" ia-engineering 2>/dev/null; then
   bash ./ia-engineering/Adapters/scripts/install.sh >/dev/null 2>&1
 
@@ -1318,20 +1432,22 @@ if ln -s "$FRAMEWORK_ROOT" ia-engineering 2>/dev/null; then
     printf '   FAIL adopter .gitattributes is missing the /.github/** rule\n'
     FAILED=$((FAILED + 1))
   fi
-
-  # The framework repository's OWN .gitattributes governs itself and is not
-  # rewritten by an adopter install — it must already carry the framework-only
-  # rules that the adopter above correctly did not get.
-  TOTAL=$((TOTAL + 1))
-  if grep -qF '/Adapters/**' "$FRAMEWORK_ROOT/.gitattributes" \
-     && grep -qF '/Registry/**' "$FRAMEWORK_ROOT/.gitattributes"; then
-    [ -n "$VERBOSE" ] && printf '   ok   the framework own .gitattributes carries /Adapters/** and /Registry/**\n'
-  else
-    printf '   FAIL the framework own .gitattributes is missing /Adapters/** or /Registry/**\n'
-    FAILED=$((FAILED + 1))
-  fi
 else
-  skip 5 "install.sh adopter ignore/eol rules: ln -s failed on this platform (no admin rights / Developer Mode off) -- not a fix defect."
+  skip "$BLOCK_N" "install.sh adopter ignore/eol rules: ln -s failed on this platform (no admin rights / Developer Mode off) -- not a fix defect."
+fi
+block_end
+
+# The framework repository's OWN .gitattributes governs itself and is not
+# rewritten by an adopter install — it must already carry the framework-only
+# rules that the adopter above correctly did not get. It reads the framework
+# checkout only, so it needs no link and runs on every platform.
+TOTAL=$((TOTAL + 1))
+if grep -qF '/Adapters/**' "$FRAMEWORK_ROOT/.gitattributes" \
+   && grep -qF '/Registry/**' "$FRAMEWORK_ROOT/.gitattributes"; then
+  [ -n "$VERBOSE" ] && printf '   ok   the framework own .gitattributes carries /Adapters/** and /Registry/**\n'
+else
+  printf '   FAIL the framework own .gitattributes is missing /Adapters/** or /Registry/**\n'
+  FAILED=$((FAILED + 1))
 fi
 
 # ------------------------------------ setup-project-bootstrap.sh symlink ----
@@ -1346,6 +1462,7 @@ fi
 section "setup-project-bootstrap.sh — link-safe bootstrap hint (WU-IAENG-296)"
 
 new_repo bs-symlink
+block_begin 2 "setup-project-bootstrap.sh link-safe hint"
 if ln -s "$FRAMEWORK_ROOT" ia-engineering 2>/dev/null; then
   OUT="$(bash ./ia-engineering/Adapters/scripts/setup-project-bootstrap.sh generic --dry-run 2>&1)"
 
@@ -1367,8 +1484,90 @@ if ln -s "$FRAMEWORK_ROOT" ia-engineering 2>/dev/null; then
     [ -n "$VERBOSE" ] && printf '   ok   the branch-protection hint did not resolve to a ../physical-target path\n'
   fi
 else
-  skip 2 "setup-project-bootstrap.sh link-safe hint: ln -s failed on this platform (no admin rights / Developer Mode off) -- not a fix defect."
+  skip "$BLOCK_N" "setup-project-bootstrap.sh link-safe hint: ln -s failed on this platform (no admin rights / Developer Mode off) -- not a fix defect."
 fi
+block_end
+
+# ---------------------------- setup-branch-protection.sh (WU-IAENG-384) -----
+#
+# What the script SENDS, branch by branch. `gh` is the one thing stubbed: a
+# PATH shim answers the reads (the branch exists, no ruleset yet, automatic
+# head-branch deletion already off) and saves every `--input -` body to a file
+# named after the API path it was sent to. The payload under test is the one
+# the real script builds.
+#
+# The Director set develop to strict=false on 22 Oct 2026 while main and
+# release/* stay strict (issue #299). The script still sent strict=true for
+# develop, so a re-run silently put it back. These cases pin the per-branch
+# value, and that main and develop differ in nothing else.
+
+SBP="$SCRIPTS/setup-branch-protection.sh"
+SBP_BIN="$WORK/sbp-bin"
+SBP_DATA="$WORK/sbp-data"
+mkdir -p "$SBP_BIN" "$SBP_DATA"
+cat > "$SBP_BIN/gh" <<'FAKEGH'
+#!/usr/bin/env bash
+# Fake gh for setup-branch-protection.sh. A call with `--input -` saves its
+# body to $SBP_DATA/<api path with / as _>.json; the reads answer as a repo
+# whose branches exist, with no ruleset and auto-deletion already off.
+printf '%s\n' "$*" >> "$SBP_DATA/calls"
+[ "${1:-}" = api ] || exit 90
+case "$*" in
+  *"--input -"*)
+    for a in "$@"; do case "$a" in repos/*) p="$a" ;; esac; done
+    cat > "$SBP_DATA/$(printf '%s' "$p" | tr '/' '_').json" ;;
+  *".delete_branch_on_merge"*) echo false ;;
+  "api repos/o/r/rulesets -q "*) : ;;
+  "api repos/o/r/branches/"*) : ;;
+  *) echo "fake gh: unexpected call: $*" >&2; exit 91 ;;
+esac
+FAKEGH
+chmod +x "$SBP_BIN/gh"
+
+# sbp_payload <file> — the body with all whitespace removed, so a case can
+# match a key and its value whatever the heredoc's indentation.
+sbp_payload() { tr -d ' \t\r\n' < "$SBP_DATA/$1"; }
+
+# sbp_has <file> <needle> <description>
+sbp_has() {
+  TOTAL=$((TOTAL + 1))
+  if [ -f "$SBP_DATA/$1" ] && grep -qF -- "$2" <<< "$(sbp_payload "$1")"; then
+    [ -n "$VERBOSE" ] && printf '   ok   %s\n' "$3"
+    return 0
+  fi
+  printf '   FAIL %s\n' "$3"
+  if [ -f "$SBP_DATA/$1" ]; then sed 's/^/        | /' "$SBP_DATA/$1"; else printf '        | (no body was sent to %s)\n' "$1"; fi
+  FAILED=$((FAILED + 1))
+  return 1
+}
+
+section "setup-branch-protection.sh — strict per branch (WU-IAENG-384)"
+
+new_repo sbp
+mkdir -p .ia-engineering
+echo github > .ia-engineering/host
+expect 0 "setup-branch-protection.sh runs against the stubbed API" -- env PATH="$SBP_BIN:$PATH" SBP_DATA="$SBP_DATA" bash "$SBP" o/r
+SBP_MAIN=repos_o_r_branches_main_protection.json
+SBP_DEV=repos_o_r_branches_develop_protection.json
+sbp_has "$SBP_MAIN" '"required_status_checks":{"strict":true,' "main: strict is true (up to date with main before merging)"
+sbp_has "$SBP_DEV" '"required_status_checks":{"strict":false,' "develop: strict is false (Director, 22 Oct 2026)"
+sbp_has repos_o_r_rulesets.json '"strict_required_status_checks_policy":true,' "release/*: the ruleset stays strict"
+
+TOTAL=$((TOTAL + 1))
+if [ -f "$SBP_DATA/$SBP_MAIN" ] && [ -f "$SBP_DATA/$SBP_DEV" ] \
+  && [ "$(sbp_payload "$SBP_MAIN" | sed 's/"strict":[a-z]*,//')" = "$(sbp_payload "$SBP_DEV" | sed 's/"strict":[a-z]*,//')" ]; then
+  [ -n "$VERBOSE" ] && printf '   ok   main and develop payloads differ in strict alone\n'
+else
+  printf '   FAIL main and develop payloads differ in more than strict, or one was not sent\n'
+  FAILED=$((FAILED + 1))
+fi
+
+# Off GitHub the script configures nothing and prints the checklist a human
+# follows; that checklist must not tell them to make develop strict either.
+echo none > .ia-engineering/host
+expect 1 "setup-branch-protection.sh off GitHub prints the checklist and changes nothing" -- env PATH="$SBP_BIN:$PATH" SBP_DATA="$SBP_DATA" bash "$SBP"
+expect_output "require the branch to be up to date with its base before merging, on main"
+expect_output "and release/* only: NOT on develop"
 
 # ------------------------------------------------- generate-agents.sh -------
 #
@@ -1897,9 +2096,11 @@ HOOK="$SCRIPTS/../git-hooks/commit-msg"
 # commit-msg resolves the Employee roster from REPO_ROOT/Registry/employees.yml
 # (Adapters/git-hooks/commit-msg, "Locate the Employee roster"), so the
 # throwaway repo needs one, exactly like check-employee-trailer.sh's cases
-# above.
+# above. It resolves a `Work Unit:` claim against the staged
+# Registry/work-units.yml too (WU-IAENG-415), so the claim is registered.
 new_repo commit-msg-types
 write_employee_roster "Test Employee"
+write_wu_registry WU-TEST-001
 git add -A && git commit -q -m "roster"
 
 cat > msg-perf.txt <<'MSG'
@@ -1979,6 +2180,241 @@ SHIM
 chmod +x "$WORK/shim-hook/git"
 expect 0 "an unclassifiable merge warns and is left to CI" -- env PATH="$WORK/shim-hook:$PATH" bash "$HOOK" msg-merge.txt
 expect_output "cannot classify this merge locally"
+
+# ------------- the Work Unit claim resolves: commit-msg (WU-IAENG-415) --------
+#
+# Issue #364, from the 28 Oct 2026 adoption rehearsal: commit-msg counted the
+# `Work Unit:` lines and never resolved one, so `Work Unit: WU-DEMO-999` was
+# committed locally. The adoption commit is pushed straight to main, with no
+# Pull Request, so the Work Unit Exists CI check never saw it either.
+#
+# The hook now hands a present claim to check-work-units.sh --message: the
+# rule the CI check applies, run against the registry the commit RECORDS,
+# which is Registry/work-units.yml as staged. A message with no `Work Unit:`
+# line is still left to CI (install.sh's own probe carries none).
+
+section "git-hooks/commit-msg — the Work Unit claim resolves against the staged registry (WU-IAENG-415, #364)"
+
+HOOK415="$SCRIPTS/../git-hooks/commit-msg"
+
+# msg415 <file> <work-unit-line, or ""> — a message that is otherwise valid.
+msg415() {
+  {
+    printf 'chore(adopt): install the framework\n\n'
+    [ -n "$2" ] && printf '%s\n\n' "$2"
+    printf 'Employee: DevOps Engineer\n'
+  } > "$1"
+}
+
+# mk415 <name> — a roster and a registry naming WU-DEMO-001, both committed.
+mk415() {
+  new_repo "$1"
+  write_employee_roster "DevOps Engineer"
+  write_wu_registry WU-DEMO-001
+  git add -A && git commit -q -m "roster and registry"
+}
+
+mk415 cm415-resolve
+msg415 m.txt "Work Unit: WU-DEMO-999"
+expect 1 "an unregistered Work Unit id is refused (the rehearsal's WU-DEMO-999)" -- bash "$HOOK415" m.txt
+expect_output "claims 'WU-DEMO-999', which is not in the staged Registry/work-units.yml"
+expect_output "commit-msg: rejected — the 'Work Unit:' claim does not resolve"
+msg415 m.txt "Work Unit: WU-DEMO-001"
+expect 0 "a registered Work Unit id is accepted" -- bash "$HOOK415" m.txt
+msg415 m.txt "Work Unit: WU-DEMO"
+expect 1 "a malformed Work Unit id is refused" -- bash "$HOOK415" m.txt
+expect_output "is empty or not a Work Unit id"
+msg415 m.txt ""
+expect 0 "a message with no Work Unit line is left to the Work Unit Exists CI check" -- bash "$HOOK415" m.txt
+
+# The registry read is the index, not the working tree: the entry is
+# registered in the commit that performs the work (Workflows/
+# FEATURE_DEVELOPMENT.md Step 4 item 2), so an edit left unstaged would be
+# missing from the commit that claims it.
+write_wu_registry WU-DEMO-001 WU-DEMO-002
+msg415 m.txt "Work Unit: WU-DEMO-002"
+expect 1 "an entry in the working tree only, not staged, does not register the id" -- bash "$HOOK415" m.txt
+expect_output "claims 'WU-DEMO-002', which is not in the staged Registry/work-units.yml"
+git add Registry/work-units.yml
+expect 0 "the same entry staged with the commit registers the id" -- bash "$HOOK415" m.txt
+
+# A claim that cannot be evaluated is refused, never passed (Standards/
+# CODE_QUALITY_STANDARD.md, The Check Convention).
+new_repo cm415-no-registry
+write_employee_roster "DevOps Engineer"
+git add -A && git commit -q -m "roster"
+msg415 m.txt "Work Unit: WU-DEMO-001"
+expect 1 "no registry: the claim cannot be evaluated and is refused" -- bash "$HOOK415" m.txt
+expect_output "This project has no Work Unit registry"
+expect_output "commit-msg: rejected — the 'Work Unit:' claim could not be evaluated"
+write_wu_registry WU-DEMO-001
+expect 1 "a registry never added to the index is refused, naming the git add" -- bash "$HOOK415" m.txt
+expect_output "git add Registry/work-units.yml"
+printf 'work_units:\n  -id: WU-DEMO-001\n' > Registry/work-units.yml
+git add Registry/work-units.yml
+expect 1 "a staged registry that parses to no id is a parsing failure" -- bash "$HOOK415" m.txt
+expect_output "yielded no Work Unit IDs"
+
+# Where the hook finds check-work-units.sh: in its OWN framework only, beside
+# it or through an explicit IAENG_FRAMEWORK, never in the working tree, where a
+# branch or a worktree's empty submodule directory could plant a script
+# (SEC-IAENG-414-01). A hook copied into .git/hooks has no framework beside it,
+# so with no IAENG_FRAMEWORK it refuses a claim rather than passing it.
+mkdir -p "$WORK/hook415/alone"
+cp "$HOOK415" "$WORK/hook415/alone/commit-msg"
+COPIED415="$WORK/hook415/alone/commit-msg"
+
+mk415 cm415-no-check
+msg415 m.txt "Work Unit: WU-DEMO-001"
+expect 1 "a hook that cannot locate check-work-units.sh refuses a claim" -- env -u IAENG_FRAMEWORK bash "$COPIED415" m.txt
+expect_output "cannot locate check-work-units.sh in its own framework"
+msg415 m.txt ""
+expect 0 "the same hook still accepts a message with no Work Unit line" -- env -u IAENG_FRAMEWORK bash "$COPIED415" m.txt
+
+# A script planted in the working tree, at both paths a hook once searched, is
+# never run: the claim is unregistered, and the planted script would pass it.
+mkdir -p Adapters/scripts ia-engineering/Adapters/scripts
+printf '#!/usr/bin/env bash\necho PLANTED >&2\nexit 0\n' > Adapters/scripts/check-work-units.sh
+cp Adapters/scripts/check-work-units.sh ia-engineering/Adapters/scripts/check-work-units.sh
+msg415 m.txt "Work Unit: WU-DEMO-999"
+expect 1 "a check-work-units.sh planted in the working tree is never run by the hook" -- env -u IAENG_FRAMEWORK bash "$COPIED415" m.txt
+expect_output "cannot locate check-work-units.sh in its own framework"
+
+# The adopter's layout: the framework under ia-engineering/, its own registry
+# listing a framework-only id. The hook as core.hooksPath runs it (from inside
+# ia-engineering/), and a copied one given IAENG_FRAMEWORK, both read the
+# PROJECT's registry.
+mk415 cm415-consumer
+mkdir -p ia-engineering/Adapters/scripts ia-engineering/Adapters/git-hooks ia-engineering/Registry
+cp "$SCRIPTS/check-work-units.sh" "$SCRIPTS/merge-classify.sh" ia-engineering/Adapters/scripts/
+cp "$HOOK415" ia-engineering/Adapters/git-hooks/commit-msg
+printf 'work_units:\n  - id: WU-FRAMEWORK-137\n' > ia-engineering/Registry/work-units.yml
+git add -A && git commit -q -m "framework imported"
+msg415 m.txt "Work Unit: WU-DEMO-001"
+expect 0 "an adopter's hook resolves a claim against the project's registry" -- bash ia-engineering/Adapters/git-hooks/commit-msg m.txt
+expect 0 "a copied hook resolves through IAENG_FRAMEWORK" -- env IAENG_FRAMEWORK="$PWD/ia-engineering" bash "$COPIED415" m.txt
+msg415 m.txt "Work Unit: WU-FRAMEWORK-137"
+expect 1 "an adopter's claim is never resolved against the framework's registry" -- bash ia-engineering/Adapters/git-hooks/commit-msg m.txt
+expect_output "claims 'WU-FRAMEWORK-137', which is not in the staged Registry/work-units.yml"
+
+# A claim on a merge is validated whatever the merge's kind, as
+# check-work-units.sh validates it in CI (SEC-IAENG-313-02). A clean merge
+# still needs neither trailer.
+mk415 cm415-merge
+git checkout -qb side
+echo side > side.txt && git add -A && git commit -q -m "side work"
+git checkout -q main
+echo main > main.txt && git add -A && git commit -q -m "main work"
+git merge -q --no-commit --no-ff side > /dev/null 2>&1
+printf "Merge branch 'side'\n\nWork Unit: WU-DEMO-999\n" > "$WORK/merge415.txt"
+expect 1 "a clean merge carrying an unregistered Work Unit claim is refused" -- bash "$HOOK415" "$WORK/merge415.txt"
+expect_output "claims 'WU-DEMO-999'"
+printf "Merge branch 'side'\n\nWork Unit: WU-DEMO-001\n" > "$WORK/merge415.txt"
+expect 0 "a clean merge carrying a registered claim and no Employee line is accepted" -- bash "$HOOK415" "$WORK/merge415.txt"
+printf "Merge branch 'side'\n" > "$WORK/merge415.txt"
+expect 0 "a clean merge with no claim is still accepted" -- bash "$HOOK415" "$WORK/merge415.txt"
+git merge --abort
+
+# Through git itself, hooks wired as install.sh wires them: the rehearsal's
+# commit is refused and not created. `git commit <paths>` commits through a
+# temporary index (GIT_INDEX_FILE), and the hook reads that one.
+mk415 cm415-git
+git config core.hooksPath "$SCRIPTS/../git-hooks"
+echo x > x.txt && git add x.txt
+msg415 "$WORK/git415.txt" "Work Unit: WU-DEMO-999"
+N415="$(git rev-list --count HEAD)"
+expect 1 "git commit refuses the rehearsal's unregistered Work Unit" -- git commit -q -F "$WORK/git415.txt"
+expect 0 "and creates no commit" -- test "$(git rev-list --count HEAD)" = "$N415"
+write_wu_registry WU-DEMO-001 WU-DEMO-002
+msg415 "$WORK/git415.txt" "Work Unit: WU-DEMO-002"
+expect 0 "git commit <paths> resolves against the registry those paths stage" -- git commit -q -F "$WORK/git415.txt" Registry/work-units.yml x.txt
+expect 0 "and creates the commit" -- test "$(git rev-list --count HEAD)" = "$((N415 + 1))"
+
+# -------- check-work-units.sh --message: each refusal's reason (WU-IAENG-415) --
+#
+# Code Review of PR #386: four fail-closed paths of --message had no test, and
+# deleting any one kept a refusal but changed its reason, often to a wrong
+# one. Each is called directly here and pinned by its exit (2: not evaluated,
+# Standards/CODE_QUALITY_STANDARD.md, The Check Convention) and by its own
+# reason. Self-contained, so the section runs alone.
+
+section "check-work-units.sh --message — each refusal names its own reason (WU-IAENG-415)"
+
+CWU415="$SCRIPTS/check-work-units.sh"
+REAL_GIT415="$(command -v git)"
+
+new_repo cwu415
+write_employee_roster "DevOps Engineer"
+write_wu_registry WU-DEMO-001
+git add -A && git commit -q -m "roster and registry"
+printf 'chore(x): y\n\nWork Unit: WU-DEMO-001\n\nEmployee: DevOps Engineer\n' > "$WORK/cwu415-ok.txt"
+printf 'chore(x): y\n\nWork Unit: WU-DEMO-999\n\nEmployee: DevOps Engineer\n' > "$WORK/cwu415-bad.txt"
+printf 'chore(x): y\n\nWork Unit: WU-OTHER-005\n\nEmployee: DevOps Engineer\n' > "$WORK/cwu415-other.txt"
+
+expect 0 "--message resolves a registered claim against the staged registry" -- bash "$CWU415" --message "$WORK/cwu415-ok.txt"
+expect_output "message -> WU-DEMO-001 (resolved)"
+expect 1 "--message: an unregistered claim is a finding (exit 1)" -- bash "$CWU415" --message "$WORK/cwu415-bad.txt"
+expect_output "This commit message claims 'WU-DEMO-999'"
+
+# The message file: one guard, at the one place it is read.
+expect 2 "--message: a missing message file is not evaluated (exit 2)" -- bash "$CWU415" --message "$WORK/cwu415-absent.txt"
+expect_output "--message: cannot read the message file '$WORK/cwu415-absent.txt'"
+
+# Outside any repository: GIT_CEILING_DIRECTORIES keeps git from finding one
+# above the directory.
+# A feeder script rather than a function: a function reached only through
+# `expect` is reported unreachable by shellcheck (SC2317), as the pre-push
+# feeder explains.
+mkdir -p "$WORK/cwu415-norepo"
+cat > "$WORK/cwu415-in.sh" <<'FEED'
+dir="$1"; shift
+cd "$dir" && exec bash "$@"
+FEED
+expect 2 "--message outside a git work tree is not evaluated (exit 2)" -- \
+  env GIT_CEILING_DIRECTORIES="$WORK" bash "$WORK/cwu415-in.sh" "$WORK/cwu415-norepo" "$CWU415" --message "$WORK/cwu415-ok.txt"
+expect_output "--message runs inside a git working tree"
+
+# mktemp failing: TMPDIR names a directory that does not exist.
+expect 2 "--message: a temporary copy it cannot create is not evaluated (exit 2)" -- \
+  env TMPDIR="$WORK/cwu415-no-such-dir" bash "$CWU415" --message "$WORK/cwu415-ok.txt"
+expect_output "could not create a temporary file to read the staged Registry/work-units.yml into"
+
+# The staged blob unreadable: a git shim fails `cat-file blob` only, so the
+# index still lists the registry.
+mkdir -p "$WORK/shim415"
+cat > "$WORK/shim415/git" <<SHIM
+#!/usr/bin/env bash
+if [ "\$1" = "cat-file" ] && [ "\$2" = "blob" ]; then exit 128; fi
+exec "$REAL_GIT415" "\$@"
+SHIM
+chmod +x "$WORK/shim415/git"
+expect 2 "--message: a staged registry it cannot read is not evaluated (exit 2)" -- \
+  env PATH="$WORK/shim415:$PATH" bash "$CWU415" --message "$WORK/cwu415-ok.txt"
+expect_output "the index lists Registry/work-units.yml but its content could not be read"
+
+# IAENG_REGISTRY_WORK_UNITS, when it names an existing file, replaces the
+# staged registry, as the header documents, and says so on stderr, which the
+# hook shows.
+printf 'work_units:\n  - id: WU-OTHER-005\n' > "$WORK/cwu415-override.yml"
+expect 1 "--message: an id listed only outside the index does not resolve" -- bash "$CWU415" --message "$WORK/cwu415-other.txt"
+expect 0 "--message: IAENG_REGISTRY_WORK_UNITS naming an existing file replaces the staged registry" -- \
+  env IAENG_REGISTRY_WORK_UNITS="$WORK/cwu415-override.yml" bash "$CWU415" --message "$WORK/cwu415-other.txt"
+expect_output "note: IAENG_REGISTRY_WORK_UNITS is set; resolving against $WORK/cwu415-override.yml"
+expect 0 "the hook shows the override's note" -- \
+  env IAENG_REGISTRY_WORK_UNITS="$WORK/cwu415-override.yml" bash "$SCRIPTS/../git-hooks/commit-msg" "$WORK/cwu415-other.txt"
+expect_output "note: IAENG_REGISTRY_WORK_UNITS is set"
+expect 1 "--message: IAENG_REGISTRY_WORK_UNITS naming a missing file falls back to the staged registry" -- \
+  env IAENG_REGISTRY_WORK_UNITS="$WORK/cwu415-missing.yml" bash "$CWU415" --message "$WORK/cwu415-other.txt"
+expect_output "which is not in the staged Registry/work-units.yml"
+
+# The registry this commit records is absent: unstaged, or none at all.
+new_repo cwu415-unstaged
+write_wu_registry WU-DEMO-001
+expect 2 "--message: a registry in the working tree only is not evaluated (exit 2)" -- bash "$CWU415" --message "$WORK/cwu415-ok.txt"
+expect_output "git add Registry/work-units.yml"
+rm -rf Registry
+expect 2 "--message: no registry is not evaluated (exit 2)" -- bash "$CWU415" --message "$WORK/cwu415-ok.txt"
+expect_output "This project has no Work Unit registry"
 
 # ----------------------- merge attribution: check-employee-trailers.sh --------
 
@@ -2100,7 +2536,7 @@ chmod +x "$WORK/shim-old/git"
 # 2.39, not anything older: it has merge-tree --write-tree but not
 # --attr-source, so it pins the floor the attribute pin raised to 2.40
 # (SEC-IAENG-313-01).
-expect 1 "git older than 2.40 fails closed" -- env PATH="$WORK/shim-old:$PATH" bash "$CHECK_EMP" "$BASE" HEAD
+expect 2 "git older than 2.40 fails closed" -- env PATH="$WORK/shim-old:$PATH" bash "$CHECK_EMP" "$BASE" HEAD
 expect_output "cannot classify"
 expect_output "2.40"
 
@@ -2117,7 +2553,7 @@ for a in "\$@"; do [ "\$a" = "merge-tree" ] && exit 128; done
 exec "$REAL_GIT" "\$@"
 SHIM
 chmod +x "$WORK/shim/git"
-expect 1 "a merge the classifier cannot run on fails closed" -- env PATH="$WORK/shim:$PATH" bash "$CHECK_EMP" "$BASE" HEAD
+expect 2 "a merge the classifier cannot run on fails closed" -- env PATH="$WORK/shim:$PATH" bash "$CHECK_EMP" "$BASE" HEAD
 expect_output "could not be classified"
 
 # ----------------------- merge attribution: check-work-units.sh ---------------
@@ -2208,14 +2644,14 @@ expect 1 "a -s ours merge, no Work Unit trailer, fails" -- bash "$CHECK_WU" "$BA
 # Fail closed on a git too old to classify.
 mk_wu_merge_repo wmrg-old-git
 git merge -q --no-ff side -m "Merge branch 'side'"
-expect 1 "git older than 2.40 fails closed (work units)" -- env PATH="$WORK/shim-old:$PATH" bash "$CHECK_WU" "$BASE" HEAD
+expect 2 "git older than 2.40 fails closed (work units)" -- env PATH="$WORK/shim-old:$PATH" bash "$CHECK_WU" "$BASE" HEAD
 expect_output "cannot classify"
 expect_output "2.40"
 
 # Fail closed: a git whose merge-tree errors must not turn into a pass.
 mk_wu_merge_repo wmrg-shim
 git merge -q --no-ff side -m "Merge branch 'side'"
-expect 1 "a merge the classifier cannot run on fails closed (work units)" -- env PATH="$WORK/shim:$PATH" bash "$CHECK_WU" "$BASE" HEAD
+expect 2 "a merge the classifier cannot run on fails closed (work units)" -- env PATH="$WORK/shim:$PATH" bash "$CHECK_WU" "$BASE" HEAD
 expect_output "could not be classified"
 
 # The grandfather list is a constant inside the script, never a data file
@@ -2267,10 +2703,10 @@ expect 1 "an exceptions file planted in the tree does not exempt a merge (work u
 # The classifier is sourced; its absence must fail closed, not pass.
 mkdir -p "$WORK/no-helper"
 cp "$CHECK_WU" "$WORK/no-helper/"
-expect 1 "a missing merge-classify.sh fails closed (work units)" -- bash "$WORK/no-helper/check-work-units.sh" "$BASE" HEAD
+expect 2 "a missing merge-classify.sh fails closed (work units)" -- bash "$WORK/no-helper/check-work-units.sh" "$BASE" HEAD
 expect_output "merge-classify.sh not found"
 cp "$CHECK_EMP" "$WORK/no-helper/"
-expect 1 "a missing merge-classify.sh fails closed (employee trailers)" -- bash "$WORK/no-helper/check-employee-trailers.sh" "$BASE" HEAD
+expect 2 "a missing merge-classify.sh fails closed (employee trailers)" -- bash "$WORK/no-helper/check-employee-trailers.sh" "$BASE" HEAD
 expect_output "merge-classify.sh not found"
 
 # SEC-IAENG-313-02: a Work Unit claim present on a merge is validated whatever
@@ -2506,14 +2942,14 @@ sup_repo sup-allow-noreason
 mkdir -p .ia-engineering
 printf '^a\\.py$%s%s%s\n' "$TAB" 'x = 1' "$TAB" > .ia-engineering/suppression.allow
 sup_commit a.py "x = 1  $D_NOQA"
-expect 1 "an allow entry with an empty reason is invalid and fails the check" -- bash "$CHECK_SUP" "$SBASE" HEAD
+expect 2 "an allow entry with an empty reason is invalid and fails the check" -- bash "$CHECK_SUP" "$SBASE" HEAD
 expect_output "empty reason"
 
 sup_repo sup-allow-twofields
 mkdir -p .ia-engineering
 printf '^a\\.py$%s%s\n' "$TAB" 'x = 1' > .ia-engineering/suppression.allow
 sup_commit a.py "x = 1  $D_NOQA"
-expect 1 "an allow entry with fewer than three fields is invalid" -- bash "$CHECK_SUP" "$SBASE" HEAD
+expect 2 "an allow entry with fewer than three fields is invalid" -- bash "$CHECK_SUP" "$SBASE" HEAD
 expect_output "fewer than three fields"
 
 sup_repo sup-allow-otherpath
@@ -2523,7 +2959,7 @@ sup_commit a.py "x = 1  $D_NOQA"
 expect 1 "an allow entry whose path expression does not match allows nothing" -- bash "$CHECK_SUP" "$SBASE" HEAD
 
 sup_repo sup-badref
-expect 1 "an unresolvable ref fails: nothing was established" -- bash "$CHECK_SUP" "$SBASE" no-such-ref
+expect 2 "an unresolvable ref fails: nothing was established" -- bash "$CHECK_SUP" "$SBASE" no-such-ref
 expect_output "nothing was established"
 
 sup_repo sup-staged
@@ -2541,7 +2977,7 @@ sup_repo sup-nopatterns
 mkdir -p "$WORK/sup-noscripts"
 cp "$CHECK_SUP" "$WORK/sup-noscripts/"
 sup_commit a.py 'x = 1'
-expect 1 "a missing pattern file fails closed" -- bash "$WORK/sup-noscripts/check-inline-suppression.sh" "$SBASE" HEAD
+expect 2 "a missing pattern file fails closed" -- bash "$WORK/sup-noscripts/check-inline-suppression.sh" "$SBASE" HEAD
 expect_output "is missing"
 
 # --- Review findings (SEC-01..07, CR): each case below failed before its fix. ----
@@ -2565,7 +3001,7 @@ NL_SHA="$(printf 'x = 1  %s\n' "$D_NOQA" | git hash-object -w --stdin)"
 NL_CLEAN="$(printf 'y = 2\n' | git hash-object -w --stdin)"
 NL_TREE="$(printf '100644 blob %s\treal.py\x00100644 blob %s\treal.py\nz.md\x00' "$NL_SHA" "$NL_CLEAN" | git mktree -z)"
 git update-ref refs/heads/main "$(git commit-tree "$NL_TREE" -p HEAD -m 'newline in a path')"
-expect 1 "SEC-01: a path containing a newline is refused, not used to exempt another file" -- bash "$CHECK_SUP" "$SBASE" HEAD
+expect 2 "SEC-01: a path containing a newline is refused, not used to exempt another file" -- bash "$CHECK_SUP" "$SBASE" HEAD
 expect_output "newline"
 
 # SEC-02 (High): a file git classifies as binary (a NUL byte, or -diff /
@@ -2622,21 +3058,21 @@ sup_repo sup-allow-blanket
 mkdir -p .ia-engineering
 printf '.%s.%sa reason\n' "$TAB" "$TAB" > .ia-engineering/suppression.allow
 sup_commit a.py "x = 1  $D_NOQA"
-expect 1 "SEC-07: an allow entry of . TAB . excuses nothing and is invalid" -- bash "$CHECK_SUP" "$SBASE" HEAD
+expect 2 "SEC-07: an allow entry of . TAB . excuses nothing and is invalid" -- bash "$CHECK_SUP" "$SBASE" HEAD
 expect_output "anchored"
 
 sup_repo sup-allow-unanchored
 mkdir -p .ia-engineering
 printf 'a\\.py%sx = 1%sa reason\n' "$TAB" "$TAB" > .ia-engineering/suppression.allow
 sup_commit a.py "x = 1  $D_NOQA"
-expect 1 "SEC-07: an allow path expression that is not anchored is invalid" -- bash "$CHECK_SUP" "$SBASE" HEAD
+expect 2 "SEC-07: an allow path expression that is not anchored is invalid" -- bash "$CHECK_SUP" "$SBASE" HEAD
 expect_output "anchored"
 
 sup_repo sup-allow-emptymatch
 mkdir -p .ia-engineering
 printf '^a\\.py$%s.*%sa reason\n' "$TAB" "$TAB" > .ia-engineering/suppression.allow
 sup_commit a.py "x = 1  $D_NOQA"
-expect 1 "SEC-07: an allow line expression that matches the empty string is invalid" -- bash "$CHECK_SUP" "$SBASE" HEAD
+expect 2 "SEC-07: an allow line expression that matches the empty string is invalid" -- bash "$CHECK_SUP" "$SBASE" HEAD
 expect_output "empty string"
 
 # Tripwire: one positive sample per row of the REAL pattern file. A pattern that
@@ -2680,7 +3116,7 @@ expect_output "lists no files"
 
 sup_repo sup-emptycommit
 git commit -q --allow-empty -m "changes nothing"
-expect 1 "a non-merge commit that changed nothing fails closed" -- bash "$CHECK_SUP" "$SBASE" HEAD
+expect 2 "a non-merge commit that changed nothing fails closed" -- bash "$CHECK_SUP" "$SBASE" HEAD
 expect_output "lists no files"
 
 expect 2 "no arguments is a usage error" -- bash "$CHECK_SUP"
@@ -2694,9 +3130,9 @@ cp "$CHECK_SUP" "$WORK/sup-malformedpat/"
 printf '# nothing but a comment\n\n' > "$WORK/sup-emptypat/suppression-patterns.tsv"
 printf 'label-without-a-tab\n' > "$WORK/sup-malformedpat/suppression-patterns.tsv"
 sup_commit a.py 'x = 1'
-expect 1 "a pattern file with no rows fails closed" -- bash "$WORK/sup-emptypat/check-inline-suppression.sh" "$SBASE" HEAD
+expect 2 "a pattern file with no rows fails closed" -- bash "$WORK/sup-emptypat/check-inline-suppression.sh" "$SBASE" HEAD
 expect_output "holds no patterns"
-expect 1 "a pattern row without a TAB fails closed" -- bash "$WORK/sup-malformedpat/check-inline-suppression.sh" "$SBASE" HEAD
+expect 2 "a pattern row without a TAB fails closed" -- bash "$WORK/sup-malformedpat/check-inline-suppression.sh" "$SBASE" HEAD
 expect_output "without a TAB"
 
 # The allow file is committed knowledge, and .ia-engineering/* is ignored. Without
@@ -3212,8 +3648,13 @@ sed -E '/^  review-recorded:/,/^    steps:/{/contents: read/d}' "$SCRIPTS/../git
 printf 'permissions:\n  issues: read\n\njobs:\n  a:\n    steps:\n      - uses: actions/checkout@v4\n' > "$WORK/wfp-mut/workflow-level-without-contents.yml"
 wfp_expect 1 "guard rejects the mutant: a job block without contents: read" "$WORK/wfp-mut/job-without-contents.yml"
 wfp_expect 1 "guard rejects the mutant: an inherited workflow block without contents: read" "$WORK/wfp-mut/workflow-level-without-contents.yml"
-if [ "$(wfp_guard "$WORK/wfp-mut/job-without-contents.yml")" != "job review-recorded: checks out but its permissions lack contents: read" ]; then
-  TOTAL=$((TOTAL + 1)); FAILED=$((FAILED + 1)); printf '   FAIL the guard names the offending job\n'
+# Counted whether it passes or fails (issue #275): it used to add to TOTAL
+# only on failure, so a green run reported one check fewer than a red one.
+TOTAL=$((TOTAL + 1))
+if [ "$(wfp_guard "$WORK/wfp-mut/job-without-contents.yml")" = "job review-recorded: checks out but its permissions lack contents: read" ]; then
+  [ -n "$VERBOSE" ] && printf '   ok   the guard names the offending job\n'
+else
+  FAILED=$((FAILED + 1)); printf '   FAIL the guard names the offending job\n'
 fi
 
 # ------------------------------------- check-control-paths.sh (WU-IAENG-309) --
@@ -3276,6 +3717,209 @@ expect 1 "a newline before a real control path still flags it (-z)" -- "${CP_RUN
 expect 1 "one control path among many NUL-delimited names (-z)" -- "${CP_RUN[@]}" 'a b\0-x\0Adapters/git-hooks/pre-push\0c\0' -z
 expect 2 "an unknown option is a usage error" -- "${CP_RUN[@]}" 'a\n' --bogus
 
+# ------------------------ check-control-path-approval.sh (WU-IAENG-361) --
+#
+# The Control Path Guard's decision, which lived as inline shell in
+# control-path-guard.yml until WU-IAENG-361. The script reads the PR through
+# `gh api`, and that API is the one thing stubbed: a PATH shim answers its two
+# reads (the PR head, the file listing) from files and logs every call. The
+# matcher it runs is the real check-control-paths.sh beside it. Every refusal
+# is asserted on its message, not only on its exit code.
+
+CHECK_CPA="$SCRIPTS/check-control-path-approval.sh"
+CPA_BIN="$WORK/cpa-bin"
+CPA_DATA="$WORK/cpa-data"
+mkdir -p "$CPA_BIN"
+cat > "$CPA_BIN/gh" <<'FAKEGH'
+#!/usr/bin/env bash
+# Fake gh. `api repos/R/pulls/N --jq .head.sha` prints the next line of
+# $CPA_DATA/heads; `api repos/R/pulls/N/files --paginate` prints
+# $CPA_DATA/files.json, or fails when $CPA_DATA/files.fail exists.
+printf '%s\n' "$*" >> "$CPA_DATA/calls"
+[ "${1:-}" = api ] || exit 90
+case "${2:-}" in
+  */files)
+    [ -e "$CPA_DATA/files.fail" ] && { echo "gh: HTTP 502" >&2; exit 1; }
+    cat "$CPA_DATA/files.json" ;;
+  *)
+    n=$(( $(cat "$CPA_DATA/n") + 1 ))
+    echo "$n" > "$CPA_DATA/n"
+    sed -n "${n}p" "$CPA_DATA/heads" ;;
+esac
+FAKEGH
+chmod +x "$CPA_BIN/gh"
+
+CPA_H1="$(printf '%040d' 0 | tr 0 a)"
+CPA_H2="$(printf '%040d' 0 | tr 0 b)"
+CPA_OK='control-change/approved'
+
+# cpa_api <files-json> <head-before> [<head-after>] — resets the fake API.
+cpa_api() {
+  rm -rf "$CPA_DATA"
+  mkdir -p "$CPA_DATA"
+  printf '%s' "$1" > "$CPA_DATA/files.json"
+  printf '%s\n' "$2" "${3:-$2}" > "$CPA_DATA/heads"
+  echo 0 > "$CPA_DATA/n"
+  : > "$CPA_DATA/calls"
+}
+
+# cpa_calls <expected-calls-joined-by-|> <description>
+cpa_calls() {
+  TOTAL=$((TOTAL + 1))
+  if [ "$(tr '\n' '|' < "$CPA_DATA/calls")" = "$1" ]; then
+    [ -n "$VERBOSE" ] && printf '   ok   %s\n' "$2"
+    return 0
+  fi
+  printf '   FAIL %s\n' "$2"
+  sed 's/^/        | /' "$CPA_DATA/calls"
+  FAILED=$((FAILED + 1))
+  return 1
+}
+
+# The event as the workflow's env: block passes it: a push (synchronize) by the
+# Director on head H1 of a PR changing 2 files. A case appends the assignments
+# it changes; for env, the later one wins. CPA_BASE leaves DIRECTOR_LOGIN unset.
+CPA_BASE=(env -u DIRECTOR_LOGIN PATH="$CPA_BIN:$PATH" CPA_DATA="$CPA_DATA" GH_TOKEN=unused
+  REPO=o/r PR_NUMBER=7 CHANGED_FILES=2 ACTION=synchronize LABEL_ADDED= SENDER=dir
+  EVENT_HEAD="$CPA_H1" LABELS_JSON='[]' APPROVAL_LABEL="$CPA_OK")
+CPA_ENV=("${CPA_BASE[@]}" DIRECTOR_LOGIN=dir)
+CPA_PLAIN='[{"filename":"src/a.c"},{"filename":"README.md"}]'
+CPA_CTRL='[{"filename":"src/a.c"},{"filename":".github/workflows/x.yml"}]'
+CPA_HEAD="api repos/o/r/pulls/7 --jq .head.sha|"
+CPA_LIST="api repos/o/r/pulls/7/files --paginate|"
+CPA_LAST="needs '$CPA_OK' applied by the Director (dir) as the LAST event on this head"
+
+section "check-control-path-approval.sh — the Control Path Guard's decision (WU-IAENG-361)"
+
+cpa_api "$CPA_PLAIN" "$CPA_H1"
+expect 0 "no control path touched passes" -- "${CPA_ENV[@]}" bash "$CHECK_CPA"
+expect_output "No control path is touched."
+expect_output "none of the 2 changed paths"
+cpa_calls "$CPA_HEAD$CPA_LIST$CPA_HEAD" "the head is read before and after the listing, in that order"
+
+cpa_api '[{"filename":"src/a.c"}][{"filename":"README.md"},{"filename":"docs/x.md"}]' "$CPA_H1"
+expect 0 "a paginated listing is counted across its pages" -- "${CPA_ENV[@]}" CHANGED_FILES=3 bash "$CHECK_CPA"
+expect_output "none of the 3 changed paths"
+
+# Happy path: this event IS the Director applying the approval label.
+cpa_api "$CPA_CTRL" "$CPA_H1"
+expect 0 "the Director applying the label as this event passes" -- "${CPA_ENV[@]}" \
+  ACTION=labeled LABEL_ADDED="$CPA_OK" LABELS_JSON="[\"$CPA_OK\"]" bash "$CHECK_CPA"
+expect_output "::notice::Control paths are touched and the Director (dir) has just applied '$CPA_OK' to this head. Passing."
+expect_output "control path touched: .github/workflows/x.yml"
+
+cpa_api "$CPA_CTRL" "$CPA_H1"
+expect 1 "a control path touched with no approval fails" -- "${CPA_ENV[@]}" bash "$CHECK_CPA"
+expect_output "$CPA_LAST"
+
+# Label not last: the approval label is on the PR, but this event is not the
+# Director applying it.
+cpa_api "$CPA_CTRL" "$CPA_H1"
+expect 1 "another label added after the approval voids it" -- "${CPA_ENV[@]}" \
+  ACTION=labeled LABEL_ADDED=bug LABELS_JSON="[\"$CPA_OK\",\"bug\"]" bash "$CHECK_CPA"
+expect_output "$CPA_LAST"
+cpa_api "$CPA_CTRL" "$CPA_H1"
+expect 1 "another label removed after the approval voids it" -- "${CPA_ENV[@]}" \
+  ACTION=unlabeled LABEL_ADDED=bug LABELS_JSON="[\"$CPA_OK\"]" bash "$CHECK_CPA"
+expect_output "$CPA_LAST"
+cpa_api "$CPA_CTRL" "$CPA_H1"
+expect 1 "a push after the approval voids it" -- "${CPA_ENV[@]}" \
+  LABELS_JSON="[\"$CPA_OK\"]" bash "$CHECK_CPA"
+expect_output "$CPA_LAST"
+cpa_api "$CPA_CTRL" "$CPA_H1"
+expect 1 "a labeled event whose label is no longer on the PR fails" -- "${CPA_ENV[@]}" \
+  ACTION=labeled LABEL_ADDED="$CPA_OK" LABELS_JSON='[]' bash "$CHECK_CPA"
+expect_output "$CPA_LAST"
+
+cpa_api "$CPA_CTRL" "$CPA_H1"
+expect 1 "the approval label applied by someone else fails" -- "${CPA_ENV[@]}" \
+  ACTION=labeled LABEL_ADDED="$CPA_OK" LABELS_JSON="[\"$CPA_OK\"]" SENDER=someone bash "$CHECK_CPA"
+expect_output "$CPA_LAST"
+
+cpa_api "$CPA_CTRL" "$CPA_H1"
+expect 2 "an empty Director login fails closed" -- "${CPA_ENV[@]}" DIRECTOR_LOGIN= \
+  ACTION=labeled LABEL_ADDED="$CPA_OK" LABELS_JSON="[\"$CPA_OK\"]" SENDER= bash "$CHECK_CPA"
+expect_output "the repository variable IAENG_DIRECTOR_LOGIN is not set, so no approval can be recognised"
+cpa_api "$CPA_CTRL" "$CPA_H1"
+expect 2 "an unset Director login fails closed" -- "${CPA_BASE[@]}" bash "$CHECK_CPA"
+expect_output "the repository variable IAENG_DIRECTOR_LOGIN is not set, so no approval can be recognised"
+
+cpa_api "$CPA_PLAIN" "$CPA_H2"
+expect 2 "a head moved before the listing fails closed" -- "${CPA_ENV[@]}" bash "$CHECK_CPA"
+expect_output "The PR head moved since this event ($CPA_H1 -> $CPA_H2). Failing closed"
+cpa_calls "$CPA_HEAD" "nothing is listed once the head has moved"
+cpa_api "$CPA_PLAIN" "$CPA_H1" "$CPA_H2"
+expect 2 "a head moved during the listing fails closed" -- "${CPA_ENV[@]}" bash "$CHECK_CPA"
+expect_output "The PR head moved while its files were being listed ($CPA_H1 -> $CPA_H2). Failing closed."
+
+cpa_api "$CPA_PLAIN" "$CPA_H1"
+expect 2 "a listing shorter than changed_files fails closed" -- "${CPA_ENV[@]}" CHANGED_FILES=3 bash "$CHECK_CPA"
+expect_output "The API listed 2 files but the PR reports 3. Refusing to guess."
+cpa_api "$CPA_PLAIN" "$CPA_H1"
+expect 2 "3000 changed files cannot be listed and fail" -- "${CPA_ENV[@]}" CHANGED_FILES=3000 bash "$CHECK_CPA"
+expect_output "This PR changes 3000 files; the API lists at most 3000"
+cpa_api "$CPA_PLAIN" "$CPA_H1"
+expect 2 "an event head that is not a full SHA fails closed" -- "${CPA_ENV[@]}" EVENT_HEAD=abc123 bash "$CHECK_CPA"
+expect_output "The event carries no valid head SHA. Failing closed."
+cpa_api "$CPA_PLAIN" "$CPA_H1"
+touch "$CPA_DATA/files.fail"
+expect 2 "a failed listing fails closed" -- "${CPA_ENV[@]}" bash "$CHECK_CPA"
+expect_output_absent "No control path is touched."
+
+cpa_api '[{"filename":"src/x.sh","previous_filename":"Adapters/scripts/x.sh"}]' "$CPA_H1"
+expect 1 "a file renamed OUT of a control path is caught" -- "${CPA_ENV[@]}" CHANGED_FILES=1 bash "$CHECK_CPA"
+expect_output "control path touched: Adapters/scripts/x.sh"
+cpa_api '[{"filename":".github/workflows/::error::x"}]' "$CPA_H1"
+expect 1 "a file name cannot inject a workflow command" -- "${CPA_ENV[@]}" CHANGED_FILES=1 bash "$CHECK_CPA"
+expect_output "control path touched: .github/workflows/: :error: :x"
+
+# Inputs no GitHub event lacks, refused rather than read as a pass: inside `if`,
+# `[ x -ge 3000 ]` on a non-integer is false, which skipped the size and count
+# guards in the inline version.
+cpa_api "$CPA_PLAIN" "$CPA_H1"
+expect 2 "a CHANGED_FILES that is not a count fails closed" -- "${CPA_ENV[@]}" CHANGED_FILES=two bash "$CHECK_CPA"
+expect_output "CHANGED_FILES is not a file count"
+cpa_api "$CPA_PLAIN" "$CPA_H1"
+expect 2 "an empty REPO fails closed" -- "${CPA_ENV[@]}" REPO= bash "$CHECK_CPA"
+expect_output "REPO is not set"
+
+# The matcher's own failure is not a verdict. A copy of the script beside a
+# matcher that exits 2.
+mkdir -p "$WORK/cpa-broken"
+cp "$CHECK_CPA" "$WORK/cpa-broken/"
+printf '#!/usr/bin/env bash\nexit 2\n' > "$WORK/cpa-broken/check-control-paths.sh"
+chmod +x "$WORK/cpa-broken/check-control-paths.sh"
+cpa_api "$CPA_CTRL" "$CPA_H1"
+expect 2 "a matcher failure fails closed" -- "${CPA_ENV[@]}" bash "$WORK/cpa-broken/check-control-path-approval.sh"
+expect_output "check-control-paths.sh failed (exit 2). Failing closed."
+
+# A jq that cannot read the listing, and a command the script does not test
+# explicitly, are not evaluated: exit 2 and the message that says which
+# (WU-IAENG-390, #331). The message is asserted, not the code alone: before
+# the fix `set -e` exited with jq's own status, which can already be 2.
+cpa_api 'not json' "$CPA_H1"
+expect 2 "a listing that is not JSON is not evaluated (exit 2)" -- "${CPA_ENV[@]}" bash "$CHECK_CPA"
+expect_output "The file listing could not be read as JSON. Failing closed."
+# Countable (one element) but holding no file objects: the count passes and
+# the name extraction fails.
+cpa_api '[[1,2]]' "$CPA_H1"
+expect 2 "a listing whose entries hold no file names is not evaluated (exit 2)" -- \
+  "${CPA_ENV[@]}" CHANGED_FILES=1 bash "$CHECK_CPA"
+expect_output "The file names could not be read from the listing. Failing closed."
+# The ERR trap: a sed that fails only on the report the script prints.
+CPA390_SED="$WORK/cpa390-sed"
+mkdir -p "$CPA390_SED"
+cat > "$CPA390_SED/sed" <<SHIM
+#!/usr/bin/env bash
+[ "\${1:-}" = 's/::/: :/g' ] && { echo "sed (WU-IAENG-390 shim): failing" >&2; exit 4; }
+exec "$(command -v sed)" "\$@"
+SHIM
+chmod +x "$CPA390_SED/sed"
+cpa_api "$CPA_CTRL" "$CPA_H1"
+expect 2 "a command the script does not test explicitly is not evaluated (exit 2, the ERR trap)" -- \
+  "${CPA_ENV[@]}" PATH="$CPA390_SED:$CPA_BIN:$PATH" bash "$CHECK_CPA"
+expect_output "::error::A command failed (exit 4) before the guard could judge this event. Failing closed."
+
 # ------------------------- adopter registry and install (WU-IAENG-320) --------
 #
 # DEF-1/12/13/14 of the 2 Oct 2026 adoption test (issue #181). A consumer
@@ -3320,7 +3964,7 @@ mk_consumer cons-no-registry
 git add -A && git commit -q -m "no project registry"
 BASE="$(git rev-parse HEAD)"
 commit_with "feat: claims a framework id with no project registry" "Work Unit: WU-FRAMEWORK-137"
-expect 1 "a consumer with no project registry fails, never falling back to the framework's" -- bash "$CONSUMER_WU" "$BASE" HEAD
+expect 2 "a consumer with no project registry fails, never falling back to the framework's" -- bash "$CONSUMER_WU" "$BASE" HEAD
 expect_output "This project has no Work Unit registry"
 expect_output "Registry/work-units.yml"
 
@@ -3364,10 +4008,31 @@ cp "$CHECK_WU" "$SCRIPTS/merge-classify.sh" Adapters/scripts/
 git add -A && git commit -q -m "no registry"
 BASE="$(git rev-parse HEAD)"
 commit_with "feat: anything" "Work Unit: WU-QA-1"
-expect 1 "the framework root with no registry fails closed" -- bash Adapters/scripts/check-work-units.sh "$BASE" HEAD
+expect 2 "the framework root with no registry fails closed" -- bash Adapters/scripts/check-work-units.sh "$BASE" HEAD
 expect_output "Could not locate Registry/work-units.yml"
-expect 1 "IAENG_REGISTRY_WORK_UNITS naming a missing file fails closed" -- \
+
+# IAENG_REGISTRY_WORK_UNITS, as the script header states: an existing file it
+# names is read, and overrides Registry/work-units.yml; a missing one is not a
+# registry, and the search falls back to Registry/work-units.yml. The first
+# case below used to be labelled "naming a missing file fails closed" and
+# passed only because this fixture has no Registry/ (issue #275, item 5): no
+# case read the file the variable names.
+expect 2 "IAENG_REGISTRY_WORK_UNITS naming a missing file, with no Registry/ to fall back to, fails closed" -- \
   env IAENG_REGISTRY_WORK_UNITS=/nonexistent/devops320.yml bash Adapters/scripts/check-work-units.sh "$BASE" HEAD
+expect_output "Could not locate Registry/work-units.yml"
+printf 'work_units:\n  - id: WU-QA-1\n' > "$WORK/env-registry-363.yml"
+expect 0 "IAENG_REGISTRY_WORK_UNITS naming an existing file is read" -- \
+  env IAENG_REGISTRY_WORK_UNITS="$WORK/env-registry-363.yml" bash Adapters/scripts/check-work-units.sh "$BASE" HEAD
+expect_output "Registry: $WORK/env-registry-363.yml"
+mkdir -p Registry && printf 'work_units:\n  - id: WU-QA-2\n' > Registry/work-units.yml
+expect 0 "an existing IAENG_REGISTRY_WORK_UNITS file overrides Registry/work-units.yml" -- \
+  env IAENG_REGISTRY_WORK_UNITS="$WORK/env-registry-363.yml" bash Adapters/scripts/check-work-units.sh "$BASE" HEAD
+expect_output "Registry: $WORK/env-registry-363.yml"
+expect 1 "IAENG_REGISTRY_WORK_UNITS naming a missing file falls back to Registry/work-units.yml" -- \
+  env IAENG_REGISTRY_WORK_UNITS=/nonexistent/devops320.yml bash Adapters/scripts/check-work-units.sh "$BASE" HEAD
+expect_output "Registry: Registry/work-units.yml"
+expect_output "claims 'WU-QA-1', which is not in Registry/work-units.yml"
+rm -rf Registry
 
 # The framework's own behaviour is unchanged: run from the framework root it
 # reads its own registry.
@@ -3384,6 +4049,7 @@ fi
 section "setup-project-bootstrap.sh / install.sh — registry, LF rules, summary (WU-IAENG-320)"
 
 new_repo boot-320
+block_begin 12 "bootstrap registry/LF/summary"
 if ln -s "$FRAMEWORK_ROOT" ia-engineering 2>/dev/null; then
   BOOT_OUT="$(bash ./ia-engineering/Adapters/scripts/setup-project-bootstrap.sh generic 2>&1)"
 
@@ -3396,10 +4062,10 @@ if ln -s "$FRAMEWORK_ROOT" ia-engineering 2>/dev/null; then
     FAILED=$((FAILED + 1))
   fi
 
-  for rule in '/.claude/settings.json' '/.ia-engineering/stack' '/.ia-engineering/risk-map.yml' \
+  for rule in '/.claude/settings.json' '/.claude/skills/**' '/.ia-engineering/stack' '/.ia-engineering/risk-map.yml' \
               '/Registry/work-units.yml' '/Dockerfile' '/.gitmodules'; do
     TOTAL=$((TOTAL + 1))
-    if grep -qxF "$rule text eol=lf" .gitattributes 2>/dev/null; then
+    if grep -qxF -- "$rule text eol=lf" .gitattributes 2>/dev/null; then
       [ -n "$VERBOSE" ] && printf '   ok   .gitattributes carries an LF rule for %s\n' "$rule"
     else
       printf '   FAIL .gitattributes has no LF rule for %s\n' "$rule"
@@ -3429,19 +4095,23 @@ if ln -s "$FRAMEWORK_ROOT" ia-engineering 2>/dev/null; then
   expect 0 "install.sh run on its own succeeds" -- bash ./ia-engineering/Adapters/scripts/install.sh
   expect_output "setup-project-bootstrap.sh <stack>"
 else
-  skip 9 "bootstrap registry/LF/summary: ln -s failed on this platform (no admin rights / Developer Mode off) -- not a fix defect."
+  skip "$BLOCK_N" "bootstrap registry/LF/summary: ln -s failed on this platform (no admin rights / Developer Mode off) -- not a fix defect."
 fi
+block_end
 
 section "install-hooks.sh — framework-inside-project by identity, not spelling (WU-IAENG-320, DEF-14)"
 
 new_repo hooks-320
+block_begin 6 "install-hooks.sh inside-project detection"
 if ln -s "$FRAMEWORK_ROOT" ia-engineering 2>/dev/null; then
   HOOKS_320="$PWD/ia-engineering/Adapters/ai-runtimes/claude-code/install-hooks.sh"
   expect 0 "install-hooks.sh finds the framework inside the project" -- bash "$HOOKS_320" --print
   expect_output 'ia-engineering/Adapters'
 
   # The project reached through a symlink: its logical path is spelled
-  # differently from the one the framework was located by.
+  # differently from the one the framework was located by. Where `ln -s`
+  # copies instead of linking (MSYS without winsymlinks), the case has no
+  # premise and is recorded as skipped, never left out of the count.
   PROJ_REAL="$PWD"
   PROJ_LINK="$WORK/hooks-320-link"
   rm -rf "$PROJ_LINK"
@@ -3449,15 +4119,27 @@ if ln -s "$FRAMEWORK_ROOT" ia-engineering 2>/dev/null; then
     cd "$PROJ_LINK" || exit 1
     expect 0 "install-hooks.sh accepts the project reached through a symlinked path" -- bash "$HOOKS_320" --print
     cd "$PROJ_REAL" || exit 1
+  else
+    skip 1 "install-hooks.sh symlinked project path: ln -s did not create a symbolic link on this platform -- not a fix defect."
   fi
 
   # A differently-cased spelling of the same directory (Windows, macOS): only
-  # meaningful where the filesystem folds case, and a no-op where it does not.
+  # meaningful where the filesystem folds case. The spelling exists only there
+  # (this run never creates it), so its existence is the premise; where it is
+  # absent, as on Linux CI, the case is not applicable and is counted as such.
+  # The premise is the same directory under another spelling, so -ef is
+  # required too: an upper-cased path that exists but is another directory is
+  # a broken fixture, a FAIL, never "not applicable".
   ALT_CASE="$(dirname "$PROJ_REAL")/$(basename "$PROJ_REAL" | tr '[:lower:]' '[:upper:]')"
-  if [ "$ALT_CASE" != "$PROJ_REAL" ] && [ -d "$ALT_CASE" ] && [ "$ALT_CASE" -ef "$PROJ_REAL" ]; then
+  if [ -d "$ALT_CASE" ] && [ "$ALT_CASE" -ef "$PROJ_REAL" ]; then
     cd "$ALT_CASE" || exit 1
     expect 0 "install-hooks.sh accepts a differently-cased spelling of the project path" -- bash "$HOOKS_320" --print
     cd "$PROJ_REAL" || exit 1
+  elif [ -d "$ALT_CASE" ]; then
+    TOTAL=$((TOTAL + 1)); FAILED=$((FAILED + 1))
+    printf '   FAIL install-hooks.sh case-folded project path: %s exists but is not the same directory as %s\n' "$ALT_CASE" "$PROJ_REAL"
+  else
+    not_applicable 1 case-folded-path "install-hooks.sh case-folded project path: this filesystem does not fold case."
   fi
 
   # Not inside the project is still refused.
@@ -3465,8 +4147,9 @@ if ln -s "$FRAMEWORK_ROOT" ia-engineering 2>/dev/null; then
   expect 1 "install-hooks.sh still refuses a framework that is not inside the project" -- bash "$HOOKS_320" --print
   expect_output "is not inside the project"
 else
-  skip 2 "install-hooks.sh inside-project detection: ln -s failed on this platform (no admin rights / Developer Mode off) -- not a fix defect."
+  skip "$BLOCK_N" "install-hooks.sh inside-project detection: ln -s failed on this platform (no admin rights / Developer Mode off) -- not a fix defect."
 fi
+block_end
 
 # ------------------- validate-framework.sh short-circuit safety (WU-IAENG-319) --
 #
@@ -3838,6 +4521,29 @@ awk '$0 == "  [Approval → Release Chain]" { print "  [Approval → Release Cha
 chain_drift_case "an output line that never closes its bracket" "$CHAIN_FIX/unclosed-output.md" "$CHAIN_FIX/base.yml" \
   "Alpha Chain: unrecognised output line \"[Approval → Release Chain\""
 
+# Issue #233 (WU-IAENG-350): a line that opened "[" and closed "]" was skipped
+# as one output, so a step drawn between two outputs on one line went
+# unchecked. An output line now holds exactly one bracket pair. First the
+# falsifier as the issue states it, on the real document with the Registry
+# unchanged; then the same line in the fixture, and a nested pair.
+awk '/^# / { incident = ($0 == "# Incident Chain") }
+     incident && $0 == "Engineer(s)" { print "  [Containment] Compliance Engineer [Assessment]"; print "      ↓" }
+     { print }' "$CHAIN_FIX/real.md" > "$CHAIN_FIX/real-233.md"
+expect 1 "chain diagrams: the #233 fixture really added a line to the real document" -- \
+  cmp -s "$CHAIN_FIX/real.md" "$CHAIN_FIX/real-233.md"
+chain_drift_case "a step hidden between two outputs on one line, in the real Incident Chain (#233)" \
+  "$CHAIN_FIX/real-233.md" "$CHAIN_FIX/real.yml" \
+  "$CHAIN_FIX/real-233.md:" \
+  "Incident Chain: unrecognised output line \"[Containment] Compliance Engineer [Assessment]\""
+awk '{ print } $0 == "Code Reviewer" { print "      ↓"; print "  [Review] Security Engineer [Assessment]" }' \
+  "$CHAIN_FIX/base.md" > "$CHAIN_FIX/two-outputs.md"
+chain_drift_case "a step hidden between two outputs on one line (#233)" "$CHAIN_FIX/two-outputs.md" "$CHAIN_FIX/base.yml" \
+  "Alpha Chain: unrecognised output line \"[Review] Security Engineer [Assessment]\""
+awk '$0 == "  [Approval → Release Chain]" { print "  [Approval → [Release] Chain]"; next } { print }' \
+  "$CHAIN_FIX/base.md" > "$CHAIN_FIX/nested-output.md"
+chain_drift_case "an output line holding a nested bracket pair" "$CHAIN_FIX/nested-output.md" "$CHAIN_FIX/base.yml" \
+  "Alpha Chain: unrecognised output line \"[Approval → [Release] Chain]\""
+
 # --- Rule 1: what cannot be compared fails. It is never skipped.
 awk '/^# / { beta = ($0 == "# Beta Chain") } !(beta && /^```/)' \
   "$CHAIN_FIX/base.md" > "$CHAIN_FIX/no-diagram.md"
@@ -3893,6 +4599,288 @@ chain_drift_case "two empty files" "$CHAIN_FIX/empty.md" "$CHAIN_FIX/empty.yml" 
   "no chain diagram was compared" "total${CHAIN_TAB}0${CHAIN_TAB}0"
 chain_drift_case "a missing file" "$CHAIN_FIX/absent.md" "$CHAIN_FIX/base.yml" \
   "cannot compare chain diagrams: $CHAIN_FIX/absent.md or $CHAIN_FIX/base.yml is missing"
+
+# ---- validate-framework.sh workflow step titles vs headings (WU-IAENG-392) --
+#
+# Section 13 compared each Registry/workflows.yml step_count with its
+# document's headings, and nothing else. Release Step 8's Registry line kept
+# "when the release branch diverged" for seven weeks after the document made
+# the back-merge always required (issue #332): the count was right. Since the
+# Director's decision of 27 Oct 2026, each step: value is its heading text
+# copied byte for byte, and workflow_step_title_drift compares them.
+#
+# These cases run the REAL workflow_step_title_drift, extracted from the
+# validator as chain_diagram_drift is above, on a copy of the real Workflow
+# documents and Registry, as LF and as CRLF, mutated one drift at a time. The
+# oracle is the documents' headings: every expected title, line number and
+# count below is read from a document with grep, never from the function.
+
+section "validate-framework.sh — workflow step titles match their headings byte for byte (WU-IAENG-392)"
+
+WST_HARNESS="$WORK/workflow-step-title-harness.sh"
+{
+  echo 'set -uo pipefail'
+  sed -n '/^workflow_step_title_drift() {/,/^}/p' "$SCRIPTS/validate-framework.sh"
+  cat <<'HARNESS'
+workflow_step_title_drift "$1" "$2"
+HARNESS
+} > "$WST_HARNESS"
+WST_REAL="$(cd "$SCRIPTS/../.." && pwd)"
+WST_FIX="$WORK/workflow-step-titles"
+WST_TAB=$'\t'
+WST_DASH='—'
+rm -rf "$WST_FIX"
+mkdir -p "$WST_FIX/lf/Workflows" "$WST_FIX/lf/Registry" "$WST_FIX/crlf/Workflows" "$WST_FIX/crlf/Registry"
+
+expect 0 "workflow step titles: workflow_step_title_drift is extracted from the validator" -- \
+  grep -q '^workflow_step_title_drift() {' "$WST_HARNESS"
+
+for wst_f in "$WST_REAL"/Workflows/*.md "$WST_REAL/Registry/workflows.yml"; do
+  wst_rel="${wst_f#"$WST_REAL"/}"
+  sed $'s/\r$//' "$wst_f" > "$WST_FIX/lf/$wst_rel"
+  awk '{ printf "%s\r\n", $0 }' "$WST_FIX/lf/$wst_rel" > "$WST_FIX/crlf/$wst_rel"
+done
+
+# The oracle for the denominator: the documents' numbered headings, counted
+# by grep.
+WST_DOCS="$(find "$WST_FIX/lf/Workflows" -name '*.md' | wc -l | tr -d ' ')"
+WST_HEADS="$(cat "$WST_FIX"/lf/Workflows/*.md | grep -cE '^## (Step|Ceremony) [0-9]+')"
+
+# wst_run <root> — runs the harness on <root>/Registry/workflows.yml.
+# wst_copy <name> — a fresh LF copy of the real files, at $WST_FIX/<name>.
+# wst_case <what> <root> <expected output...> — the copy must FAIL, with
+# every expected string in its output.
+wst_copy() {
+  rm -rf "${WST_FIX:?}/$1"
+  cp -R "$WST_FIX/lf" "$WST_FIX/$1"
+}
+wst_case() {
+  local what="$1" root="$2" want
+  shift 2
+  expect 1 "workflow step titles: $what fails" -- \
+    bash "$WST_HARNESS" "$root/Registry/workflows.yml" "$root"
+  for want in "$@"; do
+    expect_output "$want"
+  done
+}
+# wst_line <file> <heading prefix> — the line number of a heading, by grep.
+wst_line() {
+  grep -n -- "^$2" "$1" | head -n 1 | cut -d: -f1
+}
+
+# --- The real files, LF and CRLF.
+expect 0 "workflow step titles: the real documents and Registry agree, checked out LF" -- \
+  bash "$WST_HARNESS" "$WST_FIX/lf/Registry/workflows.yml" "$WST_FIX/lf"
+expect_output "total${WST_TAB}${WST_DOCS}${WST_TAB}${WST_HEADS}"
+for wst_f in "$WST_FIX"/lf/Workflows/*.md; do
+  expect_output "every step title matches Workflows/$(basename "$wst_f")"
+done
+WST_CR="$(tr -cd '\r' < "$WST_FIX/crlf/Registry/workflows.yml" | wc -c | tr -d ' ')"
+WST_LF="$(tr -cd '\n' < "$WST_FIX/crlf/Registry/workflows.yml" | wc -c | tr -d ' ')"
+expect 0 "workflow step titles: the CRLF copy ends every line in CRLF ($WST_CR CR, $WST_LF LF)" -- \
+  test "$WST_LF" -gt 0 -a "$WST_CR" = "$WST_LF"
+expect 0 "workflow step titles: the real documents and Registry agree, checked out CRLF" -- \
+  bash "$WST_HARNESS" "$WST_FIX/crlf/Registry/workflows.yml" "$WST_FIX/crlf"
+expect_output "total${WST_TAB}${WST_DOCS}${WST_TAB}${WST_HEADS}"
+
+# --- Issue #332 put back: a qualifier added to a Registry step. Release
+# Step 8 is the first "step: Back-merge to develop" line; Hotfix Step 9 is
+# the second.
+wst_copy qualifier
+awk '!done && $0 == "        step: Back-merge to develop" {
+       print "        step: Back-merge to develop via Pull Request, when the release branch diverged"; done = 1; next }
+     { print }' "$WST_FIX/lf/Registry/workflows.yml" > "$WST_FIX/qualifier/Registry/workflows.yml"
+expect 1 "workflow step titles: the qualifier fixture really changed the Registry" -- \
+  cmp -s "$WST_FIX/lf/Registry/workflows.yml" "$WST_FIX/qualifier/Registry/workflows.yml"
+WST_L="$(wst_line "$WST_FIX/qualifier/Workflows/RELEASE.md" "## Step 8 $WST_DASH ")"
+WST_R="$(grep -n '^        step: Back-merge to develop via Pull Request, when the release branch diverged$' "$WST_FIX/qualifier/Registry/workflows.yml" | cut -d: -f1)"
+wst_case "a qualifier added to a Registry step (Release Step 8, issue #332)" "$WST_FIX/qualifier" \
+  "Release, position 8: Workflows/RELEASE.md:$WST_L heads \"8 $WST_DASH Back-merge to develop\", $WST_FIX/qualifier/Registry/workflows.yml:$WST_R records \"8 $WST_DASH Back-merge to develop via Pull Request, when the release branch diverged\"" \
+  "1 of 11 positions differ"
+
+# Byte for byte means no normalisation (review of PR #339, QA): a title that
+# differs from its heading only in case, or only in a doubled space, fails.
+wst_copy case-only
+awk '$0 == "        step: Branch Creation" { print "        step: Branch creation"; next } { print }' \
+  "$WST_FIX/lf/Registry/workflows.yml" > "$WST_FIX/case-only/Registry/workflows.yml"
+expect 1 "workflow step titles: the case-only fixture really changed the Registry" -- \
+  cmp -s "$WST_FIX/lf/Registry/workflows.yml" "$WST_FIX/case-only/Registry/workflows.yml"
+WST_R="$(grep -n '^        step: Branch creation$' "$WST_FIX/case-only/Registry/workflows.yml" | cut -d: -f1)"
+wst_case "a title that differs from its heading in case only" "$WST_FIX/case-only" \
+  "Feature Development, position 2: Workflows/FEATURE_DEVELOPMENT.md:$(wst_line "$WST_FIX/case-only/Workflows/FEATURE_DEVELOPMENT.md" "## Step 2 $WST_DASH ") heads \"2 $WST_DASH Branch Creation\", $WST_FIX/case-only/Registry/workflows.yml:$WST_R records \"2 $WST_DASH Branch creation\"" \
+  "1 of 8 positions differ"
+
+wst_copy double-space
+awk '$0 == "        step: Create release branch" { print "        step: Create  release branch"; next } { print }' \
+  "$WST_FIX/lf/Registry/workflows.yml" > "$WST_FIX/double-space/Registry/workflows.yml"
+expect 1 "workflow step titles: the doubled-space fixture really changed the Registry" -- \
+  cmp -s "$WST_FIX/lf/Registry/workflows.yml" "$WST_FIX/double-space/Registry/workflows.yml"
+wst_case "a title that differs from its heading by a doubled space" "$WST_FIX/double-space" \
+  "Release, position 3: Workflows/RELEASE.md:" \
+  "records \"3 $WST_DASH Create  release branch\"" \
+  "1 of 11 positions differ"
+
+# --- Two Registry steps swapped, the step count unchanged: invisible to the
+# step_count comparison.
+wst_copy swapped
+awk '$0 == "        step: Review logic and correctness" { print "        step: Review tests"; next }
+     $0 == "        step: Review tests" { print "        step: Review logic and correctness"; next }
+     { print }' "$WST_FIX/lf/Registry/workflows.yml" > "$WST_FIX/swapped/Registry/workflows.yml"
+expect 0 "workflow step titles: the swap keeps the Registry's step count" -- \
+  test "$(grep -c '^      - n: ' "$WST_FIX/swapped/Registry/workflows.yml")" = "$(grep -c '^      - n: ' "$WST_FIX/lf/Registry/workflows.yml")"
+WST_L="$(wst_line "$WST_FIX/swapped/Workflows/CODE_REVIEW.md" "## Step 2 $WST_DASH ")"
+wst_case "two Registry steps swapped at equal count (Code Review 2 and 3)" "$WST_FIX/swapped" \
+  "Code Review, position 2: Workflows/CODE_REVIEW.md:$WST_L heads \"2 $WST_DASH Review logic and correctness\"" \
+  "records \"2 $WST_DASH Review tests\"" \
+  "2 of 9 positions differ"
+
+# --- A heading reworded in the document, the Registry unchanged.
+wst_copy reworded
+awk '$0 == "## Step 9 — Author response (if changes requested)" {
+       print "## Step 9 — Author response, then re-request review"; next }
+     { print }' "$WST_FIX/lf/Workflows/CODE_REVIEW.md" > "$WST_FIX/reworded/Workflows/CODE_REVIEW.md"
+expect 1 "workflow step titles: the reworded fixture really changed the document" -- \
+  cmp -s "$WST_FIX/lf/Workflows/CODE_REVIEW.md" "$WST_FIX/reworded/Workflows/CODE_REVIEW.md"
+WST_L="$(wst_line "$WST_FIX/reworded/Workflows/CODE_REVIEW.md" "## Step 9 $WST_DASH ")"
+wst_case "a heading reworded in the document (Code Review Step 9)" "$WST_FIX/reworded" \
+  "Code Review, position 9: Workflows/CODE_REVIEW.md:$WST_L heads \"9 $WST_DASH Author response, then re-request review\"" \
+  "records \"9 $WST_DASH Author response (if changes requested)\""
+
+# --- Two document headings swapped, a step renumbered in the Registry, a
+# heading added to the document.
+wst_copy doc-swapped
+awk '$0 == "## Ceremony 1 — Sprint Planning" { print "## Ceremony 1 — Daily Standup"; next }
+     $0 == "## Ceremony 2 — Daily Standup" { print "## Ceremony 2 — Sprint Planning"; next }
+     { print }' "$WST_FIX/lf/Workflows/SPRINT_CEREMONY.md" > "$WST_FIX/doc-swapped/Workflows/SPRINT_CEREMONY.md"
+wst_case "two document headings swapped at equal count" "$WST_FIX/doc-swapped" \
+  "Sprint Ceremony, position 1: Workflows/SPRINT_CEREMONY.md:" \
+  "heads \"1 $WST_DASH Daily Standup\"" "records \"1 $WST_DASH Sprint Planning\"" \
+  "2 of 4 positions differ"
+
+wst_copy renumbered
+awk '/^  - name: / { sprint = ($0 == "  - name: Sprint Ceremony") }
+     sprint && $0 == "      - n: 2" { print "      - n: 3"; next }
+     { print }' "$WST_FIX/lf/Registry/workflows.yml" > "$WST_FIX/renumbered/Registry/workflows.yml"
+wst_case "a Registry step renumbered, its title kept" "$WST_FIX/renumbered" \
+  "Sprint Ceremony, position 2:" "heads \"2 $WST_DASH Daily Standup\"" "records \"3 $WST_DASH Daily Standup\""
+
+wst_copy heading-added
+printf '\n## Step 12 — Close the incident record\n' >> "$WST_FIX/heading-added/Workflows/HOTFIX.md"
+wst_case "a heading added to the document" "$WST_FIX/heading-added" \
+  "Hotfix, position 12: Workflows/HOTFIX.md:" \
+  "heads \"12 $WST_DASH Close the incident record\"" \
+  "records nothing at position 12 (it ends at 11)"
+
+# --- Quoting: a double-quoted title loses its quotes and nothing else; every
+# form whose bytes YAML would read differently is refused, not compared.
+wst_copy quoted-plain
+awk '!done && $0 == "        step: Merge" { print "        step: \"Merge\""; done = 1; next } { print }' \
+  "$WST_FIX/lf/Registry/workflows.yml" > "$WST_FIX/quoted-plain/Registry/workflows.yml"
+expect 1 "workflow step titles: the quoted-plain fixture really changed the Registry" -- \
+  cmp -s "$WST_FIX/lf/Registry/workflows.yml" "$WST_FIX/quoted-plain/Registry/workflows.yml"
+expect 0 "workflow step titles: a double-quoted title that needs no quotes is compared without them" -- \
+  bash "$WST_HARNESS" "$WST_FIX/quoted-plain/Registry/workflows.yml" "$WST_FIX/quoted-plain"
+
+wst_copy colon-unquoted
+awk '$0 == "        step: \"Phase A: Project questions\"" { print "        step: Phase A: Project questions"; next } { print }' \
+  "$WST_FIX/lf/Registry/workflows.yml" > "$WST_FIX/colon-unquoted/Registry/workflows.yml"
+wst_case "a title containing \": \" left unquoted" "$WST_FIX/colon-unquoted" \
+  "a plain step: value YAML reads differently: Phase A: Project questions (enclose it in double quotes)"
+
+wst_copy block-scalar
+awk '!done && $0 == "        step: Merge" { print "        step: >-"; print "          Merge"; done = 1; next } { print }' \
+  "$WST_FIX/lf/Registry/workflows.yml" > "$WST_FIX/block-scalar/Registry/workflows.yml"
+wst_case "a title written as a block scalar" "$WST_FIX/block-scalar" \
+  "a block scalar \">-\"" "Feature Development, step 8:" "records no step: value"
+
+wst_copy single-quoted
+awk '!done && $0 == "        step: Commit" { print "        step: '\''Commit'\''"; done = 1; next } { print }' \
+  "$WST_FIX/lf/Registry/workflows.yml" > "$WST_FIX/single-quoted/Registry/workflows.yml"
+wst_case "a single-quoted title" "$WST_FIX/single-quoted" \
+  "a plain step: value starting with a YAML indicator: 'Commit'"
+
+wst_copy escaped
+awk '$0 == "        step: Pull Request" { print "        step: \"Pull\\u0020Request\""; next } { print }' \
+  "$WST_FIX/lf/Registry/workflows.yml" > "$WST_FIX/escaped/Registry/workflows.yml"
+wst_case "a double-quoted title holding an escape" "$WST_FIX/escaped" \
+  "a double-quoted step: value this check does not decode: \"Pull\\u0020Request\""
+
+wst_copy trailing-space
+awk '$0 == "        step: Diagnose" { print "        step: Diagnose "; next } { print }' \
+  "$WST_FIX/lf/Registry/workflows.yml" > "$WST_FIX/trailing-space/Registry/workflows.yml"
+wst_case "a plain title ending in a space YAML drops" "$WST_FIX/trailing-space" \
+  "a plain step: value YAML reads differently: Diagnose  (enclose it in double quotes)"
+
+# --- The Registry's shape: what cannot be read is refused.
+wst_copy no-title
+awk '$0 != "        step: Diagnose"' "$WST_FIX/lf/Registry/workflows.yml" > "$WST_FIX/no-title/Registry/workflows.yml"
+wst_case "a Registry step with no step: line" "$WST_FIX/no-title" \
+  "Incident Response, step 4:" "records no step: value"
+
+wst_copy two-titles
+awk '{ print } $0 == "        step: Diagnose" { print "        step: Contain" }' \
+  "$WST_FIX/lf/Registry/workflows.yml" > "$WST_FIX/two-titles/Registry/workflows.yml"
+wst_case "a Registry step with two step: lines" "$WST_FIX/two-titles" \
+  "a second step: line for step 4"
+
+wst_copy foreign-item
+awk '{ print } $0 == "        step: Diagnose" { print "      - actor: SRE Engineer" }' \
+  "$WST_FIX/lf/Registry/workflows.yml" > "$WST_FIX/foreign-item/Registry/workflows.yml"
+wst_case "a steps item that does not open with - n:" "$WST_FIX/foreign-item" \
+  "a step that does not open with \"- n:\": \"      - actor: SRE Engineer\""
+
+# Review of PR #339: YAML folds an indented continuation line into the value
+# above it, so a qualifier on a second line under step: was part of the title
+# for YAML and skipped by the check, which passed with "total 10 80". Every
+# line inside steps that is neither blank nor a one-line eight-space key is
+# now refused.
+wst_copy continuation
+awk '{ print } !done && $0 == "        step: Back-merge to develop" {
+       print "          via Pull Request, when the release branch diverged"; done = 1 }' \
+  "$WST_FIX/lf/Registry/workflows.yml" > "$WST_FIX/continuation/Registry/workflows.yml"
+expect 1 "workflow step titles: the continuation fixture really changed the Registry" -- \
+  cmp -s "$WST_FIX/lf/Registry/workflows.yml" "$WST_FIX/continuation/Registry/workflows.yml"
+wst_case "a qualifier on a continuation line under step: (review of PR #339)" "$WST_FIX/continuation" \
+  "Registry/workflows.yml:$(grep -n '^          via Pull Request, when the release branch diverged$' "$WST_FIX/continuation/Registry/workflows.yml" | cut -d: -f1): a line outside the steps grammar" \
+  "\"          via Pull Request, when the release branch diverged\""
+
+wst_copy actor-continuation
+awk '{ print } !done && $0 == "        actor: QA Engineer" {
+       print "          only when the change alters executable behaviour"; done = 1 }' \
+  "$WST_FIX/lf/Registry/workflows.yml" > "$WST_FIX/actor-continuation/Registry/workflows.yml"
+wst_case "a continuation line under another key of a step" "$WST_FIX/actor-continuation" \
+  "a line outside the steps grammar" "\"          only when the change alters executable behaviour\""
+
+wst_copy seven-spaces
+awk '{ print } $0 == "        step: Diagnose" { print "       gate: true" }' \
+  "$WST_FIX/lf/Registry/workflows.yml" > "$WST_FIX/seven-spaces/Registry/workflows.yml"
+wst_case "a step key at seven spaces" "$WST_FIX/seven-spaces" \
+  "a line outside the steps grammar" "\"       gate: true\""
+
+wst_copy untitled-heading
+awk '$0 == "## Step 4 — Diagnose" { print "## Step 4 Diagnose"; next } { print }' \
+  "$WST_FIX/lf/Workflows/INCIDENT_RESPONSE.md" > "$WST_FIX/untitled-heading/Workflows/INCIDENT_RESPONSE.md"
+wst_case "a document heading counted as a step with no title" "$WST_FIX/untitled-heading" \
+  "Workflows/INCIDENT_RESPONSE.md:$(wst_line "$WST_FIX/untitled-heading/Workflows/INCIDENT_RESPONSE.md" "## Step 4 Diagnose"): a step heading with no"
+
+# --- Rule 1: an empty or unreadable input fails; it is never a pass.
+wst_copy doc-missing
+rm -f "$WST_FIX/doc-missing/Workflows/ONBOARDING.md"
+wst_case "a document that cannot be read" "$WST_FIX/doc-missing" \
+  "Onboarding: Workflows/ONBOARDING.md cannot be read"
+
+wst_copy no-headings
+grep -vE '^## (Step|Ceremony) [0-9]+' "$WST_FIX/lf/Workflows/SPRINT_CEREMONY.md" > "$WST_FIX/no-headings/Workflows/SPRINT_CEREMONY.md"
+wst_case "a document with no step heading" "$WST_FIX/no-headings" \
+  "Sprint Ceremony: Workflows/SPRINT_CEREMONY.md has no \"## Step N\" or \"## Ceremony N\" heading"
+
+wst_copy empty-registry
+: > "$WST_FIX/empty-registry/Registry/workflows.yml"
+wst_case "an empty Registry" "$WST_FIX/empty-registry" \
+  "no workflow step title was compared" "total${WST_TAB}0${WST_TAB}0"
+
+wst_case "a missing Registry" "$WST_FIX/absent" \
+  "cannot compare workflow step titles: $WST_FIX/absent/Registry/workflows.yml is missing" "total${WST_TAB}0${WST_TAB}0"
 
 # ------------------------------------------------- git-hooks/pre-push -------
 #
@@ -4303,10 +5291,15 @@ expect 0 "dashboard: an Employee with no activity is marked never used" -- \
 expect 0 "dashboard: never-used is labelled in text, not by colour alone" -- grep -qF 'NEVER USED' "$UPAGE"
 expect 0 "dashboard: a message written on two lines is counted once (input 106, not 206)" -- \
   grep -qF '"tokens":{"calls":3,"input":106,"output":57,"cw":13,"cr":1004,"total":1180' "$UPAGE"
-expect 0 "dashboard: a non-Employee agent type is listed apart" -- \
-  grep -qF '"other_agents":[{"type":"general-purpose","dispatches":1}]' "$UPAGE"
+# The general-purpose agent was started inside the Observability Engineer's
+# own sub-agent: credited to it, not listed apart (WU-IAENG-346).
+expect 0 "dashboard: a non-Employee agent an Employee started is credited to that Employee" -- \
+  grep -qF '"credited_spawns":[{"employee":"Observability Engineer","type":"general-purpose","n":1}]' "$UPAGE"
+expect 0 "dashboard: so no dispatch is left without an Employee" -- grep -qF '"other_agents":[]' "$UPAGE"
+# Engineer is exercised by the Employees who implemented Work Units here
+# (DevOps, Observability); Scrum Master is not.
 expect 0 "dashboard: chain coverage counts the unexercised steps" -- \
-  grep -qF 'Test Chain - 1 of 3 Employee steps exercised' "$UPAGE"
+  grep -qF 'Test Chain - 2 of 3 Employee steps exercised' "$UPAGE"
 expect 0 "dashboard: commits per model come from Co-Authored-By" -- \
   grep -qF '{"model":"Claude Sonnet 5.5","commits_all":2,"commits_range":1}' "$UPAGE"
 expect 0 "dashboard: subagent tokens are attributed to the agent type from .meta.json" -- \
@@ -4959,7 +5952,7 @@ expect "$FPERM_WANT" "cache: created 0700 (Windows has no mode bits to set)" -- 
 # A row added to the cached git half, and a record added to a cached
 # transcript file, are counted by the next run: it read the cache, not git
 # and the transcripts again. Both are shaped values, as the cache holds.
-printf 'feedfacefeedfacefeedfacefeedfacefeedface\t1\tScrum Master\t(no trailer)\tClaude Opus 5.5\t1\t1\n' >> "$FC/git/commits.tsv"
+printf 'feedfacefeedfacefeedfacefeedfacefeedface\t1\tScrum Master\t(no trailer)\tClaude Opus 5.5\t1\t1\t2026-10-07\tt\n' >> "$FC/git/commits.tsv"
 for r in "$FC"/transcripts/v1/rec/*.tsv; do
   printf 'C\tmsg_PERSIST341\t2026-10-07\tclaude-persist-341\tmain session\t\t1\t1\t0\t0\n' >> "$r"
 done
@@ -4972,12 +5965,15 @@ expect 0 "cache: a --watch started later uses the same cache" -- \
 expect 0 "cache: the watch counted the cached record" -- grep -qF '"model":"claude-persist-341"' "$FPAGE"
 expect 0 "cache: the cache outlives the watch" -- test -f "$FC/transcripts/v1/index.tsv"
 expect 0 "cache: the watch left no temporary directory" -- test -z "$(find "$FTMP" -mindepth 1 -maxdepth 1)"
-# An uncommitted registry edit is newer than the cached git half: read again.
+# An uncommitted registry edit is newer than the cached git half: the
+# registries and the range are read again. The commit rows, which no registry
+# changes, are reused for the same HEAD, their in-range flag recomputed
+# (WU-IAENG-346): the planted commit is in no range git knows.
 printf '  - name: Domain Lead\n    category: Management\n' >> "$FRESH/Registry/employees.yml"
 expect 0 "cache: a run after an uncommitted registry edit" -- "${FRUN[@]}"
 expect 0 "cache: the edit is on the page" -- grep -qF '"name":"Domain Lead"' "$FPAGE"
-expect 1 "cache: the git half was recomputed, not taken from the cache" -- \
-  grep -qF '"name":"Scrum Master","roster":"framework","dispatches":0,"commits_range":1' "$FPAGE"
+expect 0 "cache: the registries and the range were read again, the rows reused" -- \
+  grep -qF '"name":"Scrum Master","roster":"framework","dispatches":0,"commits_range":0,"commits_all":1' "$FPAGE"
 
 # Refused: a link (a junction on Windows, which [ -L ] reports as one), a
 # directory another user owns, a cache git does not ignore. Each run falls
@@ -5068,7 +6064,7 @@ printf '%s %s\n' "$FLIVE" "$(date +%s)" > "$FC/lock/owner"
 { usage_line msg_F341B 4; printf '\n'; } >> "$FT/s1.jsonl"
 expect 0 "lock: a refresh while another runs is skipped" -- "${FRUN[@]}" --refresh
 expect_output "another one is running (pid $FLIVE)"
-expect 0 "lock: the running one's lock is left alone" -- grep -qF "$FLIVE" "$FC/lock/owner"
+expect 0 "lock: the running one's lock is left alone" -- grep -qF -- "$FLIVE" "$FC/lock/owner"
 expect 0 "lock: the hook starts none either" -- "${FRUN[@]}" --refresh-in-background
 expect_output "one is already running (pid $FLIVE)"
 printf '%s %s\n' "$FDEAD" "$(date +%s)" > "$FC/lock/owner"
@@ -5281,6 +6277,304 @@ expect 0 "collector: a newer version of the script reads everything again" -- \
 expect 1 "collector: and what the older version stored is not counted" -- grep -qF 'claude-old-version' <<< "$LAST_OUTPUT"
 cd "$WORK" || exit 1
 
+# ---- WU-IAENG-346: measurement fixes (6 Oct check-up, issues #205 and #231) --
+# One project, dated commits (the windows), a CLAUDE.md with an Active
+# Employees list, a chain with framework-role steps, and a transcript where an
+# Employee's own sub-agent starts helpers.
+export GIT_COMMITTER_DATE="2026-09-01T10:00:00Z" GIT_AUTHOR_DATE="2026-09-01T10:00:00Z"
+new_repo usage-346
+M346="$PWD"
+write_employee_roster "DevOps Engineer" "Observability Engineer" "Technical Writer" "Code Reviewer" "Scrum Master"
+printf '.ia-engineering/usage/\n' > .gitignore
+cat > Registry/chains.yml <<'CHAINS'
+chains:
+
+  - name: Role Chain
+    workflow: Workflows/TEST.md
+    steps:
+      - employee: DevOps Engineer
+        produces: something
+      - employee: Main Agent
+        produces: the plan
+      - employee: Engineer
+        produces: the implementation
+      - employee: Scrum Master
+        produces: a retrospective
+      - employee: Director
+        produces: the decision
+CHAINS
+cat > Registry/work-units.yml <<'WUS'
+work_units:
+  - id: WU-T-001
+    employee: Technical Writer
+    title: a guide
+    milestone: Testing
+WUS
+cat > CLAUDE.md <<'CLAUDEMD'
+# Project
+
+OBS346-SENTINEL-CLAUDE prose that never reaches the page.
+
+# Active Employees
+
+Framework Employees active on this project:
+
+- DevOps Engineer — the pipeline
+- **Observability Engineer** - the dashboards
+- Technical Writer: the guides
+- Code Reviewer (every Pull Request)
+- [Employee Name] — [when it is dispatched, concretely]
+- OBS346-SENTINEL-NAME — not on the roster
+
+Employees NOT active here, and why:
+
+- Scrum Master — no sprints
+
+---
+
+# Standards in Force
+CLAUDEMD
+git add -A && git commit -q -m "registries"
+commit_with "feat: no Employee anywhere" "Work Unit: WU-T-001"
+NOEMP346="$(git rev-parse HEAD)"
+git tag v1
+export GIT_COMMITTER_DATE="2026-09-10T10:00:00Z" GIT_AUTHOR_DATE="2026-09-10T10:00:00Z"
+# (1) Employee alone in a paragraph, the trailer block after it: git parses
+# only the last paragraph, so the Employee trailer is not parsed.
+commit_with "feat: a paragraph after the Employee" "Work Unit: WU-T-001" "" "Employee: Technical Writer" "" \
+  "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+export GIT_COMMITTER_DATE="2026-09-11T10:00:00Z" GIT_AUTHOR_DATE="2026-09-11T10:00:00Z"
+# (1) A block git does not take for trailers: under a quarter of its lines are.
+commit_with "feat: prose in the trailer block" "" "Work Unit: WU-T-002" "Employee: Code Reviewer" \
+  "Co-Authored-By: Claude Haiku 9 <noreply@anthropic.com>" "this line is prose, not a trailer" \
+  "and so is this one" "and this one" "and this last one" "and one more"
+export GIT_COMMITTER_DATE="2026-09-12T10:00:00Z" GIT_AUTHOR_DATE="2026-09-12T10:00:00Z"
+# (1) A message line that imitates git's record marker cannot move the line
+# after it to another commit: the Employee line stays this commit's.
+echo forged > forged.txt
+git add -A
+git commit -q -m "$(printf 'feat: a forged marker\n\n\036%s\nEmployee: DevOps Engineer\n' "$NOEMP346")"
+export GIT_COMMITTER_DATE="2026-09-13T10:00:00Z" GIT_AUTHOR_DATE="2026-09-13T10:00:00Z"
+commit_with "feat: obs one" "Work Unit: WU-T-003" "" "Employee: Observability Engineer"
+export GIT_COMMITTER_DATE="2026-09-14T10:00:00Z" GIT_AUTHOR_DATE="2026-09-14T10:00:00Z"
+commit_with "feat: obs two" "Work Unit: WU-T-003" "" "Employee: Observability Engineer"
+unset GIT_COMMITTER_DATE GIT_AUTHOR_DATE
+
+# (4) The main session dispatches the Observability Engineer, a fork and a
+# general-purpose agent. The Observability Engineer's sub-agent (toolUseId
+# toolu_O) starts a fork, an Explore and the Code Reviewer; the
+# general-purpose one (toolu_G) starts an Explore.
+T346="$WORK/usage-346-transcripts"
+rm -rf "$T346"
+mkdir -p "$T346/s/subagents"
+cat > "$T346/s.jsonl" <<'JSONL'
+{"type":"assistant","timestamp":"2026-10-02T10:00:00Z","message":{"id":"msg_M1","model":"claude-test-1","content":[{"type":"tool_use","id":"toolu_O","name":"Agent","input":{"subagent_type":"observability-engineer"}},{"type":"tool_use","id":"toolu_F","name":"Agent","input":{"subagent_type":"fork"}},{"type":"tool_use","id":"toolu_G","name":"Agent","input":{"subagent_type":"general-purpose"}}],"usage":{"input_tokens":1,"output_tokens":1,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}
+JSONL
+cat > "$T346/s/subagents/agent-o.jsonl" <<'JSONL'
+{"type":"assistant","isSidechain":true,"timestamp":"2026-10-03T10:00:00Z","message":{"id":"msg_O1","model":"claude-test-1","content":[{"type":"tool_use","id":"toolu_O1","name":"Agent","input":{"subagent_type":"fork"}},{"type":"tool_use","id":"toolu_O2","name":"Agent","input":{"subagent_type":"Explore"}},{"type":"tool_use","id":"toolu_O3","name":"Agent","input":{"subagent_type":"code-reviewer"}}],"usage":{"input_tokens":1,"output_tokens":1,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}
+JSONL
+printf '%s\n' '{"agentType":"lexer346","toolUseId":"toolu_O"}' > "$T346/s/subagents/agent-o.meta.json"
+cat > "$T346/s/subagents/agent-g.jsonl" <<'JSONL'
+{"type":"assistant","isSidechain":true,"timestamp":"2026-10-04T10:00:00Z","message":{"id":"msg_G1","model":"claude-test-1","content":[{"type":"tool_use","id":"toolu_G1","name":"Agent","input":{"subagent_type":"Explore"}}],"usage":{"input_tokens":1,"output_tokens":1,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}
+JSONL
+printf '%s\n' '{"agentType":"general-purpose","toolUseId":"toolu_G"}' > "$T346/s/subagents/agent-g.meta.json"
+
+P346="$M346/.ia-engineering/usage/dashboard.html"
+R346=(env CLAUDE_CONFIG_DIR="$WORK/usage-empty-config" bash "$DASH" --project-dir "$M346" --transcripts-dir "$T346")
+expect 0 "346: builds the page" -- "${R346[@]}"
+expect_output "Top-2 share of attributed commits: 60%"
+
+# (1) Line-scan attribution.
+expect 0 "346 (1): an Employee line git does not parse as a trailer is still attributed (paragraph after it)" -- \
+  grep -qF '"name":"Technical Writer","roster":"framework","dispatches":0,"commits_range":1,"commits_all":1' "$P346"
+expect 0 "346 (1): and in a block git does not take for trailers" -- \
+  grep -qF '"name":"Code Reviewer","roster":"framework","dispatches":1,"commits_range":1,"commits_all":1' "$P346"
+expect 0 "346 (1): the runtime co-author falls back the same way" -- \
+  grep -qF '{"model":"Claude Haiku 9","commits_all":1,"commits_range":1}' "$P346"
+expect 0 "346 (1): a forged marker line moves no attribution: the line is its own commit's" -- \
+  grep -qF '"name":"DevOps Engineer","roster":"framework","dispatches":0,"commits_range":1,"commits_all":1' "$P346"
+expect 0 "346 (1): the page counts the commits attributed from a line" -- grep -qF '"by_line":3' "$P346"
+expect 0 "346 (1): and says so in the sources" -- grep -qF '3 of them attributed from a column-0 Employee line' "$P346"
+
+# (2) Engineer: any implementing Employee, not a fixed list.
+expect 0 "346 (2): the Engineer step sums every Employee with a commit or a registered Work Unit" -- \
+  grep -qF '"engineer_set":["Code Reviewer","DevOps Engineer","Observability Engineer","Technical Writer"]' "$P346"
+expect 0 "346 (2): so the Engineer step is exercised; Scrum Master's is not" -- \
+  grep -qF 'Role Chain - 2 of 3 Employee steps exercised' "$P346"
+
+# (3) Main Agent and Director steps are framework roles.
+expect 0 "346 (3): a Main Agent step is shown as a framework role" -- grep -qF 'Main Agent</em> (framework role)' "$P346"
+expect 0 "346 (3): so is a Director step" -- grep -qF 'Director</em> (framework role)' "$P346"
+expect 1 "346 (3): neither is 'not on roster'" -- grep -qF '(not on roster)' "$P346"
+
+# (4) Sub-agents an Employee started are credited to it.
+expect 0 "346 (4): a fork and an Explore started inside the Observability Engineer's sub-agent are credited to it" -- \
+  grep -qF '"credited_spawns":[{"employee":"Observability Engineer","type":"Explore","n":1},{"employee":"Observability Engineer","type":"fork","n":1}]' "$P346"
+expect 0 "346 (4): and counted on its row" -- \
+  grep -qF '"name":"Observability Engineer","roster":"framework","dispatches":1,"commits_range":2,"commits_all":2,"work_units":0,"activity":3,"status":"used","active":true,"spawned":2' "$P346"
+expect 0 "346 (4): the main session's fork and a non-Employee's Explore stay non-Employee dispatches" -- \
+  grep -qF '"other_agents":[{"type":"Explore","dispatches":1},{"type":"fork","dispatches":1},{"type":"general-purpose","dispatches":1}]' "$P346"
+expect 1 "346 (4): the parent is resolved through toolUseId, not the meta's agentType" -- grep -qF 'lexer346' "$P346"
+expect 1 "346 (7): no CLAUDE.md prose, and no name off the roster, reaches the page" -- grep -qF 'OBS346-SENTINEL' "$P346"
+
+# (5) The windows, from the commit and transcript dates.
+expect 0 "346 (5): range, all-time and transcript windows are measured" -- \
+  grep -qF '"windows":{"range":{"commits":5,"first":"2026-09-10","last":"2026-09-14"},"all":{"commits":8,"first":"2026-09-01","last":"2026-09-14"},"transcripts":{"calls":3,"first":"2026-10-02","last":"2026-10-04"}}' "$P346"
+expect 0 "346 (5): and shown in their own table" -- grep -qF 'Measurement windows: what each column counts' "$P346"
+expect 0 "346 (5): the transcript window is named as rolling" -- grep -qF 'a rolling window, the runtime deletes old sessions' "$P346"
+
+# (6) Concentration.
+expect 0 "346 (6): the top-2 share of attributed commits, in the range" -- \
+  grep -qF '"concentration":{"range":{"attributed":5,"top":["Observability Engineer","Code Reviewer"],"top_commits":3,"share":0.6}' "$P346"
+expect 0 "346 (6): shown as a tile" -- grep -qF 'Top-2 share of commits (since v1)' "$P346"
+
+# (7) The active roster from CLAUDE.md.
+expect 0 "346 (7): four roster names are read from the Active Employees list" -- grep -qF '"active_roster":4' "$P346"
+expect 0 "346 (7): an Employee listed as not active, with no activity, is 'not active here', not never used" -- \
+  grep -qF '"name":"Scrum Master","roster":"framework","dispatches":0,"commits_range":0,"commits_all":0,"work_units":0,"activity":0,"status":"inactive","active":false' "$P346"
+expect 0 "346 (7): so the never-used count leaves it out" -- grep -qF '"totals":{"roster":5,"never":0' "$P346"
+expect 0 "346 (7): labelled in text" -- grep -qF 'not active here</span>' "$P346"
+expect 1 "346 (7): no other CLAUDE.md text reaches the cache" -- grep -rqF 'OBS346-SENTINEL' "$M346/.ia-engineering/usage/cache"
+
+# (8) Incremental git half (#231). A new commit is read alone, and the page
+# equals a from-scratch build.
+usage_data() {
+  sed -n 's/.*<script type="application\/json" id="usage-data">\(.*\)<\/script><script>.*/\1/p' "$1" | jq -cS 'del(.generated)'
+}
+commit_with "feat: obs three" "Work Unit: WU-T-003" "" "Employee: Observability Engineer"
+expect 0 "346 (8): a build after one new commit" -- "${R346[@]}"
+expect_output "git history: read 1 new commit(s) since the cached HEAD"
+FULL346="$WORK/usage-346-full"
+rm -rf "$FULL346"
+mkdir -p "$FULL346"
+expect 0 "346 (8): a from-scratch build of the same HEAD, with a cache of its own" -- \
+  env IAENG_USAGE_CACHE="$FULL346" "${R346[@]}" --out "$WORK/usage-out/full346.html"
+expect 1 "346 (8): (that one read the whole history)" -- grep -qF 'git history: read' <<< "$LAST_OUTPUT"
+expect 0 "346 (8): the incremental page carries exactly the from-scratch data" -- \
+  test "$(usage_data "$P346")" = "$(usage_data "$WORK/usage-out/full346.html")"
+# The cached rows are reused, not re-read: a row planted in the cache is
+# still counted after the next commit, its in-range flag recomputed (the
+# planted commit is not in the range, whatever the row said).
+printf 'feedfacefeedfacefeedfacefeedfacefeedface\t1\tScrum Master\t(no trailer)\tClaude Opus 5.5\t1\t1\t2026-09-30\tt\n' \
+  >> "$M346/.ia-engineering/usage/cache/git/commits.tsv"
+commit_with "feat: obs four" "Work Unit: WU-T-003" "" "Employee: Observability Engineer"
+expect 0 "346 (8): another commit" -- "${R346[@]}"
+expect 0 "346 (8): the cached rows were reused, the in-range flag recomputed" -- \
+  grep -qF '"name":"Scrum Master","roster":"framework","dispatches":0,"commits_range":0,"commits_all":1' "$P346"
+git tag v2
+expect 0 "346 (8): a new tag on the same commit" -- "${R346[@]}"
+expect_output "git history: read 0 new commit(s)"
+expect 0 "346 (8): moves every in-range flag (since v2: no commit)" -- \
+  grep -qF '"name":"Observability Engineer","roster":"framework","dispatches":1,"commits_range":0,"commits_all":4' "$P346"
+# A rewritten history is not an append: the whole history is read again.
+git switch -q -c rewritten HEAD~1
+commit_with "feat: another line of history" "Work Unit: WU-T-003" "" "Employee: Observability Engineer"
+expect 0 "346 (8): after a history the cached HEAD is not part of" -- "${R346[@]}"
+expect 1 "346 (8): nothing is read incrementally" -- grep -qF 'git history: read' <<< "$LAST_OUTPUT"
+expect 0 "346 (8): and the planted row is gone" -- \
+  grep -qF '"name":"Scrum Master","roster":"framework","dispatches":0,"commits_range":0,"commits_all":0' "$P346"
+# A cached row this script would not write is not trusted: whole history.
+printf 'not-a-sha\tgarbage\n' >> "$M346/.ia-engineering/usage/cache/git/commits.tsv"
+commit_with "feat: obs five" "Work Unit: WU-T-003" "" "Employee: Observability Engineer"
+expect 0 "346 (8): a cache holding a malformed row still builds" -- "${R346[@]}"
+expect_output "could not be reused; reading the whole history"
+expect 1 "346 (8): and the malformed row reaches nothing" -- grep -qF 'garbage' "$P346"
+# A newer script reads the whole history: its rows may have another shape.
+commit_with "feat: obs six" "Work Unit: WU-T-003" "" "Employee: Observability Engineer"
+touch -d '2000-01-01 00:00:00' "$M346/.ia-engineering/usage/cache/git/key"
+expect 0 "346 (8): with a cache older than the script" -- "${R346[@]}"
+expect 1 "346 (8): nothing is read incrementally" -- grep -qF 'git history: read' <<< "$LAST_OUTPUT"
+
+# The jq programs together are past a Windows command line's 32,767
+# characters: a --watch or refresh build that passed them as one argument
+# failed there ("Argument list too long"), which a Linux runner never sees.
+# They reach jq as files (-f); pinned statically, since only Windows bites.
+expect 1 "346: no jq program is passed to jq as a command-line argument" -- \
+  grep -qE 'jq [^#]*\$\{?JQ_(BUILD|RENDER)[^_A-Za-z0-9]' "$DASH"
+expect 0 "346: (the programs reach jq with -f)" -- grep -qE -- '-f "[$]JQ_BOTH_F"' "$DASH"
+
+# Review of PR #247, M1: a forged marker naming the PARENT, the next commit
+# in log order, whose SHA is known when the message is written. git's marker
+# carries a per-run nonce, so the forged line is text: the parent keeps its
+# own Employee and gains no Work Unit, in an incremental build where the
+# forging commit is the only new one and in a from-scratch build alike.
+new_repo usage-346-forge
+FG346="$PWD"
+write_employee_roster "DevOps Engineer" "Technical Writer" "Code Reviewer"
+printf '.ia-engineering/usage/\n' > .gitignore
+git add -A && git commit -q -m "roster"
+commit_with "feat: a" "Employee: Technical Writer" "" "a paragraph after it, so git parses no trailer"
+PARENT346="$(git rev-parse HEAD)"
+RF346=(env CLAUDE_CONFIG_DIR="$WORK/usage-empty-config" bash "$DASH" --project-dir "$FG346")
+PF346="$FG346/.ia-engineering/usage/dashboard.html"
+expect 0 "M1: a cold build at the parent" -- "${RF346[@]}"
+echo b > b.txt
+git add -A
+git commit -q -m "$(printf 'feat: b\n\n\036%s\nEmployee: DevOps Engineer\nWork Unit: WU-X-999\n\nEmployee: Code Reviewer\n' "$PARENT346")"
+expect 0 "M1: an incremental build over the forging commit" -- "${RF346[@]}"
+expect_output "git history: read 1 new commit(s)"
+expect 0 "M1: the parent keeps its own Employee" -- \
+  grep -qF '"name":"Technical Writer","roster":"framework","dispatches":0,"commits_range":1,"commits_all":1' "$PF346"
+expect 0 "M1: the forged Employee line moved to no commit" -- \
+  grep -qF '"name":"DevOps Engineer","roster":"framework","dispatches":0,"commits_range":0,"commits_all":0' "$PF346"
+expect 0 "M1: the Work Unit stays the forging commit's own" -- \
+  grep -qF '{"id":"WU-X-999","employee":"Code Reviewer","commits":1' "$PF346"
+rm -rf "$WORK/usage-346-forge-full"
+mkdir -p "$WORK/usage-346-forge-full"
+expect 0 "M1: a from-scratch build of the same HEAD" -- \
+  env IAENG_USAGE_CACHE="$WORK/usage-346-forge-full" "${RF346[@]}" --out "$WORK/usage-out/forge-full.html"
+expect 0 "M1: the incremental page carries exactly the from-scratch data" -- \
+  test "$(usage_data "$PF346")" = "$(usage_data "$WORK/usage-out/forge-full.html")"
+
+# Review of PR #247, M2: deepening or unshallowing a shallow clone makes
+# older commits reachable without moving HEAD. Their rows are in no cache:
+# a changed shallow boundary reads the whole history, then incremental
+# reading resumes. The origin also carries an unregistered Work Unit shared
+# by two Employees, one commit each, the older by the DevOps Engineer.
+new_repo usage-346-origin
+OR346="$PWD"
+write_employee_roster "DevOps Engineer" "Technical Writer"
+printf '.ia-engineering/usage/\n' > .gitignore
+git add -A && git commit -q -m "roster"
+commit_with "feat: s1" "Work Unit: WU-S-1" "" "Employee: DevOps Engineer"
+commit_with "feat: s2" "Work Unit: WU-S-1" "" "Employee: Technical Writer"
+for i in 3 4 5 6; do commit_with "feat: s$i" "Work Unit: WU-S-2" "" "Employee: Technical Writer"; done
+OR346_URL="file://$OR346"
+if command -v cygpath >/dev/null 2>&1; then OR346_URL="file:///$(cygpath -m "$OR346")"; fi
+SH346="$WORK/usage-346-shallow"
+rm -rf "$SH346"
+git clone -q --depth 2 "$OR346_URL" "$SH346"
+cd "$SH346" || exit 1
+git config user.email test@example.invalid
+git config user.name "Test Runner"
+git config commit.gpgsign false
+git config core.autocrlf false
+RS346=(env CLAUDE_CONFIG_DIR="$WORK/usage-empty-config" bash "$DASH" --project-dir "$SH346")
+PS346="$SH346/.ia-engineering/usage/dashboard.html"
+all_commits() { usage_data "$1" | jq -r '.totals.commits_all'; }
+expect 0 "M2: a cold build of a depth-2 clone" -- "${RS346[@]}"
+expect 0 "M2: it counts the 2 commits the clone has" -- test "$(all_commits "$PS346")" = 2
+git fetch -q --deepen 2 origin
+expect 0 "M2: a build after --deepen, HEAD unmoved" -- "${RS346[@]}"
+expect 1 "M2: the cached rows are not reused" -- grep -qF 'git history: read' <<< "$LAST_OUTPUT"
+expect 0 "M2: every commit now reachable is counted (4)" -- test "$(all_commits "$PS346")" = 4
+commit_with "feat: after the deepen" "" "Employee: DevOps Engineer"
+expect 0 "M2: with the boundary unchanged, a new commit" -- "${RS346[@]}"
+expect_output "git history: read 1 new commit(s)"
+expect 0 "M2: is read incrementally, and counted (5)" -- test "$(all_commits "$PS346")" = 5
+git fetch -q --unshallow origin
+expect 0 "M2: --unshallow removed the shallow file" -- test ! -e "$SH346/.git/shallow"
+expect 0 "M2: a build after --unshallow, HEAD unmoved" -- "${RS346[@]}"
+expect 1 "M2: the cached rows are not reused" -- grep -qF 'git history: read' <<< "$LAST_OUTPUT"
+expect 0 "M2: the whole history is counted" -- \
+  test "$(all_commits "$PS346")" = "$(git -C "$SH346" rev-list --no-merges --count HEAD)"
+# Review of PR #247, minor: an unregistered Work Unit's Employee does not
+# depend on row order: most commits, then by name (git lists the newer
+# Technical Writer commit first).
+expect 0 "minor: an unregistered Work Unit's Employee is the most frequent, ties by name" -- \
+  grep -qF '{"id":"WU-S-1","employee":"DevOps Engineer"' "$PS346"
+cd "$WORK" || exit 1
+
 # ------------------------------------------------- usage-dashboard.cmd ------
 # WU-IAENG-329. The Windows launcher cannot be run on the Linux CI runner, so
 # its contract is pinned statically: it exists, it is CRLF where cmd.exe reads
@@ -5363,7 +6657,7 @@ section "check-approval-carry-over.sh — approvals across an update merge of de
 # Prompt Engineer's registry cases; each is a merge that must be refused.
 
 CARRY="$SCRIPTS/check-approval-carry-over.sh"
-CO_TAIL="merges equal git's own merge outside Registry/work-units.yml; registry entry identical; checker: check-approval-carry-over.sh"
+CO_TAIL="merges equal git's own merge outside Registry/work-units.yml; registry entry identical"
 
 # co_entry <id> <title> — one registry entry in the parsing contract's shape,
 # preceded by its blank separator line.
@@ -5515,9 +6809,20 @@ expect 0 "a branch reset to the approved head, then merged with develop, carries
   bash "$CARRY" "$CO_A" "$CO_REWOUND" --base develop
 
 # The record: stdout is exactly that one line on success, and empty otherwise.
+# It names the base commit and the blob ids of the two files that decided the
+# verdict (issue #240, Code Reviewer on PR #232), so an auditor can rerun the
+# same checker against the same base: `git hash-object --no-filters` on a file
+# gives the id `git ls-tree` shows for it in a commit.
+CO_CHECKER="checker: check-approval-carry-over.sh blob $(git hash-object --no-filters "$CARRY"), merge-classify.sh blob $(git hash-object --no-filters "$SCRIPTS/merge-classify.sh")"
 CO_STDOUT="$(bash "$CARRY" "$CO_A" "$CO_OK" --base develop 2> /dev/null)"
-expect 0 "on success stdout is exactly the record, full commit ids, nothing else" -- \
-  test "$CO_STDOUT" = "Approval carry-over: $CO_A -> $CO_OK; $CO_TAIL"
+expect 0 "on success stdout is exactly the record: full commit ids, the base, the checker's blobs" -- \
+  test "$CO_STDOUT" = "Approval carry-over: $CO_A -> $CO_OK; base $(git rev-parse develop); $CO_TAIL; $CO_CHECKER"
+expect 0 "the record keeps its prefix, so a reader of an older record still finds the heads" -- \
+  grep -qxE -- "Approval carry-over: $CO_A -> $CO_OK; .+" <<< "$CO_STDOUT"
+expect 0 "the record is one line" -- test "$(printf '%s\n' "$CO_STDOUT" | wc -l)" -eq 1
+CO_STDOUT_SHA="$(bash "$CARRY" "$CO_A" "$CO_OK" --base "$(git rev-parse develop)" 2> /dev/null)"
+expect 0 "the base is named by its commit id, whichever spelling --base used" -- \
+  test "$CO_STDOUT_SHA" = "$CO_STDOUT"
 # QA, PR #232: from a PowerShell 5.1 console on code page 850 a non-ASCII
 # arrow in the record printed mangled, with exit 0. Every byte of the record
 # must be printable 7-bit ASCII (space to tilde).
@@ -5739,6 +7044,41 @@ expect 1 "core.attributesFile with merge=union does not turn a hand resolution i
   bash "$CARRY" "$CO_A" "$CO_UNION" --base "$CO_D2"
 expect_output "conflicts outside Registry/work-units.yml, in policy.md"
 git config --unset core.attributesFile
+
+# merge.default (Security Engineer on PR #249, SEC-IAENG-351-F1). With the
+# attributes pinned to the empty tree, every path merges with the driver
+# merge.default names: `union` made a union-shaped resolution git's own merge,
+# and a custom driver's command ran. Each merge below is commit-tree over the
+# tree the UNPINNED merge computes with that setting, so it is exactly what
+# the classifier called git's own merge before the pin.
+co_classify() { bash -c '. "$1" && merge_classify "$2"' _ "$SCRIPTS/merge-classify.sh" "$1"; }
+CO_MD_UNION_TREE="$(git -c merge.default=union --attr-source=4b825dc642cb6eb9a060e54bf8d69288fbee4904 merge-tree --write-tree --no-messages "$CO_A" "$CO_D2" | head -1)"
+CO_MD_UNION="$(git commit-tree -m "Merge develop, every conflict union-resolved" -p "$CO_A" -p "$CO_D2" "$CO_MD_UNION_TREE")"
+git config merge.default union
+expect 0 "merge.default lab is load-bearing: with merge.default=union an unpinned git merge-tree is clean" -- \
+  git merge-tree --write-tree --no-messages "$CO_A" "$CO_D2"
+expect 0 "a local merge.default=union does not make a union-shaped merge clean" -- \
+  test "$(co_classify "$CO_MD_UNION")" = authored
+expect 1 "a local merge.default=union does not carry an approval over a union-shaped merge" -- \
+  bash "$CARRY" "$CO_A" "$CO_MD_UNION" --base "$CO_D2"
+expect_output "conflicts outside Registry/work-units.yml, in policy.md"
+git config --unset merge.default
+# A custom driver that takes the other side, and leaves a trace when it runs.
+CO_DRIVER_RAN="$WORK/carry-driver-ran"
+git config merge.carry-theirs.driver "echo ran >> '$CO_DRIVER_RAN'; cp %B %A"
+CO_MD_THEIRS_TREE="$(git -c merge.default=carry-theirs --attr-source=4b825dc642cb6eb9a060e54bf8d69288fbee4904 merge-tree --write-tree --no-messages "$CO_A" "$CO_D2" | head -1)"
+CO_MD_THEIRS="$(git commit-tree -m "Merge develop, every conflict resolved to develop's side" -p "$CO_A" -p "$CO_D2" "$CO_MD_THEIRS_TREE")"
+expect 0 "custom-driver lab is load-bearing: the unpinned merge ran the driver" -- test -s "$CO_DRIVER_RAN"
+rm -f "$CO_DRIVER_RAN"
+git config merge.default carry-theirs
+expect 0 "a local merge.default naming a custom driver does not make that driver's merge clean" -- \
+  test "$(co_classify "$CO_MD_THEIRS")" = authored
+expect 1 "a local merge.default naming a custom driver does not carry an approval over that driver's merge" -- \
+  bash "$CARRY" "$CO_A" "$CO_MD_THEIRS" --base "$CO_D2"
+expect_output "conflicts outside Registry/work-units.yml, in policy.md"
+expect 1 "the custom driver's command never ran in the pinned merge" -- test -e "$CO_DRIVER_RAN"
+git config --unset merge.default
+git config --unset merge.carry-theirs.driver
 mkdir -p .git/info
 printf '* merge=union\n' > .git/info/attributes
 expect 2 "a non-empty .git/info/attributes, which no option switches off, fails closed" -- \
@@ -5749,6 +7089,29 @@ expect_output "info/attributes"
 : > .git/info/attributes
 expect 0 "an empty .git/info/attributes is not refused" -- \
   bash "$CARRY" "$CO_A" "$CO_OK" --base develop
+# Grafts (Security Engineer on PR #249, SEC-IAENG-351-F2) rewrite parents and
+# survive GIT_NO_REPLACE_OBJECTS. A single-parent commit holding the honest
+# merge's tree, grafted onto develop as a second parent, reads as that merge.
+CO_SOLO="$(git commit-tree -m "not a merge" -p "$CO_A" "$CO_OK^{tree}")"
+# The grafts file stays, emptied, for the rest of this lab; git prints a
+# deprecation hint for it on every command, which would bury real output.
+git config advice.graftFileDeprecated false
+printf '%s %s %s\n' "$CO_SOLO" "$CO_A" "$CO_D1" > .git/info/grafts
+expect 0 "grafts lab is load-bearing: with GIT_NO_REPLACE_OBJECTS=1 the graft still gives the commit two parents" -- \
+  test "$(env GIT_NO_REPLACE_OBJECTS=1 git rev-list --parents -n 1 "$CO_SOLO" 2> /dev/null)" = "$CO_SOLO $CO_A $CO_D1"
+expect 2 "a non-empty .git/info/grafts fails closed" -- \
+  bash "$CARRY" "$CO_A" "$CO_SOLO" --base develop
+expect_output "info/grafts"
+: > .git/info/grafts
+expect 1 "without the graft, the same commit is refused as not a merge" -- \
+  bash "$CARRY" "$CO_A" "$CO_SOLO" --base develop
+expect_output "is not a merge"
+expect 0 "an empty .git/info/grafts is not refused" -- \
+  bash "$CARRY" "$CO_A" "$CO_OK" --base develop
+printf '%s %s %s\n' "$CO_SOLO" "$CO_A" "$CO_D1" > "$WORK/carry-grafts"
+expect 2 "GIT_GRAFT_FILE in the environment fails closed" -- \
+  env GIT_GRAFT_FILE="$WORK/carry-grafts" bash "$CARRY" "$CO_A" "$CO_SOLO" --base develop
+expect_output "GIT_GRAFT_FILE is set"
 # A local replace ref that shows the honest merge in place of the hand-edited one.
 git replace "$CO_EDIT" "$CO_OK"
 expect 1 "a refs/replace entry swapping in an honest merge for a hand-edited one is ignored" -- \
@@ -5834,7 +7197,7 @@ EOF
 # out of every later `git add -A`.
 printf 'z-notes.md\napp.py\n' > .git/carry-order.txt
 git config include.path carry-hostile.gitconfig
-cd templates || exit 1
+CDPATH='' cd -- templates || exit 1
 expect 0 "hostile diff/merge config, from a subdirectory: the honest merge still carries over" -- \
   bash "$CARRY" "$CO_A" "$CO_OK" --base develop
 expect 0 "hostile config: the ID-ordered resolution still carries over" -- \
@@ -5844,6 +7207,208 @@ expect 1 "hostile config: an edit outside the subdirectory is still refused" -- 
 expect_output "in app.py"
 cd .. || exit 1
 git config --unset include.path
+
+# merge.renameLimit, and diff.renameLimit it falls back to (issue #237, from
+# the Security Engineer on PR #232). A rename git's merge does not detect is a
+# delete and an add, so the other side's edit to the old path conflicts: a low
+# local limit turned an honest merge into a conflicted one, which refused the
+# carry-over and classified the merge authored. merge_classify_automatic pins
+# git's merge default, 7000. The lab: the PR renames two files and edits them,
+# develop edits the old paths elsewhere. Two renames are needed, because git
+# skips inexact rename detection only when sources x destinations exceeds the
+# square of the limit, and different base names, because a rename that keeps
+# its base name is matched before the limit applies.
+new_repo carry-rename
+git branch -m develop
+mkdir -p Registry
+for f in alpha beta; do
+  i=1
+  while [ "$i" -le 40 ]; do
+    printf '%s line %s\n' "$f" "$i"
+    i=$((i + 1))
+  done > "$f.txt"
+done
+co_registry "WU-T-1:one" > Registry/work-units.yml
+git add -A && git commit -q -m "D0"
+CR_D0="$(git rev-parse HEAD)"
+sed 's/^alpha line 5$/alpha line 5 (develop)/' alpha.txt > alpha.new && mv alpha.new alpha.txt
+sed 's/^beta line 5$/beta line 5 (develop)/' beta.txt > beta.new && mv beta.new beta.txt
+git add -A && git commit -q -m "D1: develop edits both files"
+CR_D1="$(git rev-parse HEAD)"
+co_registry "WU-T-1:one" "WU-T-4:four" > Registry/work-units.yml
+git add -A && git commit -q -m "D2: develop registers a Work Unit"
+CR_D2="$(git rev-parse HEAD)"
+git checkout -q -b pr "$CR_D0"
+git mv alpha.txt first.txt
+git mv beta.txt second.txt
+sed 's/^alpha line 35$/alpha line 35 (pr)/' first.txt > first.new && mv first.new first.txt
+sed 's/^beta line 35$/beta line 35 (pr)/' second.txt > second.new && mv second.new second.txt
+co_registry "WU-T-1:one" "WU-T-3:three" > Registry/work-units.yml
+git add -A && git commit -q -m "A: the PR renames and edits both files"
+CR_A="$(git rev-parse HEAD)"
+# A clean merge for merge_classify: develop's file edits only, no registry.
+git checkout -q -B m-rename-clean "$CR_A"
+git merge -q --no-ff --no-edit "$CR_D1" > /dev/null 2>&1
+CR_CLEAN="$(git rev-parse HEAD)"
+# The update merge for the carry-over: develop's registry entry conflicts.
+co_start m-rename "$CR_CLEAN" "$CR_D2" "WU-T-1:one" "WU-T-4:four" "WU-T-3:three"
+co_commit
+CR_M="$CO_M"
+expect 0 "rename lab: git merged the renames on its own (develop's edit is in first.txt)" -- \
+  grep -qx 'alpha line 5 (develop)' first.txt
+expect 0 "rename lab: the clean merge classifies clean" -- test "$(co_classify "$CR_CLEAN")" = clean
+expect 0 "rename lab: the honest update merge carries over" -- \
+  bash "$CARRY" "$CR_A" "$CR_M" --base develop
+# Load-bearing: with the limit at 1, git's merge left unpinned conflicts on
+# the renamed files. Without this, the cases below would pass for nothing.
+git config merge.renameLimit 1
+expect 1 "rename lab is load-bearing: merge.renameLimit=1 makes an unpinned git merge-tree conflict" -- \
+  git merge-tree --write-tree --no-messages --name-only "$CR_A" "$CR_D1"
+expect_output "alpha.txt"
+expect 0 "a local merge.renameLimit=1 does not make the clean merge authored" -- \
+  test "$(co_classify "$CR_CLEAN")" = clean
+expect 0 "a local merge.renameLimit=1 does not refuse the honest update merge" -- \
+  bash "$CARRY" "$CR_A" "$CR_M" --base develop
+git config --unset merge.renameLimit
+git config diff.renameLimit 1
+expect 0 "a local diff.renameLimit=1 (merge.renameLimit's fallback) does not make the clean merge authored" -- \
+  test "$(co_classify "$CR_CLEAN")" = clean
+expect 0 "a local diff.renameLimit=1 does not refuse the honest update merge" -- \
+  bash "$CARRY" "$CR_A" "$CR_M" --base develop
+git config --unset diff.renameLimit
+
+# merge.text.driver (Security Engineer on PR #249, SEC-IAENG-351-F4). A named
+# driver is looked up among merge.<name>.driver entries before the built-ins,
+# so pinning merge.default=text let one local merge.text.driver replace
+# git's merge: a take-theirs hand resolution read clean, the honest merge
+# authored. git's own merge now sets the `merge` attribute, which selects the
+# built-in driver before any name is looked up. The take-theirs merge below
+# is made by git merge with that driver; the honest one is CR_CLEAN, whose
+# renamed files both sides edited, so the driver would decide its content.
+git checkout -q -B m-rename-theirs "$CR_A"
+git -c merge.cr-theirs.driver='cp %B %A' -c merge.default=cr-theirs merge -q --no-ff --no-edit "$CR_D1" > /dev/null 2>&1
+CR_THEIRS="$(git rev-parse HEAD)"
+expect 1 "text-driver lab: the take-theirs merge dropped the PR's own edit (a hand resolution)" -- \
+  grep -qx 'alpha line 35 (pr)' first.txt
+CR_RAN0="$WORK/carry-text-ran-0"
+expect 0 "text-driver lab is load-bearing: merge.default=text with a local merge.text.driver replaces git's merge" -- \
+  test "$(git -c merge.default=text -c merge.text.driver="echo ran >> '$CR_RAN0'; cp %B %A" merge-tree --write-tree --no-messages "$CR_A" "$CR_D1" | head -1)" = "$(git rev-parse "$CR_THEIRS^{tree}")"
+expect 0 "text-driver lab is load-bearing: that driver's command ran" -- test -s "$CR_RAN0"
+# Phase 1: merge.text.driver alone. Phase 2: with merge.default=text too.
+# Each phase has its own marker, so no marker is removed between them.
+for cr_phase in 1 2; do
+  cr_ran="$WORK/carry-text-ran-$cr_phase"
+  cr_with=""
+  git config merge.text.driver "echo ran >> '$cr_ran'; cp %B %A"
+  if [ "$cr_phase" -eq 2 ]; then
+    git config merge.default text
+    cr_with=" and merge.default=text"
+  fi
+  expect 0 "a local merge.text.driver$cr_with does not make a take-theirs merge clean" -- \
+    test "$(co_classify "$CR_THEIRS")" = authored
+  expect 0 "a local merge.text.driver$cr_with does not make the honest merge authored" -- \
+    test "$(co_classify "$CR_CLEAN")" = clean
+  expect 0 "a local merge.text.driver$cr_with does not refuse the honest update merges" -- \
+    bash "$CARRY" "$CR_A" "$CR_M" --base develop
+  expect 1 "a local merge.text.driver$cr_with does not carry an approval over the take-theirs merge" -- \
+    bash "$CARRY" "$CR_A" "$CR_THEIRS" --base develop
+  expect_output "differs from git's own merge of its parents outside Registry/work-units.yml, in first.txt"
+  expect 1 "the local merge.text.driver$cr_with never ran" -- test -e "$cr_ran"
+done
+git config --unset merge.default
+git config --unset merge.text.driver
+
+# A commit-graph (Security Engineer on PR #249, SEC-IAENG-351-F3) records
+# each commit's parents, and git reads them from it instead of the commit
+# object; neither GIT_NO_REPLACE_OBJECTS nor the grafts refusal sees it. A
+# graph patched to give a single-parent commit develop as a second parent
+# made the check print a record for a commit that is not a merge.
+#
+# cg_patch_second_parent <graph> <commit> <parent> — sets <commit>'s second
+# parent to <parent> in a commit-graph file and recomputes its trailing
+# checksum. Layout (git's gitformat-commit-graph): an 8-byte header ("CGPH",
+# version, hash version, chunk count, base count), a table of 12-byte chunk
+# entries (4-byte id, 8-byte offset), OIDF (fanout; its last entry is the
+# commit count), OIDL (sorted ids), CDAT (36-byte records: tree, parent 1
+# position, parent 2 position, generation and date), a trailing checksum.
+# SHA-1 repositories only, as every lab here is.
+cg_write_bytes() {
+  local h="$3" esc=""
+  while [ -n "$h" ]; do
+    esc="$esc\\x${h:0:2}"
+    h="${h:2}"
+  done
+  printf '%b' "$esc" | dd of="$1" bs=1 seek="$2" conv=notrunc 2> /dev/null
+}
+cg_patch_second_parent() {
+  local f="$1" c="$2" p="$3" hex n i id off oidf="" oidl="" cdat="" total j oid pc="" pp="" size sum
+  hex="$(od -An -v -tx1 "$f" | tr -d ' \n')"
+  if [ "${hex:0:8}" != 43475048 ] || [ "${hex:10:2}" != 01 ]; then
+    return 1
+  fi
+  n=$((16#${hex:12:2}))
+  for ((i = 0; i < n; i++)); do
+    id="${hex:$((16 + i * 24)):8}"
+    off=$((16#${hex:$((24 + i * 24)):16}))
+    case "$id" in
+      4f494446) oidf="$off" ;;
+      4f49444c) oidl="$off" ;;
+      43444154) cdat="$off" ;;
+    esac
+  done
+  if [ -z "$oidf" ] || [ -z "$oidl" ] || [ -z "$cdat" ]; then
+    return 1
+  fi
+  total=$((16#${hex:$(((oidf + 255 * 4) * 2)):8}))
+  for ((j = 0; j < total; j++)); do
+    oid="${hex:$(((oidl + j * 20) * 2)):40}"
+    [ "$oid" = "$c" ] && pc="$j"
+    [ "$oid" = "$p" ] && pp="$j"
+  done
+  if [ -z "$pc" ] || [ -z "$pp" ]; then
+    return 1
+  fi
+  chmod u+w "$f" || return 1
+  cg_write_bytes "$f" $((cdat + pc * 36 + 24)) "$(printf '%08x' "$pp")" || return 1
+  size="$(wc -c < "$f")"
+  sum="$(head -c $((size - 20)) "$f" | sha1sum | cut -c1-40)"
+  cg_write_bytes "$f" $((size - 20)) "$sum"
+}
+new_repo carry-graph
+git branch -m develop
+git commit -q --allow-empty -m "D0"
+CG_D0="$(git rev-parse HEAD)"
+printf 'develop\n' > dev.md
+git add -A && git commit -q -m "D1"
+CG_D1="$(git rev-parse HEAD)"
+git checkout -q -b pr "$CG_D0"
+printf 'pr\n' > pr.md
+git add -A && git commit -q -m "A"
+CG_A="$(git rev-parse HEAD)"
+# Not a merge: one commit on A that copies develop's file in, so its tree is
+# exactly git's own merge of A and D1.
+printf 'develop\n' > dev.md
+git add -A && git commit -q -m "develop's file, copied in by hand"
+CG_SOLO="$(git rev-parse HEAD)"
+expect 0 "graph lab: the copied-in commit's tree is git's own merge of A and develop" -- \
+  test "$(git merge-tree --write-tree --no-messages "$CG_A" "$CG_D1")" = "$(git rev-parse "$CG_SOLO^{tree}")"
+expect 1 "graph lab: with no commit-graph, it is refused as not a merge" -- \
+  bash "$CARRY" "$CG_A" "$CG_SOLO" --base develop
+expect_output "is not a merge"
+expect 0 "graph lab: git writes a commit-graph" -- git commit-graph write --reachable
+# Called directly, its status asserted: a function reached only through
+# `expect "$@"` is reported unreachable by shellcheck (SC2317).
+cg_rc=0
+cg_patch_second_parent .git/objects/info/commit-graph "$CG_SOLO" "$CG_D1" || cg_rc=$?
+expect 0 "graph lab: the commit-graph is patched to give it develop as a second parent" -- test "$cg_rc" -eq 0
+expect 0 "graph lab is load-bearing: with GIT_NO_REPLACE_OBJECTS=1 git reads two parents from the graph" -- \
+  test "$(env GIT_NO_REPLACE_OBJECTS=1 git rev-list --parents -n 1 "$CG_SOLO")" = "$CG_SOLO $CG_A $CG_D1"
+expect 0 "graph lab: the commit object itself still has one parent" -- \
+  test "$(git cat-file -p "$CG_SOLO" | grep -c '^parent ')" -eq 1
+expect 1 "a patched commit-graph does not make a commit a merge: refused as not a merge" -- \
+  bash "$CARRY" "$CG_A" "$CG_SOLO" --base develop
+expect_output "is not a merge"
+cd "$WORK/carry-lab" || exit 1
 
 # A submodule pointer that .gitmodules (ignore = all) and the config both hide
 # from git diff.
@@ -5891,6 +7456,7 @@ expect 2 "without --base, a missing origin/develop fails closed" -- bash "$CARRY
 expect_output "origin/develop"
 git update-ref refs/remotes/origin/develop develop
 expect 0 "without --base, origin/develop is the base" -- bash "$CARRY" "$CO_A" "$CO_OK"
+expect_output "; base $(git rev-parse origin/develop); "
 mkdir -p "$WORK/carry-norepo"
 cd "$WORK/carry-norepo" || exit 1
 expect 2 "outside a git repository it fails closed" -- env GIT_CEILING_DIRECTORIES="$WORK" bash "$CARRY" "$CO_A" "$CO_OK"
@@ -5905,9 +7471,10 @@ cd "$WORK/carry-lab" || exit 1
 # Shims of its own: this section must not depend on another section's state.
 CO_REAL_GIT="$(command -v git)"
 mkdir -p "$WORK/carry-shim-old" "$WORK/carry-shim-mt"
+# The checker runs every git with -c options first, so "version" is not $1.
 cat > "$WORK/carry-shim-old/git" <<SHIM
 #!/usr/bin/env bash
-if [ "\$1" = "version" ]; then echo "git version 2.39.5"; exit 0; fi
+for a in "\$@"; do [ "\$a" = "version" ] && { echo "git version 2.39.5"; exit 0; }; done
 exec "$CO_REAL_GIT" "\$@"
 SHIM
 cat > "$WORK/carry-shim-mt/git" <<SHIM
@@ -5926,21 +7493,3444 @@ expect 2 "without merge-classify.sh beside it, it fails closed" -- \
   bash "$WORK/carry-alone/check-approval-carry-over.sh" "$CO_A" "$CO_OK" --base develop
 expect_output "merge-classify.sh not found"
 
+# ------------------------------------------------ create-session-state.sh ----
+
+section "create-session-state.sh — the adopter's state file, written after the first commit (WU-IAENG-348, #218)"
+
+# Issue #218: an adopter created .ia-engineering/SESSION_STATE.md by hand, and
+# two mistakes went unreported until the first session — a whole-file copy of
+# the template (the hook then read the placeholder `_Last updated:` line, #213)
+# and a localized month name lib.sh's iaeng_month_num does not know. The
+# acceptance is end to end: in a fresh repository after its first commit, the
+# helper runs, then the REAL session-start.sh prints `Last updated: <today>`
+# with no date warning and no "behind" warning.
+CSS="$SCRIPTS/create-session-state.sh"
+CSS_FW="$(cd "$SCRIPTS/../.." && pwd)"
+CSS_HOOK="$CSS_FW/Adapters/ai-runtimes/claude-code/hooks/session-start.sh"
+CSS_TODAY="$(LC_ALL=C date '+%d %B %Y')"
+CSS_TODAY="${CSS_TODAY#0}"
+
+# Runs the real session-start.sh with stdin at /dev/null, because lib.sh reads
+# its hook payload with `cat`. A feeder script rather than a shell function,
+# because a function reached only through `expect "$@"` is reported
+# unreachable (SC2317), as the pre-push feeder above explains.
+cat > "$WORK/css-session-start-feed.sh" <<'FEED'
+bash "$1" </dev/null
+FEED
+CSS_SESSION_START=(bash "$WORK/css-session-start-feed.sh" "$CSS_HOOK")
+
+# --- refusals: nothing is written --------------------------------------------
+mkdir -p "$WORK/css-nogit"
+cd "$WORK/css-nogit" || exit 1
+expect 1 "refuses outside a git work tree" -- env GIT_CEILING_DIRECTORIES="$WORK" bash "$CSS"
+expect_output "not inside a git work tree"
+
+rm -rf "$WORK/css-nocommit"
+mkdir -p "$WORK/css-nocommit"
+cd "$WORK/css-nocommit" || exit 1
+git init -q -b main .
+printf '/.ia-engineering/SESSION_STATE.md\n' > .gitignore
+expect 1 "refuses before the project's first commit" -- bash "$CSS"
+expect_output "no commit yet"
+expect_output "commit(s) behind"
+expect 1 "nothing was written before the first commit" -- test -e .ia-engineering/SESSION_STATE.md
+
+new_repo css-notignored
+expect 1 "refuses a path git does not ignore" -- bash "$CSS"
+expect_output "is not ignored by git"
+expect 1 "nothing was written when the path is not ignored" -- test -e .ia-engineering/SESSION_STATE.md
+
+# --- the real run, then the real session-start.sh ------------------------------
+new_repo css-adopter
+printf '/.ia-engineering/SESSION_STATE.md\n' > .gitignore
+git add .gitignore
+git commit -q -m "adoption"
+expect 0 "creates the state file after the first commit" -- bash "$CSS"
+expect_output "Last updated: $CSS_TODAY by Test Runner"
+expect_output "# SESSION STATE — css-adopter"
+expect_output "Gitignored: yes"
+CSS_FILE=".ia-engineering/SESSION_STATE.md"
+CSS_FIRST_LINE="$(head -1 "$CSS_FILE")"
+expect 0 "the file starts at the block's comment line, not the template's title" -- \
+  test "$CSS_FIRST_LINE" = "<!--"
+expect 1 "only the block was copied: no template title" -- grep -qF "# Session State Template" "$CSS_FILE"
+expect 1 "only the block was copied: no fence line" -- grep -qF '```' "$CSS_FILE"
+expect 0 "the block was copied to its end" -- grep -qxF "## Open Questions" "$CSS_FILE"
+expect 1 "no placeholder left on the _Last updated: line" -- grep -qE '^_Last updated: \[' "$CSS_FILE"
+expect 1 "no carriage return in the written file" -- grep -q $'\r' "$CSS_FILE"
+expect 0 "the written file is ignored by git" -- git check-ignore -q "$CSS_FILE"
+CSS_PORCELAIN="$(git status --porcelain)"
+expect 0 "git status shows nothing to commit" -- test -z "$CSS_PORCELAIN"
+
+expect 0 "session-start.sh runs on the created file" -- \
+  env CLAUDE_PROJECT_DIR="$PWD" IAENG_FRAMEWORK="$CSS_FW" "${CSS_SESSION_START[@]}"
+expect_output "Last updated: $CSS_TODAY by Test Runner"
+expect_output_absent "no parsable date"
+expect_output_absent "could not be parsed"
+expect_output_absent "was not refreshed"
+expect_output_absent "behind the repository"
+expect_output_absent "SESSION_STATE.md does not exist"
+expect_output "2. .ia-engineering/SESSION_STATE.md — where things actually stand."
+
+# --- never overwrite --------------------------------------------------------------
+echo "a line the project wrote" >> "$CSS_FILE"
+CSS_SUM="$(cksum < "$CSS_FILE")"
+expect 1 "refuses to overwrite an existing state file" -- bash "$CSS"
+expect_output "already exists"
+CSS_SUM_AFTER="$(cksum < "$CSS_FILE")"
+expect 0 "the existing file is unchanged" -- test "$CSS_SUM_AFTER" = "$CSS_SUM"
+
+# --- the English month whatever the caller's locale; names written as typed ------
+new_repo css-locale
+printf '/.ia-engineering/SESSION_STATE.md\n' > .gitignore
+git add .gitignore
+git commit -q -m "adoption"
+expect 0 "a French locale in the environment still gives an English month" -- \
+  env LANG=fr_FR.UTF-8 LC_ALL=fr_FR.UTF-8 LC_TIME=fr_FR.UTF-8 bash "$CSS" --name 'A & B/C\x' --by 'Platform Engineer'
+expect_output "Last updated: $CSS_TODAY by Platform Engineer"
+expect 0 "--name is written as typed (&, / and \\ are not replacement syntax)" -- \
+  grep -qxF '# SESSION STATE — A & B/C\x' .ia-engineering/SESSION_STATE.md
+
+# --- fails closed when the template is not what it fills ----------------------------
+# A copy of the helper beside a fake framework tree, so the template it reads
+# can be broken without touching the real one.
+css_fake_fw() {
+  rm -rf "$WORK/css-fw"
+  mkdir -p "$WORK/css-fw/Adapters/scripts" "$WORK/css-fw/Templates"
+  cp "$CSS" "$WORK/css-fw/Adapters/scripts/"
+}
+new_repo css-badtemplate
+printf '/.ia-engineering/SESSION_STATE.md\n' > .gitignore
+git add .gitignore
+git commit -q -m "adoption"
+
+css_fake_fw
+expect 2 "fails closed when the template is missing" -- bash "$WORK/css-fw/Adapters/scripts/create-session-state.sh"
+expect_output "template not found"
+
+css_fake_fw
+printf '# Session State Template\n\n_Last updated: [DD Month YYYY, morning/evening] by [Employee or person]_\n' \
+  > "$WORK/css-fw/Templates/SESSION_STATE.md"
+expect 2 "fails closed when there is no fenced block under # Template" -- bash "$WORK/css-fw/Adapters/scripts/create-session-state.sh"
+expect_output "no complete"
+
+css_fake_fw
+cat > "$WORK/css-fw/Templates/SESSION_STATE.md" <<'TPL'
+# Template
+
+```markdown
+# SESSION STATE — [project name]
+
+_Last updated: [some other placeholder]_
+```
+TPL
+expect 2 "fails closed when the block's _Last updated: line is not the one it fills" -- bash "$WORK/css-fw/Adapters/scripts/create-session-state.sh"
+expect_output "changed shape"
+expect 1 "nothing was written when the template was wrong" -- test -e .ia-engineering/SESSION_STATE.md
+
+# The CRLF case: Templates/ is not forced to LF, so a Windows checkout may
+# hand the helper CRLF lines. They are filled, and written LF.
+css_fake_fw
+awk '{ printf "%s\r\n", $0 }' > "$WORK/css-fw/Templates/SESSION_STATE.md" <<'TPL'
+# Template
+
+```markdown
+<!-- x -->
+# SESSION STATE — [project name]
+
+_Last updated: [DD Month YYYY, morning/evening] by [Employee or person]_
+```
+TPL
+expect 1 "the CRLF fixture really has carriage returns" -- \
+  test "$(grep -c $'\r$' "$WORK/css-fw/Templates/SESSION_STATE.md")" -lt 8
+expect 0 "a CRLF template is read" -- bash "$WORK/css-fw/Adapters/scripts/create-session-state.sh"
+expect_output "Last updated: $CSS_TODAY by Test Runner"
+expect 1 "and written without carriage returns" -- grep -q $'\r' .ia-engineering/SESSION_STATE.md
+
+# --- the bootstrap's summary names the helper ----------------------------------------
+new_repo css-bootstrap
+CSS_BOOT_OUT="$(bash "$SCRIPTS/setup-project-bootstrap.sh" generic --dry-run 2>&1)"
+TOTAL=$((TOTAL + 1))
+if grep -qE '^  SESSION_STATE\.md +after the adoption commit: \./.*create-session-state\.sh$' <<< "$CSS_BOOT_OUT"; then
+  [ -n "$VERBOSE" ] && printf '   ok   the bootstrap summary names create-session-state.sh\n'
+else
+  printf '   FAIL the bootstrap summary does not name create-session-state.sh\n'
+  printf '%s\n' "$CSS_BOOT_OUT" | tail -25 | sed 's/^/        | /'
+  FAILED=$((FAILED + 1))
+fi
+
+# ------------------------------------- install.sh --check (WU-IAENG-353) ----
+#
+# The adopter here is the real shape: the framework is a SUBMODULE at
+# ia-engineering/, added with `git submodule add` from a framework repository
+# built out of this checkout's own Adapters/ and Registry/. Not `ln -s`, which
+# Git for Windows turns into a deep copy, and not a mock: install.sh, the
+# bootstrap and the installed hooks are the shipped ones.
+
+section "install.sh --check — the same decisions, reported, nothing written (WU-IAENG-353)"
+
+new_repo fw-353
+cp -R "$SCRIPTS/.." ./Adapters
+cp -R "$SCRIPTS/../../Registry" ./Registry
+# The framework's own line-ending rules, as the real submodule carries them.
+# Without them a core.autocrlf=true machine checks the submodule out CRLF,
+# and the CRLF case below compares a CRLF copy with a CRLF template.
+cp "$SCRIPTS/../../.gitattributes" ./.gitattributes
+git add -A && git commit -q -m "framework fixture"
+FW_353="$PWD"
+
+# adopter_353 <name> — a project with the fixture framework as a submodule,
+# committed; leaves the shell inside it.
+adopter_353() {
+  new_repo "$1"
+  git -c protocol.file.allow=always submodule add -q "$FW_353" ia-engineering >/dev/null 2>&1
+  git commit -q -m "chore(adopt): add the framework submodule"
+}
+
+# hooks_path_414 — the core.hooksPath install.sh sets in the adopter the shell
+# is in: the main checkout's framework hooks, absolute (WU-IAENG-414). Built
+# from `git rev-parse --show-toplevel`, not from the `git worktree list` that
+# install.sh reads, so the expectation is not the implementation restated.
+hooks_path_414() {
+  printf '%s/ia-engineering/Adapters/git-hooks' "$(git rev-parse --show-toplevel)"
+}
+
+# commit_353 <subject> — a commit the INSTALLED hooks accept.
+commit_353() {
+  git add -A
+  git commit -q -m "$1
+
+Employee: DevOps Engineer"
+}
+
+# snapshot_353 — everything a write could touch: every file under .git
+# (index, refs, config, objects, the submodule's own git dir), the working
+# tree, status with ignored files, local config, refs and the object count.
+# Status runs without optional locks so the snapshot cannot refresh the index
+# it is about to compare.
+snapshot_353() {
+  {
+    echo "== .git"; find .git -type f -exec md5sum {} + | LC_ALL=C sort -k2
+    echo "== tree"; find . -path ./.git -prune -o -type f -exec md5sum {} + | LC_ALL=C sort -k2
+    echo "== status"; git --no-optional-locks status --porcelain --ignored
+    echo "== config"; git config --local --list
+    echo "== refs"; git for-each-ref
+    echo "== objects"; git count-objects -v
+  } 2>&1
+}
+
+# expect_no_output <text> <description> — the previous output must NOT
+# contain the text.
+expect_no_output() {
+  TOTAL=$((TOTAL + 1))
+  if grep -qF -- "$1" <<< "$LAST_OUTPUT"; then
+    printf '   FAIL %s\n' "$2"
+    printf '%s\n' "$LAST_OUTPUT" | grep -F -- "$1" | sed 's/^/        | /'
+    FAILED=$((FAILED + 1))
+    return 1
+  fi
+  [ -n "$VERBOSE" ] && printf '   ok   %s\n' "$2"
+  return 0
+}
+
+INST_353="./ia-engineering/Adapters/scripts/install.sh"
+BOOT_353="./ia-engineering/Adapters/scripts/setup-project-bootstrap.sh"
+T=$'\t'
+
+# --- a project never installed: everything absent or missing, nothing written --
+adopter_353 chk-fresh
+expect 3 "--check on a never-installed project reports drift (exit 3)" -- bash "$INST_353" --check
+expect_output "file${T}absent${T}.github/workflows/control-path-guard.yml${T}ia-engineering/Adapters/github-actions/control-path-guard.yml"
+expect_output "gitattributes${T}missing${T}.gitattributes${T}/Registry/work-units.yml text eol=lf"
+expect_output "gitignore${T}missing${T}.gitignore${T}.env"
+expect_output "directory${T}absent${T}local_test_data/"
+expect_output "git-hooks${T}absent${T}core.hooksPath${T}$(hooks_path_414)"
+expect_output "git-hooks${T}unchecked${T}commit probes"
+expect_output "8 file(s) compared: 8 absent"
+expect_output "re-run ia-engineering/Adapters/scripts/install.sh without --force"
+TOTAL=$((TOTAL + 1))
+if [ -e .github ] || [ -e .gitattributes ] || [ -e .gitignore ] || [ -e local_test_data ] \
+   || git config --local core.hooksPath >/dev/null; then
+  printf '   FAIL --check wrote into a never-installed project\n'; FAILED=$((FAILED + 1))
+else
+  [ -n "$VERBOSE" ] && printf '   ok   --check wrote nothing into a never-installed project\n'
+fi
+
+# --- installed and committed: everything current, --quiet says nothing ---------
+expect 0 "a first bootstrap succeeds" -- bash "$BOOT_353" generic
+commit_353 "chore(adopt): install the Adapters"
+
+# One installed copy checked out with CRLF line endings, as core.autocrlf
+# leaves it on Windows: the same file to git, so `current`, never `differs`.
+# Left uncommitted; every assertion below about a current project covers it.
+awk 'BEGIN { ORS = "\r\n" } { print }' .github/workflows/data-policy.yml > crlf.tmp \
+  && mv crlf.tmp .github/workflows/data-policy.yml
+TOTAL=$((TOTAL + 1))
+# Counted with tr, not grep: Git for Windows' grep drops a CR before matching.
+if [ "$(tr -cd '\r' < .github/workflows/data-policy.yml | wc -c)" -gt 0 ] \
+   && [ "$(tr -cd '\r' < ia-engineering/Adapters/github-actions/data-policy.yml | wc -c)" -eq 0 ]; then
+  [ -n "$VERBOSE" ] && printf '   ok   the fixture copy is CRLF and its template is LF\n'
+else
+  printf '   FAIL the fixture copy is not CRLF over an LF template, so the CRLF cases below test nothing\n'; FAILED=$((FAILED + 1))
+fi
+CRLF_SUM_353="$(md5sum < .github/workflows/data-policy.yml)"
+
+CHK_T0="$(date +%s%N)"
+expect 0 "--check on a current project exits 0" -- bash "$INST_353" --check
+CHK_T1="$(date +%s%N)"
+expect_output "# install.sh --check: 0 to act on. 8 file(s) compared: 8 current; 8 .gitattributes rule(s): 8 present; 6 .gitignore rule(s): 6 present; 1 directory: 1 present; 5 git hook item(s): 4 current, 1 unchecked; 0 fault(s)."
+expect_output "todo${T}placeholder${T}.github/ISSUE_TEMPLATE/config.yml"
+expect_output "1 todo(s) for the project, not drift."
+expect_output "file${T}current${T}.github/workflows/data-policy.yml${T}ia-engineering/Adapters/github-actions/data-policy.yml"
+expect 0 "--check --quiet on a current project exits 0" -- bash "$INST_353" --check --quiet
+TOTAL=$((TOTAL + 1))
+if [ -z "$LAST_OUTPUT" ]; then
+  [ -n "$VERBOSE" ] && printf '   ok   --check --quiet prints nothing when nothing needs acting on\n'
+else
+  printf '   FAIL --check --quiet printed on a current project\n'
+  printf '%s\n' "$LAST_OUTPUT" | sed 's/^/        | /'; FAILED=$((FAILED + 1))
+fi
+expect 0 "the bootstrap --check --quiet on a current project exits 0" -- bash "$BOOT_353" --check --quiet
+TOTAL=$((TOTAL + 1))
+if [ -z "$LAST_OUTPUT" ]; then
+  [ -n "$VERBOSE" ] && printf '   ok   the bootstrap --check --quiet prints nothing either\n'
+else
+  printf '   FAIL the bootstrap --check --quiet printed on a current project\n'
+  printf '%s\n' "$LAST_OUTPUT" | sed 's/^/        | /'; FAILED=$((FAILED + 1))
+fi
+expect 0 "the bootstrap --check needs no stack" -- bash "$BOOT_353" --check
+expect_output "project-file${T}present${T}Registry/work-units.yml"
+expect_output "# setup-project-bootstrap.sh --check: 0 to act on. 6 project-owned file(s): 6 present, 0 absent."
+printf '   info install.sh --check took %s ms on a current project\n' "$(( (CHK_T1 - CHK_T0) / 1000000 ))"
+
+# The write path makes the same decision: the CRLF copy is already current,
+# so a real run neither warns about it nor rewrites it.
+expect 0 "a real run on the current project exits 0" -- bash "$INST_353"
+expect_output ".github/workflows/data-policy.yml (already current)"
+expect_no_output "data-policy.yml exists and differs" "a real run does not call the CRLF copy different"
+TOTAL=$((TOTAL + 1))
+if [ "$(md5sum < .github/workflows/data-policy.yml)" = "$CRLF_SUM_353" ]; then
+  [ -n "$VERBOSE" ] && printf '   ok   a real run left the CRLF copy byte-identical\n'
+else
+  printf '   FAIL a real run rewrote the CRLF copy\n'; FAILED=$((FAILED + 1))
+fi
+
+# SEC-IAENG-353-01: a bare CR INSIDE a line is not a line ending. YAML reads it
+# as a line break, so splitting an existing line with one CR, and adding no
+# other byte, turns the tail of a comment into a line of YAML that a
+# reviewer's editor does not show. Deleting every CR made that copy current.
+awk '!done && / / { sub(/ /, "\r "); done = 1 } { print }' \
+  ia-engineering/Adapters/github-actions/framework-validation.yml > cr.tmp \
+  && mv cr.tmp .github/workflows/framework-validation.yml
+expect 3 "a bare CR inside a line is drift (exit 3), not a line ending" -- bash "$INST_353" --check --quiet
+expect_output "file${T}differs${T}.github/workflows/framework-validation.yml"
+cp ia-engineering/Adapters/github-actions/framework-validation.yml .github/workflows/framework-validation.yml
+
+# --- drift of every kind, staged, unstaged, untracked and ignored --------------
+printf '# a local edit\n' >> .github/workflows/pr-validation.yml
+git add .github/workflows/pr-validation.yml
+rm .github/workflows/control-path-guard.yml
+sed -i 's/OWNER\/REPO/acme\/widget/g' .github/ISSUE_TEMPLATE/config.yml
+grep -vxF '/Registry/work-units.yml text eol=lf' .gitattributes > attrs.tmp && mv attrs.tmp .gitattributes
+grep -vxF '.env' .gitignore > ign.tmp && mv ign.tmp .gitignore
+rm Dockerfile
+echo untracked > untracked.txt
+echo real > local_test_data/real.csv
+
+SNAP_A="$(snapshot_353)"
+SNAP_B="$(snapshot_353)"
+TOTAL=$((TOTAL + 1))
+if [ "$SNAP_A" = "$SNAP_B" ]; then
+  [ -n "$VERBOSE" ] && printf '   ok   the snapshot itself writes nothing (two in a row are identical)\n'
+else
+  printf '   FAIL the snapshot is not stable, so it cannot prove anything\n'
+  diff <(printf '%s\n' "$SNAP_A") <(printf '%s\n' "$SNAP_B") | sed 's/^/        | /'; FAILED=$((FAILED + 1))
+fi
+
+expect 3 "--check reports drift (exit 3)" -- bash "$INST_353" --check
+expect_output "file${T}differs${T}.github/workflows/pr-validation.yml${T}ia-engineering/Adapters/github-actions/pr-validation.yml"
+expect_output "file${T}absent${T}.github/workflows/control-path-guard.yml"
+expect_output "file${T}customized${T}.github/ISSUE_TEMPLATE/config.yml"
+expect_no_output "${T}placeholder${T}" "a replaced OWNER/REPO placeholder leaves no todo record (issue #274)"
+expect_output "gitattributes${T}missing${T}.gitattributes${T}/Registry/work-units.yml text eol=lf"
+expect_output "gitignore${T}missing${T}.gitignore${T}.env"
+expect_output "# install.sh --check: 4 to act on. 8 file(s) compared: 5 current, 1 absent, 1 differs, 1 customized; 8 .gitattributes rule(s): 7 present, 1 missing; 6 .gitignore rule(s): 5 present, 1 missing;"
+expect_output "differs: diff <source> <path>"
+expect 3 "--check --quiet reports the same drift (exit 3)" -- bash "$INST_353" --check --quiet
+expect_output "file${T}differs${T}.github/workflows/pr-validation.yml"
+expect_output "4 to act on."
+expect_no_output "${T}current${T}" "--check --quiet leaves out what is current"
+expect_no_output "${T}unchecked${T}" "--check --quiet leaves out the unchecked lines it repeats every run"
+expect_no_output "${T}customized${T}" "--check --quiet leaves out a customized file, which needs no action"
+expect 3 "the bootstrap --check reports both halves (exit 3)" -- bash "$BOOT_353" generic --check
+expect_output "file${T}differs${T}.github/workflows/pr-validation.yml"
+expect_output "project-file${T}absent${T}Dockerfile"
+expect_output "# setup-project-bootstrap.sh --check: 1 to act on. 6 project-owned file(s): 5 present, 1 absent."
+expect 3 "the bootstrap --check --quiet still reports drift" -- bash "$BOOT_353" --check --quiet
+expect_output "project-file${T}absent${T}Dockerfile"
+
+SNAP_C="$(snapshot_353)"
+TOTAL=$((TOTAL + 1))
+if [ "$SNAP_A" = "$SNAP_C" ]; then
+  [ -n "$VERBOSE" ] && printf '   ok   read-only: tree, .git, index, refs, config and objects unchanged by six --check runs\n'
+else
+  printf '   FAIL --check changed the project\n'
+  diff <(printf '%s\n' "$SNAP_A") <(printf '%s\n' "$SNAP_C") | sed 's/^/        | /'; FAILED=$((FAILED + 1))
+fi
+
+# --- usage errors, and a fault that is never read as current -------------------
+expect 2 "--check --force is a usage error" -- bash "$INST_353" --check --force
+expect 2 "--check --dry-run is a usage error" -- bash "$INST_353" --check --dry-run
+expect 2 "--quiet without --check is a usage error" -- bash "$INST_353" --quiet
+expect 2 "the bootstrap --check --force is a usage error" -- bash "$BOOT_353" generic --check --force
+expect 2 "the bootstrap --quiet without --check is a usage error" -- bash "$BOOT_353" generic --quiet
+mv ia-engineering/Adapters/github-actions/data-policy.yml data-policy.moved
+expect 1 "a template missing from the framework is a fault (exit 1), not drift" -- bash "$INST_353" --check --quiet
+expect_output "file${T}fault${T}.github/workflows/data-policy.yml"
+expect 1 "the bootstrap --check passes the fault on (exit 1 over 3)" -- bash "$BOOT_353" --check --quiet
+mv data-policy.moved ia-engineering/Adapters/github-actions/data-policy.yml
+
+# ------------------ install.sh: a CRLF .gitignore (WU-IAENG-425, issue #396) --
+#
+# Git for Windows' default core.autocrlf=true checks .gitignore out CRLF.
+# install.sh read it raw, so no rule matched a whole line: a real run appended
+# all six again, on every fresh clone (two copies, then three), and --check
+# disagreed with that run, because Git for Windows' bash drops the CR of the
+# file's last line in $(< file) and Linux bash drops none. The fix removes the
+# CR that ends a line, and only that one (Standards/CODE_QUALITY_STANDARD.md,
+# The Check Convention, shell rule 3). The fixture writes CRLF with awk, so
+# every platform runs the same case whatever its core.autocrlf.
+
+section "install.sh — a CRLF .gitignore is read line by line, no rule appended twice (WU-IAENG-425, #396)"
+
+IGN_RULES_425="local_test_data/
+.env
+.ia-engineering/SESSION_STATE.md
+.claude/agents/
+.claude/worktrees/
+.ia-engineering/usage/"
+
+# rule_lines_425 <rule> — how many lines of .gitignore are exactly <rule> once
+# their line-ending CR is removed. awk, not grep: Git for Windows' grep drops
+# a CR before matching and Linux grep does not.
+rule_lines_425() {
+  awk -v r="$1" '{ sub(/\r$/, "") } $0 == r { n++ } END { print n + 0 }' .gitignore
+}
+
+# each_once_425 <description> — each of the six rules is on exactly one line.
+each_once_425() {
+  local rule n bad=""
+  TOTAL=$((TOTAL + 1))
+  while IFS= read -r rule; do
+    n="$(rule_lines_425 "$rule")"
+    [ "$n" -eq 1 ] || bad="$bad $rule x$n"
+  done <<< "$IGN_RULES_425"
+  if [ -z "$bad" ]; then
+    [ -n "$VERBOSE" ] && printf '   ok   %s\n' "$1"
+    return 0
+  fi
+  printf '   FAIL %s:%s\n' "$1" "$bad"; FAILED=$((FAILED + 1))
+  return 1
+}
+
+# crlf_425 <description> — every line of .gitignore ends CRLF, or the CRLF
+# cases below test nothing. The CRs are counted with tr, for the grep reason
+# above.
+crlf_425() {
+  local crs lines
+  TOTAL=$((TOTAL + 1))
+  crs=$(( $(tr -cd '\r' < .gitignore | wc -c) ))
+  lines=$(( $(wc -l < .gitignore) ))
+  if [ "$crs" -gt 0 ] && [ "$crs" -eq "$lines" ]; then
+    [ -n "$VERBOSE" ] && printf '   ok   %s\n' "$1"
+    return 0
+  fi
+  printf '   FAIL %s: %s CR for %s lines\n' "$1" "$crs" "$lines"; FAILED=$((FAILED + 1))
+  return 1
+}
+
+# unchanged_425 <md5> <description> — .gitignore is byte for byte what it was.
+unchanged_425() {
+  TOTAL=$((TOTAL + 1))
+  if [ "$(md5sum < .gitignore)" = "$1" ]; then
+    [ -n "$VERBOSE" ] && printf '   ok   %s\n' "$2"
+    return 0
+  fi
+  printf '   FAIL %s; it now ends:\n' "$2"
+  tail -n 8 .gitignore | sed 's/^/        | /'; FAILED=$((FAILED + 1))
+  return 1
+}
+
+# present_425 — the last --check output reports each of the six present.
+present_425() {
+  local rule
+  while IFS= read -r rule; do
+    expect_output "gitignore${T}present${T}.gitignore${T}$rule"
+  done <<< "$IGN_RULES_425"
+}
+
+adopter_353 ign-crlf
+expect 0 "a first bootstrap succeeds" -- bash "$BOOT_353" generic
+commit_353 "chore(adopt): install the Adapters"
+
+# --- LF, the case that always worked: unchanged by the fix ---------------------
+each_once_425 "the LF .gitignore holds each of the six rules once"
+SUM_425="$(md5sum < .gitignore)"
+expect 0 "--check on an LF .gitignore holding every rule exits 0" -- bash "$INST_353" --check
+expect_output "6 .gitignore rule(s): 6 present;"
+expect 0 "a real run on it exits 0" -- bash "$INST_353"
+expect_output ".gitignore (data-protection rules already present)"
+expect_output ".gitignore (generated/runtime-artifact rules already present)"
+unchanged_425 "$SUM_425" "a real run left the LF .gitignore byte-identical"
+
+# --- CRLF, every rule present: reported present, nothing appended, twice -------
+awk '{ sub(/\r$/, ""); printf "%s\r\n", $0 }' .gitignore > ign.tmp && mv ign.tmp .gitignore
+crlf_425 "the CRLF fixture ends every line with CRLF"
+SUM_425="$(md5sum < .gitignore)"
+expect 0 "--check on a CRLF .gitignore holding every rule exits 0" -- bash "$INST_353" --check
+expect_output "6 .gitignore rule(s): 6 present;"
+present_425
+for RUN_425 in 1 2; do
+  expect 0 "real run $RUN_425 on the CRLF .gitignore exits 0" -- bash "$INST_353"
+  expect_output ".gitignore (data-protection rules already present)"
+  expect_output ".gitignore (generated/runtime-artifact rules already present)"
+  unchanged_425 "$SUM_425" "real run $RUN_425 left the CRLF .gitignore byte-identical"
+done
+
+# --- CRLF, one rule missing: that rule appended once, and only it --------------
+# .env is a data-protection rule: a real run appends it before the
+# generated-artifact block re-reads the file, so both reads are exercised.
+awk '{ sub(/\r$/, "") } $0 != ".env" { printf "%s\r\n", $0 }' .gitignore > ign.tmp && mv ign.tmp .gitignore
+crlf_425 "the CRLF fixture without .env ends every line with CRLF"
+cp .gitignore "$WORK/ign-before-425"
+SIZE_425=$(( $(wc -c < .gitignore) ))
+expect 3 "--check on a CRLF .gitignore missing .env reports drift (exit 3)" -- bash "$INST_353" --check
+expect_output "gitignore${T}missing${T}.gitignore${T}.env"
+expect_output "6 .gitignore rule(s): 5 present, 1 missing;"
+expect 0 "a real run on it exits 0" -- bash "$INST_353"
+expect_output ".gitignore (appended 1 data-protection rule(s))"
+expect_output ".gitignore (generated/runtime-artifact rules already present)"
+ADDED_425="$(tail -c +"$((SIZE_425 + 1))" .gitignore | grep -v '^#' | grep -v '^$')"
+TOTAL=$((TOTAL + 1))
+if cmp -s -n "$SIZE_425" "$WORK/ign-before-425" .gitignore && [ "$ADDED_425" = ".env" ]; then
+  [ -n "$VERBOSE" ] && printf '   ok   the real run kept the CRLF bytes and added one rule line, .env\n'
+else
+  printf '   FAIL the real run did not keep the CRLF bytes and add exactly .env; it added:\n'
+  printf '%s\n' "$ADDED_425" | sed 's/^/        | /'; FAILED=$((FAILED + 1))
+fi
+each_once_425 "after it, each of the six rules is on exactly one line"
+SUM_425="$(md5sum < .gitignore)"
+expect 0 "a second real run exits 0" -- bash "$INST_353"
+expect_output ".gitignore (data-protection rules already present)"
+expect_output ".gitignore (generated/runtime-artifact rules already present)"
+unchanged_425 "$SUM_425" "the second real run appended nothing"
+
+# --- only the CR that ends a line goes (shell rule 3) --------------------------
+# `.env<CR>x` is the rule followed by a mid-line CR and more text: not .env.
+# `.claude/agents/<CR><CR>` keeps one CR once the line-ending one is gone: not
+# .claude/agents/ either. Deleting every CR would call the second present,
+# and cutting each line at its first CR would call the first present.
+awk '{ sub(/\r$/, "") }
+     $0 == ".env" { printf "%s\rx\r\n", $0; next }
+     $0 == ".claude/agents/" { printf "%s\r\r\n", $0; next }
+     { printf "%s\r\n", $0 }' .gitignore > ign.tmp && mv ign.tmp .gitignore
+expect 3 "--check: a CR inside a line is data, so neither line is its rule (exit 3)" -- bash "$INST_353" --check
+expect_output "gitignore${T}missing${T}.gitignore${T}.env"
+expect_output "gitignore${T}missing${T}.gitignore${T}.claude/agents/"
+expect_output "6 .gitignore rule(s): 4 present, 2 missing;"
+
+# --- the file's LAST line (Security review of PR #423, F1) ---------------------
+# Git for Windows' bash drops the last line's CR together with the final
+# newline in $(< file). `.env<CR><CR>` there then read as .env once the
+# line-ending CR was stripped as well: present to install.sh, while git, which
+# removes one CR only, does not ignore .env. These cases cannot fail on Linux,
+# where this framework's CI runs: Linux bash's $(< file) keeps that CR, so
+# the read without the sentinel is right there too. They fail on Git for
+# Windows, where the defect lives, and were seen red there (WU-IAENG-425).
+# Each case asks git first, so the expectation is git's own reading of the
+# same bytes; core.excludesFile points nowhere so a global ignore of .env
+# cannot answer.
+#
+# last_line_425 <ending> <git-exit> <description> — the five other rules CRLF,
+# then .env ending in <ending> (escapes as printf %b reads them) as the file's
+# last line. <git-exit> is git check-ignore's exit for .env: 0 ignored, 1 not.
+last_line_425() {
+  printf '%s\r\n' local_test_data/ .ia-engineering/SESSION_STATE.md \
+    .claude/agents/ .claude/worktrees/ .ia-engineering/usage/ > .gitignore
+  printf '.env%b' "$1" >> .gitignore
+  expect "$2" "git check-ignore on .env exits $2: $3" -- \
+    git -c core.excludesFile="$WORK/no-excludes-425" check-ignore -q .env
+  if [ "$2" -eq 0 ]; then
+    expect 0 "--check reports .env present, as git reads it: $3" -- bash "$INST_353" --check
+    expect_output "gitignore${T}present${T}.gitignore${T}.env"
+    expect_output "6 .gitignore rule(s): 6 present;"
+  else
+    expect 3 "--check reports .env missing, as git reads it: $3 (exit 3)" -- bash "$INST_353" --check
+    expect_output "gitignore${T}missing${T}.gitignore${T}.env"
+    expect_output "6 .gitignore rule(s): 5 present, 1 missing;"
+  fi
+}
+last_line_425 '\r\n' 0 "CRLF on the last line"
+last_line_425 '\r' 0 "a CR and no final newline on the last line"
+last_line_425 '\r\r\n' 1 "a doubled CR on the last line"
+last_line_425 '\r\r\n\n' 1 "a doubled CR on the last rule line, a blank line after it"
+last_line_425 '\r\r' 1 "a doubled CR on the last line, no final newline"
+
+section "install.sh --check — git hooks: core.hooksPath, executable, shadowed, no probe (WU-IAENG-355)"
+
+# The write path's own decisions, read and never applied: no `git config`
+# write, no chmod, and the commit probes stay skipped.
+adopter_353 chk-hooks
+expect 3 "an unset core.hooksPath is drift (exit 3)" -- bash "$INST_353" --check
+expect_output "git-hooks${T}absent${T}core.hooksPath${T}$(hooks_path_414)"
+expect_output "git-hooks${T}current${T}ia-engineering/Adapters/git-hooks/commit-msg${T}executable"
+expect_output "5 git hook item(s): 3 current, 1 absent, 1 unchecked"
+expect_output "git-hooks: re-run ia-engineering/Adapters/scripts/install.sh; it sets core.hooksPath"
+expect_no_output "${T}shadowed${T}" "only sample hooks in .git/hooks: nothing is shadowed"
+
+# A wrong value, a project hook core.hooksPath would shadow, and a framework
+# hook that is not executable. The extra hook has no shebang, so it is not
+# executable under Git for Windows either, where chmod -x does not stick.
+git config core.hooksPath .githooks
+printf '#!/bin/sh\nexit 0\n' > .git/hooks/post-checkout
+chmod +x .git/hooks/post-checkout
+printf 'exit 0\n' > ia-engineering/Adapters/git-hooks/post-merge
+TOTAL=$((TOTAL + 1))
+if [ -x ia-engineering/Adapters/git-hooks/post-merge ]; then
+  printf '   FAIL the fixture hook is executable, so the not-executable case tests nothing\n'; FAILED=$((FAILED + 1))
+else
+  [ -n "$VERBOSE" ] && printf '   ok   the fixture hook is not executable\n'
+fi
+SNAP_H0="$(snapshot_353)"
+expect 3 "a wrong core.hooksPath, a shadowed hook and a non-executable hook are drift (exit 3)" -- bash "$INST_353" --check
+expect_output "git-hooks${T}differs${T}core.hooksPath${T}$(hooks_path_414) (set to: .githooks)"
+expect_output ".git/hooks${T}1 hook(s) there would stop running once core.hooksPath points at ia-engineering/Adapters/git-hooks"
+expect_output "git-hooks${T}not-executable${T}ia-engineering/Adapters/git-hooks/post-merge"
+expect_output "7 git hook item(s): 3 current, 1 differs, 1 not-executable, 1 shadowed, 1 unchecked"
+expect_output "git-hooks${T}shadowed${T}.git/hooks${T}"
+# The hooks a re-run would silence are named before the re-run remedy.
+expect_output "shadowed: move the project hooks out of .git/hooks first, or git stops running them. core.hooksPath: move any hooks the project keeps in .githooks out first, or git stops running them. git-hooks: then re-run"
+expect 3 "--check --quiet keeps all three" -- bash "$INST_353" --check --quiet
+expect_output "git-hooks${T}differs${T}core.hooksPath"
+expect_output "git-hooks${T}shadowed${T}"
+expect_output "git-hooks${T}not-executable${T}"
+expect_no_output "git-hooks${T}fault${T}" "a shadowed hook is drift under --check, not a fault"
+expect 3 "the bootstrap --check passes git-hooks drift on (exit 3)" -- bash "$BOOT_353" --check --quiet
+SNAP_H1="$(snapshot_353)"
+TOTAL=$((TOTAL + 1))
+if [ "$SNAP_H0" = "$SNAP_H1" ] && [ "$(git config --get core.hooksPath)" = ".githooks" ] \
+   && [ ! -x ia-engineering/Adapters/git-hooks/post-merge ]; then
+  [ -n "$VERBOSE" ] && printf '   ok   read-only: core.hooksPath, the hooks, .git and the tree unchanged by three --check runs\n'
+else
+  printf '   FAIL --check changed the git hooks state\n'
+  diff <(printf '%s\n' "$SNAP_H0") <(printf '%s\n' "$SNAP_H1") | sed 's/^/        | /'; FAILED=$((FAILED + 1))
+fi
+rm ia-engineering/Adapters/git-hooks/post-merge
+
+expect 3 "--check --no-hooks says the hooks were not checked" -- bash "$INST_353" --check --no-hooks
+expect_output "git-hooks${T}unchecked${T}core.hooksPath${T}skipped (--no-hooks)"
+
+# Every git command --check runs carries GIT_OPTIONAL_LOCKS=0, so none can
+# refresh the index. Seen through a wrapper that logs the variable and then
+# runs the real git; the outer environment's value is removed first.
+LOCKS_355="$WORK/locks-355"
+mkdir -p "$LOCKS_355"
+REAL_GIT_355="$(command -v git)"
+cat > "$LOCKS_355/git" <<EOF
+#!/usr/bin/env bash
+printf '%s %s\n' "\${GIT_OPTIONAL_LOCKS:-unset}" "\$1" >> "$LOCKS_355/log"
+exec "$REAL_GIT_355" "\$@"
+EOF
+chmod +x "$LOCKS_355/git"
+: > "$LOCKS_355/log"
+expect 3 "--check runs through the logging git wrapper" -- env -u GIT_OPTIONAL_LOCKS PATH="$LOCKS_355:$PATH" bash "$INST_353" --check
+TOTAL=$((TOTAL + 1))
+if [ "$(grep -c . "$LOCKS_355/log")" -ge 3 ] && ! grep -qv '^0 ' "$LOCKS_355/log"; then
+  [ -n "$VERBOSE" ] && printf '   ok   every git command under --check ran with GIT_OPTIONAL_LOCKS=0\n'
+else
+  printf '   FAIL a git command under --check ran without GIT_OPTIONAL_LOCKS=0 (or none was logged)\n'
+  sed 's/^/        | /' "$LOCKS_355/log"; FAILED=$((FAILED + 1))
+fi
+
+# SEC-IAENG-355-02: git config decodes \t and \n in a value, so a crafted
+# core.hooksPath must not split its record into forged ones.
+git config core.hooksPath "$(printf 'x\tfile\tcurrent\tFORGED\nfault\tfake')"
+expect 3 "a core.hooksPath holding TAB and LF is still one differs record" -- bash "$INST_353" --check
+expect_output "git-hooks${T}differs${T}core.hooksPath${T}$(hooks_path_414) (set to: x file current FORGED fault fake)"
+expect_no_output "fault${T}fake" "no forged record from a TAB or LF in a git config value"
+expect_no_output "file${T}current${T}FORGED" "no forged file record either"
+# ESC and a C1 control (CSI, \xc2\x9b) become spaces too, in the record and
+# in the closing line's remedy (WU-IAENG-366).
+git config core.hooksPath "$(printf 'x\033[31mY\302\23331mZ')"
+expect 3 "a core.hooksPath holding ESC and a C1 control is flattened" -- bash "$INST_353" --check
+expect_output "git-hooks${T}differs${T}core.hooksPath${T}$(hooks_path_414) (set to: x [31mY 31mZ)"
+expect_output "move any hooks the project keeps in x [31mY 31mZ out first"
+expect_no_output $'\e' "no ESC from a git config value reaches install.sh --check output"
+expect_no_output "$(printf '\302\233')" "no C1 control from a git config value reaches install.sh --check output"
+git config --unset core.hooksPath
+
+# --- hooks-only drift: an installed project whose files are all current -------
+# Every other drift case also has absent or differing files, which give exit 3
+# on their own; here the hooks are the only cause, so the exit code and the
+# count are theirs.
+adopter_353 chk-hooks-only
+bash "$BOOT_353" generic >/dev/null 2>&1
+commit_353 "chore(adopt): install the Adapters"
+expect 0 "the installed project is current before the hooks drift" -- bash "$INST_353" --check --quiet
+printf 'exit 0\n' > ia-engineering/Adapters/git-hooks/post-merge
+expect 3 "a non-executable framework hook alone is drift (exit 3)" -- bash "$INST_353" --check
+expect_output "# install.sh --check: 1 to act on."
+expect_output "git-hooks${T}not-executable${T}ia-engineering/Adapters/git-hooks/post-merge"
+expect 3 "--check --quiet keeps it" -- bash "$INST_353" --check --quiet
+expect_output "git-hooks${T}not-executable${T}ia-engineering/Adapters/git-hooks/post-merge"
+rm ia-engineering/Adapters/git-hooks/post-merge
+git config core.hooksPath .githooks
+printf '#!/bin/sh\nexit 0\n' > .git/hooks/post-checkout
+chmod +x .git/hooks/post-checkout
+expect 3 "a wrong core.hooksPath and a shadowed hook alone are drift (exit 3)" -- bash "$INST_353" --check
+expect_output "# install.sh --check: 2 to act on."
+expect 3 "--check --quiet keeps the shadowed hook" -- bash "$INST_353" --check --quiet
+expect_output "git-hooks${T}shadowed${T}.git/hooks${T}"
+
+section "install.sh — every linked git worktree runs the hooks (WU-IAENG-414, issue #368)"
+
+# The adoption rehearsal of 28 Oct 2026. A linked worktree (`git worktree
+# add`; Claude Code's `isolation: worktree` for an Employee) shares the
+# config but not the initialised submodule: ia-engineering/ is empty there.
+# The relative core.hooksPath install.sh wrote named a directory that did not
+# exist in it, so git ran no hook and said nothing: `Employee: Claude` and a
+# staged document were committed. Every case below failed on develop 607cae9
+# (the worktree cases: accepted, rc=0).
+adopter_353 wt-414
+expect 0 "an adopter install exits 0" -- bash "$INST_353"
+expect_output "core.hooksPath is absolute: every linked git worktree of this clone runs these hooks"
+commit_353 "chore(adopt): install the Adapters"
+git branch develop
+MAIN_414="$PWD"
+HP_414="$(hooks_path_414)"
+TOTAL=$((TOTAL + 1))
+case "$(git config --get core.hooksPath)" in
+  "$HP_414")
+    [ -n "$VERBOSE" ] && printf '   ok   an adopter core.hooksPath is the main checkout framework hooks, absolute\n' ;;
+  *)
+    printf '   FAIL an adopter core.hooksPath is %s, not %s\n' "$(git config --get core.hooksPath)" "$HP_414"
+    FAILED=$((FAILED + 1)) ;;
+esac
+git worktree add -q "$WORK/wt-414-a" -b feature/wt-414-a develop >/dev/null 2>&1
+cd "$WORK/wt-414-a" || exit 1
+# The premise: the framework is NOT there. Initialised, the cases below would
+# pass for a reason that is not the fix.
+TOTAL=$((TOTAL + 1))
+if [ -d ia-engineering ] && [ -z "$(ls -A ia-engineering)" ]; then
+  [ -n "$VERBOSE" ] && printf '   ok   the linked worktree has an empty ia-engineering/ (the premise)\n'
+else
+  printf '   FAIL the linked worktree ia-engineering/ is missing or not empty: the cases test nothing\n'
+  FAILED=$((FAILED + 1))
+fi
+expect 1 "worktree, framework not initialised: a commit signed by a tool label is refused" -- \
+  commit_with "chore(x): a tool label" "Employee: Claude"
+expect_output "commit-msg: rejected — 'Employee: Claude' is not a recognized Employee."
+git reset -q
+printf 'probe\n' > data-414.xlsx
+git add data-414.xlsx
+expect 1 "worktree, framework not initialised: a staged document is refused by pre-commit" -- \
+  git commit -q -m "chore(x): real data
+
+Employee: DevOps Engineer"
+expect_output "data-policy: REFUSED  data-414.xlsx"
+git rm -q --cached data-414.xlsx
+rm -f data-414.xlsx
+expect 0 "worktree, framework not initialised: a valid commit is accepted (the roster beside the hook)" -- \
+  commit_with "chore(x): a valid commit" "Employee: DevOps Engineer"
+
+# A run from a linked worktree whose framework IS initialised keeps the whole
+# clone on the main checkout's framework: pointing it at this worktree would
+# leave every other worktree with no hook once this one is removed.
+git worktree add -q "$WORK/wt-414-b" -b feature/wt-414-b develop >/dev/null 2>&1
+cd "$WORK/wt-414-b" || exit 1
+git -c protocol.file.allow=always submodule update -q --init >/dev/null 2>&1
+expect 3 "--check from an initialised linked worktree: the main checkout's path is current" -- bash "$INST_353" --check
+expect_output "git-hooks${T}current${T}core.hooksPath${T}$HP_414"
+bash "$INST_353" >/dev/null 2>&1
+TOTAL=$((TOTAL + 1))
+if [ "$(git config --get core.hooksPath)" = "$HP_414" ]; then
+  [ -n "$VERBOSE" ] && printf '   ok   a real run from a linked worktree leaves core.hooksPath on the main checkout\n'
+else
+  printf '   FAIL a real run from a linked worktree set core.hooksPath to %s\n' "$(git config --get core.hooksPath)"
+  FAILED=$((FAILED + 1))
+fi
+
+# The value install.sh wrote before this fix is drift with its own remedy. It
+# already shadowed .git/hooks, so no shadowed record and no "move any hooks
+# the project keeps in" the framework's own directory.
+cd "$MAIN_414" || exit 1
+git config core.hooksPath ia-engineering/Adapters/git-hooks
+printf '#!/bin/sh\nexit 0\n' > .git/hooks/post-checkout
+chmod +x .git/hooks/post-checkout
+expect 3 "the relative value of earlier installs is drift (exit 3)" -- bash "$INST_353" --check
+expect_output "git-hooks${T}differs${T}core.hooksPath${T}$HP_414 (set to: ia-engineering/Adapters/git-hooks, a relative path: a linked git worktree"
+expect_output "core.hooksPath: ia-engineering/Adapters/git-hooks is relative, so a linked git worktree runs no hook (issue #368). git-hooks: re-run"
+expect_no_output "${T}shadowed${T}" "the relative value already shadowed .git/hooks: nothing newly shadowed"
+expect_no_output "move any hooks the project keeps in" "no remedy that sends the reader to move the framework's own hooks"
+rm -f .git/hooks/post-checkout
+cd "$WORK/wt-414-a" || exit 1
+expect 0 "worktree, the relative value: git runs no hook, a tool label is accepted (the defect)" -- \
+  commit_with "chore(x): a tool label under the old value" "Employee: Claude"
+cd "$MAIN_414" || exit 1
+bash "$INST_353" >/dev/null 2>&1
+cd "$WORK/wt-414-a" || exit 1
+expect 1 "worktree, after re-running install.sh: the tool label is refused again" -- \
+  commit_with "chore(x): a tool label after the re-run" "Employee: Claude"
+git reset -q
+
+# The framework repository itself keeps its relative value: its hooks are
+# tracked files, present in every worktree.
+cd "$FW_353" || exit 1
+expect 3 "the framework repository's --check: core.hooksPath stays relative" -- bash Adapters/scripts/install.sh --check
+expect_output "git-hooks${T}absent${T}core.hooksPath${T}./Adapters/git-hooks"
+cd "$MAIN_414" || exit 1
+
+section "install.sh — the main working tree in every layout, its guards, hooks behind a closed pipe (WU-IAENG-414, #397)"
+
+# Review round of PR #387. Each case failed on the head it reviewed
+# (f429b7c): a project that is itself a submodule, and a bare repository with
+# worktrees, got no core.hooksPath (install.sh exit 1); four guards had no test
+# that could fail them; a roster planted in a worktree's empty submodule
+# directory was read. The closed-pipe cases (#397) failed on develop under Git
+# for Windows, where a hook killed by SIGPIPE reads as exit 0. A Linux git
+# reports that death as a failure, so there they pass before and after.
+
+# commit_414b <subject> <employee> — stages one new file by name, never -A: a
+# submodule directory that is not initialised but holds files can make
+# `git add -A` fail for a reason that is not a hook.
+commit_414b() {
+  local f="f414b-$RANDOM$RANDOM.txt"
+  echo "$f" > "$f"
+  git add -- "$f"
+  git commit -q -m "$1
+
+Employee: $2"
+}
+
+# head_is_414b <sha> <description> — HEAD did not move.
+head_is_414b() {
+  TOTAL=$((TOTAL + 1))
+  if [ "$(git rev-parse HEAD)" = "$1" ]; then
+    [ -n "$VERBOSE" ] && printf '   ok   %s\n' "$2"
+    return 0
+  fi
+  printf '   FAIL %s\n' "$2"
+  git log -1 --format='        | created: %h %s' | head -3
+  FAILED=$((FAILED + 1))
+  return 1
+}
+
+# hooks_path_is_414b <want> <description>
+hooks_path_is_414b() {
+  TOTAL=$((TOTAL + 1))
+  if [ "$(git config --local --get core.hooksPath)" = "$1" ]; then
+    [ -n "$VERBOSE" ] && printf '   ok   %s\n' "$2"
+    return 0
+  fi
+  printf '   FAIL %s: core.hooksPath is "%s", not "%s"\n' "$2" "$(git config --local --get core.hooksPath)" "$1"
+  FAILED=$((FAILED + 1))
+  return 1
+}
+
+# worktree_config_on_414b <key> <where> — the premise of a worktreeConfig case
+# (PR #387 review, round 4): `git sparse-checkout init`, then `disable` (which
+# gives the checkout back), was run in a worktree whose framework is not
+# initialised. extensions.worktreeConfig is now on, and <key> is no longer in
+# <common>/config but git still resolves it, from <common>/config.worktree.
+# Without this, the case after it would test nothing.
+worktree_config_on_414b() {
+  local c
+  c="$(git rev-parse --path-format=absolute --git-common-dir)"
+  TOTAL=$((TOTAL + 1))
+  if [ "$(git config --bool --get extensions.worktreeConfig)" = true ] \
+     && [ -z "$(git config -f "$c/config" --get "$1")" ] \
+     && [ -n "$(git --git-dir="$c" config --get "$1")" ]; then
+    [ -n "$VERBOSE" ] && printf '   ok   %s: worktreeConfig on, %s only in config.worktree (the premise)\n' "$2" "$1"
+    return 0
+  fi
+  printf '   FAIL %s: the worktreeConfig premise does not hold for %s, so the case tests nothing\n' "$2" "$1"
+  FAILED=$((FAILED + 1))
+  return 1
+}
+
+# layout_commits_414b <where> — in the shell's checkout, a commit signed by a
+# tool label is refused FOR THAT REASON, and a valid commit is accepted. An
+# exit code alone would stay green under a regression that refuses every
+# commit, such as a roster that cannot be found (QA, T-414-01).
+layout_commits_414b() {
+  expect 1 "$1: a commit signed by a tool label is refused" -- commit_414b "chore(x): a tool label" "Claude"
+  expect_output "commit-msg: rejected — 'Employee: Claude' is not a recognized Employee."
+  git reset -q
+  expect 0 "$1: a valid commit is accepted" -- commit_414b "chore(x): a valid commit" "DevOps Engineer"
+}
+
+adopter_353 r2-414b
+bash "$INST_353" >/dev/null 2>&1
+commit_353 "chore(adopt): install the Adapters"
+git branch develop
+MAIN_414b="$PWD"
+
+# --- SEC-IAENG-414-01: a roster planted in the worktree's empty submodule ---
+git worktree add -q "$WORK/r2-414b-wt" -b feature/r2-414b develop >/dev/null 2>&1
+cd "$WORK/r2-414b-wt" || exit 1
+mkdir -p ia-engineering/Registry
+printf 'employees:\n  - name: Claude\n    category: Management\n' > ia-engineering/Registry/employees.yml
+expect 1 "worktree: a roster planted in the empty submodule directory is not read (SEC-IAENG-414-01)" -- \
+  commit_414b "chore(x): a planted roster" "Claude"
+expect_output "commit-msg: rejected — 'Employee: Claude' is not a recognized Employee."
+git reset -q
+rm -rf ia-engineering/Registry
+
+# --- #397: the commit's output into a reader that closes at once ------------
+cd "$MAIN_414b" || exit 1
+H0_414b="$(git rev-parse HEAD)"
+echo pipe > pipe-414b.txt
+git add pipe-414b.txt
+git commit -q -m "chore(x): a tool label behind a closed pipe
+
+Employee: Claude" 2>&1 | head -n 0
+head_is_414b "$H0_414b" "commit-msg refuses behind | head -n 0: HEAD does not move (#397)"
+git commit -q -m "chore(x): a tool label behind head -1
+
+Employee: Claude" 2>&1 | head -1 >/dev/null
+head_is_414b "$H0_414b" "commit-msg refuses behind | head -1: HEAD does not move (#397)"
+git reset -q
+rm -f pipe-414b.txt
+printf 'probe\n' > pipe-414b.xlsx
+git add pipe-414b.xlsx
+git commit -q -m "chore(x): a document behind a closed pipe
+
+Employee: DevOps Engineer" 2>&1 | head -n 0
+head_is_414b "$H0_414b" "pre-commit refuses a staged document behind | head -n 0: HEAD does not move (#397)"
+git rm -q --cached pipe-414b.xlsx
+rm -f pipe-414b.xlsx
+echo pipe-ok > pipe-ok-414b.txt
+git add pipe-ok-414b.txt
+git commit -q -m "chore(x): a valid commit behind a closed pipe
+
+Employee: DevOps Engineer" 2>&1 | head -n 0
+TOTAL=$((TOTAL + 1))
+if [ "$(git rev-parse HEAD)" != "$H0_414b" ]; then
+  [ -n "$VERBOSE" ] && printf '   ok   a valid commit behind | head -n 0 is still created (the trap refuses nothing by itself)\n'
+else
+  printf '   FAIL a valid commit behind | head -n 0 was not created\n'; FAILED=$((FAILED + 1))
+fi
+# pre-push: the same class. A push that updates an existing protected branch,
+# its refusal written to a closed pipe, must leave the remote branch alone.
+git init -q --bare "$WORK/r2-414b-remote.git"
+git remote add origin "$WORK/r2-414b-remote.git"
+git push -q origin main develop >/dev/null 2>&1
+DEV0_414b="$(git --git-dir="$WORK/r2-414b-remote.git" rev-parse develop)"
+git switch -q develop
+commit_414b "chore(x): a commit on develop" "DevOps Engineer"
+git push -q origin develop 2>&1 | head -n 0
+TOTAL=$((TOTAL + 1))
+if [ "$(git --git-dir="$WORK/r2-414b-remote.git" rev-parse develop)" = "$DEV0_414b" ]; then
+  [ -n "$VERBOSE" ] && printf '   ok   pre-push refuses a push to develop behind | head -n 0: the remote branch does not move (#397)\n'
+else
+  printf '   FAIL pre-push behind | head -n 0: the remote develop moved\n'; FAILED=$((FAILED + 1))
+fi
+git switch -q main
+
+# --- #397 on any bash: each hook run directly, behind a closed pipe ---------
+# Through git, only Git for Windows turned a SIGPIPE death into exit 0, so the
+# closed-pipe cases above pass on Linux with or without the fix. Run directly,
+# the hook's own status tells them apart on any bash (QA, T-414-02): killed by
+# SIGPIPE it is 141; ignoring SIGPIPE, its failed write leaves its refusal,
+# exit 1. The reader (`true`) has exited before the hook starts: the hook
+# runs after a one-second sleep. SIGPIPE is set back to its default for the
+# hook where `env --default-signal` exists, so a caller that ignores it
+# cannot make the case pass without the hook's own trap.
+HOOKS_414b="$SCRIPTS/../git-hooks"
+DEFSIG_414b=()
+if env --default-signal=PIPE true >/dev/null 2>&1; then DEFSIG_414b=(env --default-signal=PIPE); fi
+# closed_pipe_rc_414b <command...> — the command's stdout and stderr go into a
+# pipe whose reader has exited; RC_414b is the command's exit status.
+closed_pipe_rc_414b() {
+  local rcf="$WORK/r3-414b-rc"
+  rm -f "$rcf"
+  { sleep 1; ${DEFSIG_414b[@]+"${DEFSIG_414b[@]}"} "$@"; echo "$?" > "$rcf"; } 2>&1 | true
+  RC_414b="$(cat "$rcf" 2>/dev/null)"
+}
+# rc_is_414b <want> <description>
+rc_is_414b() {
+  TOTAL=$((TOTAL + 1))
+  if [ "$RC_414b" = "$1" ]; then
+    [ -n "$VERBOSE" ] && printf '   ok   %s\n' "$2"
+    return 0
+  fi
+  printf '   FAIL %s: exit %s, expected %s\n' "$2" "${RC_414b:-none}" "$1"
+  FAILED=$((FAILED + 1))
+  return 1
+}
+
+# pre-commit's OWN refusal (PR #387 review, round 3). The staged-document
+# cases are refused by the scanner, which ignores SIGPIPE itself, so they
+# pass without pre-commit's trap. pre-commit refuses on its own when it
+# cannot locate the scanner: moved aside here, in this adopter's framework
+# copy, the way the guards below move git-hooks.
+cd "$MAIN_414b" || exit 1
+mv ia-engineering/Adapters/scripts/data-policy-scan.sh "$WORK/r3-414b-scanner-moved"
+echo own > own-414b.txt
+git add own-414b.txt
+H1_414b="$(git rev-parse HEAD)"
+MSG_OWN_414b="chore(x): a commit with no scanner
+
+Employee: DevOps Engineer"
+expect 1 "pre-commit cannot locate the scanner: the commit is refused" -- env -u IAENG_FRAMEWORK git commit -q -m "$MSG_OWN_414b"
+expect_output "pre-commit: rejected — cannot locate Adapters/scripts/data-policy-scan.sh."
+env -u IAENG_FRAMEWORK git commit -q -m "$MSG_OWN_414b" 2>&1 | head -n 0
+head_is_414b "$H1_414b" "pre-commit's own refusal behind | head -n 0: HEAD does not move (#397)"
+closed_pipe_rc_414b env -u IAENG_FRAMEWORK ia-engineering/Adapters/git-hooks/pre-commit
+rc_is_414b 1 "pre-commit's own refusal, run directly behind a closed pipe: exit 1, not a SIGPIPE death (141)"
+mv "$WORK/r3-414b-scanner-moved" ia-engineering/Adapters/scripts/data-policy-scan.sh
+git reset -q
+rm -f own-414b.txt
+
+new_repo r3-414b-direct
+write_employee_roster "DevOps Engineer"
+git add -A && git commit -q -m "chore(x): a roster"
+printf 'chore(x): a tool label\n\nEmployee: Claude\n' > "$WORK/r3-414b-msg"
+closed_pipe_rc_414b "$HOOKS_414b/commit-msg" "$WORK/r3-414b-msg"
+rc_is_414b 1 "commit-msg run directly behind a closed pipe refuses with exit 1, not a SIGPIPE death (141)"
+# commit-msg's merge warning (PR #387 review, round 3). When it cannot
+# classify a merge, commit-msg warns and leaves the merge to CI. Behind a
+# closed pipe the warning's write fails, and under set -e that must not turn
+# the warning into a refusal. The warning needs `git merge-tree --write-tree`
+# to exit above 1, as a git older than 2.38 does on that unknown option (a
+# usage error, 129); a bad object exits 1, read as an authored merge. The
+# hook is run directly, so PATH is this shim's, and merge-tree answers as an
+# old git; every other command is the real git.
+MTSHIM_414b="$WORK/git-mt-shim-414b"
+mkdir -p "$MTSHIM_414b"
+cat > "$MTSHIM_414b/git" <<EOF
+#!/usr/bin/env bash
+if [ "\${1:-}" = merge-tree ]; then echo "error: unknown option \\\`write-tree'" >&2; exit 129; fi
+exec "$(command -v git)" "\$@"
+EOF
+chmod +x "$MTSHIM_414b/git"
+git rev-parse HEAD > .git/MERGE_HEAD
+printf 'Merge branch x\n' > "$WORK/r3-414b-merge-msg"
+expect 0 "an unclassifiable merge: commit-msg warns and lets it through to CI" -- \
+  env PATH="$MTSHIM_414b:$PATH" "$HOOKS_414b/commit-msg" "$WORK/r3-414b-merge-msg"
+expect_output "commit-msg: warning — cannot classify this merge locally; CI will."
+closed_pipe_rc_414b env PATH="$MTSHIM_414b:$PATH" "$HOOKS_414b/commit-msg" "$WORK/r3-414b-merge-msg"
+rc_is_414b 0 "an unclassifiable merge, run directly behind a closed pipe: still let through (exit 0), its warning is no refusal"
+rm -f .git/MERGE_HEAD
+printf 'probe\n' > d-414b.xlsx
+git add d-414b.xlsx
+closed_pipe_rc_414b "$HOOKS_414b/pre-commit"
+rc_is_414b 1 "pre-commit run directly behind a closed pipe refuses a staged document with exit 1, not 141"
+git rm -q --cached d-414b.xlsx
+rm -f d-414b.xlsx
+printf 'refs/heads/develop %s refs/heads/develop %s\n' \
+  1111111111111111111111111111111111111111 2222222222222222222222222222222222222222 > "$WORK/r3-414b-push"
+closed_pipe_rc_414b "$HOOKS_414b/pre-push" origin "file:///nowhere" < "$WORK/r3-414b-push"
+rc_is_414b 1 "pre-push run directly behind a closed pipe refuses a push to develop with exit 1, not 141"
+
+# --- layout (a): the adopter is itself a submodule of a superproject --------
+# Its git dir is absorbed into <super>/.git/modules/app and core.worktree names
+# the working tree; `git worktree list` names the git dir.
+adopter_353 r2-414b-app
+APP_414b="$PWD"
+new_repo r2-414b-super
+git -c protocol.file.allow=always submodule add -q "$APP_414b" app >/dev/null 2>&1
+git commit -q -m "chore(x): add the app"
+git -c protocol.file.allow=always submodule update -q --init --recursive >/dev/null 2>&1
+SUPER_414b="$PWD"
+cd app || exit 1
+git config user.email test@example.invalid
+git config user.name "Test Runner"
+git config commit.gpgsign false
+git config core.autocrlf false
+expect 0 "a project that is itself a submodule: install.sh exits 0" -- bash "$INST_353"
+SUBHP_414b="$(hooks_path_414)"
+hooks_path_is_414b "$SUBHP_414b" "a project that is itself a submodule: core.hooksPath is its working tree's framework, absolute"
+layout_commits_414b "a project that is itself a submodule"
+commit_353 "chore(adopt): install the Adapters"
+git branch develop
+git worktree add -q "$SUPER_414b/app-wt" -b feature/app-wt develop >/dev/null 2>&1
+cd "$SUPER_414b/app-wt" || exit 1
+layout_commits_414b "its linked worktree, framework not initialised"
+git -c protocol.file.allow=always submodule update -q --init >/dev/null 2>&1
+expect 3 "--check from its linked worktree names the main working tree through core.worktree" -- bash "$INST_353" --check
+expect_output "git-hooks${T}current${T}core.hooksPath${T}$SUBHP_414b"
+# worktreeConfig on (round 4): core.worktree moves to <common>/config.worktree.
+# The sparse checkout is set and cleared in a second worktree whose framework
+# is not initialised; its effect on the keys is the whole repository's.
+git worktree add -q "$SUPER_414b/app-wt2" -b feature/app-wt2 develop >/dev/null 2>&1
+git -C "$SUPER_414b/app-wt2" sparse-checkout init >/dev/null 2>&1
+git -C "$SUPER_414b/app-wt2" sparse-checkout disable >/dev/null 2>&1
+worktree_config_on_414b core.worktree "a project that is itself a submodule"
+expect 3 "worktreeConfig on: --check from its linked worktree still names the main working tree" -- bash "$INST_353" --check
+expect_output "git-hooks${T}current${T}core.hooksPath${T}$SUBHP_414b"
+
+# --- layout (b): a bare repository with worktrees -----------------------------
+# No main working tree: the value names the framework of the worktree
+# install.sh ran from, and the run says so.
+adopter_353 r2-414b-bsrc
+git clone -q --bare "$PWD" "$WORK/r2-414b.git" >/dev/null 2>&1
+git --git-dir="$WORK/r2-414b.git" config user.email test@example.invalid
+git --git-dir="$WORK/r2-414b.git" config user.name "Test Runner"
+git --git-dir="$WORK/r2-414b.git" config commit.gpgsign false
+git --git-dir="$WORK/r2-414b.git" worktree add -q "$WORK/r2-414b-bw1" main >/dev/null 2>&1
+cd "$WORK/r2-414b-bw1" || exit 1
+git -c protocol.file.allow=always submodule update -q --init >/dev/null 2>&1
+expect 0 "a bare repository with worktrees: install.sh exits 0" -- bash "$INST_353"
+expect_output "a bare repository has no main working tree: core.hooksPath names this worktree's framework"
+BHP_414b="$(hooks_path_414)"
+hooks_path_is_414b "$BHP_414b" "a bare repository with worktrees: core.hooksPath is this worktree's framework, absolute"
+layout_commits_414b "a bare repository's worktree"
+git worktree add -q "$WORK/r2-414b-bw2" -b feature/bw2 >/dev/null 2>&1
+cd "$WORK/r2-414b-bw2" || exit 1
+layout_commits_414b "a bare repository's other worktree, framework not initialised"
+
+# --- layout (c): a bare repository cloned into <project>/.git ---------------
+# The bare repository is named .git and its worktrees sit inside <project>/.
+# Its parent, <project>/, is no working tree: core.bare decides before the
+# name does (PR #387 review, round 3). Before that, install.sh took
+# <project>/ as the main working tree, exited 1 and set no core.hooksPath.
+adopter_353 r3-414b-csrc
+PROJ_414b="$WORK/r3-414b-proj"
+mkdir -p "$PROJ_414b"
+git clone -q --bare "$PWD" "$PROJ_414b/.git" >/dev/null 2>&1
+git --git-dir="$PROJ_414b/.git" config user.email test@example.invalid
+git --git-dir="$PROJ_414b/.git" config user.name "Test Runner"
+git --git-dir="$PROJ_414b/.git" config commit.gpgsign false
+git --git-dir="$PROJ_414b/.git" worktree add -q "$PROJ_414b/main" main >/dev/null 2>&1
+cd "$PROJ_414b/main" || exit 1
+git -c protocol.file.allow=always submodule update -q --init >/dev/null 2>&1
+expect 0 "a bare repository in <project>/.git: install.sh exits 0" -- bash "$INST_353"
+expect_output "a bare repository has no main working tree: core.hooksPath names this worktree's framework"
+CHP_414b="$(hooks_path_414)"
+hooks_path_is_414b "$CHP_414b" "a bare repository in <project>/.git: core.hooksPath is this worktree's framework, absolute"
+layout_commits_414b "a bare repository in <project>/.git, its worktree"
+git worktree add -q "$PROJ_414b/feat" -b feature/c >/dev/null 2>&1
+cd "$PROJ_414b/feat" || exit 1
+layout_commits_414b "a bare repository in <project>/.git, other worktree, framework not initialised"
+# worktreeConfig on (round 4): core.bare moves to <common>/config.worktree,
+# and the .git name must not decide in its place. The sparse checkout is set
+# and cleared here, where the framework is not initialised; install.sh is
+# then run again from the worktree whose framework is.
+git sparse-checkout init >/dev/null 2>&1
+git sparse-checkout disable >/dev/null 2>&1
+worktree_config_on_414b core.bare "a bare repository in <project>/.git"
+cd "$PROJ_414b/main" || exit 1
+expect 0 "worktreeConfig on: a bare repository in <project>/.git: install.sh still exits 0" -- bash "$INST_353"
+hooks_path_is_414b "$CHP_414b" "worktreeConfig on: a bare repository in <project>/.git: core.hooksPath is still this worktree's framework"
+
+# --- the guards: no main working tree, no hooks directory, the main working
+# tree not initialised, project hooks in the common hooks/ -------------------
+# A git older than 2.31 does not know --path-format. Like any rev-parse
+# option it does not know, it prints the option back, answers the rest in
+# relative form (.git, .git, then the top level) and exits 0: it does not
+# fail. The shim answers exactly so (PR #387 review, round 3: an exit-128
+# shim never reached the absoluteness check). The fault names that cause,
+# and nothing is written.
+SHIM_414b="$WORK/git-shim-414b"
+mkdir -p "$SHIM_414b"
+REAL_GIT_414b="$(command -v git)"
+cat > "$SHIM_414b/git" <<EOF
+#!/usr/bin/env bash
+args=()
+for a in "\$@"; do
+  if [ "\$a" = --path-format=absolute ]; then printf '%s\n' "\$a"; else args+=("\$a"); fi
+done
+exec "$REAL_GIT_414b" "\${args[@]}"
+EOF
+chmod +x "$SHIM_414b/git"
+adopter_353 r2-414b-noroot
+expect 1 "git names no main working tree: install.sh faults" -- env PATH="$SHIM_414b:$PATH" bash "$INST_353"
+expect_output "git did not name this clone's main working tree"
+hooks_path_is_414b "" "git names no main working tree: core.hooksPath is not written"
+
+# The framework's hooks directory is missing, run from the main checkout: the
+# fault names it, and a value already set is not overwritten.
+git config core.hooksPath .githooks
+mv ia-engineering/Adapters/git-hooks "$WORK/r2-414b-hooks-moved"
+expect 1 "the framework's hooks directory is missing: install.sh faults" -- bash "$INST_353"
+expect_output "ia-engineering/Adapters/git-hooks does not exist — cannot point core.hooksPath at it"
+hooks_path_is_414b .githooks "the framework's hooks directory is missing: core.hooksPath is left as it was"
+mv "$WORK/r2-414b-hooks-moved" ia-engineering/Adapters/git-hooks
+
+# Project hooks in the COMMON hooks/, read from a linked worktree, and the main
+# working tree's framework not initialised, run from a linked worktree whose
+# framework is: the fault names the cause and a remedy that works.
+adopter_353 r2-414b-guards
+git branch develop
+# git's own spelling (C:/... under Git for Windows): the fault message prints it.
+GMAIN_414b="$(git rev-parse --show-toplevel)"
+GHP_414b="$(hooks_path_414)"
+printf '#!/bin/sh\nexit 0\n' > .git/hooks/post-checkout
+chmod +x .git/hooks/post-checkout
+git worktree add -q "$WORK/r2-414b-gwt" -b feature/gwt develop >/dev/null 2>&1
+cd "$WORK/r2-414b-gwt" || exit 1
+git -c protocol.file.allow=always submodule update -q --init >/dev/null 2>&1
+expect 3 "--check from a linked worktree reads the project hooks in the common hooks/" -- bash "$INST_353" --check
+expect_output "${T}shadowed${T}"
+expect_output "/.git/hooks${T}1 hook(s) there would stop running"
+rm -f "$GMAIN_414b/.git/hooks/post-checkout"
+bash "$INST_353" >/dev/null 2>&1
+hooks_path_is_414b "$GHP_414b" "a run from a linked worktree points core.hooksPath at the main working tree"
+git -C "$GMAIN_414b" submodule deinit -q -f ia-engineering >/dev/null 2>&1
+expect 1 "the main working tree's framework not initialised: install.sh from a linked worktree faults" -- bash "$INST_353"
+expect_output "is not initialised there. Run: git -C $GMAIN_414b submodule update --init"
+hooks_path_is_414b "$GHP_414b" "the main working tree's framework not initialised: core.hooksPath is left as it was"
+# The remedy, as printed, plus the local-path exception this fixture needs.
+git -C "$GMAIN_414b" -c protocol.file.allow=always submodule update -q --init >/dev/null 2>&1
+expect 0 "after the printed remedy, --check from the linked worktree is current again (installed there above)" -- bash "$INST_353" --check
+expect_output "git-hooks${T}current${T}core.hooksPath${T}$GHP_414b"
+cd "$WORK" || exit 1
+
+section "setup-project-bootstrap.sh — the closing message names its cause (WU-IAENG-353, issue #262)"
+
+# DEF-IAENG-REL014-02: a re-run whose only problem is Adapter files that differ
+# used to be blamed on the hooks, while its own hook verification had passed.
+adopter_353 boot-262-differs
+bash "$BOOT_353" generic >/dev/null 2>&1
+commit_353 "chore(adopt): install the Adapters"
+printf '# a local edit\n' >> .github/workflows/pr-validation.yml
+printf '\na local line\n' >> .github/PULL_REQUEST_TEMPLATE.md
+commit_353 "chore(ci): edit two installed Adapters"
+expect 1 "a re-run with two differing Adapters exits 1" -- bash "$BOOT_353" generic
+expect_output "2 installed file(s) differ from the framework's Adapter and were left untouched:"
+expect_output "      review: diff ia-engineering/Adapters/github-actions/pr-validation.yml .github/workflows/pr-validation.yml"
+expect_output "    .github/PULL_REQUEST_TEMPLATE.md"
+expect_output "--force is the wrong tool for one file"
+expect_output "setup-project-bootstrap.sh --check"
+expect_output "commit-msg hook accepts a valid Employee trailer"
+expect_no_output "git hook problem" "no hook wording when no hook failed"
+expect_no_output "core.hooksPath now shadows" "the old hook explanation is gone when no hook failed"
+
+# A real hook fault: a project hook in .git/hooks that core.hooksPath shadows.
+adopter_353 boot-262-hooks
+printf '#!/bin/sh\nexit 0\n' > .git/hooks/post-checkout
+chmod +x .git/hooks/post-checkout
+expect 1 "a first bootstrap over a shadowed project hook exits 1" -- bash "$BOOT_353" generic
+expect_output "1 git hook problem(s)"
+expect_output "core.hooksPath now shadows"
+expect_no_output "differ from the framework's Adapter" "no differing-file wording when no file differs"
+
+section "install-hooks.sh / install-skills.sh --check — the same decisions, reported, nothing written (WU-IAENG-357)"
+
+# The runtime installers' own decisions, read and never applied: the jq merge
+# computation that defines "present exactly", and the skills' diff -r. Same
+# record format, closing line and exit codes as install.sh --check.
+HK_357="./ia-engineering/Adapters/ai-runtimes/claude-code/install-hooks.sh"
+SK_357="./ia-engineering/Adapters/ai-runtimes/claude-code/install-skills.sh"
+HOOKS_RULE_357="/.claude/settings.json text eol=lf"
+SKILLS_RULE_357="/.claude/skills/** text eol=lf"
+
+# expect_empty_357 <description> — the previous command printed nothing.
+expect_empty_357() {
+  TOTAL=$((TOTAL + 1))
+  if [ -z "$LAST_OUTPUT" ]; then
+    [ -n "$VERBOSE" ] && printf '   ok   %s\n' "$1"
+    return 0
+  fi
+  printf '   FAIL %s\n' "$1"
+  printf '%s\n' "$LAST_OUTPUT" | sed 's/^/        | /'; FAILED=$((FAILED + 1))
+  return 1
+}
+
+# same_snapshot_357 <before> <after> <description>
+same_snapshot_357() {
+  TOTAL=$((TOTAL + 1))
+  if [ "$1" = "$2" ]; then
+    [ -n "$VERBOSE" ] && printf '   ok   %s\n' "$3"
+    return 0
+  fi
+  printf '   FAIL %s\n' "$3"
+  diff <(printf '%s\n' "$1") <(printf '%s\n' "$2") | sed 's/^/        | /'; FAILED=$((FAILED + 1))
+  return 1
+}
+
+# jq_edit_357 <jq program> — rewrites .claude/settings.json; only the
+# line-ending CR of jq's output on Windows is dropped.
+jq_edit_357() {
+  jq "$1" .claude/settings.json | sed $'s/\r$//' > settings.tmp && mv settings.tmp .claude/settings.json
+}
+
+# --- never installed: absent and missing, nothing written -----------------------
+adopter_353 chk-357
+SNAP_357A="$(snapshot_353)"
+expect 3 "install-hooks.sh --check without a settings.json is drift (exit 3)" -- bash "$HK_357" --check
+expect_output "settings${T}absent${T}.claude/settings.json${T}a run writes it from settings.example.json"
+expect_output "gitattributes${T}missing${T}.gitattributes${T}$HOOKS_RULE_357"
+expect_output "# install-hooks.sh --check: 2 to act on. 1 settings item(s): 1 absent; 0 hook entries; 0 statusLine(s); 1 .gitattributes rule(s): 1 missing; 0 fault(s). absent/missing: re-run $HK_357 without --force"
+expect 3 "install-skills.sh --check without skills is drift (exit 3)" -- bash "$SK_357" --check
+expect_output "skill${T}absent${T}.claude/skills/dashboard${T}ia-engineering/Adapters/ai-runtimes/claude-code/skills/dashboard"
+expect_output "skill${T}absent${T}.claude/skills/create-project${T}"
+expect_output "gitattributes${T}missing${T}.gitattributes${T}$SKILLS_RULE_357"
+expect_output "# install-skills.sh --check: 3 to act on. 2 skill(s): 2 absent; 1 .gitattributes rule(s): 1 missing; 0 fault(s). absent/missing: re-run $SK_357 without --force"
+expect 3 "install-hooks.sh --check --quiet keeps the drift" -- bash "$HK_357" --check --quiet
+expect_output "settings${T}absent${T}"
+expect 3 "install-skills.sh --check --quiet keeps the drift" -- bash "$SK_357" --check --quiet
+expect_output "skill${T}absent${T}.claude/skills/dashboard"
+TOTAL=$((TOTAL + 1))
+if [ -e .claude ] || [ -e .gitattributes ]; then
+  printf '   FAIL --check wrote .claude or .gitattributes into a never-installed project\n'; FAILED=$((FAILED + 1))
+else
+  [ -n "$VERBOSE" ] && printf '   ok   --check wrote no .claude and no .gitattributes\n'
+fi
+same_snapshot_357 "$SNAP_357A" "$(snapshot_353)" "read-only: four --check runs left a never-installed project identical"
+
+# --- installed and committed: current, --quiet silent ---------------------------
+bash "$HK_357" >/dev/null 2>&1
+bash "$SK_357" >/dev/null 2>&1
+commit_353 "chore(adopt): install the runtime hooks and skills"
+expect 0 "install-hooks.sh --check on an installed project exits 0" -- bash "$HK_357" --check
+expect_output "settings${T}current${T}.claude/settings.json${T}the template, rendered for framework root ia-engineering"
+expect_output "hook${T}present${T}.claude/settings.json${T}PreToolUse [Bash]: block-escape-hatches.sh"
+expect_output "hook${T}present${T}.claude/settings.json${T}Stop: dashboard-refresh.sh"
+expect_output "# install-hooks.sh --check: 0 to act on. 1 settings item(s): 1 current; 8 hook entries: 8 present; 1 statusLine(s): 1 present; 1 .gitattributes rule(s): 1 present; 0 fault(s)."
+expect_output "statusline${T}present${T}.claude/settings.json${T}context-statusline.sh"
+expect 0 "install-hooks.sh --check --quiet on an installed project exits 0" -- bash "$HK_357" --check --quiet
+expect_empty_357 "install-hooks.sh --check --quiet prints nothing when nothing needs acting on"
+expect 0 "install-skills.sh --check on an installed project exits 0" -- bash "$SK_357" --check
+expect_output "skill${T}current${T}.claude/skills/dashboard${T}ia-engineering/Adapters/ai-runtimes/claude-code/skills/dashboard"
+expect_output "# install-skills.sh --check: 0 to act on. 2 skill(s): 2 current; 1 .gitattributes rule(s): 1 present; 0 fault(s)."
+expect 0 "install-skills.sh --check --quiet on an installed project exits 0" -- bash "$SK_357" --check --quiet
+expect_empty_357 "install-skills.sh --check --quiet prints nothing when nothing needs acting on"
+
+# A CRLF checkout of the same settings.json is current, on both paths: a real
+# run says "already current" and leaves the bytes alone.
+awk 'BEGIN { ORS = "\r\n" } { print }' .claude/settings.json > settings.tmp && mv settings.tmp .claude/settings.json
+TOTAL=$((TOTAL + 1))
+if [ "$(tr -cd '\r' < .claude/settings.json | wc -c)" -gt 0 ]; then
+  [ -n "$VERBOSE" ] && printf '   ok   the fixture settings.json is CRLF\n'
+else
+  printf '   FAIL the fixture settings.json is not CRLF, so the CRLF case tests nothing\n'; FAILED=$((FAILED + 1))
+fi
+CRLF_SUM_357="$(md5sum < .claude/settings.json)"
+expect 0 "a CRLF settings.json is current (exit 0)" -- bash "$HK_357" --check
+expect_output "settings${T}current${T}.claude/settings.json"
+expect 0 "a real run on the CRLF copy exits 0" -- bash "$HK_357"
+expect_output "already current"
+TOTAL=$((TOTAL + 1))
+if [ "$(md5sum < .claude/settings.json)" = "$CRLF_SUM_357" ]; then
+  [ -n "$VERBOSE" ] && printf '   ok   a real run left the CRLF settings.json byte-identical\n'
+else
+  printf '   FAIL a real run rewrote the CRLF settings.json\n'; FAILED=$((FAILED + 1))
+fi
+git checkout -q -- .claude/settings.json
+
+# A bare CR inside a line is not a line ending (SEC-IAENG-353-01): the file is
+# not the template, even though JSON reads that CR as whitespace.
+awk '!done && /": / { sub(/": /, "\":\r "); done = 1 } { print }' .claude/settings.json > settings.tmp && mv settings.tmp .claude/settings.json
+expect 0 "a bare CR inside a line: every entry still present (exit 0)" -- bash "$HK_357" --check
+expect_output "settings${T}customized${T}.claude/settings.json"
+expect_no_output "settings${T}current${T}" "a bare CR inside a line is not called current"
+git checkout -q -- .claude/settings.json
+
+# The LF rule in a CRLF .gitattributes is found. A line after both rules, so
+# neither is the last line, whose CRLF Git Bash's $(...) strips by itself.
+printf '*.bin binary\n' >> .gitattributes
+awk 'BEGIN { ORS = "\r\n" } { print }' .gitattributes > ga.tmp && mv ga.tmp .gitattributes
+expect 0 "the LF rule in a CRLF .gitattributes is present (exit 0)" -- bash "$HK_357" --check
+expect_output "gitattributes${T}present${T}.gitattributes${T}$HOOKS_RULE_357"
+expect 0 "the skills' LF rule in a CRLF .gitattributes is present (exit 0)" -- bash "$SK_357" --check
+expect_output "gitattributes${T}present${T}.gitattributes${T}$SKILLS_RULE_357"
+git checkout -q -- .gitattributes
+
+# --- one cause at a time: each case's exit code and count are its own -----------
+expect 0 "the installed project is current before each drift" -- bash "$HK_357" --check --quiet
+
+jq_edit_357 '.hooks.Stop |= map(select([.hooks[].command] | any(test("dashboard-refresh")) | not))'
+expect 3 "a missing framework entry alone is drift (exit 3)" -- bash "$HK_357" --check
+expect_output "settings${T}customized${T}.claude/settings.json"
+expect_output "hook${T}absent${T}.claude/settings.json${T}Stop: dashboard-refresh.sh"
+expect_output "# install-hooks.sh --check: 1 to act on. 1 settings item(s): 1 customized; 8 hook entries: 7 present, 1 absent; 1 statusLine(s): 1 present; 1 .gitattributes rule(s): 1 present; 0 fault(s). absent/missing:"
+expect 3 "--check --quiet keeps the missing entry" -- bash "$HK_357" --check --quiet
+expect_output "hook${T}absent${T}.claude/settings.json${T}Stop: dashboard-refresh.sh"
+expect_no_output "${T}present${T}" "--check --quiet leaves out the present entries"
+expect_no_output "${T}customized${T}" "--check --quiet leaves out a customized settings file"
+git checkout -q -- .claude/settings.json
+
+jq_edit_357 '.hooks.PreToolUse |= map(if .matcher == "Bash" then .hooks[0].command += " || true" else . end)'
+expect 3 "a guard neutered with || true: its framework entry is absent (exit 3)" -- bash "$HK_357" --check
+expect_output "hook${T}absent${T}.claude/settings.json${T}PreToolUse [Bash]: block-escape-hatches.sh"
+expect_output "hook${T}near-miss${T}.claude/settings.json${T}PreToolUse [Bash]: "
+expect_output 'block-escape-hatches.sh" || true'
+git checkout -q -- .claude/settings.json
+
+jq_edit_357 '.hooks.PreToolUse += [.hooks.PreToolUse[] | select(.matcher == "Bash") | .hooks[0].timeout = 1]'
+expect 0 "a near miss beside the framework's own entry is information, not drift (exit 0)" -- bash "$HK_357" --check
+expect_output "hook${T}near-miss${T}.claude/settings.json${T}PreToolUse [Bash]: "
+expect_output "(the framework command; differs in: timeout)"
+expect_output "# install-hooks.sh --check: 0 to act on. 1 settings item(s): 1 customized; 9 hook entries: 8 present, 1 near-miss;"
+expect_output "near-miss: check each is not a weakened copy"
+expect 0 "--check --quiet is silent on a near miss alone" -- bash "$HK_357" --check --quiet
+expect_empty_357 "--check --quiet prints nothing for a near miss alone"
+git checkout -q -- .claude/settings.json
+
+# A command read from the project's settings cannot forge records.
+FORGED_357="$(printf 'true hooks/stop-gate.sh\tfault\tFORGED\nsettings\tcurrent\tFORGED')"
+export FORGED_357
+jq_edit_357 '.hooks.Stop += [{"hooks": [{"type": "command", "command": env.FORGED_357}]}]'
+unset FORGED_357
+expect 0 "a near-miss command holding TAB and LF is still one record (exit 0)" -- bash "$HK_357" --check
+expect_output "hook${T}near-miss${T}.claude/settings.json${T}Stop: true hooks/stop-gate.sh fault FORGED settings current FORGED"
+expect_no_output "fault${T}FORGED" "no forged fault record from a TAB or LF in a command"
+expect_no_output "settings${T}current${T}FORGED" "no forged settings record either"
+git checkout -q -- .claude/settings.json
+
+printf '{"disableAllHooks": true}\n' > .claude/settings.local.json
+expect 3 "disableAllHooks in settings.local.json alone is drift (exit 3)" -- bash "$HK_357" --check
+expect_output "settings${T}current${T}.claude/settings.json"
+expect_output "settings${T}disabled${T}.claude/settings.local.json${T}\"disableAllHooks\": true"
+expect_output "# install-hooks.sh --check: 1 to act on. 2 settings item(s): 1 current, 1 disabled; 8 hook entries: 8 present;"
+expect_output "disabled: \"disableAllHooks\": true switches off every hook"
+expect 3 "--check --quiet keeps the switch" -- bash "$HK_357" --check --quiet
+expect_output "settings${T}disabled${T}.claude/settings.local.json"
+rm .claude/settings.local.json
+
+grep -vxF -- "$HOOKS_RULE_357" .gitattributes > ga.tmp && mv ga.tmp .gitattributes
+expect 3 "a missing settings.json LF rule alone is drift (exit 3)" -- bash "$HK_357" --check
+expect_output "gitattributes${T}missing${T}.gitattributes${T}$HOOKS_RULE_357"
+expect_output "# install-hooks.sh --check: 1 to act on."
+expect 0 "install-skills.sh --check, whose own rule is there, still exits 0" -- bash "$SK_357" --check
+git checkout -q -- .gitattributes
+grep -vxF -- "$SKILLS_RULE_357" .gitattributes > ga.tmp && mv ga.tmp .gitattributes
+expect 3 "a missing skills LF rule alone is drift (exit 3)" -- bash "$SK_357" --check
+expect_output "gitattributes${T}missing${T}.gitattributes${T}$SKILLS_RULE_357"
+expect_output "# install-skills.sh --check: 1 to act on. 2 skill(s): 2 current; 1 .gitattributes rule(s): 1 missing; 0 fault(s). absent/missing:"
+git checkout -q -- .gitattributes
+
+echo "edited by the project" >> .claude/skills/dashboard/SKILL.md
+expect 3 "an edited skill alone is drift (exit 3)" -- bash "$SK_357" --check
+expect_output "skill${T}differs${T}.claude/skills/dashboard${T}ia-engineering/Adapters/ai-runtimes/claude-code/skills/dashboard"
+expect_output "# install-skills.sh --check: 1 to act on. 2 skill(s): 1 current, 1 differs; 1 .gitattributes rule(s): 1 present; 0 fault(s). differs: diff -r"
+expect 3 "install-skills.sh --check --quiet keeps the edited skill" -- bash "$SK_357" --check --quiet
+expect_output "skill${T}differs${T}.claude/skills/dashboard"
+expect_no_output "${T}current${T}" "install-skills.sh --check --quiet leaves out what is current"
+expect 0 "a real run makes the same decision: the edited skill is left untouched" -- bash "$SK_357"
+expect_output "left untouched"
+git checkout -q -- .claude/skills
+rm -r .claude/skills/create-project
+expect 3 "a removed skill alone is drift (exit 3)" -- bash "$SK_357" --check
+expect_output "skill${T}absent${T}.claude/skills/create-project"
+expect_output "# install-skills.sh --check: 1 to act on. 2 skill(s): 1 current, 1 absent;"
+git checkout -q -- .claude/skills
+
+# --- read-only with every kind of drift at once -----------------------------------
+jq_edit_357 '.hooks.PreToolUse |= map(if .matcher == "Bash" then .hooks[0].command += " || true" else . end)'
+printf '{"disableAllHooks": true}\n' > .claude/settings.local.json
+grep -vxF -- "$HOOKS_RULE_357" .gitattributes | grep -vxF -- "$SKILLS_RULE_357" > ga.tmp && mv ga.tmp .gitattributes
+echo "edited by the project" >> .claude/skills/dashboard/SKILL.md
+rm -r .claude/skills/create-project
+SNAP_357B="$(snapshot_353)"
+same_snapshot_357 "$SNAP_357B" "$(snapshot_353)" "the snapshot itself writes nothing (two in a row are identical)"
+expect 3 "install-hooks.sh --check over every kind of drift (exit 3)" -- bash "$HK_357" --check
+expect_output "# install-hooks.sh --check: 3 to act on."
+expect 3 "install-hooks.sh --check --quiet over every kind of drift (exit 3)" -- bash "$HK_357" --check --quiet
+expect 3 "install-skills.sh --check over every kind of drift (exit 3)" -- bash "$SK_357" --check
+expect_output "# install-skills.sh --check: 3 to act on."
+expect 3 "install-skills.sh --check --quiet over every kind of drift (exit 3)" -- bash "$SK_357" --check --quiet
+same_snapshot_357 "$SNAP_357B" "$(snapshot_353)" "read-only: tree, .git, index, refs, config and objects unchanged by four --check runs over drift"
+rm .claude/settings.local.json
+git checkout -q -- .claude .gitattributes
+
+# --- faults: never read as current ------------------------------------------------
+printf '{ "hooks": { "Stop": [ }' > .claude/settings.json
+expect 1 "a settings.json that is not JSON is a fault (exit 1)" -- bash "$HK_357" --check
+expect_output "settings${T}fault${T}.claude/settings.json${T}it is not one JSON object with an object 'hooks'"
+expect_output "1 fault(s). fault: read the fault record(s)"
+expect 1 "--check --quiet keeps the fault" -- bash "$HK_357" --check --quiet
+expect_output "settings${T}fault${T}"
+git checkout -q -- .claude/settings.json
+
+jq '.hooks.Stop = []' .claude/settings.json | sed $'s/\r$//' > "$WORK/link-357.json"
+rm .claude/settings.json
+MSYS=winsymlinks:sys ln -s "$WORK/link-357.json" .claude/settings.json 2>/dev/null
+block_begin 2 "install-hooks.sh --check on a symlinked settings.json"
+if [ -L .claude/settings.json ]; then
+  expect 1 "a symlinked settings.json is a fault (exit 1), as a run refuses it" -- bash "$HK_357" --check
+  expect_output "settings${T}fault${T}.claude/settings.json${T}it is a symbolic link"
+  rm .claude/settings.json
+else
+  skip "$BLOCK_N" "install-hooks.sh --check on a symlinked settings.json: ln -s failed on this platform -- not a fix defect."
+fi
+block_end
+git checkout -q -- .claude/settings.json
+
+mv ia-engineering/Adapters/ai-runtimes/claude-code/skills skills.moved
+expect 1 "install-skills.sh --check with no skills to compare is a fault (exit 1)" -- bash "$SK_357" --check
+expect_output "skill${T}fault${T}(none)${T}"
+mv skills.moved ia-engineering/Adapters/ai-runtimes/claude-code/skills
+
+# --- usage errors -----------------------------------------------------------------
+expect 2 "install-hooks.sh --check --print is a usage error" -- bash "$HK_357" --check --print
+expect 2 "install-hooks.sh --check --force is a usage error" -- bash "$HK_357" --check --force
+expect 2 "install-hooks.sh --quiet without --check is a usage error" -- bash "$HK_357" --quiet
+expect 2 "install-skills.sh --check --list is a usage error" -- bash "$SK_357" --check --list
+expect 2 "install-skills.sh --check --force is a usage error" -- bash "$SK_357" --check --force
+expect 2 "install-skills.sh --quiet without --check is a usage error" -- bash "$SK_357" --quiet
+
+# --- the framework checkout itself: a skill for projects is not-applicable --------
+new_repo fc-357
+cp -R "$SCRIPTS/.." ./Adapters
+mkdir -p Core && : > Core/AI_MANIFEST.md
+expect 3 "install-skills.sh --check in the framework checkout (exit 3: /dashboard absent)" -- bash Adapters/ai-runtimes/claude-code/install-skills.sh --check
+expect_output "skill${T}not-applicable${T}.claude/skills/create-project${T}not for the framework checkout"
+expect_output "skill${T}absent${T}.claude/skills/dashboard${T}Adapters/ai-runtimes/claude-code/skills/dashboard"
+expect_no_output "skill${T}absent${T}.claude/skills/create-project" "a skill for projects is not called absent in the framework checkout"
+
+# ------------------------- check-framework-drift.sh (WU-IAENG-358) ----
+#
+# The bench the plan names (§9): a framework repository with two tags where
+# the templates change, and adopters with it as a real submodule, on v1 then
+# v2. v1 is the v0.0.13 shape of DEF-IAENG-REL014-01: no control-path-guard
+# template (and an install.sh that does not install it), an older
+# pr-validation.yml and an older /dashboard skill.
+
+section "check-framework-drift.sh — version, stale or modified, broken paths, read-only (WU-IAENG-358)"
+
+DRIFT_358="./ia-engineering/Adapters/scripts/check-framework-drift.sh"
+V1_358="$WORK/v1-358"
+mkdir -p "$V1_358"
+
+new_repo fw-358
+cp -R "$SCRIPTS/.." ./Adapters
+cp -R "$SCRIPTS/../../Registry" ./Registry
+cp "$SCRIPTS/../../.gitattributes" ./.gitattributes
+head -n 60 Adapters/github-actions/pr-validation.yml > "$V1_358/pr-validation.yml"
+head -n 8 Adapters/ai-runtimes/claude-code/skills/dashboard/SKILL.md > "$V1_358/SKILL.md"
+cp "$V1_358/pr-validation.yml" Adapters/github-actions/pr-validation.yml
+cp "$V1_358/SKILL.md" Adapters/ai-runtimes/claude-code/skills/dashboard/SKILL.md
+rm Adapters/github-actions/control-path-guard.yml
+sed '/control-path-guard.yml/d' "$SCRIPTS/install.sh" > Adapters/scripts/install.sh
+git add -A && git commit -q -m "v1: the v0.0.13 shape" && git tag v1
+cp -R "$SCRIPTS/.." ./Adapters
+git add -A && git commit -q -m "v2: the templates change" && git tag v2
+FW_358="$PWD"
+FW_URL_358="file://$PWD"
+if FW_W_358="$(pwd -W 2>/dev/null)"; then FW_URL_358="file:///$FW_W_358"; fi
+
+# adopter_358 <name> <ref> [--depth 1] — the fixture framework as a
+# submodule checked out at <ref> and committed; leaves the shell inside it.
+adopter_358() {
+  local name="$1" ref="$2"; shift 2
+  new_repo "$name"
+  if [ "${1:-}" = "--depth" ]; then
+    git -c protocol.file.allow=always submodule add -q --depth 1 "$FW_URL_358" ia-engineering >/dev/null 2>&1
+  else
+    git -c protocol.file.allow=always submodule add -q "$FW_358" ia-engineering >/dev/null 2>&1
+    git -C ia-engineering checkout -q "$ref"
+  fi
+  git add -A && git commit -q -m "chore(adopt): add the framework submodule at $ref"
+}
+
+# install_358 — every installer, as an adopter runs them.
+install_358() {
+  bash ./ia-engineering/Adapters/scripts/setup-project-bootstrap.sh generic >/dev/null 2>&1
+  bash ./ia-engineering/Adapters/ai-runtimes/claude-code/install-hooks.sh >/dev/null 2>&1
+  bash ./ia-engineering/Adapters/ai-runtimes/claude-code/install-skills.sh >/dev/null 2>&1
+}
+
+# fields_358 — every record line of the previous output has four fields.
+fields_358() {
+  TOTAL=$((TOTAL + 1))
+  if [ -z "$(printf '%s\n' "$LAST_OUTPUT" | awk -F'\t' '!/^#/ && NF != 4')" ]; then
+    [ -n "$VERBOSE" ] && printf '   ok   %s\n' "$1"
+    return 0
+  fi
+  printf '   FAIL %s\n' "$1"
+  printf '%s\n' "$LAST_OUTPUT" | awk -F'\t' '!/^#/ && NF != 4' | sed 's/^/        | /'; FAILED=$((FAILED + 1))
+  return 1
+}
+
+# --- the framework repository itself: not applicable -------------------------
+cd "$FW_358" || exit 1
+expect 0 "in the framework repository, --strict still exits 0" -- bash Adapters/scripts/check-framework-drift.sh --strict --format tsv
+expect_output "version${T}not-applicable${T}.${T}this is the framework repository itself"
+expect_no_output "file${T}" "no file is compared in the framework repository"
+
+# --- usage ---------------------------------------------------------------------
+expect 64 "an unknown option is a usage error (64)" -- bash Adapters/scripts/check-framework-drift.sh --bogus
+expect 64 "--format takes text or tsv only (64)" -- bash Adapters/scripts/check-framework-drift.sh --format xml
+
+# --- DEF-01 replayed: installed at v1, the registry absent, then upgraded ------
+adopter_358 drift-def01 v1
+install_358
+rm Registry/work-units.yml
+commit_353 "chore(adopt): install the Adapters at v1"
+
+expect 0 "on v1, without --strict, drift still exits 0" -- bash "$DRIFT_358" --format tsv
+expect_output "version${T}tagged${T}ia-engineering${T}v1 ("
+expect_output "version${T}behind${T}ia-engineering${T}last tag known locally: v2, 1 tag(s) behind."
+expect_output "version${T}recorded${T}ia-engineering${T}"
+fields_358 "every tsv record has four fields (on v1)"
+
+git -C ia-engineering checkout -q v2
+expect 0 "an upgrade checked out but not committed" -- bash "$DRIFT_358" --format tsv
+expect_output "version${T}uncommitted${T}ia-engineering${T}the checkout is not the commit the project recorded (gitlink +)"
+git add ia-engineering && commit_353 "chore(adopt): upgrade the framework to v2"
+
+expect 1 "DEF-01: after the upgrade, --strict reports drift (exit 1)" -- bash "$DRIFT_358" --format tsv --strict
+expect_output "version${T}tagged${T}ia-engineering${T}v2 ("
+expect_output "version${T}latest${T}ia-engineering${T}last tag known locally: v2 (0 tag(s) behind)"
+expect_output "version${T}recorded${T}ia-engineering${T}"
+expect_output "file${T}absent${T}Registry/work-units.yml${T}re-run ia-engineering/Adapters/scripts/setup-project-bootstrap.sh generic without --force"
+expect_output "file${T}absent${T}.github/workflows/control-path-guard.yml${T}re-run"
+expect_output "file${T}stale${T}.github/workflows/pr-validation.yml${T}never edited, an earlier version of the template: cp ia-engineering/Adapters/github-actions/pr-validation.yml .github/workflows/pr-validation.yml"
+expect_output "config${T}stale${T}.claude/skills/dashboard${T}never edited, an earlier version of the skill: cp -R ia-engineering/Adapters/ai-runtimes/claude-code/skills/dashboard/. .claude/skills/dashboard/"
+expect_output "file${T}current${T}.github/workflows/data-policy.yml${T}"
+expect_output "file${T}project-owned${T}.ia-engineering/risk-map.yml${T}"
+expect_output "config${T}present${T}.gitattributes: /Registry/work-units.yml text eol=lf${T}"
+expect_output "# check-framework-drift: 4 to act on, 0 indeterminate. 3 version item(s): 1 tagged, 1 latest, 1 recorded. 14 file(s) compared: 6 current, 2 absent, 1 stale, 5 project-owned."
+expect_output "10 command path(s): 10 ok."
+expect_output "path${T}ok${T}ia-engineering/Adapters/ai-runtimes/claude-code/hooks/session-start.sh${T}"
+expect_output "path${T}ok${T}ia-engineering/Adapters/ai-runtimes/claude-code/hooks/context-statusline.sh${T}"
+expect_output "config${T}present${T}statusLine: context-statusline.sh${T}"
+fields_358 "every tsv record has four fields (DEF-01)"
+T0_358="$(date +%s%N)"
+expect 0 "the text format reports the same, and exits 0 without --strict" -- bash "$DRIFT_358"
+printf '   info check-framework-drift.sh took %s ms on the DEF-01 adopter\n' "$(( ($(date +%s%N) - T0_358) / 1000000 ))"
+expect_output "  file    stale          .github/workflows/pr-validation.yml"
+expect_output "          -> never edited, an earlier version of the template: cp "
+
+# --- stale or modified: line endings, a CR inside a line, an edit ---------------
+sed 's/$/\r/' .github/workflows/pr-validation.yml > crlf.tmp && mv crlf.tmp .github/workflows/pr-validation.yml
+TOTAL=$((TOTAL + 1))
+# Read by bash, not grep: Git for Windows' grep drops a CR on its own.
+CRLF_358="$(< .github/workflows/pr-validation.yml)"
+if [[ "$CRLF_358" == *$'\r'* ]]; then
+  [ -n "$VERBOSE" ] && printf '   ok   the fixture stale copy is CRLF\n'
+else
+  printf '   FAIL the fixture stale copy is not CRLF\n'; FAILED=$((FAILED + 1))
+fi
+expect 1 "a CRLF copy of an earlier template is still stale" -- bash "$DRIFT_358" --format tsv --strict
+expect_output "file${T}stale${T}.github/workflows/pr-validation.yml${T}"
+cp "$V1_358/pr-validation.yml" .github/workflows/pr-validation.yml
+sed '3s/ /\r /' "$V1_358/pr-validation.yml" > cr.tmp && mv cr.tmp .github/workflows/pr-validation.yml
+expect 1 "a CR inside a line is content: modified, never stale" -- bash "$DRIFT_358" --format tsv --strict
+expect_output "file${T}modified${T}.github/workflows/pr-validation.yml${T}edited by the project, or the template was renamed: review diff ia-engineering/Adapters/github-actions/pr-validation.yml .github/workflows/pr-validation.yml; never --force"
+cp "$V1_358/pr-validation.yml" .github/workflows/pr-validation.yml
+echo "# the project's own line" >> .github/workflows/pr-validation.yml
+expect 1 "an edited copy is modified" -- bash "$DRIFT_358" --format tsv --strict
+expect_output "file${T}modified${T}.github/workflows/pr-validation.yml${T}"
+echo "# the project's own line" >> .claude/skills/dashboard/SKILL.md
+expect 1 "an edited skill is modified" -- bash "$DRIFT_358" --format tsv --strict
+expect_output "config${T}modified${T}.claude/skills/dashboard${T}edited by the project: review diff -r"
+cp "$V1_358/pr-validation.yml" .github/workflows/pr-validation.yml
+cp "$V1_358/SKILL.md" .claude/skills/dashboard/SKILL.md
+sed 's|OWNER/REPO|acme/widget|g' .github/ISSUE_TEMPLATE/config.yml > cfg.tmp && mv cfg.tmp .github/ISSUE_TEMPLATE/config.yml
+expect 1 "a file the project is expected to edit is customized, information only" -- bash "$DRIFT_358" --format tsv --strict
+expect_output "file${T}customized${T}.github/ISSUE_TEMPLATE/config.yml${T}expected to differ"
+expect_output "# check-framework-drift: 4 to act on, 0 indeterminate."
+git checkout -q -- .github/ISSUE_TEMPLATE/config.yml
+
+# The statusline records of install-hooks.sh --check (WU-IAENG-379): absent
+# is drift; a project statusLine kept unwrapped, or one in settings.local.json
+# that shadows the project's, is information and adds nothing to act on.
+jq 'del(.statusLine)' .claude/settings.json | tr -d '\r' > st.tmp && mv st.tmp .claude/settings.json
+expect 1 "a settings.json without the statusLine is drift" -- bash "$DRIFT_358" --format tsv --strict
+expect_output "config${T}absent${T}statusLine: context-statusline.sh${T}re-run ia-engineering/Adapters/ai-runtimes/claude-code/install-hooks.sh: it installs the context statusLine"
+expect_output "# check-framework-drift: 5 to act on, 0 indeterminate."
+git checkout -q -- .claude/settings.json
+jq '.statusLine = {type: "command", command: "Write-Output hi", shell: "powershell"}' .claude/settings.json | tr -d '\r' > st.tmp && mv st.tmp .claude/settings.json
+expect 1 "a PowerShell project statusLine kept unwrapped is information" -- bash "$DRIFT_358" --format tsv --strict
+expect_output "config${T}near-miss${T}statusLine: the project statusLine is kept as it is (it runs under powershell)"
+expect_output "# check-framework-drift: 4 to act on, 0 indeterminate."
+git checkout -q -- .claude/settings.json
+printf '{"statusLine": {"type": "command", "command": "echo mine"}}\n' > .claude/settings.local.json
+expect 1 "a statusLine in settings.local.json is information, not drift" -- bash "$DRIFT_358" --format tsv --strict
+expect_output "config${T}near-miss${T}.claude/settings.local.json: statusLine echo mine: Claude Code runs this one instead"
+expect_output "# check-framework-drift: 4 to act on, 0 indeterminate."
+rm -f .claude/settings.local.json
+
+# --- the framework off a tag ----------------------------------------------------------
+# On a side branch of the framework, so the adopters below still see v2 as
+# the tip of main.
+git -C "$FW_358" checkout -q -b side-358
+git -C "$FW_358" commit -q --allow-empty -m "after v2"
+git -C "$FW_358" checkout -q main
+git -C ia-engineering fetch -q origin side-358
+git -C ia-engineering checkout -q FETCH_HEAD
+expect 0 "a checkout between tags" -- bash "$DRIFT_358" --format tsv
+expect_output "version${T}untagged${T}ia-engineering${T}v2-1-g"
+expect_output "not on a tag; nearest tag v2"
+git -C ia-engineering checkout -q v2
+
+# --- read-only: every kind of drift at once, and --remote ------------------------
+# A tag the adopter has never fetched, so --remote has something to find.
+git -C "$FW_358" tag v3 v2
+SNAP_358A="$(snapshot_353)"
+SNAP_358B="$(snapshot_353)"
+same_snapshot_357 "$SNAP_358A" "$SNAP_358B" "the drift snapshot is stable without a run"
+expect 0 "--remote asks the framework's remote for its tags" -- bash "$DRIFT_358" --format tsv --remote
+expect_output "version${T}behind-remote${T}ia-engineering${T}last tag on the remote: v3; known locally: v2."
+bash "$DRIFT_358" >/dev/null 2>&1
+bash "$DRIFT_358" --format tsv --strict >/dev/null 2>&1
+same_snapshot_357 "$SNAP_358A" "$(snapshot_353)" "read-only: three runs, --remote included, left the adopter identical (refs, index, config, objects, tree)"
+expect 0 "without --remote nothing asks the remote" -- bash "$DRIFT_358" --format tsv
+expect_no_output "version${T}behind-remote" "no remote record without --remote"
+
+# Every git command the check and its installers run carries
+# GIT_OPTIONAL_LOCKS=0, and none fetches, writes an object or sets config.
+LOCKS_358="$WORK/locks-358"
+mkdir -p "$LOCKS_358"
+REAL_GIT_358="$(command -v git)"
+cat > "$LOCKS_358/git" <<EOF
+#!/usr/bin/env bash
+printf '%s %s\n' "\${GIT_OPTIONAL_LOCKS:-unset}" "\$*" >> "$LOCKS_358/log"
+exec "$REAL_GIT_358" "\$@"
+EOF
+chmod +x "$LOCKS_358/git"
+: > "$LOCKS_358/log"
+expect 0 "the check runs through the logging git wrapper" -- env -u GIT_OPTIONAL_LOCKS PATH="$LOCKS_358:$PATH" bash "$DRIFT_358" --remote
+TOTAL=$((TOTAL + 1))
+if [ "$(grep -c . "$LOCKS_358/log")" -ge 10 ] && ! grep -qv '^0 ' "$LOCKS_358/log"; then
+  [ -n "$VERBOSE" ] && printf '   ok   every git command ran with GIT_OPTIONAL_LOCKS=0\n'
+else
+  printf '   FAIL a git command ran without GIT_OPTIONAL_LOCKS=0 (or too few were logged)\n'
+  sed 's/^/        | /' "$LOCKS_358/log"; FAILED=$((FAILED + 1))
+fi
+TOTAL=$((TOTAL + 1))
+# A config write names a value after its key, or a write option.
+CFG_WRITES_358="$(awk '{ for (i = 2; i <= NF; i++) if ($i == "config") {
+    n = 0; w = 0
+    for (j = i + 1; j <= NF; j++) {
+      if ($j ~ /^--(add|unset|unset-all|replace-all|rename-section|remove-section|edit)$/) w = 1
+      else if ($j !~ /^-/) n++
+    }
+    if (n >= 2 || w) print; break } }' "$LOCKS_358/log")"
+if grep -E -- ' (fetch|pull|update-index|add|commit|tag|update-ref)( |$)| hash-object.* -w| -w( |$)' "$LOCKS_358/log" \
+   || [ -n "$CFG_WRITES_358" ]; then
+  printf '   FAIL a git command that writes ran under the check\n'
+  grep -E -- ' (fetch|pull|config|hash-object|update-index|add|commit|tag|update-ref)' "$LOCKS_358/log" | sed 's/^/        | /'; FAILED=$((FAILED + 1))
+else
+  [ -n "$VERBOSE" ] && printf '   ok   no fetch, no hash-object -w, no config write, no ref write\n'
+fi
+git -C "$FW_358" tag -d v3 >/dev/null
+
+# --- D: every command path resolved, never run ------------------------------------
+mkdir -p .claude/hooks
+printf '#!/usr/bin/env bash\ntouch "%s/RAN"\n' "$PWD" > .claude/hooks/mine.sh
+cat > .claude/settings.local.json <<'EOF'
+{"hooks": {"Stop": [{"hooks": [
+  {"type": "command", "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/mine.sh\""},
+  {"type": "command", "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/gone.sh"},
+  {"type": "command", "command": "jq -n 1"},
+  {"type": "command", "command": "bash -c 'echo inline'"},
+  {"type": "command", "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/x\u001b[31m\tFORGED\nfile\tcurrent.sh\""}
+]}]}}
+EOF
+expect 1 "a broken path in settings.local.json is drift" -- bash "$DRIFT_358" --format tsv --strict
+expect_output "path${T}ok${T}.claude/hooks/mine.sh${T}"
+expect_output "path${T}broken${T}.claude/hooks/gone.sh${T}not found; named by .claude/settings.local.json (hooks.Stop.0.hooks.1.command)."
+expect_output "path${T}unresolved${T}jq${T}a command looked up on PATH"
+expect_output "path${T}unresolved${T}(inline code)${T}"
+expect_output "path${T}broken${T}.claude/hooks/x [31m FORGED file current.sh${T}"
+expect_no_output $'\e' "no ESC from a command reaches the output (SEC-IAENG-357-01)"
+expect_no_output "file${T}current.sh" "no forged record from an LF in a command"
+fields_358 "every tsv record has four fields (forged command)"
+TOTAL=$((TOTAL + 1))
+if [ -e RAN ]; then
+  printf '   FAIL a command from settings.local.json was executed\n'; FAILED=$((FAILED + 1))
+else
+  [ -n "$VERBOSE" ] && printf '   ok   no command from the settings was executed\n'
+fi
+rm .claude/settings.local.json
+
+# A hook script deleted from the framework, then the submodule moved.
+mv ia-engineering/Adapters/ai-runtimes/claude-code/hooks/stop-gate.sh stop-gate.moved
+expect 1 "a framework hook script that is gone is a broken path" -- bash "$DRIFT_358" --format tsv --strict
+expect_output "path${T}broken${T}ia-engineering/Adapters/ai-runtimes/claude-code/hooks/stop-gate.sh${T}not found; named by .claude/settings.json"
+mv stop-gate.moved ia-engineering/Adapters/ai-runtimes/claude-code/hooks/stop-gate.sh
+mv ia-engineering ia-moved
+expect 0 "a renamed submodule breaks every framework path" -- bash ./ia-moved/Adapters/scripts/check-framework-drift.sh --format tsv
+expect_output "path${T}broken${T}ia-engineering/Adapters/ai-runtimes/claude-code/hooks/session-start.sh${T}"
+expect_output "path${T}broken${T}$(hooks_path_414)${T}core.hooksPath names a directory that does not exist"
+mv ia-moved ia-engineering
+
+# --- no jq: indeterminate, with its cause (issue #282) -----------------------------
+# PATH without jq: each directory that holds it is replaced by a copy of its
+# other entries as links, so nothing else disappears.
+NOJQ_358=""
+_n358=0
+IFS=: read -ra _dirs358 <<< "$PATH"
+for _d358 in "${_dirs358[@]}"; do
+  if [ -e "$_d358/jq" ] || [ -e "$_d358/jq.exe" ]; then
+    _n358=$((_n358 + 1)); mkdir -p "$WORK/nojq-358-$_n358"
+    for _f358 in "$_d358"/*; do
+      case "${_f358##*/}" in jq|jq.exe) ;; *) ln -s "$_f358" "$WORK/nojq-358-$_n358/" 2>/dev/null ;; esac
+    done
+    NOJQ_358="$NOJQ_358${NOJQ_358:+:}$WORK/nojq-358-$_n358"
+  else
+    NOJQ_358="$NOJQ_358${NOJQ_358:+:}$_d358"
+  fi
+done
+TOTAL=$((TOTAL + 1))
+if PATH="$NOJQ_358" command -v jq >/dev/null 2>&1; then
+  printf '   FAIL the fixture PATH still finds jq\n'; FAILED=$((FAILED + 1))
+else
+  [ -n "$VERBOSE" ] && printf '   ok   the fixture PATH has no jq\n'
+fi
+expect 2 "without jq, --strict says indeterminate (exit 2)" -- env PATH="$NOJQ_358" bash "$DRIFT_358" --format tsv --strict
+expect_output "path${T}indeterminate${T}.claude/settings.json${T}jq is not installed: the commands in this file are not resolved"
+expect_output "config${T}indeterminate${T}hook entries${T}jq is not installed"
+
+# --- shallow: stale or modified cannot be told -------------------------------------
+adopter_358 drift-shallow v2 --depth 1
+TOTAL=$((TOTAL + 1))
+if [ "$(git -C ia-engineering rev-parse --is-shallow-repository)" = true ]; then
+  [ -n "$VERBOSE" ] && printf '   ok   the fixture submodule is shallow\n'
+else
+  printf '   FAIL the fixture submodule is not shallow\n'; FAILED=$((FAILED + 1))
+fi
+bash ./ia-engineering/Adapters/scripts/setup-project-bootstrap.sh generic >/dev/null 2>&1
+cp "$V1_358/pr-validation.yml" .github/workflows/pr-validation.yml
+expect 2 "a shallow framework gives indeterminate, never stale (exit 2)" -- bash "$DRIFT_358" --format tsv --strict
+expect_output "file${T}indeterminate${T}.github/workflows/pr-validation.yml${T}the framework history is shallow"
+expect_no_output "file${T}stale${T}" "nothing is called stale from a shallow history"
+
+# --- never installed: absent settings.json is not clean (issue #282) ---------------
+adopter_358 drift-fresh v2
+expect 1 "a never-installed adopter is drift" -- bash "$DRIFT_358" --format tsv --strict
+expect_output "config${T}absent${T}.claude/settings.json${T}"
+expect_output "config${T}not-evaluated${T}hook entries${T}settings.json is absent"
+expect_output "file${T}absent${T}.github/workflows/pr-validation.yml${T}"
+expect_no_output "path${T}" "no settings file, no command path"
+expect_output "0 command path(s): none."
+
+# --- one cause at a time, after a clean guard ----------------------------------------
+adopter_358 drift-clean v2
+install_358
+commit_353 "chore(adopt): install the Adapters at v2"
+expect 0 "a fully installed adopter at its last tag: --strict exits 0" -- bash "$DRIFT_358" --format tsv --strict
+expect_output "# check-framework-drift: 0 to act on, 0 indeterminate."
+cp "$V1_358/pr-validation.yml" .github/workflows/pr-validation.yml
+expect 1 "one stale file alone is drift (exit 1)" -- bash "$DRIFT_358" --format tsv --strict
+expect_output "# check-framework-drift: 1 to act on, 0 indeterminate."
+expect_output "file${T}stale${T}.github/workflows/pr-validation.yml"
+git checkout -q -- .github/workflows/pr-validation.yml
+echo '{"hooks": {"Stop": [{"hooks": [{"type": "command", "command": "bash .claude/hooks/gone.sh"}]}]}}' > .claude/settings.local.json
+expect 1 "one broken path alone is drift (exit 1)" -- bash "$DRIFT_358" --format tsv --strict
+expect_output "# check-framework-drift: 1 to act on, 0 indeterminate."
+expect_output "path${T}broken${T}.claude/hooks/gone.sh${T}"
+rm .claude/settings.local.json
+expect 0 "clean again once the cause is gone" -- bash "$DRIFT_358" --format tsv --strict
+
+# settings_358 <jq program> — rewrites .claude/settings.json; only the
+# line-ending CR of jq's output on Windows is dropped.
+settings_358() {
+  jq "$1" .claude/settings.json | sed $'s/\r$//' > settings.tmp && mv settings.tmp .claude/settings.json
+}
+
+# Each cause below alone, on the clean adopter, then undone.
+settings_358 '.hooks.Stop |= map(select([.hooks[].command] | any(test("stop-gate")) | not))'
+expect 1 "one missing framework hook entry alone is drift (exit 1)" -- bash "$DRIFT_358" --format tsv --strict
+expect_output "config${T}absent${T}hook: Stop: stop-gate.sh${T}re-run ia-engineering/Adapters/ai-runtimes/claude-code/install-hooks.sh: it merges the missing entry"
+expect_output "# check-framework-drift: 1 to act on, 0 indeterminate."
+git checkout -q -- .claude/settings.json
+
+settings_358 '.hooks.PreToolUse |= map(if .matcher == "Bash" then .hooks[0].command += " || true" else . end)'
+expect 1 "a guard neutered with || true: the entry is absent, and the near miss is said (exit 1)" -- bash "$DRIFT_358" --format tsv --strict
+expect_output "config${T}near-miss${T}hook: PreToolUse [Bash]: "
+expect_output "${T}information: the framework's own entry runs beside it"
+expect_output "config${T}absent${T}hook: PreToolUse [Bash]: block-escape-hatches.sh${T}"
+expect_output "# check-framework-drift: 1 to act on, 0 indeterminate."
+git checkout -q -- .claude/settings.json
+
+echo '{"disableAllHooks": true}' > .claude/settings.local.json
+expect 1 "disableAllHooks in settings.local.json alone is drift (exit 1)" -- bash "$DRIFT_358" --format tsv --strict
+expect_output "config${T}disabled${T}.claude/settings.local.json${T}\"disableAllHooks\": true turns every hook off"
+expect_output "# check-framework-drift: 1 to act on, 0 indeterminate."
+rm .claude/settings.local.json
+
+rm .github/workflows/data-policy.yml
+expect 1 "one absent file alone is drift (exit 1)" -- bash "$DRIFT_358" --format tsv --strict
+expect_output "file${T}absent${T}.github/workflows/data-policy.yml${T}re-run ia-engineering/Adapters/scripts/setup-project-bootstrap.sh generic without --force"
+expect_output "# check-framework-drift: 1 to act on, 0 indeterminate."
+git checkout -q -- .github/workflows/data-policy.yml
+
+echo "# the project's own line" >> .github/workflows/framework-validation.yml
+expect 1 "one modified file alone is drift (exit 1)" -- bash "$DRIFT_358" --format tsv --strict
+expect_output "file${T}modified${T}.github/workflows/framework-validation.yml${T}"
+expect_output "# check-framework-drift: 1 to act on, 0 indeterminate."
+git checkout -q -- .github/workflows/framework-validation.yml
+
+# A template with no committed history: indeterminate, never modified.
+echo "a template never committed" > ia-engineering/Adapters/github/ISSUE_TEMPLATE/extra.md
+echo "the project's copy" > .github/ISSUE_TEMPLATE/extra.md
+expect 2 "a template with no history gives indeterminate, never modified (exit 2)" -- bash "$DRIFT_358" --format tsv --strict
+expect_output "file${T}indeterminate${T}.github/ISSUE_TEMPLATE/extra.md${T}the template Adapters/github/ISSUE_TEMPLATE/extra.md has no committed history"
+expect_no_output "file${T}modified${T}.github/ISSUE_TEMPLATE/extra.md" "no conclusion from a template without history"
+rm ia-engineering/Adapters/github/ISSUE_TEMPLATE/extra.md .github/ISSUE_TEMPLATE/extra.md
+
+# A framework whose installers report no managed file at all: the empty
+# family is indeterminate, never a clean one (the Check Convention, rule 3).
+sed -i "s/^record() {\$/record() { [ \"\$1\" = file ] \\&\\& return 0/" ia-engineering/Adapters/scripts/install.sh
+sed -i 's/^PROJECT_OWNED_FILES=.*/PROJECT_OWNED_FILES=""/' ia-engineering/Adapters/scripts/setup-project-bootstrap.sh
+expect 2 "no file record at all is indeterminate (exit 2)" -- bash "$DRIFT_358" --format tsv --strict
+expect_output "file${T}indeterminate${T}(none)${T}no managed file was reported"
+expect_output "1 file(s) compared: 1 indeterminate."
+git -C ia-engineering checkout -q -- Adapters/scripts/install.sh Adapters/scripts/setup-project-bootstrap.sh
+
+# Valid hooks that only a shell can read are unresolved, never broken; a
+# network path is never stat-ed (SEC-IAENG-358-02).
+cat > .claude/settings.local.json <<'EOF'
+{"hooks": {"Stop": [{"hooks": [
+  {"type": "command", "command": "bash -lc \"echo x\""},
+  {"type": "command", "command": "sh -ec \"echo x\""},
+  {"type": "command", "command": "python3 -m pkg"},
+  {"type": "command", "command": "deno run x.ts"},
+  {"type": "command", "command": "node --require=./preload.js app.js"},
+  {"type": "command", "command": "bash //srv.invalid/share/x.sh"},
+  {"type": "command", "command": "\\\\\\\\srv.invalid\\\\share\\\\x.sh"},
+  {"type": "command", "command": "bash '/\\srv.invalid\\share\\x.sh'"},
+  {"type": "command", "command": "bash '\\/srv.invalid/share/x.sh'"},
+  {"type": "command", "command": "bash -O extglob .claude/hooks/x.sh"}
+]}]}}
+EOF
+expect 0 "valid hook forms a shell reads are not drift (exit 0)" -- bash "$DRIFT_358" --format tsv --strict
+expect_output "path${T}unresolved${T}(inline code)${T}the shell runs inline code (-lc)"
+expect_output "path${T}unresolved${T}(inline code)${T}the shell runs inline code (-ec)"
+expect_output "path${T}unresolved${T}-m${T}"
+expect_output "path${T}unresolved${T}run${T}not a script path"
+expect_output "path${T}unresolved${T}--require=./preload.js${T}an interpreter option"
+expect_output "path${T}unresolved${T}//srv.invalid/share/x.sh${T}a network path: never touched"
+expect_output "path${T}unresolved${T}\\\\srv.invalid\\share\\x.sh${T}a network path: never touched"
+expect_output "path${T}unresolved${T}/\\srv.invalid\\share\\x.sh${T}a network path: never touched"
+expect_output "path${T}unresolved${T}\\/srv.invalid/share/x.sh${T}a network path: never touched"
+expect_output "path${T}unresolved${T}(none)${T}a shell option this check does not interpret (-O)"
+expect_no_output "path${T}broken" "no valid hook form is called broken"
+rm .claude/settings.local.json
+
+# Inside double quotes a backslash before an ordinary character is kept, as
+# bash keeps it.
+cat > .claude/settings.local.json <<'EOF'
+{"hooks": {"Stop": [{"hooks": [{"type": "command", "command": "bash \".claude/hooks/\\gone.sh\""}]}]}}
+EOF
+expect 1 "a backslash inside double quotes stays in the path" -- bash "$DRIFT_358" --format tsv --strict
+expect_output "path${T}broken${T}.claude/hooks/\\gone.sh${T}not found"
+rm .claude/settings.local.json
+
+# core.hooksPath read as git reads it: a network value is never stat-ed, and
+# a C1 control (CSI, \xc2\x9b) never reaches the output (SEC-IAENG-358-01).
+HP0_358="$(git config --get core.hooksPath)"
+# MSYS_NO_PATHCONV: Git Bash would otherwise rewrite the // argument.
+MSYS_NO_PATHCONV=1 git config core.hooksPath //srv.invalid/hooks
+expect 1 "a network core.hooksPath is unresolved, not stat-ed" -- bash "$DRIFT_358" --format tsv --strict
+expect_output "path${T}unresolved${T}//srv.invalid/hooks${T}core.hooksPath is a network path"
+MSYS_NO_PATHCONV=1 git config core.hooksPath '/\srv.invalid\hooks'
+expect 1 "a core.hooksPath that starts with a slash and a backslash is a network path too" -- bash "$DRIFT_358" --format tsv --strict
+expect_output "path${T}unresolved${T}/\\srv.invalid\\hooks${T}core.hooksPath is a network path"
+git config core.hooksPath "$(printf 'x\302\23331mY')"
+expect 1 "a core.hooksPath holding a C1 control is flattened" -- bash "$DRIFT_358" --format tsv --strict
+expect_output "path${T}broken${T}x 31mY${T}"
+expect_no_output "$(printf '\302\233')" "no C1 control from a git config value reaches the output"
+# The relative value install.sh wrote before WU-IAENG-414 works in the main
+# checkout, so a directory test calls it fine; a linked worktree, where the
+# submodule is empty, runs no hook (issue #368). --quick is what session
+# start runs, and it has to say so too.
+git config core.hooksPath ia-engineering/Adapters/git-hooks
+expect 1 "the relative core.hooksPath of earlier installs is broken: a linked worktree runs no hook (WU-IAENG-414)" -- \
+  bash "$DRIFT_358" --format tsv --strict
+expect_output "path${T}broken${T}ia-engineering/Adapters/git-hooks${T}core.hooksPath is relative: a linked git worktree"
+expect 1 "--quick (session start) reports the relative core.hooksPath too" -- bash "$DRIFT_358" --quick --format tsv --strict
+expect_output "path${T}broken${T}ia-engineering/Adapters/git-hooks${T}core.hooksPath is relative"
+git config core.hooksPath "$HP0_358"
+expect 0 "clean once more after every single cause" -- bash "$DRIFT_358" --format tsv --strict
+
+section "an exported CDPATH does not move a script's own directory (WU-IAENG-365)"
+
+# Every script finds its siblings with SCRIPT_DIR="$(cd "$(dirname ...)" &&
+# pwd)". When the dirname is relative and does not start with ".", bash's cd
+# searches CDPATH first, and when a CDPATH entry matches it prints the new
+# directory on stdout. With CDPATH=.:<x> exported the value captured is the
+# directory twice, on two lines, and every path built from it is wrong; with
+# <x> first and a same-named directory under it, cd lands in the wrong tree.
+# `CDPATH=''` on the cd (the form check-employee-trailers.sh uses) turns both
+# off. The scripts are called as `bash ia-engineering/...`, the form CDPATH
+# applies to: the `./ia-engineering/...` form of the cases above never
+# consults it, which is why none of them saw this.
+#
+# The test: a script run with CDPATH exported behaves exactly as without it,
+# same exit, same output, from a project that holds the same-named directory
+# both where it should and under a CDPATH decoy.
+
+new_repo fw-365
+cp -R "$SCRIPTS/.." ./Adapters
+cp -R "$SCRIPTS/../../Registry" ./Registry
+cp "$SCRIPTS/../../.gitattributes" ./.gitattributes
+git add -A && git commit -q -m "framework fixture"
+FW_365="$PWD"
+new_repo adopter-365
+git -c protocol.file.allow=always submodule add -q "$FW_365" ia-engineering >/dev/null 2>&1
+git commit -q -m "chore(adopt): add the framework submodule"
+ADOPTER_365="$PWD"
+# The decoy carries the same relative directories, empty: a cd redirected
+# into it finds no sibling script.
+DECOY_365="$WORK/cdpath-decoy-365"
+mkdir -p "$DECOY_365/ia-engineering/Adapters/scripts" \
+         "$DECOY_365/ia-engineering/Adapters/ai-runtimes/claude-code"
+
+# same_without_cdpath_365 <want-exit> <description> -- <command...> — the
+# command exits <want-exit> with CDPATH unset, then exits the same and prints
+# the same output under each exported CDPATH order.
+same_without_cdpath_365() {
+  local want="$1" desc="$2" base cp
+  shift 2
+  [ "$1" = "--" ] && shift
+  expect "$want" "$desc, CDPATH unset" -- env -u CDPATH "$@" || return 1
+  base="$LAST_OUTPUT"
+  for cp in ".:$DECOY_365" "$DECOY_365:."; do
+    expect "$want" "$desc, CDPATH=$cp exported: same exit" -- env CDPATH="$cp" "$@"
+    TOTAL=$((TOTAL + 1))
+    if [ "$LAST_OUTPUT" = "$base" ]; then
+      [ -n "$VERBOSE" ] && printf '   ok   %s, CDPATH=%s exported: same output\n' "$desc" "$cp"
+    else
+      printf '   FAIL %s, CDPATH=%s exported: output differs from the run without it\n' "$desc" "$cp"
+      diff <(printf '%s\n' "$base") <(printf '%s\n' "$LAST_OUTPUT") | sed 's/^/        | /'
+      FAILED=$((FAILED + 1))
+    fi
+  done
+}
+
+cd "$ADOPTER_365" || exit 1
+same_without_cdpath_365 3 "install.sh --check on a never-installed project" \
+  -- bash ia-engineering/Adapters/scripts/install.sh --check
+expect_output "git-hooks${T}absent${T}core.hooksPath${T}$(hooks_path_414)"
+same_without_cdpath_365 3 "install-hooks.sh --check on a never-installed project" \
+  -- bash ia-engineering/Adapters/ai-runtimes/claude-code/install-hooks.sh --check
+same_without_cdpath_365 0 "generate-agents.sh --print-tier-map" \
+  -- bash ia-engineering/Adapters/ai-runtimes/generate-agents.sh --print-tier-map
+# validate-framework.sh names the root it resolved; the fixture holds no
+# Employees, so it fails, but on the submodule, not elsewhere. Its inputs are
+# missing, so the checks that read them could not be evaluated: exit 2, not
+# the finding's 1 (WU-IAENG-390, #331).
+for cp_365 in ".:$DECOY_365" "$DECOY_365:."; do
+  expect 2 "validate-framework.sh, CDPATH=$cp_365 exported: validates the framework it sits in" \
+    -- env CDPATH="$cp_365" bash ia-engineering/Adapters/scripts/validate-framework.sh
+  expect_output "Repository: $ADOPTER_365/ia-engineering"
+done
+
+# check-risk-map.sh takes the project root as an argument, often relative.
+# A plain `cd "$ROOT"` reads CDPATH too: it printed the directory into the
+# report, or, with the decoy first, checked the decoy (no map) instead.
+risk_project rm-cdpath-365; sound_risk_map
+mkdir -p "$DECOY_365/rm-cdpath-365"
+cd "$WORK" || exit 1
+same_without_cdpath_365 0 "check-risk-map.sh on a relative project root" \
+  -- bash "$SCRIPTS/check-risk-map.sh" rm-cdpath-365
+expect_output "Risk Map is sound"
+
+section "record sanitiser — one rule in the four TSV emitters (WU-IAENG-366)"
+
+# install.sh, install-hooks.sh, install-skills.sh and check-framework-drift.sh
+# each keep their own copy of flat(), because none of them sources another.
+# The contract: the four copies are byte-identical, and each script's own
+# record function, fed the same hostile string in fields 2 to 4, writes the
+# same records, under the C locale and a UTF-8 one. The expected text is
+# written out here, not computed with flat(), so four copies that agree on a
+# wrong rule still fail.
+REC_366="$WORK/rec-366"; mkdir -p "$REC_366"
+# TAB, LF, CR, ESC, DEL, a C1 CSI (\xc2\x9b) and NEL (\xc2\x85), both ends of
+# the C1 range (\xc2\x80, \xc2\x9f), then UTF-8 that must survive: the first
+# code point past C1 (NBSP, \xc2\xa0), an e acute and an em dash.
+HOSTILE_366="$(printf 'a\tb\nc\rd\033[31me\177f\302\23331mg\302\205h\302\200j\302\237k\302\240l \303\251 \342\200\224 i')"
+FLAT_366="$(printf 'a b c d [31me f 31mg h j k\302\240l \303\251 \342\200\224 i')"
+WANT_366="$REC_366/want"
+printf 'fam\t%s\t%s\t%s\nfam\tst\tp\td\n' "$FLAT_366" "$FLAT_366" "$FLAT_366" > "$WANT_366"
+sed -n '/^# >>> record sanitiser/,/^# <<< record sanitiser/p' "$SCRIPTS/install.sh" > "$REC_366/ref"
+
+# A feeder script, not a shell function: a function reached only through
+# `expect` is reported unreachable by shellcheck (SC2317), as the pre-push
+# feeder above explains.
+#   rec-366.sh block <script> <ref>      the script's sanitiser block is <ref>
+#   rec-366.sh records <script> <fn> <locale> <hostile> <want>
+#       the script's own block and record function, fed <hostile> in fields
+#       2 to 4, then a plain record, write <want>: two records, four fields.
+cat > "$REC_366/rec-366.sh" <<'FEED'
+set -u
+out="$(mktemp)"
+trap 'rm -f "$out" "$out.fn" "$out.err"' EXIT
+sed -n '/^# >>> record sanitiser/,/^# <<< record sanitiser/p' "$2" > "$out.fn"
+if [ "$1" = block ]; then
+  [ -s "$out.fn" ] || { echo "no record sanitiser block in $2"; exit 1; }
+  diff "$3" "$out.fn" || exit 1
+  exit 0
+fi
+sed -n "/^$3() {/,/^}/p" "$2" >> "$out.fn"
+# stderr is kept apart: the records are stdout alone. A UTF-8 locale that
+# is not one here (e acute is not one character) fails, never passes as C.
+LC_ALL="$4" H="$5" FN="$out.fn" REC="$3" bash -c '
+  set -u; CHECK=1; REPORT=""; ROWS=""
+  case "$LC_ALL" in
+    *UTF-8) e="$(printf "\303\251")"; [ "${#e}" -eq 1 ] || exit 9 ;;
+  esac
+  . "$FN"
+  "$REC" fam "$H" "$H" "$H"
+  "$REC" fam st p d
+  printf "%s%s" "$REPORT" "$ROWS"' > "$out" 2> "$out.err"
+if [ $? -eq 9 ]; then
+  echo "LC_ALL=$4 is not a UTF-8 locale on this platform:"; cat "$out.err"; exit 1
+fi
+if ! cmp -s "$6" "$out"; then
+  echo "records differ from the expected ones:"; od -c "$out" | head -20; exit 1
+fi
+[ "$(wc -l < "$out")" -eq 2 ] || { echo "not two records"; exit 1; }
+awk -F '\t' 'NF != 4 { exit 1 }' "$out" || { echo "a record without four fields"; exit 1; }
+FEED
+for F_366 in "$SCRIPTS/install.sh" \
+             "$SCRIPTS/../ai-runtimes/claude-code/install-hooks.sh" \
+             "$SCRIPTS/../ai-runtimes/claude-code/install-skills.sh" \
+             "$SCRIPTS/check-framework-drift.sh"; do
+  B_366="$(basename "$F_366")"
+  FN_366=record; [ "$B_366" = check-framework-drift.sh ] && FN_366=rec
+  expect 0 "$B_366: the record sanitiser block is byte-identical to install.sh's" -- bash "$REC_366/rec-366.sh" block "$F_366" "$REC_366/ref"
+  for LOC_366 in C C.UTF-8; do
+    expect 0 "$B_366: $FN_366 flattens every control, C1 pairs included, keeps é and the em dash ($LOC_366)" -- bash "$REC_366/rec-366.sh" records "$F_366" "$FN_366" "$LOC_366" "$HOSTILE_366" "$WANT_366"
+  done
+done
+# The context statusLine prints fields of Claude Code's stdin JSON through
+# the same flat() (WU-IAENG-379). It writes no record, so only its block is
+# compared; tests/context-statusline.sh in the hooks suite checks its output.
+expect 0 "context-statusline.sh: the record sanitiser block is byte-identical to install.sh's" -- \
+  bash "$REC_366/rec-366.sh" block "$SCRIPTS/../ai-runtimes/claude-code/hooks/context-statusline.sh" "$REC_366/ref"
+
+# SEC-IAENG-366-01: the framework's path inside the project reaches the
+# install.sh --check closing line. It is the project's choice (a submodule
+# path), so it is flattened and goes to awk through the environment, where
+# its backslashes are not decoded. A C1 control is a legal file name
+# character everywhere, NTFS included.
+C1_DIR_366="ia$(printf '\302\233')31mC1"
+new_repo adopter-366-c1
+git -c protocol.file.allow=always submodule add -q "$FW_353" "$C1_DIR_366" >/dev/null 2>&1
+git commit -q -m "chore(adopt): add the framework submodule"
+expect 3 "a framework path holding a C1 control: install.sh --check runs" -- bash "./$C1_DIR_366/Adapters/scripts/install.sh" --check
+expect_output "absent/missing: re-run ia 31mC1/Adapters/scripts/install.sh without --force"
+expect_no_output "$(printf '\302\233')" "no C1 control from the framework path reaches install.sh --check output"
+# ESC and a backslash escape: Linux and macOS file names can hold both;
+# NTFS refuses them, and MSYS reads a backslash as a separator, so the name
+# is used only where a directory of exactly that name can be made.
+ESC_DIR_366="fw$(printf '\033')[31mE"'\n'"X"
+mkdir -p "$WORK/probe-366" && mkdir "$WORK/probe-366/$ESC_DIR_366" 2>/dev/null
+block_begin 4 "install.sh --check with ESC and a backslash in the framework path"
+if [ "$(ls "$WORK/probe-366" 2>/dev/null)" = "$ESC_DIR_366" ]; then
+  new_repo adopter-366-esc
+  expect 0 "git takes a framework path holding ESC and a backslash as a submodule path" -- \
+    git -c protocol.file.allow=always submodule add -q "$FW_353" "$ESC_DIR_366"
+  git commit -q -m "chore(adopt): add the framework submodule"
+  expect 3 "a framework path holding ESC and a backslash escape: install.sh --check runs" -- bash "./$ESC_DIR_366/Adapters/scripts/install.sh" --check
+  expect_output "absent/missing: re-run fw [31mE\\nX/Adapters/scripts/install.sh without --force"
+  expect_no_output $'\e' "no ESC from the framework path reaches install.sh --check output"
+else
+  skip "$BLOCK_N" "install.sh --check with ESC and a backslash in the framework path: this file system cannot hold that name -- not a fix defect."
+fi
+block_end
+
+# ------------- install.sh: the framework repository by identity (WU-IAENG-362) --
+#
+# install.sh decided "this is the framework repository" by comparing
+# "$FRAMEWORK" and "$PROJECT" as strings. FRAMEWORK keeps the spelling the
+# script was invoked by; PROJECT comes from git, which reports the directory's
+# own. Invoked as /c/developpement/ai_enginering/... on Windows, or through a
+# symlinked path anywhere, the framework repository was installed as an
+# adopter: the adopter's eol rules instead of /Adapters/** and /Registry/**,
+# and adopter next steps printed. Each other spelling is tried only where the
+# platform has it: a case-folding filesystem (Windows, macOS) or a real
+# symlink (Linux CI). No platform lacks both in practice; one that does
+# reports the four checks as a skip, never as passed.
+
+section "install.sh — the framework repository by identity, not spelling (WU-IAENG-362)"
+
+INST_362="Adapters/scripts/install.sh"
+NOT_INSTALLED_362="Not installed by this script, by design:"
+
+# fw_362 — a fresh framework repository built from this checkout's Adapters/
+# and Registry/, with no .gitattributes, so whatever install.sh appends is
+# visible. Leaves the shell inside it; FW_362 is its path as git reports it.
+fw_362() {
+  new_repo fw-362
+  cp -R "$SCRIPTS/.." ./Adapters
+  cp -R "$SCRIPTS/../../Registry" ./Registry
+  git add -A && git commit -q -m "framework fixture"
+  FW_362="$PWD"
+}
+
+# framework_362 <how> — the run that just ended treated the repository as the
+# framework itself: the framework-only rules, no adopter-only rule, no
+# adopter next steps.
+framework_362() {
+  TOTAL=$((TOTAL + 1))
+  if grep -qxF '/Adapters/** text eol=lf' .gitattributes 2>/dev/null \
+     && grep -qxF '/Registry/** text eol=lf' .gitattributes; then
+    [ -n "$VERBOSE" ] && printf '   ok   %s: the framework-only /Adapters/** and /Registry/** rules\n' "$1"
+  else
+    printf '   FAIL %s: .gitattributes lacks the framework-only /Adapters/** or /Registry/** rule\n' "$1"
+    sed 's/^/        | /' .gitattributes 2>/dev/null
+    FAILED=$((FAILED + 1))
+  fi
+  TOTAL=$((TOTAL + 1))
+  if grep -qxF '/Dockerfile text eol=lf' .gitattributes 2>/dev/null; then
+    printf '   FAIL %s: .gitattributes got the adopter-only /Dockerfile rule\n' "$1"
+    FAILED=$((FAILED + 1))
+  else
+    [ -n "$VERBOSE" ] && printf '   ok   %s: no adopter-only rule\n' "$1"
+  fi
+  expect_no_output "$NOT_INSTALLED_362" "$1: no adopter next steps are printed"
+}
+
+# The spelling git reports: the control, right before and after the fix.
+fw_362
+expect 0 "install.sh in the framework repository, invoked by its own spelling" -- bash "$FW_362/$INST_362"
+framework_362 "same spelling"
+
+RAN_362=0
+
+# A differently-cased spelling of the same directory (Windows, macOS).
+fw_362
+ALT_362="$(dirname "$FW_362")/$(basename "$FW_362" | tr '[:lower:]' '[:upper:]')"
+if [ "$ALT_362" != "$FW_362" ] && [ -d "$ALT_362" ] && [ "$ALT_362" -ef "$FW_362" ]; then
+  RAN_362=1
+  expect 0 "install.sh in the framework repository, invoked through a differently-cased path" -- bash "$ALT_362/$INST_362"
+  framework_362 "differently-cased path"
+fi
+
+# A symlinked spelling (Linux, macOS; Windows with native symlinks). `[ -L ]`
+# because Git for Windows turns `ln -s` into a deep copy, which is another
+# directory and would test nothing.
+fw_362
+LINK_362="$WORK/fw-362-link"
+rm -rf "$LINK_362"
+if ln -s "$FW_362" "$LINK_362" 2>/dev/null && [ -L "$LINK_362" ]; then
+  RAN_362=1
+  expect 0 "install.sh in the framework repository, invoked through a symlinked path" -- bash "$LINK_362/$INST_362"
+  framework_362 "symlinked path"
+fi
+rm -rf "$LINK_362"
+
+if [ "$RAN_362" -eq 0 ]; then
+  skip 4 "install.sh framework detection under another spelling: this platform has neither a case-folding filesystem nor real symlinks -- not a fix defect."
+fi
+
+# An adopter is still an adopter: the framework copied inside a project, by
+# its own spelling and, where the filesystem folds case, by another.
+new_repo adopter-362
+mkdir -p ia-engineering
+cp -R "$SCRIPTS/.." ia-engineering/Adapters
+cp -R "$SCRIPTS/../../Registry" ia-engineering/Registry
+ADOPTER_362="$PWD"
+expect 0 "install.sh in an adopting project" -- bash "./ia-engineering/$INST_362"
+expect_output "$NOT_INSTALLED_362"
+TOTAL=$((TOTAL + 1))
+if grep -qxF '/Dockerfile text eol=lf' .gitattributes 2>/dev/null \
+   && ! grep -qF '/Adapters/**' .gitattributes; then
+  [ -n "$VERBOSE" ] && printf '   ok   the adopter gets the adopter rules and no /Adapters/** rule\n'
+else
+  printf '   FAIL the adopter .gitattributes is not the adopter one\n'
+  sed 's/^/        | /' .gitattributes 2>/dev/null
+  FAILED=$((FAILED + 1))
+fi
+# The adopter by another spelling, as the framework above: a differently-cased
+# path where the filesystem folds case, else a symlinked one. Neither is a
+# skip with its reason, never a silent omission. Not a skip per spelling: under
+# CI=true a skip is a failure, and Linux CI has no case folding.
+ALT_ADOPTER_362="$ADOPTER_362/IA-ENGINEERING"
+LINK_ADOPTER_362="$ADOPTER_362/ia-engineering-link"
+if [ -d "$ALT_ADOPTER_362" ] && [ "$ALT_ADOPTER_362" -ef "$ADOPTER_362/ia-engineering" ]; then
+  expect 0 "install.sh in an adopting project, invoked through a differently-cased path" -- bash "$ALT_ADOPTER_362/$INST_362"
+  expect_output "$NOT_INSTALLED_362"
+elif ln -s "$ADOPTER_362/ia-engineering" "$LINK_ADOPTER_362" 2>/dev/null && [ -L "$LINK_ADOPTER_362" ]; then
+  expect 0 "install.sh in an adopting project, invoked through a symlinked path" -- bash "$LINK_ADOPTER_362/$INST_362"
+  expect_output "$NOT_INSTALLED_362"
+else
+  skip 2 "install.sh adopter under another spelling: this platform has neither a case-folding filesystem nor real symlinks -- not a fix defect."
+fi
+rm -rf "$LINK_ADOPTER_362"
+
+# ------------------------------------ changelog fragments (WU-IAENG-378) ----
+#
+# Each Work Unit's changelog entry is a fragment, changelog.d/<id>.md, so two
+# Pull Requests no longer conflict on the same CHANGELOG.md category. Its
+# consumers are all run for real here: the validator's section 23 function
+# (extracted as section 22's is above) on fixtures and on the real directory;
+# release.sh assemble and release.sh check condition 5 in real repositories
+# that carry a copy of release.sh and the shared parser; the Pull Request
+# early warning on a real history.
+
+section "changelog fragments — validator section 23, release.sh assemble, condition 5 (WU-IAENG-378)"
+
+FRAG_TAB="$(printf '\t')"
+FRAG_PARSER="$SCRIPTS/changelog-fragment.awk"
+FRAG_HARNESS="$WORK/fragment-harness.sh"
+{
+  echo 'set -uo pipefail'
+  sed -n '/^changelog_fragment_check() {/,/^}/p' "$SCRIPTS/validate-framework.sh"
+  sed -n '/^changelog_fragment_advisory() {/,/^}/p' "$SCRIPTS/validate-framework.sh"
+  cat <<'HARNESS'
+fn="$1"; shift
+"$fn" "$@"
+HARNESS
+} > "$FRAG_HARNESS"
+
+expect 0 "fragments: changelog_fragment_check is extracted from the validator" -- \
+  grep -q '^changelog_fragment_check() {' "$FRAG_HARNESS"
+expect 0 "fragments: changelog_fragment_advisory is extracted from the validator" -- \
+  grep -q '^changelog_fragment_advisory() {' "$FRAG_HARNESS"
+
+# --- The real directory.
+FRAG_ROOT="$(cd "$SCRIPTS/../.." && pwd)"
+expect 0 "fragments: the real changelog.d/ passes against the real registry" -- \
+  bash "$FRAG_HARNESS" changelog_fragment_check "$FRAG_ROOT/changelog.d" "$FRAG_ROOT/Registry/work-units.yml" "$FRAG_PARSER"
+expect_output "total${FRAG_TAB}"
+expect_output_absent "fail${FRAG_TAB}"
+expect_output_absent "error${FRAG_TAB}"
+
+# --- Fixtures: a README, a registry of WU-T-1 and WU-T-2, a valid WU-T-1.
+FRAG_FIX="$WORK/fragments"
+frag_fixture() {
+  rm -rf "$FRAG_FIX"
+  mkdir -p "$FRAG_FIX/changelog.d"
+  echo "# Changelog Fragments" > "$FRAG_FIX/changelog.d/README.md"
+  printf 'work_units:\n  - id: WU-T-1\n    milestone: Testing\n  - id: WU-T-2\n    milestone: Testing\n' > "$FRAG_FIX/work-units.yml"
+  printf '### Added\n\n- a valid entry\n' > "$FRAG_FIX/changelog.d/WU-T-1.md"
+}
+# frag_case <description> <expected output> — the fixture must report it.
+frag_case() {
+  expect 0 "fragments: $1 is reported" -- \
+    bash "$FRAG_HARNESS" changelog_fragment_check "$FRAG_FIX/changelog.d" "$FRAG_FIX/work-units.yml" "$FRAG_PARSER"
+  expect_output "$2"
+}
+
+frag_fixture
+printf '### Fixed\r\n\r\n- a fix checked out CRLF\r\n  continued (#5)\r\n' > "$FRAG_FIX/changelog.d/WU-T-2.md"
+expect 0 "fragments: an entry and a CRLF entry pass" -- \
+  bash "$FRAG_HARNESS" changelog_fragment_check "$FRAG_FIX/changelog.d" "$FRAG_FIX/work-units.yml" "$FRAG_PARSER"
+expect_output "total${FRAG_TAB}2"
+expect_output_absent "fail${FRAG_TAB}"
+expect_output_absent "error${FRAG_TAB}"
+
+frag_fixture
+printf 'No changelog entry: tests only\n' > "$FRAG_FIX/changelog.d/WU-T-2.md"
+expect 0 "fragments: an exemption with a reason passes" -- \
+  bash "$FRAG_HARNESS" changelog_fragment_check "$FRAG_FIX/changelog.d" "$FRAG_FIX/work-units.yml" "$FRAG_PARSER"
+expect_output_absent "fail${FRAG_TAB}"
+expect_output_absent "error${FRAG_TAB}"
+
+frag_fixture
+printf '### Added\n\n- x\n' > "$FRAG_FIX/changelog.d/WU-T-9.md"
+frag_case "a fragment of an unregistered Work Unit" "names WU-T-9, which $FRAG_FIX/work-units.yml does not register"
+
+frag_fixture
+printf '### Upgrade\n\n- x\n' > "$FRAG_FIX/changelog.d/WU-T-2.md"
+frag_case "a heading outside Keep a Changelog's six and Notes" "'### Upgrade' is not an allowed heading"
+
+# An upgrade note is a bullet under ### Notes (Director, 23 Oct 2026).
+frag_fixture
+printf '### Notes\n\n- re-run install.sh after upgrading\n' > "$FRAG_FIX/changelog.d/WU-T-2.md"
+expect 0 "fragments: an upgrade note under ### Notes passes" -- \
+  bash "$FRAG_HARNESS" changelog_fragment_check "$FRAG_FIX/changelog.d" "$FRAG_FIX/work-units.yml" "$FRAG_PARSER"
+expect_output "total${FRAG_TAB}2"
+expect_output_absent "fail${FRAG_TAB}"
+expect_output_absent "error${FRAG_TAB}"
+frag_fixture
+printf '### Notes\n\nAn upgrade paragraph, not a bullet.\n' > "$FRAG_FIX/changelog.d/WU-T-2.md"
+frag_case "an upgrade note that is prose, not a bullet" "neither a '- ' bullet nor an indented continuation"
+
+frag_fixture
+printf '## Added\n\n- x\n' > "$FRAG_FIX/changelog.d/WU-T-2.md"
+frag_case "a level-2 heading" "only '### <Category>' headings are allowed"
+
+frag_fixture
+printf '### Added\n\n### Fixed\n\n- x\n' > "$FRAG_FIX/changelog.d/WU-T-2.md"
+frag_case "a heading with no bullet" "'### Added' has no '- ' bullet under it"
+
+frag_fixture
+printf '### Added\n\nA paragraph, not a bullet.\n' > "$FRAG_FIX/changelog.d/WU-T-2.md"
+frag_case "a paragraph under a heading" "neither a '- ' bullet nor an indented continuation"
+
+frag_fixture
+printf 'No changelog entry:\n' > "$FRAG_FIX/changelog.d/WU-T-2.md"
+frag_case "an exemption with no reason" "'No changelog entry:' gives no reason"
+
+frag_fixture
+printf 'No changelog entry: tests only\n### Added\n\n- x\n' > "$FRAG_FIX/changelog.d/WU-T-2.md"
+frag_case "an exemption beside an entry" "'No changelog entry:' must be the fragment's only line"
+
+frag_fixture
+: > "$FRAG_FIX/changelog.d/WU-T-2.md"
+frag_case "an empty fragment" "the fragment is empty"
+
+frag_fixture
+echo "notes" > "$FRAG_FIX/changelog.d/notes.txt"
+frag_case "a stray file" "$FRAG_FIX/changelog.d/notes.txt is not a fragment"
+
+frag_fixture
+printf '### Added\n\n- x\n' > "$FRAG_FIX/changelog.d/wu-t-2.md"
+frag_case "a lowercase fragment name" "$FRAG_FIX/changelog.d/wu-t-2.md is not a fragment"
+
+frag_fixture
+rm -f "$FRAG_FIX/changelog.d/README.md"
+frag_case "a missing README.md" "changelog.d/README.md is missing"
+
+frag_fixture
+rm -rf "$FRAG_FIX/changelog.d"
+expect 1 "fragments: a missing changelog.d/ fails, not passes" -- \
+  bash "$FRAG_HARNESS" changelog_fragment_check "$FRAG_FIX/changelog.d" "$FRAG_FIX/work-units.yml" "$FRAG_PARSER"
+expect_output "changelog.d/ is missing"
+
+# SEC-IAENG-378-01: an HTML comment opener in a bullet or a continuation line
+# hides every later entry of the section in the published notes, Security
+# included. So does a line that opens an HTML block. All three are refused.
+frag_fixture
+printf '### Added\n\n- a minor wording fix\n  <!--\n' > "$FRAG_FIX/changelog.d/WU-T-2.md"
+frag_case "an HTML comment opener on a continuation line (SEC-IAENG-378-01)" "an HTML comment marker"
+frag_fixture
+printf '### Added\n\n- a fix <!-- hidden\n' > "$FRAG_FIX/changelog.d/WU-T-2.md"
+frag_case "an HTML comment opener inside a bullet (SEC-IAENG-378-01)" "an HTML comment marker"
+frag_fixture
+printf '### Added\n\n- <details>\n' > "$FRAG_FIX/changelog.d/WU-T-2.md"
+frag_case "a bullet that opens an HTML block (SEC-IAENG-378-01)" "starts with '<'"
+
+# A symbolic link is not a fragment (SEC-IAENG-378-01, N2).
+block_begin 2 "fragments: a symlinked fragment"
+frag_fixture
+printf '### Added\n\n- x\n' > "$FRAG_FIX/target.md"
+if ln -s "$FRAG_FIX/target.md" "$FRAG_FIX/changelog.d/WU-T-2.md" 2>/dev/null && [ -L "$FRAG_FIX/changelog.d/WU-T-2.md" ]; then
+  frag_case "a symlinked fragment" "$FRAG_FIX/changelog.d/WU-T-2.md is not a fragment"
+else
+  skip "$BLOCK_N" "fragments: a symlinked fragment -- this platform has no real symlinks, not a fix defect."
+fi
+block_end
+
+# A parser that does not run, or runs and prints no record, is a failure and
+# not a clean fragment: a correct parse always prints ENTRY, EXEMPT or ERROR.
+printf 'BEGIN {\n' > "$WORK/frag-parser-broken.awk"
+printf 'BEGIN { exit 0 }\n' > "$WORK/frag-parser-silent.awk"
+frag_fixture
+expect 0 "fragments: a parser with a syntax error is reported" -- \
+  bash "$FRAG_HARNESS" changelog_fragment_check "$FRAG_FIX/changelog.d" "$FRAG_FIX/work-units.yml" "$WORK/frag-parser-broken.awk"
+expect_output "the fragment parser did not run"
+expect 0 "fragments: a parser that prints no record is reported" -- \
+  bash "$FRAG_HARNESS" changelog_fragment_check "$FRAG_FIX/changelog.d" "$FRAG_FIX/work-units.yml" "$WORK/frag-parser-silent.awk"
+expect_output "the fragment parser did not run"
+
+# --- release.sh in a real repository: a copy of release.sh and the parser,
+# a registry of the Testing milestone, and a CHANGELOG.md with entries written
+# before fragments existed. The first [Unreleased] bullet names WU-T-3 in its
+# text: a mention, not an entry.
+frag_release_repo() {
+  new_repo "$1"
+  mkdir -p Adapters/scripts changelog.d Registry
+  cp "$SCRIPTS/release.sh" "$FRAG_PARSER" Adapters/scripts/
+  echo "# Changelog Fragments" > changelog.d/README.md
+  echo "work_units:" > Registry/work-units.yml
+  local id
+  for id in WU-T-1 WU-T-2 WU-T-3; do
+    printf '  - id: %s\n    employee: Release Manager\n    title: t\n    milestone: Testing\n' "$id" >> Registry/work-units.yml
+  done
+  cat > CHANGELOG.md <<'EOF'
+# Changelog
+
+Intro.
+
+---
+
+## [Unreleased] - Testing
+
+### Added
+
+- an entry written before fragments, which names WU-T-3 in its text (WU-T-1)
+
+### Notes
+
+A note that stays after the six categories.
+
+## [0.0.1] - Earlier
+
+### Added
+
+- the first release (WU-T-0)
+EOF
+}
+
+# The assembly: categories in Keep a Changelog's order, Notes after them, the
+# existing bullet first, the fragments by Work Unit NUMBER (2 before 10), the
+# id appended where a bullet lacks it, the exemption as a comment at the end.
+frag_release_repo frag-assemble
+printf '  - id: WU-T-10\n    employee: Release Manager\n    title: t\n    milestone: Testing\n' >> Registry/work-units.yml
+printf '### Notes\n\n- run the installer again after upgrading\n\n### Added\n\n- added by ten\n' > changelog.d/WU-T-10.md
+printf '### Security\n\n- a security fix (#5)\n\n### Added\n\n- added by two\n  continued\n' > changelog.d/WU-T-2.md
+printf 'No changelog entry: tests only\n' > changelog.d/WU-T-3.md
+cat > "$WORK/frag-expected.md" <<'EOF'
+# Changelog
+
+Intro.
+
+---
+
+## [Unreleased] - Testing
+
+### Added
+
+- an entry written before fragments, which names WU-T-3 in its text (WU-T-1)
+- added by two
+  continued (WU-T-2)
+- added by ten (WU-T-10)
+
+### Security
+
+- a security fix (#5) (WU-T-2)
+
+### Notes
+
+A note that stays after the six categories.
+
+- run the installer again after upgrading (WU-T-10)
+
+<!-- No changelog entry (WU-T-3): tests only -->
+
+## [0.0.1] - Earlier
+
+### Added
+
+- the first release (WU-T-0)
+EOF
+expect 0 "assemble: three fragments fold into [Unreleased]" -- bash Adapters/scripts/release.sh assemble
+expect_output "Assembled 3 fragment(s)"
+expect 0 "assemble: CHANGELOG.md is exactly the expected assembly (category order, Work Unit order, ids, upgrade note under Notes after its prose, exemption)" -- \
+  diff "$WORK/frag-expected.md" CHANGELOG.md
+expect 0 "assemble: the assembled fragments are deleted and README.md is kept" -- \
+  test ! -e changelog.d/WU-T-2.md -a ! -e changelog.d/WU-T-3.md -a ! -e changelog.d/WU-T-10.md -a -f changelog.d/README.md
+cp CHANGELOG.md "$WORK/frag-after.md"
+expect 0 "assemble: a second run with no fragment changes nothing" -- bash Adapters/scripts/release.sh assemble
+expect_output "No fragment in changelog.d/"
+expect 0 "assemble: the second run left CHANGELOG.md byte-identical" -- cmp -s "$WORK/frag-after.md" CHANGELOG.md
+
+# An upgrade note when the section has no ### Notes yet: one is added, after
+# the six categories.
+frag_release_repo frag-assemble-newnotes
+awk '/^### Notes$/ { skip = 1; next } /^## \[0\.0\.1\]/ { skip = 0 } !skip' CHANGELOG.md > CHANGELOG.tmp && mv CHANGELOG.tmp CHANGELOG.md
+printf '### Notes\n\n- the config key moved\n\n### Fixed\n\n- a fix\n' > changelog.d/WU-T-2.md
+cat > "$WORK/frag-expected-notes.md" <<'EOF'
+# Changelog
+
+Intro.
+
+---
+
+## [Unreleased] - Testing
+
+### Added
+
+- an entry written before fragments, which names WU-T-3 in its text (WU-T-1)
+
+### Fixed
+
+- a fix (WU-T-2)
+
+### Notes
+
+- the config key moved (WU-T-2)
+
+## [0.0.1] - Earlier
+
+### Added
+
+- the first release (WU-T-0)
+EOF
+expect 0 "assemble: an upgrade note with no ### Notes in the section" -- bash Adapters/scripts/release.sh assemble
+expect 0 "assemble: a ### Notes is added after the six categories, holding the upgrade note" -- \
+  diff "$WORK/frag-expected-notes.md" CHANGELOG.md
+
+# CRLF: a Windows checkout of CHANGELOG.md keeps CRLF on every line, new ones
+# included — the rewrite is not a whole-file line-ending change.
+frag_release_repo frag-assemble-crlf
+awk '{ printf "%s\r\n", $0 }' CHANGELOG.md > CHANGELOG.crlf && mv CHANGELOG.crlf CHANGELOG.md
+printf '### Fixed\r\n\r\n- a fix\r\n' > changelog.d/WU-T-2.md
+expect 0 "assemble: a CRLF CHANGELOG.md and a CRLF fragment assemble" -- bash Adapters/scripts/release.sh assemble
+FRAG_CR="$(tr -cd '\r' < CHANGELOG.md | wc -c | tr -d ' ')"
+FRAG_LF="$(tr -cd '\n' < CHANGELOG.md | wc -c | tr -d ' ')"
+expect 0 "assemble: every line of the CRLF CHANGELOG.md still ends CRLF ($FRAG_CR CR, $FRAG_LF LF)" -- \
+  test "$FRAG_LF" -gt 0 -a "$FRAG_CR" = "$FRAG_LF"
+expect 0 "assemble: the CRLF fragment's bullet is in the Fixed section" -- grep -q '^- a fix (WU-T-2)' CHANGELOG.md
+
+# All or nothing: one malformed fragment refuses the run and changes nothing.
+frag_release_repo frag-assemble-bad
+cp CHANGELOG.md "$WORK/frag-before.md"
+printf '### Added\n\n- fine\n' > changelog.d/WU-T-2.md
+printf '### Upgrade\n\n- not an allowed heading\n' > changelog.d/WU-T-3.md
+expect 1 "assemble: a malformed fragment refuses the run" -- bash Adapters/scripts/release.sh assemble
+expect_output "changelog.d/WU-T-3.md line 1: '### Upgrade' is not an allowed heading"
+expect 0 "assemble: the refused run left CHANGELOG.md unchanged" -- cmp -s "$WORK/frag-before.md" CHANGELOG.md
+expect 0 "assemble: the refused run deleted no fragment, the valid one included" -- test -f changelog.d/WU-T-2.md -a -f changelog.d/WU-T-3.md
+
+frag_release_repo frag-assemble-stray
+printf '### Added\n\n- fine\n' > changelog.d/WU-T-2.md
+echo "draft" > changelog.d/draft.md
+expect 1 "assemble: a file that is not a fragment refuses the run" -- bash Adapters/scripts/release.sh assemble
+expect_output "holds entries that are not fragments: changelog.d/draft.md"
+expect 0 "assemble: the stray-file refusal deleted nothing" -- test -f changelog.d/WU-T-2.md
+
+frag_release_repo frag-assemble-nounreleased
+sed 's/^## \[Unreleased\] - Testing$/## [0.0.2] - Testing/' CHANGELOG.md > CHANGELOG.tmp && mv CHANGELOG.tmp CHANGELOG.md
+printf '### Added\n\n- fine\n' > changelog.d/WU-T-2.md
+expect 1 "assemble: no [Unreleased] section refuses the run" -- bash Adapters/scripts/release.sh assemble
+expect_output "has no '## [Unreleased]' section"
+
+# frag_untouched <description> <fragment...> — CHANGELOG.md is byte-identical
+# to the copy taken before the run, and every fragment named is still there.
+frag_untouched() {
+  local desc="$1" ok=0 f
+  shift
+  cmp -s "$WORK/frag-before.md" CHANGELOG.md || ok=1
+  for f in "$@"; do [ -f "$f" ] || ok=1; done
+  expect 0 "$desc" -- test "$ok" -eq 0
+}
+
+# SEC-IAENG-378-01: a fragment that would hide the rest of the section.
+frag_release_repo frag-assemble-comment
+cp CHANGELOG.md "$WORK/frag-before.md"
+printf '### Added\n\n- a minor wording fix\n  <!--\n' > changelog.d/WU-T-2.md
+printf '### Security\n\n- a security fix\n' > changelog.d/WU-T-3.md
+expect 1 "assemble: a fragment with an HTML comment opener refuses the run (SEC-IAENG-378-01)" -- bash Adapters/scripts/release.sh assemble
+expect_output "changelog.d/WU-T-2.md line 4: an HTML comment marker"
+frag_untouched "assemble: the comment refusal left CHANGELOG.md unchanged and deleted nothing" \
+  changelog.d/WU-T-2.md changelog.d/WU-T-3.md
+
+# A parser that does not run, or prints nothing, refuses the run: before, the
+# fragment was deleted with nothing added.
+frag_release_repo frag-assemble-parser
+cp CHANGELOG.md "$WORK/frag-before.md"
+printf '### Added\n\n- fine\n' > changelog.d/WU-T-2.md
+cp "$WORK/frag-parser-broken.awk" Adapters/scripts/changelog-fragment.awk
+expect 1 "assemble: a parser with a syntax error refuses the run" -- bash Adapters/scripts/release.sh assemble
+expect_output "the fragment parser did not run"
+cp "$WORK/frag-parser-silent.awk" Adapters/scripts/changelog-fragment.awk
+expect 1 "assemble: a parser that prints no record refuses the run" -- bash Adapters/scripts/release.sh assemble
+expect_output "the fragment parser did not run"
+frag_untouched "assemble: the parser refusals left CHANGELOG.md unchanged and deleted nothing" \
+  changelog.d/WU-T-2.md
+
+# A CHANGELOG.md that cannot be written refuses the run and deletes nothing:
+# before, the fragments were deleted and the run exited 0.
+block_begin 3 "assemble: an unwritable CHANGELOG.md"
+frag_release_repo frag-assemble-readonly
+cp CHANGELOG.md "$WORK/frag-before.md"
+printf '### Added\n\n- fine\n' > changelog.d/WU-T-2.md
+chmod a-w CHANGELOG.md
+if [ ! -w CHANGELOG.md ]; then
+  expect 1 "assemble: an unwritable CHANGELOG.md refuses the run" -- bash Adapters/scripts/release.sh assemble
+  expect_output "CHANGELOG.md could not be written"
+  frag_untouched "assemble: the write refusal deleted no fragment and left CHANGELOG.md unchanged" \
+    changelog.d/WU-T-2.md
+else
+  skip "$BLOCK_N" "assemble: an unwritable CHANGELOG.md -- chmod a-w leaves it writable here (running as root), not a fix defect."
+fi
+chmod u+w CHANGELOG.md
+block_end
+
+# --- release.sh check, condition 5. The other conditions fail in a fixture
+# (no host, no validator, not develop), so the exit is 1 throughout and each
+# case reads condition 5's own line.
+frag_release_repo frag-cond5
+printf '### Added\n\n- x\n' > changelog.d/WU-T-2.md
+git add -A && git commit -q -m "fixture"
+expect 1 "condition 5: a Work Unit with no fragment and only a mention in the section fails" -- \
+  bash Adapters/scripts/release.sh check --milestone Testing
+expect_output "1 of 3 Work Units for 'Testing' have no changelog fragment, entry or exemption: WU-T-3"
+
+printf 'No changelog entry: tests only\n' > changelog.d/WU-T-3.md
+git add -A && git commit -q -m "fixture: exemption"
+expect 1 "condition 5: with an exemption fragment for WU-T-3, all three are accounted for" -- \
+  bash Adapters/scripts/release.sh check --milestone Testing
+expect_output "all 3 Work Units for 'Testing' accounted for: 2 fragment(s) waiting in changelog.d/, 1 named in '## [Unreleased] - Testing'"
+expect_output_absent "have no changelog fragment"
+
+# Step 2 done: assembled, heading versioned. The fragments are gone and the
+# section now names all three — the exemption by its comment line.
+bash Adapters/scripts/release.sh assemble > /dev/null 2>&1
+sed 's/^## \[Unreleased\] - Testing$/## [0.0.2] - Testing/' CHANGELOG.md > CHANGELOG.tmp && mv CHANGELOG.tmp CHANGELOG.md
+git add -A && git commit -q -m "fixture: bump"
+expect 1 "condition 5: after the assembly and the bump, all three are named in the versioned section" -- \
+  bash Adapters/scripts/release.sh check --milestone Testing
+expect_output "all 3 Work Units for 'Testing' accounted for: 0 fragment(s) waiting in changelog.d/, 3 named in '## [0.0.2] - Testing'"
+
+# A fragment merged after the assembly will not ship in these notes.
+printf '### Fixed\n\n- late\n' > changelog.d/WU-T-2.md
+git add -A && git commit -q -m "fixture: late fragment"
+expect 1 "condition 5: a fragment left after the bump fails" -- \
+  bash Adapters/scripts/release.sh check --milestone Testing
+expect_output "fragments not assembled into '## [0.0.2] - Testing': WU-T-2"
+
+# Accounting is by bullet: a wrapped bullet's id is the final group of its
+# LAST line, as the assembler writes it. An exemption comment counts only with
+# a reason and its closing "-->" (SEC-IAENG-378-01, N1): an unclosed one hides
+# the rest of the section.
+frag_release_repo frag-cond5-bullet
+awk '/^## \[0\.0\.1\]/ { print "<!-- No changelog entry (WU-T-2):  -->"; print "<!-- No changelog entry (WU-T-2): a reason, never closed"; print "" }
+     { print }
+     /^- an entry written before fragments/ { print "- a wrapped bullet that cites (WU-T-3)"; print "  and continues (WU-T-1)" }' CHANGELOG.md > CHANGELOG.tmp && mv CHANGELOG.tmp CHANGELOG.md
+git add -A && git commit -q -m "fixture"
+expect 1 "condition 5: a wrapped bullet's first-line group, an empty-reason and an unclosed exemption count for nothing" -- \
+  bash Adapters/scripts/release.sh check --milestone Testing
+expect_output "2 of 3 Work Units for 'Testing' have no changelog fragment, entry or exemption: WU-T-2 WU-T-3"
+
+frag_release_repo frag-cond5-nodir
+rm -rf changelog.d
+git add -A && git commit -q -m "fixture"
+expect 1 "condition 5: a missing changelog.d/ is a failure, not a pass" -- \
+  bash Adapters/scripts/release.sh check --milestone Testing
+expect_output "FAIL  changelog.d/ is missing"
+
+# --- The Pull Request early warning, on a real history.
+new_repo frag-advisory
+FRAG_BASE="$(git rev-parse HEAD)"
+mkdir -p changelog.d
+printf '### Added\n\n- x\n' > changelog.d/WU-T-1.md
+commit_with "feat: one" "Work Unit: WU-T-1"
+commit_with "feat: two" "Work Unit: WU-T-2"
+commit_with "docs: quotes a trailer as an example" "    Work Unit: WU-T-4"
+expect 0 "early warning: runs on a real range" -- \
+  bash "$FRAG_HARNESS" changelog_fragment_advisory changelog.d "$FRAG_BASE" HEAD
+expect_output "WU-T-2"
+expect_output_absent "WU-T-1"
+expect_output_absent "WU-T-4"
+echo "# Changelog" > CHANGELOG.md
+commit_with "docs: the old way" "Work Unit: WU-T-2"
+expect 0 "early warning: a range that edits CHANGELOG.md warns about nothing" -- \
+  bash "$FRAG_HARNESS" changelog_fragment_advisory changelog.d "$FRAG_BASE" HEAD
+expect_output_absent "WU-T-2"
+expect 2 "early warning: an unknown base is 'not evaluated', not silence" -- \
+  bash "$FRAG_HARNESS" changelog_fragment_advisory changelog.d no-such-ref HEAD
+
+cd "$HERE" || exit 1
+
+# ------- usage-collect.sh --context-series: numbers only (WU-IAENG-374) -----
+#
+# The Main Agent's occupancy per call, its compactions and drops, and how many
+# subagents were active at each, for measuring a compaction threshold. The
+# fixture is synthetic. Every free-text field holds OBS374-SENTINEL, and so do
+# the session's file name, a model name, a timestamp and a token count: none
+# may reach the output, and every field after the record tag must be a number,
+# except the session, which must be 16 hex characters. Expected values are
+# written out from the fixture, not computed by the script under test.
+#
+#   epoch 1790848800 = 2026-10-01T10:00:00Z (date -u -d ... +%s)
+
+section "usage-collect.sh --context-series — numbers only (WU-IAENG-374)"
+
+UT374="$WORK/ctx-374"
+rm -rf "$UT374"
+mkdir -p "$UT374/OBS374-SENTINEL-SESSION/subagents" "$UT374/orphan-374/subagents"
+# Session 1. msg_1 is written on two lines and counts once. msg_5's input is
+# not a number (0) and its occupancy falls without a boundary: a rewind. The
+# sidechain line and the line with a malformed timestamp are not the Main
+# Agent's calls.
+cat > "$UT374/OBS374-SENTINEL-SESSION.jsonl" <<'JSONL'
+{"type":"user","timestamp":"2026-10-01T09:59:00Z","message":{"role":"user","content":"OBS374-SENTINEL-PROMPT"}}
+{"type":"assistant","timestamp":"2026-10-01T10:00:00.120Z","message":{"id":"msg_1","model":"claude-test-1","content":[{"type":"text","text":"OBS374-SENTINEL-REPLY"}],"usage":{"input_tokens":10,"output_tokens":50,"cache_creation_input_tokens":1000,"cache_read_input_tokens":100000}}}
+{"type":"assistant","timestamp":"2026-10-01T10:00:01.000Z","message":{"id":"msg_1","model":"claude-test-1","content":[{"type":"tool_use","id":"toolu_1","name":"Agent","input":{"subagent_type":"observability-engineer","prompt":"OBS374-SENTINEL-DISPATCH"}}],"usage":{"input_tokens":10,"output_tokens":50,"cache_creation_input_tokens":1000,"cache_read_input_tokens":100000}}}
+{"type":"assistant","timestamp":"2026-10-01T10:10:00Z","message":{"id":"msg_2","model":"OBS374-SENTINEL-MODEL","content":[{"type":"text","text":"OBS374-SENTINEL-TWO"}],"usage":{"input_tokens":5,"output_tokens":10,"cache_creation_input_tokens":2000,"cache_read_input_tokens":300000}}}
+{"type":"system","subtype":"compact_boundary","content":"OBS374-SENTINEL-SUMMARY","timestamp":"2026-10-01T10:20:00.000Z","compactMetadata":{"trigger":"auto","preTokens":310000,"postTokens":20000,"durationMs":60000,"preCompactDiscoveredTools":["OBS374-SENTINEL-TOOL"]}}
+{"type":"assistant","timestamp":"2026-10-01T10:21:00Z","message":{"id":"msg_3","model":"claude-test-1","content":[],"usage":{"input_tokens":3,"output_tokens":5,"cache_creation_input_tokens":25000,"cache_read_input_tokens":0}}}
+{"type":"assistant","isSidechain":true,"timestamp":"2026-10-01T10:30:00Z","message":{"id":"msg_side","model":"claude-test-1","content":[],"usage":{"input_tokens":999999,"output_tokens":1,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}
+{"type":"assistant","timestamp":"OBS374-SENTINEL-TIME","message":{"id":"msg_badtime","model":"claude-test-1","content":[],"usage":{"input_tokens":888888,"output_tokens":1,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}
+{"type":"assistant","timestamp":"2026-13-45T25:61:61Z","message":{"id":"msg_baddate","model":"claude-test-1","content":[],"usage":{"input_tokens":777777,"output_tokens":1,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}
+{"type":"assistant","timestamp":"2026-10-01T11:00:00Z","message":{"id":"msg_4","model":"claude-test-1","content":[],"usage":{"input_tokens":1,"output_tokens":1,"cache_creation_input_tokens":1000,"cache_read_input_tokens":200000}}}
+{"type":"assistant","timestamp":"2026-10-01T11:05:00Z","message":{"id":"msg_5","model":"claude-test-1","content":[],"usage":{"input_tokens":"OBS374-SENTINEL-COUNT","output_tokens":1,"cache_creation_input_tokens":30000,"cache_read_input_tokens":0}}}
+{"type":"system","subtype":"compact_boundary","content":"OBS374-SENTINEL-MANUAL","timestamp":"2026-10-01T11:30:00Z","compactMetadata":{"trigger":"manual","preTokens":40000,"postTokens":9000,"durationMs":5000}}
+JSONL
+# Its subagent: active 10:15-10:19:30, silent 80 minutes, then 11:40. With
+# the default 900-second gap that is two segments; with 7200, one.
+cat > "$UT374/OBS374-SENTINEL-SESSION/subagents/agent-a.jsonl" <<'JSONL'
+{"type":"user","isSidechain":true,"message":{"content":"OBS374-SENTINEL-BRIEF"},"timestamp":"2026-10-01T10:15:00.000Z"}
+{"type":"assistant","isSidechain":true,"message":{"content":[{"type":"text","text":"OBS374-SENTINEL-WORK"}]},"timestamp":"2026-10-01T10:18:00.000Z"}
+{"type":"assistant","isSidechain":true,"message":{"content":[]},"timestamp":"2026-10-01T10:19:30.000Z"}
+{"type":"assistant","isSidechain":true,"message":{"content":[]},"timestamp":"2026-10-01T11:40:00.000Z"}
+JSONL
+printf '%s\n' '{"agentType":"observability-engineer","description":"OBS374-SENTINEL-META"}' > "$UT374/OBS374-SENTINEL-SESSION/subagents/agent-a.meta.json"
+# A subagent file with no main session: listed, attributed to nothing.
+printf '%s\n' '{"type":"assistant","timestamp":"2026-10-01T10:19:00Z","message":{"content":[]}}' > "$UT374/orphan-374/subagents/agent-o.jsonl"
+# Session 2: a resumed copy of msg_1 (a duplicate, not counted again) and
+# one call of its own.
+cat > "$UT374/ctx-374-second.jsonl" <<'JSONL'
+{"type":"assistant","timestamp":"2026-10-02T09:00:00Z","message":{"id":"msg_1","model":"claude-test-1","content":[],"usage":{"input_tokens":10,"output_tokens":50,"cache_creation_input_tokens":1000,"cache_read_input_tokens":100000}}}
+{"type":"assistant","timestamp":"2026-10-02T09:01:00Z","message":{"id":"msg_6","model":"claude-test-1","content":[],"usage":{"input_tokens":7,"output_tokens":7,"cache_creation_input_tokens":7,"cache_read_input_tokens":7}}}
+JSONL
+
+H374="$(printf '%s' OBS374-SENTINEL-SESSION | sha256sum | cut -c1-16)"
+CS374="$WORK/ctx-374.out"
+expect 0 "context-series: reads a transcript directory" -- bash "$COLLECT" --transcripts-dir "$UT374" --context-series
+printf '%s\n' "$LAST_OUTPUT" > "$CS374"
+expect_output "ctx-source${T}2${T}2${T}6${T}2${T}900${T}1"
+expect_output "ctx-session${T}${H374}${T}5${T}1790848800${T}1790852700${T}302005${T}1000000${T}2${T}2${T}2"
+# The resumed copy of msg_1 stays with session 1, where it is earliest:
+# session 2 holds msg_6 alone (7 + 7 + 7), whatever the listing order.
+H374B="$(printf '%s' ctx-374-second | sha256sum | cut -c1-16)"
+expect_output "ctx-session${T}${H374B}${T}1${T}1790931660${T}1790931660${T}21${T}200000${T}0${T}0${T}0"
+# occupancy = input + cache_creation + cache_read, a two-line message once.
+expect_output "ctx-call${T}${H374}${T}1${T}1790848800${T}101010${T}10${T}1000${T}100000${T}50${T}0"
+expect_output "ctx-call${T}${H374}${T}5${T}1790852700${T}30000${T}0${T}30000${T}0${T}1${T}0"
+# msg_3 follows msg_2 by 11 minutes, across the subagent's first burst.
+expect_output "ctx-call${T}${H374}${T}3${T}1790850060${T}25003${T}3${T}25000${T}0${T}5${T}1"
+expect_no_output "999999" "context-series: a sidechain line in the main transcript is not a Main Agent call"
+expect_no_output "888888" "context-series: a line whose timestamp is not a timestamp is not counted"
+# SEC-IAENG-374-01: a timestamp of the right shape that is no date (month 13,
+# hour 25) is skipped like a malformed one; it must not abort the run, which
+# the exit 0 above and the complete records here prove.
+expect_no_output "777777" "context-series: an impossible date of the right shape is skipped, not fatal"
+# The auto compaction: an Employee was active during its 60 seconds.
+expect_output "ctx-compact${T}${H374}${T}1790850000${T}1${T}310000${T}20000${T}60000${T}1${T}302005${T}25003"
+# The manual one, 20 minutes into the subagent's silence: none in flight.
+expect_output "ctx-compact${T}${H374}${T}1790854200${T}2${T}40000${T}9000${T}5000${T}0${T}30000${T}0"
+expect_output "ctx-drop${T}${H374}${T}1790850060${T}302005${T}25003${T}1${T}1"
+expect_output "ctx-drop${T}${H374}${T}1790852700${T}201001${T}30000${T}0${T}0"
+expect_no_output "OBS374-SENTINEL" "context-series privacy: no prompt, reply, model, summary, file name or meta text"
+expect_no_output "$UT374" "context-series privacy: no path"
+expect_no_output "ctx-374-second" "context-series privacy: no session file name"
+# A feeder script, not an inline awk program: shellcheck reads a quoted
+# argument to `expect` as shell text (SC2016).
+cat > "$WORK/fields-374.sh" <<'FEED'
+awk -F '\t' '
+  $1 !~ /^ctx-(source|session|call|compact|drop)$/ { print "unknown record: " NR; exit 1 }
+  { for (i = 2; i <= NF; i++) if ($i !~ /^[0-9]+$/ && !(i == 2 && $1 != "ctx-source" && $i ~ /^[0-9a-f]+$/ && length($i) == 16)) { print "record " NR " field " i " is not a number"; exit 1 } }
+  END { if (NR < 10) { print "only " NR " records"; exit 1 } }' "$1"
+FEED
+expect 0 "context-series: every field after the tag is a number, the session 16 hex characters" -- bash "$WORK/fields-374.sh" "$CS374"
+
+# --gap 7200 joins the subagent's two bursts: the manual compaction and the
+# rewind now fall inside its activity.
+expect 0 "context-series --gap 7200: runs" -- bash "$COLLECT" --transcripts-dir "$UT374" --context-series --gap 7200
+expect_output "ctx-compact${T}${H374}${T}1790854200${T}2${T}40000${T}9000${T}5000${T}1${T}30000${T}0"
+expect_output "ctx-drop${T}${H374}${T}1790852700${T}201001${T}30000${T}1${T}0"
+
+expect 2 "context-series: --gap takes seconds, not text" -- bash "$COLLECT" --transcripts-dir "$UT374" --context-series --gap 9x
+expect_output "--gap takes a number of seconds from 60 to 86400"
+expect 2 "context-series: --gap under a minute is refused" -- bash "$COLLECT" --transcripts-dir "$UT374" --context-series --gap 59
+expect 2 "context-series: no cache, so --cache-dir is refused" -- bash "$COLLECT" --transcripts-dir "$UT374" --context-series --cache-dir "$WORK/ctx-374-cache"
+expect_output "--context-series reads every transcript in full"
+
+# context-simulate.sh replays those records under a threshold. Session A
+# grows by 100k a call to 600k; at T=30 of a 1M window, with P = 50k, it
+# compacts at calls 3 and 6. Worked by hand, in input-price units (R 0.05,
+# O 5, a write 1.25):
+#   tokens  100k + 200k + 50k + 150k + 250k + 50k            = 800000
+#   calls   1.25*100k + .05*200k + 1.25*50k + .05*150k + .05*250k + 1.25*50k = 280000
+#   summary 2 x 5*50k + .05*300k + .05*350k                  = 532500
+#   default 1.25*100k + .05*(200k+300k+400k+500k+600k)       = 225000
+#   saving  1 - (280000 + 532500) / 225000                   = -261.1 %
+SIM="$SCRIPTS/../ai-runtimes/claude-code/context-simulate.sh"
+SA374="$WORK/sim-374-a.tsv"
+{
+  printf 'ctx-call\taaaaaaaaaaaaaaaa\t1\t1790848800\t100000\t0\t100000\t0\t0\t0\n'
+  for k_374 in 2 3 4 5; do
+    printf 'ctx-call\taaaaaaaaaaaaaaaa\t%d\t%d\t%d\t0\t0\t%d\t0\t0\n' "$k_374" "$((1790848800 + 60 * k_374))" "$((100000 * k_374))" "$((100000 * k_374))"
+  done
+  printf 'ctx-call\taaaaaaaaaaaaaaaa\t6\t1790849160\t600000\t0\t0\t600000\t0\t1\n'
+} > "$SA374"
+expect 0 "context-simulate: replays a series" -- bash "$SIM" --post 50000 --thresholds 30,70 --reps 50 "$SA374"
+expect_output "sim-input${T}1${T}1${T}6${T}1${T}1.0${T}0${T}50000${T}50000${T}0"
+expect_output "sim${T}default${T}0${T}2100000${T}225000${T}0${T}0.00${T}0.00${T}"
+# Two compactions, the second with an Employee in flight (call 6).
+expect_output "sim${T}30${T}2${T}800000${T}280000${T}532500${T}2.00${T}1.00${T}-261.1${T}-261.1${T}-261.1${T}-261.1"
+expect_output "sim${T}70${T}0${T}2100000${T}225000${T}0${T}0.00${T}0.00${T}0.0${T}"
+# The same session read from two directories is one session, not twelve calls.
+expect 0 "context-simulate: a session in two inputs" -- bash "$SIM" --post 50000 --thresholds 30 --reps 50 "$SA374" "$SA374"
+expect_output "sim-input${T}1${T}1${T}6${T}1${T}1.0${T}0${T}50000${T}50000${T}0"
+expect_output "sim${T}30${T}2${T}800000${T}280000${T}532500${T}"
+# Session B was compacted for real (460k -> 40k). In the simulated world
+# that compaction does not happen: the call after it adds nothing, so B
+# runs 400k, 450k, 450k, 470k and never reaches T=50.
+SB374="$WORK/sim-374-b.tsv"
+printf '%s\n' \
+  "ctx-call${T}bbbbbbbbbbbbbbbb${T}1${T}1790848800${T}400000${T}0${T}0${T}400000${T}0${T}0" \
+  "ctx-call${T}bbbbbbbbbbbbbbbb${T}2${T}1790848860${T}450000${T}0${T}0${T}450000${T}0${T}0" \
+  "ctx-call${T}bbbbbbbbbbbbbbbb${T}3${T}1790849000${T}40000${T}0${T}40000${T}0${T}0${T}0" \
+  "ctx-call${T}bbbbbbbbbbbbbbbb${T}4${T}1790849060${T}60000${T}0${T}0${T}60000${T}0${T}0" \
+  "ctx-compact${T}bbbbbbbbbbbbbbbb${T}1790848950${T}1${T}460000${T}20000${T}60000${T}0${T}450000${T}40000" \
+  "ctx-drop${T}bbbbbbbbbbbbbbbb${T}1790849000${T}450000${T}40000${T}0${T}1" > "$SB374"
+expect 0 "context-simulate: a series with a real compaction" -- bash "$SIM" --post 50000 --thresholds 50 --reps 50 "$SB374"
+expect_output "sim${T}default${T}1${T}950000${T}"
+expect_output "sim${T}50${T}0${T}1770000${T}"
+: > "$WORK/sim-374-empty.tsv"
+expect 1 "context-simulate: no ctx-call record is an error" -- bash "$SIM" "$WORK/sim-374-empty.tsv"
+expect_output "no ctx-call record in the input"
+expect 2 "context-simulate: a threshold of 100 is refused" -- bash "$SIM" --thresholds 30,100 "$SA374"
+expect_output "--thresholds takes percentages 1 to 99"
+
+# Session C writes 100k of new content on every call (occupancy 100k to
+# 400k). At T=30 it compacts at call 3; call 4 then holds 150k. Scaled, call
+# 4 pays its real blended rate, (1.25*100k + .05*300k) / 400k = .35, on
+# 150k = 52500; fixed, it pays its 100k write in full and reads the rest:
+# 1.25*100k + .05*50k = 127500. Calls 1 to 3 cost 125000 + 130000 + 62500
+# either way, so the totals are 370000 and 445000; the summary is
+# .05*300k + 5*50k = 265000.
+SC374="$WORK/sim-374-c.tsv"
+for k_374 in 1 2 3 4; do
+  printf 'ctx-call\tcccccccccccccccc\t%d\t%d\t%d\t0\t100000\t%d\t0\t0\n' "$k_374" "$((1790848800 + 60 * k_374))" "$((100000 * k_374))" "$((100000 * (k_374 - 1)))"
+done > "$SC374"
+expect 0 "context-simulate: cache writes scaled with occupancy" -- bash "$SIM" --post 50000 --thresholds 30 --reps 50 "$SC374"
+expect_output "sim${T}30${T}1${T}500000${T}370000${T}265000${T}"
+expect 0 "context-simulate --write-model fixed: the new content of a turn is written in full at any T" -- \
+  bash "$SIM" --post 50000 --thresholds 30 --reps 50 --write-model fixed "$SC374"
+expect_output "sim${T}30${T}1${T}500000${T}445000${T}265000${T}"
+# --write 2 (a 1-hour cache write): session A as it ran costs
+# 2*100k + .05*(200k+300k+400k+500k+600k) = 300000.
+expect 0 "context-simulate --write 2: a 1-hour cache write" -- bash "$SIM" --post 50000 --thresholds 70 --reps 50 --write 2 "$SA374"
+expect_output "sim${T}default${T}0${T}2100000${T}300000${T}"
+expect 2 "context-simulate: --write-model takes scaled or fixed" -- bash "$SIM" --write-model both "$SA374"
+# CR-374-01: P and S by default, with no --post. P is the median occupancy
+# of the first call after the real compactions (auto and manual), S their
+# median postTokens; a compaction with nothing after it (0) is left out.
+#   odd:  occ-after 30000 50000 10000 (and 0)  -> P 30000; post 7000 9000 8000 (and 0) -> S 8000
+#   even: occ-after 10000 20000 40000 80000    -> P (20000 + 40000) / 2 = 30000
+#         post 1000 3000 5000 9000             -> S (3000 + 5000) / 2 = 4000
+SO374="$WORK/sim-374-odd.tsv"
+printf '%s\n' \
+  "ctx-call${T}eeeeeeeeeeeeeeee${T}1${T}1790848800${T}1000${T}0${T}1000${T}0${T}0${T}0" \
+  "ctx-compact${T}eeeeeeeeeeeeeeee${T}1790848801${T}1${T}900000${T}7000${T}1000${T}0${T}900000${T}30000" \
+  "ctx-compact${T}eeeeeeeeeeeeeeee${T}1790848802${T}2${T}900000${T}9000${T}1000${T}0${T}900000${T}50000" \
+  "ctx-compact${T}eeeeeeeeeeeeeeee${T}1790848803${T}1${T}900000${T}8000${T}1000${T}0${T}900000${T}10000" \
+  "ctx-compact${T}eeeeeeeeeeeeeeee${T}1790848804${T}1${T}900000${T}0${T}1000${T}0${T}900000${T}0" > "$SO374"
+expect 0 "context-simulate: P and S by default, an odd count" -- bash "$SIM" --thresholds 30 --reps 40 "$SO374"
+expect_output "sim-input${T}1${T}0${T}1${T}1${T}1.0${T}4${T}30000${T}8000${T}0"
+SE374="$WORK/sim-374-even.tsv"
+{
+  printf 'ctx-call\teeeeeeeeeeeeeeee\t1\t1790848800\t1000\t0\t1000\t0\t0\t0\n'
+  for v_374 in 1:10000:1000 2:20000:3000 3:40000:5000 4:80000:9000; do
+    IFS=: read -r j_374 a_374 p_374 <<< "$v_374"
+    printf 'ctx-compact\teeeeeeeeeeeeeeee\t%d\t1\t900000\t%d\t1000\t0\t900000\t%d\n' "$((1790848800 + j_374))" "$p_374" "$a_374"
+  done
+} > "$SE374"
+expect 0 "context-simulate: P and S by default, an even count" -- bash "$SIM" --thresholds 30 --reps 40 "$SE374"
+expect_output "sim-input${T}1${T}0${T}1${T}1${T}1.0${T}4${T}30000${T}4000${T}0"
+# CR-374-04: a FILE that cannot be read is an error (1), not a usage error;
+# fewer than 40 resamples would print an interval that rests on none.
+expect 1 "context-simulate: a missing FILE is an error, not a usage error" -- bash "$SIM" "$WORK/sim-374-absent.tsv"
+expect_output "cannot read"
+expect 2 "context-simulate: --reps under 40 is refused" -- bash "$SIM" --reps 1 "$SA374"
+expect_output "--reps takes 40 to 20000 resamples"
+# SEC-IAENG-374-01: a series that cost nothing (every count 0) has no saving
+# to divide by; it reports 0, it does not abort.
+printf 'ctx-call\tdddddddddddddddd\t1\t1790848800\t0\t0\t0\t0\t0\t0\n' > "$WORK/sim-374-zero.tsv"
+expect 0 "context-simulate: a series with zero cost is not a division by zero" -- bash "$SIM" --thresholds 30 --reps 50 "$WORK/sim-374-zero.tsv"
+expect_output "sim${T}30${T}0${T}0${T}0${T}0${T}0.00${T}0.00${T}0.0${T}0.0${T}0.0${T}0.0"
+
+# ------------- trailer and registry checks: line-end carriage return only ---
+#
+# Standards/CODE_QUALITY_STANDARD.md, The Check Convention, Shell Scripts
+# rule 3: a carriage return is removed only where it ends a line, never every
+# one. The four checks below removed every one (`tr -d '\r'`,
+# `gsub(/\r/, "")`), so a value with a carriage return INSIDE it was compared
+# as if it had none: `Employee: Platform Engi<CR>neer` passed as
+# `Platform Engineer`, a roster or registry line YAML does not read as that
+# name or id matched it, and a risk-map field read as one the map does not
+# contain (issue #325, from SEC-IAENG-353-01). Each site has a case that a
+# mid-value carriage return is REFUSED, and one that a CRLF-terminated line
+# still PASSES, the reason the stripping exists at all.
+#
+# The expected outcomes come from git, not from the scripts: the first two
+# cases pin what `git interpret-trailers --parse` reads — a carriage return
+# inside a trailer value is kept, one ending the line is not.
+
+section "trailer and registry checks — a carriage return is removed only at a line end (WU-IAENG-389, #325)"
+
+CR389=$'\r'
+HOOK389="$SCRIPTS/../git-hooks/commit-msg"
+EMP389="$SCRIPTS/check-employee-trailers.sh"
+WU389="$SCRIPTS/check-work-units.sh"
+MAP389="$SCRIPTS/check-risk-map.sh"
+
+# commit_verbatim389 <message-file> — commits the message bytes as written.
+# The default cleanup (stripspace) trims trailing whitespace, a line-end
+# carriage return included, so without --cleanup=verbatim a CRLF-terminated
+# trailer would never reach the check under test.
+commit_verbatim389() {
+  echo "$RANDOM.$RANDOM" > "f$(date +%s%N).txt"
+  git add -A
+  git commit -q --cleanup=verbatim -F "$1"
+}
+
+new_repo cr389-oracle
+printf 'feat: x\n\nEmployee: Platform Engi\rneer\n' > mid.txt
+printf 'feat: x\n\nEmployee: Platform Engineer\r\n' > crlf.txt
+expect 0 "oracle: git keeps a carriage return inside a trailer value" -- \
+  test "$(git interpret-trailers --parse mid.txt)" = "Employee: Platform Engi${CR389}neer"
+expect 0 "oracle: git does not keep a carriage return that ends the trailer line" -- \
+  test "$(git interpret-trailers --parse crlf.txt)" = "Employee: Platform Engineer"
+
+# --- git-hooks/commit-msg: the value, the roster, the project roster
+# The messages claim WU-TEST-001, which the hook resolves against the staged
+# registry (WU-IAENG-415), so it is registered and committed.
+new_repo cr389-hook
+write_employee_roster "Platform Engineer" "Release Manager"
+write_wu_registry WU-TEST-001
+git add -A && git commit -q -m "registry"
+printf 'fix(cr): x\n\nWork Unit: WU-TEST-001\n\nEmployee: Platform Engi\rneer\n' > msg-mid.txt
+printf 'fix(cr): x\n\nWork Unit: WU-TEST-001\n\nEmployee: Platform Engineer\r\n' > msg-crlf.txt
+printf 'fix(cr): x\n\nWork Unit: WU-TEST-001\n\nEmployee: Platform Engineer\n' > msg-plain.txt
+printf 'fix(cr): x\n\nWork Unit: WU-TEST-001\n\nEmployee: Domain Engineer\n' > msg-domain.txt
+expect 1 "commit-msg: a carriage return inside the Employee value is refused" -- bash "$HOOK389" msg-mid.txt
+expect_output "is not a recognized Employee"
+expect 0 "commit-msg: a CRLF-terminated Employee trailer is accepted" -- bash "$HOOK389" msg-crlf.txt
+printf 'employees:\n  - name: Platform Engi\rneer\n    category: DevOps\n  - name: Release Manager\n    category: Management\n' > Registry/employees.yml
+expect 1 "commit-msg: a roster name with a carriage return inside it does not match the name without one" -- bash "$HOOK389" msg-plain.txt
+expect_output "is not a recognized Employee"
+write_employee_roster "Platform Engineer" "Release Manager"
+sed -i "s/\$/${CR389}/" Registry/employees.yml
+expect 0 "commit-msg: a CRLF roster still resolves its names" -- bash "$HOOK389" msg-plain.txt
+mkdir -p .ia-engineering/Registry
+printf 'employees:\n  - name: Domain Engi\rneer\n    category: Domain\n' > .ia-engineering/Registry/employees.yml
+expect 1 "commit-msg: a project roster name with a carriage return inside it does not match" -- bash "$HOOK389" msg-domain.txt
+expect_output "is not a recognized Employee"
+printf 'employees:\r\n  - name: Domain Engineer\r\n    category: Domain\r\n' > .ia-engineering/Registry/employees.yml
+expect 0 "commit-msg: a CRLF project roster still resolves its names" -- bash "$HOOK389" msg-domain.txt
+
+# --- check-employee-trailers.sh: the value, the roster, the project roster
+cr389_emp_repo() {
+  new_repo "$1"
+  write_employee_roster "Platform Engineer" "Release Manager"
+  git add -A && git commit -q -m "roster"
+}
+cr389_emp_repo cr389-emp-mid
+BASE="$(git rev-parse HEAD)"
+printf 'feat: x\n\nEmployee: Platform Engi\rneer\n' > "$WORK/cr389-emp-mid.txt"
+commit_verbatim389 "$WORK/cr389-emp-mid.txt"
+expect 1 "check-employee-trailers: a carriage return inside the Employee value is refused" -- bash "$EMP389" "$BASE" HEAD
+expect_output "which is not in"
+
+cr389_emp_repo cr389-emp-crlf
+BASE="$(git rev-parse HEAD)"
+printf 'feat: x\n\nEmployee: Platform Engineer\r\n' > "$WORK/cr389-emp-crlf.txt"
+commit_verbatim389 "$WORK/cr389-emp-crlf.txt"
+expect 0 "check-employee-trailers: a CRLF-terminated Employee trailer resolves" -- bash "$EMP389" "$BASE" HEAD
+expect_output "-> Platform Engineer"
+
+cr389_emp_repo cr389-emp-roster-mid
+printf 'employees:\n  - name: Platform Engi\rneer\n    category: DevOps\n  - name: Release Manager\n    category: Management\n' > Registry/employees.yml
+git add -A && git commit -q -m "roster"
+BASE="$(git rev-parse HEAD)"
+commit_with "feat: x" "Employee: Platform Engineer"
+expect 1 "check-employee-trailers: a roster name with a carriage return inside it does not match" -- bash "$EMP389" "$BASE" HEAD
+expect_output "which is not in"
+
+cr389_emp_repo cr389-emp-roster-crlf
+sed -i "s/\$/${CR389}/" Registry/employees.yml
+git add -A && git commit -q -m "roster"
+BASE="$(git rev-parse HEAD)"
+commit_with "feat: x" "Employee: Platform Engineer"
+expect 0 "check-employee-trailers: a CRLF roster still resolves its names" -- bash "$EMP389" "$BASE" HEAD
+expect_output "-> Platform Engineer"
+
+cr389_emp_repo cr389-emp-project-mid
+mkdir -p .ia-engineering/Registry
+printf 'employees:\n  - name: Domain Engi\rneer\n    category: Domain\n' > .ia-engineering/Registry/employees.yml
+git add -A && git commit -q -m "project roster"
+BASE="$(git rev-parse HEAD)"
+commit_with "feat: x" "Employee: Domain Engineer"
+expect 1 "check-employee-trailers: a project roster name with a carriage return inside it does not match" -- bash "$EMP389" "$BASE" HEAD
+expect_output "which is not in"
+
+cr389_emp_repo cr389-emp-project-crlf
+mkdir -p .ia-engineering/Registry
+printf 'employees:\r\n  - name: Domain Engineer\r\n    category: Domain\r\n' > .ia-engineering/Registry/employees.yml
+git add -A && git commit -q -m "project roster"
+BASE="$(git rev-parse HEAD)"
+commit_with "feat: x" "Employee: Domain Engineer"
+expect 0 "check-employee-trailers: a CRLF project roster still resolves its names" -- bash "$EMP389" "$BASE" HEAD
+expect_output "-> Domain Engineer"
+
+# --- check-work-units.sh: the value, the registry
+# cr389_wu_repo <name> [mid|crlf] — a registry of WU-TEST-001 and WU-TEST-002,
+# with a carriage return inside the second id (mid) or ending every line (crlf).
+cr389_wu_repo() {
+  new_repo "$1"
+  write_wu_registry WU-TEST-001 WU-TEST-002
+  case "${2:-}" in
+    mid)  sed -i "s/^  - id: WU-TEST-002\$/  - id: WU-TEST-0${CR389}02/" Registry/work-units.yml ;;
+    crlf) sed -i "s/\$/${CR389}/" Registry/work-units.yml ;;
+  esac
+  git add -A && git commit -q -m "registry
+
+Work Unit: WU-TEST-001"
+}
+cr389_wu_repo cr389-wu-mid
+BASE="$(git rev-parse HEAD)"
+printf 'feat: x\n\nWork Unit: WU-TEST-0\r02\n' > "$WORK/cr389-wu-mid.txt"
+commit_verbatim389 "$WORK/cr389-wu-mid.txt"
+expect 1 "check-work-units: a carriage return inside the Work Unit value is refused" -- bash "$WU389" "$BASE" HEAD
+expect_output "is empty or not a Work Unit id"
+
+cr389_wu_repo cr389-wu-crlf
+BASE="$(git rev-parse HEAD)"
+printf 'feat: x\n\nWork Unit: WU-TEST-002\r\n' > "$WORK/cr389-wu-crlf.txt"
+commit_verbatim389 "$WORK/cr389-wu-crlf.txt"
+expect 0 "check-work-units: a CRLF-terminated Work Unit trailer resolves" -- bash "$WU389" "$BASE" HEAD
+expect_output "-> WU-TEST-002 (resolved)"
+
+cr389_wu_repo cr389-wu-registry-mid mid
+BASE="$(git rev-parse HEAD)"
+commit_with "feat: x" "Work Unit: WU-TEST-002"
+expect 1 "check-work-units: a registry id with a carriage return inside it does not register the id without one" -- bash "$WU389" "$BASE" HEAD
+expect_output "claims 'WU-TEST-002', which is not in"
+
+cr389_wu_repo cr389-wu-registry-crlf crlf
+BASE="$(git rev-parse HEAD)"
+commit_with "feat: x" "Work Unit: WU-TEST-002"
+expect 0 "check-work-units: a CRLF registry still registers its ids" -- bash "$WU389" "$BASE" HEAD
+expect_output "-> WU-TEST-002 (resolved)"
+
+# --- check-risk-map.sh: pattern, level, category, declared-absent category
+risk_project cr389-map-pattern; sound_risk_map
+sed -i "s|- pattern: \"src/auth/\\*\"|- pattern: \"src/au${CR389}th/*\"|" .ia-engineering/risk-map.yml && git add -A
+expect 1 "check-risk-map: a pattern with a carriage return inside it is not the pattern without one" -- bash "$MAP389" .
+expect_output "matches no tracked file"
+
+risk_project cr389-map-level; sound_risk_map
+sed -i "s/level: sensitive/level: sensi${CR389}tive/" .ia-engineering/risk-map.yml && git add -A
+expect 1 "check-risk-map: a level with a carriage return inside it is not a level" -- bash "$MAP389" .
+expect_output "which is not one of"
+
+risk_project cr389-map-category; sound_risk_map
+sed -i "s/    category: authentication/    category: authenti${CR389}cation/" .ia-engineering/risk-map.yml && git add -A
+expect 1 "check-risk-map: a category with a carriage return inside it is not in the closed list" -- bash "$MAP389" .
+expect_output "closed list"
+
+risk_project cr389-map-absent; sound_risk_map
+sed -i "s/- category: core_architecture/- category: core_archi${CR389}tecture/" .ia-engineering/risk-map.yml && git add -A
+expect 1 "check-risk-map: a declared-absent category with a carriage return inside it declares nothing" -- bash "$MAP389" .
+expect_output "category 'core_architecture' is neither mapped"
+
+risk_project cr389-map-crlf; sound_risk_map
+sed -i "s/\$/${CR389}/" .ia-engineering/risk-map.yml && git add -A
+expect 0 "check-risk-map: a CRLF map is still sound" -- bash "$MAP389" .
+expect_output "Risk Map is sound"
+
+# --------- a trailer value that begins with a dash is text (WU-IAENG-427) -----
+#
+# The Employee value is compared with the roster names by `grep -qxF`, and it
+# reaches grep after `--`: a value that begins with a dash is a string to
+# match, never an option. None of the values below is a roster name, so the
+# hook and the CI check both refuse each one, and a roster name still resolves
+# beside them. `-e x` was refused before too (it names the pattern " x"); it
+# stays as a shape of the class. A Work Unit value never reaches its grep with
+# a dash, because the shape test refuses it first, as the last cases pin.
+
+section "trailer checks — a value that begins with a dash is compared as text (WU-IAENG-427)"
+
+DASH427=('--help' '--version' '-V' '-e x' '-ePlatform Engineer')
+
+new_repo dash427-hook
+write_employee_roster "Platform Engineer" "Release Manager"
+git add -A && git commit -q -m "roster"
+for v427 in "${DASH427[@]}"; do
+  printf 'fix(x): y\n\nEmployee: %s\n' "$v427" > msg427.txt
+  expect 1 "commit-msg: 'Employee: $v427' is refused" -- bash "$HOOK389" msg427.txt
+  expect_output "'Employee: $v427' is not a recognized Employee"
+done
+printf 'fix(x): y\n\nEmployee: Platform Engineer\n' > msg427.txt
+expect 0 "commit-msg: a roster name beside them still resolves" -- bash "$HOOK389" msg427.txt
+
+cr389_emp_repo dash427-emp
+for v427 in "${DASH427[@]}"; do
+  BASE="$(git rev-parse HEAD)"
+  commit_with "feat: x" "Employee: $v427"
+  expect 1 "check-employee-trailers: 'Employee: $v427' is refused" -- bash "$EMP389" "$BASE" HEAD
+  expect_output "has 'Employee: $v427', which is not in"
+done
+BASE="$(git rev-parse HEAD)"
+commit_with "feat: x" "Employee: Platform Engineer"
+expect 0 "check-employee-trailers: a roster name beside them still resolves" -- bash "$EMP389" "$BASE" HEAD
+expect_output "-> Platform Engineer"
+
+new_repo dash427-wu
+write_employee_roster "Platform Engineer"
+write_wu_registry WU-TEST-001
+git add -A && git commit -q -m "registry"
+printf 'fix(x): y\n\nWork Unit: --help\n\nEmployee: Platform Engineer\n' > msg427.txt
+expect 1 "commit-msg: 'Work Unit: --help' is refused by the shape test" -- bash "$HOOK389" msg427.txt
+expect_output "is empty or not a Work Unit id"
+BASE="$(git rev-parse HEAD)"
+commit_with "feat: x" "Work Unit: --help"
+expect 1 "check-work-units: 'Work Unit: --help' is refused by the shape test" -- bash "$WU389" "$BASE" HEAD
+expect_output "is empty or not a Work Unit id"
+
+# ------- a condition not evaluated exits 2, never 1 (WU-IAENG-390, #331) ------
+#
+# Standards/CODE_QUALITY_STANDARD.md, The Check Convention, Shell Scripts
+# rule 1: a failure to evaluate has its own code, never 0 and never the code
+# that reports a finding. Ten checks exited 1 when they could not evaluate, so
+# a caller could not tell "evaluated, found something" from "could not
+# evaluate". The cases flipped from `expect 1` to `expect 2` in the sections
+# above cover the conditions those sections already built; these cover the
+# rest, one or more per check, and pin that a finding is still 1 where the two
+# could be confused. Every caller fails on any non-zero code (the workflows'
+# run: steps, pre-commit's exec, release.sh's `if`), so 2 fails closed as 1 did.
+#
+# git390_shim <dir> — a git that fails (exit 128) any call whose arguments
+# hold every word of $G390_FAIL, and runs the real git for every other call.
+# It is how a git failure the checks test for is produced on demand.
+
+section "checks — a condition not evaluated exits 2, not the finding's 1 (WU-IAENG-390, #331)"
+
+G390_REAL_GIT="$(command -v git)"
+G390_SHIM="$WORK/shim-390"
+mkdir -p "$G390_SHIM"
+cat > "$G390_SHIM/git" <<SHIM
+#!/usr/bin/env bash
+g390_args=" \$* "
+for g390_w in \${G390_FAIL:-}; do
+  case "\$g390_args" in *" \$g390_w "*) ;; *) exec "$G390_REAL_GIT" "\$@" ;; esac
+done
+[ -n "\${G390_FAIL:-}" ] || exec "$G390_REAL_GIT" "\$@"
+echo "git (WU-IAENG-390 shim): failing '\$*'" >&2
+exit 128
+SHIM
+chmod +x "$G390_SHIM/git"
+G390=(env PATH="$G390_SHIM:$PATH")
+T390=$'\t'
+
+# --- check-employee-trailers.sh
+new_repo emp390-range
+write_employee_roster "DevOps Engineer"
+git add -A && git commit -q -m "roster"
+BASE="$(git rev-parse HEAD)"
+commit_with "feat: x" "Employee: DevOps Engineer"
+expect 2 "check-employee-trailers: an unresolvable range is not evaluated (exit 2)" -- \
+  bash "$SCRIPTS/check-employee-trailers.sh" does-not-exist HEAD
+expect_output "git rev-list failed"
+expect 2 "check-employee-trailers: a failed git rev-list --merges is not evaluated (exit 2)" -- \
+  "${G390[@]}" G390_FAIL="rev-list --merges" bash "$SCRIPTS/check-employee-trailers.sh" "$BASE" HEAD
+expect_output "git rev-list --merges failed"
+# A finding and an unclassifiable merge in one range: 2, not 1. What was not
+# evaluated is reported as such, whatever else was found.
+mk_emp_merge_repo emp390-both
+git merge -q --no-ff side -m "Merge branch 'side'"
+commit_with "feat: nobody claims it"
+expect 2 "check-employee-trailers: a finding does not lower an unclassified merge to 1" -- \
+  "${G390[@]}" G390_FAIL="merge-tree" bash "$SCRIPTS/check-employee-trailers.sh" "$BASE" HEAD
+expect_output "missing an 'Employee: <Name>' trailer"
+expect_output "could not be classified"
+expect 1 "check-employee-trailers: the same finding with the merge classified is 1" -- \
+  bash "$SCRIPTS/check-employee-trailers.sh" "$BASE" HEAD
+
+# --- check-work-units.sh
+new_repo wu390-merges
+write_wu_registry WU-TEST-001
+git add -A && git commit -q -m "registry"
+BASE="$(git rev-parse HEAD)"
+commit_with "feat: x" "Work Unit: WU-TEST-001"
+expect 2 "check-work-units: a failed git rev-list --merges is not evaluated (exit 2)" -- \
+  "${G390[@]}" G390_FAIL="rev-list --merges" bash "$SCRIPTS/check-work-units.sh" "$BASE" HEAD
+expect_output "git rev-list --merges failed"
+# A finding and an unclassified merge in one range: 2, not 1, as in
+# check-employee-trailers.sh above (DEF-IAENG-390-01: QA's mutant M1, which
+# reports the finding first, survived the suite here).
+mk_wu_merge_repo wu390-both
+git merge -q --no-ff side -m "Merge branch 'side'"
+commit_with "feat: nobody claims it"
+expect 2 "check-work-units: a finding does not lower an unclassified merge to 1" -- \
+  "${G390[@]}" G390_FAIL="merge-tree" bash "$SCRIPTS/check-work-units.sh" "$BASE" HEAD
+expect_output "carries no 'Work Unit: <WU-ID>' trailer"
+expect_output "could not be classified"
+expect 1 "check-work-units: the same finding with the merge classified is 1" -- \
+  bash "$SCRIPTS/check-work-units.sh" "$BASE" HEAD
+
+# --- check-inline-suppression.sh
+mkdir -p "$WORK/sup390-not-a-repo"
+cd "$WORK/sup390-not-a-repo" || exit 1
+expect 2 "check-inline-suppression: outside a work tree is not evaluated (exit 2)" -- \
+  bash "$SCRIPTS/check-inline-suppression.sh" HEAD HEAD
+expect_output "not inside a git work tree"
+new_repo sup390
+SBASE="$(git rev-parse HEAD)"
+printf 'x = 1\n' > a.py && git add -A && git commit -q -m "a.py"
+expect 2 "check-inline-suppression: an unresolvable base is not evaluated (exit 2)" -- \
+  bash "$SCRIPTS/check-inline-suppression.sh" no-such-base HEAD
+expect_output "cannot resolve base"
+expect 2 "check-inline-suppression: no scratch directory is not evaluated (exit 2)" -- \
+  env TMPDIR="$WORK/sup390-no-such-tmp" bash "$SCRIPTS/check-inline-suppression.sh" "$SBASE" HEAD
+expect_output "cannot create a scratch directory"
+expect 2 "check-inline-suppression: a failed git diff --name-only is not evaluated (exit 2)" -- \
+  "${G390[@]}" G390_FAIL="diff --name-only" bash "$SCRIPTS/check-inline-suppression.sh" "$SBASE" HEAD
+expect_output "git diff --name-only failed"
+expect 2 "check-inline-suppression: a failed git diff is not evaluated (exit 2)" -- \
+  "${G390[@]}" G390_FAIL="diff -U0" bash "$SCRIPTS/check-inline-suppression.sh" "$SBASE" HEAD
+expect_output "git diff failed"
+expect 2 "check-inline-suppression: a failed git check-attr is not evaluated (exit 2)" -- \
+  "${G390[@]}" G390_FAIL="check-attr" bash "$SCRIPTS/check-inline-suppression.sh" "$SBASE" HEAD
+expect_output "git check-attr failed"
+mkdir -p .ia-engineering
+printf '^a\\.py$\t(\tan unbalanced expression\n' > .ia-engineering/suppression.allow
+expect 2 "check-inline-suppression: an allow entry grep cannot compile is not evaluated (exit 2)" -- \
+  bash "$SCRIPTS/check-inline-suppression.sh" "$SBASE" HEAD
+expect_output "is not a valid extended regular expression"
+rm -f .ia-engineering/suppression.allow
+git commit -q --allow-empty -m "changes nothing"
+expect 2 "check-inline-suppression: commits that cannot be counted are not evaluated (exit 2)" -- \
+  "${G390[@]}" G390_FAIL="rev-list --count" bash "$SCRIPTS/check-inline-suppression.sh" HEAD~1 HEAD
+expect_output "cannot count commits"
+mkdir -p "$WORK/sup390-badpat"
+cp "$SCRIPTS/check-inline-suppression.sh" "$WORK/sup390-badpat/"
+printf 'broken\t(\n' > "$WORK/sup390-badpat/suppression-patterns.tsv"
+expect 2 "check-inline-suppression: a pattern grep cannot compile is not evaluated (exit 2)" -- \
+  bash "$WORK/sup390-badpat/check-inline-suppression.sh" "$SBASE" HEAD
+expect_output "is not a valid extended regular expression"
+# A finding is still 1.
+printf 'x = 2  %s\n' "$(printf '%s%s' '#' ' noqa')" > a.py && git add -A && git commit -q -m "a directive"
+expect 1 "check-inline-suppression: a directive is still a finding (exit 1)" -- \
+  bash "$SCRIPTS/check-inline-suppression.sh" "$SBASE" HEAD
+
+# --- check-control-path-approval.sh: a fake gh whose API calls fail.
+CPA390_BIN="$WORK/cpa390-bin"
+mkdir -p "$CPA390_BIN"
+printf '#!/usr/bin/env bash\necho "gh: HTTP 502" >&2\nexit 1\n' > "$CPA390_BIN/gh"
+chmod +x "$CPA390_BIN/gh"
+expect 2 "check-control-path-approval: a head the API cannot return is not evaluated (exit 2)" -- \
+  env PATH="$CPA390_BIN:$PATH" GH_TOKEN=unused REPO=o/r PR_NUMBER=7 CHANGED_FILES=1 \
+  ACTION=synchronize LABEL_ADDED= SENDER=dir DIRECTOR_LOGIN=dir \
+  EVENT_HEAD="$(printf '%040d' 0 | tr 0 a)" LABELS_JSON='[]' APPROVAL_LABEL=control-change/approved \
+  bash "$SCRIPTS/check-control-path-approval.sh"
+expect_output "The API did not return the PR head"
+
+# --- check-risk-map.sh
+cd "$WORK" || exit 1
+expect 2 "check-risk-map: a project root that is not a directory is not evaluated (exit 2)" -- \
+  bash "$SCRIPTS/check-risk-map.sh" "$WORK/rm390-no-such-root"
+expect_output "no such directory"
+mkdir -p "$WORK/rm390-not-a-repo/.ia-engineering"
+cd "$WORK/rm390-not-a-repo" || exit 1
+# sound_risk_map ends in `git add`, which has no repository here.
+sound_risk_map 2>/dev/null || true
+cd "$WORK" || exit 1
+expect 2 "check-risk-map: a failed git ls-files is not evaluated (exit 2)" -- \
+  bash "$SCRIPTS/check-risk-map.sh" "$WORK/rm390-not-a-repo"
+expect_output "git ls-files failed"
+risk_project rm390-range; sound_risk_map
+git commit -q -m "map"
+RM390_BASE="$(git rev-parse HEAD)"
+echo changed > src/auth/login.js
+git commit -qam "touch the auth module
+
+RISK: changes the identity check | tier=High | mitigation=reviewed | decided_by=Director"
+expect 0 "check-risk-map: the range carries its Risk Record" -- \
+  bash "$SCRIPTS/check-risk-map.sh" --range "$RM390_BASE" HEAD .
+expect 2 "check-risk-map: an uncomputable merge base is not evaluated (exit 2)" -- \
+  bash "$SCRIPTS/check-risk-map.sh" --range does-not-exist HEAD .
+expect_output "Could not compute the merge base"
+expect 2 "check-risk-map: a failed git diff is not evaluated (exit 2)" -- \
+  "${G390[@]}" G390_FAIL="diff --name-only" bash "$SCRIPTS/check-risk-map.sh" --range "$RM390_BASE" HEAD .
+expect_output "git diff failed"
+# The record is there; a log that could not be read must not report it absent.
+expect 2 "check-risk-map: a commit log that cannot be read is not a missing record (exit 2)" -- \
+  "${G390[@]}" G390_FAIL="log --format=%B" bash "$SCRIPTS/check-risk-map.sh" --range "$RM390_BASE" HEAD .
+expect_output "git log failed"
+
+# --- check-pr-size.sh
+new_repo size390
+BASE="$(git rev-parse HEAD)"
+printf 'one\n' > a.txt && git add -A && git commit -q -m "a"
+expect 0 "check-pr-size: a small change is within the limit" -- bash "$SCRIPTS/check-pr-size.sh" "$BASE" HEAD
+expect 2 "check-pr-size: a failed git diff is not evaluated (exit 2)" -- \
+  "${G390[@]}" G390_FAIL="diff --numstat" bash "$SCRIPTS/check-pr-size.sh" "$BASE" HEAD
+expect_output "git diff failed"
+git commit -q --allow-empty -m "changes nothing"
+expect 2 "check-pr-size: commits that cannot be counted are not evaluated (exit 2)" -- \
+  "${G390[@]}" G390_FAIL="rev-list --count" bash "$SCRIPTS/check-pr-size.sh" HEAD~1 HEAD
+expect_output "git rev-list failed"
+expect 1 "check-pr-size: over the limit is still a finding (exit 1)" -- \
+  env IAENG_PR_LIMIT=0 bash "$SCRIPTS/check-pr-size.sh" "$BASE" HEAD
+
+# --- data-policy-scan.sh
+new_repo dp390
+git commit -q --allow-empty -m "changes nothing"
+expect 2 "data-policy-scan: a history scan that enumerated no path over a non-merge commit is not evaluated (exit 2)" -- \
+  bash "$SCRIPTS/data-policy-scan.sh" --history HEAD~1..HEAD
+expect_output "the path enumeration produced nothing"
+
+# --- check-framework-drift.sh: a project root git names but no cd can enter.
+G390_TOP="$WORK/shim-390-top"
+mkdir -p "$G390_TOP"
+cat > "$G390_TOP/git" <<SHIM
+#!/usr/bin/env bash
+if [ "\$*" = "rev-parse --show-toplevel" ]; then echo "$WORK/drift390-no-such-project"; exit 0; fi
+exec "$G390_REAL_GIT" "\$@"
+SHIM
+chmod +x "$G390_TOP/git"
+new_repo drift390
+expect 0 "check-framework-drift: a root it cannot enter is advice without --strict (exit 0)" -- \
+  env PATH="$G390_TOP:$PATH" bash "$SCRIPTS/check-framework-drift.sh" --format tsv
+expect_output "indeterminate"
+expect_output "cannot be entered"
+expect 2 "check-framework-drift: a root it cannot enter is indeterminate with --strict (exit 2, not drift's 1)" -- \
+  env PATH="$G390_TOP:$PATH" bash "$SCRIPTS/check-framework-drift.sh" --format tsv --strict
+
+# --- validate-framework.sh
+# The verdict, extracted and run as the record functions are above.
+VF390_HARNESS="$WORK/vf390-harness.sh"
+{
+  echo 'set -uo pipefail'
+  sed -n '/^validation_result() {/,/^}/p' "$SCRIPTS/validate-framework.sh"
+  sed -n '/^workflow_step_title_drift() {/,/^}/p' "$SCRIPTS/validate-framework.sh"
+  sed -n '/^chain_diagram_drift() {/,/^}/p' "$SCRIPTS/validate-framework.sh"
+  sed -n '/^changelog_fragment_check() {/,/^}/p' "$SCRIPTS/validate-framework.sh"
+  cat <<'HARNESS'
+fn="$1"; shift
+"$fn" "$@"
+HARNESS
+} > "$VF390_HARNESS"
+expect 0 "validate-framework: every check passed exits 0" -- bash "$VF390_HARNESS" validation_result 5 0 0
+expect 1 "validate-framework: a finding, every check evaluated, exits 1" -- bash "$VF390_HARNESS" validation_result 5 2 0
+expect 2 "validate-framework: a check not evaluated exits 2, whatever else failed" -- bash "$VF390_HARNESS" validation_result 5 2 1
+expect_output "1 of them could not be evaluated"
+# A check not evaluated and no finding: 2, never "passed", even if the failure
+# count missed it (SEC-IAENG-390-01; QA's mutant M2, which decoupled cannot()
+# from the failure count, passed every case above).
+expect 2 "validate-framework: a check not evaluated and no finding exits 2" -- bash "$VF390_HARNESS" validation_result 5 0 1
+expect_output "1 of 5 checks failed."
+expect_output "1 of them could not be evaluated"
+expect_output_absent "checks passed"
+# The record functions name an input they could not read "error", not "fail",
+# so the section reporting it counts it as not evaluated.
+expect 1 "validate-framework: a missing workflow registry is reported" -- \
+  bash "$VF390_HARNESS" workflow_step_title_drift "$WORK/vf390-none/workflows.yml" "$WORK/vf390-none"
+expect_output "error${T390}cannot compare workflow step titles"
+expect 1 "validate-framework: a missing chain document is reported" -- \
+  bash "$VF390_HARNESS" chain_diagram_drift "$WORK/vf390-none/AGENT_CHAINS.md" "$WORK/vf390-none/chains.yml"
+expect_output "error${T390}cannot compare chain diagrams"
+expect 1 "validate-framework: a missing changelog.d/ is reported" -- \
+  bash "$VF390_HARNESS" changelog_fragment_check "$WORK/vf390-none/changelog.d" "$WORK/vf390-none/work-units.yml" "$SCRIPTS/changelog-fragment.awk"
+expect_output "error${T390}$WORK/vf390-none/changelog.d/ is missing"
+# End to end: a framework checkout holding nothing but the validator.
+new_repo vf390-empty
+mkdir -p Adapters/scripts
+cp "$SCRIPTS/validate-framework.sh" Adapters/scripts/
+expect 2 "validate-framework: a checkout whose inputs are missing is not evaluated (exit 2)" -- \
+  bash Adapters/scripts/validate-framework.sh
+expect_output "FAIL  not evaluated: Registry/employees.yml is missing"
+expect_output "could not be evaluated"
+
 # --------------------------------------------------------------- verdict ----
 
 cd "$HERE" || exit 1
+
+# A block_begin whose block_end was lost would otherwise go unchecked when no
+# later block_begin follows it (WU-IAENG-363).
+if [ -n "$BLOCK_N" ]; then
+  printf '   FAIL (block) "%s" is still open at the verdict: its block_end is missing\n' "$BLOCK_LABEL"
+  TOTAL=$((TOTAL + 1)); FAILED=$((FAILED + 1))
+fi
+
 printf '\n'
+# Skipped and not-applicable checks are reported apart: a skip is a platform
+# limitation a fix could hide behind, a not-applicable a premise on NA_ALLOWED.
+NOT_RUN=""
+[ "$SKIPPED" -gt 0 ] && NOT_RUN=", $SKIPPED skipped ($SKIP_REASONS)"
+[ "$NOT_APPLICABLE" -gt 0 ] && NOT_RUN="$NOT_RUN, $NOT_APPLICABLE not applicable ($NA_REASONS)"
 if [ "$FAILED" -eq 0 ]; then
-  if [ "$SKIPPED" -gt 0 ]; then
-    printf 'Result: %s checks passed, %s skipped (%s).\n' "$TOTAL" "$SKIPPED" "$SKIP_REASONS"
-  else
-    printf 'Result: %s checks passed.\n' "$TOTAL"
-  fi
+  printf 'Result: %s checks passed%s.\n' "$TOTAL" "$NOT_RUN"
   exit 0
 fi
-if [ "$SKIPPED" -gt 0 ]; then
-  printf 'Result: %s of %s checks FAILED (%s skipped: %s).\n' "$FAILED" "$TOTAL" "$SKIPPED" "$SKIP_REASONS"
-else
-  printf 'Result: %s of %s checks FAILED.\n' "$FAILED" "$TOTAL"
-fi
+printf 'Result: %s of %s checks FAILED%s.\n' "$FAILED" "$TOTAL" "$NOT_RUN"
 exit 1

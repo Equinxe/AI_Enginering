@@ -22,13 +22,22 @@
 #   - The settings entry: run as Claude Code runs it (bash -c), with the hook
 #     present and with the hook missing (a framework pinned before it).
 #   - install-hooks.sh adds the entry once, keeps a project's own entries,
-#     counts an entry present only when the same event and matcher run the
-#     exact command (a decoy, a neutered copy or another matcher gets the real
-#     entry added beside it and is reported), and refuses a symbolic link.
+#     counts an entry present only when the same event and matcher hold it
+#     equal in every field (a decoy, a neutered copy, another matcher, or the
+#     exact command with another timeout or an extra field gets the real
+#     entry added beside it and is reported; key order and the spelling of
+#     the project directory do not count), warns on stderr and in its report
+#     when "disableAllHooks": true is set in settings.json or
+#     settings.local.json without changing it (issue #241), and refuses a
+#     symbolic link.
 #   - install-skills.sh installs /dashboard, quietly on a re-run, and in the
 #     framework checkout installs it alone; SKILL.md is well formed and
 #     names the command its allowed-tools permits; the launcher prints one
 #     line and calls --open --no-wait for the project it is installed in.
+#   - Both installers add their LF rule to the project's .gitattributes once
+#     (a CRLF .gitattributes, or one without a final newline, included), and
+#     a clone made with core.autocrlf=true checks the installed files out LF
+#     while a file no rule covers comes out CRLF (issue #242).
 #
 # Nothing is skipped. Exit 0 when every check passes, 1 when any fails, 2 when
 # the environment is unusable. With IAENG_HOOK_TESTS_COUNTS set to a file,
@@ -46,7 +55,7 @@ for arg in "$@"; do
   esac
 done
 
-HERE="$(cd "$(dirname "$0")" && pwd)"
+HERE="$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)"
 HOOKS="$(cd "$HERE/.." && pwd)"
 CC="$(cd "$HOOKS/.." && pwd)"
 FRAMEWORK="$(cd "$CC/../../.." && pwd)"
@@ -294,15 +303,35 @@ SET="$IP/.claude/settings.json"
 inst() { ( cd "$IP" && bash "$IFW/install-hooks.sh" "$@" ) > "$T/inst.out" 2> "$T/inst.err"; INST_RC=$?; }
 count_cmd() { jq -r --arg ev "$1" --arg n "$2" '[.hooks[$ev][]?.hooks[]?.command | select(contains($n))] | length' "$SET" | tr -d '\r'; }
 
+SET_RULE='/.claude/settings.json text eol=lf'
+GA="$IP/.gitattributes"
+# rule_count <file> <rule> — lines equal to the rule, a CR at the end ignored.
+rule_count() { tr -d '\r' 2>/dev/null < "$1" | grep -cxF -- "$2"; }
+
 inst --print
-if [ "$INST_RC" -eq 0 ] && [ ! -e "$SET" ]; then ok "--print: exit 0 and writes nothing"; else bad "--print: exit 0 and writes nothing"; fi
+if [ "$INST_RC" -eq 0 ] && [ ! -e "$SET" ] && [ ! -e "$GA" ]; then ok "--print: exit 0 and writes nothing (no settings.json, no .gitattributes)"; else bad "--print: exit 0 and writes nothing (no settings.json, no .gitattributes)"; fi
 cp "$T/inst.out" "$T/rendered.json"
 
 inst
 if [ "$INST_RC" -eq 0 ] && cmp -s "$SET" "$T/rendered.json"; then ok "fresh project: settings.json written, equal to --print"; else bad "fresh project: settings.json written, equal to --print"; fi
+if [ "$(rule_count "$GA" "$SET_RULE")" = 1 ] && grep -qF -- "+ .gitattributes: $SET_RULE" "$T/inst.out"; then ok "#242: fresh project — .gitattributes gets the settings.json LF rule, reported"; else bad "#242: fresh project — .gitattributes gets the settings.json LF rule, reported" "$(cat "$GA" 2>/dev/null)"; fi
 cp "$SET" "$T/before.json"
+cp "$GA" "$T/ga.before"
 inst
 if [ "$INST_RC" -eq 0 ] && grep -q "already current" "$T/inst.out" && cmp -s "$SET" "$T/before.json"; then ok "re-run on a current file: exit 0, 'already current', byte-identical"; else bad "re-run on a current file: exit 0, 'already current', byte-identical"; fi
+if cmp -s "$GA" "$T/ga.before" && ! grep -q "gitattributes" "$T/inst.out"; then ok "#242: re-run — .gitattributes byte-identical, nothing said about it"; else bad "#242: re-run — .gitattributes byte-identical, nothing said about it"; fi
+
+# The rule already there in a CRLF .gitattributes: found, not appended again.
+printf '*.png binary\r\n/.claude/settings.json text eol=lf\r\n' > "$GA"
+cp "$GA" "$T/ga.before"
+inst
+if [ "$INST_RC" -eq 0 ] && cmp -s "$GA" "$T/ga.before"; then ok "#242: the rule in a CRLF .gitattributes is found — the file is left byte-identical"; else bad "#242: the rule in a CRLF .gitattributes is found — the file is left byte-identical" "$(od -c "$GA" | head -5)"; fi
+# A .gitattributes without a final newline: the rule goes on a line of its own.
+printf '*.png binary' > "$GA"
+inst
+if [ "$INST_RC" -eq 0 ] && [ "$(head -n 1 "$GA")" = '*.png binary' ] && [ "$(rule_count "$GA" "$SET_RULE")" = 1 ]; then ok "#242: no final newline — the project's last line kept intact, the rule on its own line"; else bad "#242: no final newline — the project's last line kept intact, the rule on its own line" "$(cat "$GA")"; fi
+inst
+check "#242: and a re-run still holds it exactly once" [ "$(rule_count "$GA" "$SET_RULE")" = 1 ]
 
 # A file from the previous template, plus the project's own entries.
 jq '.hooks.Stop |= map(select([.hooks[].command] | any(test("dashboard-refresh")) | not))
@@ -325,6 +354,165 @@ cp "$SET" "$T/merged.json"
 inst
 if [ "$INST_RC" -eq 0 ] && grep -q "every IA Engineering hook entry is present exactly" "$T/inst.out" && cmp -s "$SET" "$T/merged.json"; then ok "re-run after a merge: exit 0, nothing added, byte-identical"; else bad "re-run after a merge: exit 0, nothing added, byte-identical"; fi
 if [ ! -s "$T/inst.err" ]; then ok "re-run after a merge: no near-miss warning"; else bad "re-run after a merge: no near-miss warning" "$(head -c 300 "$T/inst.err")"; fi
+
+# SESSIONSTART FIRES ON /clear TOO (WU-IAENG-373). Claude Code starts a new
+# session on /clear with source "clear", which the SessionStart matcher must
+# name or the session starts without the read-first context. An adopter whose
+# file holds the framework's earlier entry, exactly, gets its matcher updated
+# in place: appending the current entry beside it would leave two groups
+# running session-start.sh on startup, resume and compact (the hooks
+# reference says a handler defined in several settings FILES runs once; it
+# says nothing of two groups in one file). Anything other than that exact
+# earlier entry is the project's, and is left as it is.
+SS_OLD='startup|resume|compact'
+SS_NEW='startup|resume|clear|compact'
+TPL_SS_M="$(jq -r '.hooks.SessionStart[0].matcher' "$TPL" | tr -d '\r')"
+if [ "$TPL_SS_M" = "$SS_NEW" ]; then ok "#373: the template's SessionStart matcher is $SS_NEW (clear included)"; else bad "#373: the template's SessionStart matcher is $SS_NEW (clear included)" "got: $TPL_SS_M"; fi
+# ss_groups — the SessionStart groups of $SET, as "matcher|count-of-entries" lines.
+ss_groups() { jq -r '.hooks.SessionStart[] | "\(.matcher // "")#\(.hooks | length)"' "$SET" | tr -d '\r'; }
+# The earlier file: the template of WU-IAENG-372 and before, the project's own entries kept.
+jq --arg m "$SS_OLD" '.hooks.SessionStart[0].matcher = $m
+    | .hooks.PreToolUse += [{"matcher":"Read","hooks":[{"type":"command","command":"bash ./tools/my-own-hook.sh"}]}]
+    | .env = {"FOO":"1"}' "$T/rendered.json" | tr -d '\r' > "$SET"
+cp "$SET" "$T/ss-old.json"
+inst --check
+if [ "$INST_RC" -eq 3 ] && grep -qF -- "hook	absent	.claude/settings.json	SessionStart [$SS_NEW]: session-start.sh" "$T/inst.out" \
+    && grep -qF -- "a run updates the framework's earlier entry under [$SS_OLD] in place" "$T/inst.out"; then
+  ok "#373: --check on the earlier entry — drift (exit 3), the entry absent, the in-place update named"
+else
+  bad "#373: --check on the earlier entry — drift (exit 3), the entry absent, the in-place update named" "rc=$INST_RC $(cat "$T/inst.out")"
+fi
+if grep -q "near-miss" "$T/inst.out"; then bad "#373: --check — the framework's own earlier entry is not reported as a near miss" "$(grep near-miss "$T/inst.out")"; else ok "#373: --check — the framework's own earlier entry is not reported as a near miss"; fi
+inst
+if [ "$INST_RC" -eq 0 ] && [ "$(ss_groups)" = "$SS_NEW#1" ]; then ok "#373: the earlier entry — upgraded in place: one SessionStart group, matcher $SS_NEW"; else bad "#373: the earlier entry — upgraded in place: one SessionStart group, matcher $SS_NEW" "rc=$INST_RC groups: $(ss_groups | tr '\n' ' ')"; fi
+if grep -qF -- "updated: SessionStart [$SS_NEW]: session-start.sh" "$T/inst.out" && ! grep -q -- "^ *added: " "$T/inst.out"; then ok "#373: ... reported as updated, nothing reported as added"; else bad "#373: ... reported as updated, nothing reported as added" "$(cat "$T/inst.out")"; fi
+if [ ! -s "$T/inst.err" ]; then ok "#373: ... and no near-miss warning"; else bad "#373: ... and no near-miss warning" "$(head -c 300 "$T/inst.err")"; fi
+if [ "$(jq -S --arg m "$SS_NEW" '.hooks.SessionStart[0].matcher = $m' "$T/ss-old.json" | tr -d '\r')" = "$(jq -S . "$SET" | tr -d '\r')" ]; then ok "#373: ... the matcher is the only change (the project's own entries, env, every other hook kept)"; else bad "#373: ... the matcher is the only change (the project's own entries, env, every other hook kept)"; fi
+cp "$SET" "$T/ss-upgraded.json"
+inst
+if [ "$INST_RC" -eq 0 ] && grep -q "present exactly" "$T/inst.out" && cmp -s "$SET" "$T/ss-upgraded.json"; then ok "#373: re-run after the upgrade — present exactly, byte-identical"; else bad "#373: re-run after the upgrade — present exactly, byte-identical" "$(cat "$T/inst.out")"; fi
+inst --check
+if [ "$INST_RC" -eq 0 ]; then ok "#373: --check after the upgrade — nothing to act on (exit 0)"; else bad "#373: --check after the upgrade — nothing to act on (exit 0)" "rc=$INST_RC $(cat "$T/inst.out")"; fi
+
+# Not the framework's exact earlier entry: never rewritten. The current entry
+# is added beside it and the other one is reported, as for any near miss.
+# (a) the earlier matcher with another timeout;
+jq --arg m "$SS_OLD" '.hooks.SessionStart[0].matcher = $m | .hooks.SessionStart[0].hooks[0].timeout = 1' \
+  "$T/rendered.json" | tr -d '\r' > "$SET"
+inst
+if [ "$INST_RC" -eq 0 ] && [ "$(ss_groups | tr '\n' ' ')" = "$SS_OLD#1 $SS_NEW#1 " ] && [ "$(jq -r '.hooks.SessionStart[0].hooks[0].timeout' "$SET" | tr -d '\r')" = 1 ] \
+    && grep -qF -- "SessionStart [$SS_OLD]: " "$T/inst.err"; then
+  ok "#373: the earlier matcher with another timeout — kept as it is, the current entry added beside it, near miss reported"
+else
+  bad "#373: the earlier matcher with another timeout — kept as it is, the current entry added beside it, near miss reported" "groups: $(ss_groups | tr '\n' ' ') err: $(head -c 300 "$T/inst.err")"
+fi
+# (b) the earlier matcher, the group also holding the project's own hook;
+jq --arg m "$SS_OLD" '.hooks.SessionStart[0].matcher = $m | .hooks.SessionStart[0].hooks += [{"type":"command","command":"bash ./tools/my-start.sh"}]' \
+  "$T/rendered.json" | tr -d '\r' > "$SET"
+inst
+if [ "$INST_RC" -eq 0 ] && [ "$(ss_groups | tr '\n' ' ')" = "$SS_OLD#2 $SS_NEW#1 " ] && grep -qF -- "SessionStart [$SS_OLD]: " "$T/inst.err"; then ok "#373: the earlier matcher, with the project's own hook in the group — the group kept as it is, the current entry added, near miss reported"; else bad "#373: the earlier matcher, with the project's own hook in the group — the group kept as it is, the current entry added, near miss reported" "groups: $(ss_groups | tr '\n' ' ') err: $(head -c 300 "$T/inst.err")"; fi
+# (c) the earlier entry AND the current one: nothing duplicated, nothing removed.
+jq --arg m "$SS_OLD" '.hooks.SessionStart = [(.hooks.SessionStart[0] | .matcher = $m)] + .hooks.SessionStart' \
+  "$T/rendered.json" | tr -d '\r' > "$SET"
+cp "$SET" "$T/ss-both.json"
+inst
+if [ "$INST_RC" -eq 0 ] && cmp -s "$SET" "$T/ss-both.json" && [ "$(ss_groups | tr '\n' ' ')" = "$SS_OLD#1 $SS_NEW#1 " ] && grep -qF -- "SessionStart [$SS_OLD]: " "$T/inst.err"; then ok "#373: the earlier entry beside the current one — the file left byte-identical (no second current group), near miss reported"; else bad "#373: the earlier entry beside the current one — the file left byte-identical (no second current group), near miss reported" "groups: $(ss_groups | tr '\n' ' ') out: $(cat "$T/inst.out") err: $(head -c 300 "$T/inst.err")"; fi
+# (e) the earlier group, exactly the template's entries, plus one key of its own.
+jq --arg m "$SS_OLD" '.hooks.SessionStart[0].matcher = $m | .hooks.SessionStart[0]["$comment"] = "the project'"'"'s note"' \
+  "$T/rendered.json" | tr -d '\r' > "$SET"
+inst
+if [ "$INST_RC" -eq 0 ] && [ "$(ss_groups | tr '\n' ' ')" = "$SS_OLD#1 $SS_NEW#1 " ] && [ "$(jq -r '.hooks.SessionStart[0]["$comment"]' "$SET" | tr -d '\r')" = "the project's note" ] \
+    && grep -qF -- "SessionStart [$SS_OLD]: " "$T/inst.err"; then
+  ok "#373: the earlier group with a key of its own (\$comment) — kept as it is, the current entry added beside it, near miss reported"
+else
+  bad "#373: the earlier group with a key of its own (\$comment) — kept as it is, the current entry added beside it, near miss reported" "groups: $(ss_groups | tr '\n' ' ') err: $(head -c 300 "$T/inst.err")"
+fi
+# (d) another matcher altogether (the project's choice): kept, current added.
+jq '.hooks.SessionStart[0].matcher = "startup"' "$T/rendered.json" | tr -d '\r' > "$SET"
+inst
+if [ "$INST_RC" -eq 0 ] && [ "$(ss_groups | tr '\n' ' ')" = "startup#1 $SS_NEW#1 " ] && ! grep -q "updated: " "$T/inst.out"; then ok "#373: a matcher that was never the framework's (startup) — not rewritten, the current entry added"; else bad "#373: a matcher that was never the framework's (startup) — not rewritten, the current entry added" "groups: $(ss_groups | tr '\n' ' ')"; fi
+
+# THE GUARDS' NEW FIELDS ARE ADDED IN PLACE, NOT DOUBLED (WU-IAENG-410).
+# The template gives both PreToolUse guards a timeout and "onFailure":
+# "block", so a guard that times out, cannot start or exits other than 0 or
+# 2 blocks the call instead of letting it through. An adopter whose file
+# holds the framework's earlier guard entry, exactly (the template's without
+# those two fields), gets them in place: appending the current entry beside
+# it would run each guard twice per call, doubling the processes that are
+# the guards' latency (Governance/BLOCKING_HOOK_LATENCY_MEASUREMENT.md).
+# Anything else under the guards' matchers is the project's, left as it is.
+G_BASH='Bash'
+G_EDIT='Edit|Write|MultiEdit'
+TPL_GUARDS="$(jq -r '[.hooks.PreToolUse[] | select(.matcher == "Bash" or .matcher == "Edit|Write|MultiEdit") | .hooks[0]
+                      | select((.timeout | type) == "number" and .timeout >= 1 and .timeout < 600 and .onFailure == "block")] | length' "$TPL" | tr -d '\r')"
+check "#410: template — both guards carry \"onFailure\": \"block\" and a timeout under the 600 s default" [ "$TPL_GUARDS" = 2 ]
+check "#410: template — no Stop entry carries onFailure (it has no effect on Stop)" \
+  [ "$(jq -r '[.hooks.Stop[].hooks[] | select(has("onFailure"))] | length' "$TPL" | tr -d '\r')" = 0 ]
+# guard_groups — the PreToolUse groups of $SET, as "matcher#entries#timeout#onFailure" lines.
+guard_groups() { jq -r '.hooks.PreToolUse[] | "\(.matcher // "")#\(.hooks | length)#\(.hooks[0].timeout // "-")#\(.hooks[0].onFailure // "-")"' "$SET" | tr -d '\r'; }
+G_TO="$(jq -r '.hooks.PreToolUse[] | select(.matcher == "Bash") | .hooks[0].timeout' "$TPL" | tr -d '\r')"
+G_CUR="$G_BASH#1#$G_TO#block $G_EDIT#1#$G_TO#block"
+# The earlier file: the guards without the two fields, the project's own entries kept.
+jq '.hooks.PreToolUse |= map(if .matcher == "Bash" or .matcher == "Edit|Write|MultiEdit" then .hooks[0] |= del(.timeout, .onFailure) else . end)
+    | .hooks.PreToolUse += [{"matcher":"Read","hooks":[{"type":"command","command":"bash ./tools/my-own-hook.sh"}]}]
+    | .env = {"FOO":"1"}' "$T/rendered.json" | tr -d '\r' > "$SET"
+inst --check
+if [ "$INST_RC" -eq 3 ] \
+    && grep -qF -- "hook	absent	.claude/settings.json	PreToolUse [$G_BASH]: block-escape-hatches.sh  (a run updates the framework's earlier entry without timeout, onFailure in place)" "$T/inst.out" \
+    && grep -qF -- "hook	absent	.claude/settings.json	PreToolUse [$G_EDIT]: block-inline-suppression.sh  (a run updates the framework's earlier entry without timeout, onFailure in place)" "$T/inst.out" \
+    && ! grep -q "near-miss" "$T/inst.out"; then
+  ok "#410: --check on the earlier guards — drift (exit 3), both named for an in-place update, no near miss"
+else
+  bad "#410: --check on the earlier guards — drift (exit 3), both named for an in-place update, no near miss" "rc=$INST_RC $(cat "$T/inst.out")"
+fi
+inst
+if [ "$INST_RC" -eq 0 ] && [ "$(guard_groups | tr '\n' ' ')" = "$G_CUR Read#1#-#- " ]; then ok "#410: the earlier guards — upgraded in place: one group each, with the timeout and onFailure, the project's own kept"; else bad "#410: the earlier guards — upgraded in place: one group each, with the timeout and onFailure, the project's own kept" "rc=$INST_RC groups: $(guard_groups | tr '\n' ' ')"; fi
+if grep -qF -- "updated: PreToolUse [$G_BASH]: block-escape-hatches.sh  (added: timeout, onFailure)" "$T/inst.out" \
+    && grep -qF -- "updated: PreToolUse [$G_EDIT]: block-inline-suppression.sh  (added: timeout, onFailure)" "$T/inst.out" \
+    && ! grep -q "^ *added: " "$T/inst.out" && [ ! -s "$T/inst.err" ]; then
+  ok "#410: ... reported as updated, nothing added, no near-miss warning"
+else
+  bad "#410: ... reported as updated, nothing added, no near-miss warning" "$(cat "$T/inst.out" "$T/inst.err")"
+fi
+if [ "$(jq -S '.hooks.PreToolUse += [{"matcher":"Read","hooks":[{"type":"command","command":"bash ./tools/my-own-hook.sh"}]}] | .env = {"FOO":"1"}' "$T/rendered.json" | tr -d '\r')" = "$(jq -S . "$SET" | tr -d '\r')" ]; then ok "#410: ... the two fields are the only change"; else bad "#410: ... the two fields are the only change"; fi
+cp "$SET" "$T/g-upgraded.json"
+inst
+if [ "$INST_RC" -eq 0 ] && grep -q "present exactly" "$T/inst.out" && cmp -s "$SET" "$T/g-upgraded.json"; then ok "#410: re-run after the upgrade — present exactly, byte-identical"; else bad "#410: re-run after the upgrade — present exactly, byte-identical" "$(cat "$T/inst.out")"; fi
+# The project directory spelled ${CLAUDE_PROJECT_DIR}: still the earlier entry, its spelling kept.
+jq '.hooks.PreToolUse |= map(if .matcher == "Bash" then .hooks[0] |= (del(.timeout, .onFailure) | .command |= gsub("[$]CLAUDE_PROJECT_DIR"; "${CLAUDE_PROJECT_DIR}")) else . end)' \
+  "$T/rendered.json" | tr -d '\r' > "$SET"
+inst
+if [ "$INST_RC" -eq 0 ] && [ "$(guard_groups | tr '\n' ' ')" = "$G_CUR " ] \
+    && jq -e '.hooks.PreToolUse[] | select(.matcher == "Bash") | .hooks[0].command | contains("${CLAUDE_PROJECT_DIR}")' "$SET" >/dev/null; then
+  ok "#410: the earlier guard with \${CLAUDE_PROJECT_DIR} — upgraded in place, its spelling kept"
+else
+  bad "#410: the earlier guard with \${CLAUDE_PROJECT_DIR} — upgraded in place, its spelling kept" "groups: $(guard_groups | tr '\n' ' ')"
+fi
+# Not the framework's exact earlier entry: never rewritten. The current entry
+# is added beside it and the other one is reported, as for any near miss.
+# (a) a timeout of its own; (b) "onFailure": "continue", the failure let through.
+for g_case in '.timeout = 1' '.onFailure = "continue"'; do
+  jq --arg m "$G_BASH" '.hooks.PreToolUse |= map(if .matcher == $m then .hooks[0] |= del(.timeout, .onFailure) else . end)' "$T/rendered.json" \
+    | jq ".hooks.PreToolUse |= map(if .matcher == \"Bash\" then .hooks[0] |= ($g_case) else . end)" | tr -d '\r' > "$SET"
+  inst
+  if [ "$INST_RC" -eq 0 ] && [ "$(guard_groups | grep -c -- "^$G_BASH#")" = 2 ] && [ "$(guard_groups | grep -c -- "^$G_BASH#1#$G_TO#block$")" = 1 ] \
+      && grep -qF -- "PreToolUse [$G_BASH]: " "$T/inst.err" && ! grep -q -- "updated: " "$T/inst.out"; then
+    ok "#410: the earlier guard with $g_case — kept as it is, the current entry added beside it, near miss reported"
+  else
+    bad "#410: the earlier guard with $g_case — kept as it is, the current entry added beside it, near miss reported" "groups: $(guard_groups | tr '\n' ' ') err: $(head -c 300 "$T/inst.err")"
+  fi
+done
+# (c) the earlier guard group also holding the project's own hook.
+jq '.hooks.PreToolUse |= map(if .matcher == "Bash" then (.hooks[0] |= del(.timeout, .onFailure)) | .hooks += [{"type":"command","command":"bash ./tools/my-bash-hook.sh"}] else . end)' \
+  "$T/rendered.json" | tr -d '\r' > "$SET"
+inst
+if [ "$INST_RC" -eq 0 ] && [ "$(guard_groups | grep -c -- "^$G_BASH#2#-#-$")" = 1 ] && [ "$(guard_groups | grep -c -- "^$G_BASH#1#$G_TO#block$")" = 1 ] && grep -qF -- "PreToolUse [$G_BASH]: " "$T/inst.err"; then ok "#410: the earlier guard with the project's own hook in its group — the group kept as it is, the current entry added, near miss reported"; else bad "#410: the earlier guard with the project's own hook in its group — the group kept as it is, the current entry added, near miss reported" "groups: $(guard_groups | tr '\n' ' ')"; fi
+# (d) the earlier guard AND the current one: nothing duplicated, nothing removed.
+jq '.hooks.PreToolUse = [(.hooks.PreToolUse[] | select(.matcher == "Bash") | .hooks[0] |= del(.timeout, .onFailure))] + .hooks.PreToolUse' \
+  "$T/rendered.json" | tr -d '\r' > "$SET"
+cp "$SET" "$T/g-both.json"
+inst
+if [ "$INST_RC" -eq 0 ] && cmp -s "$SET" "$T/g-both.json" && grep -qF -- "PreToolUse [$G_BASH]: " "$T/inst.err"; then ok "#410: the earlier guard beside the current one — the file left byte-identical (no second current group), near miss reported"; else bad "#410: the earlier guard beside the current one — the file left byte-identical (no second current group), near miss reported" "groups: $(guard_groups | tr '\n' ' ') out: $(cat "$T/inst.out")"; fi
 
 # PRESENCE IS EXACT (PR #239 security review, F1). The template commands:
 TPL_ESC="$(jq -r '.hooks.PreToolUse[] | select(.matcher == "Bash") | .hooks[0].command' "$T/rendered.json" | tr -d '\r')"
@@ -379,6 +567,86 @@ jq '.hooks.Stop |= map(.hooks |= map(.command |= gsub("[$]CLAUDE_PROJECT_DIR"; "
 inst
 if [ "$INST_RC" -eq 0 ] && grep -q "present exactly" "$T/inst.out" && [ ! -s "$T/inst.err" ] && [ "$(count_cmd Stop stop-gate.sh)" = 1 ]; then ok "\${CLAUDE_PROJECT_DIR} for \$CLAUDE_PROJECT_DIR: still the same entry, nothing added, no warning"; else bad "\${CLAUDE_PROJECT_DIR} for \$CLAUDE_PROJECT_DIR: still the same entry, nothing added, no warning"; fi
 
+# EVERY FIELD OF THE ENTRY, NOT ITS COMMAND ALONE (issue #241, L1).
+# entry_count <event> <matcher, empty for none> <entry as JSON> — entries equal to it.
+entry_count() {
+  jq -r --arg ev "$1" --arg m "$2" --argjson e "$3" \
+    '[.hooks[$ev][]? | select((.matcher // "") == $m) | .hooks[]? | select(. == $e)] | length' "$SET" | tr -d '\r'
+}
+E_ESC="$(jq -c '.hooks.PreToolUse[] | select(.matcher == "Bash") | .hooks[0]' "$T/rendered.json" | tr -d '\r')"
+E_GATE="$(jq -c '.hooks.Stop[0].hooks[0]' "$T/rendered.json" | tr -d '\r')"
+E_DASH="$(jq -c '.hooks.Stop[1].hooks[0]' "$T/rendered.json" | tr -d '\r')"
+
+# Row 5: the escape-hatch guard, its exact command, a one-second timeout.
+jq '.hooks.PreToolUse |= map(if .matcher == "Bash" then .hooks[0].timeout = 1 else . end)' \
+  "$T/rendered.json" | tr -d '\r' > "$SET"
+inst
+if [ "$INST_RC" -eq 0 ] && [ "$(entry_count PreToolUse Bash "$E_ESC")" = 1 ] \
+    && [ "$(entry_count PreToolUse Bash "$(jq -c '.timeout = 1' <<< "$E_ESC" | tr -d '\r')")" = 1 ] \
+    && grep -q 'added: *PreToolUse \[Bash\]: block-escape-hatches.sh' "$T/inst.out"; then
+  ok "#241 L1: the exact guard command with \"timeout\": 1 — the real entry is added and reported, the project's kept"
+else
+  bad "#241 L1: the exact guard command with \"timeout\": 1 — the real entry is added and reported, the project's kept" "rc=$INST_RC $(cat "$T/inst.out")"
+fi
+if grep -q 'PreToolUse \[Bash\]: .*block-escape-hatches.sh".*differs in: timeout)$' "$T/inst.err"; then ok "#241 L1: ... and it is reported as a near miss naming the field that differs (timeout)"; else bad "#241 L1: ... and it is reported as a near miss naming the field that differs (timeout)" "$(cat "$T/inst.err")"; fi
+cp "$SET" "$T/l1.json"
+inst
+if [ "$INST_RC" -eq 0 ] && grep -q "present exactly" "$T/inst.out" && cmp -s "$SET" "$T/l1.json" && grep -q 'differs in: timeout' "$T/inst.err"; then ok "#241 L1: re-run — nothing added, byte-identical, the near miss still reported"; else bad "#241 L1: re-run — nothing added, byte-identical, the near miss still reported"; fi
+
+# Row 6: a field missing (the refresh entry without its timeout) and a field
+# added (the stop gate with a statusMessage) — "any other field".
+jq '.hooks.Stop[1].hooks[0] |= del(.timeout) | .hooks.Stop[0].hooks[0].statusMessage = "checking"' \
+  "$T/rendered.json" | tr -d '\r' > "$SET"
+inst
+if [ "$INST_RC" -eq 0 ] && [ "$(entry_count Stop '' "$E_GATE")" = 1 ] && [ "$(entry_count Stop '' "$E_DASH")" = 1 ] \
+    && [ "$(grep -c '^ *added: ' "$T/inst.out")" -eq 2 ]; then
+  ok "#241 L1: a timeout missing, a statusMessage added — both real entries are added, two additions reported"
+else
+  bad "#241 L1: a timeout missing, a statusMessage added — both real entries are added, two additions reported" "$(cat "$T/inst.out")"
+fi
+if grep -q 'Stop: .*dashboard-refresh.sh.*differs in: timeout)$' "$T/inst.err" && grep -q 'Stop: .*stop-gate.sh".*differs in: statusMessage)$' "$T/inst.err"; then ok "#241 L1: ... each reported as a near miss naming its field"; else bad "#241 L1: ... each reported as a near miss naming its field" "$(cat "$T/inst.err")"; fi
+
+# Row 7: every field equal, keys in another order — the same entry.
+jq '.hooks |= map_values(map(.hooks |= map(to_entries | reverse | from_entries)))' \
+  "$T/rendered.json" | tr -d '\r' > "$SET"
+cp "$SET" "$T/reordered.json"
+if [ "$(jq -c '.hooks.Stop[1].hooks[0] | keys_unsorted' "$SET" | tr -d '\r')" = '["timeout","command","type"]' ]; then
+  inst
+  if [ "$INST_RC" -eq 0 ] && grep -q "present exactly" "$T/inst.out" && [ ! -s "$T/inst.err" ] && cmp -s "$SET" "$T/reordered.json"; then ok "#241 L1: the same fields in another key order — present, nothing added, no warning"; else bad "#241 L1: the same fields in another key order — present, nothing added, no warning" "$(cat "$T/inst.out" "$T/inst.err")"; fi
+else
+  bad "#241 L1: the same fields in another key order" "the fixture did not reorder the keys"
+fi
+
+# HOOKS SWITCHED OFF ARE SAID (issue #241, L2).
+DISABLED_SAID='"disableAllHooks": true is set in:'
+jq '.disableAllHooks = true | .hooks.Stop |= map(select([.hooks[].command] | any(test("dashboard-refresh")) | not))' \
+  "$T/rendered.json" | tr -d '\r' > "$SET"
+inst
+if [ "$INST_RC" -eq 0 ] && grep -qF -- "$DISABLED_SAID" "$T/inst.err" && grep -q '^    \.claude/settings\.json$' "$T/inst.err" \
+    && grep -q 'WARNING: every hook is switched off ("disableAllHooks": true in \.claude/settings\.json)' "$T/inst.out"; then
+  ok "#241 L2: disableAllHooks true in settings.json — named on stderr and in the report"
+else
+  bad "#241 L2: disableAllHooks true in settings.json — named on stderr and in the report" "$(cat "$T/inst.out" "$T/inst.err")"
+fi
+if [ "$(jq -r '.disableAllHooks' "$SET" | tr -d '\r')" = true ] && [ "$(entry_count Stop '' "$E_DASH")" = 1 ]; then ok "#241 L2: ... the setting is kept as the project's, and the merge still adds the missing entry"; else bad "#241 L2: ... the setting is kept as the project's, and the merge still adds the missing entry"; fi
+cp "$T/rendered.json" "$SET"
+printf '{"disableAllHooks": true}\n' > "$IP/.claude/settings.local.json"
+inst
+if [ "$INST_RC" -eq 0 ] && grep -q "already current" "$T/inst.out" && grep -q '^    \.claude/settings\.local\.json$' "$T/inst.err" \
+    && grep -q 'WARNING: every hook is switched off ("disableAllHooks": true in \.claude/settings\.local\.json)' "$T/inst.out"; then
+  ok "#241 L2: disableAllHooks true in settings.local.json, settings.json current — still said"
+else
+  bad "#241 L2: disableAllHooks true in settings.local.json, settings.json current — still said" "$(cat "$T/inst.out" "$T/inst.err")"
+fi
+printf '{"disableAllHooks": false}\n' > "$IP/.claude/settings.local.json"
+inst
+if [ "$INST_RC" -eq 0 ] && [ ! -s "$T/inst.err" ] && ! grep -q WARNING "$T/inst.out"; then ok "#241 L2: disableAllHooks false — no warning"; else bad "#241 L2: disableAllHooks false — no warning" "$(cat "$T/inst.err")"; fi
+rm -f "$IP/.claude/settings.local.json"
+# A refused merge (not JSON jq can read) still says it, read without jq's help.
+printf '{ "disableAllHooks" : true, "hooks": { "Stop": [ }' > "$SET"
+inst
+if [ "$INST_RC" -eq 1 ] && grep -qF -- "$DISABLED_SAID" "$T/inst.err"; then ok "#241 L2: a settings.json jq cannot read — refused, and the switch is still named"; else bad "#241 L2: a settings.json jq cannot read — refused, and the switch is still named" "rc=$INST_RC $(cat "$T/inst.err")"; fi
+
 # A symbolic link is refused, not replaced by a file. MSYS=winsymlinks:sys
 # makes a link Git Bash reads as one on Windows; elsewhere it is ignored.
 jq '.hooks.Stop = []' "$T/rendered.json" | tr -d '\r' > "$T/link-target.json"
@@ -423,8 +691,16 @@ export FAKE_LAUNCHER_CALLS="$LCALLS"
 ( cd "$SP" && bash "$SFW/install-skills.sh" ) > "$T/sk.out" 2> "$T/sk.err"; rc=$?
 check "adopter: install-skills.sh exits 0" [ "$rc" -eq 0 ]
 if [ -f "$SP/.claude/skills/dashboard/SKILL.md" ] && [ -f "$SP/.claude/skills/dashboard/open-dashboard.sh" ] && [ -f "$SP/.claude/skills/create-project/SKILL.md" ]; then ok "adopter: /dashboard and /create-project installed"; else bad "adopter: /dashboard and /create-project installed"; fi
+SKILL_RULE='/.claude/skills/** text eol=lf'
+if [ "$(rule_count "$SP/.gitattributes" "$SKILL_RULE")" = 1 ] && grep -qF -- "+ .gitattributes: $SKILL_RULE" "$T/sk.out"; then ok "#242: adopter — .gitattributes gets the .claude/skills/** LF rule, reported"; else bad "#242: adopter — .gitattributes gets the .claude/skills/** LF rule, reported" "$(cat "$SP/.gitattributes" 2>/dev/null)"; fi
+cp "$SP/.gitattributes" "$T/ga.before" 2>/dev/null
 ( cd "$SP" && bash "$SFW/install-skills.sh" ) > "$T/sk.out" 2> "$T/sk.err"; rc=$?
-if [ "$rc" -eq 0 ] && [ "$(grep -c "^  = .* already current$" "$T/sk.out")" -eq 2 ] && [ ! -s "$T/sk.err" ]; then ok "adopter: re-run exits 0, says 'already current', warns nothing"; else bad "adopter: re-run exits 0, says 'already current', warns nothing"; fi
+if [ "$rc" -eq 0 ] && [ "$(grep -c -- "^  = .* already current$" "$T/sk.out")" -eq 2 ] && [ ! -s "$T/sk.err" ]; then ok "adopter: re-run exits 0, says 'already current', warns nothing"; else bad "adopter: re-run exits 0, says 'already current', warns nothing"; fi
+if cmp -s "$SP/.gitattributes" "$T/ga.before" && ! grep -q gitattributes "$T/sk.out"; then ok "#242: adopter re-run — .gitattributes byte-identical, nothing said about it"; else bad "#242: adopter re-run — .gitattributes byte-identical, nothing said about it"; fi
+SL="$T/skills-list"
+mkdir -p "$SL"
+( cd "$SL" && bash "$SFW/install-skills.sh" --list ) > "$T/sk.out" 2> "$T/sk.err"; rc=$?
+if [ "$rc" -eq 0 ] && [ ! -e "$SL/.gitattributes" ] && [ ! -e "$SL/.claude" ]; then ok "#242: --list writes nothing, no .gitattributes either"; else bad "#242: --list writes nothing, no .gitattributes either"; fi
 echo "edited by the project" >> "$SP/.claude/skills/dashboard/SKILL.md"
 ( cd "$SP" && bash "$SFW/install-skills.sh" ) > "$T/sk.out" 2> "$T/sk.err"; rc=$?
 if [ "$rc" -eq 0 ] && grep -q "edited by the project" "$SP/.claude/skills/dashboard/SKILL.md" && grep -q "left untouched" "$T/sk.err"; then ok "adopter: an edited skill is left untouched without --force"; else bad "adopter: an edited skill is left untouched without --force"; fi
@@ -449,7 +725,7 @@ fi
 # SKILL.md: frontmatter, and the one command it runs is the one it permits.
 SK="$CC/skills/dashboard/SKILL.md"
 FM="$(awk 'NR==1 && $0!="---"{exit} NR>1 && $0=="---"{exit} NR>1{print}' "$SK")"
-if [ "$(head -n 1 "$SK")" = "---" ] && [ "$(grep -c "^---$" "$SK")" -ge 2 ]; then ok "SKILL.md: opens with a frontmatter block that closes"; else bad "SKILL.md: opens with a frontmatter block that closes"; fi
+if [ "$(head -n 1 "$SK")" = "---" ] && [ "$(grep -c -- "^---$" "$SK")" -ge 2 ]; then ok "SKILL.md: opens with a frontmatter block that closes"; else bad "SKILL.md: opens with a frontmatter block that closes"; fi
 check "SKILL.md: name is dashboard (the /dashboard command)" grep -qx 'name: dashboard' <<< "$FM"
 check "SKILL.md: has a non-empty description" grep -qE '^description: .{20,}' <<< "$FM"
 check "SKILL.md: user-invoked only" grep -qx 'disable-model-invocation: true' <<< "$FM"
@@ -461,7 +737,7 @@ check "launcher: valid bash" bash -n "$CC/skills/dashboard/open-dashboard.sh"
 # Prompt Engineer review of PR #239: run as written, a timeout and what to do
 # when it expires, the moved-directory case, and instructions only.
 AS_WRITTEN="Run it exactly as written: no \`cd\`, no prefix, no redirection."
-check "SKILL.md: says to run the command as written, with no cd or prefix" grep -qF "$AS_WRITTEN" "$SK"
+check "SKILL.md: says to run the command as written, with no cd or prefix" grep -qF -- "$AS_WRITTEN" "$SK"
 check "SKILL.md: sets a 600000 ms timeout and says not to run it again" grep -qF 'Set the Bash tool'"'"'s timeout to 600000 ms. If it still times out, say so and stop; do not run it again.' "$SK"
 check "SKILL.md: says what to do when the file is not found (directory moved)" grep -qF 'the session'"'"'s working directory has moved off the project root, and stop.' "$SK"
 if grep -qi 'why this file lives' "$SK"; then bad "SKILL.md: the body is instructions only (maintainer notes live in hooks/README.md)"; else ok "SKILL.md: the body is instructions only (maintainer notes live in hooks/README.md)"; fi
@@ -545,6 +821,42 @@ case "$rc:$out" in
   1:*"not opened"*) ok "launcher: no dashboard script in the framework — exit 1, says so" ;;
   *) bad "launcher: no dashboard script in the framework — exit 1, says so" "rc=$rc got: $out" ;;
 esac
+
+# =============================================================================
+echo "== line endings in a clone made with core.autocrlf=true (issue #242)"
+
+# An adopter installs both, commits, and is cloned with core.autocrlf=true
+# set explicitly, so the run means the same on Linux as on Windows. A file no
+# rule covers is the control: it must come out CRLF, or this clone would
+# prove nothing about the rules.
+CR="$T/crlf-src"
+new_repo "$CR" || { echo "dashboard.sh: git init failed" >&2; exit 2; }
+git -C "$CR" config core.autocrlf true
+CFW="$CR/ia-engineering/Adapters/ai-runtimes/claude-code"
+mkdir -p "$CFW/hooks"
+cp -p "$CC/install-hooks.sh" "$CC/install-skills.sh" "$CC/settings.example.json" "$CFW/"
+cp -p "$HOOKS"/*.sh "$CFW/hooks/"
+cp -R "$CC/skills" "$CFW/"
+chmod +x "$CFW"/hooks/*.sh
+printf 'ia-engineering/\n' >> "$CR/.git/info/exclude"
+printf 'a line\nanother line\n' > "$CR/notes.txt"
+( cd "$CR" && bash "$CFW/install-hooks.sh" && bash "$CFW/install-skills.sh" ) > "$T/cr.out" 2>&1; rc=$?
+check "#242 clone: both installers exit 0 in a repository with core.autocrlf=true" [ "$rc" -eq 0 ]
+if ! { git -C "$CR" add -A 2>/dev/null \
+       && git -C "$CR" -c user.name=t -c user.email=t@example.invalid commit -q -m install 2>/dev/null; }; then
+  echo "dashboard.sh: could not commit the crlf fixture" >&2
+  exit 2
+fi
+CL="$T/crlf-clone"
+git clone -q -c core.autocrlf=true "$CR" "$CL" 2>/dev/null || { echo "dashboard.sh: git clone failed" >&2; exit 2; }
+# Counted with tr: Git for Windows' grep does not match a carriage return.
+has_cr() { [ "$(tr -cd '\r' < "$1" | wc -c | tr -d ' ')" -gt 0 ]; }
+if has_cr "$CL/notes.txt"; then ok "#242 clone: control — a file no rule covers is checked out CRLF"; else bad "#242 clone: control — a file no rule covers is checked out CRLF" "the clone did not convert; the checks below would prove nothing"; fi
+for f in .claude/settings.json .claude/skills/dashboard/open-dashboard.sh .claude/skills/dashboard/SKILL.md .claude/skills/create-project/SKILL.md; do
+  if [ -f "$CL/$f" ] && ! has_cr "$CL/$f"; then ok "#242 clone: $f checked out LF"; else bad "#242 clone: $f checked out LF"; fi
+done
+ATTRS="$(git -C "$CL" check-attr eol -- .claude/settings.json .claude/skills/dashboard/open-dashboard.sh | tr -d '\r')"
+if [ "$(grep -c ': eol: lf$' <<< "$ATTRS")" -eq 2 ]; then ok "#242 clone: git reports eol=lf for settings.json and the launcher"; else bad "#242 clone: git reports eol=lf for settings.json and the launcher" "$ATTRS"; fi
 
 # =============================================================================
 echo

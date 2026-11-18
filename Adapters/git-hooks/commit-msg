@@ -1,12 +1,19 @@
 #!/usr/bin/env bash
 # IA Engineering — commit-msg hook
 #
-# Enforces two rules mechanically instead of relying on the AI reading and
+# Enforces these rules mechanically instead of relying on the AI reading and
 # choosing to follow them:
 #   1. Standards/COMMIT_STANDARD.md — Conventional Commits subject line.
 #   2. Core/MAIN_AGENT_CONDUCT.md (Dispatch Discipline) — every commit must
 #      identify the Employee who produced it, by name, not by a generic tool
 #      label ("executor", "coder", etc.).
+#   3. Standards/COMMIT_STANDARD.md (Trailers) — at most one `Work Unit:` line,
+#      and (4) the one present names a Work Unit registered in the project's
+#      Registry/work-units.yml as staged, resolved by
+#      Adapters/scripts/check-work-units.sh --message (WU-IAENG-415).
+#
+# A message with no `Work Unit:` line passes this hook; the Work Unit Exists
+# CI check (check-work-units.sh over the Pull Request) is what requires one.
 #
 # The Employee roster is read from Registry/employees.yml — the single source
 # of truth (see Registry/README.md). Before WU-IAENG-138 this hook carried its
@@ -16,9 +23,13 @@
 # Install in a project that has imported IA Engineering as a submodule:
 #   ./ia-engineering/Adapters/scripts/install.sh
 #
-# or, to install this hook alone:
-#   cp ia-engineering/Adapters/git-hooks/commit-msg .git/hooks/commit-msg
-#   chmod +x .git/hooks/commit-msg
+# It points core.hooksPath at this directory, so git runs this file in place
+# from the framework. Do not copy it into .git/hooks: a copy is a second,
+# forkable version frozen at the framework version it was copied from, and
+# nothing reports the drift (Adapters/README.md, "Hooks are configured
+# through core.hooksPath, not copied into .git/hooks"). Run from outside its
+# framework, the hook resolves a Work Unit claim only with IAENG_FRAMEWORK set
+# to the framework root: it never runs a script from the working tree (Rule 4).
 #
 # Commit message format expected:
 #
@@ -39,6 +50,12 @@
 #   Employee: Backend Engineer
 
 set -euo pipefail
+# SIGPIPE ignored (#397, SEC-IAENG-414-05). Run as `git commit … 2>&1 | head
+# -n 0`, the hook's refusal is written to a closed pipe. Under Git for Windows
+# a hook killed by SIGPIPE reads as exit 0, and the commit was created.
+# Ignored, the write fails instead, and set -e or the explicit exit 1 still
+# refuses the commit.
+trap '' PIPE
 
 COMMIT_MSG_FILE="$1"
 SUBJECT="$(head -1 "$COMMIT_MSG_FILE")"
@@ -87,7 +104,9 @@ if [ -f "$MERGE_HEAD_PATH" ]; then
     fi
   fi
   if [ "$MERGE_KIND" = unknown ]; then
-    echo "commit-msg: warning — cannot classify this merge locally; CI will." >&2
+    # A warning, not a refusal: behind a closed pipe its write fails, and
+    # set -e must not turn it into one (PR #387 review, round 3).
+    echo "commit-msg: warning — cannot classify this merge locally; CI will." >&2 || true
     exit 0
   fi
 fi
@@ -96,7 +115,7 @@ fi
 # Types kept in sync with Templates/PULL_REQUEST.md's Type checklist.
 CC_REGEX='^(feat|fix|docs|refactor|perf|test|chore)(\([a-zA-Z0-9,._-]+\))?: .+'
 
-if [ "$IS_MERGE" -eq 0 ] && ! grep -qE "$CC_REGEX" <<< "$SUBJECT"; then
+if [ "$IS_MERGE" -eq 0 ] && ! grep -qE -- "$CC_REGEX" <<< "$SUBJECT"; then
   echo "commit-msg: rejected — subject line does not follow the Commit Standard." >&2
   echo "  Expected: type(scope): description" >&2
   echo "  type is one of: feat, fix, docs, refactor, perf, test, chore" >&2
@@ -104,8 +123,12 @@ if [ "$IS_MERGE" -eq 0 ] && ! grep -qE "$CC_REGEX" <<< "$SUBJECT"; then
   exit 1
 fi
 
-# A clean merge carrying no Employee claim has nothing left to check.
-if [ "$MERGE_KIND" = clean ] && ! grep -qE '^Employee: ' "$COMMIT_MSG_FILE"; then
+# A clean merge carrying no claim, neither Employee nor Work Unit, has nothing
+# left to check. A claim it does carry is validated (Rule 4 for a Work Unit),
+# as the CI checks validate a claim present on any merge.
+if [ "$MERGE_KIND" = clean ] \
+   && ! grep -qE '^Employee: ' "$COMMIT_MSG_FILE" \
+   && ! grep -qE '^Work Unit: ' "$COMMIT_MSG_FILE"; then
   exit 0
 fi
 
@@ -113,14 +136,28 @@ fi
 # Resolution order, first hit wins:
 #   1. $IAENG_REGISTRY            — explicit override, for non-standard layouts
 #   2. <repo>/Registry/           — the framework's own repository (dogfooding)
-#   3. <repo>/ia-engineering/     — the submodule path Workflows/ONBOARDING.md
-#                                   and Adapters/README.md both assume
+#   3. the framework this hook    — <hook>/../../Registry. In a linked git
+#      file belongs to              worktree of an adopting project the
+#                                   submodule is empty, and install.sh points
+#                                   core.hooksPath at the main checkout's
+#                                   framework, so the roster is found beside
+#                                   the hook git runs (WU-IAENG-414, #368)
+#   4. <repo>/ia-engineering/     — the submodule path Workflows/ONBOARDING.md
+#                                   and Adapters/README.md both assume, for a
+#                                   hook run from outside its framework
+# The hook's own framework comes before the worktree's submodule path
+# (SEC-IAENG-414-01). In the main checkout both name the same file. In a
+# linked worktree the submodule directory is empty and untracked content
+# there does not show in `git status`, so a roster planted in it must not
+# win over the framework git is running.
 REPO_ROOT="$(git rev-parse --show-toplevel)"
+HOOK_FRAMEWORK="$(CDPATH='' cd -- "$(dirname -- "$0")/../.." && pwd)"
 ROSTER=""
 
 for candidate in \
   "${IAENG_REGISTRY:-}" \
   "$REPO_ROOT/Registry/employees.yml" \
+  "$HOOK_FRAMEWORK/Registry/employees.yml" \
   "$REPO_ROOT/ia-engineering/Registry/employees.yml"
 do
   if [ -n "$candidate" ] && [ -f "$candidate" ]; then
@@ -139,11 +176,16 @@ if [ -z "$ROSTER" ]; then
   echo "  Looked for, in order:" >&2
   echo "    \$IAENG_REGISTRY (currently: '${IAENG_REGISTRY:-unset}')" >&2
   echo "    $REPO_ROOT/Registry/employees.yml" >&2
+  echo "    $HOOK_FRAMEWORK/Registry/employees.yml (the framework of this hook)" >&2
   echo "    $REPO_ROOT/ia-engineering/Registry/employees.yml" >&2
   echo "  The Employee roster is the single source of truth for the" >&2
   echo "  'Employee:' trailer (see Registry/README.md). Without it this hook" >&2
   echo "  cannot validate anything, and passing silently would be worse than" >&2
   echo "  failing. Import the framework, or set IAENG_REGISTRY to its path." >&2
+  echo "  In a linked git worktree the framework submodule is empty until" >&2
+  echo "  'git submodule update --init' runs there; re-running" >&2
+  echo "  ia-engineering/Adapters/scripts/install.sh in the main checkout points" >&2
+  echo "  core.hooksPath at a framework every worktree reaches." >&2
   exit 1
 fi
 
@@ -179,8 +221,13 @@ fi
 # --- Rule 2: Dispatch Discipline — Employee trailer required --------------
 # Parsing contract, per Registry/README.md: every entry's first line is
 # `  - name: <Name>` — two leading spaces, unquoted, no trailing comment. The
-# trailing `tr -d '\r'` guards against a CRLF checkout on Windows, which would
-# otherwise leave a carriage return on every name and match nothing.
+# `s/\r$//` guards against a CRLF checkout on Windows, which would otherwise
+# leave a carriage return on every name and match nothing. It removes a
+# carriage return only where it ends a line, never every one
+# (Standards/CODE_QUALITY_STANDARD.md, The Check Convention, Shell Scripts
+# rule 3): one inside a name or a trailer value is data, git keeps it in the
+# value it parses, and deleting it would let `Platform Engi<CR>neer` pass as
+# `Platform Engineer` (WU-IAENG-389, issue #325).
 # EVERY `Employee: ` line is validated, not one of them.
 #
 # Two earlier versions picked a single line by ordinal and both were bypassable,
@@ -249,7 +296,75 @@ if [ "$WU_COUNT" -gt 1 ]; then
   exit 1
 fi
 
+# --- Rule 4: the Work Unit claim names a registered Work Unit ------------
+# Issue #364, from the 28 Oct 2026 adoption rehearsal: this hook counted the
+# `Work Unit:` lines and never resolved one, so `Work Unit: WU-DEMO-999` was
+# committed. The adoption commit is pushed straight to main with no Pull
+# Request, so the Work Unit Exists CI check never saw it either.
+#
+# The rule is check-work-units.sh's, not a copy of it. The hook hands the
+# message to `check-work-units.sh --message`, which applies the CI check's
+# shape test and registry parse to the registry this commit RECORDS:
+# Registry/work-units.yml as staged, because the entry is registered in the
+# same commit as the work (Workflows/FEATURE_DEVELOPMENT.md Step 4 item 2). In
+# a project that imported the framework that is the project's registry, never
+# the framework's (WU-IAENG-320).
+#
+# Only a claim that is present is resolved. A message with none is left to the
+# Work Unit Exists check, as before: install.sh probes this hook with a message
+# that carries no `Work Unit:` line.
+#
+# The script is run from this hook's OWN framework only: beside the hook (the
+# core.hooksPath install, where hook and check come from one framework
+# checkout), else from an explicit $IAENG_FRAMEWORK. Never from the working
+# tree: a hook that executes ./Adapters/scripts or ./ia-engineering/... runs
+# whatever a branch or a worktree's empty submodule directory holds there
+# (aligned with SEC-IAENG-414-01). So a hook copied into .git/hooks needs
+# IAENG_FRAMEWORK to resolve a claim. A claim that cannot be evaluated (no
+# script, no registry, a registry not staged or unreadable) is refused, never
+# passed (Standards/CODE_QUALITY_STANDARD.md, The Check Convention). The
+# script's stdout (the resolved line) is dropped; its stderr says why, and its
+# exit says which: 1 a finding about the claim, 2 not evaluated.
+if [ "$WU_COUNT" -eq 1 ]; then
+  HOOK_DIR="$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)"
+  CHECK_WU=""
+  for candidate in \
+    "$HOOK_DIR/../scripts" \
+    "${IAENG_FRAMEWORK:-}/Adapters/scripts"; do
+    case "$candidate" in /Adapters/scripts) continue ;; esac
+    if [ -f "$candidate/check-work-units.sh" ]; then
+      CHECK_WU="$candidate/check-work-units.sh"
+      break
+    fi
+  done
+  if [ -z "$CHECK_WU" ]; then
+    echo "commit-msg: rejected — this commit claims a Work Unit, and this hook cannot locate check-work-units.sh in its own framework to resolve it." >&2
+    echo "  Looked next to this hook ($HOOK_DIR/../scripts) and in" >&2
+    echo "  \$IAENG_FRAMEWORK/Adapters/scripts (IAENG_FRAMEWORK: '${IAENG_FRAMEWORK:-unset}')." >&2
+    echo "  The working tree is never searched: a hook does not run a script a branch" >&2
+    echo "  can plant. A claim this hook cannot evaluate is refused, not passed. Wire" >&2
+    echo "  the hooks with ./ia-engineering/Adapters/scripts/install.sh (core.hooksPath)," >&2
+    echo "  or set IAENG_FRAMEWORK to the framework root for a copied hook." >&2
+    exit 1
+  fi
+  WU_RC=0
+  bash "$CHECK_WU" --message "$COMMIT_MSG_FILE" > /dev/null || WU_RC=$?
+  if [ "$WU_RC" -eq 1 ]; then
+    echo "commit-msg: rejected — the 'Work Unit:' claim does not resolve (reason above, from" >&2
+    echo "  $CHECK_WU --message: the rule of the Work Unit Exists" >&2
+    echo "  CI check, applied to the registry this commit records)." >&2
+    exit 1
+  elif [ "$WU_RC" -ne 0 ]; then
+    echo "commit-msg: rejected — the 'Work Unit:' claim could not be evaluated (reason above;" >&2
+    echo "  $CHECK_WU --message exited $WU_RC), so it is refused, not passed." >&2
+    exit 1
+  fi
+fi
+
 if [ -z "$EMPLOYEE_LINES" ]; then
+  # A clean merge reaches this point only to have its Work Unit claim resolved
+  # (Rule 4, above); it needs no Employee trailer.
+  [ "$MERGE_KIND" = clean ] && exit 0
   [ "$MERGE_KIND" = authored ] && echo "commit-msg: this merge changes content beyond its parents' automatic merge, so it is authored work." >&2
   echo "commit-msg: rejected — missing 'Employee: <Name>' trailer." >&2
   echo "  Per Core/MAIN_AGENT_CONDUCT.md (Dispatch Discipline), every commit must" >&2
@@ -258,17 +373,19 @@ if [ -z "$EMPLOYEE_LINES" ]; then
   exit 1
 fi
 
-VALID_NAMES="$(grep -E '^  - name: ' "$ROSTER" | sed 's/^  - name: //' | tr -d '\r')"
+VALID_NAMES="$(grep -E '^  - name: ' "$ROSTER" | sed $'s/^  - name: //; s/\r$//')"
 if [ -n "$PROJECT_ROSTER" ]; then
   VALID_NAMES="$VALID_NAMES
-$(grep -E '^  - name: ' "$PROJECT_ROSTER" | sed 's/^  - name: //' | tr -d '\r')"
+$(grep -E '^  - name: ' "$PROJECT_ROSTER" | sed $'s/^  - name: //; s/\r$//')"
 fi
 
 REJECTED=0
 while IFS= read -r line; do
   [ -n "$line" ] || continue
-  name="$(echo "${line#Employee: }" | tr -d '\r')"
-  if ! grep -qxF "$name" <<< "$VALID_NAMES"; then
+  name="${line#Employee: }"
+  name="${name%$'\r'}"
+  # `--`: the value is compared as text even when it begins with a dash.
+  if ! grep -qxF -- "$name" <<< "$VALID_NAMES"; then
     echo "commit-msg: rejected — 'Employee: $name' is not a recognized Employee." >&2
     REJECTED=1
   fi

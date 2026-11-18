@@ -27,7 +27,9 @@ If the defect is not in production or the impact is medium or lower: use the Fea
 
 | Actor | Role in this workflow |
 |---|---|
-| Director | Authorizes the hotfix and approves the merge to `main` |
+| Main Agent | Plans the hotfix's Work Units and presents the plan with the request for authorization |
+| Director | Authorizes the hotfix, approves its plan, and approves the merge to `main` |
+| Technical Lead | Runs the Plan Review of the hotfix plan when it carries a Medium-or-higher action |
 | Engineering Manager | Coordinates the hotfix, assigns the engineer |
 | Engineer | Implements and tests the fix |
 | Code Reviewer | Reviews the fix — no hotfix is merged without review |
@@ -42,24 +44,27 @@ If the defect is not in production or the impact is medium or lower: use the Fea
 Before this workflow begins:
 
 - The defect is confirmed in production.
-- Director has authorized the hotfix.
 - The defect is reproduced and documented with steps to reproduce, actual behavior, and expected behavior.
 
 ---
 
 # Steps
 
-## Step 1 — Director authorization
+## Step 1 — Hotfix plan and Director authorization
 
-**Actor:** Director
+**Actor:** Main Agent, who plans the hotfix; Technical Lead, who runs the plan's Plan Review when one is required; Director, who authorizes the hotfix and approves its plan
 
-1. Confirm the defect severity and production impact.
-2. Authorize the hotfix explicitly.
-3. Define the maximum acceptable time to resolution.
+The Director, in one decision:
+
+1. Confirms the defect severity and production impact.
+2. Authorizes the hotfix and approves its plan explicitly.
+3. Sets the maximum acceptable time to resolution, by approving the time the plan proposes or by stating another.
 
 No hotfix work begins without this authorization.
 
-**Output:** Director authorization documented.
+Planning is not hotfix work, and it comes first. The Main Agent plans the hotfix's Work Units as `Core/ORCHESTRATION.md` Step 3 defines them, and the plan may propose the maximum acceptable time to resolution. A plan that carries a Medium-or-higher action (`Standards/RISK_STANDARD.md`) goes through the Technical Lead's Plan Review (`Employees/Management/TECHNICAL_LEAD.md`, Process, Plan Review) before it reaches the Director. The Main Agent then presents the plan, with its Plan Review record when one is required, together with the request for authorization, and the Director authorizes the hotfix and approves its plan in one decision, recorded as both. An authorization given without the plan's approval does not dispatch Step 2: the plan is revised and presented again. A revised plan that carries a Medium-or-higher action goes back to the Technical Lead before it is presented again: the Technical Lead runs its Plan Review again or, when the revision leaves unchanged everything an earlier Plan Review of the plan examined, records that on the earlier record, and the revised plan reaches the Director with that record. A revised plan whose actions are all Low is presented again without one. Urgency shortens neither the plan nor its review.
+
+**Output:** Director authorization, approval of the hotfix plan, and the maximum acceptable time to resolution, documented as one decision, with the plan's Plan Review record when one is required.
 
 ---
 
@@ -220,7 +225,7 @@ This workflow is complete when:
 
 Owner: IA Engineering
 
-Version: 0.0.9.4
+Version: 0.0.12
 
 Status: Draft
 

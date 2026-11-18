@@ -57,7 +57,7 @@ They compose: use this document to identify the best-fit Employee; if that Emplo
 - **Product Manager** — Dispatch when the question is *what to build and in what order*: backlog prioritization, translating business objectives into requirements with acceptance criteria, defining release or milestone scope (the Release Manager then executes the release), or accepting/rejecting delivered features against acceptance criteria.
 - **Release Manager** — Dispatch when preparing, validating, or delivering a release: release checklist, version bump coordination, release-branch management, changelog coordination, and driving the release to the Director-approval gate. **Not** a catch-all for any git or documentation task that happens near a release.
 - **Scrum Master** — Dispatch for process facilitation: sprint planning, standups, reviews, retrospectives, impediment removal, and protecting the team from mid-sprint scope change. This is process, not people management and not technical decisions.
-- **Technical Lead** — Dispatch for cross-cutting *technical consistency and convention* work: translating architecture into implementation guidance, pre-PR technical review, defining or changing a project convention, a clause of a Standard (`Standards/`), or what a template requires its user to state, resolving technical inconsistencies across the codebase. Changing roles, chains, or orchestration in `Core/` is not a convention: see Prompt Engineer vs. Software Architect. See **Miscasting Risks** for the boundaries with the Software Architect and the Technical Writer.
+- **Technical Lead** — Dispatch for cross-cutting *technical consistency and convention* work: translating architecture into implementation guidance, pre-PR technical review, defining or changing a project convention, a clause of a Standard (`Standards/`), or what a template requires its user to state, resolving technical inconsistencies across the codebase. Dispatch also for the Plan Review of every plan carrying a Medium-or-higher action, before it reaches the Director (`Core/ORCHESTRATION.md`, Step 3). Changing roles, chains, or orchestration in `Core/` is not a convention: see Prompt Engineer vs. Software Architect. See **Miscasting Risks** for the boundaries with the Software Architect and the Technical Writer.
 
 ## Architecture
 
@@ -232,7 +232,7 @@ Merging `develop` into an open Pull Request's branch, resolving its conflicts, a
 
 Owner: IA Engineering
 
-Version: 0.0.6
+Version: 0.0.7
 
 Status: Draft
 
