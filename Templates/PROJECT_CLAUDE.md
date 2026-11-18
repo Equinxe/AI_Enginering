@@ -122,14 +122,14 @@ Present the plan to the Director and wait for approval before executing,
 whatever the runtime's effort or orchestration mode (Claude Code's `ultracode`
 dynamic workflows included).
 
-Never have more than 6 subagents running at once, Employees included. The cap
-is per machine: those of every other session on it count, an IA Engineering
-framework session's included. Count your own, plus those the Director reports.
-At 6 or more, queue the next dispatchable Work Unit, tell the Director it is
-queued, and dispatch it when the count falls below 6. The cap delays a Work
-Unit; it never refuses or drops one
-(`ia-engineering/Governance/BLOCKING_HOOK_LATENCY_MEASUREMENT.md`, The
-Parallel-Agent Cap).
+Before any parallel dispatch, read the parallel-agent cap in
+`ia-engineering/Core/ORCHESTRATION.md` (Step 4, Dispatch Rules), and never
+have more subagents running at once than it allows, Employees included. It
+counts every Claude Code session on this machine, an IA Engineering framework
+session's included, and every dispatch, reviews included. Count your own,
+plus the main sessions and subagents the Director reports. At or above the
+cap, tell the Director what waits, and dispatch it when the count falls below
+the cap. The cap delays a dispatch; it never refuses or drops one.
 
 ---
 
@@ -310,7 +310,7 @@ direction. Move an answered one into the body of this file and delete it here.]
 
 Owner: IA Engineering
 
-Version: 0.0.17
+Version: 0.0.18
 
 Status: Draft
 

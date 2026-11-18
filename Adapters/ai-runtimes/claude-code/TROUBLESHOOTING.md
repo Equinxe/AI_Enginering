@@ -108,13 +108,24 @@ Audience: the operator, with the guards installed by `install-hooks.sh` since WU
 **Cause.** The two guards, `block-escape-hatches.sh` (Bash) and `block-inline-suppression.sh` (Edit, Write, MultiEdit), are installed with `"onFailure": "block"` and a 120 s `timeout`. A failed guard then blocks the call, as exit code 2 would ([Block the action when a hook fails](https://code.claude.com/docs/en/hooks.md#block-the-action-when-a-hook-fails), Claude Code 2.1.295 or later). The page counts these as failures: the hook cannot start, it exits with a code other than 0 or 2, it reaches its timeout, or it prints JSON that cannot be parsed. In practice, check these in order:
 
 1. **The hook files are missing in this checkout.** The usual case is a Claude Code session started inside a `git worktree` of the project whose framework submodule was never initialised (issue #368). The hooks then resolve from that worktree, the command in `.claude/settings.json` names a script that does not exist, and the hook cannot start. A subagent that Claude Code runs in a worktree is not affected. Observed on 29 October 2026 (WU-IAENG-414): its hooks ran with `$CLAUDE_PROJECT_DIR` set to the main checkout, so they resolved from the main checkout's initialised framework.
-2. **The machine is too loaded for the guard to finish in 120 s.** On Windows, a guard's latency is mostly process creation, and it grows with the number of agents working in parallel (`Governance/BLOCKING_HOOK_LATENCY_MEASUREMENT.md`). The framework caps them at **6 subagents running at once per machine, Employees included**, every Claude Code session on it counted, the framework's own included. The cap is **3** while the framework is at v0.0.15, whose escape-hatch guard starts 80 or more processes per call (Director decision D3, 17 November 2026). Within the cap, no measured call came near the timeout. With 6 calls at a time on a machine at 100 % CPU, the slowest of 144 guard calls took 9.8 s (`Governance/BLOCKING_HOOK_LATENCY_MEASUREMENT.md`, The Parallel-Agent Cap). A refusal at 120 s within the cap points to cause 1 or 3.
-3. **The guard itself failed,** for example with an exit code other than 0 or 2. That is a defect in the guard.
+2. **The machine is too loaded for the guard to finish in 120 s.** On Windows, a guard's latency is mostly process creation, and it grows with the number of agents working in parallel. The framework's **parallel-agent cap** limits them per machine (`Core/ORCHESTRATION.md`, Step 4, Dispatch Rules; Director decision D3, 17 November 2026):
+   - **6 subagents, Employees included**, counting every Claude Code session on the machine, the framework's own included.
+   - **3** while any session on the machine runs a framework at v0.0.15 or earlier, whose escape-hatch guard starts 80 or more processes per call.
+   - One fewer for every main session open on the machine beyond the first.
+
+   What was measured (`Governance/BLOCKING_HOOK_LATENCY_MEASUREMENT.md`, The Parallel-Agent Cap):
+   - With the lighter guard of v0.0.16, 6 calls at a time on a machine at 100 % CPU, the slowest of 144 guard calls took 9.8 s, on a load lighter than the heaviest measured.
+   - The cap of 3 with the v0.0.15 guard was not measured at 3 calls at a time. One call at a time, that guard took up to 36 s; 8 at a time, it passed 120 s.
+
+   Causes 1 and 3 fail at once. A refusal that comes about 120 s after the call is a timeout: this cause, or a guard that hangs (cause 3).
+3. **The guard itself failed,** for example with an exit code other than 0 or 2, or because it hangs. That is a defect in the guard.
 
 **Remedy.**
 
 1. In a terminal, from that checkout's root, run `git submodule update --init`. Then check that the scripts the commands name exist: `ls ia-engineering/Adapters/ai-runtimes/claude-code/hooks/`.
-2. Bring the machine back within the cap: at most 6 subagents, Employees included, running at once across every session on it (3 with a framework at v0.0.15). Then try the call again. The project's `CLAUDE.md` gives the Main Agent this cap and tells it to queue a Work Unit at 6 or more, never to refuse it (`Templates/PROJECT_CLAUDE.md`, Main Agent; `Governance/BLOCKING_HOOK_LATENCY_MEASUREMENT.md`, The Parallel-Agent Cap). A project whose `CLAUDE.md` predates the cap needs the paragraph copied from the template.
+2. Bring the machine back within the parallel-agent cap of cause 2, then try the call again. The project's `CLAUDE.md` tells the Main Agent to keep to it: at or above the cap, a dispatch waits, and the cap never refuses one (`Templates/PROJECT_CLAUDE.md`, Main Agent).
+   - **A project on v0.0.16 or later whose `CLAUDE.md` predates the cap:** copy the paragraph from the template.
+   - **A project on v0.0.15:** neither its Core nor its template carries a cap, so the template's pointer leads nowhere. Write this in its `CLAUDE.md` instead, the cap of the v0.0.15 pilot conditions (#452, condition 2): "Never have more than 3 subagents running at once on this machine, Employees included, one fewer for every main session open on it beyond the first. Every Claude Code session on it counts. At or above the cap, tell the Director what waits; the cap delays a dispatch and never refuses one."
 3. Run the guard by hand with a harmless payload. It must print nothing and exit 0:
 
    ```bash
@@ -149,7 +160,7 @@ Follow `Governance/TROUBLESHOOTING.md`, "Adding an Entry", with one more rule. E
 
 Owner: IA Engineering
 
-Version: 0.0.16
+Version: 0.0.17
 
 Status: Draft
 

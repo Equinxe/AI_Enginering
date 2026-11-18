@@ -9,4 +9,4 @@
 
 ### Notes
 
-- After upgrading, copy the parallel-agent cap paragraph from the Main Agent section of `ia-engineering/Templates/PROJECT_CLAUDE.md` into your project's `CLAUDE.md`. Until then, your Main Agent has no cap. A project still on v0.0.15 keeps the cap of 3 that the v0.0.15 pilot conditions set: condition 2 of the Security Engineer's release sign-off on #452, "Run at most 3 agents in parallel" (WU-IAENG-435)
+- After upgrading, copy the parallel-agent cap paragraph from the Main Agent section of `ia-engineering/Templates/PROJECT_CLAUDE.md` into your project's `CLAUDE.md`. Until then, your `CLAUDE.md` does not state the cap, but your Main Agent still has it from `ia-engineering/Core/ORCHESTRATION.md`. A project still on v0.0.15 keeps the cap of 3 that the v0.0.15 pilot conditions set: condition 2 of the Security Engineer's release sign-off on #452, "Run at most 3 agents in parallel" (WU-IAENG-435)

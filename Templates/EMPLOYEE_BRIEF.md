@@ -25,6 +25,7 @@ This is the Context Engine in practice: the Main Agent filters, structures, and 
 **Date:** [YYYY-MM-DD]
 **Execution tier:** [Lightweight | Standard | Strategic | Frontier] (default: <Employee tier>)
 **Tier reason:** [required only when the Execution tier differs from the default — see `Core/CAPABILITY_TIERS.md`, Tier Override; for Frontier, quote the Director's approval]
+**Subagents you may start:** [none | N, and what for — e.g., 2 review lenses] (default: none). The Main Agent counts this dispatch as 1 plus N against the parallel-agent cap (`Core/ORCHESTRATION.md`, Step 4, Dispatch Rules)
 
 ---
 
@@ -129,6 +130,8 @@ Whatever this brief adds, these bind every Work Unit that runs tests:
 - Bound every full-suite run with a timeout. A run the timeout ended is not evaluated, never passed.
 - The required CI checks on the Pull Request run every suite. Your report pastes their result as the gate evidence for the suites you did not run.
 
+Whatever this brief adds, this binds every Work Unit: start no subagent unless **Subagents you may start** allows it, and never more than its number at once. Each one counts against the machine's parallel-agent cap (`Core/ORCHESTRATION.md`, Step 4, Dispatch Rules).
+
 ---
 
 ### Escalation
@@ -197,7 +200,7 @@ A brief that is too long is as harmful as one that is too short. The Main Agent'
 
 Owner: IA Engineering
 
-Version: 0.0.12
+Version: 0.0.13
 
 Status: Draft
 
