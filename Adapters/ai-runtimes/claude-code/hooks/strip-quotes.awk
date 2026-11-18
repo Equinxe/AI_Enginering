@@ -37,13 +37,21 @@
 #   ansic        $'...' — a backslash escapes the NEXT CHARACTER, so \' does
 #                not close the region. Escapes are decoded on close: \xHH,
 #                \NNN, \uHHHH, each capped at the shell's own digit count
-#   double       \x escapes; $( and ` open substitutions; " closes
+#   double       \x escapes; $( and ` open substitutions; " closes. The
+#                contents of either substitution are COMMANDS and are
+#                scanned, as outside; the closing ) or ` returns here
 #
 # A quoted region is dropped, with one exception: when its entire content is a
 # single word with no whitespace — "--no-verify", "reset", '-f'. Quoting a lone
 # word is not how anyone writes a message; it is how a token gets past a text
 # filter, and the shell passes it on identically either way. Braces inside such
 # a word are marked literal, because the shell does not expand a quoted brace.
+#
+# A DROPPED REGION KEEPS ITS LAST PATH COMPONENT (WU-IAENG-440). A quoted
+# command path often holds a space, and the command it names is its last
+# component. When the region holds a / or a \ and the text after the last one
+# is a word with no whitespace, that word is printed with a / before it. The
+# / keeps the word from reading as an option, a keyword or a name of its own.
 #
 # BRACE EXPANSION needs no quoting at all, so it is done here: comma groups and
 # simple ranges are expanded and every alternative APPENDED to the text. The
@@ -174,6 +182,38 @@ function extract_subs(b,   res, i, n, c, d, depth, start) {
 function keepq(s) {
   gsub(/[ \t\n;&|]/, PH, s)
   return mark_literal_braces(s)
+}
+
+# The last path component of a dropped quoted region, with a / before it, or
+# nothing (see the header, A DROPPED REGION KEEPS ITS LAST PATH COMPONENT). A
+# backslash counts as a separator, as it does in a Windows path. The search
+# runs once from the end of the region, so it is linear in its length.
+function path_tail(s,   k, ch) {
+  for (k = length(s); k > 0; k--) {
+    ch = substr(s, k, 1)
+    if (ch == "/" || ch == "\\") break
+  }
+  if (k == 0) return ""
+  s = substr(s, k + 1)
+  if (s == "" || s ~ /[ \t\n]/) return ""
+  return "/" mark_literal_braces(s)
+}
+
+# A SUBSTITUTION OPENED INSIDE DOUBLE QUOTES, by $( or by a backtick
+# (WU-IAENG-440). Its contents are commands, so they are scanned as outside
+# until the matching ) or backtick, which returns to the quoted region. The
+# quoted text read so far is printed first, as the region's close would print
+# it, wherever that close prints the region whatever it holds (a command
+# context, printf, the KEEPQ view). The contexts are saved with the region and
+# restored on return, since a quote opened inside the substitution clears them.
+function open_dq_sub(kind) {
+  if (decodectx) out = out " " decode_ansic(buf) " "
+  else if (cmdctx) out = out " " buf " "
+  else if (KEEPQ == 1) out = out keepq(buf)
+  stack[depth] = kind; cstack[depth] = cmdctx; dstack[depth] = decodectx
+  depth++
+  mode = "out"; tainted = 1; buf = ""
+  out = out " "
 }
 
 # Braces that came from a quoted or escaped source are literal to the shell.
@@ -315,8 +355,12 @@ function expand_braces(s,   extra, groups, grp, inner, alts, n, k, pre, post, r,
   return extra
 }
 
-{
-  s = $0; n = length(s); i = 1
+# lex(s) returns the words of s, read as described in the header. With V2 = 0
+# it is the reading this file gave before WU-IAENG-440, unchanged; with V2 = 1
+# it is the second reading (TWO READINGS, below). Pass 1 sets CHANGED where
+# the second would differ.
+function lex(s,   n, i) {
+  n = length(s); i = 1
   out = ""
   mode = "out"
   depth = 0
@@ -342,11 +386,21 @@ function expand_braces(s,   extra, groups, grp, inner, alts, n, k, pre, post, r,
       }
       if (c == "`") {
         # Backticks are command substitution too; their contents are commands.
+        # One that closes a substitution opened inside double quotes returns
+        # to that region (open_dq_sub).
+        if (depth > 0 && stack[depth - 1] == "dqbt") {
+          depth--; mode = "dq"; tainted = 1
+          cmdctx = cstack[depth]; decodectx = dstack[depth]
+        }
         out = out " "; i++; continue
       }
-      if (c == ")" && depth > 0) {
+      # A ) closes a $( substitution, never a backtick one.
+      if (c == ")" && depth > 0 && stack[depth - 1] != "dqbt") {
         depth--; mode = stack[depth]
-        if (mode != "out") tainted = 1
+        if (mode != "out") {
+          tainted = 1
+          if (V2) { cmdctx = cstack[depth]; decodectx = dstack[depth] }
+        }
         out = out " "; i++; continue
       }
       if (c == "$" && (d == SQ || d == "\"")) {
@@ -447,6 +501,7 @@ function expand_braces(s,   extra, groups, grp, inner, alts, n, k, pre, post, r,
         else if (cmdctx) out = out " " buf " "
         else if (KEEPQ == 1) out = out keepq(buf)
         else if (!tainted && is_bare_word(buf)) out = out mark_literal_braces(buf)
+        else dropped(buf)
         mode = "out"; buf = ""; tainted = 0; cmdctx = 0; decodectx = 0
         i++; continue
       }
@@ -463,6 +518,7 @@ function expand_braces(s,   extra, groups, grp, inner, alts, n, k, pre, post, r,
         if (cmdctx) out = out " " buf " "
         else if (KEEPQ == 1) out = out keepq(buf)
         else if (is_bare_word(buf)) out = out mark_literal_braces(buf)
+        else dropped(buf)
         mode = "out"; buf = ""; tainted = 0; cmdctx = 0; decodectx = 0
         i++; continue
       }
@@ -472,16 +528,23 @@ function expand_braces(s,   extra, groups, grp, inner, alts, n, k, pre, post, r,
     # mode == "dq"
     if (c == "\\") { buf = buf c d; i += 2; continue }
     if (c == "$" && d == "(") {
+      if (V2) { open_dq_sub("dq"); i += 2; continue }
+      if (cmdctx || decodectx || KEEPQ == 1) CHANGED = 1
       stack[depth] = "dq"; depth++
       mode = "out"; tainted = 1; buf = ""
       out = out " "; i += 2; continue
     }
-    if (c == "`") { tainted = 1; buf = buf " "; i++; continue }
+    if (c == "`") {
+      if (V2) { open_dq_sub("dqbt"); i++; continue }
+      CHANGED = 1
+      tainted = 1; buf = buf " "; i++; continue
+    }
     if (c == "\"") {
       if (decodectx) out = out " " decode_ansic(buf) " "
       else if (cmdctx) out = out " " buf " "
       else if (KEEPQ == 1) out = out keepq(buf)
       else if (!tainted && is_bare_word(buf)) out = out mark_literal_braces(buf)
+      else dropped(buf)
       mode = "out"; buf = ""; tainted = 0; cmdctx = 0; decodectx = 0
       i++; continue
     }
@@ -490,7 +553,45 @@ function expand_braces(s,   extra, groups, grp, inner, alts, n, k, pre, post, r,
 
   # An unterminated quote ran to the end of the text and is dropped, as any
   # other quoted text would be.
-  result = out expand_braces(out)
+  return out
+}
+
+# A quoted region the reading drops: nothing in pass 1, its path_tail in the
+# second reading. Pass 1 notes that the second reading differs.
+function dropped(b,   t) {
+  t = path_tail(b)
+  if (V2) out = out t
+  else if (t != "") CHANGED = 1
+}
+
+# TWO READINGS (WU-IAENG-440). The text is printed as this file read it before
+# WU-IAENG-440 (pass 1), every record as before. When the second reading of
+# some record differs, the whole text follows again on a line of its own, read
+# the second way: a substitution in double quotes opened by a backtick as by
+# $(, the quoted text before a substitution printed where its region's close
+# prints it, and a dropped region's last path component kept. The rules refuse
+# on a match in any line or segment, so the second reading can only add a
+# refusal: the first is printed whole, so the rules that read words side by
+# side still find every pair they found. Brace alternatives are appended to
+# each reading of each record.
+{
+  V2 = 0; CHANGED = 0
+  r1 = lex($0)
+  one = r1 expand_braces(r1)
+  two = one
+  if (CHANGED) {
+    V2 = 1
+    r2 = lex($0)
+    V2 = 0
+    if (r2 != r1) { two = r2 expand_braces(r2); ANY2 = 1 }
+  }
+  ALL1 = ALL1 one
+  ALL2 = ALL2 two
+}
+
+END {
+  result = ALL1
+  if (ANY2) result = result "\n" ALL2
   gsub(BL, "{", result)
   gsub(BR, "}", result)
   printf "%s", result

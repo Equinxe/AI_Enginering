@@ -1388,6 +1388,114 @@ agg_case "no counts written (exit 2): one failure" "" 2 "1 1" "reported no count
 agg_case "counts that are not two numbers: one failure" "38 two" 0 "1 1" "reported no counts (exit 0)"
 rm -rf "$AGG_DIR"
 
+# --- Escape-hatch hook: git recognition, quoted substitutions, the stash -------
+# --- exemption (WU-IAENG-440) --------------------------------------------------
+# What the case file cannot hold: a command on several lines, the lexer's exact
+# output, the processes a call starts, and a large command read twice. The
+# expected outputs are worked by hand from the grammar in strip-quotes.awk's
+# header: a quoted region holding whitespace is dropped in the first reading
+# and leaves its last path component, with a / before it, in the second; a
+# backtick in double quotes opens a substitution in the second reading only;
+# the second reading follows the first on a line of its own, only when it
+# differs, after every record of the first. No command here starts with a /,
+# which Git Bash would rewrite into a Windows path before jq read it.
+echo "== escape-hatch: git recognition, quoted substitutions, stash exemption (WU-IAENG-440)"
+expect_reason "escape-hatch: a git stash is not exempted by a read on the next line" \
+  "$(mkbash $'git stash\ngit stash list')" "git stash sets work aside"
+expect_reason "escape-hatch: a git stash is not exempted by a read on the line before" \
+  "$(mkbash $'git stash list\ngit stash push -m x')" "git stash sets work aside"
+expect_reason "escape-hatch: a backtick substitution in double quotes is read across lines" \
+  "$(mkbash $'echo "`\ngit push --force\n`"')" "force-push or mirror-push"
+# w440_lex <label> <input, given to the lexer without a line break> <exact output>
+w440_lex() {
+  local label="$1" in="$2" want="$3" got
+  TOTAL=$((TOTAL + 1))
+  got="$(printf '%s' "$in" | awk -f "$HOOKS/strip-quotes.awk"; printf x)"
+  got="${got%x}"
+  if [ "$got" = "$want" ]; then
+    [ "$VERBOSE" -eq 1 ] && printf '   ok    %s\n' "$label"
+  else
+    FAILED=$((FAILED + 1))
+    printf '   FAIL  %s: got %q, want %q\n' "$label" "$got" "$want"
+  fi
+}
+w440_lex "lexer: the first reading is the earlier one, the second follows on its own line" \
+  'rm -rf "a b/c" /' $'rm -rf  /\nrm -rf /c /'
+w440_lex "lexer: a command the second reading would not change is read once" \
+  'git commit -m "a b"' 'git commit -m '
+w440_lex "lexer: a backtick in double quotes opens a substitution in the second reading" \
+  'x="`git push --force`"' $'x=\nx= git push --force '
+w440_lex "lexer: the quoted text before a substitution is kept in a command context" \
+  'bash -c "a $(b) c"' $'bash -c  b   c \nbash -c  a   b   c '
+w440_lex "lexer: records are joined in the first reading as before, the second follows them all" \
+  $'rm -rf "a b/c" /\001x' $'rm -rf  /x\nrm -rf /c /x'
+# THE PROCESS BUDGET IS UNCHANGED. Recording stand-ins first on PATH, as in
+# the budget of WU-IAENG-431 above: a git named git.exe and a stash read
+# beside a show start cat and one jq; a command read twice starts one awk, as
+# a command read once does.
+W440_BASE="$(mktemp -d)"
+W440_SHIMS="$W440_BASE/shims"
+W440_LOG="$W440_BASE/shims.log"
+W440_ON_PATH="$W440_SHIMS"
+command -v cygpath >/dev/null 2>&1 && W440_ON_PATH="$(cygpath -u "$W440_SHIMS")"
+mkdir -p "$W440_SHIMS"
+for w440_cmd in awk cat cut grep head jq sed sort tr wc; do
+  w440_real="$(command -v "$w440_cmd")" || continue
+  printf '#!/bin/sh\necho %s >> "%s"\nexec "%s" "$@"\n' "$w440_cmd" "$W440_LOG" "$w440_real" > "$W440_SHIMS/$w440_cmd"
+  chmod +x "$W440_SHIMS/$w440_cmd"
+done
+# w440_budget <label> <command> <awk wanted> <starts wanted>
+w440_budget() {
+  local label="$1" cmd="$2" want_awk="$3" want_all="$4" rc n_jq n_awk n_all
+  TOTAL=$((TOTAL + 1))
+  : > "$W440_LOG"
+  printf '%s' "$(mkbash "$cmd")" | PATH="$W440_ON_PATH:$PATH" bash "$HOOK" >/dev/null 2>&1
+  rc=$?
+  n_jq="$(grep -c '^jq$' "$W440_LOG")"
+  n_awk="$(grep -c '^awk$' "$W440_LOG")"
+  n_all="$(wc -l < "$W440_LOG" | tr -d ' ')"
+  if [ "$rc" -eq 0 ] && [ "$n_jq" -eq 1 ] && [ "$n_awk" -eq "$want_awk" ] && [ "$n_all" -eq "$want_all" ]; then
+    [ "$VERBOSE" -eq 1 ] && printf '   ok    %s\n' "$label"
+  else
+    FAILED=$((FAILED + 1))
+    printf '   FAIL  %s: exit %s, jq x%s, awk x%s, %s starts (want exit 0, jq x1, awk x%s, %s starts)\n' \
+      "$label" "$rc" "$n_jq" "$n_awk" "$n_all" "$want_awk" "$want_all"
+  fi
+}
+w440_budget "escape-hatch: budget — git.exe starts cat and one jq" 'git.exe push origin main' 0 2
+w440_budget "escape-hatch: budget — a stash read beside a show starts cat and one jq" 'git stash list; git stash show' 0 2
+w440_budget "escape-hatch: budget — a command read twice starts one awk" 'echo "`date`" "a b/c"' 1 3
+rm -rf "$W440_BASE"
+# A LARGE COMMAND READ TWICE IS JUDGED IN TIME. 5,000 backtick substitutions
+# inside one double-quoted region, each beside a quoted path, then a
+# force-push: both readings run, and the call is refused for the push within
+# 30 s, the budget of the large-input checks above. 55,000 bytes, short of the
+# 65,536-byte here-string window, which those checks cover.
+W440_DIR="$(mktemp -d)"
+{
+  printf 'echo "'
+  for ((w440_i = 0; w440_i < 5000; w440_i++)); do printf '`true` a/b '; done
+  printf '"; git push --force'
+} > "$W440_DIR/cmd"
+jq -n --rawfile c "$W440_DIR/cmd" '{tool_name:"Bash",tool_input:{command:$c}}' > "$W440_DIR/pay"
+w440_t0=$SECONDS
+if command -v timeout >/dev/null 2>&1; then
+  W440_OUT="$(timeout 30 bash "$HOOK" < "$W440_DIR/pay" 2>&1 >/dev/null)"
+  W440_RC=$?
+else
+  W440_OUT="$(bash "$HOOK" < "$W440_DIR/pay" 2>&1 >/dev/null)"
+  W440_RC=$?
+fi
+W440_S=$((SECONDS - w440_t0))
+rm -rf "$W440_DIR"
+TOTAL=$((TOTAL + 1))
+if [ "$W440_RC" -eq 2 ] && [ "$W440_S" -le 30 ] && grep -qF "force-push or mirror-push" <<< "$W440_OUT"; then
+  [ "$VERBOSE" -eq 1 ] && printf '   ok    %s (%s s)\n' "escape-hatch: a large command read twice is judged within 30 s, and refused" "$W440_S"
+else
+  FAILED=$((FAILED + 1))
+  printf '   FAIL  escape-hatch: a large command read twice is judged within 30 s, and refused: exit %s after %s s\n' "$W440_RC" "$W440_S"
+fi
+
 # --- Verdict ----------------------------------------------------------------
 
 echo
