@@ -31,6 +31,25 @@
 #     to data-bearing extensions only, because a hook that fires on ordinary
 #     source files is a hook developers learn to bypass — and --no-verify
 #     disarms every other hook in the same motion.
+#   - in an ADOPTING project only, an entry under a .claude/agents/
+#     directory, at any depth (WU-IAENG-434): a .md file there is an agent,
+#     and any other entry, a link to a directory of agents among them, is
+#     refused with it (SEC-IAENG-467-03). Those are the Employees' agents,
+#     generated in each clone: each names the absolute framework root of the
+#     clone that generated it, so a committed one is wrong in every other
+#     clone (and publishes that path, often with a user's name in it).
+#     install.sh's .gitignore rule `.claude/agents/` keeps them out; this
+#     refuses the commit that gets past it (git add -f, a rule removed).
+#     So is an entry standing where .claude/ or .claude/agents/ should be,
+#     such as a symbolic link to a directory holding agents (SEC-IAENG-467-02).
+#     Claude Code reads .claude/agents/ recursively, hence any depth. The
+#     framework repository itself is out of scope: its agents name no root.
+#     It is recognised as the repository the scanner belongs to: the
+#     scanner's framework is the root of its own checkout (-ef), of the same
+#     git common directory, which holds in its linked worktrees too, whose
+#     hooks run from the main checkout. A directory is never such an entry
+#     (--history lists trees too). Decided only when such a path is met, so
+#     no other commit pays for it.
 #
 # WHAT IS FLAGGED (content, added lines only):
 #   High-confidence secret shapes: private key blocks, AWS access key IDs,
@@ -165,8 +184,59 @@ allowed_content() {
 # --- Path classification -------------------------------------------------------
 # Prints the reason a path is refused; prints nothing for an acceptable path.
 
+# agent_path <path> — true for a path the agents rule judges, at any depth and
+# in any letter case (git on Windows reads the .gitignore rule without case,
+# and so does the filesystem Claude Code reads the agents from):
+#   - anything under a .claude/agents/ directory: the agents generated in
+#     each clone and nothing else, so a .md file there is an agent, and any
+#     other entry, a symbolic link to a directory of agents among them
+#     (SEC-IAENG-467-03), is refused with it;
+#   - an entry whose path IS .claude or .claude/agents (SEC-IAENG-467-02).
+#     A file entry stands where the directory should be: a symbolic link (to
+#     a cfg/ holding agents, say), a file or a submodule, and what it points
+#     to would be read as the project's agents.
+# The path of a DIRECTORY never is such an entry: --history also lists trees,
+# which classify_path is told and never judges by this rule (Code Reviewer,
+# PR #467: every range that edited .claude/settings.json was refused).
+agent_path() {
+  case "/$1" in
+    */.[Cc][Ll][Aa][Uu][Dd][Ee]|*/.[Cc][Ll][Aa][Uu][Dd][Ee]/[Aa][Gg][Ee][Nn][Tt][Ss]) return 0 ;;
+    */.[Cc][Ll][Aa][Uu][Dd][Ee]/[Aa][Gg][Ee][Nn][Tt][Ss]/*) return 0 ;;
+  esac
+  return 1
+}
+
+# agents_rule_init — AGENTS_PER_CLONE is 1 in an adopting project (agents are
+# refused) and 0 in the framework repository itself, decided once and only
+# when a path under .claude/agents/ is met: called by the scan loops, in this
+# shell, so the $(classify_path) subshells inherit the answer. The framework
+# repository is the one this scanner belongs to: the scanner's framework is
+# the root of its own git checkout (-ef), and that checkout is of the
+# repository being scanned (the same git common directory). That holds in the
+# framework's main checkout and in each of its linked worktrees, which run the
+# main checkout's hooks (core.hooksPath is absolute). A framework imported as
+# a submodule has a git directory of its own, and a plain copy is the root of
+# no checkout: both are an adopting project. Anything git cannot answer
+# refuses.
+AGENTS_PER_CLONE=""
+agents_rule_init() {
+  [ -n "$AGENTS_PER_CLONE" ] && return 0
+  AGENTS_PER_CLONE=1
+  local src="${BASH_SOURCE[0]}" fw common="" fw_top="" fw_common=""
+  case "$src" in */*) fw="${src%/*}/../.." ;; *) fw="../.." ;; esac
+  common="$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null)"
+  { IFS= read -r fw_top; IFS= read -r fw_common; } \
+    < <(git -C "$fw" rev-parse --path-format=absolute --show-toplevel --git-common-dir 2>/dev/null)
+  if [ -n "$common" ] && [ -n "$fw_top" ] && [ "$fw_top" -ef "$fw" ] && [ "$fw_common" -ef "$common" ]; then
+    AGENTS_PER_CLONE=0
+  fi
+  return 0
+}
+
+# classify_path <path> [<kind>] — <kind> is "tree" for a directory (--history
+# lists them), empty or "-" for an entry git tracks.
 classify_path() {
-  local p="$1" base lower ext
+  local p="$1" kind="${2:-}" base lower ext
   base="${p##*/}"
 
   case "$base" in SYNTHETIC_*) return 0 ;; esac
@@ -180,6 +250,20 @@ classify_path() {
     .ia-engineering/SESSION_STATE.md|SESSION_STATE.md)
       printf 'operational state file — never committed (Templates/SESSION_STATE.md)\n'; return 0 ;;
   esac
+  # AGENTS_PER_CLONE is set by agents_rule_init, which the scan loops call for
+  # such a path before this; anything but 0 refuses. A tree is a directory,
+  # never an entry standing in for one.
+  if [ "$kind" != tree ] && agent_path "$p" && [ "${AGENTS_PER_CLONE:-1}" != 0 ]; then
+    case "/$p" in
+      */.[Cc][Ll][Aa][Uu][Dd][Ee]/[Aa][Gg][Ee][Nn][Tt][Ss]/*.[Mm][Dd])
+        printf '%s\n' "an Employee agent of an adopting project — agents are generated in each clone and never committed: each names the framework root of the clone that generated it, wrong in every other clone. Keep .claude/agents/ in .gitignore (install.sh writes that rule) and run generate-agents.sh in each clone; a hand-written agent of the project's own takes an anchored rule in the allow file" ;;
+      */.[Cc][Ll][Aa][Uu][Dd][Ee]/[Aa][Gg][Ee][Nn][Tt][Ss]/*)
+        printf '%s\n' "an entry under .claude/agents/ (a symbolic link, a submodule or another file) — that directory holds the agents generated in each clone and nothing is committed there: what a link points to would be read as agents. Keep .claude/agents/ in .gitignore and run generate-agents.sh in each clone; a file of the project's own there takes an anchored rule in the allow file" ;;
+      *)
+        printf '%s\n' "an entry where the .claude/ or .claude/agents/ directory should be (a symbolic link, a file or a submodule) — what it points to would be read as the project's agents, which are generated in each clone and never committed. Commit the directory's own files instead, keep .claude/agents/ in .gitignore, and run generate-agents.sh in each clone" ;;
+    esac
+    return 0
+  fi
 
   lower="$(printf '%s' "$base" | tr '[:upper:]' '[:lower:]')"
 
@@ -322,17 +406,22 @@ scan_paths_nul() {
   while IFS= read -r -d '' p; do
     [ -n "$p" ] || continue
     PATHS_SCANNED=$((PATHS_SCANNED + 1))
+    agent_path "$p" && agents_rule_init
     reason="$(classify_path "$p")"
     [ -z "$reason" ] || report_path "$p" "$reason"
   done
 }
 
+# scan_paths_lines — reads "<kind> TAB <path>" lines, <kind> "tree" or "-".
 scan_paths_lines() {
-  local p reason
-  while IFS= read -r p || [ -n "$p" ]; do
-    [ -n "$p" ] || continue
+  local l kind p reason
+  while IFS= read -r l || [ -n "$l" ]; do
+    kind="${l%%$'\t'*}"
+    p="${l#*$'\t'}"
+    [ -n "$p" ] && [ "$p" != "$l" ] || continue
     PATHS_SCANNED=$((PATHS_SCANNED + 1))
-    reason="$(classify_path "$p")"
+    agent_path "$p" && agents_rule_init
+    reason="$(classify_path "$p" "$kind")"
     [ -z "$reason" ] || report_path "$p" "$reason"
   done
 }
@@ -401,11 +490,23 @@ case "$MODE" in
     # resolution that takes one side verbatim, names nothing, so the all-merge
     # back-merge range below still enumerates zero paths. T: a type change
     # (symlink to regular file) is a path introduced like any other.
+    #
+    # Each path travels with its kind: "tree" for a directory the object walk
+    # lists, "-" for every other entry (log --name-only names files only). The
+    # object's type is read by one cat-file --batch-check over the walk. The
+    # agents rule judges entries, never directories: the .claude tree of a
+    # range that edits .claude/settings.json is a directory, while a link
+    # committed as .claude is an entry (Code Reviewer, PR #467). A path that
+    # is a directory in one commit and an entry in another is listed under
+    # both kinds, so both are judged.
     scan_paths_lines < <(
       {
-        git -c core.quotePath=false log --cc --format= --name-only --diff-filter=ACMRT "$ARG"
+        git -c core.quotePath=false log --cc --format= --name-only --diff-filter=ACMRT "$ARG" \
+          | awk 'length($0) { print "-\t" $0 }'
         git -c core.quotePath=false rev-list --objects "$ARG" \
-          | awk 'NF > 1 { sub(/^[0-9a-f]+ /, ""); print }'
+          | awk 'NF > 1' \
+          | git cat-file --batch-check='%(objecttype) %(rest)' \
+          | awk '{ t = $1; sub(/^[^ ]+ /, ""); print (t == "tree" ? "tree" : "-") "\t" $0 }'
       } | sort -u
     )
     # --text (PT2-02): a path marked -diff or binary in .gitattributes, or a
