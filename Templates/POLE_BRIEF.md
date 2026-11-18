@@ -60,7 +60,8 @@ the Director's words, not the conductor's summary of them.]
 
 - Work Units: at most [N] (the list above; no additions without the conductor)
 - Session bound: [wall-clock / token / turn bound as the runtime measures it]
-- When either is exhausted: **stop and report** the state as it stands.
+- Share of the parallel-agent cap: at most [N] subagents at once, Employees included (`Workflows/AUTONOMOUS_DELIVERY.md`, Step 2). At or above it, a dispatch waits and you tell the conductor what waits; the cap delays a dispatch and never refuses one.
+- When the Work Units or the session bound are exhausted: **stop and report** the state as it stands.
 
 ---
 
@@ -138,7 +139,7 @@ the Director's words, not the conductor's summary of them.]
 | Mandate (verbatim) | The pole checks itself against the Director, not the conductor | A paraphrase; a mandate that grew in transit |
 | Owned / forbidden paths | Disjoint write scope is what makes parallel poles safe | Overlapping globs; "shared" paths; letting a pole fix "just a typo" in another's file |
 | Dependencies | An ordered pole is a queue with a longer wait; recorded so the conductor can gate it | An implicit dependency discovered at integration |
-| Budget | Bounded autonomy | "Until done"; a bound the runtime cannot measure |
+| Budget | Bounded autonomy, and the pole's share of the machine's parallel-agent cap | "Until done"; a bound the runtime cannot measure; shares that add up to more than the cap |
 | Stop conditions | The pole knows when to stop without being told | Omitting the High/Critical rule as if the pole would remember it |
 | Integration contract | The conductor can merge without asking | A pole that rebases or force-pushes its own branch "to be clean" |
 | Escalation channel | One path to the Director | A pole with the Director's ear; a pole that decides `High` because the conductor was busy |
@@ -162,7 +163,7 @@ the Director's words, not the conductor's summary of them.]
 
 Owner: IA Engineering
 
-Version: 0.0.12
+Version: 0.0.13
 
 Status: Draft
 
