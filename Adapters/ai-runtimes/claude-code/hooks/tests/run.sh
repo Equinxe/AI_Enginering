@@ -933,7 +933,7 @@ rm -f "$SHAPES_COUNTS"
 # every case, never passes one.
 echo "== the settings-shapes.sh counts reach the total"
 AGG_DIR="$(mktemp -d "${TMPDIR:-/tmp}/iaeng-shapes-agg.XXXXXX")"
-AGG_BLOCK="$(sed -n '/^# --- install-hooks\.sh, a settings\.json without "hooks" (WU-IAENG-437)/,/^rm -f "\$SHAPES_COUNTS"$/p' "$HERE/run.sh")"
+AGG_BLOCK="$(sed -n '/^# --- install-hooks\.sh, a settings\.json without "hooks" (WU-IAENG-437)/,/^rm -f "[$]SHAPES_COUNTS"$/p' "$HERE/run.sh")"
 # agg_case <label> <the stub's counts line, empty for none> <its exit> <"TOTAL FAILED" the block must leave> [a line it must print]
 agg_case() {
   local label="$1" counts="$2" rc="$3" want="$4" say="${5:-}" out got
