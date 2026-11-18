@@ -13273,6 +13273,30 @@ expect 0 "--history: names with a double quote, a backslash or a tab outside the
 expect_output "scanned 8 path(s)"
 git reset -q HEAD~1
 
+# A record is "kind TAB path" and the kind ends at the FIRST tab: under a
+# parent whose name holds a tab, the object walk lists the directory
+# a<TAB>b/.claude, which is a tree and never judged (QA-479-01, PR #479).
+entry_442 100644 "$AGENT_442" "a${T442}b/.claude/settings.json"
+git commit -q -m "settings under a parent whose name holds a tab"
+expect 0 "--history: a .claude directory under a parent whose name holds a tab is not refused" -- \
+  bash "$DPS_442" --history HEAD~1..HEAD
+expect_no_output "REFUSED" "--history: the a<TAB>b/.claude tree is a directory, not an entry"
+git reset -q HEAD~1
+entry_442 100644 "$AGENT_442" "a${T442}b/.claude/agents/x.md"
+git commit -q -m "an agent under a parent whose name holds a tab"
+expect 1 "--history: an agent under a parent whose name holds a tab is refused" -- \
+  bash "$DPS_442" --history HEAD~1..HEAD
+expect_line "data-policy: REFUSED  a b/.claude/agents/x.md"
+TOTAL=$((TOTAL + 1))
+if [ "$(grep -c '^data-policy: REFUSED' <<< "$LAST_OUTPUT")" -eq 1 ]; then
+  [ -n "$VERBOSE" ] && printf '   ok   %s\n' "--history: the agent alone is refused, not the two directories above it"
+else
+  printf '   FAIL %s\n' "--history: the agent alone is refused, not the two directories above it"
+  printf '%s\n' "$LAST_OUTPUT" | sed 's/^/        | /'
+  FAILED=$((FAILED + 1))
+fi
+git reset -q HEAD~1
+
 # A path both sources name (git log -z, and the object walk) counts once.
 entry_442 100644 "$(printf 'new content\n' | git hash-object -w --stdin)" "new-442.txt"
 git commit -q -m "a file with new content"
