@@ -55,7 +55,8 @@
 #   High-confidence secret shapes: private key blocks, AWS access key IDs,
 #   GitHub tokens, Slack tokens, Stripe live/test keys. No entropy heuristics —
 #   see the noise argument above. The matched VALUE is never printed; the path,
-#   the line number, and the pattern's name are.
+#   the line number, and the pattern's name are. Every reported path is
+#   sanitised: printed on one line, each control character a space.
 #   Lines are read as text whatever git thinks of the file (--text), so a path
 #   marked -diff or binary in .gitattributes, or holding a NUL byte, is scanned
 #   like any other. In --history, what a MERGE itself authored (a conflict
@@ -137,6 +138,29 @@ usage() {
 }
 
 die() { printf 'data-policy: %s\n' "$1" >&2; exit 2; }
+
+# Every path the scanner reports, and the line number beside it, goes through
+# flat below: it is printed on one line, each control character a space. A
+# name is the committer's to choose, and a CR or LF in it would otherwise
+# start a line of its own in a CI log. The block is the record sanitiser of
+# WU-IAENG-366, byte for byte (Adapters/scripts/tests/run.sh compares it with
+# install.sh's).
+# >>> record sanitiser — byte-identical in install.sh, install-hooks.sh,
+# install-skills.sh and check-framework-drift.sh: none of them sources
+# another, and Adapters/scripts/tests/run.sh compares the four (WU-IAENG-366).
+# flat <text> — every control character (TAB, LF, CR, ESC, ...) becomes a
+# space: a record is one line and carries no terminal escape.
+# The C1 controls (U+0080-U+009F, CSI among them) are UTF-8 pairs \xc2\x80 to
+# \xc2\x9f: a pair becomes one space. A lone byte in that range is part of
+# another character and is left alone (SEC-IAENG-358-01). For these the
+# result is the same under the C locale and a UTF-8 one; a UTF-8 locale also
+# flattens a few other code points, U+2028 and U+2029 among them.
+C1_LEAD=$'\xc2'
+flat() {
+  FLAT="${1//[[:cntrl:]]/ }"
+  FLAT="${FLAT//"$C1_LEAD"[$'\x80'-$'\x9f']/ }"
+}
+# <<< record sanitiser
 
 MODE=""
 ARG=""
@@ -399,8 +423,15 @@ FINDINGS=0
 PATHS_SCANNED=0
 LINES_SCANNED=0
 
-report_path() { FINDINGS=$((FINDINGS + 1)); printf 'data-policy: REFUSED  %s\n    %s\n' "$1" "$2" >&2; }
-report_line() { FINDINGS=$((FINDINGS + 1)); printf 'data-policy: REFUSED  %s:%s\n    added line matches secret pattern <%s> — revoke it first, then remove it\n' "$1" "$2" "$3" >&2; }
+# The path and the line number are printed as flat shows them (see the record
+# sanitiser above); the reason and the pattern's name are the scanner's own.
+report_path() { flat "$1"; FINDINGS=$((FINDINGS + 1)); printf 'data-policy: REFUSED  %s\n    %s\n' "$FLAT" "$2" >&2; }
+report_line() {
+  local shown
+  flat "$1"; shown="$FLAT"; flat "$2"
+  FINDINGS=$((FINDINGS + 1))
+  printf 'data-policy: REFUSED  %s:%s\n    added line matches secret pattern <%s> — revoke it first, then remove it\n' "$shown" "$FLAT" "$3" >&2
+}
 
 scan_paths_nul() {
   local p reason

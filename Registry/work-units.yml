@@ -1844,6 +1844,6 @@ work_units:
 
   - id: WU-IAENG-442
     employee: Platform Engineer
-    title: The data-policy history scan reads paths NUL-delimited (Usage, wave 2) - data-policy-scan.sh --history takes the paths its commits name from git log -z, as --staged and --tree take theirs, and unions them with the object walk's paths as NUL-terminated kind-and-path records through one sort -z -u; the agents rule of WU-IAENG-434 is unchanged; tests/run.sh pins unusual names, the settings-only range and the path count, on every platform
+    title: The data-policy history scan reads paths NUL-delimited (Usage, wave 2) - data-policy-scan.sh --history takes the paths its commits name from git log -z, as --staged and --tree take theirs, and unions them with the object walk's paths as NUL-terminated kind-and-path records through one sort -z -u; the agents rule of WU-IAENG-434 is unchanged; the scanner sanitises reported paths in every mode with the record sanitiser of WU-IAENG-366 (flat, byte for byte), so a path and its line number are printed on one line, each control character a space; tests/run.sh pins unusual names, the settings-only range, the path count and the sanitised reports in --staged, --tree and --history, on every platform
     milestone: Usage
     delivers: Adapters/scripts/data-policy-scan.sh, Adapters/scripts/tests/run.sh, changelog.d/WU-IAENG-442.md, Registry/work-units.yml

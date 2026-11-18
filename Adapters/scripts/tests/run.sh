@@ -13225,26 +13225,27 @@ WHY_UNDER_442="an entry under .claude/agents/ (a symbolic link, a submodule or a
 WHY_PLACE_442="an entry where the .claude/ or .claude/agents/ directory should be"
 
 # Refused: one entry per case, the range its one commit. Parallel arrays: the
-# mode, the object, the name, what the name holds (the case's label), and the
-# reason the scanner gives.
-M442=(); O442=(); N442=(); L442=(); R442=()
-case_442() { M442+=("$1"); O442+=("$2"); N442+=("$3"); L442+=("$4"); R442+=("$5"); }
-case_442 100644 "$AGENT_442" '.claude/agents/q"x.md' "a double quote" "$WHY_AGENT_442"
-case_442 100644 "$AGENT_442" '.claude/agents/b\s.md' "a backslash" "$WHY_AGENT_442"
-case_442 100644 "$AGENT_442" ".claude/agents/t${T442}ab.md" "a tab" "$WHY_AGENT_442"
-case_442 100644 "$AGENT_442" ".claude/agents/n${LF442}l.md" "a newline" "$WHY_AGENT_442"
-case_442 100644 "$AGENT_442" ".claude/agents/c"$'\001'".md" "the byte 0x01" "$WHY_AGENT_442"
-case_442 100644 "$AGENT_442" '.claude/agents/é"日本.md' "non-ASCII letters and a double quote" "$WHY_AGENT_442"
-case_442 100644 "$AGENT_442" 'sub"/.CLAUDE/Agents/team/z.MD' "a double quote, deeper, in another letter case" "$WHY_AGENT_442"
-case_442 100644 "$AGENT_442" '.claude/agents/notes\x.txt' "a backslash, a file that is not an agent" "$WHY_UNDER_442"
-case_442 120000 "$LINK_442" 'a"b/.claude' "a double quote, a link where .claude should be" "$WHY_PLACE_442"
-case_442 120000 "$LINK_442" 'c\d/.claude/agents' "a backslash, a link where .claude/agents should be" "$WHY_PLACE_442"
-case_442 160000 "$GITLINK_442" "e${T442}f/.claude" "a tab, a submodule where .claude should be" "$WHY_PLACE_442"
+# mode, the object, the name, what the name holds (the case's label), the
+# reason the scanner gives, and the name as the report shows it: each control
+# character a space, written here by hand.
+M442=(); O442=(); N442=(); L442=(); R442=(); S442=()
+case_442() { M442+=("$1"); O442+=("$2"); N442+=("$3"); L442+=("$4"); R442+=("$5"); S442+=("$6"); }
+case_442 100644 "$AGENT_442" '.claude/agents/q"x.md' "a double quote" "$WHY_AGENT_442" '.claude/agents/q"x.md'
+case_442 100644 "$AGENT_442" '.claude/agents/b\s.md' "a backslash" "$WHY_AGENT_442" '.claude/agents/b\s.md'
+case_442 100644 "$AGENT_442" ".claude/agents/t${T442}ab.md" "a tab" "$WHY_AGENT_442" '.claude/agents/t ab.md'
+case_442 100644 "$AGENT_442" ".claude/agents/n${LF442}l.md" "a newline" "$WHY_AGENT_442" '.claude/agents/n l.md'
+case_442 100644 "$AGENT_442" ".claude/agents/c"$'\001'".md" "the byte 0x01" "$WHY_AGENT_442" '.claude/agents/c .md'
+case_442 100644 "$AGENT_442" '.claude/agents/é"日本.md' "non-ASCII letters and a double quote" "$WHY_AGENT_442" '.claude/agents/é"日本.md'
+case_442 100644 "$AGENT_442" 'sub"/.CLAUDE/Agents/team/z.MD' "a double quote, deeper, in another letter case" "$WHY_AGENT_442" 'sub"/.CLAUDE/Agents/team/z.MD'
+case_442 100644 "$AGENT_442" '.claude/agents/notes\x.txt' "a backslash, a file that is not an agent" "$WHY_UNDER_442" '.claude/agents/notes\x.txt'
+case_442 120000 "$LINK_442" 'a"b/.claude' "a double quote, a link where .claude should be" "$WHY_PLACE_442" 'a"b/.claude'
+case_442 120000 "$LINK_442" 'c\d/.claude/agents' "a backslash, a link where .claude/agents should be" "$WHY_PLACE_442" 'c\d/.claude/agents'
+case_442 160000 "$GITLINK_442" "e${T442}f/.claude" "a tab, a submodule where .claude should be" "$WHY_PLACE_442" 'e f/.claude'
 for i442 in "${!N442[@]}"; do
   entry_442 "${M442[$i442]}" "${O442[$i442]}" "${N442[$i442]}"
   git commit -q -m "an entry whose content is already here"
   expect 1 "--history refuses a name with ${L442[$i442]}" -- bash "$DPS_442" --history HEAD~1..HEAD
-  expect_line "data-policy: REFUSED  ${N442[$i442]}"
+  expect_line "data-policy: REFUSED  ${S442[$i442]}"
   expect_output "${R442[$i442]}"
   git reset -q HEAD~1
 done
@@ -13291,8 +13292,76 @@ entry_442 100644 "$AGENT_442" ".claude/agents/t${T442}ab.md"
 git commit -q -m "two agents in the tree"
 expect 1 "--tree refuses agents whose names hold a double quote and a tab" -- bash "$DPS_442" --tree HEAD
 expect_line "data-policy: REFUSED  .claude/agents/q\"x.md"
-expect_line "data-policy: REFUSED  .claude/agents/t${T442}ab.md"
+expect_line "data-policy: REFUSED  .claude/agents/t ab.md"
 git reset -q HEAD~1
+
+# Reported paths are sanitised with the record sanitiser of WU-IAENG-366,
+# byte for byte. A name holding an LF, "::warning::x" and a CR is reported on
+# one line, each control character a space, in all three modes; so is a
+# file a merge adds, its name holding a CR, with a secret line in it. No line
+# of the output starts with "::", and none holds a CR, which some log readers
+# take for the end of a line.
+# one_line_442 <label> — one check: the previous output holds no CR and no
+# line that starts, after blanks, with "::".
+one_line_442() {
+  TOTAL=$((TOTAL + 1))
+  case "$LAST_OUTPUT" in
+    *$'\r'*) ;;
+    *)
+      if ! grep -qE '^[[:space:]]*::' <<< "$LAST_OUTPUT"; then
+        [ -n "$VERBOSE" ] && printf '   ok   %s\n' "$1"
+        return 0
+      fi
+      ;;
+  esac
+  printf '   FAIL %s\n' "$1"
+  printf '%s\n' "$LAST_OUTPUT" | od -c | sed 's/^/        | /'
+  FAILED=$((FAILED + 1))
+  return 1
+}
+TOTAL=$((TOTAL + 1))
+SAN_REF_442="$(sed -n '/^# >>> record sanitiser/,/^# <<< record sanitiser/p' "$SCRIPTS/install.sh")"
+SAN_DPS_442="$(sed -n '/^# >>> record sanitiser/,/^# <<< record sanitiser/p' "$DPS_442")"
+if [ -n "$SAN_REF_442" ] && [ "$SAN_REF_442" = "$SAN_DPS_442" ]; then
+  [ -n "$VERBOSE" ] && printf '   ok   %s\n' "data-policy-scan.sh: the record sanitiser block is byte-identical to install.sh's"
+else
+  printf '   FAIL %s\n' "data-policy-scan.sh: the record sanitiser block is byte-identical to install.sh's"
+  diff <(printf '%s\n' "$SAN_REF_442") <(printf '%s\n' "$SAN_DPS_442") | sed 's/^/        | /'
+  FAILED=$((FAILED + 1))
+fi
+CR442=$'\r'
+INJ_442=".claude/agents/a${LF442}::warning::x${CR442}.md"
+entry_442 100644 "$AGENT_442" "$INJ_442"
+expect 1 "--staged refuses a name holding LF, ::warning::x and CR" -- bash "$DPS_442" --staged
+expect_line "data-policy: REFUSED  .claude/agents/a ::warning::x .md"
+one_line_442 "--staged: the report holds no CR and no line that starts with ::"
+git commit -q -m "an agent whose name holds LF and CR"
+expect 1 "--tree refuses a name holding LF, ::warning::x and CR" -- bash "$DPS_442" --tree HEAD
+expect_line "data-policy: REFUSED  .claude/agents/a ::warning::x .md"
+one_line_442 "--tree: the report holds no CR and no line that starts with ::"
+expect 1 "--history refuses a name holding LF, ::warning::x and CR" -- bash "$DPS_442" --history HEAD~1..HEAD
+expect_line "data-policy: REFUSED  .claude/agents/a ::warning::x .md"
+one_line_442 "--history: the report holds no CR and no line that starts with ::"
+git reset -q HEAD~1
+new_repo dp-442-merge
+BASE_442="$(git rev-parse HEAD)"
+git checkout -qb feat
+echo f > f.txt && git add f.txt && git commit -qm "feat"
+git checkout -q main
+echo m > m.txt && git add m.txt && git commit -qm "main"
+git merge --no-commit --no-ff feat >/dev/null 2>&1
+# The second name holds a tab too: a content record is "path TAB line TAB
+# text", so what follows the tab is reported where the line number goes, and
+# is sanitised there as well.
+SECRET_442="$(printf 'key = %s%s\n' 'AKIA' 'ABCDEFGHIJKLMNOP' | git hash-object -w --stdin)"
+entry_442 100644 "$SECRET_442" "m${CR442}::warning::y.conf"
+entry_442 100644 "$SECRET_442" "t${T442}::warning::z${CR442}.conf"
+git commit -qm "Merge feat"
+expect 1 "--history refuses a secret in a file the merge adds, its name holding a CR" -- \
+  bash "$DPS_442" --history "$BASE_442..HEAD"
+expect_line "data-policy: REFUSED  m ::warning::y.conf:1"
+expect_line "data-policy: REFUSED  t:::warning::z .conf"
+one_line_442 "--history, merge-authored content: the report holds no CR and no line that starts with ::"
 cd "$HERE" || exit 1
 
 # --------------------------------------------------------------- verdict ----
