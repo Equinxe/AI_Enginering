@@ -116,6 +116,8 @@ Dispatch in parallel only when outputs are fully independent.
 
 **Default: sequential.** Use parallel only when the dependency analysis explicitly confirms independence.
 
+**Parallel-agent cap.** At most 6 subagents run at once per machine, Employees included, and those of every Claude Code session on it count, an adopting project's included (Director decision D3, `Governance/BLOCKING_HOOK_LATENCY_MEASUREMENT.md`, The Parallel-Agent Cap). While any session on the machine runs a framework at v0.0.15 or earlier, the cap is 3. Every main session open on the machine beyond the first lowers the cap by one. Every dispatch counts, whatever the size of the plan: a Work Unit, a review, a validation, a search. An Employee starts no subagent unless its Employee Brief allows it and gives the number; the Main Agent counts that dispatch as 1 plus that number. The Main Agent counts its own subagents, plus the main sessions and subagents the Director reports; a pole counts against the share of the cap its Pole Brief gives it (`Workflows/AUTONOMOUS_DELIVERY.md`, Step 2). At or above the cap, a dispatch waits, and the Main Agent tells the Director what waits and on which count. If none of the subagents counted is its own, no Work Unit Report will come to end the wait, so it asks the Director to say when the count falls. A dispatchable Work Unit that waits stays dispatchable, and a queue whose every dispatchable Work Unit waits is held (The Dependent-Task Queue, below). The cap delays a dispatch and never refuses one.
+
 ### The Dependent-Task Queue
 
 When a plan has more than two Work Units, the Main Agent runs it as a **queue with explicit dependencies**, not as a list it walks from the top:
@@ -123,6 +125,7 @@ When a plan has more than two Work Units, the Main Agent runs it as a **queue wi
 - Every Work Unit declares the Work Units it depends on (from Step 3's inputs and outputs). A Work Unit with no unmet dependency is **dispatchable**; the others wait.
 - A dependency is met when the upstream Work Unit is **COMPLETE in Step 5** — verified against its Definition of Done from the repository — never when it is *reported* complete. A report is evidence to check, not a state transition.
 - Dispatchable Work Units with no shared outputs may run in parallel (the rule above); everything else runs in dependency order.
+- The parallel-agent cap (Dispatch Rules, above) holds every dispatch from the queue.
 - The Main Agent does **not** poll a running Employee. It acts when a Work Unit Report arrives, or when `Core/MAIN_AGENT_CONDUCT.md`'s Verification Over Waiting says the wait has become a stall — then it verifies directly.
 
 The queue terminates in **layers**, and each layer has a named outcome:
@@ -133,9 +136,10 @@ The queue terminates in **layers**, and each layer has a named outcome:
 | Retry | A Work Unit has been returned **twice** for the same Definition of Done item | It is not dispatched a third time. It goes to the Director with both reports — the same ceiling `Workflows/CODE_REVIEW.md` sets for review cycles |
 | Queue | Every Work Unit is `COMPLETE` | Step 6 |
 | Queue — blocked | No Work Unit is dispatchable and at least one is not `COMPLETE` | Escalate, naming the Work Unit that blocks and what it waits on. A blocked queue is never left waiting silently |
+| Queue — held | Every dispatchable Work Unit waits on the parallel-agent cap | Tell the Director which Work Units wait and on which count, as the parallel-agent cap requires (Dispatch Rules, above). A held queue is never left waiting silently |
 | Queue — stopped | The Director stops it, or a `High`/`Critical` risk stops it (`Standards/RISK_STANDARD.md`) | Step 7 with the state as it stands: what is `COMPLETE`, what is not, and why |
 
-A queue that cannot say which of these five states it is in is a queue nobody is orchestrating.
+A queue that cannot say which of these six states it is in is a queue nobody is orchestrating.
 
 ---
 
@@ -263,7 +267,7 @@ The one-to-one rows carry the same name or an exact synonym. The two that do not
 
 Owner: IA Engineering
 
-Version: 0.0.15
+Version: 0.0.17
 
 Status: Draft
 
