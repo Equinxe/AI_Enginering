@@ -1424,11 +1424,20 @@ w440_lex "lexer: the first reading is the earlier one, the second follows on its
 w440_lex "lexer: a command the second reading would not change is read once" \
   'git commit -m "a b"' 'git commit -m '
 w440_lex "lexer: a backtick in double quotes opens a substitution in the second reading" \
-  'x="`git push --force`"' $'x=\nx= git push --force '
+  "x=\"\`git push --force\`\"" $'x=\nx= git push --force '
 w440_lex "lexer: the quoted text before a substitution is kept in a command context" \
-  'bash -c "a $(b) c"' $'bash -c  b   c \nbash -c  a   b   c '
+  "bash -c \"a \$(b) c\"" $'bash -c  b   c \nbash -c  a   b   c '
 w440_lex "lexer: records are joined in the first reading as before, the second follows them all" \
   $'rm -rf "a b/c" /\001x' $'rm -rf  /x\nrm -rf /c /x'
+# THE CAP COUNTS BOTH READINGS. The 2,000-segment cap counts every segment the
+# lexer prints, so a command it reads twice is read up to 1,000 segments and
+# refused from 1,001, where a command read once is read up to 2,000. One
+# quoted path is enough to read the whole command twice.
+W440_SEGS=""
+for ((w440_i = 1; w440_i < 1000; w440_i++)); do W440_SEGS+="true;"; done
+expect_rc "escape-hatch: 1,000 segments read twice are read" 0 "$HOOK" "$(mkbash "${W440_SEGS}true \"a b/c\"")"
+expect_reason "escape-hatch: 1,001 segments read twice are refused at the cap" \
+  "$(mkbash "${W440_SEGS}true;true \"a b/c\"")" "pipeline segments after expansion"
 # THE PROCESS BUDGET IS UNCHANGED. Recording stand-ins first on PATH, as in
 # the budget of WU-IAENG-431 above: a git named git.exe and a stash read
 # beside a show start cat and one jq; a command read twice starts one awk, as
@@ -1464,7 +1473,7 @@ w440_budget() {
 }
 w440_budget "escape-hatch: budget — git.exe starts cat and one jq" 'git.exe push origin main' 0 2
 w440_budget "escape-hatch: budget — a stash read beside a show starts cat and one jq" 'git stash list; git stash show' 0 2
-w440_budget "escape-hatch: budget — a command read twice starts one awk" 'echo "`date`" "a b/c"' 1 3
+w440_budget "escape-hatch: budget — a command read twice starts one awk" "echo \"\`date\`\" \"a b/c\"" 1 3
 rm -rf "$W440_BASE"
 # A LARGE COMMAND READ TWICE IS JUDGED IN TIME. 5,000 backtick substitutions
 # inside one double-quoted region, each beside a quoted path, then a
@@ -1474,7 +1483,7 @@ rm -rf "$W440_BASE"
 W440_DIR="$(mktemp -d)"
 {
   printf 'echo "'
-  for ((w440_i = 0; w440_i < 5000; w440_i++)); do printf '`true` a/b '; done
+  for ((w440_i = 0; w440_i < 5000; w440_i++)); do printf '%s' "\`true\` a/b "; done
   printf '"; git push --force'
 } > "$W440_DIR/cmd"
 jq -n --rawfile c "$W440_DIR/cmd" '{tool_name:"Bash",tool_input:{command:$c}}' > "$W440_DIR/pay"
