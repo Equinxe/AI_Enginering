@@ -495,3 +495,9 @@ function expand_braces(s,   extra, groups, grp, inner, alts, n, k, pre, post, r,
   gsub(BR, "}", result)
   printf "%s", result
 }
+
+# THE END MARK (`awk -v MARK=...`, set by block-escape-hatches.sh). Printed
+# once, after the whole output, so the hook can tell a command that lexes to
+# nothing but a line break (a lone quoted path) from a lexer that printed
+# nothing. Unset, nothing is printed.
+END { if (MARK != "") printf "%s", MARK }
