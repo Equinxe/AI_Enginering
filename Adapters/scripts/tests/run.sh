@@ -13374,9 +13374,8 @@ echo f > f.txt && git add f.txt && git commit -qm "feat"
 git checkout -q main
 echo m > m.txt && git add m.txt && git commit -qm "main"
 git merge --no-commit --no-ff feat >/dev/null 2>&1
-# The second name holds a tab too: a content record is "path TAB line TAB
-# text", so what follows the tab is reported where the line number goes, and
-# is sanitised there as well.
+# The second name holds a tab too: it enters the "path TAB line TAB text"
+# record as one field, sanitised, and is reported whole.
 SECRET_442="$(printf 'key = %s%s\n' 'AKIA' 'ABCDEFGHIJKLMNOP' | git hash-object -w --stdin)"
 entry_442 100644 "$SECRET_442" "m${CR442}::warning::y.conf"
 entry_442 100644 "$SECRET_442" "t${T442}::warning::z${CR442}.conf"
@@ -13384,8 +13383,73 @@ git commit -qm "Merge feat"
 expect 1 "--history refuses a secret in a file the merge adds, its name holding a CR" -- \
   bash "$DPS_442" --history "$BASE_442..HEAD"
 expect_line "data-policy: REFUSED  m ::warning::y.conf:1"
-expect_line "data-policy: REFUSED  t:::warning::z .conf"
+expect_line "data-policy: REFUSED  t ::warning::z .conf:1"
 one_line_442 "--history, merge-authored content: the report holds no CR and no line that starts with ::"
+
+# Merge-authored names are normalised before tabulation. Files a merge adds,
+# their names holding an LF, two tabs, or a backslash before a t: each secret
+# is refused once, under its whole name as the report shows it, and each line
+# is judged as the content it is, so a content rule anchored at the line's
+# start allows them.
+# merge_442 <dir> <name>... — a repository whose merge commit adds a file
+# holding one secret line under each <name>; BASE_442 is the range's base.
+merge_442() {
+  local n
+  new_repo "$1"; shift
+  BASE_442="$(git rev-parse HEAD)"
+  git checkout -qb feat
+  echo f > f.txt && git add f.txt && git commit -qm "feat"
+  git checkout -q main
+  echo m > m.txt && git add m.txt && git commit -qm "main"
+  git merge --no-commit --no-ff feat >/dev/null 2>&1
+  SECRET_442="$(printf 'key = %s%s\n' 'AKIA' 'ABCDEFGHIJKLMNOP' | git hash-object -w --stdin)"
+  for n in "$@"; do entry_442 100644 "$SECRET_442" "$n"; done
+  git commit -qm "Merge feat"
+}
+# refused_count_442 <n> <label> — one check: the previous output has <n>
+# REFUSED lines.
+refused_count_442() {
+  TOTAL=$((TOTAL + 1))
+  if [ "$(grep -c '^data-policy: REFUSED' <<< "$LAST_OUTPUT")" -eq "$1" ]; then
+    [ -n "$VERBOSE" ] && printf '   ok   %s\n' "$2"
+    return 0
+  fi
+  printf '   FAIL %s\n' "$2"
+  printf '%s\n' "$LAST_OUTPUT" | sed 's/^/        | /'
+  FAILED=$((FAILED + 1))
+  return 1
+}
+CONTENT_RULE_442='^key = AKIA[A-Z]{16}$'
+merge_442 dp-442-merge-names "n${LF442}::warning::w.conf" "u${T442}v${T442}w.conf"
+expect 1 "--history refuses the secret in two files a merge adds, an LF and two tabs in their names" -- \
+  bash "$DPS_442" --history "$BASE_442..HEAD"
+expect_line "data-policy: REFUSED  n ::warning::w.conf:1"
+expect_line "data-policy: REFUSED  u v w.conf:1"
+refused_count_442 2 "--history: each of the two secrets is refused once"
+one_line_442 "--history, merge-authored names: the report holds no CR and no line that starts with ::"
+mkdir -p .ia-engineering
+printf 'content:%s\n' "$CONTENT_RULE_442" > .ia-engineering/data-policy.allow
+expect 0 "--history: a content rule anchored at the line's start allows both merge-authored lines" -- \
+  bash "$DPS_442" --history "$BASE_442..HEAD"
+rm .ia-engineering/data-policy.allow
+# A backslash in the name: run where git reads a backslash in a pathspec as
+# itself. Git for Windows reads it as a directory separator, so it diffs no
+# such file there, before this change as after; Linux CI runs these checks.
+merge_442 dp-442-merge-backslash 'b\tq.conf'
+block_begin 3 "a merge-authored name holding a backslash"
+if [ -n "$(git ls-files -- ':(literal)b\tq.conf')" ]; then
+  expect 1 "--history refuses the secret in a file a merge adds, a backslash before a t in its name" -- \
+    bash "$DPS_442" --history "$BASE_442..HEAD"
+  expect_line 'data-policy: REFUSED  b\tq.conf:1'
+  mkdir -p .ia-engineering
+  printf 'content:%s\n' "$CONTENT_RULE_442" > .ia-engineering/data-policy.allow
+  expect 0 "--history: the content rule allows the line under the backslash name" -- \
+    bash "$DPS_442" --history "$BASE_442..HEAD"
+  rm .ia-engineering/data-policy.allow
+else
+  skip "$BLOCK_N" "git reads a backslash in a pathspec as a directory separator here (Git for Windows)"
+fi
+block_end
 cd "$HERE" || exit 1
 
 # --------------------------------------------------------------- verdict ----

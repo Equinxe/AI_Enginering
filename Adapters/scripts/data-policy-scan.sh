@@ -396,14 +396,20 @@ merge_authored_lines() {
     for p in $parents; do np=$((np + 1)); done
     while IFS= read -r -d '' path; do
       [ -n "$path" ] || continue
+      # Merge-authored names are normalised before tabulation: the record is
+      # "path TAB line TAB text", so the name goes in as flat shows it (see
+      # the record sanitiser), one field on one line, and reaches awk through
+      # the environment, which reads no backslash escape where -v would. git
+      # is still given the name itself.
+      flat "$path"
       for p in $parents; do
         # tr -d '\0': the caller's command substitution would drop these NULs
         # anyway, with bash's "ignored null byte" warning. Deleting them here
         # leaves line numbers and the per-parent comparison unchanged.
         git -c core.quotePath=false diff --text -U0 --no-color --no-ext-diff --no-textconv "$p" "$sha" -- ":(literal)$path" \
           | tr -d '\0' | added_lines
-      done | awk -F'\t' -v np="$np" -v path="$path" '
-          { k = $0; sub(/^[^\t]*\t/, "", k); c[k]++; if (c[k] == np) print path "\t" k }
+      done | DP_RECORD_PATH="$FLAT" awk -F'\t' -v np="$np" '
+          { k = $0; sub(/^[^\t]*\t/, "", k); c[k]++; if (c[k] == np) print ENVIRON["DP_RECORD_PATH"] "\t" k }
         '
     done < <(git -c core.quotePath=false diff-tree --cc --no-commit-id --name-only -z -r "$sha")
   done < <(git rev-list --merges "$ARG")
