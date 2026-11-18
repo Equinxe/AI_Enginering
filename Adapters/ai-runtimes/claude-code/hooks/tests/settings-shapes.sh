@@ -489,11 +489,11 @@ case_dir() {
   local rec
   mkdir -p "$SET"
   inst
-  if [ "$INST_RC" -eq 1 ] && [ -d "$SET" ] && [ -z "$(ls -A "$SET")" ] \
+  if [ "$INST_RC" -eq 1 ] && [ -d "$SET" ] && [ -z "$(find "$SET" -mindepth 1)" ] \
       && grep -qF "exists and is not a regular file. Not changed." "$C/inst.err" && no_tmp_left; then
     ok "a directory at settings.json: a run refuses (exit 1), nothing written into it"
   else
-    bad "a directory at settings.json: a run refuses (exit 1), nothing written into it" "rc=$INST_RC in it: $(ls -A "$SET" | tr '\n' ' ') $(head -c 300 "$C/inst.err")"
+    bad "a directory at settings.json: a run refuses (exit 1), nothing written into it" "rc=$INST_RC in it: $(find "$SET" -mindepth 1 | tr '\n' ' ') $(head -c 300 "$C/inst.err")"
   fi
   inst --check
   rec="$(awk -F '\t' '$1 == "settings" && $2 == "fault" { print $4 }' "$C/inst.out")"
@@ -510,11 +510,13 @@ case_readback() {
   local real_cat
   real_cat="$(command -v cat)"
   mkdir -p "$C/fakebin"
-  {
-    printf '#!/usr/bin/env bash\n'
-    printf 'case "${1:-}" in *.iaeng-write.*) printf "{}\\n"; exit 0 ;; esac\n'
-    printf 'exec "%s" "$@"\n' "$real_cat"
-  } > "$C/fakebin/cat"
+  # The fake, written by a heredoc: \$ is a dollar for the fake to expand,
+  # and $real_cat is this shell's.
+  cat > "$C/fakebin/cat" <<EOF
+#!/usr/bin/env bash
+case "\${1:-}" in *.iaeng-write.*) printf '{}\\n'; exit 0 ;; esac
+exec "$real_cat" "\$@"
+EOF
   chmod +x "$C/fakebin/cat"
   ( cd "$IP" && PATH="$C/fakebin:$PATH" bash "$IFW/install-hooks.sh" ) > "$C/inst.out" 2> "$C/inst.err"; INST_RC=$?
   if [ "$INST_RC" -eq 1 ] && [ ! -e "$SET" ] && no_tmp_left \
