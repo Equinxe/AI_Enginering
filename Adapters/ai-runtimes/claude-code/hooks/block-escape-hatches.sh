@@ -324,12 +324,14 @@ fi
 # empty-looking value no longer hides the subcommand. This only over-matches:
 # G still accepts every form it did.
 #
-# GX, G WITH EVERY VALUE REQUIRED, IS FOR THE EXEMPTIONS (SEC-IAENG-431-05). A
-# rule that refuses may over-match; an exemption that allows may not. So the
-# read exemptions (stash list|show, the core.hooksPath reads) read the global
-# options with GX, where a value-taking option always takes the next word: a
-# word that can be read as an option's value is never read as the subcommand
-# that earns the exemption.
+# GX, DEVELOP'S G, IS FOR THE EXEMPTIONS (SEC-IAENG-431-05). A rule that
+# refuses may over-match; an exemption that allows may not. So the read
+# exemptions (stash list|show, the core.hooksPath reads) read the global
+# options with GX, where -C, -c and the `=` form of the long options below
+# require a value: -C and -c take the next word, and `=` takes what follows
+# it, so that word is never read as the subcommand that earns the
+# exemption. The space form of those long options is read either way, as on
+# develop: the generic --[a-z][a-z-]* alternative may read the option alone.
 G='git([[:space:]]+(-[Cc]([[:space:]]+[^[:space:]]+)?|--(git-dir|work-tree|namespace|exec-path|config-env|super-prefix|attr-source)(=[^[:space:]]*|[[:space:]]+[^[:space:]]+)|--[a-z][a-z-]*|-[pP]))*[[:space:]]+'
 GX='git([[:space:]]+(-[Cc][[:space:]]+[^[:space:]]+|--(git-dir|work-tree|namespace|exec-path|config-env|super-prefix|attr-source)(=|[[:space:]]+)[^[:space:]]+|--[a-z][a-z-]*|-[pP]))*[[:space:]]+'
 S='[[:space:]]'
