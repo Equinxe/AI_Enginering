@@ -15,7 +15,7 @@ The measurement was taken on 28 October 2026 and the decision was made on 29 Oct
 3. **Under load, the latency comes from process creation, not from the hooks' own work.** In production, `stop-gate.sh` (29 processes per call) has a p95 of 16 s and a p99 of 26 s. That is 3 to 4 times a hook that starts almost nothing, measured on the same Stop events. `block-escape-hatches.sh` starts 84 processes on every Bash call. Its modelled production latency is a p50 of 9 s and a p99 of 61 s, rising to about 90 s with 8 or more agents.
 4. **Director decision, 29 October 2026:** record this measurement; give both guards `"onFailure": "block"` and an explicit timeout; lighten the hooks that start many processes. The guards now have a **120 s** timeout and fail closed. `stop-gate.sh` starts **4 commands instead of 8** on its common path. Benched under load, that is 15 processes per call instead of 29, and a p50 and p99 46 % lower (Decisions Taken).
 5. **4 November 2026, WU-IAENG-431:** `block-escape-hatches.sh` matches its rules in bash and starts 9 to 15 processes per call instead of 80 to 216. Benched under load, its p50 and p95 fall to 13 % and 15 % of before. In the production model with 8 or more agents, they fall from 21 s and 50 s to 3.7 s and 13.5 s, and the slowest event from 88 s to 21 s. A command of more than 2,000 pipeline segments is now refused (The Escape-Hatch Guard Matches in Bash).
-6. **17 November 2026, Director decision D3:** at most **6 Employees run at once per machine**, every Claude Code session on it counted, from the `develop` commit that merged WU-IAENG-431; 3 with v0.0.15. At the cap the Main Agent queues the next Work Unit and never refuses it. With 6 calls at a time on a saturated machine, the slowest guard call took 9.8 s, 8 % of the timeout. The cap is decided again after the edit guard is re-measured (Usage plan W2.3) (The Parallel-Agent Cap).
+6. **17 November 2026, Director decision D3:** at most **6 subagents run at once per machine, Employees included**, every Claude Code session on it counted, from the `develop` commit that merged WU-IAENG-431; 3 with v0.0.15. At 6 or more, the Main Agent queues the next Work Unit and never refuses it. With 6 calls at a time on a saturated machine, the slowest guard call took 9.8 s, 8 % of the timeout. The cap is decided again after the edit guard is re-measured (Usage plan W2.3) (The Parallel-Agent Cap).
 
 ---
 
@@ -306,20 +306,20 @@ The guard's matching is its security boundary, so the change was checked four wa
 - Claude Code still records no PreToolUse hook that succeeds, so the effect in production is modelled, as before.
 - Linux and macOS were not measured. There, `[[ =~ ]]` is the C library's regular expression engine, not grep's; the case corpus runs on Linux in the Hook Tests job. macOS, with its bash 3.2, was not tested at all.
 
-## The Parallel-Agent Cap (WU-IAENG-435)
+## The Parallel-Agent Cap
 
-Director decision D3 of 17 November 2026, Usage plan item W1.5:
+Director decision D3 of 17 November 2026, Usage plan item W1.5, carried out in WU-IAENG-435:
 
-- At most **6 Employees, or other subagents, run at once per machine**. This holds from the `develop` commit that merged PR #463 (2e5341b), and so from v0.0.16.
+- At most **6 subagents run at once per machine, Employees included**. This holds from the `develop` commit that merged PR #463 (2e5341b), and so from v0.0.16.
 - At most **3** with v0.0.15, whose `block-escape-hatches.sh` starts 80 or more processes per call.
 - The cap is **machine-wide**. Every Claude Code session on the machine counts toward it, a framework session as much as an adopting project's. What slows a guard is process creation, and every session on the machine shares it (The Load Dependence, above).
-- At the cap, the Main Agent **queues** the next dispatchable Work Unit and dispatches it when one finishes. The cap delays a Work Unit and never refuses one.
+- At 6 or more, the Main Agent **queues** the next dispatchable Work Unit, which stays dispatchable, and dispatches it when the count falls below 6. The Main Agent counts its own subagents plus those the Director reports. The cap delays a Work Unit and never refuses one.
 
-`Templates/PROJECT_CLAUDE.md` (Main Agent) gives the cap to an adopting project's Main Agent. `Adapters/ai-runtimes/claude-code/TROUBLESHOOTING.md` entry C cites it.
+`Core/ORCHESTRATION.md` (The Dependent-Task Queue) gives the cap to every Main Agent, the framework's own included. The Director approved that line on 18 November 2026. `Templates/PROJECT_CLAUDE.md` (Main Agent) gives it to an adopting project's Main Agent in the contract it reads first. `Adapters/ai-runtimes/claude-code/TROUBLESHOOTING.md` entry C cites it.
 
 ### Why 3 With v0.0.15
 
-The Director left a machine limit until after this measurement (Mitigations Not Taken Here, item 5). With up to 3 agents, the 29-process gate passed 10 s in 4 to 6 % of production events, against 18 % with 4 to 7 (The Load Dependence). The escape-hatch guard before WU-IAENG-431, modelled with 3 agents or fewer, has a p50 of 7.7 s and a p95 of 34 s per Bash call.
+The Director left a machine limit until after this measurement (Mitigations Not Taken Here, item 5). With up to 3 agents, the 29-process gate passed 10 s in 4 to 6 % of production events, against 18 % with 4 to 7 (The Load Dependence). The escape-hatch guard before WU-IAENG-431, modelled with 3 agents or fewer, has a p50 of 7.7 s and a p95 of 34 s per Bash call. The Security Engineer's sign-off of the v0.0.15 release (PR #452) sets the same limit as a pilot condition: "Run at most 3 agents in parallel". No v0.0.15 document carries it.
 
 ### Why 6 With PR #463: the Measurement
 
@@ -373,7 +373,7 @@ The cap stays at 6 until the edit guard, now the binding one, is measured again 
 
 ### Limits of the Cap
 
-- **Main sessions are not counted.** The cap counts Employees and other subagents, not the main sessions that dispatch them. The model's load counts every transcript, main sessions included. One main session and 6 Employees are therefore 7 in the model's terms, inside the measured range. Two main sessions that share 6 Employees are 8, where the edit guard doubles. A main session that waits for its Employees makes few hook calls, but its share of the load was not measured on its own.
+- **Main sessions are not counted.** The cap counts subagents, Employees included, not the main sessions that dispatch them. The model's load counts every transcript, main sessions included. One main session and 6 subagents are therefore 7 in the model's terms, inside the measured range. Two main sessions that share 6 subagents are 8, where the edit guard doubles. A main session that waits for its Employees makes few hook calls, but its share of the load was not measured on its own.
 - **A Main Agent sees only its own subagents.** It counts those of other sessions only when the Director reports them. The cap holds machine-wide only as far as those reports do.
 - **The confirmation was short.** It is one run of 82 s on one machine, Windows only. Linux and macOS start processes far more cheaply (Limits, below).
 

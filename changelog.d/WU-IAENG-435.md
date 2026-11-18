@@ -1,6 +1,7 @@
 ### Added
 
-- `Templates/PROJECT_CLAUDE.md` (0.0.17) gives an adopting project's Main Agent a parallel-agent cap: at most 6 Employees, or other subagents, running at once per machine. Those of every other session on the machine count, a framework session's included. At the cap, the Main Agent queues the next Work Unit, tells the Director, and dispatches it when the count falls below 6. The cap never refuses or drops a Work Unit (Director decision D3, Usage plan W1.5, WU-IAENG-435)
+- `Templates/PROJECT_CLAUDE.md` (0.0.17) gives an adopting project's Main Agent a parallel-agent cap: at most 6 subagents running at once per machine, Employees included. Those of every other session on the machine count, a framework session's included. At 6 or more, the Main Agent queues the next Work Unit, tells the Director, and dispatches it when the count falls below 6. The cap never refuses or drops a Work Unit (Director decision D3, Usage plan W1.5, WU-IAENG-435)
+- `Core/ORCHESTRATION.md`, The Dependent-Task Queue, gives the same cap to every Main Agent, the framework's own included. The Main Agent counts its own subagents plus those the Director reports. At 6 or more, a dispatchable Work Unit stays dispatchable and waits in the queue until the count falls below 6, and is never refused. The Director approved the line word for word on 18 November 2026 (Director decision D3, WU-IAENG-435)
 
 ### Changed
 
@@ -8,4 +9,4 @@
 
 ### Notes
 
-- After upgrading, copy the parallel-agent cap paragraph from the Main Agent section of `ia-engineering/Templates/PROJECT_CLAUDE.md` into your project's `CLAUDE.md`. Until then, your Main Agent has no cap. A project still on v0.0.15 keeps a cap of 3 (WU-IAENG-435)
+- After upgrading, copy the parallel-agent cap paragraph from the Main Agent section of `ia-engineering/Templates/PROJECT_CLAUDE.md` into your project's `CLAUDE.md`. Until then, your Main Agent has no cap. A project still on v0.0.15 keeps the cap of 3 that the v0.0.15 pilot conditions set: condition 2 of the Security Engineer's release sign-off on #452, "Run at most 3 agents in parallel" (WU-IAENG-435)

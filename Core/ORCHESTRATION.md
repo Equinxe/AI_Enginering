@@ -123,6 +123,7 @@ When a plan has more than two Work Units, the Main Agent runs it as a **queue wi
 - Every Work Unit declares the Work Units it depends on (from Step 3's inputs and outputs). A Work Unit with no unmet dependency is **dispatchable**; the others wait.
 - A dependency is met when the upstream Work Unit is **COMPLETE in Step 5** — verified against its Definition of Done from the repository — never when it is *reported* complete. A report is evidence to check, not a state transition.
 - Dispatchable Work Units with no shared outputs may run in parallel (the rule above); everything else runs in dependency order.
+- At most 6 subagents run at once per machine, Employees included, and those of every session on it count, an adopting project's included: the Main Agent counts its own plus those the Director reports (Director decision D3, `Governance/BLOCKING_HOOK_LATENCY_MEASUREMENT.md`, The Parallel-Agent Cap). At 6 or more, a dispatchable Work Unit stays dispatchable and waits in the queue until the count falls below 6; the cap delays a Work Unit and never refuses one.
 - The Main Agent does **not** poll a running Employee. It acts when a Work Unit Report arrives, or when `Core/MAIN_AGENT_CONDUCT.md`'s Verification Over Waiting says the wait has become a stall — then it verifies directly.
 
 The queue terminates in **layers**, and each layer has a named outcome:
