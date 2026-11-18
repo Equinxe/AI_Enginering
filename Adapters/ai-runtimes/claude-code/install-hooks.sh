@@ -26,10 +26,15 @@
 # fields (WU-IAENG-410: the guards' timeout and onFailure). The report
 # lists what was added, updated and found present, nothing more, plus a warning when the
 # project's settings switch every hook off ("disableAllHooks": true), which
-# this script reports and never changes. The file is rewritten by jq, so its
-# formatting is normalised (two-space indent); its content is kept. Without jq, when the
-# file is not a JSON object, or when it is a symbolic link, nothing is written
-# and the merge is left to you (--print). A project that does not want one of the
+# this script reports and never changes. A file with no "hooks" at all — a
+# project's own settings.json often holds only its permissions, a $schema, or
+# nothing — or with "hooks": null gets the framework's entries the same way
+# (DEF-465-01). The file is rewritten by jq, so its formatting is normalised
+# (two-space indent); its content is kept. Without jq, when the file is not
+# one JSON object jq can read, or when it is a symbolic link, nothing is
+# written and the merge is left to you (--print). A comment (// or /* */) is
+# not JSON: jq refuses the file, a rewrite would drop it, and the refusal
+# names its line and says to remove it and re-run. A project that does not want one of the
 # framework's hooks does not delete its entry — a re-run adds it back — but
 # uses the hook's own switch where it has one (hooks/README.md).
 #
@@ -395,10 +400,33 @@ finish() {
 # that ends a line is not a difference (a core.autocrlf checkout of the same
 # file); a CR inside a line is one (SEC-IAENG-353-01).
 settings_current() { [ "$(sed $'s/\r$//' "$DEST")" = "$RENDERED" ]; }
-# settings_mergeable: one JSON object with an object 'hooks', or nothing is
-# touched.
+# settings_mergeable: one JSON object whose 'hooks' is an object, absent or
+# null, or nothing is touched. A project's own settings.json often has no
+# 'hooks' at all: permissions only, a $schema only, or {} (DEF-465-01). The
+# type is tested, not defaulted with //, which would let "hooks": false
+# through to a merge that cannot index it.
 settings_mergeable() {
-  jq -es 'length == 1 and (.[0] | type == "object") and ((.[0].hooks // {}) | type == "object")' "$DEST" >/dev/null 2>&1
+  jq -es 'length == 1 and (.[0] | type == "object") and (.[0].hooks | type == "object" or type == "null")' "$DEST" >/dev/null 2>&1
+}
+# settings_refusal — why settings_mergeable refused the file, as one phrase
+# that carries its remedy; the write path's "Not changed" line and --check's
+# fault record print the same phrase. jq reads strict JSON (RFC 8259), which
+# has no comments: a // or /* left once every string is removed is named with
+# its line, so a URL in a string ("$schema") is never taken for one. That
+# test runs only after jq has refused the file.
+settings_refusal() {
+  local line why
+  if ! why="$(jq empty "$DEST" 2>&1)"; then
+    line="$(sed -E 's/"([^"\\]|\\.)*"//g' "$DEST" | grep -n -m 1 -E '//|/[*]')"
+    if [ -n "$line" ]; then
+      printf '%s' "line ${line%%:*} holds a comment (// or /* */), which JSON does not allow and jq cannot read: remove it (a note can go in a \"\$comment\" key) and re-run"
+    else
+      flat "$(printf '%s\n' "$why" | head -n 1 | sed $'s/\r$//')"
+      printf '%s' "jq cannot read it as JSON ($FLAT): correct it and re-run"
+    fi
+    return 0
+  fi
+  printf '%s' "it is not one JSON object whose 'hooks' is an object, absent or null"
 }
 # merge_settings: the settings on stdin, merged with the template; prints
 # {m: merged settings, a: added, p: present, w: near misses}. sed: jq on
@@ -429,6 +457,12 @@ settings_mergeable() {
 # group stays a near miss). The rest runs on the updated file, so the updated
 # group is neither added again nor a near miss; it is reported in u, and not
 # in p, which lists only what the file held before the run.
+#
+# THE FILE MAY HAVE NO "hooks" (DEF-465-01): settings_mergeable lets it be
+# absent or null. Every read of it below indexes it by event (null[k] is null
+# in jq) or defaults it to {}, so such a file gets every template entry. The
+# near-miss scan once ran to_entries on null, which failed every merge into
+# such a file, --check included (jq: "null (null) has no keys").
 merge_settings() {
   jq --argjson tpl "$RENDERED" --argjson sup "$SUPERSEDED" --arg q "'" --arg qesc "'\"'\"'" '
     def norm: gsub("[$][{]CLAUDE_PROJECT_DIR[}]"; "$CLAUDE_PROJECT_DIR") | gsub("/[.]/"; "/");
@@ -472,7 +506,7 @@ merge_settings() {
                   then .p += [$label] else . end)
             else .m.hooks[$e.key] = ((.m.hooks[$e.key] // []) + [$g]) | .a += [$label]
             end))
-    | .w = [ $cur.hooks | to_entries[] | .key as $ev | .value[]? | . as $grp
+    | .w = [ ($cur.hooks // {}) | to_entries[] | .key as $ev | .value[]? | . as $grp
              | .hooks[]? | . as $h | .command // "" | strings | . as $c
              | select(any($names[]; . as $n | $c | contains("hooks/" + $n)))
              | ($h | nentry) as $hn
@@ -550,7 +584,7 @@ if [ "$CHECK" -eq 1 ]; then
   elif ! command -v jq >/dev/null 2>&1; then
     check_fault settings "$REL_DEST" "jq is not installed to read it"
   elif ! settings_mergeable; then
-    check_fault settings "$REL_DEST" "it is not one JSON object with an object 'hooks'"
+    check_fault settings "$REL_DEST" "$(settings_refusal)"
   elif MERGED="$(merge_settings < "$DEST")"; then
     record settings customized "$REL_DEST" "the project's own settings, with the framework's entries checked one by one"
   else
@@ -604,7 +638,7 @@ if [ -f "$DEST" ] && [ "$FORCE" -eq 0 ]; then
   # the link with a regular file and detach it from what it points at.
   [ -L "$DEST" ] && merge_by_hand "it is a symbolic link (a merge would replace the link with a file)"
   command -v jq >/dev/null 2>&1 || merge_by_hand "jq is not installed to merge into it"
-  settings_mergeable || merge_by_hand "it is not one JSON object with an object 'hooks'"
+  settings_mergeable || merge_by_hand "$(settings_refusal)"
   MERGED="$(merge_settings < "$DEST")" || merge_by_hand "the merge failed"
   # Only the CR jq writes at the end of a line on Windows is removed (Check
   # Convention, Shell Scripts, rule 3). The added, present and updated labels

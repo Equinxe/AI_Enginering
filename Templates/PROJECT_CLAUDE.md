@@ -58,7 +58,7 @@ An existing project that uses Claude Code usually has a `CLAUDE.md` already, hol
 5. **Check the result.**
    - First, confirm that `HEAD` still holds the originals. `git show --stat --format= HEAD -- CLAUDE.md .claude/CLAUDE.md` prints nothing when the adoption commit left them alone. If it prints a line, the merged file went into the adoption commit, and `HEAD` holds the merge, not the original. Then compare against `HEAD~1` in the commands below, and say so in the Work Unit Report.
    - Every build, test and run command of the original files is still in `CLAUDE.md` or in a file it imports, unchanged. `git show HEAD:CLAUDE.md` prints the original root file, and `git show HEAD:.claude/CLAUDE.md` the original `.claude/CLAUDE.md`. Check each original the project had, both when it had both.
-   - Every `@` import in `CLAUDE.md` names a file that exists. `grep -noE '(^|[[:space:]])@[^[:space:]]+' CLAUDE.md` lists them, and `ls <path>`, run from the root, finds each one.
+   - Every `@` import in `CLAUDE.md` names a file that exists. `grep -noE '(^|[[:space:]])@[^[:space:]]+' CLAUDE.md` lists them, and `ls <path>`, run from the root, finds each one. It also lists matches that are not imports, such as `@types/node` in `npm install @types/node` or a handle such as `@alice`: leave those lines untouched.
    - `grep -nF '[' CLAUDE.md` lists every line that holds a bracket. Each listed line is a link or the project's own text, never a template placeholder.
 6. **Commit it**, as the dispatched DevOps Engineer, in its own commit after the adoption commit. Sign it `Employee: DevOps Engineer`. Give it a `Work Unit:` line naming a Work Unit registered in `Registry/work-units.yml` in that same commit, for example `WU-<PREFIX>-002` (`Workflows/PROJECT_BOOTSTRAP.md` Step 4 item 5). The `commit-msg` hook refuses an unregistered id, but it does not require the line (issue #384), so check that the line is there.
 
@@ -203,16 +203,28 @@ Request.
 
 Enforcement installed here: [git hooks via `core.hooksPath`; the CI checks
 listed in `Adapters/scripts/setup-branch-protection.sh`; the runtime hooks in
-`Adapters/ai-runtimes/<runtime>/`]. In every fresh clone, fetch the framework
-first (`git submodule update --init`, or clone with `--recurse-submodules`),
-since `install.sh` lives in the submodule, then re-run
-`./ia-engineering/Adapters/scripts/install.sh` from the main checkout. A git
-worktree, such as an Employee's, needs neither, though its `ia-engineering/`
-stays empty: its hooks are the main checkout's, and each generated Employee
-reads the framework from the main checkout, at the absolute path its
-definition names under "Where the Framework Is". If the project moves, re-run
-`./ia-engineering/Adapters/ai-runtimes/generate-agents.sh` from the main
-checkout.
+`Adapters/ai-runtimes/<runtime>/`]. In every fresh clone, and on every
+machine, run these three commands from the main checkout's root, in order,
+before starting Claude Code there: it loads `.claude/agents/` only if the
+directory existed when the session started.
+
+1. `git submodule update --init`, or clone with `--recurse-submodules`: the
+   installers live in the framework submodule.
+2. `./ia-engineering/Adapters/scripts/install.sh`
+3. `./ia-engineering/Adapters/ai-runtimes/generate-agents.sh`: it writes one
+   agent per roster Employee in `.claude/agents/`. The agents are generated in
+   each clone and never committed, so a fresh clone has none until this runs.
+
+Run the third again after every framework upgrade. After the project moves,
+run the second and the third again: `core.hooksPath` still names the old
+path, so no git hook runs until `install.sh` rewrites it. Session start
+checks each agent's framework root is the project's framework, and names
+any agent that is missing or stale, with the command that regenerates it.
+A git worktree, such as an Employee's, needs none of
+this, though its `ia-engineering/` stays empty: its hooks are the main
+checkout's, and each generated Employee reads the framework from the main
+checkout, at the absolute path its definition names under "Where the
+Framework Is".
 
 ---
 
@@ -289,7 +301,7 @@ direction. Move an answered one into the body of this file and delete it here.]
 
 Owner: IA Engineering
 
-Version: 0.0.15
+Version: 0.0.16
 
 Status: Draft
 
