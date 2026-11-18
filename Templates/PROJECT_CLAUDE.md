@@ -217,9 +217,10 @@ directory existed when the session started.
 
 Run the third again after every framework upgrade. After the project moves,
 run the second and the third again: `core.hooksPath` still names the old
-path, so no git hook runs until `install.sh` rewrites it. Session start checks each agent's framework root is the project's
-framework, and names any agent that is missing or stale, with the command
-that regenerates it. A git worktree, such as an Employee's, needs none of
+path, so no git hook runs until `install.sh` rewrites it. Session start
+checks each agent's framework root is the project's framework, and names
+any agent that is missing or stale, with the command that regenerates it.
+A git worktree, such as an Employee's, needs none of
 this, though its `ia-engineering/` stays empty: its hooks are the main
 checkout's, and each generated Employee reads the framework from the main
 checkout, at the absolute path its definition names under "Where the

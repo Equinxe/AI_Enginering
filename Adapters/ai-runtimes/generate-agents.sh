@@ -151,7 +151,16 @@ set -uo pipefail
 export LC_ALL=C
 
 SCRIPT_DIR="$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+# The framework's physical path (pwd -P), links resolved: the root a
+# generation writes into every agent of an adopting project, and the one the
+# quick check compares an agent's root with, by spelling too
+# (SEC-IAENG-467-01). A logical path would depend on how the script was
+# reached: a project behind a symbolic link (macOS /tmp is /private/tmp, a
+# linked workspace) would be generated from the user's shell under one
+# spelling and checked by session start under the other, and called stale at
+# every session (Code Reviewer, PR #467). Git Bash resolves a junction the
+# same way.
+ROOT="$(cd "$SCRIPT_DIR/../.." && pwd -P)"
 
 # Captured BEFORE the cd into the framework: this is the project the caller
 # meant, and the only directory whose .claude/agents a runtime will read.
@@ -786,7 +795,11 @@ if [ "$QUICK" -eq 1 ]; then
     else
       Q_PRESENT=$((Q_PRESENT + 1)); report present "$q_dest"
     fi
-  done < <(awk -v out="$OUT" "$AWK_SLUG"'
+  done < <(Q_OUT="$OUT" awk "$AWK_SLUG"'
+    # The output directory through the environment, not -v: -v reads its
+    # backslashes as escapes, and C:\Users\... is a path this script accepts
+    # (Code Reviewer, PR #467).
+    BEGIN { out = ENVIRON["Q_OUT"] }
     function root_of(f,   line, r, n, rc) {
       r = ""; n = 0
       while ((rc = (getline line < f)) > 0) {

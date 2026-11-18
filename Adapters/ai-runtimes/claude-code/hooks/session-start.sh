@@ -240,7 +240,7 @@ if [ -n "$GEN" ] && [ -f "$GEN" ]; then
       # No verdict is never silence: the check did not run to its end.
       a_flat "$A_WHY"; A_WHY="$A_FLAT"
       [ "${#A_WHY}" -gt 160 ] && A_WHY="${A_WHY:0:160}..."
-      echo "IA Engineering agents: not checked (${A_WHY:-the check gave no result}). Until the check passes, dispatch no Employee, and report the cause to the Director. Check them by hand: bash $A_GEN --check --quick"
+      echo "IA Engineering agents: not checked (${A_WHY:-the check gave no result}). Until the check passes, dispatch no Employee, and never a generic agent in its place, and report the cause to the Director. Check them by hand: bash $A_GEN --check --quick"
       echo
     elif [ "${#A_MISS[@]}" -gt 0 ] || [ "${#A_STALE[@]}" -gt 0 ]; then
       # a_list <items...> — "a, b, c and 2 more".

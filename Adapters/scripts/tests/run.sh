@@ -12771,6 +12771,32 @@ if grep "^agent${T434}" <<< "$LAST_OUTPUT" | grep -q $'\xc2\x9b'; then
 else
   pass_434 "quick: no C1 pair of an agent's path reaches a tsv record"
 fi
+# An --out written with backslashes (Code Reviewer, PR #467): awk -v read
+# them as escapes (\a, \v, octal), so the quick check looked elsewhere and
+# called every agent missing. A Windows path where cygpath runs; elsewhere a
+# directory whose name holds a backslash.
+if command -v cygpath >/dev/null 2>&1; then
+  OUTBS_434="$(cygpath -w "$WORK/outbs-434")"
+else
+  OUTBS_434="$WORK/out\\abs-434"
+fi
+expect 0 "agents generated into an --out written with backslashes" -- bash "$G_434" --out "$OUTBS_434"
+expect 0 "quick: the same --out finds every agent there" -- \
+  bash "$G_434" --check --quick --format tsv --out "$OUTBS_434"
+expect_output "# generate-agents.sh --check --quick: 0 to act on. 3 agent(s): 3 present, 0 missing, 0 stale."
+# A project reached through a link (Code Reviewer, PR #467): generated from
+# the link's path, checked from the project's own, the agents are current.
+# The root is the framework's physical path, whichever way it was reached.
+block_begin 2 "a project reached through a link"
+if link_434 "$WORK/adlink-434" "$COPY_434"; then
+  (cd "$WORK/adlink-434" && bash ./ia-engineering/Adapters/ai-runtimes/generate-agents.sh >/dev/null 2>&1)
+  expect 0 "quick: agents generated through a link to the project are current from its own path" -- \
+    bash "$G_434" --check --quick --format tsv
+  expect_output "# generate-agents.sh --check --quick: 0 to act on. 3 agent(s): 3 present, 0 missing, 0 stale."
+else
+  skip 2 "no directory link can be made here: ln -s copies and no junction could be made"
+fi
+block_end
 
 # --- DEF-02: the tier map, and the quick check, survive a refused root -------
 # A cygpath first on PATH that answers with another directory: a generation
@@ -12917,7 +12943,7 @@ expect 0 "#411: a generator that stops before its summary is indeterminate" -- \
 expect_output "agent${T434}indeterminate${T434}.claude/agents/${T434}generate-agents.sh --check exited 1 without a result: generate-agents.sh: Registry/employees.yml not found."
 ss_434 "$AD_434"
 expect_output "IA Engineering agents: not checked (generate-agents.sh: Registry/employees.yml not found.)"
-expect_output "Until the check passes, dispatch no Employee, and report the cause to the Director. Check them by hand: "
+expect_output "Until the check passes, dispatch no Employee, and never a generic agent in its place, and report the cause to the Director. Check them by hand: "
 # The command runs as printed from the project root, whose path holds a
 # space and é日本: quoted, it is not cut at the space (exit 127).
 BYHAND_434="$(sed -n 's/.*Check them by hand: //p' <<< "$LAST_OUTPUT" | head -n 1)"
@@ -13008,11 +13034,17 @@ for p434 in "sub/.claude/agents/team/y.md" ".Claude/Agents/Z.MD"; do
   expect_output "REFUSED  $p434"
   git reset -q
 done
-for p434 in ".claude/agents/notes.txt" ".claude/agentsX/a.md" "docs/claude/agents/a.md"; do
+for p434 in ".claude/agentsX/a.md" "docs/claude/agents/a.md"; do
   index_path "$p434"
   expect 0 "not this rule: $p434" -- bash "$SCAN_434" --staged
   git reset -q
 done
+# Anything else under .claude/agents/ is refused too: the directory holds the
+# generated agents and nothing else (SEC-IAENG-467-03).
+index_path ".claude/agents/notes.txt"
+expect 1 "refused: another file under .claude/agents/" -- bash "$SCAN_434" --staged
+expect_output "an entry under .claude/agents/ (a symbolic link, a submodule or another file)"
+git reset -q
 # SEC-IAENG-467-02: a symbolic link committed in the place of .claude/ or
 # .claude/agents/ (pointing at cfg/, which holds agents) is refused: what it
 # points to would be read as the agents. Staged as git stores a link: mode
@@ -13035,6 +13067,38 @@ for p434 in ".claude/settings.json" ".claudeX" "x/.claude-agents"; do
   expect 0 "not this rule: $p434" -- bash "$SCAN_434" --staged
   git reset -q
 done
+# SEC-IAENG-467-03: a link nested under .claude/agents/, to a directory that
+# holds agents, is refused.
+link_entry_434 ".claude/agents/team"
+expect 1 "refused: a symbolic link committed under .claude/agents/ (SEC-IAENG-467-03)" -- bash "$SCAN_434" --staged
+expect_output "REFUSED  .claude/agents/team"
+git reset -q
+# --history lists the directories too (rev-list --objects lists trees): the
+# .claude tree of a range that only edits .claude/settings.json, and the
+# .claude/agents tree beside an allowed agent of the project's own, are
+# directories, never refused; a link committed as .claude still is (Code
+# Reviewer, PR #467: on e14a4b1 every range touching .claude/ was refused).
+index_path ".claude/settings.json"
+git commit -q -m "settings"
+index_path ".claude/settings.json" 2
+git commit -q -m "settings edited"
+expect 0 "--history: a range that only edits .claude/settings.json is not refused" -- \
+  bash "$SCAN_434" --history HEAD~1..HEAD
+expect_no_output "REFUSED" "--history: the .claude tree is a directory, not an entry"
+mkdir -p .ia-engineering
+printf '%s\n' '^\.claude/agents/own-agent\.md$' > .ia-engineering/data-policy.allow
+index_path ".claude/agents/own-agent.md"
+git commit -q -m "an agent of the project's own"
+expect 0 "--history: an allowed agent of the project's own, its .claude/agents tree with it, is not refused" -- \
+  bash "$SCAN_434" --history HEAD~1..HEAD
+rm .ia-engineering/data-policy.allow
+git reset -q --hard HEAD~3
+link_entry_434 ".claude"
+git commit -q -m "a link committed as .claude"
+expect 1 "--history: a link committed as .claude is still refused" -- bash "$SCAN_434" --history HEAD~1..HEAD
+expect_output "REFUSED  .claude"
+# Mixed, not --hard: the working tree holds a real .claude/ directory.
+git reset -q HEAD~1
 mkdir -p .ia-engineering
 printf '%s\n' '^\.claude/agents/own-agent\.md$' > .ia-engineering/data-policy.allow
 index_path ".claude/agents/own-agent.md"
