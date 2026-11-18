@@ -117,7 +117,7 @@ Audience: the operator, with the guards installed by `install-hooks.sh` since WU
    - With the lighter guard of v0.0.16, 6 calls at a time on a machine at 100 % CPU, the slowest of 144 guard calls took 9.8 s, on a load lighter than the heaviest measured.
    - The cap of 3 with the v0.0.15 guard was not measured at 3 calls at a time. One call at a time, that guard took up to 36 s; 8 at a time, it passed 120 s.
 
-   Causes 1 and 3 fail at once. A refusal that comes about 120 s after the call is a timeout: this cause, or a guard that hangs (cause 3).
+   Cause 1, and a guard that exits with a wrong code, fail at once. A refusal that comes about 120 s after the call is a timeout: this cause, or a guard that hangs (cause 3).
 3. **The guard itself failed,** for example with an exit code other than 0 or 2, or because it hangs. That is a defect in the guard.
 
 **Remedy.**

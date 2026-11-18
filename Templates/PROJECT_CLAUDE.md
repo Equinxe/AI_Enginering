@@ -122,9 +122,10 @@ Present the plan to the Director and wait for approval before executing,
 whatever the runtime's effort or orchestration mode (Claude Code's `ultracode`
 dynamic workflows included).
 
-Before any parallel dispatch, read the parallel-agent cap in
-`ia-engineering/Core/ORCHESTRATION.md` (Step 4, Dispatch Rules), and never
-have more subagents running at once than it allows, Employees included. It
+Before your first dispatch in a session, read the parallel-agent cap in
+`ia-engineering/Core/ORCHESTRATION.md` (Step 4, Dispatch Rules), and keep
+every dispatch within it: never have more subagents running at once than it
+allows, Employees included. It
 counts every Claude Code session on this machine, an IA Engineering framework
 session's included, and every dispatch, reviews included. Count your own,
 plus the main sessions and subagents the Director reports. At or above the
