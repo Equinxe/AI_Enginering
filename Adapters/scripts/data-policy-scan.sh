@@ -83,9 +83,10 @@
 #     committed so every developer and CI share one list.
 #
 # Filenames are read with core.quotePath=false and NUL separators where git
-# offers them, so a non-ASCII or otherwise unusual name is matched as itself
-# rather than as git's quoted rendering of it — a real file once escaped a
-# pattern that way.
+# offers them (diff, ls-tree, and log in --history; the object walk of
+# --history is the one newline-separated source, see there), so a non-ASCII
+# or otherwise unusual name is matched as itself rather than as git's quoted
+# rendering of it — a real file once escaped a pattern that way.
 #
 # Configuration (environment, all optional):
 #   IAENG_LOCAL_DATA_DIR    directory name treated as local-only (local_test_data)
@@ -412,13 +413,15 @@ scan_paths_nul() {
   done
 }
 
-# scan_paths_lines — reads "<kind> TAB <path>" lines, <kind> "tree" or "-".
-scan_paths_lines() {
-  local l kind p reason
-  while IFS= read -r l || [ -n "$l" ]; do
-    kind="${l%%$'\t'*}"
-    p="${l#*$'\t'}"
-    [ -n "$p" ] && [ "$p" != "$l" ] || continue
+# scan_paths_kinds_nul — reads NUL-terminated "<kind> TAB <path>" records,
+# <kind> "tree" or "-". The kind ends at the FIRST tab: a path may hold one.
+scan_paths_kinds_nul() {
+  local r kind p reason
+  while IFS= read -r -d '' r || [ -n "$r" ]; do
+    kind="${r%%$'\t'*}"
+    p="${r#*$'\t'}"
+    [ "$p" != "$r" ] || continue
+    [ -n "$p" ] || continue
     PATHS_SCANNED=$((PATHS_SCANNED + 1))
     agent_path "$p" && agents_rule_init
     reason="$(classify_path "$p" "$kind")"
@@ -460,10 +463,11 @@ case "$MODE" in
     # rev-list --objects lists "sha path" for every blob and tree reachable in
     # the range and not from its excluded side — so a file added in commit 3
     # and deleted in commit 4 is still listed. Commits have no path field and
-    # are dropped by the NF test. Paths are newline-separated here (git offers
-    # no -z for rev-list); a newline inside a filename is the one shape this
-    # mode cannot represent, and it is refused by the tree scan of the same
-    # range's head in the CI job.
+    # are dropped by the NF test. Its paths are newline-separated: rev-list's
+    # own -z exists only in a recent git, and this scanner runs on the git a
+    # project has. A newline inside a filename splits that line there; the
+    # same path is also named by the commits' diffs below, read NUL-delimited,
+    # and judged whole.
     git rev-list --objects "$ARG" >/dev/null 2>&1 || die "cannot resolve range '$ARG'"
 
     # TWO SOURCES, UNIONED, because neither alone is complete.
@@ -479,7 +483,9 @@ case "$MODE" in
     # each commit, regardless of whether its blob is new, which covers that
     # gap. It is unioned with the object walk rather than replacing it, so a
     # path reachable as an object but not named by any diff in the range is
-    # still classified.
+    # still classified. -z: the paths are read NUL-delimited, as --staged and
+    # --tree read theirs, so each is judged as itself whatever bytes its name
+    # holds (WU-IAENG-442).
     #
     # `--cc` (PT2-01): without it `log --name-only` prints nothing for a merge
     # commit, so a path the MERGE ITSELF added (`git merge --no-commit`, then
@@ -499,15 +505,20 @@ case "$MODE" in
     # committed as .claude is an entry (Code Reviewer, PR #467). A path that
     # is a directory in one commit and an entry in another is listed under
     # both kinds, so both are judged.
-    scan_paths_lines < <(
+    #
+    # Every record is "<kind> TAB <path>" and NUL-terminated, from both
+    # sources, so one sort -z -u unions them: the object walk's lines are
+    # turned into records by tr, the commits' paths by the read loop.
+    scan_paths_kinds_nul < <(
       {
-        git -c core.quotePath=false log --cc --format= --name-only --diff-filter=ACMRT "$ARG" \
-          | awk 'length($0) { print "-\t" $0 }'
+        git -c core.quotePath=false log -z --cc --format= --name-only --diff-filter=ACMRT "$ARG" \
+          | while IFS= read -r -d '' p; do [ -z "$p" ] || printf -- '-\t%s\0' "$p"; done
         git -c core.quotePath=false rev-list --objects "$ARG" \
           | awk 'NF > 1' \
           | git cat-file --batch-check='%(objecttype) %(rest)' \
-          | awk '{ t = $1; sub(/^[^ ]+ /, ""); print (t == "tree" ? "tree" : "-") "\t" $0 }'
-      } | sort -u
+          | awk '{ t = $1; sub(/^[^ ]+ /, ""); print (t == "tree" ? "tree" : "-") "\t" $0 }' \
+          | tr '\n' '\0'
+      } | sort -z -u
     )
     # --text (PT2-02): a path marked -diff or binary in .gitattributes, or a
     # file with a NUL byte, otherwise prints "Binary files differ" and no

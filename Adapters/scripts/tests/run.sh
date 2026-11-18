@@ -13191,6 +13191,110 @@ ss_434 "$WORK/fresh-434 é日本"
 expect_no_output "IA Engineering agents" "fresh clone: session start has nothing to say about the agents"
 cd "$HERE" || exit 1
 
+# ------------------------------ data-policy --history, NUL-delimited paths ---
+# WU-IAENG-442: --history reads the paths its commits name NUL-delimited
+# (git log -z), as --staged and --tree read theirs, so each path is judged as
+# itself whatever bytes its name holds. #467's rules are unchanged: any entry
+# under .claude/agents/, and a link, file or submodule standing where .claude
+# or .claude/agents should be, at any depth and in any letter case, is
+# refused; the .claude tree and .claude/settings.json are not.
+#
+# Each entry is staged byte for byte and never written to disk (index_path's
+# rule), with content the repository already holds under another name. Git
+# stores the name and nothing is checked out, so every case here runs on
+# Windows too.
+section "data-policy --history reads paths NUL-delimited (WU-IAENG-442)"
+
+# entry_442 <mode> <object> <path> — stages <path> as <mode> <object>.
+entry_442() {
+  git config core.protectNTFS false
+  printf '%s %s\t%s\0' "$1" "$2" "$3" | git update-index -z --index-info
+}
+new_repo dp-442
+DPS_442="$SCRIPTS/data-policy-scan.sh"
+T442=$'\t'
+LF442=$'\n'
+AGENT_442="$(printf 'an agent\n' | git hash-object -w --stdin)"
+LINK_442="$(printf 'cfg' | git hash-object -w --stdin)"
+entry_442 100644 "$AGENT_442" "content-442.md"
+entry_442 100644 "$LINK_442" "content-442.lnk"
+git commit -q -m "the content, under other names"
+GITLINK_442="$(git rev-parse HEAD)"
+WHY_AGENT_442="an Employee agent of an adopting project"
+WHY_UNDER_442="an entry under .claude/agents/ (a symbolic link, a submodule or another file)"
+WHY_PLACE_442="an entry where the .claude/ or .claude/agents/ directory should be"
+
+# Refused: one entry per case, the range its one commit. Parallel arrays: the
+# mode, the object, the name, what the name holds (the case's label), and the
+# reason the scanner gives.
+M442=(); O442=(); N442=(); L442=(); R442=()
+case_442() { M442+=("$1"); O442+=("$2"); N442+=("$3"); L442+=("$4"); R442+=("$5"); }
+case_442 100644 "$AGENT_442" '.claude/agents/q"x.md' "a double quote" "$WHY_AGENT_442"
+case_442 100644 "$AGENT_442" '.claude/agents/b\s.md' "a backslash" "$WHY_AGENT_442"
+case_442 100644 "$AGENT_442" ".claude/agents/t${T442}ab.md" "a tab" "$WHY_AGENT_442"
+case_442 100644 "$AGENT_442" ".claude/agents/n${LF442}l.md" "a newline" "$WHY_AGENT_442"
+case_442 100644 "$AGENT_442" ".claude/agents/c"$'\001'".md" "the byte 0x01" "$WHY_AGENT_442"
+case_442 100644 "$AGENT_442" '.claude/agents/é"日本.md' "non-ASCII letters and a double quote" "$WHY_AGENT_442"
+case_442 100644 "$AGENT_442" 'sub"/.CLAUDE/Agents/team/z.MD' "a double quote, deeper, in another letter case" "$WHY_AGENT_442"
+case_442 100644 "$AGENT_442" '.claude/agents/notes\x.txt' "a backslash, a file that is not an agent" "$WHY_UNDER_442"
+case_442 120000 "$LINK_442" 'a"b/.claude' "a double quote, a link where .claude should be" "$WHY_PLACE_442"
+case_442 120000 "$LINK_442" 'c\d/.claude/agents' "a backslash, a link where .claude/agents should be" "$WHY_PLACE_442"
+case_442 160000 "$GITLINK_442" "e${T442}f/.claude" "a tab, a submodule where .claude should be" "$WHY_PLACE_442"
+for i442 in "${!N442[@]}"; do
+  entry_442 "${M442[$i442]}" "${O442[$i442]}" "${N442[$i442]}"
+  git commit -q -m "an entry whose content is already here"
+  expect 1 "--history refuses a name with ${L442[$i442]}" -- bash "$DPS_442" --history HEAD~1..HEAD
+  expect_line "data-policy: REFUSED  ${N442[$i442]}"
+  expect_output "${R442[$i442]}"
+  git reset -q HEAD~1
+done
+
+# Not refused: the settings-only range, and names with the same bytes outside
+# the rule. The .claude tree is one path, however many commits list it; the
+# second range's 8 are its three files and the five directories that hold
+# them.
+entry_442 100644 "$AGENT_442" ".claude/settings.json"
+git commit -q -m "settings"
+entry_442 100644 "$LINK_442" ".claude/settings.json"
+git commit -q -m "settings edited"
+expect 0 "--history: a range that only adds and edits .claude/settings.json is not refused" -- \
+  bash "$DPS_442" --history HEAD~2..HEAD
+expect_no_output "REFUSED" "--history: the settings-only range refuses nothing"
+expect_output "scanned 2 path(s)"
+expect 0 "--tree: the settings-only head is not refused" -- bash "$DPS_442" --tree HEAD
+git reset -q HEAD~2
+entry_442 100644 "$AGENT_442" '.claude/q"s.json'
+entry_442 100644 "$AGENT_442" '.claude/agents"x/a\b.md'
+entry_442 100644 "$AGENT_442" "docs/claude/agents/t${T442}ab.md"
+git commit -q -m "the same bytes, outside the rule"
+expect 0 "--history: names with a double quote, a backslash or a tab outside the rule are not refused" -- \
+  bash "$DPS_442" --history HEAD~1..HEAD
+expect_output "scanned 8 path(s)"
+git reset -q HEAD~1
+
+# A path both sources name (git log -z, and the object walk) counts once.
+entry_442 100644 "$(printf 'new content\n' | git hash-object -w --stdin)" "new-442.txt"
+git commit -q -m "a file with new content"
+expect 0 "--history: a path named by both sources is one path" -- bash "$DPS_442" --history HEAD~1..HEAD
+expect_output "scanned 1 path(s)"
+git reset -q HEAD~1
+
+# A non-ASCII name alone is its own rendering under core.quotePath=false;
+# --tree reads ls-tree -z. Both are pinned here beside the rest.
+entry_442 100644 "$AGENT_442" '.claude/agents/é日本.md'
+git commit -q -m "a non-ASCII agent"
+expect 1 "--history refuses a non-ASCII agent" -- bash "$DPS_442" --history HEAD~1..HEAD
+expect_line "data-policy: REFUSED  .claude/agents/é日本.md"
+git reset -q HEAD~1
+entry_442 100644 "$AGENT_442" '.claude/agents/q"x.md'
+entry_442 100644 "$AGENT_442" ".claude/agents/t${T442}ab.md"
+git commit -q -m "two agents in the tree"
+expect 1 "--tree refuses agents whose names hold a double quote and a tab" -- bash "$DPS_442" --tree HEAD
+expect_line "data-policy: REFUSED  .claude/agents/q\"x.md"
+expect_line "data-policy: REFUSED  .claude/agents/t${T442}ab.md"
+git reset -q HEAD~1
+cd "$HERE" || exit 1
+
 # --------------------------------------------------------------- verdict ----
 
 cd "$HERE" || exit 1
