@@ -122,6 +122,15 @@ Present the plan to the Director and wait for approval before executing,
 whatever the runtime's effort or orchestration mode (Claude Code's `ultracode`
 dynamic workflows included).
 
+Never have more than 6 subagents running at once, Employees included. The cap
+is per machine: those of every other session on it count, an IA Engineering
+framework session's included. Count your own, plus those the Director reports.
+At 6 or more, queue the next dispatchable Work Unit, tell the Director it is
+queued, and dispatch it when the count falls below 6. The cap delays a Work
+Unit; it never refuses or drops one
+(`ia-engineering/Governance/BLOCKING_HOOK_LATENCY_MEASUREMENT.md`, The
+Parallel-Agent Cap).
+
 ---
 
 # What Constitutes PROOF
@@ -276,7 +285,7 @@ direction. Move an answered one into the body of this file and delete it here.]
 | What Constitutes PROOF | The difference between "it ran" and "it is right" | Left empty because it is hard — that is the sign it is needed |
 | Active Employees | Dispatch without deliberation | A roster with no triggers; listing all 42 |
 | Standards in Force | Additions, never subtractions | A relaxation recorded here as if it were policy |
-| Main Agent | Dispatch and plan-first rule, loaded every session | Restating `Core/MAIN_AGENT_CONDUCT.md` instead of pointing to it |
+| Main Agent | Dispatch, plan-first and parallel-agent cap rules, loaded every session | Restating `Core/MAIN_AGENT_CONDUCT.md` instead of pointing to it; raising the cap without a measurement |
 | Director | Names who decides | "The team" |
 | Domain Glossary | Points to where domain words are defined | Definitions written into this file instead; a glossary created empty |
 | Open Questions | Prevents invented answers | Questions that were answered and never removed |
@@ -301,7 +310,7 @@ direction. Move an answered one into the body of this file and delete it here.]
 
 Owner: IA Engineering
 
-Version: 0.0.16
+Version: 0.0.17
 
 Status: Draft
 
