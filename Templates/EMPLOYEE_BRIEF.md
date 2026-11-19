@@ -25,6 +25,7 @@ This is the Context Engine in practice: the Main Agent filters, structures, and 
 **Date:** [YYYY-MM-DD]
 **Execution tier:** [Lightweight | Standard | Strategic | Frontier] (default: <Employee tier>)
 **Tier reason:** [required only when the Execution tier differs from the default — see `Core/CAPABILITY_TIERS.md`, Tier Override; for Frontier, quote the Director's approval]
+**Subagents you may start:** [none | N, and what for — e.g., 2 review lenses] (default: none). The Main Agent counts this dispatch as 1 plus N against the parallel-agent cap (`Core/ORCHESTRATION.md`, Step 4, Dispatch Rules)
 
 ---
 
@@ -101,7 +102,7 @@ It carries a one-word verdict, what was done, **what was not done**, the gate ev
 
 ### Standards You Must Follow
 
-Read and apply these before writing any code:
+Read and apply these before writing any code. A framework path here is relative to the framework root; in an adopting project, your definition's "Where the Framework Is" names that root:
 
 - [Standard 1 — e.g., Code Quality Standard — `Standards/CODE_QUALITY_STANDARD.md`]
 - [Standard 2 — e.g., Testing Standard — `Standards/TESTING_STANDARD.md`]
@@ -129,6 +130,8 @@ Whatever this brief adds, these bind every Work Unit that runs tests:
 - Bound every full-suite run with a timeout. A run the timeout ended is not evaluated, never passed.
 - The required CI checks on the Pull Request run every suite. Your report pastes their result as the gate evidence for the suites you did not run.
 
+Whatever this brief adds, this binds every Work Unit: start no subagent unless **Subagents you may start** allows it, and never more than its number at once. Each one counts against the machine's parallel-agent cap (`Core/ORCHESTRATION.md`, Step 4, Dispatch Rules).
+
 ---
 
 ### Escalation
@@ -155,6 +158,8 @@ Example: `feat(auth): add POST /auth/login with JWT response`
 ```
 
 **Selected by** and **Rejected** make the choice of Employee reviewable before any work starts. A quoted rule that describes another Employee's work, or a pair rejected for convenience rather than fit, is role absorption (`Core/MAIN_AGENT_CONDUCT.md`, Employee Selection) — visible in the brief instead of discovered in the commit.
+
+A brief names a framework document by its path from the framework root (`Standards/TESTING_STANDARD.md`), as this template does, never by a path under the Employee's working directory. In an adopting project an Employee often works in a git worktree, where the framework submodule is an empty directory. Its generated definition (`Adapters/ai-runtimes/generate-agents.sh`) names the main checkout's framework root as an absolute path, under "Where the Framework Is", and the Employee reads every framework path under that root (issue #449).
 
 A brief never prescribes which model authors the commit. If the runtime adds an optional attribution trailer, it names whichever model actually ran — see `Standards/COMMIT_STANDARD.md`, Runtime attribution trailer.
 
@@ -195,7 +200,7 @@ A brief that is too long is as harmful as one that is too short. The Main Agent'
 
 Owner: IA Engineering
 
-Version: 0.0.11
+Version: 0.0.13
 
 Status: Draft
 

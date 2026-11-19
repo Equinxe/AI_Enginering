@@ -773,8 +773,28 @@ IGNORE_RULES="$LOCAL_DATA_DIR/
 # ignore_has <rule> — true when .gitignore has the rule as a whole line, as
 # `grep -qxF` decided before; the file is read once (IGNORE_CONTENT), not once
 # per rule, for the same time budget as the .gitattributes rules above.
-IGNORE_CONTENT=""
-[ -f .gitignore ] && IGNORE_CONTENT=$'\n'"$(< .gitignore)"$'\n'
+#
+# read_ignore — (re)loads IGNORE_CONTENT with the CR that ends a line removed,
+# and only that one (Standards/CODE_QUALITY_STANDARD.md, The Check Convention,
+# shell rule 3). Git for Windows' default core.autocrlf=true checks .gitignore
+# out CRLF. Read raw, a CRLF line never matched its rule (only the file's last
+# line could, its CR dropped by Git for Windows' bash in $(< file)), so every
+# real run appended the rules again and --check disagreed with that run
+# (WU-IAENG-425, #396). The file is read with a sentinel after it, because
+# command substitution strips the trailing newlines and Git for Windows' bash
+# a CR with them: a last line `.env<CR><CR>` read as .env, which git does not
+# ignore (Security review of PR #423, F1). The content is then framed by a
+# newline on each side, so the substitution is ${line%$'\r'} on every line,
+# as git reads the file: a CR inside a line stays data, `.env<CR>x` is not
+# `.env`, and `.env<CR><CR>` is not either.
+read_ignore() {
+  IGNORE_CONTENT=""
+  [ -f .gitignore ] || return 0
+  IGNORE_CONTENT="$(cat .gitignore; printf x)"
+  IGNORE_CONTENT=$'\n'"${IGNORE_CONTENT%x}"$'\n'
+  IGNORE_CONTENT="${IGNORE_CONTENT//$'\r\n'/$'\n'}"
+}
+read_ignore
 ignore_has() { [ -f .gitignore ] && [[ "$IGNORE_CONTENT" == *$'\n'"$1"$'\n'* ]]; }
 
 MISSING_IGNORES=""
@@ -827,11 +847,15 @@ echo
 # Employees/ and Registry/employees.yml rendered into one file per Employee,
 # roughly 9,000 lines of derived content. It is a build artifact, not a
 # source, the same way a compiled binary is not a source: every Employee edit
-# would otherwise carry a large mechanical diff beside the real one, and
-# `generate-agents.sh --check` in CI catches drift without the files being
-# tracked. This repository ignores it for exactly that reason (.gitignore,
-# Adapters/ai-runtimes/README.md, "Generated Output Is a Build Artifact") —
-# an adopting project gets the same default unless it opts back in.
+# would otherwise carry a large mechanical diff beside the real one. This
+# repository ignores it for that reason (.gitignore,
+# Adapters/ai-runtimes/README.md, "Generated Output Is a Build Artifact").
+# In an adopting project it must stay ignored: each agent names the absolute
+# framework root of the clone that generated it (WU-IAENG-430), so the files
+# belong to one clone. Committed, they would fail `generate-agents.sh --check`
+# in every other clone, CI included, and publish the generating user's path,
+# which often holds the user name. Each clone runs the generator, and
+# `--check` runs in the clone, never in CI.
 #
 # .claude/worktrees/ is where this runtime creates isolated git worktrees for
 # subagents (the Agent tool's `isolation: "worktree"`). It is per-session
@@ -855,8 +879,7 @@ ARTIFACT_IGNORE_RULES=".claude/agents/
 
 MISSING_ARTIFACT_IGNORES=""
 # Re-read: the data-protection block above may have just appended to it.
-IGNORE_CONTENT=""
-[ -f .gitignore ] && IGNORE_CONTENT=$'\n'"$(< .gitignore)"$'\n'
+read_ignore
 while IFS= read -r rule; do
   if ! ignore_has "$rule"; then
     MISSING_ARTIFACT_IGNORES="$MISSING_ARTIFACT_IGNORES$rule

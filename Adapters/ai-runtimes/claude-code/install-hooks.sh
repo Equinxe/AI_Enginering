@@ -26,10 +26,23 @@
 # fields (WU-IAENG-410: the guards' timeout and onFailure). The report
 # lists what was added, updated and found present, nothing more, plus a warning when the
 # project's settings switch every hook off ("disableAllHooks": true), which
-# this script reports and never changes. The file is rewritten by jq, so its
-# formatting is normalised (two-space indent); its content is kept. Without jq, when the
-# file is not a JSON object, or when it is a symbolic link, nothing is written
-# and the merge is left to you (--print). A project that does not want one of the
+# this script reports and never changes. A file with no "hooks" at all — a
+# project's own settings.json often holds only its permissions, a $schema, or
+# nothing — or with "hooks": null gets the framework's entries the same way
+# (DEF-465-01). The file is rewritten by jq, so its formatting is normalised
+# (two-space indent); its content is kept. Without jq, when the file is not
+# one strict JSON object in the shape Claude Code's settings schema gives
+# "hooks" (each event a list of matcher groups, each group an object whose
+# "hooks" is a list), or when it is a symbolic link, nothing is written and
+# the merge is left to you (--print). A comment (// or /* */) is
+# not JSON: jq refuses the file, a rewrite would drop it, and the refusal
+# names its line and says to remove it and re-run. A byte order mark, a value
+# JSON does not have (NaN, Infinity, a number such as +1, 01 or .5) and an
+# event or group out of that shape are refused the same way, each named
+# (WU-IAENG-441). Every write, new file and --force included, goes to a
+# temporary file beside settings.json that is then renamed over it; a
+# symbolic link at that path, or anything there that is not a regular file,
+# is refused on every path. A project that does not want one of the
 # framework's hooks does not delete its entry — a re-run adds it back — but
 # uses the hook's own switch where it has one (hooks/README.md).
 #
@@ -91,8 +104,10 @@
 # the framework's entry is beside it after any run, as the write path says.
 # A closing `#` line counts each family and gives the remedies. Exit codes:
 # 0 nothing to act on, 3 drift, 1 a fault (something could not be evaluated:
-# no jq for an existing file, a symbolic link, a file that is not one JSON
-# object), 2 usage (--check with --print or --force; --quiet without
+# no jq for an existing file, a symbolic link to no file or to one that is not
+# current, a path that is not a regular file, a file that is not one strict
+# JSON object in that shape), 2 usage
+# (--check with --print or --force; --quiet without
 # --check). settings.json is parsed with jq and never evaluated; a run
 # under --check writes no file and runs no git command.
 #
@@ -395,10 +410,121 @@ finish() {
 # that ends a line is not a difference (a core.autocrlf checkout of the same
 # file); a CR inside a line is one (SEC-IAENG-353-01).
 settings_current() { [ "$(sed $'s/\r$//' "$DEST")" = "$RENDERED" ]; }
-# settings_mergeable: one JSON object with an object 'hooks', or nothing is
-# touched.
+# settings_mergeable: one JSON object whose 'hooks' is an object, absent or
+# null, or nothing is touched. A project's own settings.json often has no
+# 'hooks' at all: permissions only, a $schema only, or {} (DEF-465-01). The
+# type is tested, not defaulted with //, which would let "hooks": false
+# through to a merge that cannot index it.
+#
+# STRICT JSON, IN THE SHAPE CLAUDE CODE'S SETTINGS SCHEMA REQUIRES
+# (WU-IAENG-441). jq 1.8.1 reads more than RFC 8259 allows: a byte order mark
+# before the text, and number spellings JSON has no place for (NaN, Infinity,
+# a leading + or 0, .5). Those are refused before jq is asked anything, by
+# settings_bad_token below, and settings_refusal names a BOM as such. Then
+# 'hooks' must hold, under each event, a list (JSON array) of matcher groups,
+# or null, which a merge replaces with the list; and each group must be an
+# object whose own 'hooks' is a list. That is the shape Claude Code's settings
+# schema gives the key, and the presence test of merge_settings reads only
+# that shape.
+BOM=$'\xef\xbb\xbf'
+# shape_fault, a jq definition: on the 'hooks' value, one phrase per event or
+# group out of that shape, each with its remedy; nothing when it is in shape.
+# The event's name is printed as JSON (tojson), so a control character in it
+# is an escape, never the character. No jq variable is used: the definition
+# is a shell string, and a $name in single quotes reads as a shell mistake.
+SHAPE_DEFS='def shape_fault:
+  if type != "object" then empty
+  else to_entries[]
+    | if (.value | type) == "null" then empty
+      elif (.value | type) != "array" then
+        "\"hooks\" > \(.key | tojson) is a JSON \(.value | type), not a list (JSON array) of matcher groups, which the Claude Code settings schema requires: make it a list and re-run"
+      else
+        {ev: .key, g: (.value | to_entries[])}
+        | select((.g.value | type) != "object" or (.g.value.hooks | type) != "array")
+        | "group \(.g.key + 1) of \"hooks\" > \(.ev | tojson) is not an object whose \"hooks\" is a list (JSON array), which the Claude Code settings schema requires: correct it and re-run"
+      end
+  end;'
+# settings_bad_token — "<line>:<token>" for the first token outside a string
+# that is not JSON: not a structural character, true, false, null or a number
+# in RFC 8259's grammar. Strings are removed line by line first, as the
+# comment test below does; jq refuses a raw line feed inside a string, so a
+# string never spans two lines of a file jq reads. Tokens are separated by
+# JSON's whitespace (RFC 8259, section 2): space, tab, line feed and carriage
+# return, a CR anywhere, inside a line or as the only line ending, as much as
+# at a line's end (DEF-IAENG-480-01). A byte order mark is a token that is
+# not JSON: its three bytes stand outside every string. Prints nothing when
+# every token is JSON.
+settings_bad_token() {
+  sed -E 's/"([^"\\]|\\.)*"/""/g' "$DEST" | awk '
+    { line = $0; gsub(/[][{}:,]/, " ", line)
+      n = split(line, tok, /[ \t\r]+/)
+      for (i = 1; i <= n; i++) {
+        t = tok[i]
+        if (t == "" || t == "\"\"" || t == "true" || t == "false" || t == "null") continue
+        if (t ~ /^-?(0|[1-9][0-9]*)([.][0-9]+)?([eE][-+]?[0-9]+)?$/) continue
+        print NR ":" substr(t, 1, 40); exit
+      } }'
+}
+# visible <text> — sets VIS: <text> with every byte outside printable ASCII
+# written as an escape, a CR as \r, a tab as \t, any other as \xHH. A refusal
+# that quotes the file (a token, an event's name) then shows each character
+# it names, never one that is invisible or that the terminal would act on
+# (DEF-IAENG-480-01). flat, which makes such a character a space, keeps a
+# record on one line; this keeps the culprit findable.
+visible() {
+  local h c out=""
+  for h in $(printf '%s' "$1" | od -An -v -tx1); do
+    case "$h" in
+      0d) out+='\r' ;;
+      09) out+='\t' ;;
+      2[0-9a-f]|[3-6][0-9a-f]|7[0-9a-e]) printf -v c '%b' "\\x$h"; out+="$c" ;;
+      *) out+="\\x$h" ;;
+    esac
+  done
+  VIS="$out"
+}
 settings_mergeable() {
-  jq -es 'length == 1 and (.[0] | type == "object") and ((.[0].hooks // {}) | type == "object")' "$DEST" >/dev/null 2>&1
+  [ -z "$(settings_bad_token)" ] || return 1
+  jq -es "$SHAPE_DEFS"' length == 1 and (.[0] | type == "object") and (.[0].hooks | type == "object" or type == "null")
+    and ([.[0].hooks | shape_fault] | length == 0)' "$DEST" >/dev/null 2>&1
+}
+# settings_refusal — why settings_mergeable refused the file, as one phrase
+# that carries its remedy; the write path's "Not changed" line and --check's
+# fault record print the same phrase. jq reads strict JSON (RFC 8259), which
+# has no comments: a // or /* left once every string is removed is named with
+# its line, so a URL in a string ("$schema") is never taken for one. That
+# test runs only after jq has refused the file. A byte order mark is named
+# first, a token that is not JSON after jq's own refusal, then the first
+# event or group out of shape.
+settings_refusal() {
+  local line why tok shape
+  if [ "$(head -c 3 "$DEST")" = "$BOM" ]; then
+    printf '%s' "it begins with a byte order mark (BOM), which a JSON settings file must not begin with: save it as UTF-8 without a BOM and re-run"
+    return 0
+  fi
+  if ! why="$(jq empty "$DEST" 2>&1)"; then
+    line="$(sed -E 's/"([^"\\]|\\.)*"//g' "$DEST" | grep -n -m 1 -E '//|/[*]')"
+    if [ -n "$line" ]; then
+      printf '%s' "line ${line%%:*} holds a comment (// or /* */), which JSON does not allow and jq cannot read: remove it (a note can go in a \"\$comment\" key) and re-run"
+    else
+      flat "$(printf '%s\n' "$why" | head -n 1 | sed $'s/\r$//')"
+      printf '%s' "jq cannot read it as JSON ($FLAT): correct it and re-run"
+    fi
+    return 0
+  fi
+  tok="$(settings_bad_token)"
+  if [ -n "$tok" ]; then
+    visible "${tok#*:}"
+    printf '%s' "line ${tok%%:*} holds $VIS, which is not a JSON value: write a JSON number, true, false or null there and re-run"
+    return 0
+  fi
+  shape="$(jq -rs "$SHAPE_DEFS"' if length == 1 and (.[0] | type == "object") then first(.[0].hooks | shape_fault) else empty end' "$DEST" 2>/dev/null | sed $'s/\r$//')"
+  if [ -n "$shape" ]; then
+    visible "$shape"
+    printf '%s' "$VIS"
+    return 0
+  fi
+  printf '%s' "it is not one JSON object whose 'hooks' is an object, absent or null"
 }
 # merge_settings: the settings on stdin, merged with the template; prints
 # {m: merged settings, a: added, p: present, w: near misses}. sed: jq on
@@ -429,6 +555,12 @@ settings_mergeable() {
 # group stays a near miss). The rest runs on the updated file, so the updated
 # group is neither added again nor a near miss; it is reported in u, and not
 # in p, which lists only what the file held before the run.
+#
+# THE FILE MAY HAVE NO "hooks" (DEF-465-01): settings_mergeable lets it be
+# absent or null. Every read of it below indexes it by event (null[k] is null
+# in jq) or defaults it to {}, so such a file gets every template entry. The
+# near-miss scan once ran to_entries on null, which failed every merge into
+# such a file, --check included (jq: "null (null) has no keys").
 merge_settings() {
   jq --argjson tpl "$RENDERED" --argjson sup "$SUPERSEDED" --arg q "'" --arg qesc "'\"'\"'" '
     def norm: gsub("[$][{]CLAUDE_PROJECT_DIR[}]"; "$CLAUDE_PROJECT_DIR") | gsub("/[.]/"; "/");
@@ -472,7 +604,7 @@ merge_settings() {
                   then .p += [$label] else . end)
             else .m.hooks[$e.key] = ((.m.hooks[$e.key] // []) + [$g]) | .a += [$label]
             end))
-    | .w = [ $cur.hooks | to_entries[] | .key as $ev | .value[]? | . as $grp
+    | .w = [ ($cur.hooks // {}) | to_entries[] | .key as $ev | .value[]? | . as $grp
              | .hooks[]? | . as $h | .command // "" | strings | . as $c
              | select(any($names[]; . as $n | $c | contains("hooks/" + $n)))
              | ($h | nentry) as $hn
@@ -536,7 +668,11 @@ statusline_shadowed() {
 if [ "$CHECK" -eq 1 ]; then
   REL_DEST=".claude/settings.json"
   MERGED=""
-  if [ ! -f "$DEST" ]; then
+  if [ -L "$DEST" ] && [ ! -f "$DEST" ]; then
+    check_fault settings "$REL_DEST" "it is a symbolic link; a run refuses to write through it"
+  elif [ -e "$DEST" ] && [ ! -f "$DEST" ]; then
+    check_fault settings "$REL_DEST" "it exists and is not a regular file; a run refuses to replace it"
+  elif [ ! -f "$DEST" ]; then
     record settings absent "$REL_DEST" "a run writes it from settings.example.json"
   elif settings_current; then
     record settings current "$REL_DEST" "the template, rendered for framework root $ROOT"
@@ -550,7 +686,7 @@ if [ "$CHECK" -eq 1 ]; then
   elif ! command -v jq >/dev/null 2>&1; then
     check_fault settings "$REL_DEST" "jq is not installed to read it"
   elif ! settings_mergeable; then
-    check_fault settings "$REL_DEST" "it is not one JSON object with an object 'hooks'"
+    check_fault settings "$REL_DEST" "$(settings_refusal)"
   elif MERGED="$(merge_settings < "$DEST")"; then
     record settings customized "$REL_DEST" "the project's own settings, with the framework's entries checked one by one"
   else
@@ -588,6 +724,21 @@ if [ "$CHECK" -eq 1 ]; then
   check_report
 fi
 
+# tmp_beside <kind> — sets TMP to a new, empty file beside settings.json,
+# settings.json.iaeng-<kind>.XXXXXX, made by mktemp: a name no other file has
+# and none can be known in advance. It gets the mode a plain write would have
+# (mktemp makes it 0600), and it is removed on every exit, a signal included,
+# unless it has been renamed over settings.json by then. Returns 1, TMP empty,
+# when it cannot be made. Both writes below use it (WU-IAENG-441).
+TMP=""
+tmp_beside() {
+  TMP="$(mktemp "$DEST.iaeng-$1.XXXXXX")" || { TMP=""; return 1; }
+  trap 'rm -f "$TMP"' EXIT
+  trap 'exit 1' HUP INT TERM
+  chmod "$(umask -S | sed 's/x//g')" "$TMP" 2>/dev/null
+  return 0
+}
+
 if [ -f "$DEST" ] && [ "$FORCE" -eq 0 ]; then
   if settings_current; then
     echo "= $DEST already current"
@@ -604,7 +755,7 @@ if [ -f "$DEST" ] && [ "$FORCE" -eq 0 ]; then
   # the link with a regular file and detach it from what it points at.
   [ -L "$DEST" ] && merge_by_hand "it is a symbolic link (a merge would replace the link with a file)"
   command -v jq >/dev/null 2>&1 || merge_by_hand "jq is not installed to merge into it"
-  settings_mergeable || merge_by_hand "it is not one JSON object with an object 'hooks'"
+  settings_mergeable || merge_by_hand "$(settings_refusal)"
   MERGED="$(merge_settings < "$DEST")" || merge_by_hand "the merge failed"
   # Only the CR jq writes at the end of a line on Windows is removed (Check
   # Convention, Shell Scripts, rule 3). The added, present and updated labels
@@ -643,7 +794,7 @@ if [ -f "$DEST" ] && [ "$FORCE" -eq 0 ]; then
     printf '%s\n' "$PRESENT" | sed 's/^/    present: /'
     finish; exit $?
   fi
-  TMP="$DEST.iaeng-merge.$$"
+  tmp_beside merge || merge_by_hand "no temporary file could be created beside it"
   if ! printf '%s\n' "$MERGED" | jq '.m' | sed $'s/\r$//' > "$TMP" || ! jq -e 'type == "object"' "$TMP" >/dev/null 2>&1; then
     rm -f "$TMP"
     merge_by_hand "the merged file could not be written"
@@ -662,8 +813,32 @@ if [ -f "$DEST" ] && [ "$FORCE" -eq 0 ]; then
   exit "$rc"
 fi
 
+# A NEW FILE, OR --force: WRITTEN BESIDE IT, THEN MOVED (WU-IAENG-441). The
+# file is written to a temporary file in the same directory (tmp_beside),
+# read back and compared with what was meant, then renamed over the
+# path, as the merge above does. A symbolic link at the path is refused on
+# this path too, dangling or not: a write would follow it to what it points
+# at, and a rename would detach it.
+if [ -L "$DEST" ]; then
+  echo "! $DEST is a symbolic link. Not changed." >&2
+  echo "  Replace the link with the file itself, or remove it, and re-run." >&2
+  exit 1
+fi
+# Anything else at the path that is not a regular file (a directory, a
+# device) is refused too: the rename would move the file into a directory
+# rather than replace it.
+if [ -e "$DEST" ] && [ ! -f "$DEST" ]; then
+  echo "! $DEST exists and is not a regular file. Not changed." >&2
+  echo "  Remove or rename what is there, and re-run." >&2
+  exit 1
+fi
+write_fail() { rm -f "$TMP"; echo "! $DEST: $1. Not changed." >&2; exit 1; }
 mkdir -p "$PROJECT/.claude"
-printf '%s\n' "$RENDERED" > "$DEST"
+tmp_beside write || write_fail "no temporary file could be created beside it"
+if ! printf '%s\n' "$RENDERED" > "$TMP" || [ "$(cat "$TMP")" != "$RENDERED" ]; then
+  write_fail "the file could not be written"
+fi
+mv -f "$TMP" "$DEST" || write_fail "the written file could not replace it"
 echo "+ $DEST (framework root: $ROOT)"
 echo "  Hooks: $HOOK_LIST"
 finish; rc=$?

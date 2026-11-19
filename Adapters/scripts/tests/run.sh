@@ -116,6 +116,23 @@ $line"
   git commit -q -m "$msg"
 }
 
+# index_path <path> [<lines>] — stages a file of <lines> lines (default 1) at
+# <path> straight into the index, without creating it on disk (WU-IAENG-428).
+# The name reaches git byte for byte through stdin, never through argv or the
+# filesystem: Windows cannot hold a newline or a double quote in a file name,
+# and a non-ASCII argument may be re-encoded on its way to a native git. Git
+# for Windows refuses such a name in the index while core.protectNTFS is on,
+# because it could not be checked out there; it is never checked out here. A
+# path made this way exists only in the index and the next commit, so a
+# fixture never runs `git add -A` or `commit -a` after it, which would stage
+# its deletion.
+index_path() {
+  local blob
+  git config core.protectNTFS false
+  blob="$(seq "${2:-1}" | git hash-object -w --stdin)" || return 1
+  printf '100644 %s\t%s\0' "$blob" "$1" | git update-index -z --index-info
+}
+
 # expect <expected-exit> <description> -- <command...>
 expect() {
   local want="$1"; shift
@@ -630,6 +647,46 @@ i=0; while [ $i -lt 2000 ]; do echo "generated $i" >> built.txt; i=$((i + 1)); d
 git add -A && git commit -qm "regenerate"
 expect 0 "2000 lines in a linguist-generated file do not count" -- bash "$CHECK_SIZE" "$BASE" HEAD
 expect_output "1 generated"
+
+# WU-IAENG-428 — the exclusion looks a file up by its name as git stores it.
+# git diff --numstat without -z printed a non-ASCII or newline name as a
+# quoted C string ("gen-d\303\251.txt"), check-attr read the quotes literally,
+# found no attribute, and the generated file was counted. The 2000 lines are
+# over the 1500 limit, so a counted file shows as a finding.
+new_repo size-generated-names
+printf 'gen-* linguist-generated=true\n' > .gitattributes
+git add -A && git commit -qm "declare the generated files"
+BASE="$(git rev-parse HEAD)"
+index_path $'gen-d\303\251.txt' 2000 && git commit -qm "regenerate a file with a non-ASCII name"
+expect 0 "a generated file with a non-ASCII name does not count" -- bash "$CHECK_SIZE" "$BASE" HEAD
+expect_line "Files changed: 1 (1 generated, 0 binary — excluded)"
+expect_line "Lines to review: 0 (limit 1500)"
+BASE="$(git rev-parse HEAD)"
+index_path $'gen-two\nlines.txt' 2000 && git commit -qm "regenerate a file with a newline in its name"
+expect 0 "a generated file with a newline in its name does not count" -- bash "$CHECK_SIZE" "$BASE" HEAD
+expect_line "Files changed: 1 (1 generated, 0 binary — excluded)"
+expect_line "Lines to review: 0 (limit 1500)"
+# A tab inside a name. A --numstat -z record is <added> TAB <deleted> TAB
+# <path>, so the path is everything after the second tab: the whole of
+# gen-a<TAB>b.txt, which "gen-*" marks generated, and the whole of
+# src-a<TAB>gen-b.txt, which it does not.
+BASE="$(git rev-parse HEAD)"
+index_path $'gen-a\tb.txt' 2000 && git commit -qm "regenerate a file with a tab in its name"
+expect 0 "a generated file with a tab in its name does not count" -- bash "$CHECK_SIZE" "$BASE" HEAD
+expect_line "Files changed: 1 (1 generated, 0 binary — excluded)"
+expect_line "Lines to review: 0 (limit 1500)"
+BASE="$(git rev-parse HEAD)"
+index_path $'src-a\tgen-b.txt' 2000 && git commit -qm "a reviewable file with a tab in its name"
+expect 1 "the text after a tab in a name is not read as the whole name" -- bash "$CHECK_SIZE" "$BASE" HEAD
+expect_line "Files changed: 1 (0 generated, 0 binary — excluded)"
+expect_line "Lines to review: 2000 (limit 1500)"
+# A trailing space is part of the name: "notes.gen " does not end in ".gen".
+printf '*.gen linguist-generated=true\n' >> .gitattributes
+git add .gitattributes && git commit -qm "declare *.gen generated"
+BASE="$(git rev-parse HEAD)"
+index_path 'notes.gen ' 2000 && git commit -qm "a reviewable file whose name ends in a space"
+expect 1 "a trailing space is kept in a diffed name" -- bash "$CHECK_SIZE" "$BASE" HEAD
+expect_line "Lines to review: 2000 (limit 1500)"
 
 expect 2 "wrong argument count is a usage error" -- bash "$CHECK_SIZE"
 
@@ -1290,6 +1347,131 @@ git switch -q "$RM_MAIN"
 echo same-edit > src/auth/login.js && git commit -qam "the base branch lands the identical edit after the fork point"
 expect 1 "a sensitive edit the base has since duplicated is still attributed to the change" -- bash "$CHECK_MAP" --range "$RM_MAIN" feature-auth .
 expect_output "Sensitive paths touched: src/auth/login.js"
+
+# WU-IAENG-428 — a path is classified by its name, whatever bytes it holds.
+# Without -z, git prints a name holding a byte outside ASCII, a control
+# character, a double quote or a backslash as a quoted C string (docs/dé.md as
+# "docs/d\303\251.md"), and the zone patterns were matched against that quoted
+# form instead of the name. The expected levels are the fixture map's, read by
+# hand: the first zone whose glob matches the whole name.
+risk_project rm-range-nonascii; sound_risk_map
+git commit -q -m "map"
+RM_BASE="$(git rev-parse HEAD)"
+index_path $'src/auth/d\303\251.js' && git commit -q -m "a module with a non-ASCII name"
+expect 1 "a path with a non-ASCII name is classified by its zone" -- bash "$CHECK_MAP" --range "$RM_BASE" HEAD .
+expect_line $'Sensitive paths touched: src/auth/d\303\251.js'
+
+risk_project rm-range-quote; sound_risk_map
+git commit -q -m "map"
+RM_BASE="$(git rev-parse HEAD)"
+index_path 'src/auth/say "hi".js' && git commit -q -m "a module with a double quote in its name"
+expect 1 "a path with a double quote in its name is classified by its zone" -- bash "$CHECK_MAP" --range "$RM_BASE" HEAD .
+expect_line 'Sensitive paths touched: src/auth/say "hi".js'
+
+# A newline: the name is one path, matched whole.
+risk_project rm-range-newline; sound_risk_map
+git commit -q -m "map"
+RM_BASE="$(git rev-parse HEAD)"
+index_path $'src/auth/two\nlines.js' && git commit -q -m "a module with a newline in its name"
+expect 1 "a path with a newline in its name is classified by its zone" -- bash "$CHECK_MAP" --range "$RM_BASE" HEAD .
+expect_line "Files changed: 1 — highest change zone: sensitive"
+# A printed name stays on one line: its LF shows as \n (and a CR as \r, below),
+# as validate-framework.sh's show prints them (WU-IAENG-397).
+expect_line 'Sensitive paths touched: src/auth/two\nlines.js'
+
+risk_project rm-range-cr; sound_risk_map
+git commit -q -m "map"
+RM_BASE="$(git rev-parse HEAD)"
+index_path $'src/auth/car\rriage.js' && git commit -q -m "a module with a carriage return in its name"
+expect 1 "a path with a carriage return in its name is classified by its zone" -- bash "$CHECK_MAP" --range "$RM_BASE" HEAD .
+expect_line 'Sensitive paths touched: src/auth/car\rriage.js'
+
+# ...and a line inside the name is not a path of its own. This one is under
+# docs/ (routine); its second line alone would match "src/auth/*".
+risk_project rm-range-newline-whole; sound_risk_map
+git commit -q -m "map"
+RM_BASE="$(git rev-parse HEAD)"
+index_path $'docs/notes\nsrc/auth/x.md' && git commit -q -m "a note with a newline in its name"
+expect 0 "a line inside a name does not match a zone on its own" -- bash "$CHECK_MAP" --range "$RM_BASE" HEAD .
+expect_line "Files changed: 1 — highest change zone: routine"
+
+# ...nor does its first line decide alone. With a suffix glob, "notes/two"
+# matches only "*" (standard), while the whole name matches "notes/*.md"
+# (routine).
+risk_project rm-range-newline-first; sound_risk_map
+sed -i 's|- pattern: "docs/\*"|- pattern: "notes/*.md"|' .ia-engineering/risk-map.yml
+git add .ia-engineering/risk-map.yml && git commit -q -m "map"
+RM_BASE="$(git rev-parse HEAD)"
+index_path $'notes/two\nlines.md' && git commit -q -m "a note with a newline in its name"
+expect 0 "a name's first line alone does not decide its zone" -- bash "$CHECK_MAP" --range "$RM_BASE" HEAD .
+expect_line "Files changed: 1 — highest change zone: routine"
+
+# A leading space is part of the name: " src/auth/lead.js" lies under a
+# top-level directory named " src", so only "*" matches it.
+risk_project rm-range-lead-space; sound_risk_map
+git commit -q -m "map"
+RM_BASE="$(git rev-parse HEAD)"
+index_path ' src/auth/lead.js' && git commit -q -m "a module under a directory whose name starts with a space"
+expect 0 "a leading space is kept in a changed name" -- bash "$CHECK_MAP" --range "$RM_BASE" HEAD .
+expect_line "Files changed: 1 — highest change zone: standard"
+expect 0 "--explain keeps a leading space in a name" -- bash "$CHECK_MAP" --explain .
+expect_line " src/auth/lead.js standard"
+
+# A renamed file is classified by both its old and its new path, as
+# check-pr-size.sh already lists it.
+risk_project rm-range-rename; sound_risk_map
+git commit -q -m "map"
+RM_BASE="$(git rev-parse HEAD)"
+git mv src/auth/login.js docs/login.js && git commit -q -m "rename the module"
+expect 1 "a renamed file is classified by both its old and its new path" -- bash "$CHECK_MAP" --range "$RM_BASE" HEAD .
+expect_line "Files changed: 2 — highest change zone: sensitive"
+expect_line "Sensitive paths touched: src/auth/login.js"
+
+# A space was always read whole; pinned so the -z reading keeps it so.
+risk_project rm-range-space; sound_risk_map
+git commit -q -m "map"
+RM_BASE="$(git rev-parse HEAD)"
+echo x > "src/auth/two words.js" && git add -A && git commit -q -m "a module with a space in its name"
+expect 1 "a path with a space in its name is classified by its zone" -- bash "$CHECK_MAP" --range "$RM_BASE" HEAD .
+expect_line "Sensitive paths touched: src/auth/two words.js"
+
+# Validation reads the tracked names the same way. A zone whose only file has
+# such a name is live, and --explain prints the name as it is.
+risk_project rm-live-nonascii; sound_risk_map
+sed -i 's|- pattern: "docs/\*"|- pattern: "notes/*"|' .ia-engineering/risk-map.yml
+git add .ia-engineering/risk-map.yml
+index_path $'notes/d\303\251.md'
+expect 0 "a zone whose only tracked file has a non-ASCII name is live" -- bash "$CHECK_MAP" .
+expect_output "Risk Map is sound"
+expect 0 "--explain prints a non-ASCII name as it is, with its zone's level" -- bash "$CHECK_MAP" --explain .
+expect_line $'notes/d\303\251.md routine'
+
+# "notes/*.md" matches the whole name; neither of its two lines alone would.
+risk_project rm-live-newline; sound_risk_map
+sed -i 's|- pattern: "docs/\*"|- pattern: "notes/*.md"|' .ia-engineering/risk-map.yml
+git add .ia-engineering/risk-map.yml
+index_path $'notes/two\nlines.md'
+expect 0 "a zone whose only tracked file has a newline in its name is live" -- bash "$CHECK_MAP" .
+expect_output "Risk Map is sound"
+expect 0 "--explain prints a name with a newline on one line, at its whole name's level" -- bash "$CHECK_MAP" --explain .
+expect_line 'notes/two\nlines.md routine'
+
+# A trailing space is part of the name too: "notes/a.md " does not end in
+# ".md", so "notes/*.md" matches no tracked file.
+risk_project rm-live-trailing-space; sound_risk_map
+sed -i 's|- pattern: "docs/\*"|- pattern: "notes/*.md"|' .ia-engineering/risk-map.yml
+git add .ia-engineering/risk-map.yml
+index_path 'notes/a.md '
+expect 1 "a trailing space is kept in a tracked name" -- bash "$CHECK_MAP" .
+expect_output "zone 'notes/*.md' matches no tracked file"
+
+# The present-but-untracked advice reads the untracked names the same way.
+risk_project rm-untracked-nonascii; sound_risk_map
+sed -i 's|- pattern: "docs/\*"|- pattern: "staged-later/*"|' .ia-engineering/risk-map.yml
+mkdir -p staged-later; echo report > $'staged-later/r\303\251sum\303\251.md'   # deliberately NOT staged
+git add .ia-engineering/risk-map.yml
+expect 1 "a zone matching only an untracked non-ASCII file says stage it, not remove it" -- bash "$CHECK_MAP" .
+expect_output "not tracked yet"
 
 expect 2 "an unknown option is a usage error" -- bash "$CHECK_MAP" --nope .
 
@@ -2436,6 +2618,169 @@ write_wu_registry WU-DEMO-001 WU-DEMO-002
 msg415 "$WORK/git415.txt" "Work Unit: WU-DEMO-002"
 expect 0 "git commit <paths> resolves against the registry those paths stage" -- git commit -q -F "$WORK/git415.txt" Registry/work-units.yml x.txt
 expect 0 "and creates the commit" -- test "$(git rev-list --count HEAD)" = "$((N415 + 1))"
+
+# ---- a merge commit-msg cannot classify still has its claims checked (WU-IAENG-429) --
+#
+# Issue #408, case S4-24 of the v0.0.15 acceptance. On a merge it could not
+# classify, the hook printed "cannot classify this merge locally; CI will."
+# and exited 0 before any rule ran. `git merge --allow-unrelated-histories` is
+# such a merge: `git merge-tree` refuses unrelated histories and exits 128. So
+# `Work Unit: WU-DEMO-999` was merged locally while the Work Unit Exists check
+# refused the same commit, and an `Employee:` line naming no Employee passed
+# as well.
+#
+# Checking a claim needs no classification. Each expected verdict has one of
+# two sources:
+#   - A REFUSAL: the rule of the CI checks, which validate a claim present
+#     on a merge whatever the merge's kind (check-work-units.sh,
+#     SEC-IAENG-313-02; check-employee-trailers.sh). These are also the
+#     hook's own verdicts on a clean merge carrying the same lines (above).
+#   - An ACCEPTANCE of a merge with no Employee line, or with no claim: the
+#     design decision of WU-IAENG-429 (issue #408). The hook requires no
+#     trailer of a merge it cannot classify, and leaves that to CI. That
+#     verdict is not CI's: on unrelated histories, check-employee-trailers.sh
+#     cannot classify the merge either, and fails closed (exit 2) on one that
+#     carries no Employee line.
+# A merge with no claim is accepted with the warning, as before.
+
+section "git-hooks/commit-msg — a merge it cannot classify still has its claims checked (WU-IAENG-429, #408)"
+
+# orph429 — a branch `orph` whose root commit shares no history with main.
+# main is checked out again.
+orph429() {
+  git checkout -q --orphan orph
+  git rm -rqf .
+  echo other > other.txt && git add other.txt && git commit -q -m "chore: other root"
+  git checkout -q main
+}
+
+# msg429 <file> <line...> — a merge message, each line in a paragraph of its own.
+msg429() {
+  local f="$1" l
+  shift
+  {
+    printf 'Merge branch orph\n'
+    for l in "$@"; do printf '\n%s\n' "$l"; done
+  } > "$f"
+}
+
+mk415 cm429-unrelated
+orph429
+git merge -q --no-commit --no-ff --allow-unrelated-histories orph > /dev/null 2>&1
+# The premise, asserted: the hook's classifier cannot classify this merge. If a
+# later git merged unrelated histories by default, this section would fail
+# here rather than quietly test a merge the hook can classify.
+MT429=0
+git merge-tree --write-tree --no-messages HEAD orph > /dev/null 2>&1 || MT429=$?
+expect 0 "premise: git merge-tree exits above 1 on these unrelated histories (it exited $MT429)" -- test "$MT429" -gt 1
+
+msg429 "$WORK/m429.txt" "Work Unit: WU-DEMO-999"
+expect 1 "an unregistered Work Unit claim on a merge the hook cannot classify is refused (S4-24)" -- bash "$HOOK415" "$WORK/m429.txt"
+expect_output "claims 'WU-DEMO-999', which is not in the staged Registry/work-units.yml"
+expect_output "commit-msg: rejected — the 'Work Unit:' claim does not resolve"
+msg429 "$WORK/m429.txt" "Work Unit: WU-DEMO"
+expect 1 "a malformed Work Unit claim on the same merge is refused" -- bash "$HOOK415" "$WORK/m429.txt"
+expect_output "is empty or not a Work Unit id"
+msg429 "$WORK/m429.txt" "Work Unit: WU-DEMO-001" "Work Unit: WU-DEMO-001"
+expect 1 "two Work Unit claims on the same merge are refused" -- bash "$HOOK415" "$WORK/m429.txt"
+expect_output "rejected — 2 'Work Unit:' lines at column 0"
+msg429 "$WORK/m429.txt" "Employee: executor"
+expect 1 "an Employee line naming no Employee on the same merge is refused" -- bash "$HOOK415" "$WORK/m429.txt"
+expect_output "commit-msg: rejected — 'Employee: executor' is not a recognized Employee."
+msg429 "$WORK/m429.txt" "Work Unit: WU-DEMO-001"
+expect 0 "a registered claim on the same merge, with no Employee line, is accepted" -- bash "$HOOK415" "$WORK/m429.txt"
+expect_output "cannot classify this merge locally; CI will."
+msg429 "$WORK/m429.txt" "Work Unit: WU-DEMO-001" "Employee: DevOps Engineer"
+expect 0 "a registered claim and a valid Employee line on the same merge are accepted" -- bash "$HOOK415" "$WORK/m429.txt"
+msg429 "$WORK/m429.txt"
+expect 0 "the same merge with no claim is still accepted, with the warning" -- bash "$HOOK415" "$WORK/m429.txt"
+expect_output "cannot classify this merge locally; CI will."
+git merge --abort
+
+# Through git itself, hooks wired as install.sh wires them: S4-24's own
+# command. git keeps the merge in progress when commit-msg refuses it.
+git config core.hooksPath "$SCRIPTS/../git-hooks"
+H429="$(git rev-parse HEAD)"
+msg429 "$WORK/git429.txt" "Work Unit: WU-DEMO-999"
+expect 1 "git merge --allow-unrelated-histories refuses the unregistered claim (S4-24)" -- \
+  git merge --allow-unrelated-histories --no-ff -F "$WORK/git429.txt" orph
+expect_output "claims 'WU-DEMO-999', which is not in the staged Registry/work-units.yml"
+expect 0 "and creates no merge" -- test "$(git rev-parse HEAD)" = "$H429"
+git merge --abort
+msg429 "$WORK/git429.txt" "Work Unit: WU-DEMO-001"
+expect 0 "the same merge with a registered claim is created" -- \
+  git merge --allow-unrelated-histories --no-ff -F "$WORK/git429.txt" orph
+expect 0 "and its second parent is orph" -- test "$(git rev-parse HEAD^2)" = "$(git rev-parse orph)"
+
+# With no claim there is nothing to check, so no roster is looked up, as on a
+# clean merge and as before: a hook copied away from its framework, with no
+# roster to find, still accepts the merge, with the warning.
+new_repo cm429-no-roster
+orph429
+git merge -q --no-commit --no-ff --allow-unrelated-histories orph > /dev/null 2>&1
+msg429 "$WORK/m429.txt"
+expect 0 "the same merge with no claim needs no roster" -- env -u IAENG_REGISTRY -u IAENG_FRAMEWORK bash "$COPIED415" "$WORK/m429.txt"
+expect_output "cannot classify this merge locally; CI will."
+git merge --abort
+
+# Git older than 2.38 (#408 left it unverified; no such git was run here).
+# Its merge-tree has no --write-tree: the builtin calls usage() unless it is
+# given exactly three arguments, and usage() exits 129 (git v2.37.0,
+# builtin/merge-tree.c and usage.c). The hook gives it four, so every merge
+# of two parents is one it cannot classify. The shim answers merge-tree as
+# that git does and hands every other command to the real git. On such a git
+# an ordinary merge still has its claims checked.
+REAL_GIT429="$(command -v git)"
+mkdir -p "$WORK/shim-git237"
+cat > "$WORK/shim-git237/git" <<SHIM
+#!/usr/bin/env bash
+if [ "\$1" = "merge-tree" ]; then
+  echo "usage: git merge-tree <base-tree> <branch1> <branch2>" >&2
+  exit 129
+fi
+exec "$REAL_GIT429" "\$@"
+SHIM
+chmod +x "$WORK/shim-git237/git"
+
+mk415 cm429-old-git
+git checkout -qb side
+echo side > side.txt && git add -A && git commit -q -m "side work"
+git checkout -q main
+echo main > main.txt && git add -A && git commit -q -m "main work"
+git merge -q --no-commit --no-ff side > /dev/null 2>&1
+printf "Merge branch 'side'\n\nWork Unit: WU-DEMO-999\n" > "$WORK/m429.txt"
+expect 1 "git < 2.38 (merge-tree as it answers): an unregistered claim on an ordinary merge is refused" -- \
+  env PATH="$WORK/shim-git237:$PATH" bash "$HOOK415" "$WORK/m429.txt"
+expect_output "cannot classify this merge locally; CI will."
+expect_output "claims 'WU-DEMO-999', which is not in the staged Registry/work-units.yml"
+printf "Merge branch 'side'\n\nEmployee: executor\n" > "$WORK/m429.txt"
+expect 1 "git < 2.38: an Employee line naming no Employee on an ordinary merge is refused" -- \
+  env PATH="$WORK/shim-git237:$PATH" bash "$HOOK415" "$WORK/m429.txt"
+expect_output "cannot classify this merge locally; CI will."
+expect_output "commit-msg: rejected — 'Employee: executor' is not a recognized Employee."
+printf "Merge branch 'side'\n\nWork Unit: WU-DEMO-001\n" > "$WORK/m429.txt"
+expect 0 "git < 2.38: a registered claim on an ordinary merge is accepted, with the warning" -- \
+  env PATH="$WORK/shim-git237:$PATH" bash "$HOOK415" "$WORK/m429.txt"
+expect_output "cannot classify this merge locally; CI will."
+printf "Merge branch 'side'\n" > "$WORK/m429.txt"
+expect 0 "git < 2.38: an ordinary merge with no claim is accepted, with the warning" -- \
+  env PATH="$WORK/shim-git237:$PATH" bash "$HOOK415" "$WORK/m429.txt"
+expect_output "cannot classify this merge locally; CI will."
+git merge --abort
+
+# An ordinary commit, no merge in progress, still takes neither exit this
+# Work Unit changed: the clean-or-unknown exit for a message with no claim,
+# and the clean-or-unknown exit after Rule 4 for one with no Employee line
+# (PR #444 review, round 1). The oracle is Core/MAIN_AGENT_CONDUCT.md,
+# Dispatch Discipline: every commit names its Employee. Widening either exit
+# to every kind but `authored` would let these through.
+mk415 cm429-ordinary
+printf 'chore(x): an ordinary commit\n' > "$WORK/m429.txt"
+expect 1 "an ordinary commit with no claim at all is still refused for its missing Employee line" -- bash "$HOOK415" "$WORK/m429.txt"
+expect_output "commit-msg: rejected — missing 'Employee: <Name>' trailer."
+printf 'chore(x): an ordinary commit\n\nWork Unit: WU-DEMO-001\n' > "$WORK/m429.txt"
+expect 1 "an ordinary commit with a registered claim and no Employee line is still refused" -- bash "$HOOK415" "$WORK/m429.txt"
+expect_output "commit-msg: rejected — missing 'Employee: <Name>' trailer."
 
 # -------- check-work-units.sh --message: each refusal's reason (WU-IAENG-415) --
 #
@@ -4172,7 +4517,7 @@ if ln -s "$FRAMEWORK_ROOT" ia-engineering 2>/dev/null; then
   for rule in '/.claude/settings.json' '/.claude/skills/**' '/.ia-engineering/stack' '/.ia-engineering/risk-map.yml' \
               '/Registry/work-units.yml' '/Dockerfile' '/.gitmodules'; do
     TOTAL=$((TOTAL + 1))
-    if grep -qxF "$rule text eol=lf" .gitattributes 2>/dev/null; then
+    if grep -qxF -- "$rule text eol=lf" .gitattributes 2>/dev/null; then
       [ -n "$VERBOSE" ] && printf '   ok   .gitattributes carries an LF rule for %s\n' "$rule"
     else
       printf '   FAIL .gitattributes has no LF rule for %s\n' "$rule"
@@ -4772,7 +5117,7 @@ wst_case() {
 }
 # wst_line <file> <heading prefix> — the line number of a heading, by grep.
 wst_line() {
-  grep -n "^$2" "$1" | head -n 1 | cut -d: -f1
+  grep -n -- "^$2" "$1" | head -n 1 | cut -d: -f1
 }
 
 # --- The real files, LF and CRLF.
@@ -6171,7 +6516,7 @@ printf '%s %s\n' "$FLIVE" "$(date +%s)" > "$FC/lock/owner"
 { usage_line msg_F341B 4; printf '\n'; } >> "$FT/s1.jsonl"
 expect 0 "lock: a refresh while another runs is skipped" -- "${FRUN[@]}" --refresh
 expect_output "another one is running (pid $FLIVE)"
-expect 0 "lock: the running one's lock is left alone" -- grep -qF "$FLIVE" "$FC/lock/owner"
+expect 0 "lock: the running one's lock is left alone" -- grep -qF -- "$FLIVE" "$FC/lock/owner"
 expect 0 "lock: the hook starts none either" -- "${FRUN[@]}" --refresh-in-background
 expect_output "one is already running (pid $FLIVE)"
 printf '%s %s\n' "$FDEAD" "$(date +%s)" > "$FC/lock/owner"
@@ -6925,7 +7270,7 @@ CO_STDOUT="$(bash "$CARRY" "$CO_A" "$CO_OK" --base develop 2> /dev/null)"
 expect 0 "on success stdout is exactly the record: full commit ids, the base, the checker's blobs" -- \
   test "$CO_STDOUT" = "Approval carry-over: $CO_A -> $CO_OK; base $(git rev-parse develop); $CO_TAIL; $CO_CHECKER"
 expect 0 "the record keeps its prefix, so a reader of an older record still finds the heads" -- \
-  grep -qxE "Approval carry-over: $CO_A -> $CO_OK; .+" <<< "$CO_STDOUT"
+  grep -qxE -- "Approval carry-over: $CO_A -> $CO_OK; .+" <<< "$CO_STDOUT"
 expect 0 "the record is one line" -- test "$(printf '%s\n' "$CO_STDOUT" | wc -l)" -eq 1
 CO_STDOUT_SHA="$(bash "$CARRY" "$CO_A" "$CO_OK" --base "$(git rev-parse develop)" 2> /dev/null)"
 expect 0 "the base is named by its commit id, whichever spelling --base used" -- \
@@ -7997,6 +8342,192 @@ expect_output "file${T}fault${T}.github/workflows/data-policy.yml"
 expect 1 "the bootstrap --check passes the fault on (exit 1 over 3)" -- bash "$BOOT_353" --check --quiet
 mv data-policy.moved ia-engineering/Adapters/github-actions/data-policy.yml
 
+# ------------------ install.sh: a CRLF .gitignore (WU-IAENG-425, issue #396) --
+#
+# Git for Windows' default core.autocrlf=true checks .gitignore out CRLF.
+# install.sh read it raw, so no rule matched a whole line: a real run appended
+# all six again, on every fresh clone (two copies, then three), and --check
+# disagreed with that run, because Git for Windows' bash drops the CR of the
+# file's last line in $(< file) and Linux bash drops none. The fix removes the
+# CR that ends a line, and only that one (Standards/CODE_QUALITY_STANDARD.md,
+# The Check Convention, shell rule 3). The fixture writes CRLF with awk, so
+# every platform runs the same case whatever its core.autocrlf.
+
+section "install.sh — a CRLF .gitignore is read line by line, no rule appended twice (WU-IAENG-425, #396)"
+
+IGN_RULES_425="local_test_data/
+.env
+.ia-engineering/SESSION_STATE.md
+.claude/agents/
+.claude/worktrees/
+.ia-engineering/usage/"
+
+# rule_lines_425 <rule> — how many lines of .gitignore are exactly <rule> once
+# their line-ending CR is removed. awk, not grep: Git for Windows' grep drops
+# a CR before matching and Linux grep does not.
+rule_lines_425() {
+  awk -v r="$1" '{ sub(/\r$/, "") } $0 == r { n++ } END { print n + 0 }' .gitignore
+}
+
+# each_once_425 <description> — each of the six rules is on exactly one line.
+each_once_425() {
+  local rule n bad=""
+  TOTAL=$((TOTAL + 1))
+  while IFS= read -r rule; do
+    n="$(rule_lines_425 "$rule")"
+    [ "$n" -eq 1 ] || bad="$bad $rule x$n"
+  done <<< "$IGN_RULES_425"
+  if [ -z "$bad" ]; then
+    [ -n "$VERBOSE" ] && printf '   ok   %s\n' "$1"
+    return 0
+  fi
+  printf '   FAIL %s:%s\n' "$1" "$bad"; FAILED=$((FAILED + 1))
+  return 1
+}
+
+# crlf_425 <description> — every line of .gitignore ends CRLF, or the CRLF
+# cases below test nothing. The CRs are counted with tr, for the grep reason
+# above.
+crlf_425() {
+  local crs lines
+  TOTAL=$((TOTAL + 1))
+  crs=$(( $(tr -cd '\r' < .gitignore | wc -c) ))
+  lines=$(( $(wc -l < .gitignore) ))
+  if [ "$crs" -gt 0 ] && [ "$crs" -eq "$lines" ]; then
+    [ -n "$VERBOSE" ] && printf '   ok   %s\n' "$1"
+    return 0
+  fi
+  printf '   FAIL %s: %s CR for %s lines\n' "$1" "$crs" "$lines"; FAILED=$((FAILED + 1))
+  return 1
+}
+
+# unchanged_425 <md5> <description> — .gitignore is byte for byte what it was.
+unchanged_425() {
+  TOTAL=$((TOTAL + 1))
+  if [ "$(md5sum < .gitignore)" = "$1" ]; then
+    [ -n "$VERBOSE" ] && printf '   ok   %s\n' "$2"
+    return 0
+  fi
+  printf '   FAIL %s; it now ends:\n' "$2"
+  tail -n 8 .gitignore | sed 's/^/        | /'; FAILED=$((FAILED + 1))
+  return 1
+}
+
+# present_425 — the last --check output reports each of the six present.
+present_425() {
+  local rule
+  while IFS= read -r rule; do
+    expect_output "gitignore${T}present${T}.gitignore${T}$rule"
+  done <<< "$IGN_RULES_425"
+}
+
+adopter_353 ign-crlf
+expect 0 "a first bootstrap succeeds" -- bash "$BOOT_353" generic
+commit_353 "chore(adopt): install the Adapters"
+
+# --- LF, the case that always worked: unchanged by the fix ---------------------
+each_once_425 "the LF .gitignore holds each of the six rules once"
+SUM_425="$(md5sum < .gitignore)"
+expect 0 "--check on an LF .gitignore holding every rule exits 0" -- bash "$INST_353" --check
+expect_output "6 .gitignore rule(s): 6 present;"
+expect 0 "a real run on it exits 0" -- bash "$INST_353"
+expect_output ".gitignore (data-protection rules already present)"
+expect_output ".gitignore (generated/runtime-artifact rules already present)"
+unchanged_425 "$SUM_425" "a real run left the LF .gitignore byte-identical"
+
+# --- CRLF, every rule present: reported present, nothing appended, twice -------
+awk '{ sub(/\r$/, ""); printf "%s\r\n", $0 }' .gitignore > ign.tmp && mv ign.tmp .gitignore
+crlf_425 "the CRLF fixture ends every line with CRLF"
+SUM_425="$(md5sum < .gitignore)"
+expect 0 "--check on a CRLF .gitignore holding every rule exits 0" -- bash "$INST_353" --check
+expect_output "6 .gitignore rule(s): 6 present;"
+present_425
+for RUN_425 in 1 2; do
+  expect 0 "real run $RUN_425 on the CRLF .gitignore exits 0" -- bash "$INST_353"
+  expect_output ".gitignore (data-protection rules already present)"
+  expect_output ".gitignore (generated/runtime-artifact rules already present)"
+  unchanged_425 "$SUM_425" "real run $RUN_425 left the CRLF .gitignore byte-identical"
+done
+
+# --- CRLF, one rule missing: that rule appended once, and only it --------------
+# .env is a data-protection rule: a real run appends it before the
+# generated-artifact block re-reads the file, so both reads are exercised.
+awk '{ sub(/\r$/, "") } $0 != ".env" { printf "%s\r\n", $0 }' .gitignore > ign.tmp && mv ign.tmp .gitignore
+crlf_425 "the CRLF fixture without .env ends every line with CRLF"
+cp .gitignore "$WORK/ign-before-425"
+SIZE_425=$(( $(wc -c < .gitignore) ))
+expect 3 "--check on a CRLF .gitignore missing .env reports drift (exit 3)" -- bash "$INST_353" --check
+expect_output "gitignore${T}missing${T}.gitignore${T}.env"
+expect_output "6 .gitignore rule(s): 5 present, 1 missing;"
+expect 0 "a real run on it exits 0" -- bash "$INST_353"
+expect_output ".gitignore (appended 1 data-protection rule(s))"
+expect_output ".gitignore (generated/runtime-artifact rules already present)"
+ADDED_425="$(tail -c +"$((SIZE_425 + 1))" .gitignore | grep -v '^#' | grep -v '^$')"
+TOTAL=$((TOTAL + 1))
+if cmp -s -n "$SIZE_425" "$WORK/ign-before-425" .gitignore && [ "$ADDED_425" = ".env" ]; then
+  [ -n "$VERBOSE" ] && printf '   ok   the real run kept the CRLF bytes and added one rule line, .env\n'
+else
+  printf '   FAIL the real run did not keep the CRLF bytes and add exactly .env; it added:\n'
+  printf '%s\n' "$ADDED_425" | sed 's/^/        | /'; FAILED=$((FAILED + 1))
+fi
+each_once_425 "after it, each of the six rules is on exactly one line"
+SUM_425="$(md5sum < .gitignore)"
+expect 0 "a second real run exits 0" -- bash "$INST_353"
+expect_output ".gitignore (data-protection rules already present)"
+expect_output ".gitignore (generated/runtime-artifact rules already present)"
+unchanged_425 "$SUM_425" "the second real run appended nothing"
+
+# --- only the CR that ends a line goes (shell rule 3) --------------------------
+# `.env<CR>x` is the rule followed by a mid-line CR and more text: not .env.
+# `.claude/agents/<CR><CR>` keeps one CR once the line-ending one is gone: not
+# .claude/agents/ either. Deleting every CR would call the second present,
+# and cutting each line at its first CR would call the first present.
+awk '{ sub(/\r$/, "") }
+     $0 == ".env" { printf "%s\rx\r\n", $0; next }
+     $0 == ".claude/agents/" { printf "%s\r\r\n", $0; next }
+     { printf "%s\r\n", $0 }' .gitignore > ign.tmp && mv ign.tmp .gitignore
+expect 3 "--check: a CR inside a line is data, so neither line is its rule (exit 3)" -- bash "$INST_353" --check
+expect_output "gitignore${T}missing${T}.gitignore${T}.env"
+expect_output "gitignore${T}missing${T}.gitignore${T}.claude/agents/"
+expect_output "6 .gitignore rule(s): 4 present, 2 missing;"
+
+# --- the file's LAST line (Security review of PR #423, F1) ---------------------
+# Git for Windows' bash drops the last line's CR together with the final
+# newline in $(< file). `.env<CR><CR>` there then read as .env once the
+# line-ending CR was stripped as well: present to install.sh, while git, which
+# removes one CR only, does not ignore .env. These cases cannot fail on Linux,
+# where this framework's CI runs: Linux bash's $(< file) keeps that CR, so
+# the read without the sentinel is right there too. They fail on Git for
+# Windows, where the defect lives, and were seen red there (WU-IAENG-425).
+# Each case asks git first, so the expectation is git's own reading of the
+# same bytes; core.excludesFile points nowhere so a global ignore of .env
+# cannot answer.
+#
+# last_line_425 <ending> <git-exit> <description> — the five other rules CRLF,
+# then .env ending in <ending> (escapes as printf %b reads them) as the file's
+# last line. <git-exit> is git check-ignore's exit for .env: 0 ignored, 1 not.
+last_line_425() {
+  printf '%s\r\n' local_test_data/ .ia-engineering/SESSION_STATE.md \
+    .claude/agents/ .claude/worktrees/ .ia-engineering/usage/ > .gitignore
+  printf '.env%b' "$1" >> .gitignore
+  expect "$2" "git check-ignore on .env exits $2: $3" -- \
+    git -c core.excludesFile="$WORK/no-excludes-425" check-ignore -q .env
+  if [ "$2" -eq 0 ]; then
+    expect 0 "--check reports .env present, as git reads it: $3" -- bash "$INST_353" --check
+    expect_output "gitignore${T}present${T}.gitignore${T}.env"
+    expect_output "6 .gitignore rule(s): 6 present;"
+  else
+    expect 3 "--check reports .env missing, as git reads it: $3 (exit 3)" -- bash "$INST_353" --check
+    expect_output "gitignore${T}missing${T}.gitignore${T}.env"
+    expect_output "6 .gitignore rule(s): 5 present, 1 missing;"
+  fi
+}
+last_line_425 '\r\n' 0 "CRLF on the last line"
+last_line_425 '\r' 0 "a CR and no final newline on the last line"
+last_line_425 '\r\r\n' 1 "a doubled CR on the last line"
+last_line_425 '\r\r\n\n' 1 "a doubled CR on the last rule line, a blank line after it"
+last_line_425 '\r\r' 1 "a doubled CR on the last line, no final newline"
+
 section "install.sh --check — git hooks: core.hooksPath, executable, shadowed, no probe (WU-IAENG-355)"
 
 # The write path's own decisions, read and never applied: no `git config`
@@ -8729,6 +9260,118 @@ expect_output "1 git hook problem(s)"
 expect_output "core.hooksPath now shadows"
 expect_no_output "differ from the framework's Adapter" "no differing-file wording when no file differs"
 
+section "setup-project-bootstrap.sh — the closing report follows the project it finds (issue #453, WU-IAENG-436)"
+
+# report_436 <label> — the closing report of a dry run in the repository the
+# shell is in. --dry-run writes nothing and still prints the report, which is
+# what is under test here; the exit status belongs to the install half and is
+# asserted elsewhere.
+report_436() {
+  TOTAL=$((TOTAL + 1))
+  LAST_OUTPUT="$(bash "$SCRIPTS/setup-project-bootstrap.sh" generic --dry-run 2>&1)"
+  if grep -qF -- "--- Remaining Coverage Checklist items" <<< "$LAST_OUTPUT"; then
+    [ -n "$VERBOSE" ] && printf '   ok   %s: the closing report is printed\n' "$1"
+    return 0
+  fi
+  printf '   FAIL %s: no closing report\n' "$1"
+  printf '%s\n' "$LAST_OUTPUT" | sed 's/^/        | /'
+  FAILED=$((FAILED + 1))
+  return 1
+}
+
+# A new project: no main on a remote and no CLAUDE.md. The report keeps the
+# lines a new project follows.
+new_repo boot-436-new
+report_436 "a new project"
+expect_output "git push -u origin main && git branch develop && git push -u origin develop"
+expect_output "  CLAUDE.md              from Templates/PROJECT_CLAUDE.md, before Onboarding Step 4"
+expect_output "  SESSION_STATE.md       after the adoption commit:"
+expect_no_output "never push it" "a new project is not told that main is on a remote"
+expect_no_output "already present: merge" "a new project is not told to merge into a CLAUDE.md it lacks"
+
+# An existing repository: main on a remote and a CLAUDE.md of its own. pre-push
+# refuses every update of that main, and a CLAUDE.md created from the template
+# could be copied over the project's own contract (#453).
+new_repo boot-436-existing
+git update-ref refs/remotes/origin/main HEAD
+printf '# Our contract\n' > CLAUDE.md
+report_436 "an existing repository"
+expect_output "  main + develop         main is already on a remote (origin/main): never push it, pre-push"
+expect_output "release (Workflows/ONBOARDING.md, The adoption route)"
+expect_no_output "git push -u origin main" "an existing repository is not told to push main"
+expect_output "  CLAUDE.md              already present: merge the Template block of Templates/PROJECT_CLAUDE.md"
+expect_output "into it, never copy the block over it (that file's section \"A project"
+expect_no_output "before Onboarding Step 4" "an existing CLAUDE.md is not created again from the template"
+expect_output "  SESSION_STATE.md       once the adoption's Pull Request is merged and develop pulled:"
+
+# .claude/CLAUDE.md is a project contract too: Claude Code reads either file.
+new_repo boot-436-dotclaude
+mkdir -p .claude
+printf '# Our contract\n' > .claude/CLAUDE.md
+report_436 "a project whose contract is .claude/CLAUDE.md"
+expect_output "  CLAUDE.md              already present: merge the Template block"
+
+# Only <remote>/main itself is main on a remote. A remote branch named
+# feature/main is not.
+new_repo boot-436-lookalike
+git update-ref refs/remotes/origin/feature/main HEAD
+report_436 "a remote branch feature/main only"
+expect_output "git push -u origin main && git branch develop && git push -u origin develop"
+expect_no_output "never push it" "origin/feature/main is not taken for main on a remote"
+
+# An existing repository whose default branch is master. The hooks, the checks
+# and Workflows/RELEASE.md name main, so the report names the branch and stops
+# at the Director instead of telling a new project to push main. The default
+# is read from <remote>/HEAD, which a clone records.
+new_repo boot-436-master
+git update-ref refs/remotes/origin/master HEAD
+git symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/master
+report_436 "an existing repository whose default branch is master"
+expect_output "  main + develop         the remote's default branch is origin/master, not main: the hooks,"
+expect_output "Director's decision (Workflows/ONBOARDING.md, The adoption route)"
+expect_no_output "git push -u origin main" "a repository on master is not told to push main"
+expect_no_output "never push it" "a repository on master is not given the route that needs main"
+expect_output "  SESSION_STATE.md       once the adoption's Pull Request is merged and develop pulled:"
+
+# A default that is neither main nor master: only <remote>/HEAD can say so,
+# since the no-HEAD fallback below looks for master (review of PR #465, M3).
+new_repo boot-436-trunk
+git update-ref refs/remotes/origin/trunk HEAD
+git symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/trunk
+report_436 "an existing repository whose default branch is trunk"
+expect_output "  main + develop         the remote's default branch is origin/trunk, not main: the hooks,"
+expect_no_output "git push -u origin main" "a repository on trunk is not told to push main"
+
+# A clone made before its remote renamed master to main keeps origin/HEAD on
+# master, since git fetch does not move it. With origin/main present, the
+# report says how to refresh the record before anyone stops on it (m2).
+new_repo boot-436-stale-head
+git update-ref refs/remotes/origin/main HEAD
+git update-ref refs/remotes/origin/master HEAD
+git symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/master
+report_436 "a stale origin/HEAD on master, with origin/main present"
+expect_output "origin/HEAD names origin/master, yet origin/main exists: run"
+expect_output "git remote set-head origin --auto, then this script again"
+expect_no_output "never push it" "a stale default is not taken for the route"
+
+# The same with no <remote>/HEAD recorded (a remote added by hand): a
+# <remote>/master with no <remote>/main is the default branch.
+new_repo boot-436-master-nohead
+git update-ref refs/remotes/origin/master HEAD
+report_436 "master on a remote with no <remote>/HEAD"
+expect_output "the remote's default branch is origin/master, not main"
+
+# A default branch of develop is part of the framework's model: with main on
+# the remote, the route applies.
+new_repo boot-436-default-develop
+git update-ref refs/remotes/origin/main HEAD
+git update-ref refs/remotes/origin/develop HEAD
+git symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/develop
+report_436 "a default branch of develop, with main on the remote"
+expect_output "main is already on a remote (origin/main): never push it"
+expect_no_output "not main: the hooks" "a default of develop is not refused"
+cd "$WORK" || exit 1
+
 section "install-hooks.sh / install-skills.sh --check — the same decisions, reported, nothing written (WU-IAENG-357)"
 
 # The runtime installers' own decisions, read and never applied: the jq merge
@@ -8903,13 +9546,13 @@ expect 3 "--check --quiet keeps the switch" -- bash "$HK_357" --check --quiet
 expect_output "settings${T}disabled${T}.claude/settings.local.json"
 rm .claude/settings.local.json
 
-grep -vxF "$HOOKS_RULE_357" .gitattributes > ga.tmp && mv ga.tmp .gitattributes
+grep -vxF -- "$HOOKS_RULE_357" .gitattributes > ga.tmp && mv ga.tmp .gitattributes
 expect 3 "a missing settings.json LF rule alone is drift (exit 3)" -- bash "$HK_357" --check
 expect_output "gitattributes${T}missing${T}.gitattributes${T}$HOOKS_RULE_357"
 expect_output "# install-hooks.sh --check: 1 to act on."
 expect 0 "install-skills.sh --check, whose own rule is there, still exits 0" -- bash "$SK_357" --check
 git checkout -q -- .gitattributes
-grep -vxF "$SKILLS_RULE_357" .gitattributes > ga.tmp && mv ga.tmp .gitattributes
+grep -vxF -- "$SKILLS_RULE_357" .gitattributes > ga.tmp && mv ga.tmp .gitattributes
 expect 3 "a missing skills LF rule alone is drift (exit 3)" -- bash "$SK_357" --check
 expect_output "gitattributes${T}missing${T}.gitattributes${T}$SKILLS_RULE_357"
 expect_output "# install-skills.sh --check: 1 to act on. 2 skill(s): 2 current; 1 .gitattributes rule(s): 1 missing; 0 fault(s). absent/missing:"
@@ -8934,7 +9577,7 @@ git checkout -q -- .claude/skills
 # --- read-only with every kind of drift at once -----------------------------------
 jq_edit_357 '.hooks.PreToolUse |= map(if .matcher == "Bash" then .hooks[0].command += " || true" else . end)'
 printf '{"disableAllHooks": true}\n' > .claude/settings.local.json
-grep -vxF "$HOOKS_RULE_357" .gitattributes | grep -vxF "$SKILLS_RULE_357" > ga.tmp && mv ga.tmp .gitattributes
+grep -vxF -- "$HOOKS_RULE_357" .gitattributes | grep -vxF -- "$SKILLS_RULE_357" > ga.tmp && mv ga.tmp .gitattributes
 echo "edited by the project" >> .claude/skills/dashboard/SKILL.md
 rm -r .claude/skills/create-project
 SNAP_357B="$(snapshot_353)"
@@ -8952,7 +9595,9 @@ git checkout -q -- .claude .gitattributes
 # --- faults: never read as current ------------------------------------------------
 printf '{ "hooks": { "Stop": [ }' > .claude/settings.json
 expect 1 "a settings.json that is not JSON is a fault (exit 1)" -- bash "$HK_357" --check
-expect_output "settings${T}fault${T}.claude/settings.json${T}it is not one JSON object with an object 'hooks'"
+# The reason names jq's own parse error (WU-IAENG-437), whose wording is
+# jq's and differs between versions: only the reason's fixed start is matched.
+expect_output "settings${T}fault${T}.claude/settings.json${T}jq cannot read it as JSON ("
 expect_output "1 fault(s). fault: read the fault record(s)"
 expect 1 "--check --quiet keeps the fault" -- bash "$HK_357" --check --quiet
 expect_output "settings${T}fault${T}"
@@ -9012,6 +9657,13 @@ new_repo fw-358
 cp -R "$SCRIPTS/.." ./Adapters
 cp -R "$SCRIPTS/../../Registry" ./Registry
 cp "$SCRIPTS/../../.gitattributes" ./.gitattributes
+# The drift check compares the Employees' agents too (WU-IAENG-434), so the
+# fixture holds the Employee definitions, with a roster of one Employee to
+# keep each generation short, and install_358 generates the agents, as the
+# fresh-clone procedure does. An installed adopter is clean only with them.
+cp -R "$SCRIPTS/../../Employees" ./Employees
+awk '/^  - name: /{ seen = 1; keep = ($0 == "  - name: DevOps Engineer") } !seen || keep' \
+  "$SCRIPTS/../../Registry/employees.yml" > Registry/employees.yml
 head -n 60 Adapters/github-actions/pr-validation.yml > "$V1_358/pr-validation.yml"
 head -n 8 Adapters/ai-runtimes/claude-code/skills/dashboard/SKILL.md > "$V1_358/SKILL.md"
 cp "$V1_358/pr-validation.yml" Adapters/github-actions/pr-validation.yml
@@ -9044,6 +9696,7 @@ install_358() {
   bash ./ia-engineering/Adapters/scripts/setup-project-bootstrap.sh generic >/dev/null 2>&1
   bash ./ia-engineering/Adapters/ai-runtimes/claude-code/install-hooks.sh >/dev/null 2>&1
   bash ./ia-engineering/Adapters/ai-runtimes/claude-code/install-skills.sh >/dev/null 2>&1
+  bash ./ia-engineering/Adapters/ai-runtimes/generate-agents.sh >/dev/null 2>&1
 }
 
 # fields_358 — every record line of the previous output has four fields.
@@ -10712,6 +11365,239 @@ expect 1 "check-risk-map: a refused category with a carriage return inside it" -
 expect_line "check-risk-map: ERROR: zone 'src/auth/*' names category 'authenti${VCR395}cation', which is not in the closed list: authentication authorization personal_data payments_and_spend cryptography_and_secrets migrations_and_data_integrity infrastructure_and_ci core_architecture"
 expect_no_output "$CR389" "no raw carriage return is printed"
 
+# ------------ Employee trailer variants git reads are refused (#338) --------
+#
+# Issue #338 (SEC-IAENG-389-01): the commit-msg hook and
+# check-employee-trailers.sh validated only the lines spelt `Employee: ` at
+# column 0, while git's trailer parser also reads the key in any case, with
+# spaces or a tab before the colon, with no space after it, and folds an
+# indented line into the trailer above it. Each variant row below passed both
+# checks, and git log read a name that is not on the roster, or a valid name
+# under a spelling neither check had read.
+#
+# The oracle is git, and the expected readings are issue #338's table, written
+# by hand. Each row first pins what the hook's reader
+# (`git interpret-trailers --parse --no-divider`) and what the CI check's
+# reader, which is usage-dashboard.sh's (`%(trailers:key=Employee,unfold)`),
+# return for the message. Then both checks refuse it with a line naming each
+# trailer no exact line accounts for. Each row keeps an exact line with a
+# valid name, so no other rule refuses it: before this change both checks
+# accepted every row. The legitimate forms below are accepted, as before.
+
+section "Employee trailer variants git reads are refused (WU-IAENG-396, #338)"
+
+HOOK396="$SCRIPTS/../git-hooks/commit-msg"
+EMP396="$SCRIPTS/check-employee-trailers.sh"
+HOOK396_TAIL="as an Employee trailer, and no line of the message is spelt exactly so."
+EMP396_TAIL="as an Employee trailer, and no line of its message is spelt exactly so. This check validates the name on each line spelt 'Employee: <Name>' at column 0; git also reads the key in any case, with spaces or a tab before the colon or no space after it, and folds an indented line into the trailer above it, so a line spelt any other way reaches git log with a name nobody checked (issue #338). Write each Employee trailer as exactly 'Employee: <Name>' on one line, with no indented line under it."
+
+# repo396 <name> — a roster of Platform Engineer and Release Manager and a
+# registry of WU-TEST-001, committed; BASE is that commit.
+repo396() {
+  new_repo "$1"
+  write_employee_roster "Platform Engineer" "Release Manager"
+  write_wu_registry WU-TEST-001
+  git add -A && git commit -q -m "roster and registry"
+  BASE="$(git rev-parse HEAD)"
+}
+
+# row396 <name> <description> <message, printf %b> <git reading> <refused>...
+# A variant row: the two oracles, the hook's refusal, then the message
+# committed and the CI check's refusal, one refusal line per <refused>.
+row396() {
+  local name="$1" desc="$2" body="$3" reading="$4" t sha
+  shift 4
+  repo396 "v396-$name"
+  printf '%b' "$body" > "$WORK/v396-$name.txt"
+  expect 0 "oracle, $desc: git interpret-trailers --parse --no-divider reads it" -- \
+    test "$(git interpret-trailers --parse --no-divider < "$WORK/v396-$name.txt")" = "$reading"
+  expect 1 "commit-msg refuses $desc" -- env GITHUB_ACTIONS= bash "$HOOK396" "$WORK/v396-$name.txt"
+  for t in "$@"; do
+    expect_line "commit-msg: rejected — git reads '$t' $HOOK396_TAIL"
+  done
+  commit_verbatim389 "$WORK/v396-$name.txt"
+  sha="$(git rev-parse HEAD)"
+  expect 0 "oracle, $desc: git log %(trailers:key=Employee,unfold) reads it" -- \
+    test "$(git log -1 --format='%(trailers:key=Employee,unfold)')" = "$reading"
+  expect 1 "check-employee-trailers refuses $desc" -- env GITHUB_ACTIONS= bash "$EMP396" "$BASE" HEAD
+  for t in "$@"; do
+    expect_line "check-employee-trailers: ERROR: Commit $sha: git reads '$t' $EMP396_TAIL"
+  done
+}
+
+# --- The rows of issue #338's table, the tab forms, and a valid name under a
+# variant key: git reads it, so it is refused as well.
+row396 lower "a lowercase key (employee: executor)" \
+  'fix(trailer): x\n\nEmployee: Platform Engineer\nemployee: executor\n' \
+  $'Employee: Platform Engineer\nemployee: executor' 'employee: executor'
+row396 no-space "no space after the colon (Employee:executor)" \
+  'fix(trailer): x\n\nEmployee: Platform Engineer\nEmployee:executor\n' \
+  $'Employee: Platform Engineer\nEmployee: executor' 'Employee: executor'
+row396 space-colon "a space before the colon (Employee : executor)" \
+  'fix(trailer): x\n\nEmployee: Platform Engineer\nEmployee : executor\n' \
+  $'Employee: Platform Engineer\nEmployee: executor' 'Employee: executor'
+row396 tab-colon "a tab before the colon (Employee<TAB>: executor)" \
+  'fix(trailer): x\n\nEmployee: Platform Engineer\nEmployee\t: executor\n' \
+  $'Employee: Platform Engineer\nEmployee: executor' 'Employee: executor'
+row396 continuation "a continuation line ( executor)" \
+  'fix(trailer): x\n\nEmployee: Platform Engineer\n executor\n' \
+  'Employee: Platform Engineer executor' 'Employee: Platform Engineer executor'
+row396 tab-continuation "a tab continuation line (<TAB>executor)" \
+  'fix(trailer): x\n\nEmployee: Platform Engineer\n\texecutor\n' \
+  'Employee: Platform Engineer executor' 'Employee: Platform Engineer executor'
+row396 valid-lower "a valid name under a lowercase key" \
+  'fix(trailer): x\n\nEmployee: Release Manager\nemployee: Platform Engineer\n' \
+  $'Employee: Release Manager\nemployee: Platform Engineer' 'employee: Platform Engineer'
+row396 valid-no-space "a valid name with no space after the colon" \
+  'fix(trailer): x\n\nEmployee: Release Manager\nEmployee:Platform Engineer\n' \
+  $'Employee: Release Manager\nEmployee: Platform Engineer' 'Employee: Platform Engineer'
+# One line accounts for one trailer: git reads Platform Engineer twice, and
+# the message spells it exactly once.
+row396 duplicate "a variant that repeats an exact line of the block" \
+  'fix(trailer): x\n\nEmployee: Platform Engineer\nEmployee:Platform Engineer\n' \
+  $'Employee: Platform Engineer\nEmployee: Platform Engineer' 'Employee: Platform Engineer'
+# git log reads a commit with no patch divider: the trailer block after a
+# `---` line is still its trailer block, so the hook reads it the same way.
+row396 divider "a variant after a --- line" \
+  'fix(trailer): x\n\nEmployee: Platform Engineer\n\n---\n\nemployee: executor\n' \
+  'employee: executor' 'employee: executor'
+
+# --- Merges. The hook checks a merge before classifying it: a clean merge,
+# which needs no Employee trailer, and a merge the hook cannot classify both
+# carry the variant to git log otherwise.
+mk_merge_repo m396-hook-clean
+git merge -q --no-commit --no-ff side
+printf "Merge branch 'side'\n\nemployee: executor\n" > msg-merge.txt
+expect 1 "commit-msg refuses a variant on a clean merge" -- env GITHUB_ACTIONS= bash "$HOOK396" msg-merge.txt
+expect_line "commit-msg: rejected — git reads 'employee: executor' $HOOK396_TAIL"
+
+S396_REAL_GIT="$(command -v git)"
+mkdir -p "$WORK/shim-396"
+cat > "$WORK/shim-396/git" <<SHIM
+#!/usr/bin/env bash
+# Fails (exit 128) a call whose arguments include the word \$S396_FAIL.
+if [ -n "\${S396_FAIL:-}" ]; then
+  case " \$* " in *" \$S396_FAIL "*) echo "git (WU-IAENG-396 shim): failing '\$*'" >&2; exit 128 ;; esac
+fi
+exec "$S396_REAL_GIT" "\$@"
+SHIM
+chmod +x "$WORK/shim-396/git"
+
+mk_merge_repo m396-hook-unclassified
+git merge -q --no-commit --no-ff side
+printf "Merge branch 'side'\n\nemployee: executor\n" > msg-merge.txt
+expect 1 "commit-msg refuses a variant on a merge it cannot classify" -- \
+  env PATH="$WORK/shim-396:$PATH" S396_FAIL=merge-tree GITHUB_ACTIONS= bash "$HOOK396" msg-merge.txt
+expect_line "commit-msg: rejected — git reads 'employee: executor' $HOOK396_TAIL"
+
+mk_emp_merge_repo m396-ci-clean
+git merge -q --no-ff side -m "Merge branch 'side'
+
+employee: executor"
+SHA396="$(git rev-parse HEAD)"
+expect 1 "check-employee-trailers refuses a variant on a clean merge" -- env GITHUB_ACTIONS= bash "$EMP396" "$BASE" HEAD
+expect_line "check-employee-trailers: ERROR: Commit $SHA396: git reads 'employee: executor' $EMP396_TAIL"
+
+# --- What git cannot read is refused, never passed.
+repo396 f396-hook
+printf 'fix(trailer): x\n\nEmployee: Platform Engineer\n' > "$WORK/f396.txt"
+expect 1 "commit-msg refuses a message git interpret-trailers cannot parse" -- \
+  env PATH="$WORK/shim-396:$PATH" S396_FAIL=interpret-trailers GITHUB_ACTIONS= bash "$HOOK396" "$WORK/f396.txt"
+expect_line "commit-msg: rejected — git interpret-trailers could not parse this message, so the Employee trailers git reads were not checked."
+commit_verbatim389 "$WORK/f396.txt"
+SHA396="$(git rev-parse HEAD)"
+expect 2 "check-employee-trailers: trailers git log cannot read are not evaluated (exit 2)" -- \
+  env PATH="$WORK/shim-396:$PATH" S396_FAIL='--format=%(trailers:key=Employee,unfold)' GITHUB_ACTIONS= bash "$EMP396" "$BASE" HEAD
+expect_line "check-employee-trailers: ERROR: git log could not read the trailers of commit $SHA396, so the Employee trailers git reads were not checked. Failing rather than passing it unexamined."
+
+# --- A refused reading is printed as every refusal of these checks prints a
+# value (WU-IAENG-395, #337): a carriage return inside it as \r, never raw.
+CR396=$'\r'
+VCR396='\r'
+repo396 cr396
+printf 'fix(trailer): x\n\nEmployee: Platform Engineer\nemployee: exec\rutor\n' > "$WORK/cr396.txt"
+expect 1 "commit-msg refuses a variant whose value holds a carriage return" -- env GITHUB_ACTIONS= bash "$HOOK396" "$WORK/cr396.txt"
+expect_line "commit-msg: rejected — git reads 'employee: exec${VCR396}utor' $HOOK396_TAIL"
+expect_no_output "$CR396" "no raw carriage return is printed"
+commit_verbatim389 "$WORK/cr396.txt"
+SHA396="$(git rev-parse HEAD)"
+expect 1 "check-employee-trailers refuses a variant whose value holds a carriage return" -- env GITHUB_ACTIONS= bash "$EMP396" "$BASE" HEAD
+expect_line "check-employee-trailers: ERROR: Commit $SHA396: git reads 'employee: exec${VCR396}utor' $EMP396_TAIL"
+expect_no_output "$CR396" "no raw carriage return is printed"
+
+# --- Legitimate messages: accepted by both checks, as before this change.
+# ok396 <name> <description> <message, printf %b>
+ok396() {
+  repo396 "ok396-$1"
+  printf '%b' "$3" > "$WORK/ok396-$1.txt"
+  expect 0 "commit-msg accepts $2" -- env GITHUB_ACTIONS= bash "$HOOK396" "$WORK/ok396-$1.txt"
+  commit_verbatim389 "$WORK/ok396-$1.txt"
+  expect 0 "check-employee-trailers accepts $2" -- env GITHUB_ACTIONS= bash "$EMP396" "$BASE" HEAD
+}
+ok396 framework-form "the framework's own trailer block (Work Unit, Employee, Co-Authored-By)" \
+  'fix(trailer): x\n\nWork Unit: WU-TEST-001\n\nEmployee: Platform Engineer\nCo-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>\n'
+ok396 two-employees "two Employee trailers, each spelt exactly" \
+  'fix(trailer): x\n\nEmployee: Platform Engineer\nEmployee: Release Manager\n'
+ok396 same-twice "the same exact line twice: each line accounts for its own trailer" \
+  'fix(trailer): x\n\nEmployee: Platform Engineer\nEmployee: Platform Engineer\n'
+ok396 indented-example "an indented example in the body, which is not a trailer" \
+  'fix(trailer): x\n\nThe rejected commit said:\n    employee: executor\n\nEmployee: Platform Engineer\n'
+ok396 divider "an exact trailer after a --- line" \
+  'fix(trailer): x\n\nnotes\n---\nmore notes\n\nEmployee: Platform Engineer\n'
+# The limit the hook and the script state: a variant whose reading equals an
+# exact line outside the trailer block. git reads only that validated value.
+ok396 reading-equals-body-line "a variant git reads as an exact line of the body (accepted by design)" \
+  'fix(trailer): x\n\nEmployee: Platform Engineer\n\nEmployee:Platform Engineer\n'
+
+# --------- a trailer value that begins with a dash is text (WU-IAENG-427) -----
+#
+# The Employee value is compared with the roster names by `grep -qxF`, and it
+# reaches grep after `--`: a value that begins with a dash is a string to
+# match, never an option. None of the values below is a roster name, so the
+# hook and the CI check both refuse each one, and a roster name still resolves
+# beside them. `-e x` was refused before too (it names the pattern " x"); it
+# stays as a shape of the class. A Work Unit value never reaches its grep with
+# a dash, because the shape test refuses it first, as the last cases pin.
+
+section "trailer checks — a value that begins with a dash is compared as text (WU-IAENG-427)"
+
+DASH427=('--help' '--version' '-V' '-e x' '-ePlatform Engineer')
+
+new_repo dash427-hook
+write_employee_roster "Platform Engineer" "Release Manager"
+git add -A && git commit -q -m "roster"
+for v427 in "${DASH427[@]}"; do
+  printf 'fix(x): y\n\nEmployee: %s\n' "$v427" > msg427.txt
+  expect 1 "commit-msg: 'Employee: $v427' is refused" -- bash "$HOOK389" msg427.txt
+  expect_output "'Employee: $v427' is not a recognized Employee"
+done
+printf 'fix(x): y\n\nEmployee: Platform Engineer\n' > msg427.txt
+expect 0 "commit-msg: a roster name beside them still resolves" -- bash "$HOOK389" msg427.txt
+
+cr389_emp_repo dash427-emp
+for v427 in "${DASH427[@]}"; do
+  BASE="$(git rev-parse HEAD)"
+  commit_with "feat: x" "Employee: $v427"
+  expect 1 "check-employee-trailers: 'Employee: $v427' is refused" -- bash "$EMP389" "$BASE" HEAD
+  expect_output "has 'Employee: $v427', which is not in"
+done
+BASE="$(git rev-parse HEAD)"
+commit_with "feat: x" "Employee: Platform Engineer"
+expect 0 "check-employee-trailers: a roster name beside them still resolves" -- bash "$EMP389" "$BASE" HEAD
+expect_output "-> Platform Engineer"
+
+new_repo dash427-wu
+write_employee_roster "Platform Engineer"
+write_wu_registry WU-TEST-001
+git add -A && git commit -q -m "registry"
+printf 'fix(x): y\n\nWork Unit: --help\n\nEmployee: Platform Engineer\n' > msg427.txt
+expect 1 "commit-msg: 'Work Unit: --help' is refused by the shape test" -- bash "$HOOK389" msg427.txt
+expect_output "is empty or not a Work Unit id"
+BASE="$(git rev-parse HEAD)"
+commit_with "feat: x" "Work Unit: --help"
+expect 1 "check-work-units: 'Work Unit: --help' is refused by the shape test" -- bash "$WU389" "$BASE" HEAD
+expect_output "is empty or not a Work Unit id"
+
 # ------- a condition not evaluated exits 2, never 1 (WU-IAENG-390, #331) ------
 #
 # Standards/CODE_QUALITY_STANDARD.md, The Check Convention, Shell Scripts
@@ -10878,6 +11764,11 @@ expect_output "Could not compute the merge base"
 expect 2 "check-risk-map: a failed git diff is not evaluated (exit 2)" -- \
   "${G390[@]}" G390_FAIL="diff --name-only" bash "$SCRIPTS/check-risk-map.sh" --range "$RM390_BASE" HEAD .
 expect_output "git diff failed"
+# The path listings are kept in files (WU-IAENG-428); without a place for them
+# nothing is classified.
+expect 2 "check-risk-map: no scratch directory is not evaluated (exit 2)" -- \
+  env TMPDIR="$WORK/rm428-no-such-tmp" bash "$SCRIPTS/check-risk-map.sh" --range "$RM390_BASE" HEAD .
+expect_output "cannot create a scratch directory"
 # The record is there; a log that could not be read must not report it absent.
 expect 2 "check-risk-map: a commit log that cannot be read is not a missing record (exit 2)" -- \
   "${G390[@]}" G390_FAIL="log --format=%B" bash "$SCRIPTS/check-risk-map.sh" --range "$RM390_BASE" HEAD .
@@ -10891,6 +11782,9 @@ expect 0 "check-pr-size: a small change is within the limit" -- bash "$SCRIPTS/c
 expect 2 "check-pr-size: a failed git diff is not evaluated (exit 2)" -- \
   "${G390[@]}" G390_FAIL="diff --numstat" bash "$SCRIPTS/check-pr-size.sh" "$BASE" HEAD
 expect_output "git diff failed"
+expect 2 "check-pr-size: no scratch directory is not evaluated (exit 2)" -- \
+  env TMPDIR="$WORK/size428-no-such-tmp" bash "$SCRIPTS/check-pr-size.sh" "$BASE" HEAD
+expect_output "Could not create a scratch directory"
 git commit -q --allow-empty -m "changes nothing"
 expect 2 "check-pr-size: commits that cannot be counted are not evaluated (exit 2)" -- \
   "${G390[@]}" G390_FAIL="rev-list --count" bash "$SCRIPTS/check-pr-size.sh" HEAD~1 HEAD
@@ -11623,6 +12517,1204 @@ printf '{"statusLine": {"type": "command", "command": "bash x/hooks/context-stat
 expect 0 "install-hooks --check: a settings.local.json statusLine is read" -- bash "$HK_397" --check
 expect_output "statusline${T397}shadowed${T397}.claude/settings.local.json${T397}bash x/hooks/context-statu sline.sh: Claude Code runs this one instead of the project statusLine"
 rm .claude/settings.local.json
+
+# --------- generate-agents.sh: an Employee in a worktree (WU-IAENG-430) ------
+#
+# Issue #449. An Employee that Claude Code dispatches with `isolation: worktree`
+# works in a linked git worktree, where an adopter's framework submodule is not
+# initialised: ia-engineering/ is empty. The generated agents named every
+# framework file by its path from the framework root (Core/AGENT_CONDUCT.md),
+# which resolves from no directory of an adopter. On develop 75765ba: 741
+# framework paths named by 42 agents, 741 unresolved from the worktree, so the
+# Code Reviewer and QA reviewed without the Standards they apply.
+#
+# The fixture framework carries the whole document tree, not only Adapters/
+# and Registry/ as fw-353 does: these cases open every file an agent names.
+
+section "generate-agents.sh — an Employee in a linked worktree reads the framework (WU-IAENG-430, #449)"
+
+new_repo fw-430
+for d430 in Core Standards Templates Workflows Employees Registry Adapters Governance; do
+  cp -R "$SCRIPTS/../../$d430" "./$d430"
+done
+cp "$SCRIPTS/../../.gitattributes" ./.gitattributes
+git add -A && git commit -q -m "framework fixture"
+FW_430="$PWD"
+ROSTER_N_430="$(grep -cE '^  - name: ' Registry/employees.yml)"
+
+# The markdown backtick around a path, held in a variable so each pattern that
+# names one is double-quoted: written inside single quotes, shellcheck reads it
+# as an unexpanded command substitution (SC2016), as validate-framework.sh
+# notes for its own REF_PATTERN.
+BT_430='`'
+
+# root_430 <agent> — the framework root an agent tells its Employee to read
+# from, as the agent itself states it, or empty when it states none.
+root_430() { sed -n "s/^Framework root: ${BT_430}\(.*\)${BT_430}\$/\1/p" "$1" | head -n 1; }
+
+# unresolved_430 <agent> — from the working directory, every framework path
+# the agent names, read the way the agent tells its Employee to read it: under
+# the root it states, with an ia-engineering/ prefix dropped, or under the
+# working directory when it states none. Prints each path that does not exist.
+FWPATH_RE_430='(ia-engineering/)?(Core|Standards|Templates|Workflows|Registry|Employees|Governance|Adapters)/[A-Za-z0-9_./-]*'
+unresolved_430() {
+  local root p
+  root="$(root_430 "$1")"
+  [ -n "$root" ] || root="."
+  grep -oE "$FWPATH_RE_430" "$1" | while IFS= read -r p; do
+    p="${p%.}"; p="${p%,}"; p="${p#ia-engineering/}"
+    [ -e "$root/$p" ] || printf '%s: %s/%s\n' "${1##*/}" "$root" "$p"
+  done
+}
+
+# The adopter as README documents it: the framework a submodule at
+# ia-engineering/, the agents generated from the main checkout, then a linked
+# worktree as Claude Code creates one for an Employee. The runtime reads a
+# worktree subagent's definition from the main checkout's .claude/agents/.
+#
+# Its directory name holds a space, an accented letter and two CJK characters,
+# as a real user's folder does (C:/Users/Jérôme/..., Développement/). Under
+# the C locale cygpath wrote é as the byte \351 and cut the path off at 日本,
+# so every root named a directory that does not exist (Code Reviewer F1 on
+# PR #456). On Linux and macOS, where there is no cygpath, these are the same
+# checks on a path with the same bytes.
+ADOPTER_430="adopter-430 é日本"
+MOVED_430="adopter-430-moved é日本"
+new_repo "$ADOPTER_430"
+git -c protocol.file.allow=always submodule add -q "$FW_430" ia-engineering >/dev/null 2>&1
+git commit -q -m "chore(adopt): add the framework submodule"
+MAIN_430="$PWD"
+expect 0 "adopter: the agents are generated from the main checkout" -- \
+  bash ./ia-engineering/Adapters/ai-runtimes/generate-agents.sh
+GEN_OUT_430="$LAST_OUTPUT"
+git worktree add -q "$WORK/adopter-430-wt" -b feature/wt-430 >/dev/null 2>&1
+cd "$WORK/adopter-430-wt" || exit 1
+
+# The premise. Initialised, the cases below would pass for a reason that is
+# not the fix.
+TOTAL=$((TOTAL + 1))
+if [ -d ia-engineering ] && [ -z "$(ls -A ia-engineering)" ]; then
+  [ -n "$VERBOSE" ] && printf '   ok   the linked worktree has an empty ia-engineering/ (the premise)\n'
+else
+  printf '   FAIL the linked worktree ia-engineering/ is missing or not empty: the cases test nothing\n'
+  FAILED=$((FAILED + 1))
+fi
+
+# The acceptance case. Fails if one framework path any generated agent names
+# does not resolve from the worktree. Counted against the roster and with at
+# least one path per agent, so an empty or pathless output cannot pass.
+AGENTS_430=0
+PATHLESS_430=0
+UNRES_430=""
+for a430 in "$MAIN_430"/.claude/agents/*.md; do
+  [ -f "$a430" ] || continue
+  AGENTS_430=$((AGENTS_430 + 1))
+  grep -qE "$FWPATH_RE_430" "$a430" || PATHLESS_430=$((PATHLESS_430 + 1))
+  # $(...) drops the last newline: put it back, or one agent's last line and
+  # the next one's first are counted as one.
+  u430="$(unresolved_430 "$a430")"
+  [ -n "$u430" ] && UNRES_430="$UNRES_430$u430"$'\n'
+done
+TOTAL=$((TOTAL + 1))
+if [ "$AGENTS_430" -eq "$ROSTER_N_430" ] && [ "$PATHLESS_430" -eq 0 ] && [ -z "$UNRES_430" ]; then
+  [ -n "$VERBOSE" ] && printf '   ok   worktree: every framework path of all %s agents resolves\n' "$AGENTS_430"
+else
+  printf '   FAIL worktree: %s agents for %s roster Employees, %s naming no framework path, %s path(s) unresolved\n' \
+    "$AGENTS_430" "$ROSTER_N_430" "$PATHLESS_430" "$(printf '%s' "$UNRES_430" | grep -c .)"
+  printf '%s\n' "$UNRES_430" | head -n 5 | sed 's/^/        | /'
+  FAILED=$((FAILED + 1))
+fi
+
+# The root named is the main checkout's framework, by identity: the one git
+# runs the hooks from (WU-IAENG-414), never a path inside this worktree.
+BADROOT_430=""
+for a430 in "$MAIN_430"/.claude/agents/*.md; do
+  r430="$(root_430 "$a430")"
+  if [ -z "$r430" ] || ! [ "$r430" -ef "$MAIN_430/ia-engineering" ]; then
+    BADROOT_430="$BADROOT_430 ${a430##*/}=${r430:-none}"
+  fi
+done
+TOTAL=$((TOTAL + 1))
+if [ -z "$BADROOT_430" ]; then
+  [ -n "$VERBOSE" ] && printf '   ok   every agent names the main checkout framework as its root\n'
+else
+  printf '   FAIL agents naming no root or another one:%s\n' "$(printf '%s' "$BADROOT_430" | cut -c1-300)"
+  FAILED=$((FAILED + 1))
+fi
+
+# Written as the runtime's file tools open it. Under Git Bash, pwd says /c/...
+# or /tmp/..., spellings only MSYS reads; a Windows path has a drive letter.
+ROOT_430="$(root_430 "$MAIN_430/.claude/agents/devops-engineer.md")"
+TOTAL=$((TOTAL + 1))
+if command -v cygpath >/dev/null 2>&1; then NATIVE_RE_430='^[A-Za-z]:/'; else NATIVE_RE_430='^/'; fi
+if grep -qE "$NATIVE_RE_430" <<< "$ROOT_430"; then
+  [ -n "$VERBOSE" ] && printf '   ok   the root is a native absolute path: %s\n' "$ROOT_430"
+else
+  printf '   FAIL the root %s is not a native absolute path (%s)\n' "${ROOT_430:-<none>}" "$NATIVE_RE_430"
+  FAILED=$((FAILED + 1))
+fi
+LAST_OUTPUT="$GEN_OUT_430"
+expect_output "  framework root, named in every agent: $ROOT_430"
+
+# The framework repository's own agents are unchanged: no section, no root,
+# and --check stays green there. Whether a project is the framework is a
+# question of identity, not of roster, so this copy of the fixture keeps two
+# Employees: each full pass costs minutes on a loaded Windows machine.
+mkdir -p "$WORK/fw-430-self"
+cp -R "$FW_430/Adapters" "$FW_430/Employees" "$FW_430/Registry" "$WORK/fw-430-self/"
+awk '/^  - name: /{ n++ } n <= 2' "$FW_430/Registry/employees.yml" > "$WORK/fw-430-self/Registry/employees.yml"
+cd "$WORK/fw-430-self" || exit 1
+expect 0 "framework: the agents are generated" -- bash Adapters/ai-runtimes/generate-agents.sh
+expect_no_output "framework root, named in every agent" "framework: the summary names no framework root"
+TOTAL=$((TOTAL + 1))
+if [ "$(find .claude/agents -name '*.md' | grep -c .)" -eq 2 ] \
+  && ! grep -lE '^## Where the Framework Is$|^Framework root: ' .claude/agents/*.md >/dev/null 2>&1; then
+  [ -n "$VERBOSE" ] && printf '   ok   framework: its own agents carry no framework location section\n'
+else
+  printf '   FAIL framework: its own agents carry a framework location section, or were not written\n'
+  FAILED=$((FAILED + 1))
+fi
+expect 0 "framework: --check stays green" -- bash Adapters/ai-runtimes/generate-agents.sh --check
+
+# ...and byte for byte where the section would go. On 75765ba the header's
+# last line is followed by one blank line and the first Employee section,
+# "## Mission". A generator that prints even an empty section there adds a
+# line to every framework agent, which the checks above do not see, and every
+# framework clone's --check then blames Employees/ (Code Reviewer F3).
+LAYOUT_BAD_430=""
+for a430 in .claude/agents/*.md; do
+  awk -v hdr="trailer, and the commit-msg hook validates that name against the roster." '
+    $0 == hdr && !at { at = NR; next }
+    at && NR == at + 1 { l1 = $0 }
+    at && NR == at + 2 { l2 = $0; exit }
+    END { exit (at && l1 == "" && l2 == "## Mission") ? 0 : 1 }
+  ' "$a430" || LAYOUT_BAD_430="$LAYOUT_BAD_430 ${a430##*/}"
+done
+TOTAL=$((TOTAL + 1))
+if [ -z "$LAYOUT_BAD_430" ]; then
+  [ -n "$VERBOSE" ] && printf '   ok   framework: the header is followed by one blank line and ## Mission, as on 75765ba\n'
+else
+  printf '   FAIL framework: the lines after the header changed in:%s\n' "$LAYOUT_BAD_430"
+  FAILED=$((FAILED + 1))
+fi
+
+# The framework outside the project: --project names a directory that does not
+# contain it. The walk up from the framework reaches the filesystem root and
+# must stop there; with that stop deleted it never ends (Code Reviewer F2), so
+# the run is bounded. The agents name the framework itself, in the outside
+# wording, with no prefix to drop.
+mkdir -p "$WORK/outside-430"
+expect 0 "outside: the generator terminates within 120 s and writes the agents" -- \
+  timeout 120 bash Adapters/ai-runtimes/generate-agents.sh --project "$WORK/outside-430"
+OUT_AGENT_430="$(find "$WORK/outside-430/.claude/agents" -name '*.md' 2>/dev/null | head -n 1)"
+OUT_ROOT_430="$(root_430 "${OUT_AGENT_430:-/dev/null}")"
+TOTAL=$((TOTAL + 1))
+if [ -n "$OUT_ROOT_430" ] && [ "$OUT_ROOT_430" -ef "$WORK/fw-430-self" ] \
+  && grep -qxF "This project uses IA Engineering from outside its own tree. Read every" "$OUT_AGENT_430" \
+  && ! grep -qF "This project imports IA Engineering at" "$OUT_AGENT_430"; then
+  [ -n "$VERBOSE" ] && printf '   ok   outside: the root is the framework, in the outside wording\n'
+else
+  printf '   FAIL outside: root %s, or not the outside wording, in %s\n' "${OUT_ROOT_430:-<none>}" "${OUT_AGENT_430:-<no agent>}"
+  FAILED=$((FAILED + 1))
+fi
+
+# A root that would not name the framework is refused and nothing is written
+# (F1). A cygpath first on PATH that answers with another directory stands in
+# for the C-locale conversion that wrote D\351veloppement; it works the same on
+# a platform with no cygpath of its own.
+mkdir -p "$WORK/fakebin-430" "$WORK/refuse-430"
+printf '#!/bin/sh\necho /nonexistent-430/ia-engineering\n' > "$WORK/fakebin-430/cygpath"
+chmod +x "$WORK/fakebin-430/cygpath"
+expect 2 "a framework root that names another directory is refused" -- \
+  env PATH="$WORK/fakebin-430:$PATH" bash Adapters/ai-runtimes/generate-agents.sh --project "$WORK/refuse-430"
+expect_output "generate-agents.sh: cannot write the framework root as a path that names it."
+TOTAL=$((TOTAL + 1))
+if [ -e "$WORK/refuse-430/.claude/agents" ]; then
+  printf '   FAIL a refused framework root still wrote agents\n'
+  FAILED=$((FAILED + 1))
+else
+  [ -n "$VERBOSE" ] && printf '   ok   a refused framework root writes no agent\n'
+fi
+
+# --check after the project moves: every agent names the old root. A
+# Strategic tier now mapped to another model makes the Strategic agents
+# differ in their mapping too. Neither is blamed on Employees/. The command is
+# the remedy the section prints, run as printed from the main checkout: a
+# wrong path of the framework inside the project fails it with 127. The
+# expected new root is the validated old one with the move applied.
+cd "$MAIN_430" || exit 1
+REGEN_430="$(sed -n "s/^${BT_430}\(\.\/[^${BT_430}]*generate-agents\.sh\)${BT_430}\.\$/\1/p" .claude/agents/devops-engineer.md | head -n 1)"
+cd "$WORK" || exit 1
+mv "$ADOPTER_430" "$MOVED_430"
+cd "$WORK/$MOVED_430" || exit 1
+mkdir -p .ia-engineering
+printf 'map=strategic=b-model\n' > .ia-engineering/tier-map
+MOVED_ROOT_430="${ROOT_430%"/$ADOPTER_430/ia-engineering"}/$MOVED_430/ia-engineering"
+expect 1 "--check after a move, run as the section prints it: every agent is stale" -- \
+  bash "${REGEN_430:-<no command printed>}" --check
+expect_output "Result: 0 current, $ROSTER_N_430 stale or missing"
+expect_output "devops-engineer.md (framework location only: on disk $ROOT_430; resolved $MOVED_ROOT_430)"
+expect_output "software-architect.md (mapping and framework location: on disk opus, effort: high, root $ROOT_430; resolved b-model, effort: high, root $MOVED_ROOT_430)"
+expect_output "  $ROSTER_N_430 name a framework root other than this one ($MOVED_ROOT_430):"
+expect_no_output "out of date with Employees/" "--check: a framework root difference is not blamed on Employees/"
+
+section "Every clone has its Employees, current, or is told (WU-IAENG-434, #411, #412, #418)"
+
+# pass_434 / fail_434 <label> [detail] — one check, counted.
+pass_434() { TOTAL=$((TOTAL + 1)); [ -n "$VERBOSE" ] && printf '   ok   %s\n' "$1"; return 0; }
+fail_434() {
+  TOTAL=$((TOTAL + 1)); FAILED=$((FAILED + 1))
+  printf '   FAIL %s\n' "$1"
+  [ -z "${2:-}" ] || printf '%s\n' "$2" | sed 's/^/        | /'
+  return 0
+}
+T434=$'\t'
+BT434='`'
+# The bench's paths. The adopter's directory name holds a space, an accented
+# letter and two CJK characters, as a real user's folder does
+# (C:/Users/Jérôme/...).
+FW_434="$WORK/fw-434"
+AD_NAME_434="adopter-434 é日本"
+AD_434="$WORK/$AD_NAME_434"
+COPY_434="$WORK/adopter-434-copy é日本"
+G_434=./ia-engineering/Adapters/ai-runtimes/generate-agents.sh
+REGEN_CMD_434="./ia-engineering/Adapters/ai-runtimes/generate-agents.sh --target claude-code"
+# ss_434 <project> — session-start.sh's output in LAST_OUTPUT, run as Claude
+# Code runs it, with the drift check out of the way: a
+# `timeout` first on PATH that runs nothing (the drift check has its own bench,
+# hooks/tests/drift.sh), and the user cache inside the test directory.
+ss_434() {
+  LAST_OUTPUT="$(cd "$1" && env CLAUDE_PROJECT_DIR="$1" XDG_CACHE_HOME="$WORK/cache-434" \
+    PATH="$WORK/notimeout-434:$PATH" bash ./ia-engineering/Adapters/ai-runtimes/claude-code/hooks/session-start.sh </dev/null 2>&1)"
+}
+# regen_line — the command printed after "Regenerate" by the last --check run.
+regen_line() { sed -n '/^  Regenerate/{n;s/^    //;p;}' <<< "$LAST_OUTPUT" | head -n 1; }
+# root_434 <agent> — the framework root an agent names, or nothing.
+root_434() { sed -n "s/^Framework root: ${BT434}\(.*\)${BT434}\$/\1/p" "$1" | head -n 1; }
+
+# --- the bench -----------------------------------------------------------------
+# The framework fixture, with a roster of three Employees, two at Strategic
+# Judgment and one at Standard Execution: a 42-Employee generation costs
+# minutes on a loaded Windows machine, and every case below generates. Then the
+# adopter, as README documents it: the framework a submodule at ia-engineering/.
+new_repo fw-434
+for d434 in Core Standards Templates Workflows Employees Registry Adapters Governance; do
+  cp -R "$SCRIPTS/../../$d434" "./$d434"
+done
+cp "$SCRIPTS/../../.gitattributes" ./.gitattributes
+awk '/^  - name: /{ seen = 1; keep = ($0 ~ /^  - name: (Software Architect|Solution Architect|DevOps Engineer)$/) } !seen || keep' \
+  "$SCRIPTS/../../Registry/employees.yml" > Registry/employees.yml
+git add -A && git commit -q -m "framework fixture, three Employees"
+if [ "$(grep -cE '^  - name: ' Registry/employees.yml)" -eq 3 ]; then
+  pass_434 "bench: the fixture roster has three Employees"
+else
+  fail_434 "bench: the fixture roster has three Employees" "$(grep -E '^  - name: ' Registry/employees.yml)"
+fi
+new_repo "$AD_NAME_434"
+git -c protocol.file.allow=always submodule add -q "$FW_434" ia-engineering >/dev/null 2>&1
+git commit -q -m "chore(adopt): add the framework submodule"
+mkdir -p "$WORK/notimeout-434"
+printf '#!/bin/sh\nexit 0\n' > "$WORK/notimeout-434/timeout"
+chmod +x "$WORK/notimeout-434/timeout"
+
+# --- #418: a relative --project or --roster is read from where it was run ----
+cd "$AD_434" || exit 1
+mkdir -p .ia-engineering sub-434
+printf 'map=standard=adopter-model\n' > .ia-engineering/tier-map
+expect 0 "#418: --project . from the adopter root resolves the mapping" -- bash "$G_434" --project . --print-tier-map
+expect_line "# mapping: file ($AD_434/.ia-engineering/tier-map)"
+expect 0 "#418: --project . --dry-run" -- bash "$G_434" --project . --dry-run
+expect_line "  project: $AD_434"
+expect_line "  output:  $AD_434/.claude/agents"
+expect 0 "#418: --project sub-434 --dry-run" -- bash "$G_434" --project sub-434 --dry-run
+expect_line "  project: $AD_434/sub-434"
+mkdir -p roster-434
+printf '%s\n' "# Mission" "" "The Probe Lead tests names." > roster-434/PROBE.md
+printf '%s\n' "employees:" "  - name: Probe Lead" "    file: roster-434/PROBE.md" \
+  "    category: Testing" "    tier: Standard Execution" > roster-434/extra.yml
+expect 0 "#418: a relative --roster is read from the directory it was run from" -- \
+  bash "$G_434" --roster roster-434/extra.yml --dry-run
+expect_output "  project roster: $AD_434/roster-434/extra.yml (1 Domain Employee(s))"
+LAST_OUTPUT="$(cd "$AD_434" && env -u CLAUDE_PROJECT_DIR XDG_CACHE_HOME="$WORK/cache-434" \
+  PATH="$WORK/notimeout-434:$PATH" bash ./ia-engineering/Adapters/ai-runtimes/claude-code/hooks/session-start.sh </dev/null 2>&1)"
+expect_output "Tier map in force — mapping: file ("
+expect_output "map=strategic=opus,standard=adopter-model,"
+# The new options refuse what they do not take (Code Reviewer, PR #467).
+expect 2 "--format takes text or tsv only" -- bash "$G_434" --check --format xml
+expect_output "Argument error: --format takes text or tsv."
+expect 2 "--quick without --check is refused" -- bash "$G_434" --quick
+expect_output "Argument error: --quick and --format qualify --check, which was not given."
+expect 2 "--format without --check is refused" -- bash "$G_434" --format tsv
+expect_output "Argument error: --quick and --format qualify --check, which was not given."
+
+# --- the quick check, and session start, in a fresh clone (no agent) --------
+cd "$AD_434" || exit 1
+expect 1 "quick: no agent generated, each one missing" -- bash "$G_434" --check --quick --format tsv
+expect_output "# generate-agents.sh --check --quick: 3 to act on. 3 agent(s): 0 present, 3 missing, 0 stale."
+expect_line "agent${T434}missing${T434}.claude/agents/devops-engineer.md${T434}"
+expect_line "# regenerate: $REGEN_CMD_434"
+ss_434 "$AD_434"
+expect_line "IA Engineering agents: 3 of 3 roster Employees have no agent in .claude/agents/ (software-architect, solution-architect, devops-engineer). Agents are generated in each clone and never committed. Regenerate them before dispatching any Employee: $REGEN_CMD_434"
+# Claude Code loads an agents directory created after the session started only
+# in a new session: said, with the stop rule (Prompt Engineer, PR #467).
+expect_line "  .claude/agents/ did not exist when this session started, so Claude Code loads the agents only in a new session: run the command, then ask the Director to restart the session. Until a named Employee can be dispatched, dispatch none, and never a generic agent in its place (Core/MAIN_AGENT_CONDUCT.md, Dispatch Discipline). If the command fails, stop and report it to the Director."
+SS_CMD_434="$(sed -n 's/.*Regenerate them before dispatching any Employee: //p' <<< "$LAST_OUTPUT" | head -n 1)"
+expect 0 "session start: the command it prints runs as printed from the project root" -- eval "$SS_CMD_434"
+if [ "$(find .claude/agents -name '*.md' 2>/dev/null | grep -c .)" -eq 3 ]; then
+  pass_434 "... and writes one agent per roster Employee"
+else
+  fail_434 "... and writes one agent per roster Employee" "$(ls -la .claude/agents 2>&1)"
+fi
+expect 0 "quick: every agent present and naming this framework" -- bash "$G_434" --check --quick --format tsv
+expect_output "# generate-agents.sh --check --quick: 0 to act on. 3 agent(s): 3 present, 0 missing, 0 stale."
+expect_no_output "# regenerate:" "quick: nothing to act on, no command printed"
+TOTAL=$((TOTAL + 1))
+if [ -z "$(printf '%s\n' "$LAST_OUTPUT" | awk -F'\t' '!/^#/ && NF && NF != 4')" ]; then
+  [ -n "$VERBOSE" ] && printf '   ok   quick: every tsv record has four fields\n'
+else
+  printf '   FAIL quick: a tsv record without four fields\n'; FAILED=$((FAILED + 1))
+fi
+ss_434 "$AD_434"
+expect_no_output "IA Engineering agents" "session start: every agent present and naming this framework, not one line"
+
+# --- the identity check: a root that exists is not trusted for existing -----
+# A copy of the project: its agents name the ORIGINAL's framework, which is
+# still there. Only identity tells it is not this project's.
+ROOT_434="$(root_434 "$AD_434/.claude/agents/devops-engineer.md")"
+cd "$WORK" || exit 1
+cp -R "$AD_NAME_434" "$COPY_434"
+cd "$COPY_434" || exit 1
+TOTAL=$((TOTAL + 1))
+if [ -d "$ROOT_434" ]; then
+  [ -n "$VERBOSE" ] && printf '   ok   the premise: the root the copied agents name exists\n'
+else
+  printf '   FAIL the premise: the root the copied agents name (%s) does not exist\n' "$ROOT_434"; FAILED=$((FAILED + 1))
+fi
+expect 1 "quick: in a copy, the agents name the original's framework, which exists: stale" -- \
+  bash "$G_434" --check --quick --format tsv
+expect_output "3 to act on. 3 agent(s): 0 present, 0 missing, 3 stale."
+expect_output "${T434}its framework root $ROOT_434 is not this project's framework: the project moved, or it was generated in another clone"
+ss_434 "$COPY_434"
+expect_output "IA Engineering agents: 3 of 3 agents are stale (software-architect, solution-architect, devops-engineer): the framework root each one names is not this project's framework"
+expect_output "Regenerate them before dispatching any Employee: $REGEN_CMD_434"
+# The stop rule, in every case (Prompt Engineer, PR #467); no restart clause,
+# since .claude/agents/ existed when the session started. A stale agent may
+# mean a moved project, whose core.hooksPath still names the old path, so no
+# git hook runs until install.sh rewrites it (QA-467-02, #470).
+expect_line "  If the project moved, also re-run ./ia-engineering/Adapters/scripts/install.sh: core.hooksPath still names the old path, so no git hook runs. Until a named Employee can be dispatched, dispatch none, and never a generic agent in its place (Core/MAIN_AGENT_CONDUCT.md, Dispatch Discipline). If the command fails, stop and report it to the Director."
+expect_no_output "did not exist when this session started" "session start: no restart clause when .claude/agents/ existed at session start"
+expect 0 "the copy regenerates its own" -- bash "$G_434"
+expect 0 "quick: the copy's agents now name the copy's framework" -- bash "$G_434" --check --quick --format tsv
+
+# Each other root an agent can name, one agent at a time.
+A_434=.claude/agents/devops-engineer.md
+cp "$A_434" "$WORK/devops-434.md"
+# setroot_434 <root> — the saved agent with its root line naming <root>. The
+# root reaches awk through the environment: -v would read its backslashes as
+# escapes.
+setroot_434() {
+  R434="$1" awk -v bt="$BT434" 'BEGIN { r = ENVIRON["R434"] }
+    /^Framework root: `.*`$/ && !done { print "Framework root: " bt r bt; done = 1; next } { print }' \
+    "$WORK/devops-434.md" > "$A_434"
+}
+grep -v '^Framework root: ' "$WORK/devops-434.md" > "$A_434"
+expect 1 "quick: an agent naming no root (written before agents named one)" -- bash "$G_434" --check --quick --format tsv
+expect_line "agent${T434}stale${T434}.claude/agents/devops-engineer.md${T434}it names no framework root: it was written before agents named one, or for the framework repository itself"
+setroot_434 "//host-434/share/ia-engineering"
+expect 1 "quick: a network root is stale, and never opened" -- bash "$G_434" --check --quick --format tsv
+expect_output "${T434}its framework root //host-434/share/ia-engineering is a network path, never opened here"
+setroot_434 '\\host-434\share'
+expect 1 "quick: a network root in backslashes" -- bash "$G_434" --check --quick --format tsv
+expect_output "is a network path, never opened here"
+setroot_434 "ia-engineering"
+expect 1 "quick: a relative root" -- bash "$G_434" --check --quick --format tsv
+expect_output "${T434}its framework root ia-engineering is not an absolute path"
+COPY_ROOT_434="$(root_434 "$WORK/devops-434.md")"
+sed 's/$/\r/' "$WORK/devops-434.md" > "$A_434"
+expect 0 "quick: an agent with CRLF line endings still names its root" -- bash "$G_434" --check --quick --format tsv
+# SEC-IAENG-467-01. Identity alone accepted a root that reaches this framework
+# through a link, a symbolic link or a Windows junction, which can be pointed
+# elsewhere after the check. A root must also be written as the generator
+# writes this framework, so another spelling of the same directory is stale.
+setroot_434 "$COPY_ROOT_434/../ia-engineering"
+expect 1 "quick: the same directory spelled another way is stale (SEC-IAENG-467-01)" -- \
+  bash "$G_434" --check --quick --format tsv
+expect_output "${T434}its framework root $COPY_ROOT_434/../ia-engineering reaches this framework, but is not written as the generator writes it"
+# link_434 <link> <target> — a directory link: ln -s, or, where ln -s copies
+# (Git Bash), a Windows junction. True when <link> is a link to <target>.
+link_434() {
+  ln -s "$2" "$1" 2>/dev/null
+  if ! [ -L "$1" ]; then
+    rm -rf "$1"
+    if command -v cygpath >/dev/null 2>&1 && command -v cmd >/dev/null 2>&1; then
+      MSYS2_ARG_CONV_EXCL='*' cmd /c mklink /J "$(cygpath -w "$1")" "$(cygpath -w "$2")" >/dev/null 2>&1
+    fi
+  fi
+  [ -L "$1" ] && [ "$1" -ef "$2" ]
+}
+block_begin 3 "SEC-IAENG-467-01: a root that is a link to this framework"
+if link_434 "$WORK/link-434" "$COPY_ROOT_434"; then
+  LINK_434="$WORK/link-434"
+  command -v cygpath >/dev/null 2>&1 && LINK_434="$(LC_ALL=C.UTF-8 cygpath -m "$WORK/link-434")"
+  setroot_434 "$LINK_434"
+  expect 1 "quick: a root that is a link to this framework is stale (SEC-IAENG-467-01)" -- \
+    bash "$G_434" --check --quick --format tsv
+  expect_output "${T434}its framework root $LINK_434 reaches this framework, but is not written as the generator writes it"
+  ss_434 "$COPY_434"
+  expect_output "1 of 3 agents are stale (devops-engineer)"
+else
+  skip 3 "no directory link can be made here: ln -s copies and no junction could be made"
+fi
+block_end
+# On a filesystem that folds letter case, with cygpath (Windows), the
+# generator's spelling in another letter case is the same root.
+block_begin 1 "a root in another letter case"
+CASE_434="$(printf '%s' "$COPY_ROOT_434" | tr '[:lower:]' '[:upper:]')"
+if command -v cygpath >/dev/null 2>&1 && [ "$CASE_434" != "$COPY_ROOT_434" ] && [ "$CASE_434" -ef "$COPY_ROOT_434" ]; then
+  setroot_434 "$CASE_434"
+  expect 0 "quick: the generator's spelling in another letter case is this framework (Windows)" -- \
+    bash "$G_434" --check --quick --format tsv
+else
+  not_applicable 1 case-folded-path "the filesystem tells letter case apart, or there is no cygpath"
+fi
+block_end
+setroot_434 "/x-434"$'\033'"[31m/y"
+expect 1 "quick: a root holding an escape sequence" -- bash "$G_434" --check --quick --format tsv
+TOTAL=$((TOTAL + 1))
+if grep -q $'\033' <<< "$LAST_OUTPUT"; then
+  printf '   FAIL quick: an escape sequence from an agent file reached the output\n'; FAILED=$((FAILED + 1))
+else
+  [ -n "$VERBOSE" ] && printf '   ok   quick: no escape sequence from an agent file reaches the output\n'
+fi
+# The generator's record sanitiser is the TSV emitters' one, byte for byte.
+SAN_REF_434="$(sed -n '/^# >>> record sanitiser/,/^# <<< record sanitiser/p' "$SCRIPTS/install.sh")"
+SAN_GEN_434="$(sed -n '/^# >>> record sanitiser/,/^# <<< record sanitiser/p' "$GEN")"
+if [ -n "$SAN_REF_434" ] && [ "$SAN_REF_434" = "$SAN_GEN_434" ]; then
+  pass_434 "generate-agents.sh: the record sanitiser block is byte-identical to install.sh's"
+else
+  fail_434 "generate-agents.sh: the record sanitiser block is byte-identical to install.sh's" "$(diff <(printf '%s\n' "$SAN_REF_434") <(printf '%s\n' "$SAN_GEN_434"))"
+fi
+ss_434 "$COPY_434"
+TOTAL=$((TOTAL + 1))
+if grep -q $'\033' <<< "$LAST_OUTPUT" || ! grep -q "1 of 3 agents are stale (devops-engineer)" <<< "$LAST_OUTPUT"; then
+  printf '   FAIL session start: the stale agent is not named alone, or an escape reached the session\n'; FAILED=$((FAILED + 1))
+else
+  [ -n "$VERBOSE" ] && printf '   ok   session start names the stale agent and nothing of its root\n'
+fi
+# An agent that exists but cannot be read is stale, never present (Code
+# Reviewer, PR #467). chmod 000 makes it so on Linux for a user other than
+# root; Git for Windows ignores chmod, so there a deny ACE does, and is taken
+# off again.
+block_begin 2 "an agent that exists but cannot be read"
+cp "$WORK/devops-434.md" "$A_434"
+chmod 000 "$A_434" 2>/dev/null
+if cat "$A_434" >/dev/null 2>&1 && command -v icacls >/dev/null 2>&1 && command -v cygpath >/dev/null 2>&1; then
+  MSYS2_ARG_CONV_EXCL='*' icacls "$(cygpath -w "$A_434")" /deny "${USERNAME:-}:(R)" >/dev/null 2>&1
+fi
+if [ -f "$A_434" ] && ! cat "$A_434" >/dev/null 2>&1; then
+  expect 1 "quick: an agent that cannot be read is stale" -- bash "$G_434" --check --quick --format tsv
+  expect_output "agent${T434}stale${T434}.claude/agents/devops-engineer.md${T434}it cannot be read"
+else
+  skip 2 "no file can be made unreadable here: chmod 000 as root, and no icacls"
+fi
+if command -v icacls >/dev/null 2>&1 && command -v cygpath >/dev/null 2>&1; then
+  MSYS2_ARG_CONV_EXCL='*' icacls "$(cygpath -w "$A_434")" /remove:d "${USERNAME:-}" >/dev/null 2>&1
+fi
+chmod 644 "$A_434"
+block_end
+cp "$WORK/devops-434.md" "$A_434"
+# Every field of a record is flattened, the path included (Code Reviewer,
+# PR #467): an output directory whose name holds a CSI pair (U+009B, a name
+# Windows and Linux both allow) is printed with a space in its place. The
+# generator runs under LC_ALL=C, where only the sanitiser's C1 rule removes
+# the pair.
+OUT_C1_434="$WORK/out-"$'\xc2\x9b'"-434"
+expect 1 "quick: --out in a directory whose name holds a C1 pair, every agent missing" -- \
+  bash "$G_434" --check --quick --format tsv --out "$OUT_C1_434"
+expect_output "agent${T434}missing${T434}"
+if grep "^agent${T434}" <<< "$LAST_OUTPUT" | grep -q $'\xc2\x9b'; then
+  fail_434 "quick: no C1 pair of an agent's path reaches a tsv record"
+else
+  pass_434 "quick: no C1 pair of an agent's path reaches a tsv record"
+fi
+# An --out written with backslashes (Code Reviewer, PR #467): awk -v read
+# them as escapes (\a, \v, octal), so the quick check looked elsewhere and
+# called every agent missing. A Windows path where cygpath runs; elsewhere a
+# directory whose name holds a backslash.
+if command -v cygpath >/dev/null 2>&1; then
+  OUTBS_434="$(cygpath -w "$WORK/outbs-434")"
+else
+  OUTBS_434="$WORK/out\\abs-434"
+fi
+expect 0 "agents generated into an --out written with backslashes" -- bash "$G_434" --out "$OUTBS_434"
+expect 0 "quick: the same --out finds every agent there" -- \
+  bash "$G_434" --check --quick --format tsv --out "$OUTBS_434"
+expect_output "# generate-agents.sh --check --quick: 0 to act on. 3 agent(s): 3 present, 0 missing, 0 stale."
+# A project reached through a link (Code Reviewer, PR #467): generated from
+# the link's path, checked from the project's own, the agents are current.
+# The root is the framework's physical path, whichever way it was reached.
+block_begin 2 "a project reached through a link"
+if link_434 "$WORK/adlink-434" "$COPY_434"; then
+  (cd "$WORK/adlink-434" && bash ./ia-engineering/Adapters/ai-runtimes/generate-agents.sh >/dev/null 2>&1)
+  expect 0 "quick: agents generated through a link to the project are current from its own path" -- \
+    bash "$G_434" --check --quick --format tsv
+  expect_output "# generate-agents.sh --check --quick: 0 to act on. 3 agent(s): 3 present, 0 missing, 0 stale."
+else
+  skip 2 "no directory link can be made here: ln -s copies and no junction could be made"
+fi
+block_end
+
+# --- DEF-02: the tier map, and the quick check, survive a refused root -------
+# A cygpath first on PATH that answers with another directory: a generation
+# refuses that root (WU-IAENG-430). Session start's call names no root and
+# must go on.
+cd "$AD_434" || exit 1
+mkdir -p "$WORK/fakebin-434"
+printf '#!/bin/sh\necho /nonexistent-434/ia-engineering\n' > "$WORK/fakebin-434/cygpath"
+chmod +x "$WORK/fakebin-434/cygpath"
+expect 2 "DEF-02 premise: that root refuses a generation" -- env PATH="$WORK/fakebin-434:$PATH" bash "$G_434" --dry-run
+expect_output "cannot write the framework root as a path that names it."
+expect 0 "DEF-02: --print-tier-map survives a refused framework root" -- \
+  env PATH="$WORK/fakebin-434:$PATH" bash "$G_434" --print-tier-map
+expect_output "map=strategic=opus,standard=adopter-model,"
+# Session start's call survives it too: the map, then a verdict. With no
+# spelling of this framework's root to compare against, no agent's root is
+# confirmed (SEC-IAENG-467-01), and each one says why.
+expect 1 "DEF-02: session start's call survives it too, map and quick check" -- \
+  env PATH="$WORK/fakebin-434:$PATH" bash "$G_434" --print-tier-map --check --quick --format tsv
+expect_output "map=strategic=opus,standard=adopter-model,"
+expect_output "# generate-agents.sh --check --quick: 3 to act on. 3 agent(s): 0 present, 0 missing, 3 stale."
+expect_output "${T434}this framework's root cannot be written as a path that names it, so no agent's root can be confirmed"
+
+# --- DEF-01: --check's counts add up ----------------------------------------
+# One agent differs in its mapping only (Software Architect), one in its root
+# only (DevOps Engineer), one in both (Solution Architect). On 65524d2 the
+# "mapping only" line counted two, the location line two, three in all.
+cd "$AD_434" || exit 1
+ROOT_434="$(root_434 .claude/agents/devops-engineer.md)"
+printf 'map=strategic=s2-model,standard=adopter-model\n' > .ia-engineering/tier-map
+# Every occurrence of the root, as a move changes them all: the root line and
+# the worked example under it.
+for a434 in solution-architect devops-engineer; do
+  c434="$(cat ".claude/agents/$a434.md")"
+  printf '%s\n' "${c434//"$ROOT_434"/"/old-434/ia-engineering"}" > ".claude/agents/$a434.md"
+done
+expect 1 "DEF-01: one mapping only, one root only, one both" -- bash "$G_434" --check
+expect_output "Result: 0 current, 3 stale or missing"
+expect_line "  1 differ in the tier mapping only (model/effort), not in their"
+expect_line "  2 name a framework root other than this one ($ROOT_434):"
+expect_line "  1 of them also differ in the tier mapping (model/effort): the"
+expect_no_output "out of date with Employees/" "DEF-01: none of them is blamed on Employees/"
+SUM_434="$(awk '/^  [0-9]+ (differ in the tier mapping only|name a framework root other than|out of date with)/ { s += $1 } END { print s + 0 }' <<< "$LAST_OUTPUT")"
+if [ "$SUM_434" -eq 3 ]; then
+  pass_434 "DEF-01: the summary's groups add up to the 3 agents that differ"
+else
+  fail_434 "DEF-01: the summary's groups add up to the 3 agents that differ" "they add up to $SUM_434"
+fi
+# The tsv form keeps the exit code the header documents (Code Reviewer, PR
+# #467): 1 while anything differs, 0 once every agent is current (#412,
+# below). Run before the text form's command is read, which comes next.
+DEF01_TEXT_434="$LAST_OUTPUT"
+expect 1 "--check --format tsv exits 1 while an agent differs" -- bash "$G_434" --check --format tsv
+expect_output "# generate-agents.sh --check: 3 to act on. 3 agent(s): 0 current, 0 missing, 3 stale."
+LAST_OUTPUT="$DEF01_TEXT_434"
+
+# --- #412: the command --check prints runs as printed ------------------------
+REGEN_434="$(regen_line)"
+expect_line "    $REGEN_CMD_434"
+expect 0 "#412: the printed command runs as printed from the adopter root" -- eval "$REGEN_434"
+expect 0 "#412: ... and leaves every agent current" -- bash "$G_434" --check
+printf 'map=strategic=s3-model,standard=adopter-model\n' > .ia-engineering/tier-map
+cd "$AD_434/ia-engineering" || exit 1
+expect 1 "#412: --check run from inside the framework, --project .." -- \
+  bash ./Adapters/ai-runtimes/generate-agents.sh --check --project ..
+REGEN_434="$(regen_line)"
+expect_output "--project '$AD_434'"
+expect 0 "#412: the printed command runs as printed from there" -- eval "$REGEN_434"
+cd "$AD_434" || exit 1
+expect 0 "#412: ... and regenerated the project's agents" -- bash "$G_434" --check
+if [ -e "$AD_434/ia-engineering/.claude/agents" ]; then
+  fail_434 "#412: ... and wrote nothing into the framework's own .claude/agents"
+else
+  pass_434 "#412: ... and wrote nothing into the framework's own .claude/agents"
+fi
+expect 1 "#412: --check with --map" -- bash "$G_434" --check --map strategic=flag-model
+REGEN_434="$(regen_line)"
+expect_output "--map strategic=flag-model"
+expect 0 "#412: the printed command carries --map" -- eval "$REGEN_434"
+expect 0 "#412: ... and generates what was checked" -- bash "$G_434" --check --map strategic=flag-model
+# QA-467-01: --roster too. The Domain Employee of roster-434/extra.yml (the
+# #418 case) has no agent yet; the command must carry the roster, by its
+# absolute path, quoted for the space and é日本, or it regenerates the
+# framework's Employees alone and --check stays red.
+expect 1 "#412: --check with --roster" -- bash "$G_434" --check --roster roster-434/extra.yml
+REGEN_434="$(regen_line)"
+expect_output "--roster '$AD_434/roster-434/extra.yml'"
+expect 0 "#412: the printed command carries --roster" -- eval "$REGEN_434"
+expect 0 "#412: ... and generates what was checked, the Domain Employee included" -- \
+  bash "$G_434" --check --roster roster-434/extra.yml
+expect 0 "back to the project's mapping" -- bash "$G_434"
+expect 0 "--check --format tsv exits 0 once every agent is current" -- bash "$G_434" --check --format tsv
+expect_output "# generate-agents.sh --check: 0 to act on. 3 agent(s): 3 current, 0 missing, 0 stale."
+
+# --- #411: the drift check reports missing and stale agents ------------------
+cd "$AD_434" || exit 1
+DRIFT_434=./ia-engineering/Adapters/scripts/check-framework-drift.sh
+# act_434 — the "N to act on" of the last drift run's summary.
+act_434() { sed -n 's/^# check-framework-drift: \([0-9]*\) to act on.*/\1/p' <<< "$LAST_OUTPUT"; }
+expect 0 "#411: the drift check reads the agents" -- bash "$DRIFT_434" --format tsv
+expect_line "agent${T434}current${T434}.claude/agents/devops-engineer.md${T434}"
+expect_output "3 agent item(s): 3 current."
+ACT0_434="$(act_434)"
+# What an upgrade does to a definition: a sentence added to its Mission.
+sed 's/^# Mission$/# Mission\
+\
+An added sentence, as an upgrade adds one./' ia-engineering/Employees/DevOps/DEVOPS_ENGINEER.md > "$WORK/devops-def-434.md"
+cp "$WORK/devops-def-434.md" ia-engineering/Employees/DevOps/DEVOPS_ENGINEER.md
+rm .claude/agents/software-architect.md
+expect 0 "#411: an Employee definition changed and an agent deleted" -- bash "$DRIFT_434" --format tsv
+expect_line "agent${T434}stale${T434}.claude/agents/devops-engineer.md${T434}out of date with Employees/ or the roster. Regenerate: $REGEN_CMD_434"
+expect_line "agent${T434}missing${T434}.claude/agents/software-architect.md${T434}not generated in this clone (agents are generated per clone, never committed): $REGEN_CMD_434"
+expect_output "3 agent item(s): 1 current, 1 missing, 1 stale."
+ACT1_434="$(act_434)"
+if [ -n "$ACT0_434" ] && [ "$ACT1_434" = "$((ACT0_434 + 2))" ]; then
+  pass_434 "#411: the stale and the missing agent are two more items to act on ($ACT0_434, then $ACT1_434)"
+else
+  fail_434 "#411: the stale and the missing agent are two more items to act on" "before: ${ACT0_434:-none}, after: ${ACT1_434:-none}"
+fi
+DRIFT_CMD_434="$(awk -F'\t' '$1 == "agent" && $2 == "stale" { sub(/.*Regenerate: /, "", $4); print $4; exit }' <<< "$LAST_OUTPUT")"
+expect 0 "#411: the remedy runs as printed from the project root" -- eval "$DRIFT_CMD_434"
+expect 0 "#411: ... and the drift check then finds every agent current" -- bash "$DRIFT_434" --format tsv
+expect_output "3 agent item(s): 3 current."
+expect 0 "#411: --quick does not compare the agents, and says so" -- bash "$DRIFT_434" --quick --format tsv
+expect_line "agent${T434}not-evaluated${T434}.claude/agents/${T434}--quick compares no agent with Employees/; session start checks each one exists and names this project's framework. A run without --quick compares them: ia-engineering/Adapters/scripts/check-framework-drift.sh"
+printf 'nonsense\n' > .ia-engineering/tier-map
+expect 0 "#411: a generator that refuses is indeterminate, never clean" -- bash "$DRIFT_434" --format tsv
+expect_output "agent${T434}indeterminate${T434}.claude/agents/${T434}generate-agents.sh --check exited 2 without a result: generate-agents.sh: "
+ss_434 "$AD_434"
+expect_output "WARNING: the tier map could not be resolved"
+expect_no_output "IA Engineering agents" "session start: a refused tier map stops the check, said by the warning alone"
+printf 'map=standard=adopter-model\n' > .ia-engineering/tier-map
+git -C ia-engineering checkout -q -- Employees/DevOps/DEVOPS_ENGINEER.md
+expect 0 "restore: regenerate" -- bash "$G_434"
+
+# --- session start with no verdict, and control bytes in a printed path -------
+cd "$AD_434" || exit 1
+mv ia-engineering/Registry/employees.yml "$WORK/employees-434.yml"
+# The drift check: a generator that exits 1 without its summary gave no
+# result, and that is indeterminate, never an empty family (Code Reviewer,
+# PR #467).
+expect 0 "#411: a generator that stops before its summary is indeterminate" -- \
+  bash ./ia-engineering/Adapters/scripts/check-framework-drift.sh --format tsv
+expect_output "agent${T434}indeterminate${T434}.claude/agents/${T434}generate-agents.sh --check exited 1 without a result: generate-agents.sh: Registry/employees.yml not found."
+ss_434 "$AD_434"
+expect_output "IA Engineering agents: not checked (generate-agents.sh: Registry/employees.yml not found.)"
+expect_output "Until the check passes, dispatch no Employee, and never a generic agent in its place, and report the cause to the Director. Check them by hand: "
+# The command runs as printed from the project root, whose path holds a
+# space and é日本: quoted, it is not cut at the space (exit 127).
+BYHAND_434="$(sed -n 's/.*Check them by hand: //p' <<< "$LAST_OUTPUT" | head -n 1)"
+mv "$WORK/employees-434.yml" ia-engineering/Registry/employees.yml
+expect 0 "the not-checked command runs as printed from the project root" -- eval "$BYHAND_434"
+
+# Every control byte, C1 pairs included, is flattened in what the agents
+# lines print of a path (SEC-IAENG-467, review), in every locale: under the C
+# locale a [[:cntrl:]] pattern alone leaves a C1 pair whole. A project in a
+# directory whose name holds a CSI pair (U+009B), with its framework inside
+# it, then a project using that framework from outside, whose regenerate
+# command is the framework's absolute path. Only the agents lines are read:
+# the other lines of session start are not this check's.
+C1_434="$WORK/c1-"$'\xc2\x9b'"-434"
+# agents_lines_434 — the agents lines of the last session-start output.
+agents_lines_434() {
+  grep -E '^IA Engineering agents|^  (\.claude/agents/ did not exist|Until a named|If the project moved)' <<< "$LAST_OUTPUT"
+}
+rm -rf "$C1_434"
+cp -R "$AD_434" "$C1_434"
+mv "$C1_434/ia-engineering/Registry/employees.yml" "$WORK/employees-c1-434.yml"
+LAST_OUTPUT="$(cd "$C1_434" && env LC_ALL=C CLAUDE_PROJECT_DIR="$C1_434" XDG_CACHE_HOME="$WORK/cache-434" \
+  PATH="$WORK/notimeout-434:$PATH" bash ./ia-engineering/Adapters/ai-runtimes/claude-code/hooks/session-start.sh </dev/null 2>&1)"
+mv "$WORK/employees-c1-434.yml" "$C1_434/ia-engineering/Registry/employees.yml"
+expect_output "IA Engineering agents: not checked ("
+if agents_lines_434 | grep -q $'\xc2\x9b'; then
+  fail_434 "session start: no C1 pair of a project path reaches the not-checked line"
+else
+  pass_434 "session start: no C1 pair of a project path reaches the not-checked line"
+fi
+OUTSIDE_C1_434="$WORK/outside-c1-434"
+mkdir -p "$OUTSIDE_C1_434"
+LAST_OUTPUT="$(cd "$OUTSIDE_C1_434" && env LC_ALL=C CLAUDE_PROJECT_DIR="$OUTSIDE_C1_434" IAENG_FRAMEWORK="$C1_434/ia-engineering" \
+  XDG_CACHE_HOME="$WORK/cache-434" PATH="$WORK/notimeout-434:$PATH" \
+  bash "$C1_434/ia-engineering/Adapters/ai-runtimes/claude-code/hooks/session-start.sh" </dev/null 2>&1)"
+expect_output "IA Engineering agents: 3 of 3 roster Employees have no agent in .claude/agents/"
+if agents_lines_434 | grep -q $'\xc2\x9b'; then
+  fail_434 "session start: no C1 pair of the framework's path reaches the regenerate command"
+else
+  pass_434 "session start: no C1 pair of the framework's path reaches the regenerate command"
+fi
+
+# --- the agent's file name: one rule, by hand ------------------------------
+# The generation and the quick check read the same name from the roster. The
+# expected names are worked by hand from the rule: lower-case A-Z, every run of
+# other characters one hyphen, none at either end.
+SLUG_434="$WORK/slug-434"
+mkdir -p "$SLUG_434/.ia-engineering/Registry" "$SLUG_434/emp"
+printf '%s\n' "# Mission" "" "The Probe tests names." > "$SLUG_434/emp/PROBE.md"
+{
+  echo "employees:"
+  for n434 in "UX/UI Designer" "R&D / Ops Lead 2" "Éric Data"; do
+    printf '%s\n' "  - name: $n434" "    file: emp/PROBE.md" "    category: Testing" "    tier: Standard Execution"
+  done
+} > "$SLUG_434/.ia-engineering/Registry/employees.yml"
+expect 0 "slug: the generation writes the Domain Employees" -- bash "$FW_434/Adapters/ai-runtimes/generate-agents.sh" --project "$SLUG_434"
+MISSING_SLUG_434=""
+for s434 in ux-ui-designer r-d-ops-lead-2 ric-data; do
+  [ -f "$SLUG_434/.claude/agents/$s434.md" ] || MISSING_SLUG_434="$MISSING_SLUG_434 $s434"
+done
+if [ -z "$MISSING_SLUG_434" ]; then
+  pass_434 "slug: ux-ui-designer, r-d-ops-lead-2 and ric-data, as worked by hand"
+else
+  fail_434 "slug: ux-ui-designer, r-d-ops-lead-2 and ric-data, as worked by hand" "missing:$MISSING_SLUG_434; written: $(find "$SLUG_434/.claude/agents" -name '*.md' 2>&1 | tr '\n' ' ')"
+fi
+expect 0 "slug: the quick check finds each of them" -- bash "$FW_434/Adapters/ai-runtimes/generate-agents.sh" --project "$SLUG_434" --check --quick --format tsv
+expect_output "0 to act on. 6 agent(s): 6 present, 0 missing, 0 stale."
+
+# --- the framework repository itself ----------------------------------------
+cd "$FW_434" || exit 1
+expect 0 "framework: its agents are generated" -- bash Adapters/ai-runtimes/generate-agents.sh
+expect 0 "framework: its agents name no root, which is right there" -- bash Adapters/ai-runtimes/generate-agents.sh --check --quick --format tsv
+expect_output "0 to act on. 3 agent(s): 3 present, 0 missing, 0 stale."
+
+# --- a committed agent is refused in an adopting project ---------------------
+# index_path stages a path without creating it, byte for byte.
+cd "$AD_434" || exit 1
+SCAN_434=./ia-engineering/Adapters/scripts/data-policy-scan.sh
+index_path ".claude/agents/devops-engineer.md"
+expect 1 "refused: an agent staged in an adopting project" -- bash "$SCAN_434" --staged
+expect_output "REFUSED  .claude/agents/devops-engineer.md"
+expect_output "an Employee agent of an adopting project — agents are generated in each clone and never committed"
+expect_output "Keep .claude/agents/ in .gitignore"
+git reset -q
+for p434 in "sub/.claude/agents/team/y.md" ".Claude/Agents/Z.MD"; do
+  index_path "$p434"
+  expect 1 "refused: $p434 (any depth, any letter case)" -- bash "$SCAN_434" --staged
+  expect_output "REFUSED  $p434"
+  git reset -q
+done
+for p434 in ".claude/agentsX/a.md" "docs/claude/agents/a.md"; do
+  index_path "$p434"
+  expect 0 "not this rule: $p434" -- bash "$SCAN_434" --staged
+  git reset -q
+done
+# Anything else under .claude/agents/ is refused too: the directory holds the
+# generated agents and nothing else (SEC-IAENG-467-03).
+index_path ".claude/agents/notes.txt"
+expect 1 "refused: another file under .claude/agents/" -- bash "$SCAN_434" --staged
+expect_output "an entry under .claude/agents/ (a symbolic link, a submodule or another file)"
+git reset -q
+# SEC-IAENG-467-02: a symbolic link committed in the place of .claude/ or
+# .claude/agents/ (pointing at cfg/, which holds agents) is refused: what it
+# points to would be read as the agents. Staged as git stores a link: mode
+# 120000, the target as the blob.
+link_entry_434() {
+  local b
+  git config core.protectNTFS false
+  b="$(printf 'cfg' | git hash-object -w --stdin)" || return 1
+  printf '120000 %s\t%s\0' "$b" "$1" | git update-index -z --index-info
+}
+for p434 in ".claude" ".claude/agents" "pkg/.CLAUDE"; do
+  link_entry_434 "$p434"
+  expect 1 "refused: a symbolic link committed as $p434 (SEC-IAENG-467-02)" -- bash "$SCAN_434" --staged
+  expect_output "REFUSED  $p434"
+  expect_output "an entry where the .claude/ or .claude/agents/ directory should be"
+  git reset -q
+done
+for p434 in ".claude/settings.json" ".claudeX" "x/.claude-agents"; do
+  index_path "$p434"
+  expect 0 "not this rule: $p434" -- bash "$SCAN_434" --staged
+  git reset -q
+done
+# SEC-IAENG-467-03: a link nested under .claude/agents/, to a directory that
+# holds agents, is refused.
+link_entry_434 ".claude/agents/team"
+expect 1 "refused: a symbolic link committed under .claude/agents/ (SEC-IAENG-467-03)" -- bash "$SCAN_434" --staged
+expect_output "REFUSED  .claude/agents/team"
+git reset -q
+# --history lists the directories too (rev-list --objects lists trees): the
+# .claude tree of a range that only edits .claude/settings.json, and the
+# .claude/agents tree beside an allowed agent of the project's own, are
+# directories, never refused; a link committed as .claude still is (Code
+# Reviewer, PR #467: on e14a4b1 every range touching .claude/ was refused).
+index_path ".claude/settings.json"
+git commit -q -m "settings"
+index_path ".claude/settings.json" 2
+git commit -q -m "settings edited"
+expect 0 "--history: a range that only edits .claude/settings.json is not refused" -- \
+  bash "$SCAN_434" --history HEAD~1..HEAD
+expect_no_output "REFUSED" "--history: the .claude tree is a directory, not an entry"
+mkdir -p .ia-engineering
+printf '%s\n' '^\.claude/agents/own-agent\.md$' > .ia-engineering/data-policy.allow
+index_path ".claude/agents/own-agent.md"
+git commit -q -m "an agent of the project's own"
+expect 0 "--history: an allowed agent of the project's own, its .claude/agents tree with it, is not refused" -- \
+  bash "$SCAN_434" --history HEAD~1..HEAD
+rm .ia-engineering/data-policy.allow
+git reset -q --hard HEAD~3
+link_entry_434 ".claude"
+git commit -q -m "a link committed as .claude"
+expect 1 "--history: a link committed as .claude is still refused" -- bash "$SCAN_434" --history HEAD~1..HEAD
+expect_output "REFUSED  .claude"
+# Mixed, not --hard: the working tree holds a real .claude/ directory.
+git reset -q HEAD~1
+mkdir -p .ia-engineering
+printf '%s\n' '^\.claude/agents/own-agent\.md$' > .ia-engineering/data-policy.allow
+index_path ".claude/agents/own-agent.md"
+expect 0 "a hand-written agent of the project's own, in the allow file, is accepted" -- bash "$SCAN_434" --staged
+git reset -q
+rm .ia-engineering/data-policy.allow
+index_path ".claude/agents/committed.md"
+git commit -q -m "an agent committed without the hook"
+expect 1 "refused in the tree too (the server-side data-policy check)" -- bash "$SCAN_434" --tree HEAD
+expect_output "REFUSED  .claude/agents/committed.md"
+git reset -q --hard HEAD~1
+# --history, the check that counts server-side: an agent committed and
+# untracked again inside the branch is in every clone that fetched it (Code
+# Reviewer, PR #467).
+index_path ".claude/agents/hist.md"
+git commit -q -m "an agent committed without the hook"
+git rm -q --cached ".claude/agents/hist.md"
+git commit -q -m "and untracked again"
+expect 1 "refused by --history: an agent committed and untracked inside the range" -- \
+  bash "$SCAN_434" --history HEAD~2..HEAD
+expect_output "REFUSED  .claude/agents/hist.md"
+git reset -q --hard HEAD~2
+
+# The framework repository is out of scope: its own agents name no root.
+cd "$FW_434" || exit 1
+index_path ".claude/agents/devops-engineer.md"
+expect 0 "framework: its own agent is not refused" -- bash Adapters/scripts/data-policy-scan.sh --staged
+git reset -q
+index_path ".claude/agents/hist.md"
+git commit -q -m "an agent committed"
+git rm -q --cached ".claude/agents/hist.md"
+git commit -q -m "and untracked again"
+expect 0 "framework: --history does not refuse its own agent" -- bash Adapters/scripts/data-policy-scan.sh --history HEAD~2..HEAD
+git reset -q --hard HEAD~2
+# In a linked worktree of the framework, the hooks run from the main checkout
+# (core.hooksPath is absolute): the same repository, so not refused either.
+git worktree add -q "$WORK/fw-434-wt" -b wt-434 >/dev/null 2>&1
+cd "$WORK/fw-434-wt" || exit 1
+index_path ".claude/agents/devops-engineer.md"
+expect 0 "framework worktree, the main checkout's scanner: not refused" -- bash "$FW_434/Adapters/scripts/data-policy-scan.sh" --staged
+git reset -q
+# A plain copy of the framework inside a project is no checkout of its own.
+new_repo plain-434
+mkdir -p vendor/fw
+cp -R "$FW_434/Adapters" vendor/fw/Adapters
+index_path ".claude/agents/devops-engineer.md"
+expect 1 "a project with a plain copy of the framework: refused" -- bash vendor/fw/Adapters/scripts/data-policy-scan.sh --staged
+expect_output "an Employee agent of an adopting project"
+git reset -q
+
+# --- a fresh clone, following Templates/PROJECT_CLAUDE.md word for word ------
+# The commands are read from the template's fresh-clone block, so the
+# procedure and this test cannot drift apart. protocol.file.allow is the
+# fixture's: its submodule URL is a local path.
+FRESH_CMDS_434="$(awk '/In every fresh clone, and on every/,/^Run the third again/' "$SCRIPTS/../../Templates/PROJECT_CLAUDE.md" \
+  | sed -n "s/^[123]\. ${BT434}\([^${BT434}]*\)${BT434}.*/\1/p")"
+if [ "$(grep -c . <<< "$FRESH_CMDS_434")" -eq 3 ] && grep -q "generate-agents.sh" <<< "$FRESH_CMDS_434"; then
+  pass_434 "the template's fresh-clone block names three commands, the last the generator"
+else
+  fail_434 "the template's fresh-clone block names three commands, the last the generator" "$FRESH_CMDS_434"
+fi
+# QA-467-02 (#470): after a move, core.hooksPath names the old path, so the
+# block says to run install.sh again too, not only the generator.
+if tr -d '\r' < "$SCRIPTS/../../Templates/PROJECT_CLAUDE.md" | tr '\n' ' ' \
+  | grep -qF "After the project moves, run the second and the third again: ${BT434}core.hooksPath${BT434} still names the old path"; then
+  pass_434 "the template says to re-run install.sh after the project moves (QA-467-02)"
+else
+  fail_434 "the template says to re-run install.sh after the project moves (QA-467-02)"
+fi
+cd "$WORK" || exit 1
+git clone -q "$AD_434" "fresh-434 é日本" >/dev/null 2>&1
+cd "$WORK/fresh-434 é日本" || exit 1
+git config user.email test@example.invalid
+git config user.name "Test Runner"
+git config commit.gpgsign false
+git config core.autocrlf false
+while IFS= read -r c434; do
+  [ -n "$c434" ] || continue
+  expect 0 "fresh clone, as the template writes it: $c434" -- \
+    env GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=protocol.file.allow GIT_CONFIG_VALUE_0=always bash -c "$c434"
+done <<< "$FRESH_CMDS_434"
+if [ "$(find .claude/agents -name '*.md' 2>/dev/null | grep -c .)" -eq 3 ]; then
+  pass_434 "fresh clone: one agent per roster Employee in .claude/agents/"
+else
+  fail_434 "fresh clone: one agent per roster Employee in .claude/agents/" "$(ls -la .claude/agents 2>&1)"
+fi
+ss_434 "$WORK/fresh-434 é日本"
+expect_no_output "IA Engineering agents" "fresh clone: session start has nothing to say about the agents"
+cd "$HERE" || exit 1
+
+# ------------------------------ data-policy --history, NUL-delimited paths ---
+# WU-IAENG-442: --history reads the paths its commits name NUL-delimited
+# (git log -z), as --staged and --tree read theirs, so each path is judged as
+# itself whatever bytes its name holds. #467's rules are unchanged: any entry
+# under .claude/agents/, and a link, file or submodule standing where .claude
+# or .claude/agents should be, at any depth and in any letter case, is
+# refused; the .claude tree and .claude/settings.json are not.
+#
+# Each entry is staged byte for byte and never written to disk (index_path's
+# rule), with content the repository already holds under another name. Git
+# stores the name and nothing is checked out, so every case here runs on
+# Windows too.
+section "data-policy --history reads paths NUL-delimited (WU-IAENG-442)"
+
+# entry_442 <mode> <object> <path> — stages <path> as <mode> <object>.
+entry_442() {
+  git config core.protectNTFS false
+  printf '%s %s\t%s\0' "$1" "$2" "$3" | git update-index -z --index-info
+}
+new_repo dp-442
+DPS_442="$SCRIPTS/data-policy-scan.sh"
+T442=$'\t'
+LF442=$'\n'
+AGENT_442="$(printf 'an agent\n' | git hash-object -w --stdin)"
+LINK_442="$(printf 'cfg' | git hash-object -w --stdin)"
+entry_442 100644 "$AGENT_442" "content-442.md"
+entry_442 100644 "$LINK_442" "content-442.lnk"
+git commit -q -m "the content, under other names"
+GITLINK_442="$(git rev-parse HEAD)"
+WHY_AGENT_442="an Employee agent of an adopting project"
+WHY_UNDER_442="an entry under .claude/agents/ (a symbolic link, a submodule or another file)"
+WHY_PLACE_442="an entry where the .claude/ or .claude/agents/ directory should be"
+
+# Refused: one entry per case, the range its one commit. Parallel arrays: the
+# mode, the object, the name, what the name holds (the case's label), the
+# reason the scanner gives, and the name as the report shows it: each control
+# character a space, written here by hand.
+M442=(); O442=(); N442=(); L442=(); R442=(); S442=()
+case_442() { M442+=("$1"); O442+=("$2"); N442+=("$3"); L442+=("$4"); R442+=("$5"); S442+=("$6"); }
+case_442 100644 "$AGENT_442" '.claude/agents/q"x.md' "a double quote" "$WHY_AGENT_442" '.claude/agents/q"x.md'
+case_442 100644 "$AGENT_442" '.claude/agents/b\s.md' "a backslash" "$WHY_AGENT_442" '.claude/agents/b\s.md'
+case_442 100644 "$AGENT_442" ".claude/agents/t${T442}ab.md" "a tab" "$WHY_AGENT_442" '.claude/agents/t ab.md'
+case_442 100644 "$AGENT_442" ".claude/agents/n${LF442}l.md" "a newline" "$WHY_AGENT_442" '.claude/agents/n l.md'
+case_442 100644 "$AGENT_442" ".claude/agents/c"$'\001'".md" "the byte 0x01" "$WHY_AGENT_442" '.claude/agents/c .md'
+case_442 100644 "$AGENT_442" '.claude/agents/é"日本.md' "non-ASCII letters and a double quote" "$WHY_AGENT_442" '.claude/agents/é"日本.md'
+case_442 100644 "$AGENT_442" 'sub"/.CLAUDE/Agents/team/z.MD' "a double quote, deeper, in another letter case" "$WHY_AGENT_442" 'sub"/.CLAUDE/Agents/team/z.MD'
+case_442 100644 "$AGENT_442" '.claude/agents/notes\x.txt' "a backslash, a file that is not an agent" "$WHY_UNDER_442" '.claude/agents/notes\x.txt'
+case_442 120000 "$LINK_442" 'a"b/.claude' "a double quote, a link where .claude should be" "$WHY_PLACE_442" 'a"b/.claude'
+case_442 120000 "$LINK_442" 'c\d/.claude/agents' "a backslash, a link where .claude/agents should be" "$WHY_PLACE_442" 'c\d/.claude/agents'
+case_442 160000 "$GITLINK_442" "e${T442}f/.claude" "a tab, a submodule where .claude should be" "$WHY_PLACE_442" 'e f/.claude'
+for i442 in "${!N442[@]}"; do
+  entry_442 "${M442[$i442]}" "${O442[$i442]}" "${N442[$i442]}"
+  git commit -q -m "an entry whose content is already here"
+  expect 1 "--history refuses a name with ${L442[$i442]}" -- bash "$DPS_442" --history HEAD~1..HEAD
+  expect_line "data-policy: REFUSED  ${S442[$i442]}"
+  expect_output "${R442[$i442]}"
+  git reset -q HEAD~1
+done
+
+# Not refused: the settings-only range, and names with the same bytes outside
+# the rule. The .claude tree is one path, however many commits list it; the
+# second range's 8 are its three files and the five directories that hold
+# them.
+entry_442 100644 "$AGENT_442" ".claude/settings.json"
+git commit -q -m "settings"
+entry_442 100644 "$LINK_442" ".claude/settings.json"
+git commit -q -m "settings edited"
+expect 0 "--history: a range that only adds and edits .claude/settings.json is not refused" -- \
+  bash "$DPS_442" --history HEAD~2..HEAD
+expect_no_output "REFUSED" "--history: the settings-only range refuses nothing"
+expect_output "scanned 2 path(s)"
+expect 0 "--tree: the settings-only head is not refused" -- bash "$DPS_442" --tree HEAD
+git reset -q HEAD~2
+entry_442 100644 "$AGENT_442" '.claude/q"s.json'
+entry_442 100644 "$AGENT_442" '.claude/agents"x/a\b.md'
+entry_442 100644 "$AGENT_442" "docs/claude/agents/t${T442}ab.md"
+git commit -q -m "the same bytes, outside the rule"
+expect 0 "--history: names with a double quote, a backslash or a tab outside the rule are not refused" -- \
+  bash "$DPS_442" --history HEAD~1..HEAD
+expect_output "scanned 8 path(s)"
+git reset -q HEAD~1
+
+# A record is "kind TAB path" and the kind ends at the FIRST tab: under a
+# parent whose name holds a tab, the object walk lists the directory
+# a<TAB>b/.claude, which is a tree and never judged (QA-479-01, PR #479).
+entry_442 100644 "$AGENT_442" "a${T442}b/.claude/settings.json"
+git commit -q -m "settings under a parent whose name holds a tab"
+expect 0 "--history: a .claude directory under a parent whose name holds a tab is not refused" -- \
+  bash "$DPS_442" --history HEAD~1..HEAD
+expect_no_output "REFUSED" "--history: the a<TAB>b/.claude tree is a directory, not an entry"
+git reset -q HEAD~1
+entry_442 100644 "$AGENT_442" "a${T442}b/.claude/agents/x.md"
+git commit -q -m "an agent under a parent whose name holds a tab"
+expect 1 "--history: an agent under a parent whose name holds a tab is refused" -- \
+  bash "$DPS_442" --history HEAD~1..HEAD
+expect_line "data-policy: REFUSED  a b/.claude/agents/x.md"
+TOTAL=$((TOTAL + 1))
+if [ "$(grep -c '^data-policy: REFUSED' <<< "$LAST_OUTPUT")" -eq 1 ]; then
+  [ -n "$VERBOSE" ] && printf '   ok   %s\n' "--history: the agent alone is refused, not the two directories above it"
+else
+  printf '   FAIL %s\n' "--history: the agent alone is refused, not the two directories above it"
+  printf '%s\n' "$LAST_OUTPUT" | sed 's/^/        | /'
+  FAILED=$((FAILED + 1))
+fi
+git reset -q HEAD~1
+
+# A path both sources name (git log -z, and the object walk) counts once.
+entry_442 100644 "$(printf 'new content\n' | git hash-object -w --stdin)" "new-442.txt"
+git commit -q -m "a file with new content"
+expect 0 "--history: a path named by both sources is one path" -- bash "$DPS_442" --history HEAD~1..HEAD
+expect_output "scanned 1 path(s)"
+git reset -q HEAD~1
+
+# A non-ASCII name alone is its own rendering under core.quotePath=false;
+# --tree reads ls-tree -z. Both are pinned here beside the rest.
+entry_442 100644 "$AGENT_442" '.claude/agents/é日本.md'
+git commit -q -m "a non-ASCII agent"
+expect 1 "--history refuses a non-ASCII agent" -- bash "$DPS_442" --history HEAD~1..HEAD
+expect_line "data-policy: REFUSED  .claude/agents/é日本.md"
+git reset -q HEAD~1
+entry_442 100644 "$AGENT_442" '.claude/agents/q"x.md'
+entry_442 100644 "$AGENT_442" ".claude/agents/t${T442}ab.md"
+git commit -q -m "two agents in the tree"
+expect 1 "--tree refuses agents whose names hold a double quote and a tab" -- bash "$DPS_442" --tree HEAD
+expect_line "data-policy: REFUSED  .claude/agents/q\"x.md"
+expect_line "data-policy: REFUSED  .claude/agents/t ab.md"
+git reset -q HEAD~1
+
+# Reported paths are sanitised with the record sanitiser of WU-IAENG-366,
+# byte for byte. A name holding an LF, "::warning::x" and a CR is reported on
+# one line, each control character a space, in all three modes; so is a
+# file a merge adds, its name holding a CR, with a secret line in it. No line
+# of the output starts with "::", and none holds a CR, which some log readers
+# take for the end of a line.
+# one_line_442 <label> — one check: the previous output holds no CR and no
+# line that starts, after blanks, with "::".
+one_line_442() {
+  TOTAL=$((TOTAL + 1))
+  case "$LAST_OUTPUT" in
+    *$'\r'*) ;;
+    *)
+      if ! grep -qE '^[[:space:]]*::' <<< "$LAST_OUTPUT"; then
+        [ -n "$VERBOSE" ] && printf '   ok   %s\n' "$1"
+        return 0
+      fi
+      ;;
+  esac
+  printf '   FAIL %s\n' "$1"
+  printf '%s\n' "$LAST_OUTPUT" | od -c | sed 's/^/        | /'
+  FAILED=$((FAILED + 1))
+  return 1
+}
+TOTAL=$((TOTAL + 1))
+SAN_REF_442="$(sed -n '/^# >>> record sanitiser/,/^# <<< record sanitiser/p' "$SCRIPTS/install.sh")"
+SAN_DPS_442="$(sed -n '/^# >>> record sanitiser/,/^# <<< record sanitiser/p' "$DPS_442")"
+if [ -n "$SAN_REF_442" ] && [ "$SAN_REF_442" = "$SAN_DPS_442" ]; then
+  [ -n "$VERBOSE" ] && printf '   ok   %s\n' "data-policy-scan.sh: the record sanitiser block is byte-identical to install.sh's"
+else
+  printf '   FAIL %s\n' "data-policy-scan.sh: the record sanitiser block is byte-identical to install.sh's"
+  diff <(printf '%s\n' "$SAN_REF_442") <(printf '%s\n' "$SAN_DPS_442") | sed 's/^/        | /'
+  FAILED=$((FAILED + 1))
+fi
+CR442=$'\r'
+INJ_442=".claude/agents/a${LF442}::warning::x${CR442}.md"
+entry_442 100644 "$AGENT_442" "$INJ_442"
+expect 1 "--staged refuses a name holding LF, ::warning::x and CR" -- bash "$DPS_442" --staged
+expect_line "data-policy: REFUSED  .claude/agents/a ::warning::x .md"
+one_line_442 "--staged: the report holds no CR and no line that starts with ::"
+git commit -q -m "an agent whose name holds LF and CR"
+expect 1 "--tree refuses a name holding LF, ::warning::x and CR" -- bash "$DPS_442" --tree HEAD
+expect_line "data-policy: REFUSED  .claude/agents/a ::warning::x .md"
+one_line_442 "--tree: the report holds no CR and no line that starts with ::"
+expect 1 "--history refuses a name holding LF, ::warning::x and CR" -- bash "$DPS_442" --history HEAD~1..HEAD
+expect_line "data-policy: REFUSED  .claude/agents/a ::warning::x .md"
+one_line_442 "--history: the report holds no CR and no line that starts with ::"
+git reset -q HEAD~1
+new_repo dp-442-merge
+BASE_442="$(git rev-parse HEAD)"
+git checkout -qb feat
+echo f > f.txt && git add f.txt && git commit -qm "feat"
+git checkout -q main
+echo m > m.txt && git add m.txt && git commit -qm "main"
+git merge --no-commit --no-ff feat >/dev/null 2>&1
+# The second name holds a tab too: it enters the "path TAB line TAB text"
+# record as one field, sanitised, and is reported whole.
+SECRET_442="$(printf 'key = %s%s\n' 'AKIA' 'ABCDEFGHIJKLMNOP' | git hash-object -w --stdin)"
+entry_442 100644 "$SECRET_442" "m${CR442}::warning::y.conf"
+entry_442 100644 "$SECRET_442" "t${T442}::warning::z${CR442}.conf"
+git commit -qm "Merge feat"
+expect 1 "--history refuses a secret in a file the merge adds, its name holding a CR" -- \
+  bash "$DPS_442" --history "$BASE_442..HEAD"
+expect_line "data-policy: REFUSED  m ::warning::y.conf:1"
+expect_line "data-policy: REFUSED  t ::warning::z .conf:1"
+one_line_442 "--history, merge-authored content: the report holds no CR and no line that starts with ::"
+
+# Merge-authored names are normalised before tabulation. Files a merge adds,
+# their names holding an LF, two tabs, or a backslash before a t: each secret
+# is refused once, under its whole name as the report shows it, and each line
+# is judged as the content it is, so a content rule anchored at the line's
+# start allows them.
+# merge_442 <dir> <name>... — a repository whose merge commit adds a file
+# holding one secret line under each <name>; BASE_442 is the range's base.
+merge_442() {
+  local n
+  new_repo "$1"; shift
+  BASE_442="$(git rev-parse HEAD)"
+  git checkout -qb feat
+  echo f > f.txt && git add f.txt && git commit -qm "feat"
+  git checkout -q main
+  echo m > m.txt && git add m.txt && git commit -qm "main"
+  git merge --no-commit --no-ff feat >/dev/null 2>&1
+  SECRET_442="$(printf 'key = %s%s\n' 'AKIA' 'ABCDEFGHIJKLMNOP' | git hash-object -w --stdin)"
+  for n in "$@"; do entry_442 100644 "$SECRET_442" "$n"; done
+  git commit -qm "Merge feat"
+}
+# refused_count_442 <n> <label> — one check: the previous output has <n>
+# REFUSED lines.
+refused_count_442() {
+  TOTAL=$((TOTAL + 1))
+  if [ "$(grep -c '^data-policy: REFUSED' <<< "$LAST_OUTPUT")" -eq "$1" ]; then
+    [ -n "$VERBOSE" ] && printf '   ok   %s\n' "$2"
+    return 0
+  fi
+  printf '   FAIL %s\n' "$2"
+  printf '%s\n' "$LAST_OUTPUT" | sed 's/^/        | /'
+  FAILED=$((FAILED + 1))
+  return 1
+}
+CONTENT_RULE_442='^key = AKIA[A-Z]{16}$'
+merge_442 dp-442-merge-names "n${LF442}::warning::w.conf" "u${T442}v${T442}w.conf"
+expect 1 "--history refuses the secret in two files a merge adds, an LF and two tabs in their names" -- \
+  bash "$DPS_442" --history "$BASE_442..HEAD"
+expect_line "data-policy: REFUSED  n ::warning::w.conf:1"
+expect_line "data-policy: REFUSED  u v w.conf:1"
+refused_count_442 2 "--history: each of the two secrets is refused once"
+one_line_442 "--history, merge-authored names: the report holds no CR and no line that starts with ::"
+mkdir -p .ia-engineering
+printf 'content:%s\n' "$CONTENT_RULE_442" > .ia-engineering/data-policy.allow
+expect 0 "--history: a content rule anchored at the line's start allows both merge-authored lines" -- \
+  bash "$DPS_442" --history "$BASE_442..HEAD"
+rm .ia-engineering/data-policy.allow
+# A backslash in the name: run where git reads a backslash in a pathspec as
+# itself. Git for Windows reads it as a directory separator, so it diffs no
+# such file there, before this change as after; Linux CI runs these checks.
+merge_442 dp-442-merge-backslash 'b\tq.conf'
+block_begin 3 "a merge-authored name holding a backslash"
+if [ -n "$(git ls-files -- ':(literal)b\tq.conf')" ]; then
+  expect 1 "--history refuses the secret in a file a merge adds, a backslash before a t in its name" -- \
+    bash "$DPS_442" --history "$BASE_442..HEAD"
+  expect_line 'data-policy: REFUSED  b\tq.conf:1'
+  mkdir -p .ia-engineering
+  printf 'content:%s\n' "$CONTENT_RULE_442" > .ia-engineering/data-policy.allow
+  expect 0 "--history: the content rule allows the line under the backslash name" -- \
+    bash "$DPS_442" --history "$BASE_442..HEAD"
+  rm .ia-engineering/data-policy.allow
+else
+  skip "$BLOCK_N" "git reads a backslash in a pathspec as a directory separator here (Git for Windows)"
+fi
+block_end
+cd "$HERE" || exit 1
 
 # ------ setup-branch-protection.sh on an existing repository (WU-IAENG-433) --
 #

@@ -31,12 +31,32 @@
 #     to data-bearing extensions only, because a hook that fires on ordinary
 #     source files is a hook developers learn to bypass — and --no-verify
 #     disarms every other hook in the same motion.
+#   - in an ADOPTING project only, an entry under a .claude/agents/
+#     directory, at any depth (WU-IAENG-434): a .md file there is an agent,
+#     and any other entry, a link to a directory of agents among them, is
+#     refused with it (SEC-IAENG-467-03). Those are the Employees' agents,
+#     generated in each clone: each names the absolute framework root of the
+#     clone that generated it, so a committed one is wrong in every other
+#     clone (and publishes that path, often with a user's name in it).
+#     install.sh's .gitignore rule `.claude/agents/` keeps them out; this
+#     refuses the commit that gets past it (git add -f, a rule removed).
+#     So is an entry standing where .claude/ or .claude/agents/ should be,
+#     such as a symbolic link to a directory holding agents (SEC-IAENG-467-02).
+#     Claude Code reads .claude/agents/ recursively, hence any depth. The
+#     framework repository itself is out of scope: its agents name no root.
+#     It is recognised as the repository the scanner belongs to: the
+#     scanner's framework is the root of its own checkout (-ef), of the same
+#     git common directory, which holds in its linked worktrees too, whose
+#     hooks run from the main checkout. A directory is never such an entry
+#     (--history lists trees too). Decided only when such a path is met, so
+#     no other commit pays for it.
 #
 # WHAT IS FLAGGED (content, added lines only):
 #   High-confidence secret shapes: private key blocks, AWS access key IDs,
 #   GitHub tokens, Slack tokens, Stripe live/test keys. No entropy heuristics —
 #   see the noise argument above. The matched VALUE is never printed; the path,
-#   the line number, and the pattern's name are.
+#   the line number, and the pattern's name are. Every reported path is
+#   sanitised: printed on one line, each control character a space.
 #   Lines are read as text whatever git thinks of the file (--text), so a path
 #   marked -diff or binary in .gitattributes, or holding a NUL byte, is scanned
 #   like any other. In --history, what a MERGE itself authored (a conflict
@@ -64,9 +84,10 @@
 #     committed so every developer and CI share one list.
 #
 # Filenames are read with core.quotePath=false and NUL separators where git
-# offers them, so a non-ASCII or otherwise unusual name is matched as itself
-# rather than as git's quoted rendering of it — a real file once escaped a
-# pattern that way.
+# offers them (diff, ls-tree, and log in --history; the object walk of
+# --history is the one newline-separated source, see there), so a non-ASCII
+# or otherwise unusual name is matched as itself rather than as git's quoted
+# rendering of it — a real file once escaped a pattern that way.
 #
 # Configuration (environment, all optional):
 #   IAENG_LOCAL_DATA_DIR    directory name treated as local-only (local_test_data)
@@ -118,6 +139,29 @@ usage() {
 
 die() { printf 'data-policy: %s\n' "$1" >&2; exit 2; }
 
+# Every path the scanner reports, and the line number beside it, goes through
+# flat below: it is printed on one line, each control character a space. A
+# name is the committer's to choose, and a CR or LF in it would otherwise
+# start a line of its own in a CI log. The block is the record sanitiser of
+# WU-IAENG-366, byte for byte (Adapters/scripts/tests/run.sh compares it with
+# install.sh's).
+# >>> record sanitiser — byte-identical in install.sh, install-hooks.sh,
+# install-skills.sh and check-framework-drift.sh: none of them sources
+# another, and Adapters/scripts/tests/run.sh compares the four (WU-IAENG-366).
+# flat <text> — every control character (TAB, LF, CR, ESC, ...) becomes a
+# space: a record is one line and carries no terminal escape.
+# The C1 controls (U+0080-U+009F, CSI among them) are UTF-8 pairs \xc2\x80 to
+# \xc2\x9f: a pair becomes one space. A lone byte in that range is part of
+# another character and is left alone (SEC-IAENG-358-01). For these the
+# result is the same under the C locale and a UTF-8 one; a UTF-8 locale also
+# flattens a few other code points, U+2028 and U+2029 among them.
+C1_LEAD=$'\xc2'
+flat() {
+  FLAT="${1//[[:cntrl:]]/ }"
+  FLAT="${FLAT//"$C1_LEAD"[$'\x80'-$'\x9f']/ }"
+}
+# <<< record sanitiser
+
 MODE=""
 ARG=""
 case "${1:-}" in
@@ -165,8 +209,59 @@ allowed_content() {
 # --- Path classification -------------------------------------------------------
 # Prints the reason a path is refused; prints nothing for an acceptable path.
 
+# agent_path <path> — true for a path the agents rule judges, at any depth and
+# in any letter case (git on Windows reads the .gitignore rule without case,
+# and so does the filesystem Claude Code reads the agents from):
+#   - anything under a .claude/agents/ directory: the agents generated in
+#     each clone and nothing else, so a .md file there is an agent, and any
+#     other entry, a symbolic link to a directory of agents among them
+#     (SEC-IAENG-467-03), is refused with it;
+#   - an entry whose path IS .claude or .claude/agents (SEC-IAENG-467-02).
+#     A file entry stands where the directory should be: a symbolic link (to
+#     a cfg/ holding agents, say), a file or a submodule, and what it points
+#     to would be read as the project's agents.
+# The path of a DIRECTORY never is such an entry: --history also lists trees,
+# which classify_path is told and never judges by this rule (Code Reviewer,
+# PR #467: every range that edited .claude/settings.json was refused).
+agent_path() {
+  case "/$1" in
+    */.[Cc][Ll][Aa][Uu][Dd][Ee]|*/.[Cc][Ll][Aa][Uu][Dd][Ee]/[Aa][Gg][Ee][Nn][Tt][Ss]) return 0 ;;
+    */.[Cc][Ll][Aa][Uu][Dd][Ee]/[Aa][Gg][Ee][Nn][Tt][Ss]/*) return 0 ;;
+  esac
+  return 1
+}
+
+# agents_rule_init — AGENTS_PER_CLONE is 1 in an adopting project (agents are
+# refused) and 0 in the framework repository itself, decided once and only
+# when a path under .claude/agents/ is met: called by the scan loops, in this
+# shell, so the $(classify_path) subshells inherit the answer. The framework
+# repository is the one this scanner belongs to: the scanner's framework is
+# the root of its own git checkout (-ef), and that checkout is of the
+# repository being scanned (the same git common directory). That holds in the
+# framework's main checkout and in each of its linked worktrees, which run the
+# main checkout's hooks (core.hooksPath is absolute). A framework imported as
+# a submodule has a git directory of its own, and a plain copy is the root of
+# no checkout: both are an adopting project. Anything git cannot answer
+# refuses.
+AGENTS_PER_CLONE=""
+agents_rule_init() {
+  [ -n "$AGENTS_PER_CLONE" ] && return 0
+  AGENTS_PER_CLONE=1
+  local src="${BASH_SOURCE[0]}" fw common="" fw_top="" fw_common=""
+  case "$src" in */*) fw="${src%/*}/../.." ;; *) fw="../.." ;; esac
+  common="$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null)"
+  { IFS= read -r fw_top; IFS= read -r fw_common; } \
+    < <(git -C "$fw" rev-parse --path-format=absolute --show-toplevel --git-common-dir 2>/dev/null)
+  if [ -n "$common" ] && [ -n "$fw_top" ] && [ "$fw_top" -ef "$fw" ] && [ "$fw_common" -ef "$common" ]; then
+    AGENTS_PER_CLONE=0
+  fi
+  return 0
+}
+
+# classify_path <path> [<kind>] — <kind> is "tree" for a directory (--history
+# lists them), empty or "-" for an entry git tracks.
 classify_path() {
-  local p="$1" base lower ext
+  local p="$1" kind="${2:-}" base lower ext
   base="${p##*/}"
 
   case "$base" in SYNTHETIC_*) return 0 ;; esac
@@ -180,6 +275,20 @@ classify_path() {
     .ia-engineering/SESSION_STATE.md|SESSION_STATE.md)
       printf 'operational state file — never committed (Templates/SESSION_STATE.md)\n'; return 0 ;;
   esac
+  # AGENTS_PER_CLONE is set by agents_rule_init, which the scan loops call for
+  # such a path before this; anything but 0 refuses. A tree is a directory,
+  # never an entry standing in for one.
+  if [ "$kind" != tree ] && agent_path "$p" && [ "${AGENTS_PER_CLONE:-1}" != 0 ]; then
+    case "/$p" in
+      */.[Cc][Ll][Aa][Uu][Dd][Ee]/[Aa][Gg][Ee][Nn][Tt][Ss]/*.[Mm][Dd])
+        printf '%s\n' "an Employee agent of an adopting project — agents are generated in each clone and never committed: each names the framework root of the clone that generated it, wrong in every other clone. Keep .claude/agents/ in .gitignore (install.sh writes that rule) and run generate-agents.sh in each clone; a hand-written agent of the project's own takes an anchored rule in the allow file" ;;
+      */.[Cc][Ll][Aa][Uu][Dd][Ee]/[Aa][Gg][Ee][Nn][Tt][Ss]/*)
+        printf '%s\n' "an entry under .claude/agents/ (a symbolic link, a submodule or another file) — that directory holds the agents generated in each clone and nothing is committed there: what a link points to would be read as agents. Keep .claude/agents/ in .gitignore and run generate-agents.sh in each clone; a file of the project's own there takes an anchored rule in the allow file" ;;
+      *)
+        printf '%s\n' "an entry where the .claude/ or .claude/agents/ directory should be (a symbolic link, a file or a submodule) — what it points to would be read as the project's agents, which are generated in each clone and never committed. Commit the directory's own files instead, keep .claude/agents/ in .gitignore, and run generate-agents.sh in each clone" ;;
+    esac
+    return 0
+  fi
 
   lower="$(printf '%s' "$base" | tr '[:upper:]' '[:lower:]')"
 
@@ -287,14 +396,20 @@ merge_authored_lines() {
     for p in $parents; do np=$((np + 1)); done
     while IFS= read -r -d '' path; do
       [ -n "$path" ] || continue
+      # Merge-authored names are normalised before tabulation: the record is
+      # "path TAB line TAB text", so the name goes in as flat shows it (see
+      # the record sanitiser), one field on one line, and reaches awk through
+      # the environment, which reads no backslash escape where -v would. git
+      # is still given the name itself.
+      flat "$path"
       for p in $parents; do
         # tr -d '\0': the caller's command substitution would drop these NULs
         # anyway, with bash's "ignored null byte" warning. Deleting them here
         # leaves line numbers and the per-parent comparison unchanged.
         git -c core.quotePath=false diff --text -U0 --no-color --no-ext-diff --no-textconv "$p" "$sha" -- ":(literal)$path" \
           | tr -d '\0' | added_lines
-      done | awk -F'\t' -v np="$np" -v path="$path" '
-          { k = $0; sub(/^[^\t]*\t/, "", k); c[k]++; if (c[k] == np) print path "\t" k }
+      done | DP_RECORD_PATH="$FLAT" awk -F'\t' -v np="$np" '
+          { k = $0; sub(/^[^\t]*\t/, "", k); c[k]++; if (c[k] == np) print ENVIRON["DP_RECORD_PATH"] "\t" k }
         '
     done < <(git -c core.quotePath=false diff-tree --cc --no-commit-id --name-only -z -r "$sha")
   done < <(git rev-list --merges "$ARG")
@@ -314,25 +429,39 @@ FINDINGS=0
 PATHS_SCANNED=0
 LINES_SCANNED=0
 
-report_path() { FINDINGS=$((FINDINGS + 1)); printf 'data-policy: REFUSED  %s\n    %s\n' "$1" "$2" >&2; }
-report_line() { FINDINGS=$((FINDINGS + 1)); printf 'data-policy: REFUSED  %s:%s\n    added line matches secret pattern <%s> — revoke it first, then remove it\n' "$1" "$2" "$3" >&2; }
+# The path and the line number are printed as flat shows them (see the record
+# sanitiser above); the reason and the pattern's name are the scanner's own.
+report_path() { flat "$1"; FINDINGS=$((FINDINGS + 1)); printf 'data-policy: REFUSED  %s\n    %s\n' "$FLAT" "$2" >&2; }
+report_line() {
+  local shown
+  flat "$1"; shown="$FLAT"; flat "$2"
+  FINDINGS=$((FINDINGS + 1))
+  printf 'data-policy: REFUSED  %s:%s\n    added line matches secret pattern <%s> — revoke it first, then remove it\n' "$shown" "$FLAT" "$3" >&2
+}
 
 scan_paths_nul() {
   local p reason
   while IFS= read -r -d '' p; do
     [ -n "$p" ] || continue
     PATHS_SCANNED=$((PATHS_SCANNED + 1))
+    agent_path "$p" && agents_rule_init
     reason="$(classify_path "$p")"
     [ -z "$reason" ] || report_path "$p" "$reason"
   done
 }
 
-scan_paths_lines() {
-  local p reason
-  while IFS= read -r p || [ -n "$p" ]; do
+# scan_paths_kinds_nul — reads NUL-terminated "<kind> TAB <path>" records,
+# <kind> "tree" or "-". The kind ends at the FIRST tab: a path may hold one.
+scan_paths_kinds_nul() {
+  local r kind p reason
+  while IFS= read -r -d '' r || [ -n "$r" ]; do
+    kind="${r%%$'\t'*}"
+    p="${r#*$'\t'}"
+    [ "$p" != "$r" ] || continue
     [ -n "$p" ] || continue
     PATHS_SCANNED=$((PATHS_SCANNED + 1))
-    reason="$(classify_path "$p")"
+    agent_path "$p" && agents_rule_init
+    reason="$(classify_path "$p" "$kind")"
     [ -z "$reason" ] || report_path "$p" "$reason"
   done
 }
@@ -371,10 +500,11 @@ case "$MODE" in
     # rev-list --objects lists "sha path" for every blob and tree reachable in
     # the range and not from its excluded side — so a file added in commit 3
     # and deleted in commit 4 is still listed. Commits have no path field and
-    # are dropped by the NF test. Paths are newline-separated here (git offers
-    # no -z for rev-list); a newline inside a filename is the one shape this
-    # mode cannot represent, and it is refused by the tree scan of the same
-    # range's head in the CI job.
+    # are dropped by the NF test. Its paths are newline-separated: rev-list's
+    # own -z exists only in a recent git, and this scanner runs on the git a
+    # project has. A newline inside a filename splits that line there; the
+    # same path is also named by the commits' diffs below, read NUL-delimited,
+    # and judged whole.
     git rev-list --objects "$ARG" >/dev/null 2>&1 || die "cannot resolve range '$ARG'"
 
     # TWO SOURCES, UNIONED, because neither alone is complete.
@@ -390,7 +520,9 @@ case "$MODE" in
     # each commit, regardless of whether its blob is new, which covers that
     # gap. It is unioned with the object walk rather than replacing it, so a
     # path reachable as an object but not named by any diff in the range is
-    # still classified.
+    # still classified. -z: the paths are read NUL-delimited, as --staged and
+    # --tree read theirs, so each is judged as itself whatever bytes its name
+    # holds (WU-IAENG-442).
     #
     # `--cc` (PT2-01): without it `log --name-only` prints nothing for a merge
     # commit, so a path the MERGE ITSELF added (`git merge --no-commit`, then
@@ -401,12 +533,29 @@ case "$MODE" in
     # resolution that takes one side verbatim, names nothing, so the all-merge
     # back-merge range below still enumerates zero paths. T: a type change
     # (symlink to regular file) is a path introduced like any other.
-    scan_paths_lines < <(
+    #
+    # Each path travels with its kind: "tree" for a directory the object walk
+    # lists, "-" for every other entry (log --name-only names files only). The
+    # object's type is read by one cat-file --batch-check over the walk. The
+    # agents rule judges entries, never directories: the .claude tree of a
+    # range that edits .claude/settings.json is a directory, while a link
+    # committed as .claude is an entry (Code Reviewer, PR #467). A path that
+    # is a directory in one commit and an entry in another is listed under
+    # both kinds, so both are judged.
+    #
+    # Every record is "<kind> TAB <path>" and NUL-terminated, from both
+    # sources, so one sort -z -u unions them: the object walk's lines are
+    # turned into records by tr, the commits' paths by the read loop.
+    scan_paths_kinds_nul < <(
       {
-        git -c core.quotePath=false log --cc --format= --name-only --diff-filter=ACMRT "$ARG"
+        git -c core.quotePath=false log -z --cc --format= --name-only --diff-filter=ACMRT "$ARG" \
+          | while IFS= read -r -d '' p; do [ -z "$p" ] || printf -- '-\t%s\0' "$p"; done
         git -c core.quotePath=false rev-list --objects "$ARG" \
-          | awk 'NF > 1 { sub(/^[0-9a-f]+ /, ""); print }'
-      } | sort -u
+          | awk 'NF > 1' \
+          | git cat-file --batch-check='%(objecttype) %(rest)' \
+          | awk '{ t = $1; sub(/^[^ ]+ /, ""); print (t == "tree" ? "tree" : "-") "\t" $0 }' \
+          | tr '\n' '\0'
+      } | sort -z -u
     )
     # --text (PT2-02): a path marked -diff or binary in .gitattributes, or a
     # file with a NUL byte, otherwise prints "Binary files differ" and no

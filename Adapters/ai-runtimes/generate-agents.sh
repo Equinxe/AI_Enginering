@@ -57,11 +57,13 @@
 #                     resolved against the PROJECT, not the framework)
 #   --project <dir>   project root (default: the directory this was run from).
 #                     Decides where agents are written and where the project
-#                     roster is looked for.
+#                     roster is looked for. A relative value is read from the
+#                     directory this was run from, never from the framework.
 #   --roster <file>   an ADDITIONAL roster of Domain Employees, on top of the
 #                     framework's. Default: <project>/.ia-engineering/Registry/
 #                     employees.yml when it exists. A value naming a missing
-#                     file is refused, never skipped.
+#                     file is refused, never skipped. A relative value is read
+#                     from the directory this was run from, as --project is.
 #   --map <spec>      tier-to-capability mapping, as
 #                     "strategic=X,standard=Y,lightweight=Z,frontier=W".
 #                     Overrides the target's default. Frontier is never an
@@ -78,9 +80,27 @@
 #                     validated against the runtime's accepted effort levels.
 #   --dry-run         report what would be written, write nothing
 #   --check           exit non-zero if any generated file would differ from
-#                     what is on disk. For CI. Resolves the mapping the same
-#                     way as a generation, and says so when a file differs in
-#                     its mapping only rather than in its Employee definition.
+#                     what is on disk, or is missing. Resolves the mapping the
+#                     same way as a generation, and says so when a file
+#                     differs in its mapping only rather than in its Employee
+#                     definition. Ends with the command that regenerates, as
+#                     it runs from the directory --check was run from.
+#   --quick           with --check only: what can be told without generating
+#                     anything. Each roster Employee's agent exists, and names
+#                     as its framework root this framework (-ef: the same
+#                     directory, never a spelling), or, in the framework
+#                     repository itself, names none. A moved project, an agent
+#                     from another clone, and one written before agents named
+#                     a root are stale. A content difference (an upgraded
+#                     Employees/, another mapping) needs --check without it.
+#                     A root that is a network path is never opened.
+#   --format text|tsv with --check only (default text). tsv is for a caller:
+#                     one record per roster Employee,
+#                       agent TAB <status> TAB <path> TAB <detail>
+#                     status current (full) or present (--quick), missing or
+#                     stale; then "# generate-agents.sh --check: ..." and,
+#                     when there is something to act on, "# regenerate: <cmd>".
+#                     Every control character in a field is a space.
 #   --print-tier-map  resolve the tier mapping exactly as a generation would
 #                     (flags > the project's file > the target's defaults),
 #                     print it, and stop: nothing is generated, written or
@@ -88,11 +108,13 @@
 #                       # mapping: <flags|file|defaults ...>
 #                       map=strategic=X,standard=Y,lightweight=Z,frontier=W
 #                       effort-map=strategic=E,standard=,lightweight=,frontier=
-#                     Refused together with --check or --dry-run, which it
-#                     would otherwise silently not perform. It is how a
+#                     Refused together with --dry-run or a full --check, which
+#                     it would otherwise silently not perform. It is how a
 #                     session reads the mapping a Tier Override must use
 #                     (claude-code/hooks/session-start.sh) instead of
-#                     inferring one.
+#                     inferring one. With --check --quick it prints those
+#                     three lines, then runs the quick check: session start
+#                     asks both of one process.
 #   --help
 #
 # A PROJECT'S OWN MAPPING: <project>/.ia-engineering/tier-map, optional, holds
@@ -129,7 +151,16 @@ set -uo pipefail
 export LC_ALL=C
 
 SCRIPT_DIR="$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+# The framework's physical path (pwd -P), links resolved: the root a
+# generation writes into every agent of an adopting project, and the one the
+# quick check compares an agent's root with, by spelling too
+# (SEC-IAENG-467-01). A logical path would depend on how the script was
+# reached: a project behind a symbolic link (macOS /tmp is /private/tmp, a
+# linked workspace) would be generated from the user's shell under one
+# spelling and checked by session start under the other, and called stale at
+# every session (Code Reviewer, PR #467). Git Bash resolves a junction the
+# same way.
+ROOT="$(cd "$SCRIPT_DIR/../.." && pwd -P)"
 
 # Captured BEFORE the cd into the framework: this is the project the caller
 # meant, and the only directory whose .claude/agents a runtime will read.
@@ -147,6 +178,8 @@ MAP_OVERRIDE=""
 EFFORT_MAP_OVERRIDE=""
 DRY_RUN=0
 CHECK=0
+QUICK=0
+FORMAT=text
 PRINT_TIER_MAP=0
 
 # Each value-taking flag asserts it HAS a value before shifting past it.
@@ -187,15 +220,28 @@ while [ "$#" -gt 0 ]; do
     --effort-map) need_value --effort-map "$#"; EFFORT_MAP_OVERRIDE="$2"; shift 2 ;;
     --dry-run) DRY_RUN=1; shift ;;
     --check)   CHECK=1; shift ;;
+    --quick)   QUICK=1; shift ;;
+    --format)  need_value --format "$#"; FORMAT="$2"; shift 2 ;;
     --print-tier-map) PRINT_TIER_MAP=1; shift ;;
     --help|-h) sed -n '2,$p' "$0" | awk '/^#/{print; next} /^$/{print; next} {exit}'; exit 0 ;;
     *) echo "Unknown argument: $1 (try --help)" >&2; exit 2 ;;
   esac
 done
 
-if [ "$PRINT_TIER_MAP" -eq 1 ] && [ "$CHECK$DRY_RUN" != "00" ]; then
+case "$FORMAT" in
+  text|tsv) ;;
+  *) echo "Argument error: --format takes text or tsv." >&2; exit 2 ;;
+esac
+if [ "$CHECK" -eq 0 ] && { [ "$QUICK" -eq 1 ] || [ "$FORMAT" != text ]; }; then
+  echo "Argument error: --quick and --format qualify --check, which was not given." >&2
+  exit 2
+fi
+# --print-tier-map with --check --quick is allowed: neither generates, and
+# session-start.sh asks both of one process instead of starting two.
+if [ "$PRINT_TIER_MAP" -eq 1 ] && { [ "$DRY_RUN" -eq 1 ] || { [ "$CHECK" -eq 1 ] && [ "$QUICK" -eq 0 ]; }; }; then
   echo "Argument error: --print-tier-map only prints the resolved mapping; it does not" >&2
   echo "  generate, so it cannot be combined with --check or --dry-run. Run them separately." >&2
+  echo "  (--check --quick generates nothing either, and can be combined with it.)" >&2
   exit 2
 fi
 
@@ -251,6 +297,23 @@ esac
 # --- Project -----------------------------------------------------------------
 # Resolved before the mapping, because the project can record its own mapping
 # (.ia-engineering/tier-map, below) and the file is looked for under it.
+
+# A relative --project or --roster names a path from the directory the script
+# was run from, as every command-line path does (issue #418). They were read
+# from the framework, because of the cd above: `--project .`, run from an
+# adopter's root, wrote all its agents into the framework's own gitignored
+# .claude/agents/ and exited 0, and session-start.sh, which passes --project .
+# when CLAUDE_PROJECT_DIR is unset, showed the framework's tier map as the
+# project's. Set in place, not through $(...): session start runs this, and on
+# Windows every fork is part of its latency.
+case "$PROJECT" in
+  ""|/*|[A-Za-z]:[\\/]*) ;;
+  *) PROJECT="$INVOCATION_DIR/$PROJECT" ;;
+esac
+case "$PROJECT_ROSTER" in
+  ""|/*|[A-Za-z]:[\\/]*) ;;
+  *) PROJECT_ROSTER="$INVOCATION_DIR/$PROJECT_ROSTER" ;;
+esac
 
 PROJECT="${PROJECT:-$INVOCATION_DIR}"
 if [ ! -d "$PROJECT" ]; then
@@ -424,13 +487,20 @@ if [ "$PRINT_TIER_MAP" -eq 1 ]; then
   echo "# mapping: $MAPPING_SOURCE"
   echo "map=strategic=$MAP_STRATEGIC,standard=$MAP_STANDARD,lightweight=$MAP_LIGHTWEIGHT,frontier=$MAP_FRONTIER"
   echo "effort-map=strategic=$EFFORT_STRATEGIC,standard=$EFFORT_STANDARD,lightweight=$EFFORT_LIGHTWEIGHT,frontier=$EFFORT_FRONTIER"
-  exit 0
+  # Alone, it stops here. With --check --quick (session start), the quick
+  # check follows; nothing below the quick check runs in this mode.
+  [ "$CHECK" -eq 1 ] || exit 0
 fi
 
 # --- Output and rosters ------------------------------------------------------
+#
+# Resolved before the framework root is (below): the quick check reads them
+# and must not depend on it, for the reason --print-tier-map must not.
 
 # Relative --out is the adopter's project path, not a path inside the
-# framework. Absolute --out is taken as given.
+# framework. Absolute --out is taken as given. OUT_GIVEN keeps whether it was
+# given, for the command that regenerates.
+OUT_GIVEN="$OUT"
 OUT="${OUT:-$DEFAULT_OUT}"
 case "$OUT" in
   /*|[A-Za-z]:[\\/]*) ;;
@@ -449,6 +519,7 @@ fi
 # refused, because generating only the framework's Employees would silently
 # leave the project's own undispatchable. Absence of the DEFAULT path is the
 # ordinary case and is reported, not treated as an error.
+ROSTER_GIVEN="$PROJECT_ROSTER"
 DEFAULT_PROJECT_ROSTER="$PROJECT/.ia-engineering/Registry/employees.yml"
 if [ -n "$PROJECT_ROSTER" ]; then
   if [ ! -f "$PROJECT_ROSTER" ]; then
@@ -467,6 +538,389 @@ elif [ -f "$DEFAULT_PROJECT_ROSTER" ]; then
   # invisible because the file does not exist. A rule with a silent exception
   # is a rule nobody can rely on.
   PROJECT_ROSTER="$DEFAULT_PROJECT_ROSTER"
+fi
+
+# One awk pass per roster, same shape validate-framework.sh uses. The base
+# directory travels with each row because a roster's `file:` paths are relative
+# to ITS OWN root: the framework's to the framework, a project's to the project.
+#
+# The agent's file name (the slug) is computed here too, once per roster, for
+# the generation and the quick check alike, so the two can never look for two
+# different files. It was `printf | tr | sed` per Employee: three processes
+# each, 126 for the roster, which on Windows is seconds. The rule is the same,
+# byte for byte under LC_ALL=C: lower-case A-Z, a slash read as a space, every
+# run of characters other than a-z and 0-9 one hyphen, no hyphen at either end
+# ("UX/UI Designer" is ux-ui-designer). The function is held once, here, and
+# given to both awk programs that need it: this one and the quick check's.
+AWK_SLUG='
+    function slug(n,   s) {
+      s = tolower(n)
+      gsub(/\//, " ", s)
+      gsub(/[^a-z0-9]+/, "-", s)
+      sub(/^-/, "", s)
+      sub(/-$/, "", s)
+      return s
+    }'
+read_roster() {
+  awk -v base="$2" -v label="$3" "$AWK_SLUG"'
+    function emit() { if (name != "") print name "\t" file "\t" category "\t" tier "\t" base "\t" label "\t" slug(name) }
+    /^  - name: / {
+      emit()
+      name = $0; sub(/^  - name: /, "", name); gsub(/\015/, "", name)
+      file = ""; category = ""; tier = ""
+      next
+    }
+    /^    file: /     { file = $0;     sub(/^    file: /, "", file);         gsub(/\015/, "", file) }
+    /^    category: / { category = $0; sub(/^    category: /, "", category); gsub(/\015/, "", category) }
+    /^    tier: /     { tier = $0;     sub(/^    tier: /, "", tier);         gsub(/\015/, "", tier) }
+    END { emit() }
+  ' "$1"
+}
+
+# Both rosters' rows, the framework's first.
+roster_rows() {
+  read_roster "$ROSTER" "$ROOT" "$ROSTER"
+  if [ -n "$PROJECT_ROSTER" ]; then
+    # Labelled by the path an adopter would type, so a generated Domain
+    # Employee's header points at the roster that actually declared it.
+    read_roster "$PROJECT_ROSTER" "$PROJECT" "${PROJECT_ROSTER#"$PROJECT"/}"
+  fi
+}
+
+# --- What --check reports, and the command that regenerates ------------------
+#
+# Every field of a record goes through flat(), the record sanitiser of the TSV
+# emitters, the same block byte for byte (Adapters/scripts/tests/run.sh
+# compares it, WU-IAENG-434): a record is one line, and nothing read from an
+# agent file, such as the root it names, reaches a terminal or a session's
+# context as an escape sequence. It sets FLAT in place: no process.
+# >>> record sanitiser — byte-identical in install.sh, install-hooks.sh,
+# install-skills.sh and check-framework-drift.sh: none of them sources
+# another, and Adapters/scripts/tests/run.sh compares the four (WU-IAENG-366).
+# flat <text> — every control character (TAB, LF, CR, ESC, ...) becomes a
+# space: a record is one line and carries no terminal escape.
+# The C1 controls (U+0080-U+009F, CSI among them) are UTF-8 pairs \xc2\x80 to
+# \xc2\x9f: a pair becomes one space. A lone byte in that range is part of
+# another character and is left alone (SEC-IAENG-358-01). For these the
+# result is the same under the C locale and a UTF-8 one; a UTF-8 locale also
+# flattens a few other code points, U+2028 and U+2029 among them.
+C1_LEAD=$'\xc2'
+flat() {
+  FLAT="${1//[[:cntrl:]]/ }"
+  FLAT="${FLAT//"$C1_LEAD"[$'\x80'-$'\x9f']/ }"
+}
+# <<< record sanitiser
+
+# report <status> <dest> [<detail>] — one agent's result. In text, a missing
+# file is "missing:", one that differs "differs:", a current one nothing (as
+# --check always printed). In tsv, one record per agent, its path relative to
+# the project when it is inside it.
+report() {
+  local st="$1" p="$2" d="${3:-}"
+  flat "$d"; d="$FLAT"
+  if [ "$FORMAT" = tsv ]; then
+    case "$p" in "$PROJECT"/*) p="${p#"$PROJECT"/}" ;; esac
+    flat "$p"; p="$FLAT"
+    printf 'agent\t%s\t%s\t%s\n' "$st" "$p" "$d"
+    return 0
+  fi
+  case "$st" in
+    missing) echo "  missing: $p" ;;
+    stale) echo "  differs: $p${d:+ ($d)}" ;;
+  esac
+  return 0
+}
+
+# sh_word <text> — SH_WORD is the text as one shell word: as it is when it
+# holds only characters no shell reads specially, otherwise in single quotes,
+# each ' written '\''. A path with a space or a non-ASCII letter (C:/Users/
+# Jérôme/my app) is quoted, so the command runs as printed.
+SQ="'"
+SQ_ESCAPED="'\\''"
+sh_word() {
+  case "$1" in
+    ''|*[!A-Za-z0-9_./:=,+@%-]*) SH_WORD="$SQ${1//"$SQ"/"$SQ_ESCAPED"}$SQ" ;;
+    *) SH_WORD="$1" ;;
+  esac
+}
+
+# below <dir> <ancestor> — true when <ancestor> is <dir> or one of its
+# parents, by identity (-ef); BELOW is then <dir>'s path under it ("" for the
+# same directory). Walked by parameter expansion, not dirname and basename:
+# no process per level.
+below() {
+  local p="$1" rel="" parent
+  BELOW=""
+  while :; do
+    if [ "$p" -ef "$2" ]; then BELOW="$rel"; return 0; fi
+    parent="${p%/*}"
+    [ "$parent" = "$p" ] && return 1
+    [ -n "$parent" ] || parent=/
+    [ "$parent" = "$p" ] && return 1
+    rel="${p##*/}${rel:+/$rel}"
+    p="$parent"
+  done
+}
+
+# The command that regenerates exactly what was checked, run from the
+# directory this was run from (issue #412). It printed a fixed
+# `./Adapters/ai-runtimes/generate-agents.sh`, which exists only inside the
+# framework: from an adopter's root, where the README runs the generator, it
+# exited 127, and from inside the framework it targeted the framework. Now:
+# this script by the path that reaches it from there, the project when it is
+# not that directory, and every option that decided what was compared.
+REMEDY=""
+make_remedy() {
+  local cmd
+  if below "$ROOT" "$INVOCATION_DIR"; then
+    sh_word "./${BELOW:+$BELOW/}Adapters/ai-runtimes/generate-agents.sh"
+  else
+    sh_word "$ROOT/Adapters/ai-runtimes/generate-agents.sh"
+  fi
+  cmd="$SH_WORD"
+  sh_word "$TARGET"; cmd="$cmd --target $SH_WORD"
+  if ! [ "$PROJECT" -ef "$INVOCATION_DIR" ]; then sh_word "$PROJECT"; cmd="$cmd --project $SH_WORD"; fi
+  if [ -n "$OUT_GIVEN" ]; then sh_word "$OUT"; cmd="$cmd --out $SH_WORD"; fi
+  if [ -n "$ROSTER_GIVEN" ]; then sh_word "$PROJECT_ROSTER"; cmd="$cmd --roster $SH_WORD"; fi
+  if [ -n "$MAP_OVERRIDE" ]; then sh_word "$MAP_OVERRIDE"; cmd="$cmd --map $SH_WORD"; fi
+  if [ -n "$EFFORT_MAP_OVERRIDE" ]; then sh_word "$EFFORT_MAP_OVERRIDE"; cmd="$cmd --effort-map $SH_WORD"; fi
+  REMEDY="$cmd"
+}
+
+# --- --check --quick: present, and naming this framework (WU-IAENG-434) ------
+#
+# .claude/agents/ is per clone: gitignored, never committed, and since
+# WU-IAENG-430 each agent of an adopting project names the absolute framework
+# root of the clone that generated it. So a fresh clone or a second machine
+# has no agent at all, and a moved project, or agents copied from another
+# clone, name a framework that is not this one. That root may still exist (the
+# old clone, a copy left behind), so it is compared by identity with this
+# framework (-ef), never trusted because the directory is there: an Employee
+# would read every Standard from it.
+#
+# Session start asks this on every session (claude-code/hooks/session-start.sh),
+# so it costs what it must and no more: no agent is generated, and ONE awk
+# process reads the rosters and every agent's root line (each file only up to
+# that line). A root that is a network path (// or \\, any mix) is
+# never handed to -ef: stat on Windows would open an SMB connection to the
+# host it names (SEC-IAENG-358-02).
+#
+# Identity alone is not enough (SEC-IAENG-467-01): -ef follows a symbolic
+# link, and under Git Bash a Windows junction, so a root that reaches this
+# framework through a link passed, and the link could then be pointed at other
+# Standards. A root is current only when it is also written as the generator
+# writes this framework (shown_root, below): another spelling of the same
+# directory is stale, as the full --check already says ("framework location
+# only"). Windows paths are compared without letter case, as Windows reads
+# them. That spelling is computed once, and only when an agent names a root.
+
+# shown_root — SHOWN_ROOT is this framework's root as a generated agent names
+# it, and the function is true when that path is this framework (-ef). Under
+# Git Bash, pwd's /c/... or /tmp/... are MSYS spellings a Windows program does
+# not read, so the root is written as cygpath -m gives it, C:/...; cygpath
+# runs under a UTF-8 locale, not the LC_ALL=C exported above, which wrote
+# Développement as D\351veloppement and cut a path off at 日本 (Code Reviewer
+# F1 on PR #456). Elsewhere pwd's path is already native.
+shown_root() {
+  SHOWN_ROOT="$ROOT"
+  if command -v cygpath > /dev/null 2>&1; then
+    SHOWN_ROOT="$(LC_ALL=C.UTF-8 cygpath -m "$ROOT" 2> /dev/null)"
+  fi
+  [ -n "$SHOWN_ROOT" ] && [ "$SHOWN_ROOT" -ef "$ROOT" ]
+}
+
+# same_spelling <a> <b> — true when two roots are written alike: without
+# letter case where Windows reads paths (cygpath is there), exactly elsewhere.
+same_spelling() {
+  if command -v cygpath > /dev/null 2>&1; then
+    [ "${1,,}" = "${2,,}" ]
+  else
+    [ "$1" = "$2" ]
+  fi
+}
+
+if [ "$QUICK" -eq 1 ]; then
+  if [ "$FORMAT" = text ]; then
+    echo "IA Engineering — checking agent definitions, quick: each one present and naming"
+    echo "this framework as its root. Their content is compared by --check without --quick."
+    echo "  project: $PROJECT"
+    echo "  output:  $OUT"
+    if [ "$ROOT" -ef "$PROJECT" ]; then
+      echo "  framework root they must name: none (this is the framework repository)"
+    else
+      echo "  framework root they must name: $ROOT"
+    fi
+    echo
+  fi
+  # One awk process for the rosters and the agents (Code Reviewer, PR #467):
+  # it reads each roster entry's name, makes its agent's file name with the
+  # generation's own slug(), and reads that file's root line. One line per
+  # roster Employee, in roster order: the agent's path, TAB, the root it
+  # names, empty when it names none, \001 when the file cannot be opened
+  # (missing, or unreadable: told apart below). The first root line only, as
+  # location_of reads it; a CR ending the line is not part of it.
+  Q_N=0; Q_PRESENT=0; Q_MISSING=0; Q_STALE=0
+  while IFS=$'\t' read -r q_dest q_root; do
+    [ -n "$q_dest" ] || continue
+    Q_N=$((Q_N + 1))
+    if [ "$q_root" = $'\001' ] && [ ! -f "$q_dest" ]; then
+      Q_MISSING=$((Q_MISSING + 1)); report missing "$q_dest"; continue
+    fi
+    q_why=""
+    case "$q_root" in
+      $'\001') q_why="it cannot be read" ;;
+      "")
+        [ "$ROOT" -ef "$PROJECT" ] \
+          || q_why="it names no framework root: it was written before agents named one, or for the framework repository itself" ;;
+      [/\\][/\\]*) q_why="its framework root $q_root is a network path, never opened here" ;;
+      /*|[A-Za-z]:[/\\]*)
+        if ! [ "$q_root" -ef "$ROOT" ]; then
+          q_why="its framework root $q_root is not this project's framework: the project moved, or it was generated in another clone"
+        else
+          if [ -z "${Q_SHOWN_DONE:-}" ]; then
+            Q_SHOWN_DONE=1
+            Q_SHOWN=""
+            shown_root && Q_SHOWN="$SHOWN_ROOT"
+          fi
+          if [ -z "$Q_SHOWN" ]; then
+            q_why="this framework's root cannot be written as a path that names it, so no agent's root can be confirmed"
+          elif ! same_spelling "$q_root" "$Q_SHOWN"; then
+            q_why="its framework root $q_root reaches this framework, but is not written as the generator writes it ($Q_SHOWN): through a link, which can be pointed elsewhere, or another spelling"
+          fi
+        fi ;;
+      *) q_why="its framework root $q_root is not an absolute path" ;;
+    esac
+    if [ -n "$q_why" ]; then
+      Q_STALE=$((Q_STALE + 1)); report stale "$q_dest" "$q_why"
+    else
+      Q_PRESENT=$((Q_PRESENT + 1)); report present "$q_dest"
+    fi
+  done < <(Q_OUT="$OUT" awk "$AWK_SLUG"'
+    # The output directory through the environment, not -v: -v reads its
+    # backslashes as escapes, and C:\Users\... is a path this script accepts
+    # (Code Reviewer, PR #467).
+    BEGIN { out = ENVIRON["Q_OUT"] }
+    function root_of(f,   line, r, n, rc) {
+      r = ""; n = 0
+      while ((rc = (getline line < f)) > 0) {
+        n++
+        sub(/\r$/, "", line)
+        if (line ~ /^Framework root: `.*`$/) {
+          r = line; sub(/^Framework root: `/, "", r); sub(/`$/, "", r); break
+        }
+      }
+      if (rc < 0 && n == 0) r = "\001"
+      close(f)
+      return r
+    }
+    function emit(   d) {
+      if (name == "") return
+      d = out "/" slug(name) ".md"
+      print d "\t" root_of(d)
+    }
+    /^  - name: / { emit(); name = $0; sub(/^  - name: /, "", name); gsub(/\015/, "", name); next }
+    END { emit() }
+  ' "$ROSTER" ${PROJECT_ROSTER:+"$PROJECT_ROSTER"})
+  Q_ACT=$((Q_MISSING + Q_STALE))
+  [ "$Q_ACT" -gt 0 ] && make_remedy
+  if [ "$FORMAT" = tsv ]; then
+    echo "# generate-agents.sh --check --quick: $Q_ACT to act on. $Q_N agent(s): $Q_PRESENT present, $Q_MISSING missing, $Q_STALE stale."
+    [ "$Q_ACT" -gt 0 ] && echo "# regenerate: $REMEDY"
+  else
+    echo
+    echo "Result (quick): $Q_PRESENT present, $Q_ACT stale or missing, of $Q_N roster Employee(s)"
+    if [ "$Q_ACT" -gt 0 ]; then
+      echo "  Agents are generated per clone and never committed. Regenerate:"
+      echo "    $REMEDY"
+    fi
+  fi
+  [ "$Q_ACT" -gt 0 ] && exit 1
+  exit 0
+fi
+
+# --- Where an adopting project's agents read the framework (WU-IAENG-430) ----
+#
+# Every generated agent names framework documents by their path from the
+# framework root: Core/AGENT_CONDUCT.md, Standards/COMMIT_STANDARD.md, and
+# whatever its Employee definition cites. In this repository that root is the
+# working directory of every session and of every worktree, so the paths
+# resolve. In an adopting project they resolved nowhere (issue #449): not from
+# the project root, where the framework sits under ia-engineering/, and not
+# from a linked git worktree, the directory Claude Code gives an Employee
+# dispatched with `isolation: worktree`. A worktree shares the clone's config
+# but not its initialised submodule, so ia-engineering/ is empty there.
+# Measured on develop 75765ba: 741 framework paths named by 42 agents, 741
+# unresolved from the worktree. The Code Reviewer and the QA Engineer reviewed
+# without the Standards they apply.
+#
+# So an adopting project's agents carry one more section, "Where the Framework
+# Is", naming the framework root as the absolute path of the checkout that
+# generated them: the main checkout's framework, the same one git already runs
+# the hooks from in every worktree (install.sh writes an absolute
+# core.hooksPath for that reason, WU-IAENG-414). A path naming the main
+# checkout reads from any worktree, needs no network, no disk and no cleanup.
+#
+# Initialising the submodule in each worktree was measured and rejected: 10.7 s
+# and 5.6 MiB per worktree from a local one-commit fixture (a real one clones
+# the framework, history included, from its remote), and `git worktree remove`
+# then refuses, exit 128, "working trees containing submodules cannot be moved
+# or removed", so every worktree would need --force to be removed.
+#
+# The path is written as the runtime's file tools take it. Under Git Bash, pwd
+# says /c/Users/... or even /tmp/..., MSYS spellings a Windows program does not
+# read; cygpath -m gives C:/Users/..., which the runtime's file tools and Git
+# Bash both open. Elsewhere pwd's path is already native.
+#
+# cygpath runs under a UTF-8 locale, not the LC_ALL=C exported above. Under C,
+# it writes a non-ASCII character in a single-byte charset and stops at the
+# first one it cannot write at all: .../Développement/... came out as
+# D\351veloppement, a directory that does not exist, and .../日本/... was cut
+# off there, so a moved project could truncate to the same root and --check
+# called it current (Code Reviewer F1 on PR #456). The file is read as UTF-8,
+# and C.UTF-8 gives those bytes. Then the written root must BE the framework
+# (-ef): a root no program can open is refused, never written, because an
+# Employee told to read there would read nothing and believe the instruction.
+# All of it runs after --print-tier-map has exited: that mode names no root,
+# and session-start.sh calls it on every session, so a refusal here must not
+# take the tier map in force down with it.
+#
+# The framework repository itself gets no such section: its agents stay
+# byte-identical, because there the paths already resolve. That is decided by
+# identity (-ef, device and inode), not by comparing spellings, for the reason
+# install.sh gives (WU-IAENG-362): the same directory can be spelled in two
+# letter cases. The framework's path inside the project is found by walking up
+# from the framework the same way, so a nested import (vendor/ia-engineering)
+# reads right too; a framework outside the project leaves it empty.
+#
+# A moved project, or agents copied from another clone, name a root that is
+# not this one. --check reports that as its own kind of difference ("framework
+# location only"), never as an Employee definition out of date.
+FRAMEWORK_SHOWN=""
+FRAMEWORK_REL=""
+if ! [ "$ROOT" -ef "$PROJECT" ]; then
+  _probe="$ROOT"
+  _rel=""
+  while :; do
+    _parent="$(dirname "$_probe")"
+    # dirname of the root is the root: the framework is not inside the project.
+    [ "$_parent" = "$_probe" ] && break
+    _rel="$(basename "$_probe")${_rel:+/$_rel}"
+    _probe="$_parent"
+    if [ "$_probe" -ef "$PROJECT" ]; then
+      FRAMEWORK_REL="$_rel"
+      break
+    fi
+  done
+  unset _probe _rel _parent
+  if ! shown_root; then
+    FRAMEWORK_SHOWN="$SHOWN_ROOT"
+    echo "generate-agents.sh: cannot write the framework root as a path that names it." >&2
+    echo "  The framework is $ROOT; the native form computed for it is" >&2
+    echo "  '$FRAMEWORK_SHOWN', which is not that directory. Every agent would tell its" >&2
+    echo "  Employee to read the framework where it is not, so nothing was written." >&2
+    exit 2
+  fi
+  FRAMEWORK_SHOWN="$SHOWN_ROOT"
 fi
 
 # --- Extraction ------------------------------------------------------------
@@ -623,12 +1077,6 @@ extract_sections() {
   done
 }
 
-slugify() {
-  printf '%s' "$1" \
-    | tr '[:upper:]' '[:lower:]' \
-    | sed 's|/| |g; s/[^a-z0-9]\+/-/g; s/^-//; s/-$//'
-}
-
 # --- Generation ------------------------------------------------------------
 
 WRITTEN=0
@@ -637,8 +1085,113 @@ DIFFERENT=0
 # The subset of DIFFERENT whose only difference is the tier mapping (see
 # without_mapping below). Lets --check say which of the two causes it found.
 MAPPING_DRIFT=0
+# The subset of DIFFERENT that names another framework root, alone or beside
+# a mapping difference (see without_location below), and the part of it that
+# differs in nothing else.
+LOCATION_DRIFT=0
+LOCATION_ONLY=0
+# The part of LOCATION_DRIFT that differs in the mapping too: neither "mapping
+# only" nor "location only" (DEF-IAENG-456-01: it was counted as mapping only,
+# and the lines of the summary added up to more than the agents that differ).
+MAPPING_AND_LOCATION=0
+# The subset of DIFFERENT with no file on disk.
+MISSING=0
 
-# Prints a generated agent file with what the MAPPING decides removed:
+# The "Where the Framework Is" section of an adopting project's agents, built
+# once (see "Where an adopting project's agents read the framework" above). The
+# root is on a line of its own, "Framework root: `<path>`", the one line
+# without_location and location_of read it from. Every sentence speaks to the
+# Employee reading the file, who may be in the main checkout or in a worktree.
+#
+# Interpolated values sit on lines of their own, so a long root or framework
+# path does not run one sentence past the wrapping width (Prompt Engineer,
+# PR #456). The prefix sentence names the framework's directory apart from
+# the project's own .ia-engineering/, one dot away; and the project-path
+# sentence keeps a project's own Core/ or Templates/ (a .NET or Django layout)
+# from being read under the framework root.
+LOCATION_SECTION=""
+if [ -n "$FRAMEWORK_SHOWN" ]; then
+  if [ -n "$FRAMEWORK_REL" ]; then
+    _imported="This project imports IA Engineering at
+\`$FRAMEWORK_REL/\`.
+Read every framework file from the framework root of the project's main
+checkout:"
+    _prefix="So does such a path written with the prefix
+\`$FRAMEWORK_REL/\`,
+the framework's directory in the project, which is not the project's own
+\`.ia-engineering/\`.
+"
+    _regenerate="from the main checkout with
+\`./$FRAMEWORK_REL/Adapters/ai-runtimes/generate-agents.sh\`."
+  else
+    _imported="This project uses IA Engineering from outside its own tree. Read every
+framework file from this framework root:"
+    _prefix=""
+    _regenerate="with that framework's
+\`Adapters/ai-runtimes/generate-agents.sh\`, run from the project root."
+  fi
+  LOCATION_SECTION="## Where the Framework Is
+
+$_imported
+
+Framework root: \`$FRAMEWORK_SHOWN\`
+
+A framework path in this definition or in your brief, such as \`Core/…\`,
+\`Standards/…\`, \`Templates/…\`, \`Workflows/…\`, \`Employees/…\`, \`Registry/…\`
+or \`Adapters/…\`, names the file at that path under the framework root.
+${_prefix}For example, \`Core/AGENT_CONDUCT.md\` is
+\`$FRAMEWORK_SHOWN/Core/AGENT_CONDUCT.md\`.
+Read it there, by that absolute path.
+
+Only framework documents are read there. A path to one of the project's own
+files stays under your working directory, even when its first directory has
+a framework name such as \`Core/\` or \`Templates/\`, and so does everything
+under \`.ia-engineering/\`.
+
+Never look for a framework file under your working directory. In a git
+worktree, where an Employee usually works, a framework imported as a submodule
+is an empty directory, because the submodule is not initialised there: a file
+missing under your working directory is not missing from the framework. If the
+framework root above does not exist, stop and report it: the project moved, or
+this definition was generated in another clone. It is regenerated $_regenerate
+"
+  unset _imported _prefix _regenerate
+fi
+
+# Prints a generated agent file with the framework root its "Where the
+# Framework Is" section names replaced by a fixed token, everywhere in the
+# file. Two files equal under this filter differ in the root only. The root is
+# read from the file's own "Framework root:" line, so each side is normalised
+# by its own value, and the comparison is by text (index), never by regular
+# expression: a path is full of characters a regex reads as operators.
+without_location() {
+  awk '
+    root == "" && /^Framework root: `.*`$/ {
+      root = $0
+      sub(/^Framework root: `/, "", root)
+      sub(/`$/, "", root)
+    }
+    root != "" {
+      out = ""
+      rest = $0
+      while ((i = index(rest, root)) > 0) {
+        out = out substr(rest, 1, i - 1) "<framework root>"
+        rest = substr(rest, i + length(root))
+      }
+      $0 = out rest
+    }
+    { print }
+  ' "$1"
+}
+
+# The framework root a generated file names, or nothing.
+location_of() {
+  awk '/^Framework root: `.*`$/ { sub(/^Framework root: `/, ""); sub(/`$/, ""); print; exit }' "$1"
+}
+
+# Reads a generated agent file on stdin (without_location's output, so the
+# framework root is already set aside) and prints it with what the MAPPING
+# decides removed:
 # `model:` and `effort:` inside the frontmatter, and the " -> <model>..." tail
 # of the header's `Tier:` line. Two files equal under this filter differ in
 # mapping only — their Employee definition, roster, and template are the same.
@@ -655,14 +1208,14 @@ without_mapping() {
     fm == 1 && (/^model: / || /^effort: /) { next }
     /^  Tier:      / { sub(/ -> .*$/, ""); print; next }
     { print }
-  ' "$1"
+  '
 }
 
 generate_claude_code() {
-  local name="$1" file="$2" category="$3" tier="$4" from_roster="$5" source_label="$6"
-  local slug model effort effort_note dest tmp
+  local name="$1" file="$2" category="$3" tier="$4" from_roster="$5" source_label="$6" slug="$7"
+  local model effort effort_note dest tmp
 
-  slug="$(slugify "$name")"
+  dest="$OUT/$slug.md"
   case "$tier" in
     "Strategic Judgment") model="$MAP_STRATEGIC"; effort="$EFFORT_STRATEGIC" ;;
     "Standard Execution") model="$MAP_STANDARD"; effort="$EFFORT_STANDARD" ;;
@@ -672,11 +1225,21 @@ generate_claude_code() {
       echo "    Lightweight Execution is a per-Work-Unit override, never a" >&2
       echo "    default. Fix the Employee definition, not this script." >&2
       DIFFERENT=$((DIFFERENT + 1))
+      [ "$CHECK" -eq 1 ] && [ "$FORMAT" = tsv ] && report stale "$dest" "the roster gives it the tier '$tier', which is neither default tier: it cannot be generated"
       return
       ;;
   esac
   effort_note=""
   [ -n "$effort" ] && effort_note=", effort: $effort"
+
+  # A missing agent is missing whatever it would contain: said before any
+  # generation, which costs it nothing (a fresh clone has none of them).
+  if [ "$CHECK" -eq 1 ] && [ ! -f "$dest" ]; then
+    DIFFERENT=$((DIFFERENT + 1))
+    MISSING=$((MISSING + 1))
+    report missing "$dest"
+    return
+  fi
 
   # One awk pass for every section this Employee needs, instead of one
   # process substitution per section (see extract_sections() above). Kept
@@ -686,7 +1249,6 @@ generate_claude_code() {
   local SECTION_BODIES=()
   extract_sections "$file"
 
-  dest="$OUT/$slug.md"
   tmp="$(mktemp)"
 
   {
@@ -746,6 +1308,10 @@ Employee. Every artifact you produce carries \`Employee: $name\` as its commit
 trailer, and the commit-msg hook validates that name against the roster.
 
 HEADER
+
+    # Before the first section that names a framework path, so the root is
+    # read before any path is. Empty in the framework repository itself.
+    [ -n "$LOCATION_SECTION" ] && printf '%s\n' "$LOCATION_SECTION"
 
     local i s body
     for i in "${!SECTION_NAMES[@]}"; do
@@ -832,12 +1398,24 @@ FOOTER
   } > "$tmp"
 
   if [ "$CHECK" -eq 1 ]; then
-    if [ -f "$dest" ] && diff -q "$tmp" "$dest" > /dev/null 2>&1; then
+    local disk_root
+    if diff -q "$tmp" "$dest" > /dev/null 2>&1; then
       UNCHANGED=$((UNCHANGED + 1))
-    elif [ -f "$dest" ] && diff -q <(without_mapping "$tmp") <(without_mapping "$dest") > /dev/null 2>&1; then
+      report current "$dest"
+    elif diff -q <(without_location "$tmp") <(without_location "$dest") > /dev/null 2>&1; then
+      # Same content once each side's framework root is set aside: the agent
+      # names another checkout's framework (WU-IAENG-430). Equal under the
+      # filter but not before it means the two roots differ.
+      DIFFERENT=$((DIFFERENT + 1))
+      LOCATION_DRIFT=$((LOCATION_DRIFT + 1))
+      LOCATION_ONLY=$((LOCATION_ONLY + 1))
+      disk_root="$(location_of "$dest")"
+      report stale "$dest" "framework location only: on disk ${disk_root:-none}; resolved ${FRAMEWORK_SHOWN:-none}"
+    elif diff -q <(without_location "$tmp" | without_mapping) <(without_location "$dest" | without_mapping) > /dev/null 2>&1; then
       # Same content once the mapping lines are set aside: the Employee
       # definition did not change, the mapping did. Said so, rather than
-      # sending the reader to Employees/ for a drift that is not there.
+      # sending the reader to Employees/ for a drift that is not there. The
+      # framework root is set aside too, and named when it also differs.
       DIFFERENT=$((DIFFERENT + 1))
       MAPPING_DRIFT=$((MAPPING_DRIFT + 1))
       # Both halves of the mapping, on both sides: an effort-only drift would
@@ -845,10 +1423,19 @@ FOOTER
       local disk_model disk_effort
       disk_model="$(awk '/^---$/{n++; next} n==1 && /^model: /{sub(/^model: /, ""); print; exit}' "$dest")"
       disk_effort="$(awk '/^---$/{n++; next} n==1 && /^effort: /{sub(/^effort: /, ""); print; exit}' "$dest")"
-      echo "  differs: $dest (mapping only: on disk $disk_model, effort: ${disk_effort:-inherit}; resolved $model, effort: ${effort:-inherit})"
+      disk_root="$(location_of "$dest")"
+      if [ "$disk_root" = "$FRAMEWORK_SHOWN" ]; then
+        report stale "$dest" "mapping only: on disk $disk_model, effort: ${disk_effort:-inherit}; resolved $model, effort: ${effort:-inherit}"
+      else
+        # Counted apart: it is not a "mapping only" difference, and it is
+        # one of the agents the framework-location line counts.
+        LOCATION_DRIFT=$((LOCATION_DRIFT + 1))
+        MAPPING_AND_LOCATION=$((MAPPING_AND_LOCATION + 1))
+        report stale "$dest" "mapping and framework location: on disk $disk_model, effort: ${disk_effort:-inherit}, root ${disk_root:-none}; resolved $model, effort: ${effort:-inherit}, root ${FRAMEWORK_SHOWN:-none}"
+      fi
     else
       DIFFERENT=$((DIFFERENT + 1))
-      echo "  differs: $dest"
+      report stale "$dest" "out of date with Employees/ or the roster"
     fi
     rm -f "$tmp"
     return
@@ -878,54 +1465,43 @@ FOOTER
   WRITTEN=$((WRITTEN + 1))
 }
 
-echo "IA Engineering — generating agent definitions"
-echo "  target:  $TARGET"
-echo "  project: $PROJECT"
-echo "  output:  $OUT"
-echo "  roster:  $ROOT/$ROSTER ($(grep -cE '^  - name: ' "$ROSTER") Employees)"
-if [ -n "$PROJECT_ROSTER" ]; then
-  echo "  project roster: $PROJECT_ROSTER ($(grep -cE '^  - name: ' "$PROJECT_ROSTER") Domain Employee(s))"
-else
-  echo "  project roster: none (no .ia-engineering/Registry/employees.yml under the project — no Domain Employees)"
+if [ "$FORMAT" = text ]; then
+  echo "IA Engineering — generating agent definitions"
+  echo "  target:  $TARGET"
+  echo "  project: $PROJECT"
+  echo "  output:  $OUT"
+  echo "  roster:  $ROOT/$ROSTER ($(grep -cE '^  - name: ' "$ROSTER") Employees)"
+  if [ -n "$PROJECT_ROSTER" ]; then
+    echo "  project roster: $PROJECT_ROSTER ($(grep -cE '^  - name: ' "$PROJECT_ROSTER") Domain Employee(s))"
+  else
+    echo "  project roster: none (no .ia-engineering/Registry/employees.yml under the project — no Domain Employees)"
+  fi
+  if [ -n "$FRAMEWORK_SHOWN" ]; then
+    echo "  framework root, named in every agent: $FRAMEWORK_SHOWN"
+  fi
+  echo "  mapping: $MAPPING_SOURCE"
+  echo "  tiers:   Strategic Judgment -> $MAP_STRATEGIC (effort: ${EFFORT_STRATEGIC:-inherit}), Standard Execution -> $MAP_STANDARD (effort: ${EFFORT_STANDARD:-inherit})"
+  echo "           Lightweight via Tier Override -> $MAP_LIGHTWEIGHT (effort: ${EFFORT_LIGHTWEIGHT:-inherit})"
+  echo "           Frontier via Tier Override, Director approval each time -> $MAP_FRONTIER (effort: ${EFFORT_FRONTIER:-inherit})"
+  echo
 fi
-echo "  mapping: $MAPPING_SOURCE"
-echo "  tiers:   Strategic Judgment -> $MAP_STRATEGIC (effort: ${EFFORT_STRATEGIC:-inherit}), Standard Execution -> $MAP_STANDARD (effort: ${EFFORT_STANDARD:-inherit})"
-echo "           Lightweight via Tier Override -> $MAP_LIGHTWEIGHT (effort: ${EFFORT_LIGHTWEIGHT:-inherit})"
-echo "           Frontier via Tier Override, Director approval each time -> $MAP_FRONTIER (effort: ${EFFORT_FRONTIER:-inherit})"
-echo
-
-# One awk pass per roster, same shape validate-framework.sh uses. The base
-# directory travels with each row because a roster's `file:` paths are relative
-# to ITS OWN root: the framework's to the framework, a project's to the project.
-read_roster() {
-  awk -v base="$2" -v label="$3" '
-    function emit() { if (name != "") print name "\t" file "\t" category "\t" tier "\t" base "\t" label }
-    /^  - name: / {
-      emit()
-      name = $0; sub(/^  - name: /, "", name); gsub(/\015/, "", name)
-      file = ""; category = ""; tier = ""
-      next
-    }
-    /^    file: /     { file = $0;     sub(/^    file: /, "", file);         gsub(/\015/, "", file) }
-    /^    category: / { category = $0; sub(/^    category: /, "", category); gsub(/\015/, "", category) }
-    /^    tier: /     { tier = $0;     sub(/^    tier: /, "", tier);         gsub(/\015/, "", tier) }
-    END { emit() }
-  ' "$1"
-}
 
 # Process substitution, NOT a pipe: a pipe puts the loop in a subshell, where
 # every WRITTEN/UNCHANGED/DIFFERENT increment is discarded and the summary
 # reports 0 for a run that wrote 42 files. That is the same defect class the
 # Check Convention names (Adapters/README.md) — a report of something that did
 # not happen — and it was introduced and caught in this Work Unit.
-while IFS=$'\t' read -r name file category tier base roster_label; do
+ROWS_SEEN=0
+while IFS=$'\t' read -r name file category tier base roster_label slug; do
   [ -n "$name" ] || continue
+  ROWS_SEEN=$((ROWS_SEEN + 1))
 
   # A roster entry with no `file:` names an Employee whose definition the
   # generator cannot read. Reported, never silently skipped to a default.
   if [ -z "$file" ]; then
     echo "  ! $name: the roster entry has no 'file:' — skipped" >&2
     DIFFERENT=$((DIFFERENT + 1))
+    [ "$CHECK" -eq 1 ] && [ "$FORMAT" = tsv ] && report stale "$OUT/$slug.md" "the roster entry has no file: it cannot be generated"
     continue
   fi
   # Two forms of the same path: the absolute one to read, the declared one to
@@ -937,6 +1513,7 @@ while IFS=$'\t' read -r name file category tier base roster_label; do
   if [ ! -f "$source_file" ]; then
     echo "  ! $name: $source_file is missing — skipped" >&2
     DIFFERENT=$((DIFFERENT + 1))
+    [ "$CHECK" -eq 1 ] && [ "$FORMAT" = tsv ] && report stale "$OUT/$slug.md" "its definition $source_file is missing: it cannot be generated"
     continue
   fi
   case "$TARGET" in
@@ -944,40 +1521,57 @@ while IFS=$'\t' read -r name file category tier base roster_label; do
     # directory; $source_label is the roster-relative form the roster itself
     # declares, and it is what the generated header records. Passing the
     # absolute path into the header made every generated file differ between
-    # machines, which breaks the --check mode Adapters/ai-runtimes/README.md
-    # recommends adopters wire into CI. Introduced by WU-IAENG-189 and caught
-    # by review before it left the branch.
-    claude-code) generate_claude_code "$name" "$source_file" "$category" "$tier" "$roster_label" "$file" ;;
+    # machines (WU-IAENG-189, caught by review before it left the branch).
+    # That still holds for the framework repository's own agents, which name
+    # no root and may be committed and checked in CI. An adopting project's
+    # agents differ per clone anyway, by the framework root they name
+    # (WU-IAENG-430): they stay uncommitted and --check runs in each clone.
+    claude-code) generate_claude_code "$name" "$source_file" "$category" "$tier" "$roster_label" "$file" "$slug" ;;
   esac
-done < <(
-  read_roster "$ROSTER" "$ROOT" "$ROSTER"
-  if [ -n "$PROJECT_ROSTER" ]; then
-    # Labelled by the path an adopter would type, so a generated Domain
-    # Employee's header points at the roster that actually declared it.
-    read_roster "$PROJECT_ROSTER" "$PROJECT" "${PROJECT_ROSTER#"$PROJECT"/}"
-  fi
-)
+done < <(roster_rows)
 
-echo
 if [ "$CHECK" -eq 1 ]; then
+  [ "$DIFFERENT" -gt 0 ] && make_remedy
+  if [ "$FORMAT" = tsv ]; then
+    echo "# generate-agents.sh --check: $DIFFERENT to act on. $ROWS_SEEN agent(s): $UNCHANGED current, $MISSING missing, $((DIFFERENT - MISSING)) stale."
+    [ "$DIFFERENT" -gt 0 ] && echo "# regenerate: $REMEDY"
+    [ "$DIFFERENT" -gt 0 ] && exit 1
+    exit 0
+  fi
+  echo
   echo "Result: $UNCHANGED current, $DIFFERENT stale or missing"
   if [ "$DIFFERENT" -gt 0 ]; then
-    if [ "$MAPPING_DRIFT" -gt 0 ]; then
-      echo "  $MAPPING_DRIFT differ in the tier mapping only (model/effort), not in their"
+    # Three groups that never overlap, so their counts add up to DIFFERENT
+    # (DEF-IAENG-456-01): mapping only (root unchanged), every agent naming
+    # another root (with or without a mapping difference), and the rest.
+    MAPPING_ONLY=$((MAPPING_DRIFT - MAPPING_AND_LOCATION))
+    if [ "$MAPPING_ONLY" -gt 0 ]; then
+      echo "  $MAPPING_ONLY differ in the tier mapping only (model/effort), not in their"
       echo "  Employee definition: they were generated with a different mapping than the"
       echo "  one resolved now (mapping: $MAPPING_SOURCE)."
       echo "  Either regenerate with the resolved mapping, or record the mapping they were"
       echo "  generated with in .ia-engineering/tier-map (Adapters/ai-runtimes/README.md)."
     fi
-    if [ "$DIFFERENT" -gt "$MAPPING_DRIFT" ]; then
-      echo "  $((DIFFERENT - MAPPING_DRIFT)) out of date with Employees/ or the roster, or missing."
+    if [ "$LOCATION_DRIFT" -gt 0 ]; then
+      echo "  $LOCATION_DRIFT name a framework root other than this one (${FRAMEWORK_SHOWN:-none}):"
+      echo "  the project moved, or they were generated in another clone. An Employee"
+      echo "  reading them looks for the framework where it is not. Regenerate them here."
+      if [ "$MAPPING_AND_LOCATION" -gt 0 ]; then
+        echo "  $MAPPING_AND_LOCATION of them also differ in the tier mapping (model/effort): the"
+        echo "  regeneration writes the mapping resolved now (mapping: $MAPPING_SOURCE)."
+      fi
     fi
-    echo "  Regenerate:"
-    echo "    ./Adapters/ai-runtimes/generate-agents.sh --target $TARGET"
+    if [ "$DIFFERENT" -gt $((MAPPING_ONLY + LOCATION_DRIFT)) ]; then
+      echo "  $((DIFFERENT - MAPPING_ONLY - LOCATION_DRIFT)) out of date with Employees/ or the roster, or missing."
+    fi
+    echo "  Regenerate, from the directory this check was run from:"
+    echo "    $REMEDY"
     exit 1
   fi
   exit 0
 fi
+
+echo
 
 # Under --dry-run nothing was written, so the summary must not say it was.
 # The counter is shared between the two modes, and reporting "42 written" for a
@@ -992,9 +1586,12 @@ fi
 
 if [ "$DRY_RUN" -eq 0 ] && [ "$WRITTEN" -gt 0 ]; then
   echo
-  echo "These are build artifacts. Regenerate after editing any Employee"
-  echo "definition; do not hand-edit them. Whether to commit them is the"
-  echo "project's call — this repository does not, and .gitignore reflects that."
+  echo "These are build artifacts, generated in each clone. Regenerate after"
+  echo "editing any Employee definition, after a framework upgrade and after the"
+  echo "project moves; do not hand-edit them. .gitignore keeps them out, and an"
+  echo "adopting project never commits them: the pre-commit hook install.sh"
+  echo "installs refuses them. A session started before .claude/agents/ existed"
+  echo "loads them only once it is restarted."
 fi
 
 [ "$DIFFERENT" -gt 0 ] && exit 1
