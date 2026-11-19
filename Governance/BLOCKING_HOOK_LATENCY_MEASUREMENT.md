@@ -22,6 +22,7 @@ The measurement was taken on 28 October 2026 and the decision was made on 29 Oct
    - At or above the cap a dispatch waits and the Director is told; the cap never refuses one.
    - With 6 calls at a time, on a machine at 100 % CPU but a lighter process-creation load than the heaviest measured, the slowest guard call took 9.8 s, 8 % of the timeout.
    - The cap is decided again after the edit guard is re-measured (Usage plan W2.3) (The Parallel-Agent Cap).
+7. **19 November 2026, WU-IAENG-444:** `block-inline-suppression.sh` starts `cat`, one `jq` and one `grep` on a code edit, 14 processes per call instead of 52. Interleaved with develop's at 6 calls at a time, its p50 is 23 % of before, and its own cost above the no-op 14 %, against the third that W2.3 asks for. Every verdict is unchanged, but one: an edit of 65,536 to 65,663 bytes no longer waits for the 120 s timeout. The load was light, so this does not decide the cap (The Edit Guard Starts a Quarter of the Processes).
 
 ---
 
@@ -346,7 +347,7 @@ The first round also measured `k` directly against the 29-process gate (`90be675
 
 **The binding guard is now `block-inline-suppression.sh`.** It still starts 55 processes per edit (model, `k` 1.84). Its modelled p50 is 4.5 s with 3 agents or fewer, 4.8 s with 5 or fewer, 6.2 s at exactly 6 and 6.9 s at exactly 7. At 6 and 7, 40 to 41 % of its calls pass 10 s. With 8 or more it doubles: a p50 of 12.1 s, a p95 of 31 s, and 56 % of calls over 10 s. **With its main session, a cap of 6 subagents is 7 agents in the model's terms: the last bin below that jump, with no margin left for a second main session.** That bin is also the thinnest measured: 41 production events at exactly 7 and 59 at 8 or more, against 657 of the 757 at 6 or fewer. Each main session beyond the first therefore lowers the cap by one.
 
-Guard wait per dispatch, as the modelled mean latency times a dispatch's median of 78 Bash calls and about 47 edits. The rows count transcripts, main sessions included. A cap of 6 subagents with one main session is 7, the "6 to 7" row. A cap of 3 with one main session is 4, between the first two rows: the model was not cut at exactly 4, and is re-run in W2.3's measurement.
+Guard wait per dispatch, as the modelled mean latency times a dispatch's median of 78 Bash calls and about 47 edits. The rows count transcripts, main sessions included. A cap of 6 subagents with one main session is 7, the "6 to 7" row. A cap of 3 with one main session is 4: after the two "3 or fewer" rows, which differ by guard and not by agents, and within the "6 or fewer" row. The guard before WU-IAENG-431, which v0.0.15 runs, has no row above 3. The model was not cut at exactly 4; that run is left to the cap decision (The Edit Guard Starts a Quarter of the Processes, below).
 
 | Agents (transcripts) | Escape-hatch guard | Guard wait per dispatch |
 |---|---|---:|
@@ -398,6 +399,82 @@ The cap stays at 6 until the edit guard, now the binding one, is measured again 
 - **A Main Agent sees only its own subagents.** It counts the main sessions and subagents of other sessions only when the Director reports them. The cap holds machine-wide only as far as those reports do. A pole sees neither, which is why it counts against a fixed share of the cap.
 - **Nested subagents are counted as their brief declares them.** A dispatch counts as 1 plus the subagents its Employee Brief allows. An Employee that starts more than its brief allows breaks the cap without the Main Agent seeing it.
 - **The check at 6 was short.** It is one run of 82 s, at one load, on one machine, Windows only. Linux and macOS start processes far more cheaply (Limits, below).
+- **Session start does not print the cap.** The Director's review of `develop` at 67ad444 asked, in the second part of its finding 13, that `session-start.sh` print the cap where every session sees it. The triage deferred that part to a Platform Engineer Work Unit timed with W2.3, and WU-IAENG-444 does not take it: it changes no hook but the edit guard. It stays deferred, filed as issue #486. Until then the cap reaches a Main Agent through `Core/ORCHESTRATION.md` and the project's `CLAUDE.md`, which point to it.
+
+## The Edit Guard Starts a Quarter of the Processes (WU-IAENG-444)
+
+Usage plan item W2.3, measured on 19 November 2026 on `develop` at 2cbee05, whose edit guard is blob `276d8bb`. The plan's acceptance asks for the p50 to fall to a third or less. Finding 11 of the Director's review of 67ad444 asked that the test be a ratio or relative to the floor, not an absolute second, because the day's load moves every absolute value (The Parallel-Agent Cap, above). So the criterion is two ratios, both taken from calls interleaved with develop's at 6 at a time, which meet the same load:
+
+- the new guard's p50 is a third or less of develop's;
+- its own cost above the interleaved no-op is a third or less of develop's own cost at p50.
+
+### What a Call Starts
+
+`block-inline-suppression.sh` started five `jq` (the object check, three fields, the text), one `grep` per row of `Adapters/scripts/suppression-patterns.tsv` (five rows), and, on Windows, three or four `cygpath` with the command substitutions around them. It now starts:
+
+- **One `jq`**, which makes the same object check and prints the tool name, the file path, the cwd and the text, separated by `\037`. A field that is not a string or null, or that holds a `\037` or a line break, a `tool_input` that is not an object or null, or a text value that is an array or an object sends the payload to the code before WU-IAENG-444, unchanged.
+- **One `grep`**, given every pattern with `-e`. It exits 1 only when no pattern matches any line, which is when every per-row `grep` would have exited 1, so the edit is allowed there. A match, a pattern it cannot compile, a malformed row or no row goes to the per-row loop, which refuses as before and names the row that fired. A refusal therefore adds the per-row `grep`s up to that row.
+- **No `cygpath` on an ordinary edit.** The path exemptions, the pattern file and `tests/`, can apply only to a path whose canonical form ends in the pattern file's name or holds a `tests` segment. `cygpath` changes only a path's prefix and separators, so those names must already be in the file path, in the payload's cwd, or, without one, in the working directory. When none of them names either, the conversion is not made. When one does, a single `cygpath` converts every path, where one was started per path and per base. The skip could miss an exemption only under a mount whose POSIX target itself names `tests` or the pattern file, and then the edit is refused, never wrongly allowed.
+
+Counted with recording stand-ins first on `PATH`, a clean code edit started `cat`, five `jq`, five `grep` and three `cygpath` (four with a cwd), and a documentation edit `cat` and three `jq`. Now a code edit starts `cat`, one `jq` and one `grep`; a documentation edit, `cat` and one `jq`; and an edit whose path names `tests` or the pattern file adds one `cygpath`. `tests/run.sh` holds the hook to that budget.
+
+Counted by a Job Object per run, every process included, on the 24 payloads below (the no-op is 5 in this harness):
+
+| Payload kind | payloads | develop | WU-IAENG-444 |
+|---|---:|---:|---:|
+| code edit, allowed | 20 | 52 | 14 |
+| documentation edit (exempt by name) | 2 | 18 | 11 |
+| code edit, refused | 2 | 44 to 50 | 17 to 26 |
+
+### Measured, Before and After Interleaved
+
+A harness written for this Work Unit, of the method above. Each call is started as Claude Code starts it on Windows, `Git\bin\bash.exe -c "bash \"<hook>\""`, the payload on stdin, in its own Job Object, which counts every process and sums its CPU. Each call's stdout and stderr are pipes, drained, as Claude Code's are. **A first run gave them the NUL device instead, and there both hooks took their no-`jq` path, where `iaeng_field` reads fields with `sed`.** It counted 45 processes for develop and 22 for this guard, with ratios of 59 % at p50. Those runs are discarded, and a later harness should give its calls pipes too.
+
+The 24 payloads are synthetic, as on 18 November: Edits, Writes and a MultiEdit of TypeScript, Python, Go, shell, YAML, Rust and JavaScript, from one line to 120, two of them documentation and two refused. No recorded payload was used. The no-op, develop's guard and this one ran round-robin, the order rotated per payload. A sampler logged the machine every 10 s during the 6-at-a-time run, 13 samples: CPU 37 to 74 %, a run queue of 0 to 21, about 470 processes, 11 to 32 bash (the bench's own included), 4 node and 4 claude. **The load was light.**
+
+| One call at a time, 10:59 to 11:01 UTC | runs | processes per call | CPU per call (median, ms) | p50 (ms) | p95 (ms) | max (ms) |
+|---|---:|---:|---:|---:|---:|---:|
+| no-op (calibration, reads its stdin with a builtin) | 24 | 5 | 78 | 249 | 519 | 737 |
+| `block-inline-suppression.sh`, develop 2cbee05 | 24 | 52 (18 to 52) | 1,031 | 1,885 | 2,425 | 2,568 |
+| `block-inline-suppression.sh`, WU-IAENG-444 | 24 | 14 (11 to 26) | 296 | 595 | 1,285 | 1,741 |
+
+| 6 calls at a time, 11:01:16 to 11:02:31 UTC | runs | p50 (ms) | p95 (ms) | max (ms) | > 10 s |
+|---|---:|---:|---:|---:|---:|
+| no-op | 72 | 400 | 1,092 | 1,546 | 0 |
+| `block-inline-suppression.sh`, develop 2cbee05 | 72 | 4,108 | 5,860 | 6,619 | 0 |
+| `block-inline-suppression.sh`, WU-IAENG-444 | 72 | 930 | 2,576 | 3,621 | 0 |
+
+**Result, 6 calls at a time.** The p50 falls to **23 %** of develop's (930 ms against 4,108 ms). Above the no-op, the guard's own cost at p50 falls from 3,708 ms to 530 ms, **14 %**. Both are within the third the criterion asks. The p95 falls to 44 %, and the slowest call took 3.6 s. One call at a time, the p50 is 32 % of develop's, and the own cost 21 %. Every run exited as expected: 0, and 2 for the two refused payloads, the same for both guards.
+
+### What the Rules Decide Is Unchanged
+
+- **Develop's guard against this one, payload by payload.** Both ran side by side in one hooks directory, so that both found the same pattern file and `tests/` directory, on 332 synthetic payloads: every alternative of every row in every tool and position, upper case, clean code, every documentation suffix, the pattern file and `tests/` in POSIX, Windows, relative, `..`, CR and line-break spellings, tool names, file paths, cwds and `tool_input`s of every JSON type, text values of every type, `\001`, `\037` and NUL bytes, CRLF texts, and payloads that are not one object. All 332 have the same exit code and the same refusal text: 203 refused, 125 allowed. The four payloads that hold a NUL make bash print its own "ignored null byte" warning in both, at a different line of each script.
+- **`tests/run.sh`** gains 23 checks, which make 50 on the edit guard:
+  - one refusal per row, named by its label;
+  - a MultiEdit's texts each start their own line;
+  - a path's trailing line break, and a `\037` inside a path, judged as before;
+  - the pattern file's path, and a cwd of `tests/`, each with a trailing CR, judged as before on each platform;
+  - a bare name resolved against a cwd, and against the working directory, inside `tests/`;
+  - a row that does not compile, a row without a TAB and a row with an empty pattern, each refused;
+  - two texts of 65,600 bytes;
+  - the process budget, six ways.
+
+  On develop, the six budget checks and the two 65,600-byte checks fail, and the other 42 pass.
+- **Mutation.** Each fast path and each of its guards was changed one line at a time, and the committed edit-guard checks were run against each copy. 28 mutants, 27 caught:
+  - **The one `jq`:** never taken; always parsed; without the one-object check; without its line guard, or the guard missing the line feed or the `\037`; the texts joined without a line break. Seven mutants, seven caught.
+  - **The one `cygpath`:** never taken; without its CR and line-feed guard, or without the CR alone; the base taken from the file's line; the pattern file and the hooks directory swapped. Five caught. The guard's mutants are caught only by a cwd of `tests/` followed by a CR. That path names no directory, so `cygpath` keeps the CR, where the per-path command substitution strips it. The pattern file's own path with a CR does not catch them: `cygpath` drops the CR of a path that exists.
+  - **The exemption gate:** always closed; always open; the file path without `tests`, or without the pattern file's name; the cwd not read; the working directory not read. Six caught.
+  - **The one `grep`:** never taken; its exit 2 read as clean; the last pattern only; the first pattern only; a malformed row or an empty pattern kept on the fast path; the here-string put back. Seven caught.
+  - **The per-row loop:** the here-string put back; the `printf`'s status read as `grep`'s. Two caught.
+  - **Not caught: the one `cygpath`'s line-count check removed.** It is equivalent on every input the guard lets through: with no CR or line feed in any path, `cygpath` prints one line per path. It stays as a defence. Were `cygpath` ever to print fewer lines, the lines would shift, and the file's own line could be compared as the pattern file's, which would be a wrong allow. The check sends that case to the per-path conversion instead.
+
+**One verdict changes, on purpose.** A text of 65,536 to 65,663 bytes went to `grep` through a here-string, which never finishes on Git for Windows in that window (Here-strings of 64 KiB, above). Such an edit waited for the guard's 120 s timeout. Claude Code 2.1.295 or later then refused it; an earlier version let it through unchecked. The text now goes to `grep` through a pipe, and `grep`'s own status is read from `PIPESTATUS`, so the `SIGPIPE` that `pipefail` once read as "no match" (TROUBLESHOOTING X) cannot recur. On a clean text of 65,600 bytes, develop's guard was still running when stopped at 40 s; the new one allowed it in 1.1 s.
+
+### Limits of This Measurement
+
+- **The load was light.** The no-op's p50 was 400 ms at 6 at a time, against the 2 s or more that The Condition for Raising or Lifting the Cap sets for the measurement that decides the cap. That measurement, at 6 and 8 at a time, with the model re-run at exactly 4 and exactly 7 transcripts, is not taken here. It stays with the Performance Engineer, on the guard this Work Unit leaves. The ratios are the result here; the absolute values move with the load.
+- **The production model is not re-applied.** Its inputs are transcript-derived and are not in this session (Sources). On the published `k` of 1.84 and the ratio of own costs measured here, 14 %, the edit guard's `k` would be about 0.26. That is an estimate, not a measurement.
+- **One run, one machine, Windows only, synthetic payloads.** On Linux there is no `cygpath`, and the conversion starts no process either way.
 
 ---
 
@@ -406,7 +483,7 @@ The cap stays at 6 until the edit guard, now the binding one, is measured again 
 Ranked by the cost they would remove. Each needs its own Work Unit.
 
 1. **`block-escape-hatches.sh`: 84 processes on every Bash call** (issue #385). Taken since, in WU-IAENG-431: see The Escape-Hatch Guard Matches in Bash, above.
-2. **`block-inline-suppression.sh`: 55 processes on every edit.** Same remedy, same review (Usage plan item W2.3).
+2. **`block-inline-suppression.sh`: 55 processes on every edit.** Taken since, in WU-IAENG-444: see The Edit Guard Starts a Quarter of the Processes, above.
 3. **`session-start.sh`: 102 processes**, once per session and per `/clear`. It runs rarely, so it is lower on the list.
 4. **The plugin hooks.** Four node hooks on Stop and one on PreToolUse, which times out 33 % of the time. They belong to the user's configuration, not the framework's. The Director has been told.
 5. **A machine-wide limit on parallel agents.** WU-IAENG-409 left this decision until after this measurement. The load table above is the input: the share of gate runs over 10 s is 4 to 6 % with up to 3 agents, 18 % with 4 to 7, and 38 % with 8 or more. Taken since, as Director decision D3: see The Parallel-Agent Cap, above.
@@ -440,7 +517,7 @@ Ranked by the cost they would remove. Each needs its own Work Unit.
 
 Owner: IA Engineering
 
-Version: 0.0.18
+Version: 0.0.19
 
 Status: Draft
 
