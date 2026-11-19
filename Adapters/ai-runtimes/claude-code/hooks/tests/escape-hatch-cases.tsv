@@ -886,6 +886,8 @@ allow	"/c/x y/git.exe" config --get core.hooksPath
 allow	git.exe config --get core.hooksPath
 allow	git push origin "x y/-f"
 allow	git commit -m "chore: bump vendor/git"
+allow	git commit -m "see docs/--no-verify"
+block	"/c/x y/git" commit -m "see docs/--no-verify" --no-verify	--no-verify disables
 allow	cd "/c/Program Files/Git" && git status
 # The earlier reading of a command is kept, and a second reading follows it:
 # a word only the second adds does not part two words a rule reads side by side.
@@ -924,6 +926,8 @@ block	git stash list `git stash`	git stash sets work aside
 block	git stash {list,show}	git stash sets work aside
 block	git stash save x; git stash list	git stash sets work aside
 block	git stash lis	git stash sets work aside
+block	git stash listx	git stash sets work aside
+block	git stash showall	git stash sets work aside
 allow	git stash list && git stash show -p
 allow	git -C "/c/Program Files/repo" stash list
 allow	git --git-dir="/c/my repo/.git" stash show

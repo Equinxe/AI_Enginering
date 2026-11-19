@@ -52,6 +52,8 @@
 # component. When the region holds a / or a \ and the text after the last one
 # is a word with no whitespace, that word is printed with a / before it. The
 # / keeps the word from reading as an option, a keyword or a name of its own.
+# A word that begins with - names no command, so it is not kept: the text of
+# `git commit -m "see docs/--no-verify"` stays dropped, as any message is.
 #
 # BRACE EXPANSION needs no quoting at all, so it is done here: comma groups and
 # simple ranges are expanded and every alternative APPENDED to the text. The
@@ -195,7 +197,7 @@ function path_tail(s,   k, ch) {
   }
   if (k == 0) return ""
   s = substr(s, k + 1)
-  if (s == "" || s ~ /[ \t\n]/) return ""
+  if (s == "" || s ~ /[ \t\n]/ || s ~ /^-/) return ""
   return "/" mark_literal_braces(s)
 }
 
