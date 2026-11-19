@@ -278,7 +278,8 @@ STRIPPED_LINES=(${SPLIT[@]+"${SPLIT[@]}"})
 # said. 2,000 is four times the most segments seen in 4,504 real commands of
 # this repository (463, where a brace expansion multiplied a 1,235-character
 # command; the 99.9th percentile is 137, the median 5). The count is taken
-# after the lexer, so brace alternatives count. At the cap, the heaviest
+# after the lexer, so brace alternatives count, and so does the lexer's second
+# reading of a command, when it prints one (WU-IAENG-440). At the cap, the heaviest
 # command (2,000 lines, each a `gh` segment) was read in 2.5 s on the loaded
 # Windows machine of the measurement. The large inputs timed there, before
 # and after this change, are in that Governance document.
@@ -326,14 +327,24 @@ fi
 #
 # GX, DEVELOP'S G, IS FOR THE EXEMPTIONS (SEC-IAENG-431-05). A rule that
 # refuses may over-match; an exemption that allows may not. So the read
-# exemptions (stash list|show, the core.hooksPath reads) read the global
+# exemptions (the core.hooksPath reads; the stash rule earns no exemption since
+# WU-IAENG-440, see there) read the global
 # options with GX, where -C, -c and the `=` form of the long options below
 # require a value: -C and -c take the next word, and `=` takes what follows
 # it, so that word is never read as the subcommand that earns the
 # exemption. The space form of those long options is read either way, as on
 # develop: the generic --[a-z][a-z-]* alternative may read the option alone.
-G='git([[:space:]]+(-[Cc]([[:space:]]+[^[:space:]]+)?|--(git-dir|work-tree|namespace|exec-path|config-env|super-prefix|attr-source)(=[^[:space:]]*|[[:space:]]+[^[:space:]]+)|--[a-z][a-z-]*|-[pP]))*[[:space:]]+'
-GX='git([[:space:]]+(-[Cc][[:space:]]+[^[:space:]]+|--(git-dir|work-tree|namespace|exec-path|config-env|super-prefix|attr-source)(=|[[:space:]]+)[^[:space:]]+|--[a-z][a-z-]*|-[pP]))*[[:space:]]+'
+#
+# GIT_NAME IS THE COMMAND NAME, IN EVERY SPELLING THE SHELL RUNS (WU-IAENG-440).
+# On Windows the file system folds case and the shell finds git.exe by either
+# name, so `GIT`, `Git.EXE` and `git.exe` run git as `git` does; G and GX
+# accept each of them. A subcommand is still matched case-sensitively, as git
+# reads it. A git named by a path is matched by its last component, and a
+# quoted path with a space reaches the rules as that component, with a /
+# before it (strip-quotes.awk).
+GIT_NAME='[Gg][Ii][Tt](\.[Ee][Xx][Ee])?'
+G="$GIT_NAME"'([[:space:]]+(-[Cc]([[:space:]]+[^[:space:]]+)?|--(git-dir|work-tree|namespace|exec-path|config-env|super-prefix|attr-source)(=[^[:space:]]*|[[:space:]]+[^[:space:]]+)|--[a-z][a-z-]*|-[pP]))*[[:space:]]+'
+GX="$GIT_NAME"'([[:space:]]+(-[Cc][[:space:]]+[^[:space:]]+|--(git-dir|work-tree|namespace|exec-path|config-env|super-prefix|attr-source)(=|[[:space:]]+)[^[:space:]]+|--[a-z][a-z-]*|-[pP]))*[[:space:]]+'
 S='[[:space:]]'
 E='([[:space:]]|;|&|\||\)|$)'
 
@@ -413,7 +424,11 @@ fi
 # read match or carries a `-c` / `--config-env` that names hooksPath (a write
 # layered under a read, never exempted).
 READ_OPT="(--(global|system|local|worktree|show-origin|show-scope|includes|no-includes|null|name-only)|-z|--(file|blob|type|default)(=|${S}+)[^[:space:]]+)"
-READ_HOOKSPATH="^[[:space:](\`{]*([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*${S}+)*${GX}config${S}+(${READ_OPT}${S}+)*(--get(-all|-regexp)?|--list|-l|get|list)${S}+(${READ_OPT}${S}+)*core\.hooksPath"
+# A QUOTED GIT PATH (WU-IAENG-440). The lexer reads a quoted command path that
+# holds a space by its last component with a / before it, `/git.exe`, so GXP
+# is GX after an optional /.
+GXP="/?${GX}"
+READ_HOOKSPATH="^[[:space:](\`{]*([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*${S}+)*${GXP}config${S}+(${READ_OPT}${S}+)*(--get(-all|-regexp)?|--list|-l|get|list)${S}+(${READ_OPT}${S}+)*core\.hooksPath"
 # LEGACY POSITIONAL GET (Refs #181). `git config [scope] core.hooksPath` with
 # NOTHING after the key reads the value, as `--get` does. It is exempt on the same
 # terms: the closed option list only, then the key, then end of segment. Any value
@@ -434,7 +449,7 @@ READ_HOOKSPATH="^[[:space:](\`{]*([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*${S}+)*${G
 # commit message that mentions the key beside a quote, or `x=$(git config
 # core.hooksPath)`, is refused; `--get` and the other keyword reads above are not
 # affected.
-READ_HOOKSPATH_LEGACY="^[[:space:](\`{]*([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*${S}+)*${GX}config${S}+(${READ_OPT}${S}+)*core\.hooksPath${S}*\$"
+READ_HOOKSPATH_LEGACY="^[[:space:](\`{]*([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*${S}+)*${GXP}config${S}+(${READ_OPT}${S}+)*core\.hooksPath${S}*\$"
 WRITE_HOOKSPATH_VIA_C="git[^|;&]*(-c${S}+|--config-env(=|${S}+))core\.hooksPath"
 case "$CMD" in
   *\'*|*\"*|*\\*|*'`'*|*\$\(*|*$'\n'*|*\{*|*\}*|*,*|*\[*|*\]*|*\?*|*\**) LEGACY_OK=0 ;;
@@ -665,7 +680,16 @@ if check_key "GIT_CONFIG_KEY_[0-9]+\+?=${DANGER_KEY}" \
   iaeng_block "GIT_CONFIG_KEY_<n> or git -c / --config-env sets commit.gpgsign, include.*, includeIf.*, alias.* or core.fsmonitor — keys that turn off signing, load config this hook cannot read, redefine a command or run a program — refused in every form, whatever the value (git -c commit.gpgsign passes only as the bare key or a literal true)" \
     "Standards/GIT_STANDARD.md, Escape Hatches. Use the setting the project already has, or ask a human to run it and describe why in the commit."
 fi
-if check "${G}stash$E" && ! check "${GX}stash${S}+(list|show)$E"; then
+# THE STASH READ EXEMPTION IS JUDGED FOR EACH git stash (WU-IAENG-440). A
+# `stash` reached by G is refused unless the word after it is `list` or
+# `show`: STASH_OTHER matches the end of the line, a separator, or any other
+# word. One pattern, matched on every line, so each occurrence is judged on
+# its own: a read in one segment, or a `git … stash list` that is only text
+# inside another command, exempts nothing else. Every reading G allows is
+# tried, so an occurrence is refused when any of them reaches a word other
+# than `list` or `show`. Case is not folded: `stash LIST` is refused.
+STASH_OTHER="(${S}*\$|${S}*[;&|)]|${S}+([^[:space:];&|)ls]|l([^i]|\$)|li([^s]|\$)|lis([^t]|\$)|list[^[:space:];&|)]|s([^h]|\$)|sh([^o]|\$)|sho([^w]|\$)|show[^[:space:];&|)]))"
+if check "${G}stash${STASH_OTHER}"; then
   iaeng_block "git stash sets work aside with no record; it is local, unlabelled, and lost with the clone" \
     "Standards/GIT_STANDARD.md, Escape Hatches. Commit as work in progress on the feature branch, or open a second branch."
 fi
