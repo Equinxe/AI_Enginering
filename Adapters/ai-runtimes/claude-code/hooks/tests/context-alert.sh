@@ -31,7 +31,9 @@
 #     directory for every TMPDIR form, a backslash .. included (issue #340);
 #   - the status line changes colour at exactly the steps this hook speaks
 #     at, under the defaults and each override (WU-IAENG-421, issue #390):
-#     both read context-thresholds.sh.
+#     both read context-thresholds.sh. Without that file the line is still
+#     printed and the alert says nothing, neither on stderr; the file's
+#     function refuses a prefix that is not a plain name.
 #
 # ORACLES (Standards/TESTING_STANDARD.md, Independent Oracle), none taken from
 # the hook's own output:
@@ -735,6 +737,31 @@ agree none 59 IAENG_CTX_ALERT_PCT=abc
 agree alert 60 IAENG_CTX_ALERT_PCT=abc
 agree none 94 IAENG_CTX_ALERT_PCT=95
 agree alert 100 IAENG_CTX_ALERT_PCT=95
+
+# Without context-thresholds.sh (the Merge danger of WU-IAENG-421): the line
+# is still printed, without colour, and its .pct written; the alert says
+# nothing, on UserPromptSubmit and at SessionStart; neither writes on stderr.
+# Copies of the two hooks and context-dir.sh, in a directory of their own.
+NTH="$T/no-thresholds"; mkdir -p "$NTH"
+cp "$SL" "$AL" "$HOOKS/context-dir.sh" "$NTH/"
+env -u IAENG_CONTEXT_HOOKS -u IAENG_CTX_CHAINED -u CLAUDE_CONFIG_DIR -u NO_COLOR -u IAENG_CTX_ALERT_PCT -u IAENG_CTX_LAST_CALL_PCT \
+  TMPDIR="$TMPD" IAENG_CTX_TEST_FALLBACK="$FB" HOME="$H421" CLAUDE_PROJECT_DIR="$PROJ" \
+  bash "$NTH/context-statusline.sh" <<< '{"session_id":"s421-nth","context_window":{"used_percentage":80}}' > "$T/out" 2> "$T/err"
+RC=$?; OUT="$(cat "$T/out")"; ERR="$(cat "$T/err")"
+if [ "$RC" -eq 0 ] && [ -z "$ERR" ] && [ "$OUT" = "ctx 80%" ] && [ "$(cat "$DIR/s421-nth.pct" 2>/dev/null)" = 80 ]; then
+  ok "without context-thresholds.sh: the line at 80 %, no colour, its .pct written, nothing on stderr"
+else
+  bad "without context-thresholds.sh: the line at 80 %, no colour, its .pct written, nothing on stderr" "rc=$RC out=[$OUT] err=[$ERR]"
+fi
+AL_SAVED="$AL"; AL="$NTH/context-alert.sh"
+run "$(ups s421-nth)"; silent "without context-thresholds.sh: the alert at 80 % says nothing"
+run "$(sst)" --session-start; silent "without context-thresholds.sh: SessionStart says nothing"
+AL="$AL_SAVED"
+# The prefix that names iaeng_ctx_thresholds' variables: one that is not a
+# plain name is refused, 1 and nothing on stderr (context-thresholds.sh).
+bash -c '. "$1" && iaeng_ctx_thresholds "$2"' _ "$HOOKS/context-thresholds.sh" 'a[1]' > "$T/out" 2> "$T/err"
+RC=$?
+if [ "$RC" -eq 1 ] && [ ! -s "$T/out" ] && [ ! -s "$T/err" ]; then ok "iaeng_ctx_thresholds: a prefix that is not a name is refused, 1, nothing on stderr"; else bad "iaeng_ctx_thresholds: a prefix that is not a name is refused, 1, nothing on stderr" "rc=$RC err=[$(cat "$T/err")]"; fi
 
 # =============================================================================
 echo "== the user's real context directory (issue #345)"

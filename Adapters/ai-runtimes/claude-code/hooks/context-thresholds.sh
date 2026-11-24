@@ -27,7 +27,10 @@
 #                  that is at most 100, else empty (there is no last call).
 iaeng_ctx_thresholds() {
   local _iaeng_p="${1-}" _iaeng_raw _iaeng_alert _iaeng_bad=0 _iaeng_last=""
-  # A plain name or nothing: printf -v would evaluate a subscript.
+  # A plain name or nothing, so each name below is a variable's. With any
+  # other prefix the four printf -v would each fail on stderr, and the
+  # function would return 0 with nothing set. (No subscript is evaluated
+  # either way: every name ends in a letter, not in "]".)
   [[ $_iaeng_p =~ ^([A-Za-z_][A-Za-z0-9_]*)?$ ]] || return 1
 
   _iaeng_raw="${IAENG_CTX_ALERT_PCT:-}"

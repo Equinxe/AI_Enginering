@@ -44,9 +44,13 @@
 #   - the line of its own (WU-IAENG-421, issue #390), each case the exact
 #     bytes expected: the context as a percentage and as input tokens out of
 #     the window; the weekly quota with its reset time and the time a steady
-#     pace reaches 100 %; no 5-hour quota; the branch read from the
-#     repository's HEAD, its Work Unit id, a linked worktree, a detached HEAD,
-#     a Windows path; colours at the context alert's two steps, NO_COLOR;
+#     pace reaches 100 %, and no cap for a reset more than 7 days ahead; no
+#     5-hour quota; the branch read from the repository's HEAD, its Work Unit
+#     id, a linked worktree, a detached HEAD, a Windows path, and no branch
+#     for a bare path in .git, an empty HEAD or a tag ref; colours at the
+#     context alert's two steps, NO_COLOR;
+#   - a .git, a HEAD or a .pct that is a FIFO is never read: each such run
+#     is bounded by timeout and must print its line;
 #   - .ia-engineering/statusline-own: the line of its own replaces the user's
 #     and the --chain command, which are not run; the off switch wins;
 #     deleting the file restores the chaining; the user's settings.json is
@@ -114,10 +118,10 @@ real_ctx_begin "$T"
 
 # run <stdin> [args...] — runs the statusLine as Claude Code does: stdin, a
 # scratch TMPDIR, fallback, HOME and project, none of the switches. Sets OUT,
-# ERR, RC.
+# ERR, RC. RUN_WRAP, when set, is the command it runs under (timeout <s>).
 run() {
   local input="$1"; shift
-  printf '%s' "$input" | env -u IAENG_CONTEXT_HOOKS -u IAENG_CTX_CHAINED -u CLAUDE_CONFIG_DIR \
+  printf '%s' "$input" | ${RUN_WRAP[@]+"${RUN_WRAP[@]}"} env -u IAENG_CONTEXT_HOOKS -u IAENG_CTX_CHAINED -u CLAUDE_CONFIG_DIR \
     -u NO_COLOR -u IAENG_CTX_ALERT_PCT -u IAENG_CTX_LAST_CALL_PCT \
     TMPDIR="$TMPD" IAENG_CTX_TEST_FALLBACK="$FB" HOME="$HOMED" CLAUDE_PROJECT_DIR="$PROJ" ${RUN_ENV[@]+"${RUN_ENV[@]}"} \
     bash "$SL" "$@" > "$T/out" 2> "$T/err"
@@ -126,6 +130,19 @@ run() {
   ERR="$(cat "$T/err")"
 }
 RUN_ENV=()
+RUN_WRAP=()
+# A FIFO in place of a file the line reads would block that read, and the
+# line would never be printed. Those cases run under timeout, so a hang
+# fails its check instead of stalling the suite; without mkfifo or timeout
+# they are n/a.
+fifo_ok() {
+  rm -f "$T/probe-fifo"
+  command -v timeout >/dev/null 2>&1 || return 1
+  mkfifo "$T/probe-fifo" 2>/dev/null || return 1
+  [ -p "$T/probe-fifo" ] || return 1
+  rm -f "$T/probe-fifo"
+}
+FIFO_WRAP=(timeout 30)
 
 # fine <label> — exit 0, a non-blank line, nothing on stderr.
 fine() {
@@ -444,6 +461,10 @@ RUN_ENV=(TZ=UTC0); run "$(jq -cn '{session_id:"sess-421", context_window:{used_p
 line_is "wk: no resets_at, the percentage alone" "$W | wk 41%"
 RUN_ENV=(TZ=UTC0); run "$(wkp 41 $(($(date +%s) - 60)))"; RUN_ENV=()
 line_is "wk: a reset already past, the percentage alone" "$W | wk 41%"
+wk_run 20 $((9 * 86400))
+# The window is the 7 days before the reset: 9 days ahead, it opens in 2
+# days, so no time has gone and no pace exists. The reset alone, no cap.
+line_is "wk: a reset more than 7 days ahead, the reset alone, no cap" "$W | wk 20% (reset $(utc "$RS"))"
 RUN_ENV=(TZ=UTC0); run "$(jq -cn '{session_id:"sess-421", context_window:{used_percentage:10, total_input_tokens:100000, context_window_size:1000000}, rate_limits:{seven_day:{used_percentage:41, resets_at:"soon"}}}')"; RUN_ENV=()
 line_is "wk: a resets_at given as a string, the percentage alone" "$W | wk 41%"
 RUN_ENV=(TZ=UTC0); run "$(jq -cn '{session_id:"sess-421", context_window:{used_percentage:10, total_input_tokens:100000, context_window_size:1000000}, rate_limits:{five_hour:{used_percentage:99, resets_at:9999999999}}}')"; RUN_ENV=()
@@ -495,6 +516,33 @@ line_is "branch: a HEAD that is a directory, no branch" "$W"
 mkdir -p "$RP/f"; printf 'not a gitdir line\n' > "$RP/f/.git"
 run "$(bp "$RP/f")"
 line_is "branch: a .git file without a gitdir, no branch" "$W"
+# Only a "gitdir: " line is followed: a bare path to a git directory that
+# holds a branch is not.
+mkhead "$RP/gd/wt3" $'ref: refs/heads/wu-9-np\n'
+mkdir -p "$RP/g"; printf '%s\n' "$RP/gd/wt3" > "$RP/g/.git"
+run "$(bp "$RP/g")"
+line_is "branch: a .git file holding a bare path, not a gitdir line, no branch" "$W"
+# Only a branch ref or a commit is shown: an empty HEAD and a tag ref are
+# neither.
+for c in "" "ref: refs/tags/v1"; do
+  mkhead "$RP/h/.git" "$c"
+  run "$(bp "$RP/h")"
+  line_is "branch: a HEAD holding [$c], neither a branch nor a commit, no branch" "$W"
+done
+# A .git, or the HEAD a gitdir names, that is not a regular file is never
+# read: a FIFO would block the read (fifo_ok, above). A .git file can name
+# any directory.
+if fifo_ok; then
+  mkdir -p "$RP/fg"; mkfifo "$RP/fg/.git"
+  RUN_WRAP=("${FIFO_WRAP[@]}"); run "$(bp "$RP/fg")"; RUN_WRAP=()
+  line_is "branch: a .git that is a FIFO is not read, no branch" "$W"
+  mkdir -p "$RP/gd/fh" "$RP/fh"; mkfifo "$RP/gd/fh/HEAD"
+  printf 'gitdir: %s\n' "$RP/gd/fh" > "$RP/fh/.git"
+  RUN_WRAP=("${FIFO_WRAP[@]}"); run "$(bp "$RP/fh")"; RUN_WRAP=()
+  line_is "branch: a HEAD that is a FIFO is not read, no branch" "$W"
+else
+  na "branch: a .git or a HEAD that is a FIFO" "no mkfifo or no timeout on this platform"
+fi
 mkdir -p "$RP/none/x"
 up="$RP/none/x"; above=0
 while :; do [ -e "$up/.git" ] && above=1; [ "$up" = "${up%/*}" ] && break; up="${up%/*}"; done
@@ -546,6 +594,18 @@ mkdir -p "$DIR/sess-dir.pct"
 run '{"session_id":"sess-dir","context_window":{"used_percentage":9}}'
 fine "a directory in place of <session_id>.pct"
 if [ -d "$DIR/sess-dir.pct" ] && [ "$(count_files "$DIR/sess-dir.pct")" = 0 ]; then ok "a directory in place of <session_id>.pct: nothing moved into it"; else bad "a directory in place of <session_id>.pct: nothing moved into it"; fi
+# A FIFO there: the unchanged-value read, which comes first, must not open
+# it (fifo_ok, above). A TMPDIR of its own, as the cases above use theirs.
+if fifo_ok; then
+  FI="$T/fifotmp"; mkdir -p "$FI/iaeng-ctx-$ID"; chmod 700 "$FI/iaeng-ctx-$ID"; mkfifo "$FI/iaeng-ctx-$ID/sess-fifo.pct"
+  RUN_ENV=(TMPDIR="$FI"); RUN_WRAP=("${FIFO_WRAP[@]}")
+  run '{"session_id":"sess-fifo","context_window":{"used_percentage":9}}'
+  RUN_ENV=(); RUN_WRAP=()
+  line_is "a FIFO in place of <session_id>.pct: not read, the line printed" "ctx 9%"
+  if [ -p "$FI/iaeng-ctx-$ID/sess-fifo.pct" ]; then ok "a FIFO in place of <session_id>.pct: left as it is"; else bad "a FIFO in place of <session_id>.pct: left as it is"; fi
+else
+  na "a FIFO in place of <session_id>.pct" "no mkfifo or no timeout on this platform"
+fi
 
 if mode_enforced; then
   OW="$T/openwrite"; mkdir -p "$OW/iaeng-ctx-$ID"; chmod 777 "$OW/iaeng-ctx-$ID"

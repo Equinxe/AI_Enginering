@@ -83,7 +83,8 @@
 #     when a steady pace reaches 100 % before the reset (the window opened 7
 #     days before resets_at, and 100 % comes at its start plus the time gone
 #     times 100 over the share used), "no cap" when it does not, "capped" at
-#     100 %. Times are "%a %H:%M" in the local zone, from bash's own clock
+#     100 %; the reset alone when it is more than 7 days away (the window has
+#     not opened). Times are "%a %H:%M" in the local zone, from bash's own clock
 #     (4.2 or later; an older bash shows the percentage alone). The 5-hour
 #     quota is not shown (no such quota on the Director's plan, 24 Nov 2026);
 #   - the branch checked out where the session works (workspace.current_dir,
