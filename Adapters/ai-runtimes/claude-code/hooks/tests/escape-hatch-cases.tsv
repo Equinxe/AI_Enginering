@@ -862,3 +862,78 @@ allow	git --git-dir=.git config core.hooksPath
 # develop allowed it (code review of PR #463, F10).
 allow	"/c/Program Files/app/run.sh"
 allow	'C:\Program Files\app\app.exe'
+# Git command recognition (WU-IAENG-440). git is recognised under each name the
+# shell runs it by, and a quoted command path holding a space is read by its
+# last component.
+block	git.exe push --force	force-push or mirror-push
+block	GIT push --force	force-push or mirror-push
+block	Git.EXE reset --hard	git reset --hard discards
+block	git.exe commit -n -m x	git commit -n is --no-verify
+block	"/c/Program Files/Git/cmd/git.exe" push --force	force-push or mirror-push
+block	"/c/x y/git" commit --no-verify	--no-verify disables
+block	'/c/x y/git.exe' push -f	force-push or mirror-push
+block	$'/c/x y/git' push --force	force-push or mirror-push
+block	"C:\Program Files\Git\cmd\git.exe" push --force	force-push or mirror-push
+block	"/c/x y/gi"t push --force	force-push or mirror-push
+block	"$(dirname x)/git" push --force	force-push or mirror-push
+block	"/c/x y/git.exe" stash	git stash sets work aside
+block	"/c/x y/gh.exe" pr edit 1 --add-label size/approved	only the Director applies these approval labels
+block	"/c/x y/git.exe" config core.hooksPath	setting core.hooksPath disables
+allow	git.exe status
+allow	"/c/Program Files/Git/cmd/git.exe" status
+allow	"/c/Program Files/Git/cmd/git.exe" stash list
+allow	"/c/x y/git.exe" config --get core.hooksPath
+allow	git.exe config --get core.hooksPath
+allow	git push origin "x y/-f"
+allow	git commit -m "chore: bump vendor/git"
+allow	git commit -m "see docs/--no-verify"
+block	"/c/x y/git" commit -m "see docs/--no-verify" --no-verify	--no-verify disables
+allow	cd "/c/Program Files/Git" && git status
+# The earlier reading of a command is kept, and a second reading follows it:
+# a word only the second adds does not part two words a rule reads side by side.
+block	rm -rf "a b/c" /	recursive removal
+block	export "a b/-n" GIT_CONFIG_PARAMETERS	GIT_CONFIG_PARAMETERS (or an assigning builtin
+block	rm -rf "`true`" /	recursive removal
+# Quoted-substitution lexing (WU-IAENG-440). A substitution inside double quotes
+# is read as commands whichever way it is opened, and the quoted text before
+# it is kept where the region's close keeps it.
+block	echo "`git push --force`"	force-push or mirror-push
+block	x="`git push --force`"	force-push or mirror-push
+block	echo "a `git stash` b"	git stash sets work aside
+block	git commit -m "`git reset --hard`"	git reset --hard discards
+block	bash -c "git push $(true) --force"	force-push or mirror-push
+block	bash -c "git push $(echo 'x') --force"	force-push or mirror-push
+block	bash -c "git push `true` --force"	force-push or mirror-push
+block	gh pr edit 1 --add-label "size/approved$(true)"	only the Director applies these approval labels
+block	echo "`(true); git push --force`"	force-push or mirror-push
+allow	echo "`true`; git push --force"
+allow	echo "\`git push --force\`"
+allow	echo "`date`"
+allow	bash -c "echo `date`"
+allow	git commit -m "fix `foo` now"
+# Per-segment stash exemption (WU-IAENG-440). Each git stash in the command is
+# judged by the word after it, which must be `list` or `show` letter for letter;
+# a read elsewhere exempts nothing. A brace expansion right after `stash` is
+# refused, even when each alternative reads.
+block	git stash; git stash list	git stash sets work aside
+block	git stash list; git stash	git stash sets work aside
+block	git stash push && git stash show	git stash sets work aside
+block	git stash -m x/.git stash list	git stash sets work aside
+block	git stash push -- a/git stash list	git stash sets work aside
+block	git -C "x;y" stash; git stash list	git stash sets work aside
+block	git stash list $(git stash)	git stash sets work aside
+block	git stash list `git stash`	git stash sets work aside
+block	git stash {list,show}	git stash sets work aside
+block	git stash save x; git stash list	git stash sets work aside
+block	git stash lis	git stash sets work aside
+block	git stash listx	git stash sets work aside
+block	git stash showall	git stash sets work aside
+allow	git stash list && git stash show -p
+allow	git -C "/c/Program Files/repo" stash list
+allow	git --git-dir="/c/my repo/.git" stash show
+allow	if [ -n "$(git stash list)" ]; then echo y; fi
+allow	n=$(git stash list | wc -l)
+allow	/usr/bin/git stash list
+allow	command git stash list
+allow	git stash show stash@{1}
+allow	git -C stash list

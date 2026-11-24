@@ -4488,7 +4488,7 @@ if ln -s "$FRAMEWORK_ROOT" ia-engineering 2>/dev/null; then
   for rule in '/.claude/settings.json' '/.claude/skills/**' '/.ia-engineering/stack' '/.ia-engineering/risk-map.yml' \
               '/Registry/work-units.yml' '/Dockerfile' '/.gitmodules'; do
     TOTAL=$((TOTAL + 1))
-    if grep -qxF "$rule text eol=lf" .gitattributes 2>/dev/null; then
+    if grep -qxF -- "$rule text eol=lf" .gitattributes 2>/dev/null; then
       [ -n "$VERBOSE" ] && printf '   ok   .gitattributes carries an LF rule for %s\n' "$rule"
     else
       printf '   FAIL .gitattributes has no LF rule for %s\n' "$rule"
@@ -5088,7 +5088,7 @@ wst_case() {
 }
 # wst_line <file> <heading prefix> — the line number of a heading, by grep.
 wst_line() {
-  grep -n "^$2" "$1" | head -n 1 | cut -d: -f1
+  grep -n -- "^$2" "$1" | head -n 1 | cut -d: -f1
 }
 
 # --- The real files, LF and CRLF.
@@ -6487,7 +6487,7 @@ printf '%s %s\n' "$FLIVE" "$(date +%s)" > "$FC/lock/owner"
 { usage_line msg_F341B 4; printf '\n'; } >> "$FT/s1.jsonl"
 expect 0 "lock: a refresh while another runs is skipped" -- "${FRUN[@]}" --refresh
 expect_output "another one is running (pid $FLIVE)"
-expect 0 "lock: the running one's lock is left alone" -- grep -qF "$FLIVE" "$FC/lock/owner"
+expect 0 "lock: the running one's lock is left alone" -- grep -qF -- "$FLIVE" "$FC/lock/owner"
 expect 0 "lock: the hook starts none either" -- "${FRUN[@]}" --refresh-in-background
 expect_output "one is already running (pid $FLIVE)"
 printf '%s %s\n' "$FDEAD" "$(date +%s)" > "$FC/lock/owner"
@@ -7241,7 +7241,7 @@ CO_STDOUT="$(bash "$CARRY" "$CO_A" "$CO_OK" --base develop 2> /dev/null)"
 expect 0 "on success stdout is exactly the record: full commit ids, the base, the checker's blobs" -- \
   test "$CO_STDOUT" = "Approval carry-over: $CO_A -> $CO_OK; base $(git rev-parse develop); $CO_TAIL; $CO_CHECKER"
 expect 0 "the record keeps its prefix, so a reader of an older record still finds the heads" -- \
-  grep -qxE "Approval carry-over: $CO_A -> $CO_OK; .+" <<< "$CO_STDOUT"
+  grep -qxE -- "Approval carry-over: $CO_A -> $CO_OK; .+" <<< "$CO_STDOUT"
 expect 0 "the record is one line" -- test "$(printf '%s\n' "$CO_STDOUT" | wc -l)" -eq 1
 CO_STDOUT_SHA="$(bash "$CARRY" "$CO_A" "$CO_OK" --base "$(git rev-parse develop)" 2> /dev/null)"
 expect 0 "the base is named by its commit id, whichever spelling --base used" -- \
@@ -8313,6 +8313,192 @@ expect_output "file${T}fault${T}.github/workflows/data-policy.yml"
 expect 1 "the bootstrap --check passes the fault on (exit 1 over 3)" -- bash "$BOOT_353" --check --quiet
 mv data-policy.moved ia-engineering/Adapters/github-actions/data-policy.yml
 
+# ------------------ install.sh: a CRLF .gitignore (WU-IAENG-425, issue #396) --
+#
+# Git for Windows' default core.autocrlf=true checks .gitignore out CRLF.
+# install.sh read it raw, so no rule matched a whole line: a real run appended
+# all six again, on every fresh clone (two copies, then three), and --check
+# disagreed with that run, because Git for Windows' bash drops the CR of the
+# file's last line in $(< file) and Linux bash drops none. The fix removes the
+# CR that ends a line, and only that one (Standards/CODE_QUALITY_STANDARD.md,
+# The Check Convention, shell rule 3). The fixture writes CRLF with awk, so
+# every platform runs the same case whatever its core.autocrlf.
+
+section "install.sh — a CRLF .gitignore is read line by line, no rule appended twice (WU-IAENG-425, #396)"
+
+IGN_RULES_425="local_test_data/
+.env
+.ia-engineering/SESSION_STATE.md
+.claude/agents/
+.claude/worktrees/
+.ia-engineering/usage/"
+
+# rule_lines_425 <rule> — how many lines of .gitignore are exactly <rule> once
+# their line-ending CR is removed. awk, not grep: Git for Windows' grep drops
+# a CR before matching and Linux grep does not.
+rule_lines_425() {
+  awk -v r="$1" '{ sub(/\r$/, "") } $0 == r { n++ } END { print n + 0 }' .gitignore
+}
+
+# each_once_425 <description> — each of the six rules is on exactly one line.
+each_once_425() {
+  local rule n bad=""
+  TOTAL=$((TOTAL + 1))
+  while IFS= read -r rule; do
+    n="$(rule_lines_425 "$rule")"
+    [ "$n" -eq 1 ] || bad="$bad $rule x$n"
+  done <<< "$IGN_RULES_425"
+  if [ -z "$bad" ]; then
+    [ -n "$VERBOSE" ] && printf '   ok   %s\n' "$1"
+    return 0
+  fi
+  printf '   FAIL %s:%s\n' "$1" "$bad"; FAILED=$((FAILED + 1))
+  return 1
+}
+
+# crlf_425 <description> — every line of .gitignore ends CRLF, or the CRLF
+# cases below test nothing. The CRs are counted with tr, for the grep reason
+# above.
+crlf_425() {
+  local crs lines
+  TOTAL=$((TOTAL + 1))
+  crs=$(( $(tr -cd '\r' < .gitignore | wc -c) ))
+  lines=$(( $(wc -l < .gitignore) ))
+  if [ "$crs" -gt 0 ] && [ "$crs" -eq "$lines" ]; then
+    [ -n "$VERBOSE" ] && printf '   ok   %s\n' "$1"
+    return 0
+  fi
+  printf '   FAIL %s: %s CR for %s lines\n' "$1" "$crs" "$lines"; FAILED=$((FAILED + 1))
+  return 1
+}
+
+# unchanged_425 <md5> <description> — .gitignore is byte for byte what it was.
+unchanged_425() {
+  TOTAL=$((TOTAL + 1))
+  if [ "$(md5sum < .gitignore)" = "$1" ]; then
+    [ -n "$VERBOSE" ] && printf '   ok   %s\n' "$2"
+    return 0
+  fi
+  printf '   FAIL %s; it now ends:\n' "$2"
+  tail -n 8 .gitignore | sed 's/^/        | /'; FAILED=$((FAILED + 1))
+  return 1
+}
+
+# present_425 — the last --check output reports each of the six present.
+present_425() {
+  local rule
+  while IFS= read -r rule; do
+    expect_output "gitignore${T}present${T}.gitignore${T}$rule"
+  done <<< "$IGN_RULES_425"
+}
+
+adopter_353 ign-crlf
+expect 0 "a first bootstrap succeeds" -- bash "$BOOT_353" generic
+commit_353 "chore(adopt): install the Adapters"
+
+# --- LF, the case that always worked: unchanged by the fix ---------------------
+each_once_425 "the LF .gitignore holds each of the six rules once"
+SUM_425="$(md5sum < .gitignore)"
+expect 0 "--check on an LF .gitignore holding every rule exits 0" -- bash "$INST_353" --check
+expect_output "6 .gitignore rule(s): 6 present;"
+expect 0 "a real run on it exits 0" -- bash "$INST_353"
+expect_output ".gitignore (data-protection rules already present)"
+expect_output ".gitignore (generated/runtime-artifact rules already present)"
+unchanged_425 "$SUM_425" "a real run left the LF .gitignore byte-identical"
+
+# --- CRLF, every rule present: reported present, nothing appended, twice -------
+awk '{ sub(/\r$/, ""); printf "%s\r\n", $0 }' .gitignore > ign.tmp && mv ign.tmp .gitignore
+crlf_425 "the CRLF fixture ends every line with CRLF"
+SUM_425="$(md5sum < .gitignore)"
+expect 0 "--check on a CRLF .gitignore holding every rule exits 0" -- bash "$INST_353" --check
+expect_output "6 .gitignore rule(s): 6 present;"
+present_425
+for RUN_425 in 1 2; do
+  expect 0 "real run $RUN_425 on the CRLF .gitignore exits 0" -- bash "$INST_353"
+  expect_output ".gitignore (data-protection rules already present)"
+  expect_output ".gitignore (generated/runtime-artifact rules already present)"
+  unchanged_425 "$SUM_425" "real run $RUN_425 left the CRLF .gitignore byte-identical"
+done
+
+# --- CRLF, one rule missing: that rule appended once, and only it --------------
+# .env is a data-protection rule: a real run appends it before the
+# generated-artifact block re-reads the file, so both reads are exercised.
+awk '{ sub(/\r$/, "") } $0 != ".env" { printf "%s\r\n", $0 }' .gitignore > ign.tmp && mv ign.tmp .gitignore
+crlf_425 "the CRLF fixture without .env ends every line with CRLF"
+cp .gitignore "$WORK/ign-before-425"
+SIZE_425=$(( $(wc -c < .gitignore) ))
+expect 3 "--check on a CRLF .gitignore missing .env reports drift (exit 3)" -- bash "$INST_353" --check
+expect_output "gitignore${T}missing${T}.gitignore${T}.env"
+expect_output "6 .gitignore rule(s): 5 present, 1 missing;"
+expect 0 "a real run on it exits 0" -- bash "$INST_353"
+expect_output ".gitignore (appended 1 data-protection rule(s))"
+expect_output ".gitignore (generated/runtime-artifact rules already present)"
+ADDED_425="$(tail -c +"$((SIZE_425 + 1))" .gitignore | grep -v '^#' | grep -v '^$')"
+TOTAL=$((TOTAL + 1))
+if cmp -s -n "$SIZE_425" "$WORK/ign-before-425" .gitignore && [ "$ADDED_425" = ".env" ]; then
+  [ -n "$VERBOSE" ] && printf '   ok   the real run kept the CRLF bytes and added one rule line, .env\n'
+else
+  printf '   FAIL the real run did not keep the CRLF bytes and add exactly .env; it added:\n'
+  printf '%s\n' "$ADDED_425" | sed 's/^/        | /'; FAILED=$((FAILED + 1))
+fi
+each_once_425 "after it, each of the six rules is on exactly one line"
+SUM_425="$(md5sum < .gitignore)"
+expect 0 "a second real run exits 0" -- bash "$INST_353"
+expect_output ".gitignore (data-protection rules already present)"
+expect_output ".gitignore (generated/runtime-artifact rules already present)"
+unchanged_425 "$SUM_425" "the second real run appended nothing"
+
+# --- only the CR that ends a line goes (shell rule 3) --------------------------
+# `.env<CR>x` is the rule followed by a mid-line CR and more text: not .env.
+# `.claude/agents/<CR><CR>` keeps one CR once the line-ending one is gone: not
+# .claude/agents/ either. Deleting every CR would call the second present,
+# and cutting each line at its first CR would call the first present.
+awk '{ sub(/\r$/, "") }
+     $0 == ".env" { printf "%s\rx\r\n", $0; next }
+     $0 == ".claude/agents/" { printf "%s\r\r\n", $0; next }
+     { printf "%s\r\n", $0 }' .gitignore > ign.tmp && mv ign.tmp .gitignore
+expect 3 "--check: a CR inside a line is data, so neither line is its rule (exit 3)" -- bash "$INST_353" --check
+expect_output "gitignore${T}missing${T}.gitignore${T}.env"
+expect_output "gitignore${T}missing${T}.gitignore${T}.claude/agents/"
+expect_output "6 .gitignore rule(s): 4 present, 2 missing;"
+
+# --- the file's LAST line (Security review of PR #423, F1) ---------------------
+# Git for Windows' bash drops the last line's CR together with the final
+# newline in $(< file). `.env<CR><CR>` there then read as .env once the
+# line-ending CR was stripped as well: present to install.sh, while git, which
+# removes one CR only, does not ignore .env. These cases cannot fail on Linux,
+# where this framework's CI runs: Linux bash's $(< file) keeps that CR, so
+# the read without the sentinel is right there too. They fail on Git for
+# Windows, where the defect lives, and were seen red there (WU-IAENG-425).
+# Each case asks git first, so the expectation is git's own reading of the
+# same bytes; core.excludesFile points nowhere so a global ignore of .env
+# cannot answer.
+#
+# last_line_425 <ending> <git-exit> <description> — the five other rules CRLF,
+# then .env ending in <ending> (escapes as printf %b reads them) as the file's
+# last line. <git-exit> is git check-ignore's exit for .env: 0 ignored, 1 not.
+last_line_425() {
+  printf '%s\r\n' local_test_data/ .ia-engineering/SESSION_STATE.md \
+    .claude/agents/ .claude/worktrees/ .ia-engineering/usage/ > .gitignore
+  printf '.env%b' "$1" >> .gitignore
+  expect "$2" "git check-ignore on .env exits $2: $3" -- \
+    git -c core.excludesFile="$WORK/no-excludes-425" check-ignore -q .env
+  if [ "$2" -eq 0 ]; then
+    expect 0 "--check reports .env present, as git reads it: $3" -- bash "$INST_353" --check
+    expect_output "gitignore${T}present${T}.gitignore${T}.env"
+    expect_output "6 .gitignore rule(s): 6 present;"
+  else
+    expect 3 "--check reports .env missing, as git reads it: $3 (exit 3)" -- bash "$INST_353" --check
+    expect_output "gitignore${T}missing${T}.gitignore${T}.env"
+    expect_output "6 .gitignore rule(s): 5 present, 1 missing;"
+  fi
+}
+last_line_425 '\r\n' 0 "CRLF on the last line"
+last_line_425 '\r' 0 "a CR and no final newline on the last line"
+last_line_425 '\r\r\n' 1 "a doubled CR on the last line"
+last_line_425 '\r\r\n\n' 1 "a doubled CR on the last rule line, a blank line after it"
+last_line_425 '\r\r' 1 "a doubled CR on the last line, no final newline"
+
 section "install.sh --check — git hooks: core.hooksPath, executable, shadowed, no probe (WU-IAENG-355)"
 
 # The write path's own decisions, read and never applied: no `git config`
@@ -9331,13 +9517,13 @@ expect 3 "--check --quiet keeps the switch" -- bash "$HK_357" --check --quiet
 expect_output "settings${T}disabled${T}.claude/settings.local.json"
 rm .claude/settings.local.json
 
-grep -vxF "$HOOKS_RULE_357" .gitattributes > ga.tmp && mv ga.tmp .gitattributes
+grep -vxF -- "$HOOKS_RULE_357" .gitattributes > ga.tmp && mv ga.tmp .gitattributes
 expect 3 "a missing settings.json LF rule alone is drift (exit 3)" -- bash "$HK_357" --check
 expect_output "gitattributes${T}missing${T}.gitattributes${T}$HOOKS_RULE_357"
 expect_output "# install-hooks.sh --check: 1 to act on."
 expect 0 "install-skills.sh --check, whose own rule is there, still exits 0" -- bash "$SK_357" --check
 git checkout -q -- .gitattributes
-grep -vxF "$SKILLS_RULE_357" .gitattributes > ga.tmp && mv ga.tmp .gitattributes
+grep -vxF -- "$SKILLS_RULE_357" .gitattributes > ga.tmp && mv ga.tmp .gitattributes
 expect 3 "a missing skills LF rule alone is drift (exit 3)" -- bash "$SK_357" --check
 expect_output "gitattributes${T}missing${T}.gitattributes${T}$SKILLS_RULE_357"
 expect_output "# install-skills.sh --check: 1 to act on. 2 skill(s): 2 current; 1 .gitattributes rule(s): 1 missing; 0 fault(s). absent/missing:"
@@ -9362,7 +9548,7 @@ git checkout -q -- .claude/skills
 # --- read-only with every kind of drift at once -----------------------------------
 jq_edit_357 '.hooks.PreToolUse |= map(if .matcher == "Bash" then .hooks[0].command += " || true" else . end)'
 printf '{"disableAllHooks": true}\n' > .claude/settings.local.json
-grep -vxF "$HOOKS_RULE_357" .gitattributes | grep -vxF "$SKILLS_RULE_357" > ga.tmp && mv ga.tmp .gitattributes
+grep -vxF -- "$HOOKS_RULE_357" .gitattributes | grep -vxF -- "$SKILLS_RULE_357" > ga.tmp && mv ga.tmp .gitattributes
 echo "edited by the project" >> .claude/skills/dashboard/SKILL.md
 rm -r .claude/skills/create-project
 SNAP_357B="$(snapshot_353)"
@@ -11334,6 +11520,55 @@ ok396 divider "an exact trailer after a --- line" \
 ok396 reading-equals-body-line "a variant git reads as an exact line of the body (accepted by design)" \
   'fix(trailer): x\n\nEmployee: Platform Engineer\n\nEmployee:Platform Engineer\n'
 
+# --------- a trailer value that begins with a dash is text (WU-IAENG-427) -----
+#
+# The Employee value is compared with the roster names by `grep -qxF`, and it
+# reaches grep after `--`: a value that begins with a dash is a string to
+# match, never an option. None of the values below is a roster name, so the
+# hook and the CI check both refuse each one, and a roster name still resolves
+# beside them. `-e x` was refused before too (it names the pattern " x"); it
+# stays as a shape of the class. A Work Unit value never reaches its grep with
+# a dash, because the shape test refuses it first, as the last cases pin.
+
+section "trailer checks — a value that begins with a dash is compared as text (WU-IAENG-427)"
+
+DASH427=('--help' '--version' '-V' '-e x' '-ePlatform Engineer')
+
+new_repo dash427-hook
+write_employee_roster "Platform Engineer" "Release Manager"
+git add -A && git commit -q -m "roster"
+for v427 in "${DASH427[@]}"; do
+  printf 'fix(x): y\n\nEmployee: %s\n' "$v427" > msg427.txt
+  expect 1 "commit-msg: 'Employee: $v427' is refused" -- bash "$HOOK389" msg427.txt
+  expect_output "'Employee: $v427' is not a recognized Employee"
+done
+printf 'fix(x): y\n\nEmployee: Platform Engineer\n' > msg427.txt
+expect 0 "commit-msg: a roster name beside them still resolves" -- bash "$HOOK389" msg427.txt
+
+cr389_emp_repo dash427-emp
+for v427 in "${DASH427[@]}"; do
+  BASE="$(git rev-parse HEAD)"
+  commit_with "feat: x" "Employee: $v427"
+  expect 1 "check-employee-trailers: 'Employee: $v427' is refused" -- bash "$EMP389" "$BASE" HEAD
+  expect_output "has 'Employee: $v427', which is not in"
+done
+BASE="$(git rev-parse HEAD)"
+commit_with "feat: x" "Employee: Platform Engineer"
+expect 0 "check-employee-trailers: a roster name beside them still resolves" -- bash "$EMP389" "$BASE" HEAD
+expect_output "-> Platform Engineer"
+
+new_repo dash427-wu
+write_employee_roster "Platform Engineer"
+write_wu_registry WU-TEST-001
+git add -A && git commit -q -m "registry"
+printf 'fix(x): y\n\nWork Unit: --help\n\nEmployee: Platform Engineer\n' > msg427.txt
+expect 1 "commit-msg: 'Work Unit: --help' is refused by the shape test" -- bash "$HOOK389" msg427.txt
+expect_output "is empty or not a Work Unit id"
+BASE="$(git rev-parse HEAD)"
+commit_with "feat: x" "Work Unit: --help"
+expect 1 "check-work-units: 'Work Unit: --help' is refused by the shape test" -- bash "$WU389" "$BASE" HEAD
+expect_output "is empty or not a Work Unit id"
+
 # ------- a condition not evaluated exits 2, never 1 (WU-IAENG-390, #331) ------
 #
 # Standards/CODE_QUALITY_STANDARD.md, The Check Convention, Shell Scripts
@@ -13189,6 +13424,267 @@ else
 fi
 ss_434 "$WORK/fresh-434 é日本"
 expect_no_output "IA Engineering agents" "fresh clone: session start has nothing to say about the agents"
+cd "$HERE" || exit 1
+
+# ------------------------------ data-policy --history, NUL-delimited paths ---
+# WU-IAENG-442: --history reads the paths its commits name NUL-delimited
+# (git log -z), as --staged and --tree read theirs, so each path is judged as
+# itself whatever bytes its name holds. #467's rules are unchanged: any entry
+# under .claude/agents/, and a link, file or submodule standing where .claude
+# or .claude/agents should be, at any depth and in any letter case, is
+# refused; the .claude tree and .claude/settings.json are not.
+#
+# Each entry is staged byte for byte and never written to disk (index_path's
+# rule), with content the repository already holds under another name. Git
+# stores the name and nothing is checked out, so every case here runs on
+# Windows too.
+section "data-policy --history reads paths NUL-delimited (WU-IAENG-442)"
+
+# entry_442 <mode> <object> <path> — stages <path> as <mode> <object>.
+entry_442() {
+  git config core.protectNTFS false
+  printf '%s %s\t%s\0' "$1" "$2" "$3" | git update-index -z --index-info
+}
+new_repo dp-442
+DPS_442="$SCRIPTS/data-policy-scan.sh"
+T442=$'\t'
+LF442=$'\n'
+AGENT_442="$(printf 'an agent\n' | git hash-object -w --stdin)"
+LINK_442="$(printf 'cfg' | git hash-object -w --stdin)"
+entry_442 100644 "$AGENT_442" "content-442.md"
+entry_442 100644 "$LINK_442" "content-442.lnk"
+git commit -q -m "the content, under other names"
+GITLINK_442="$(git rev-parse HEAD)"
+WHY_AGENT_442="an Employee agent of an adopting project"
+WHY_UNDER_442="an entry under .claude/agents/ (a symbolic link, a submodule or another file)"
+WHY_PLACE_442="an entry where the .claude/ or .claude/agents/ directory should be"
+
+# Refused: one entry per case, the range its one commit. Parallel arrays: the
+# mode, the object, the name, what the name holds (the case's label), the
+# reason the scanner gives, and the name as the report shows it: each control
+# character a space, written here by hand.
+M442=(); O442=(); N442=(); L442=(); R442=(); S442=()
+case_442() { M442+=("$1"); O442+=("$2"); N442+=("$3"); L442+=("$4"); R442+=("$5"); S442+=("$6"); }
+case_442 100644 "$AGENT_442" '.claude/agents/q"x.md' "a double quote" "$WHY_AGENT_442" '.claude/agents/q"x.md'
+case_442 100644 "$AGENT_442" '.claude/agents/b\s.md' "a backslash" "$WHY_AGENT_442" '.claude/agents/b\s.md'
+case_442 100644 "$AGENT_442" ".claude/agents/t${T442}ab.md" "a tab" "$WHY_AGENT_442" '.claude/agents/t ab.md'
+case_442 100644 "$AGENT_442" ".claude/agents/n${LF442}l.md" "a newline" "$WHY_AGENT_442" '.claude/agents/n l.md'
+case_442 100644 "$AGENT_442" ".claude/agents/c"$'\001'".md" "the byte 0x01" "$WHY_AGENT_442" '.claude/agents/c .md'
+case_442 100644 "$AGENT_442" '.claude/agents/é"日本.md' "non-ASCII letters and a double quote" "$WHY_AGENT_442" '.claude/agents/é"日本.md'
+case_442 100644 "$AGENT_442" 'sub"/.CLAUDE/Agents/team/z.MD' "a double quote, deeper, in another letter case" "$WHY_AGENT_442" 'sub"/.CLAUDE/Agents/team/z.MD'
+case_442 100644 "$AGENT_442" '.claude/agents/notes\x.txt' "a backslash, a file that is not an agent" "$WHY_UNDER_442" '.claude/agents/notes\x.txt'
+case_442 120000 "$LINK_442" 'a"b/.claude' "a double quote, a link where .claude should be" "$WHY_PLACE_442" 'a"b/.claude'
+case_442 120000 "$LINK_442" 'c\d/.claude/agents' "a backslash, a link where .claude/agents should be" "$WHY_PLACE_442" 'c\d/.claude/agents'
+case_442 160000 "$GITLINK_442" "e${T442}f/.claude" "a tab, a submodule where .claude should be" "$WHY_PLACE_442" 'e f/.claude'
+for i442 in "${!N442[@]}"; do
+  entry_442 "${M442[$i442]}" "${O442[$i442]}" "${N442[$i442]}"
+  git commit -q -m "an entry whose content is already here"
+  expect 1 "--history refuses a name with ${L442[$i442]}" -- bash "$DPS_442" --history HEAD~1..HEAD
+  expect_line "data-policy: REFUSED  ${S442[$i442]}"
+  expect_output "${R442[$i442]}"
+  git reset -q HEAD~1
+done
+
+# Not refused: the settings-only range, and names with the same bytes outside
+# the rule. The .claude tree is one path, however many commits list it; the
+# second range's 8 are its three files and the five directories that hold
+# them.
+entry_442 100644 "$AGENT_442" ".claude/settings.json"
+git commit -q -m "settings"
+entry_442 100644 "$LINK_442" ".claude/settings.json"
+git commit -q -m "settings edited"
+expect 0 "--history: a range that only adds and edits .claude/settings.json is not refused" -- \
+  bash "$DPS_442" --history HEAD~2..HEAD
+expect_no_output "REFUSED" "--history: the settings-only range refuses nothing"
+expect_output "scanned 2 path(s)"
+expect 0 "--tree: the settings-only head is not refused" -- bash "$DPS_442" --tree HEAD
+git reset -q HEAD~2
+entry_442 100644 "$AGENT_442" '.claude/q"s.json'
+entry_442 100644 "$AGENT_442" '.claude/agents"x/a\b.md'
+entry_442 100644 "$AGENT_442" "docs/claude/agents/t${T442}ab.md"
+git commit -q -m "the same bytes, outside the rule"
+expect 0 "--history: names with a double quote, a backslash or a tab outside the rule are not refused" -- \
+  bash "$DPS_442" --history HEAD~1..HEAD
+expect_output "scanned 8 path(s)"
+git reset -q HEAD~1
+
+# A record is "kind TAB path" and the kind ends at the FIRST tab: under a
+# parent whose name holds a tab, the object walk lists the directory
+# a<TAB>b/.claude, which is a tree and never judged (QA-479-01, PR #479).
+entry_442 100644 "$AGENT_442" "a${T442}b/.claude/settings.json"
+git commit -q -m "settings under a parent whose name holds a tab"
+expect 0 "--history: a .claude directory under a parent whose name holds a tab is not refused" -- \
+  bash "$DPS_442" --history HEAD~1..HEAD
+expect_no_output "REFUSED" "--history: the a<TAB>b/.claude tree is a directory, not an entry"
+git reset -q HEAD~1
+entry_442 100644 "$AGENT_442" "a${T442}b/.claude/agents/x.md"
+git commit -q -m "an agent under a parent whose name holds a tab"
+expect 1 "--history: an agent under a parent whose name holds a tab is refused" -- \
+  bash "$DPS_442" --history HEAD~1..HEAD
+expect_line "data-policy: REFUSED  a b/.claude/agents/x.md"
+TOTAL=$((TOTAL + 1))
+if [ "$(grep -c '^data-policy: REFUSED' <<< "$LAST_OUTPUT")" -eq 1 ]; then
+  [ -n "$VERBOSE" ] && printf '   ok   %s\n' "--history: the agent alone is refused, not the two directories above it"
+else
+  printf '   FAIL %s\n' "--history: the agent alone is refused, not the two directories above it"
+  printf '%s\n' "$LAST_OUTPUT" | sed 's/^/        | /'
+  FAILED=$((FAILED + 1))
+fi
+git reset -q HEAD~1
+
+# A path both sources name (git log -z, and the object walk) counts once.
+entry_442 100644 "$(printf 'new content\n' | git hash-object -w --stdin)" "new-442.txt"
+git commit -q -m "a file with new content"
+expect 0 "--history: a path named by both sources is one path" -- bash "$DPS_442" --history HEAD~1..HEAD
+expect_output "scanned 1 path(s)"
+git reset -q HEAD~1
+
+# A non-ASCII name alone is its own rendering under core.quotePath=false;
+# --tree reads ls-tree -z. Both are pinned here beside the rest.
+entry_442 100644 "$AGENT_442" '.claude/agents/é日本.md'
+git commit -q -m "a non-ASCII agent"
+expect 1 "--history refuses a non-ASCII agent" -- bash "$DPS_442" --history HEAD~1..HEAD
+expect_line "data-policy: REFUSED  .claude/agents/é日本.md"
+git reset -q HEAD~1
+entry_442 100644 "$AGENT_442" '.claude/agents/q"x.md'
+entry_442 100644 "$AGENT_442" ".claude/agents/t${T442}ab.md"
+git commit -q -m "two agents in the tree"
+expect 1 "--tree refuses agents whose names hold a double quote and a tab" -- bash "$DPS_442" --tree HEAD
+expect_line "data-policy: REFUSED  .claude/agents/q\"x.md"
+expect_line "data-policy: REFUSED  .claude/agents/t ab.md"
+git reset -q HEAD~1
+
+# Reported paths are sanitised with the record sanitiser of WU-IAENG-366,
+# byte for byte. A name holding an LF, "::warning::x" and a CR is reported on
+# one line, each control character a space, in all three modes; so is a
+# file a merge adds, its name holding a CR, with a secret line in it. No line
+# of the output starts with "::", and none holds a CR, which some log readers
+# take for the end of a line.
+# one_line_442 <label> — one check: the previous output holds no CR and no
+# line that starts, after blanks, with "::".
+one_line_442() {
+  TOTAL=$((TOTAL + 1))
+  case "$LAST_OUTPUT" in
+    *$'\r'*) ;;
+    *)
+      if ! grep -qE '^[[:space:]]*::' <<< "$LAST_OUTPUT"; then
+        [ -n "$VERBOSE" ] && printf '   ok   %s\n' "$1"
+        return 0
+      fi
+      ;;
+  esac
+  printf '   FAIL %s\n' "$1"
+  printf '%s\n' "$LAST_OUTPUT" | od -c | sed 's/^/        | /'
+  FAILED=$((FAILED + 1))
+  return 1
+}
+TOTAL=$((TOTAL + 1))
+SAN_REF_442="$(sed -n '/^# >>> record sanitiser/,/^# <<< record sanitiser/p' "$SCRIPTS/install.sh")"
+SAN_DPS_442="$(sed -n '/^# >>> record sanitiser/,/^# <<< record sanitiser/p' "$DPS_442")"
+if [ -n "$SAN_REF_442" ] && [ "$SAN_REF_442" = "$SAN_DPS_442" ]; then
+  [ -n "$VERBOSE" ] && printf '   ok   %s\n' "data-policy-scan.sh: the record sanitiser block is byte-identical to install.sh's"
+else
+  printf '   FAIL %s\n' "data-policy-scan.sh: the record sanitiser block is byte-identical to install.sh's"
+  diff <(printf '%s\n' "$SAN_REF_442") <(printf '%s\n' "$SAN_DPS_442") | sed 's/^/        | /'
+  FAILED=$((FAILED + 1))
+fi
+CR442=$'\r'
+INJ_442=".claude/agents/a${LF442}::warning::x${CR442}.md"
+entry_442 100644 "$AGENT_442" "$INJ_442"
+expect 1 "--staged refuses a name holding LF, ::warning::x and CR" -- bash "$DPS_442" --staged
+expect_line "data-policy: REFUSED  .claude/agents/a ::warning::x .md"
+one_line_442 "--staged: the report holds no CR and no line that starts with ::"
+git commit -q -m "an agent whose name holds LF and CR"
+expect 1 "--tree refuses a name holding LF, ::warning::x and CR" -- bash "$DPS_442" --tree HEAD
+expect_line "data-policy: REFUSED  .claude/agents/a ::warning::x .md"
+one_line_442 "--tree: the report holds no CR and no line that starts with ::"
+expect 1 "--history refuses a name holding LF, ::warning::x and CR" -- bash "$DPS_442" --history HEAD~1..HEAD
+expect_line "data-policy: REFUSED  .claude/agents/a ::warning::x .md"
+one_line_442 "--history: the report holds no CR and no line that starts with ::"
+git reset -q HEAD~1
+new_repo dp-442-merge
+BASE_442="$(git rev-parse HEAD)"
+git checkout -qb feat
+echo f > f.txt && git add f.txt && git commit -qm "feat"
+git checkout -q main
+echo m > m.txt && git add m.txt && git commit -qm "main"
+git merge --no-commit --no-ff feat >/dev/null 2>&1
+# The second name holds a tab too: it enters the "path TAB line TAB text"
+# record as one field, sanitised, and is reported whole.
+SECRET_442="$(printf 'key = %s%s\n' 'AKIA' 'ABCDEFGHIJKLMNOP' | git hash-object -w --stdin)"
+entry_442 100644 "$SECRET_442" "m${CR442}::warning::y.conf"
+entry_442 100644 "$SECRET_442" "t${T442}::warning::z${CR442}.conf"
+git commit -qm "Merge feat"
+expect 1 "--history refuses a secret in a file the merge adds, its name holding a CR" -- \
+  bash "$DPS_442" --history "$BASE_442..HEAD"
+expect_line "data-policy: REFUSED  m ::warning::y.conf:1"
+expect_line "data-policy: REFUSED  t ::warning::z .conf:1"
+one_line_442 "--history, merge-authored content: the report holds no CR and no line that starts with ::"
+
+# Merge-authored names are normalised before tabulation. Files a merge adds,
+# their names holding an LF, two tabs, or a backslash before a t: each secret
+# is refused once, under its whole name as the report shows it, and each line
+# is judged as the content it is, so a content rule anchored at the line's
+# start allows them.
+# merge_442 <dir> <name>... — a repository whose merge commit adds a file
+# holding one secret line under each <name>; BASE_442 is the range's base.
+merge_442() {
+  local n
+  new_repo "$1"; shift
+  BASE_442="$(git rev-parse HEAD)"
+  git checkout -qb feat
+  echo f > f.txt && git add f.txt && git commit -qm "feat"
+  git checkout -q main
+  echo m > m.txt && git add m.txt && git commit -qm "main"
+  git merge --no-commit --no-ff feat >/dev/null 2>&1
+  SECRET_442="$(printf 'key = %s%s\n' 'AKIA' 'ABCDEFGHIJKLMNOP' | git hash-object -w --stdin)"
+  for n in "$@"; do entry_442 100644 "$SECRET_442" "$n"; done
+  git commit -qm "Merge feat"
+}
+# refused_count_442 <n> <label> — one check: the previous output has <n>
+# REFUSED lines.
+refused_count_442() {
+  TOTAL=$((TOTAL + 1))
+  if [ "$(grep -c '^data-policy: REFUSED' <<< "$LAST_OUTPUT")" -eq "$1" ]; then
+    [ -n "$VERBOSE" ] && printf '   ok   %s\n' "$2"
+    return 0
+  fi
+  printf '   FAIL %s\n' "$2"
+  printf '%s\n' "$LAST_OUTPUT" | sed 's/^/        | /'
+  FAILED=$((FAILED + 1))
+  return 1
+}
+CONTENT_RULE_442='^key = AKIA[A-Z]{16}$'
+merge_442 dp-442-merge-names "n${LF442}::warning::w.conf" "u${T442}v${T442}w.conf"
+expect 1 "--history refuses the secret in two files a merge adds, an LF and two tabs in their names" -- \
+  bash "$DPS_442" --history "$BASE_442..HEAD"
+expect_line "data-policy: REFUSED  n ::warning::w.conf:1"
+expect_line "data-policy: REFUSED  u v w.conf:1"
+refused_count_442 2 "--history: each of the two secrets is refused once"
+one_line_442 "--history, merge-authored names: the report holds no CR and no line that starts with ::"
+mkdir -p .ia-engineering
+printf 'content:%s\n' "$CONTENT_RULE_442" > .ia-engineering/data-policy.allow
+expect 0 "--history: a content rule anchored at the line's start allows both merge-authored lines" -- \
+  bash "$DPS_442" --history "$BASE_442..HEAD"
+rm .ia-engineering/data-policy.allow
+# A backslash in the name: run where git reads a backslash in a pathspec as
+# itself. Git for Windows reads it as a directory separator, so it diffs no
+# such file there, before this change as after; Linux CI runs these checks.
+merge_442 dp-442-merge-backslash 'b\tq.conf'
+block_begin 3 "a merge-authored name holding a backslash"
+if [ -n "$(git ls-files -- ':(literal)b\tq.conf')" ]; then
+  expect 1 "--history refuses the secret in a file a merge adds, a backslash before a t in its name" -- \
+    bash "$DPS_442" --history "$BASE_442..HEAD"
+  expect_line 'data-policy: REFUSED  b\tq.conf:1'
+  mkdir -p .ia-engineering
+  printf 'content:%s\n' "$CONTENT_RULE_442" > .ia-engineering/data-policy.allow
+  expect 0 "--history: the content rule allows the line under the backslash name" -- \
+    bash "$DPS_442" --history "$BASE_442..HEAD"
+  rm .ia-engineering/data-policy.allow
+else
+  skip "$BLOCK_N" "git reads a backslash in a pathspec as a directory separator here (Git for Windows)"
+fi
+block_end
 cd "$HERE" || exit 1
 
 # --------------------------------------------------------------- verdict ----
