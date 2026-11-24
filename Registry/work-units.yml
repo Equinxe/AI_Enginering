@@ -1889,3 +1889,9 @@ work_units:
     title: The data-policy history scan reads paths NUL-delimited (Usage, wave 2) - data-policy-scan.sh --history takes the paths its commits name from git log -z, as --staged and --tree take theirs, and unions them with the object walk's paths as NUL-terminated kind-and-path records through one sort -z -u; the agents rule of WU-IAENG-434 is unchanged; the scanner sanitises reported paths in every mode with the record sanitiser of WU-IAENG-366 (flat, byte for byte), so a path and its line number are printed on one line, each control character a space; merge-authored names are normalised before tabulation; tests/run.sh pins unusual names, the settings-only range, the path count and the sanitised reports in --staged, --tree and --history, on every platform
     milestone: Usage
     delivers: Adapters/scripts/data-policy-scan.sh, Adapters/scripts/tests/run.sh, changelog.d/WU-IAENG-442.md, Registry/work-units.yml
+
+  - id: WU-IAENG-446
+    employee: Platform Engineer
+    title: The data-policy scan reports a secret under its file's own name, not git's quoted diff header (#484, Usage) - the content scan takes a line's path from the diff header, which git quotes when a name holds a control character, a double quote or a backslash; data-policy-scan.sh reads a finding's path back from that quoting (header_path) before the record sanitiser of WU-IAENG-366 prints it, in --staged and in the ordinary patches of --history, and pins the headers' a/ and b/ prefixes against diff.noprefix, diff.mnemonicPrefix and diff.dstPrefix; one diff as before, so every staged file is still scanned and renames and the added-line count are unchanged; tests/run.sh pins sixteen names in both modes, the three prefix settings and a merge-authored name, on every platform
+    milestone: Usage
+    delivers: Adapters/scripts/data-policy-scan.sh, Adapters/scripts/tests/run.sh, changelog.d/WU-IAENG-446.md, Registry/work-units.yml
