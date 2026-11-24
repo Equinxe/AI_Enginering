@@ -727,6 +727,16 @@ is_reason "inline-suppression: the swallowed-exception row refuses, by its label
 is_reason "inline-suppression: each MultiEdit text starts its own line" "$IS_HOOK" \
   "$(jq -n --arg s "$IS_EXC" '{tool_name:"MultiEdit",tool_input:{file_path:"a.py",edits:[{old_string:"a",new_string:"x = 1"},{old_string:"b",new_string:$s}]}}')" \
   "inline suppression: swallowed-exception"
+# The one grep folds case, as each per-row grep does: without its -i, an
+# upper-case directive matched no pattern there and was allowed before the
+# per-row loop could refuse it. And the text is everything after the read's
+# fourth separator, not after its last: a separator inside the text, after a
+# directive, must leave the directive in the text that is read (F2 of the
+# Security review of PR #487).
+is_reason "inline-suppression: an upper-case directive is refused, by its label" "$IS_HOOK" \
+  "$(is_pay "$(printf 'x = 1  #%s' ' NOQA')")" "inline suppression: python-lint-suppression"
+is_reason "inline-suppression: a unit separator in the text after a directive leaves it in the text" "$IS_HOOK" \
+  "$(is_pay "$(printf 'x = 1  #%s\037y = 2' ' noqa')")" "inline suppression: python-lint-suppression"
 # A field the one jq read cannot carry is judged as before. The path's trailing
 # line break was stripped by its command substitution, so "a.md<LF>" is read as
 # documentation, as it was; a \037 inside a path is the read's own separator.
@@ -749,6 +759,22 @@ expect_rc "inline-suppression: the pattern file's path with a trailing CR is jud
 # A bare name resolved against that cwd is in tests/ only if the CR goes.
 expect_rc "inline-suppression: a cwd of tests/ with a trailing CR is judged as before" "$IS_CR_WANT" "$IS_HOOK" \
   "$(jq -n --arg w "$HOOKTESTS_ABS" --arg c "$SUPPRESSED" '{tool_name:"Write",cwd:($w + "\r"),tool_input:{file_path:"cases.sh",content:$c}}')"
+# A CR inside a segment of the file path, before its last one (F1 of the
+# Security review of PR #487). `local args=("$FILE")` dropped it on Git for
+# Windows' bash 5.3.9, so the one cygpath's CR guard never saw it, and
+# <hooks>/tests<CR>/x.sh was read as a file in tests/ and allowed. tests<CR>
+# is not tests, with cygpath or without, so it is code on every platform, as
+# it was: with no cwd, with one, and the same for the pattern file's directory.
+IS_JS="$(printf '%s%s' '// eslint' '-disable-next-line')"
+is_reason "inline-suppression: a path into tests<CR>/ is code, with no cwd" "$IS_HOOK" \
+  "$(jq -n --arg f "$HOOKTESTS_ABS" --arg c "$IS_JS" '{tool_name:"Write",tool_input:{file_path:($f + "\r/x.sh"),content:$c}}')" \
+  "inline suppression: js-ts-suppression"
+is_reason "inline-suppression: a path into tests<CR>/ is code, with a cwd" "$IS_HOOK" \
+  "$(jq -n --arg f "$HOOKTESTS_ABS" --arg w "$HOOKS" --arg c "$IS_JS" '{tool_name:"Write",cwd:$w,tool_input:{file_path:($f + "\r/x.sh"),content:$c}}')" \
+  "inline suppression: js-ts-suppression"
+is_reason "inline-suppression: the pattern file's name under scripts<CR>/ is code" "$IS_HOOK" \
+  "$(jq -n --arg d "$(dirname "$PATFILE_ABS")" --arg c "$SUPPRESSED" '{tool_name:"Write",tool_input:{file_path:($d + "\r/suppression-patterns.tsv"),content:$c}}')" \
+  "inline suppression: python-lint-suppression"
 # The path exemptions are looked at only when the file path, the payload's cwd
 # or, without a cwd, the working directory names tests or the pattern file.
 # Each of the three can be the only one that does: a bare file name resolved

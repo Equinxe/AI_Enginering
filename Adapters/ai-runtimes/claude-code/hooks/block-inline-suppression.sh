@@ -177,9 +177,15 @@ canon_walk() {
 # return is the platform's: Git for Windows' bash strips a CR before the final
 # line feed of a command substitution, so the per-path conversion of a path
 # ending in CR loses it, where the line read here would keep it.
+# args is declared, then assigned. Git for Windows' bash 5.3.9 drops a CR from
+# a value given to a compound assignment inside `local` or `declare`, so
+# `local args=("$FILE")` hid a CR of the file path from the guard below, and
+# <hooks>/tests<CR>/x.sh was read as a file in tests/ (F1 of the Security
+# review of PR #487). A plain assignment and `+=` keep it.
 canon_three() {
-  local args=("$FILE") out rest base=""
+  local args out rest base=""
   local conv=()
+  args=("$FILE")
   command -v cygpath >/dev/null 2>&1 || return 1
   [ -z "$CWD" ] || args+=("$CWD")
   args+=("$PATTERNS" "$HOOKS_DIR_CANON")
