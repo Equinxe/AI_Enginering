@@ -99,8 +99,10 @@
 #
 #   <family> TAB <status> TAB <path> TAB <framework source or detail>
 #
-#   file           current | absent | differs | customized
-#                  (current: identical to the Adapter, line endings aside)
+#   file           current | absent | differs | customized | kept
+#                  (current: identical to the Adapter, line endings aside;
+#                  kept: the project's own pull request template, never
+#                  overwritten, issue #472)
 #   gitattributes  present | missing          (detail: the rule)
 #   gitignore      present | missing          (detail: the rule)
 #   directory      present | absent
@@ -111,9 +113,11 @@
 #                                                project hooks a run would
 #                                                stop git from running)
 #                  unchecked                    (the commit probes, below)
-#   todo           placeholder                (a next step for the project, as
+#   todo           placeholder | sections     (a next step for the project, as
 #                                              a real run's `>` line: never
-#                                              drift, never in the exit code)
+#                                              drift, never in the exit code;
+#                                              sections: the framework's parts
+#                                              a kept template lacks)
 #   any family     fault                      (detail: what went wrong)
 #
 # ACTIONABLE means absent, differs, missing, not-executable, shadowed or
@@ -395,6 +399,15 @@ run() {
 # them, so a divergent installed copy is the correct end state, not drift.
 # Reporting it as a problem on every run would train the reader to ignore the
 # script's warnings, which is how a real warning gets missed.
+#
+# Pass "kept" for a file a project may already have of its own before it
+# adopts: .github/PULL_REQUEST_TEMPLATE.md (issue #472, Director decision, 18
+# November 2026: keep and report). Installed where it is absent; one that
+# differs is recorded `kept` and left as it is, --force included, never a
+# problem: a first adoption over the project's own template exited 1 and was
+# told to "carry the upstream change in", when that file was never the
+# framework's. What the project still has to do is a separate `todo` record
+# (below the call). INSTALL_STATE is the state found, for that caller.
 install_file() {
   local src="$1" dest="$2" kind="${3:-strict}" state shown
 
@@ -428,9 +441,12 @@ install_file() {
     state=current
   elif [ "$kind" = "customized" ]; then
     state=customized
+  elif [ "$kind" = "kept" ]; then
+    state=kept
   else
     state=differs
   fi
+  INSTALL_STATE="$state"
   record file "$state" "$dest" "$shown"
   [ "$CHECK" -eq 1 ] && return
 
@@ -444,6 +460,10 @@ install_file() {
         same "$dest (customized for this project, left alone)"
         return
       fi
+      ;;
+    kept)
+      same "$dest (this project's own: kept, never overwritten, --force included)"
+      return
       ;;
     differs)
       if [ "$FORCE" -eq 0 ]; then
@@ -647,8 +667,34 @@ echo
 # --- GitHub templates ------------------------------------------------------
 
 echo "GitHub templates"
+INSTALL_STATE=""
 install_file "$FRAMEWORK/Adapters/github/PULL_REQUEST_TEMPLATE.md" \
-             ".github/PULL_REQUEST_TEMPLATE.md"
+             ".github/PULL_REQUEST_TEMPLATE.md" kept
+# The project's own template, kept: one action for the project, said for as
+# long as the template lacks a part of the framework's (issue #472), never a
+# fault and never drift. Each part is a fixed text of the framework's
+# template, looked for line by line in the shell, without a process:
+# --check runs inside the session-start drift check's time budget.
+# Adapters/scripts/tests/run.sh holds that each one is in the framework's
+# template, so a renamed section fails a test instead of being asked for.
+if [ "$INSTALL_STATE" = kept ]; then
+  PR_PARTS=("Work Unit:" "Merge danger" "How to test" "Falsifiability")
+  PR_SEEN=()
+  while IFS= read -r pr_line || [ -n "$pr_line" ]; do
+    for pr_i in "${!PR_PARTS[@]}"; do
+      [[ "$pr_line" == *"${PR_PARTS[pr_i]}"* ]] && PR_SEEN[pr_i]=1
+    done
+  done < .github/PULL_REQUEST_TEMPLATE.md
+  PR_MISSING=""
+  for pr_i in "${!PR_PARTS[@]}"; do
+    [ -n "${PR_SEEN[pr_i]:-}" ] || PR_MISSING="${PR_MISSING:+$PR_MISSING, }${PR_PARTS[pr_i]}"
+  done
+  if [ -n "$PR_MISSING" ]; then
+    PR_SRC="$HOOKS_REL/Adapters/github/PULL_REQUEST_TEMPLATE.md"
+    record todo sections ".github/PULL_REQUEST_TEMPLATE.md" "the project's own template, kept: copy into it by hand the framework's parts it lacks ($PR_MISSING) from $PR_SRC; diff $PR_SRC .github/PULL_REQUEST_TEMPLATE.md"
+    todo "Keep this project's own .github/PULL_REQUEST_TEMPLATE.md, and copy into it by hand the parts of the framework's template it lacks: $PR_MISSING. They are in $PR_SRC; 'diff $PR_SRC .github/PULL_REQUEST_TEMPLATE.md' shows them. Every Pull Request description gives its Work Unit, and the required PR Compliance check reads that ID."
+  fi
+fi
 
 if [ -d "$FRAMEWORK/Adapters/github/ISSUE_TEMPLATE" ]; then
   for t in "$FRAMEWORK/Adapters/github/ISSUE_TEMPLATE"/*; do
@@ -1080,7 +1126,7 @@ if [ "$CHECK" -eq 1 ]; then
         return out
       }
       END {
-        line = "# install.sh --check: " (act + 0) " to act on. " part("file", "file(s) compared", "current absent differs customized fault")
+        line = "# install.sh --check: " (act + 0) " to act on. " part("file", "file(s) compared", "current absent differs customized kept fault")
         line = line "; " part("gitattributes", ".gitattributes rule(s)", "present missing")
         line = line "; " part("gitignore", ".gitignore rule(s)", "present missing")
         line = line "; " part("directory", "directory", "present absent")
@@ -1144,10 +1190,13 @@ if [ "$FRAMEWORK_IS_PROJECT" -eq 0 ]; then
     echo "  Stack CI/container  ./$HOOKS_REL/Adapters/scripts/setup-project-bootstrap.sh <stack>"
     echo "                      (needs the stack decided in Workflows/PROJECT_BOOTSTRAP.md Phase B)"
   fi
+  # Each note under the script it describes: install-hooks.sh writes the
+  # settings, install-skills.sh the skills (issue #367).
   echo "  Runtime hooks       ./$HOOKS_REL/Adapters/ai-runtimes/claude-code/install-hooks.sh"
-  echo "  Runtime skills      ./$HOOKS_REL/Adapters/ai-runtimes/claude-code/install-skills.sh"
   echo "                      (writes the COMMITTED .claude/settings.json, which decides what"
   echo "                       the model may do — a project reviews that like code)"
+  echo "  Runtime skills      ./$HOOKS_REL/Adapters/ai-runtimes/claude-code/install-skills.sh"
+  echo "                      (writes the COMMITTED skills under .claude/skills/)"
   echo "  Runtime agents      ./$HOOKS_REL/Adapters/ai-runtimes/generate-agents.sh"
   echo "                      (depends on which AI runtime the project uses)"
 fi

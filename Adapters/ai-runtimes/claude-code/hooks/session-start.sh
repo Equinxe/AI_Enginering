@@ -28,20 +28,64 @@ BASE="${CLAUDE_PROJECT_DIR:-.}"
 ROOT="$(iaeng_framework_root || true)"
 STATE="$BASE/.ia-engineering/SESSION_STATE.md"
 
+# a_flat <text> — A_FLAT is the text with every control character a space,
+# the C1 pairs \xc2\x80 to \xc2\x9f included, read byte by byte as the record
+# sanitiser reads them (SEC-IAENG-358-01): what is printed of a path never
+# carries a terminal escape into the session.
+a_flat() {
+  local LC_ALL=C c1=$'\xc2'
+  A_FLAT="${1//[[:cntrl:]]/ }"
+  A_FLAT="${A_FLAT//"$c1"[$'\x80'-$'\x9f']/ }"
+}
+# a_sq <text> — A_SQ is the text as one single-quoted shell word, so a path
+# with a space runs as printed.
+a_sq() {
+  local q="'" e="'\\''"
+  A_SQ="$q${1//"$q"/"$e"}$q"
+}
+# a_cmd <framework file> — A_CMD_WORD is that file as one shell word that
+# runs as printed from the project root (issue #417): ./<its path from the
+# project root> when the framework is inside the project, its own path
+# otherwise, flattened, and single-quoted only when it holds a character a
+# shell reads specially, a space included. An absolute path printed bare
+# split at the space of C:/Users/my name/... and exited 127. No process.
+a_cmd() {
+  local p="$1"
+  case "$p" in "$BASE"/*) p="./${p#"$BASE"/}" ;; esac
+  a_flat "$p"; A_CMD_WORD="$A_FLAT"
+  case "$A_CMD_WORD" in
+    *[!A-Za-z0-9_./:=,+@%-]*) a_sq "$A_CMD_WORD"; A_CMD_WORD="$A_SQ" ;;
+  esac
+}
+
+# ss_unfilled <text> — true when the text is one bracketed span and nothing
+# else, the shape of a template placeholder: "[The very next concrete
+# action ...]". Text of its own that merely opens with a bracket, "[WU-12]
+# merge it", has a "]" before its end and is not one (issue #367).
+ss_unfilled() {
+  local t="$1"
+  [ "${#t}" -ge 2 ] && [ "${t:0:1}" = "[" ] && [ "${t: -1}" = "]" ] || return 1
+  t="${t:1:${#t}-2}"
+  [[ "$t" != *"]"* ]]
+}
+
 echo "IA Engineering — read first, then say in one line what you read and what you are about to do (Core/AGENT_CONDUCT.md, Read First):"
 echo
 
 # --- CLAUDE.md ---------------------------------------------------------
 # Mirrors the SESSION_STATE branch below: a project that has not yet
-# finished Workflows/PROJECT_BOOTSTRAP.md Phase B (or the ONBOARDING.md
-# Step 1 handoff that follows it) has no CLAUDE.md yet, and asserting one
-# exists — as this line unconditionally did before WU-IAENG-302 — misleads
-# the very first thing the model reads in the session.
+# finished Workflows/ONBOARDING.md Step 1 has no CLAUDE.md yet, and
+# asserting one exists — as this line unconditionally did before
+# WU-IAENG-302 — misleads the very first thing the model reads in the
+# session. Nor does it say the project skipped Workflows/PROJECT_BOOTSTRAP.md
+# Phase B: an existing project that adopts the framework has no Phase A or B,
+# so that line sent it to a workflow that does not apply (issue #367). Both
+# routes are named, since the hook cannot tell them apart.
 if [ -f "$BASE/CLAUDE.md" ]; then
   echo "  1. CLAUDE.md — the project's stable contract."
 else
   if [ -n "$ROOT" ] && [ -f "$ROOT/Templates/PROJECT_CLAUDE.md" ]; then
-    echo "  1. CLAUDE.md does not exist yet — this project has not completed Workflows/PROJECT_BOOTSTRAP.md Phase B. It is created from $ROOT/Templates/PROJECT_CLAUDE.md at Workflows/ONBOARDING.md Step 1, once the Stack Decision ADR is Accepted."
+    echo "  1. CLAUDE.md does not exist yet. The DevOps Engineer writes it from $ROOT/Templates/PROJECT_CLAUDE.md after the adoption commit (Workflows/ONBOARDING.md Step 1 item 2): from the Project Charter and the Stack Decision ADR in a new project, from the project's code, its existing documents and the Director in an existing one."
   else
     echo "  1. CLAUDE.md does not exist yet and the framework's template was not found (looked for Core/AGENT_CONDUCT.md at ., ia-engineering/, \$IAENG_FRAMEWORK)."
   fi
@@ -50,16 +94,39 @@ if [ -f "$STATE" ]; then
   echo "  2. .ia-engineering/SESSION_STATE.md — where things actually stand. Never committed."
   LAST="$(grep -m1 -E '^_Last updated:' "$STATE" | sed 's/^_//; s/_$//')"
   [ -n "$LAST" ] && echo "     $LAST"
-  NEXT="$(awk '/^## Next Step/{f=1; next} /^## /{f=0} f && NF' "$STATE" | head -5)"
-  if [ -n "$NEXT" ]; then
+  # Each section read whole, its line-ending CRs dropped, so a placeholder
+  # is seen as one even past the lines shown. A section that still holds
+  # the template's placeholder is said to be unfilled: copied as it stood, it
+  # read as the Next Step to take (issue #367). At most five lines of the
+  # Next Step and three of Blocked On are shown, cut in the shell.
+  NEXT="$(awk '/^## Next Step/{f=1; next} /^## /{f=0} { sub(/\r$/, "") } f && NF' "$STATE")"
+  if [ -n "$NEXT" ] && ss_unfilled "$NEXT"; then
+    echo "     Next Step: not filled in. The section still holds the template's placeholder, so it names no action: write the next concrete step there."
+  elif [ -n "$NEXT" ]; then
     echo "     Next Step, as recorded:"
-    printf '%s\n' "$NEXT" | sed 's/^/       /'
+    n_i=0
+    while IFS= read -r n_l && [ "$n_i" -lt 5 ]; do
+      printf '       %s\n' "$n_l"; n_i=$((n_i + 1))
+    done <<< "$NEXT"
   fi
-  BLOCKED="$(awk '/^## Blocked On/{f=1; next} /^## /{f=0} f && NF' "$STATE" | head -3)"
-  if [ -n "$BLOCKED" ] && ! grep -qiE '^\[?nothing' <<< "$BLOCKED"; then
-    echo "     Blocked on:"
-    printf '%s\n' "$BLOCKED" | sed 's/^/       /'
-  fi
+  # Nothing is said when a line of it begins "Nothing" or "[Nothing", in any
+  # letter case, as the grep it replaces read it.
+  BLOCKED="$(awk '/^## Blocked On/{f=1; next} /^## /{f=0} { sub(/\r$/, "") } f && NF' "$STATE")"
+  shopt -s nocasematch
+  case $'\n'"$BLOCKED" in
+    $'\n'|*$'\n'nothing*|*$'\n''[nothing'*) ;;
+    *)
+      if ss_unfilled "$BLOCKED"; then
+        echo "     Blocked On: not filled in. The section still holds the template's placeholder: write what waits on whom, or \"Nothing\"."
+      else
+        echo "     Blocked on:"
+        n_i=0
+        while IFS= read -r n_l && [ "$n_i" -lt 3 ]; do
+          printf '       %s\n' "$n_l"; n_i=$((n_i + 1))
+        done <<< "$BLOCKED"
+      fi ;;
+  esac
+  shopt -u nocasematch
 
   # mtime is computed once and used by both Warning 1 and Warning 2: it is
   # the file's own record of when it was last touched, independent of
@@ -119,7 +186,8 @@ if [ -f "$STATE" ]; then
   # warning that stood here (WU-IAENG-287) was removed by WU-IAENG-368.
 else
   if [ -n "$ROOT" ] && [ -f "$ROOT/Templates/SESSION_STATE.md" ]; then
-    echo "  2. .ia-engineering/SESSION_STATE.md does not exist. Create it before any other action with $ROOT/Adapters/scripts/create-session-state.sh, which writes the Template block of $ROOT/Templates/SESSION_STATE.md with today's date (after the project's first commit); it is gitignored and refused by the pre-commit hook."
+    a_cmd "$ROOT/Adapters/scripts/create-session-state.sh"
+    echo "  2. .ia-engineering/SESSION_STATE.md does not exist. Create it before any other action: from the project root, run $A_CMD_WORD, which writes the Template block of $ROOT/Templates/SESSION_STATE.md with today's date (after the project's first commit); it is gitignored and refused by the pre-commit hook."
   else
     echo "  2. .ia-engineering/SESSION_STATE.md does not exist and the framework's template was not found (looked for Core/AGENT_CONDUCT.md at ., ia-engineering/, \$IAENG_FRAMEWORK)."
   fi
@@ -157,7 +225,7 @@ if [ -n "$GEN" ] && [ -f "$GEN" ]; then
   # One pass over the output, in the shell: no process per line read. The
   # map lines, the quick check's records, its summary and its command.
   TIER_MAP=""; TIER_SRC=""; TIER_EFFORT=""
-  A_SUM=""; A_CMD=""; A_WHY=""; A_MISS=(); A_STALE=()
+  A_SUM=""; A_CMD=""; A_WHY=""; A_MISS=(); A_STALE=(); A_OLD=()
   while IFS= read -r t_l; do
     case "$t_l" in
       map=*) [ -n "$TIER_MAP" ] || TIER_MAP="$t_l" ;;
@@ -169,12 +237,17 @@ if [ -n "$GEN" ] && [ -f "$GEN" ]; then
         # agent TAB status TAB path TAB detail. Only the file's name is
         # shown: the generator writes <slug>.md, the slug made of a-z, 0-9
         # and - alone, and flattens every field. No other text of a record,
-        # the root an agent names included, reaches the session.
+        # the root an agent names included, reaches the session. The detail
+        # only sorts a stale agent: its framework commit is not the one in
+        # use (#471), or its framework root is not this framework.
         a_r="${t_l#agent$'\t'}"; a_s="${a_r%%$'\t'*}"; a_r="${a_r#*$'\t'}"
-        a_p="${a_r%%$'\t'*}"; a_p="${a_p##*/}"; a_p="${a_p%.md}"
-        case "$a_s" in
-          missing) A_MISS+=("$a_p") ;;
-          stale) A_STALE+=("$a_p") ;;
+        a_p="${a_r%%$'\t'*}"; a_d=""
+        case "$a_r" in *$'\t'*) a_d="${a_r#*$'\t'}" ;; esac
+        a_p="${a_p##*/}"; a_p="${a_p%.md}"
+        case "$a_s:$a_d" in
+          missing:*) A_MISS+=("$a_p") ;;
+          'stale:it was generated from framework commit '*|'stale:it records no framework commit'*) A_OLD+=("$a_p") ;;
+          stale:*) A_STALE+=("$a_p") ;;
         esac ;;
       *) [ -n "$A_WHY" ] || A_WHY="$t_l" ;;
     esac
@@ -213,22 +286,15 @@ if [ -n "$GEN" ] && [ -f "$GEN" ]; then
   # check-framework-drift.sh without --quick, which costs a generation. When
   # the tier map was refused, the generator stopped before this check, and the
   # warning above says what to fix first.
+  #
+  # An upgrade that changes only Employees/ left every agent naming this root,
+  # so nothing was said while each Employee followed its old definition
+  # (#471). Each agent of an adopting project now records the framework
+  # commit it was generated from, and the quick check compares it with the
+  # commit in use: one that differs, or that an agent does not record, is
+  # stale too, and said as such, with no command to type (Director decision,
+  # 18 November 2026).
   if [ "$TIER_RC" -le 1 ] && [ -n "$TIER_MAP" ]; then
-    # a_flat <text> — A_FLAT is the text with every control character a
-    # space, the C1 pairs \xc2\x80 to \xc2\x9f included, read byte by byte
-    # as the record sanitiser reads them (SEC-IAENG-358-01): what is printed
-    # of a path never carries a terminal escape into the session.
-    a_flat() {
-      local LC_ALL=C c1=$'\xc2'
-      A_FLAT="${1//[[:cntrl:]]/ }"
-      A_FLAT="${A_FLAT//"$c1"[$'\x80'-$'\x9f']/ }"
-    }
-    # a_sq <text> — A_SQ is the text as one single-quoted shell word, so a
-    # path with a space runs as printed.
-    a_sq() {
-      local q="'" e="'\\''"
-      A_SQ="$q${1//"$q"/"$e"}$q"
-    }
     a_flat "$GEN"; a_sq "$A_FLAT"; A_GEN="$A_SQ"
     A_N="${A_SUM#*to act on. }"; A_N="${A_N%% agent(s)*}"
     case "$A_N" in ''|*[!0-9]*) A_N="" ;; esac
@@ -242,7 +308,7 @@ if [ -n "$GEN" ] && [ -f "$GEN" ]; then
       [ "${#A_WHY}" -gt 160 ] && A_WHY="${A_WHY:0:160}..."
       echo "IA Engineering agents: not checked (${A_WHY:-the check gave no result}). Until the check passes, dispatch no Employee, and never a generic agent in its place, and report the cause to the Director. Check them by hand: bash $A_GEN --check --quick"
       echo
-    elif [ "${#A_MISS[@]}" -gt 0 ] || [ "${#A_STALE[@]}" -gt 0 ]; then
+    elif [ "${#A_MISS[@]}" -gt 0 ] || [ "${#A_STALE[@]}" -gt 0 ] || [ "${#A_OLD[@]}" -gt 0 ]; then
       # a_list <items...> — "a, b, c and 2 more".
       a_list() {
         local out="" i=0 x
@@ -260,19 +326,20 @@ if [ -n "$GEN" ] && [ -f "$GEN" ]; then
       if [ "${#A_STALE[@]}" -gt 0 ]; then
         A_TXT="${A_TXT:+$A_TXT; }${#A_STALE[@]} of $A_N agents are stale ($(a_list "${A_STALE[@]}")): the framework root each one names is not this project's framework, so its Employee would read the framework somewhere else. The project moved, or they were generated in another clone or before agents named a root"
       fi
+      if [ "${#A_OLD[@]}" -gt 0 ]; then
+        A_TXT="${A_TXT:+$A_TXT; }${#A_OLD[@]} of $A_N agents are stale ($(a_list "${A_OLD[@]}")): they were not generated from the framework commit in use, but before an upgrade or before agents recorded their commit, so each Employee may follow a definition the upgrade changed"
+      fi
       a_flat "$A_CMD"; A_CMD="$A_FLAT"
       echo "IA Engineering agents: $A_TXT. Agents are generated in each clone and never committed. Regenerate them before dispatching any Employee: ${A_CMD:-bash $A_GEN}"
       # A stale agent may mean a moved project, whose core.hooksPath still
       # names the old path, so no git hook runs until install.sh rewrites it
       # (QA-467-02, #470): said in one sentence, with the path from the
-      # project root, quoted only when it needs it.
+      # project root, quoted only when it needs it. Not for an agent that is
+      # stale by its commit alone: its root is this framework.
       A_MOVED=""
       if [ "${#A_STALE[@]}" -gt 0 ]; then
-        A_INST="$ROOT/Adapters/scripts/install.sh"
-        case "$ROOT" in "$BASE"/*) A_INST="./${ROOT#"$BASE"/}/Adapters/scripts/install.sh" ;; esac
-        a_flat "$A_INST"; A_INST="$A_FLAT"
-        case "$A_INST" in *[!A-Za-z0-9_./:=,+@%-]*) a_sq "$A_INST"; A_INST="$A_SQ" ;; esac
-        A_MOVED="If the project moved, also re-run $A_INST: core.hooksPath still names the old path, so no git hook runs. "
+        a_cmd "$ROOT/Adapters/scripts/install.sh"
+        A_MOVED="If the project moved, also re-run $A_CMD_WORD: core.hooksPath still names the old path, so no git hook runs. "
       fi
       # The restart clause only when the directory did not exist at session
       # start: a file added to a directory that did is loaded within seconds.
@@ -331,7 +398,11 @@ if [ -n "$DRIFT_SH" ] && [ -f "$DRIFT_SH" ] && ! [ "$ROOT" -ef "$BASE" ]; then
   DRIFT_SHOWN="$ROOT"
   case "$ROOT" in "$BASE"/*) DRIFT_SHOWN="${ROOT#"$BASE"/}" ;; esac
   DRIFT_SHOWN="${DRIFT_SHOWN#./}"
-  DRIFT_RUN="bash $DRIFT_SHOWN/Adapters/scripts/check-framework-drift.sh"
+  # Quoted only when it needs it, so a framework outside the project, or
+  # imported under a name with a space, runs as printed too (issue #417).
+  a_flat "$DRIFT_SHOWN/Adapters/scripts/check-framework-drift.sh"; D_SH_WORD="$A_FLAT"
+  case "$D_SH_WORD" in *[!A-Za-z0-9_./:=,+@%-]*) a_sq "$D_SH_WORD"; D_SH_WORD="$A_SQ" ;; esac
+  DRIFT_RUN="bash $D_SH_WORD"
   # The user's cache directory, or, when that lies inside the project (a
   # $HOME that is itself a repository, a dev container), a per-user one in
   # $TMPDIR; never one inside the project (lib.sh, iaeng_cache_dir). The
@@ -385,6 +456,15 @@ if [ -n "$DRIFT_SH" ] && [ -f "$DRIFT_SH" ] && ! [ "$ROOT" -ef "$BASE" ]; then
       { (umask 077; printf '%s\n' "$1" > "$DRIFT_SAID.$$.tmp") \
           && mv -f "$DRIFT_SAID.$$.tmp" "$DRIFT_SAID"; } 2>/dev/null
       [ -e "$DRIFT_SAID.$$.tmp" ] && rm -f "$DRIFT_SAID.$$.tmp" 2>/dev/null
+      # The said-once memory and background-run files of projects gone or
+      # quiet for 30 days are removed here, where a line is written, so a
+      # session that says nothing starts no process for it: they piled up
+      # from every rehearsal (issue #367). Regular files only (-type f is
+      # false for a link), named as this hook names them, at the top of a
+      # cache directory the user alone can write. A project still drifting
+      # after 30 days hears its line once more.
+      find "$DRIFT_CACHE" -maxdepth 1 -type f \( -name 'said-*' -o -name 'bg-*' \) \
+        -mtime +30 -exec rm -f {} + 2>/dev/null
     fi
     return 0
   }
@@ -500,6 +580,40 @@ if [ -n "$DRIFT_SH" ] && [ -f "$DRIFT_SH" ] && ! [ "$ROOT" -ef "$BASE" ]; then
     [ "$i" -gt "$max" ] && out="$out and $((i - max)) more"
     printf '%s' "$out"
   }
+  # d_broken — one broken path (family D) of d_result's record into D_BRK:
+  # the path and why, each cut at 160 bytes, then the outcome that applies,
+  # in this hook's own words (issue #415). It said "so that guard is
+  # silently off" of every one, while a guard whose entry has "onFailure":
+  # "block" refuses every call it guards. check-framework-drift.sh writes a
+  # hook command's record as "<why>; <outcome>; named by ...", the outcome
+  # taken from the entry's "onFailure" and its event, and core.hooksPath's
+  # as "<why>: ...". The record's outcome is matched, never printed. One in
+  # another form (a background run of an older framework, a tampered cache)
+  # gets the wording that is true of both outcomes.
+  d_broken() {
+    local why="${d_r%%;*}" rest="" out
+    case "$d_r" in *'; '*) rest="${d_r#*; }" ;; esac
+    case "$d_r" in
+      'core.hooksPath is relative:'*)
+        out="core.hooksPath is relative, so a linked git worktree runs no git hook" ;;
+      'core.hooksPath names a directory that does not exist:'*)
+        out="core.hooksPath names a directory that does not exist, so git runs no git hook" ;;
+      *)
+        d_cap "${why%%:*}"; out="$D_CAPPED"
+        case "$rest" in
+          'its entry has "onFailure": "block", so Claude Code refuses every call it guards'*)
+            out="$out; its entry has \"onFailure\": \"block\", so Claude Code refuses every call it guards" ;;
+          'its entry has "onFailure": "block", so a failure does what exit code 2 does on its event'*)
+            out="$out; its entry has \"onFailure\": \"block\", so a failure does what exit code 2 does on its event" ;;
+          'the hook fails, so its check is silently off'*)
+            out="$out; the hook fails, so its check is silently off" ;;
+          *)
+            out="$out; the hook fails: its check is off, or, for an entry with \"onFailure\": \"block\", every call it guards is refused" ;;
+        esac ;;
+    esac
+    d_cap "$d_p"
+    D_BRK+=("$D_CAPPED ($out)")
+  }
   # d_result — reads DRIFT_OUT, the tsv output of a run that exited 0, into
   # DRIFT_LINES (one line per family, each begun with D_HEAD) or DRIFT_ONCE.
   # Every field arrives flattened: the script turns each control character
@@ -531,7 +645,7 @@ if [ -n "$DRIFT_SH" ] && [ -f "$DRIFT_SH" ] && ! [ "$ROOT" -ef "$BASE" ]; then
               D_VER="${D_VER:+$D_VER; }the submodule is not initialized (gitlink -)" ;;
             file:absent) D_ABS+=("$d_p") ;;
             file:differs|file:stale|file:modified) D_DIF+=("$d_p") ;;
-            path:broken) d_r="${d_r%%;*}"; d_cap "${d_r%%:*}"; D_BRK+=("$d_p ($D_CAPPED)") ;;
+            path:broken) d_broken ;;
             *:indeterminate)
               if [ -z "$D_INDET" ]; then
                 d_cap "$d_p"; D_INDET="$D_CAPPED"
@@ -550,7 +664,14 @@ if [ -n "$DRIFT_SH" ] && [ -f "$DRIFT_SH" ] && ! [ "$ROOT" -ef "$BASE" ]; then
       DRIFT_LINES+=("$D_HEAD: $(( ${#D_ABS[@]} + ${#D_DIF[@]} )) of $D_FILES framework-managed file(s) to act on ($D_TXT). Run: $DRIFT_RUN, which tells a stale file (copy it) from a modified one (review it)")
     fi
     if [ "${#D_BRK[@]}" -gt 0 ]; then
-      DRIFT_LINES+=("$D_HEAD: ${#D_BRK[@]} hook command(s) or core.hooksPath name a path that does not work, so that guard is silently off: $(d_list 2 "${D_BRK[@]}"). Run: $DRIFT_RUN")
+      # Each item carries its own outcome, already cut: listed, not cut again.
+      D_TXT=""; d_i=0
+      for d_x in "${D_BRK[@]}"; do
+        d_i=$((d_i + 1))
+        [ "$d_i" -le 2 ] && D_TXT="${D_TXT:+$D_TXT, }$d_x"
+      done
+      [ "$d_i" -gt 2 ] && D_TXT="$D_TXT and $((d_i - 2)) more"
+      DRIFT_LINES+=("$D_HEAD: ${#D_BRK[@]} hook command(s) or core.hooksPath name a path that does not work: $D_TXT. Run: $DRIFT_RUN")
     fi
     if [ "$D_SUM" -eq 0 ]; then
       # Output cut short is not a result: nothing from it is shown.

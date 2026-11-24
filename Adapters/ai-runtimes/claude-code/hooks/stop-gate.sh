@@ -154,11 +154,27 @@ else
   yield_to_loop_guard
   ROOT="$(iaeng_framework_root || true)"
   if [ -n "$ROOT" ]; then
-    HELPER="$ROOT/Adapters/scripts/create-session-state.sh"
+    # A command that runs as printed from the project root (issue #417): the
+    # path from the project root when the framework is inside it, quoted only
+    # when it holds a character a shell reads specially. The absolute path
+    # printed bare split at the space of a path such as C:/Users/my name/...
+    # and exited 127. Parameter expansion only: no process on this path.
+    # Every control character, the C1 pairs too, becomes a space, read byte
+    # by byte as session-start.sh's a_flat reads them.
+    helper_word() {
+      local LC_ALL=C c1=$'\xc2' q="'" e="'\\''" p="$1"
+      case "$p" in "$BASE"/*) p="./${p#"$BASE"/}" ;; esac
+      p="${p//[[:cntrl:]]/ }"
+      p="${p//"$c1"[$'\x80'-$'\x9f']/ }"
+      case "$p" in *[!A-Za-z0-9_./:=,+@%-]*) p="$q${p//"$q"/"$e"}$q" ;; esac
+      HELPER="$p"
+    }
+    helper_word "$ROOT/Adapters/scripts/create-session-state.sh"
+    HELPER="from the project root, run $HELPER"
   else
-    HELPER="the framework's Adapters/scripts/create-session-state.sh"
+    HELPER="run the framework's Adapters/scripts/create-session-state.sh"
   fi
-  echo "iaeng: SESSION_STATE.md does not exist — not blocking, but create it before the next session resumes (Core/AGENT_CONDUCT.md, Read First): run $HELPER, which writes the Template block of Templates/SESSION_STATE.md with today's date." >&2
+  echo "iaeng: SESSION_STATE.md does not exist — not blocking, but create it before the next session resumes (Core/AGENT_CONDUCT.md, Read First): $HELPER, which writes the Template block of Templates/SESSION_STATE.md with today's date." >&2
 fi
 
 exit 0

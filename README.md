@@ -307,7 +307,12 @@ commit of `chore/adopt-ia-engineering`.
 An existing repository then merges the adoption into `develop`. Push the
 branch with `git push -u origin chore/adopt-ia-engineering` and open a Pull
 Request from it to `develop`, its description filled in from the installed
-`.github/PULL_REQUEST_TEMPLATE.md`. The Pull Request runs the CI workflows
+`.github/PULL_REQUEST_TEMPLATE.md`. A project that already had a pull
+request template of its own keeps it: the bootstrap leaves it as it is and
+does not fail on it, and `install.sh --check` lists one action, to copy into
+it by hand the framework's parts it lacks (the `Work Unit:` line, Merge
+danger, How to test, the Falsifiability item) from
+`ia-engineering/Adapters/github/PULL_REQUEST_TEMPLATE.md` (issue #472). The Pull Request runs the CI workflows
 that the adoption commit adds, and `Work Unit Exists` and `Employee Trailer`
 read the two adoption commits and none from before them. The adoption is
 larger than the 1,500-line review limit: its first commit alone adds about
@@ -346,7 +351,9 @@ whose other sections explain how to keep the state file and are not part of
 it. Fill in the placeholders, and at least the `_Last updated:` line with
 today's absolute date in the form `6 October 2026` (day, English month name,
 year). The session-start hook reads the date from that line and reports a
-placeholder as unparsable. This file is the project's dated operational state,
+date it cannot parse, the placeholder included. It also says when the Next
+Step or Blocked On section still holds the template's placeholder, rather
+than copying it as the step to take. This file is the project's dated operational state,
 read right after `CLAUDE.md` on every resume, and never committed (the install
 gitignores it). Create it **after** those two commits, not before: the session-start
 hook compares the file's modification time with the latest commit, so a file
