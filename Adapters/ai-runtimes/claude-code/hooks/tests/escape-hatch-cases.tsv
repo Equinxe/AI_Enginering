@@ -937,3 +937,128 @@ allow	/usr/bin/git stash list
 allow	command git stash list
 allow	git stash show stash@{1}
 allow	git -C stash list
+# Command recognition (WU-IAENG-450). A quoted or escaped ; & | is part of a
+# word, so a git option's value cannot cut its command in two; a substitution
+# is also read as empty, so a flag glued to one is read as the flag; git is
+# recognised as git.cmd, git.com and git.bat and as a dashed git-<subcommand>;
+# rm by any path; a dropped quoted word after a git option that takes a value,
+# or after `stash`, keeps its place; and a label that is not a static literal
+# is refused. Rows that start with a / are rewritten by Git Bash into a Windows
+# path before jq reads them; both forms are refused.
+block	git -C "a;b" config core.hooksPath /dev/null	setting core.hooksPath disables
+block	git -C 'a|b' config core.hooksPath /dev/null	setting core.hooksPath disables
+block	git -C "a&b" config --unset core.hooksPath	setting core.hooksPath disables
+block	git --git-dir="a;b" config core.hooksPath /dev/null	setting core.hooksPath disables
+block	git -C $'a;b' config core.hooksPath /dev/null	setting core.hooksPath disables
+block	git -C a\;b config core.hooksPath /dev/null	setting core.hooksPath disables
+block	git -C "$(true; true)" config core.hooksPath /dev/null	setting core.hooksPath disables
+block	git -C "$(true; true)" push --force	force-push or mirror-push
+block	gh -R "o/r;x" pr edit 1 --add-label control-change/approved	only the Director applies these approval labels
+block	gh pr edit 1 -R o/r\|x --add-label size/approved	only the Director applies these approval labels
+allow	git -C "a;b" config --get core.hooksPath
+allow	git log --format='%h;%s' -3
+block	/bin/rm -rf /	recursive removal
+block	/usr/bin/rm -rf /	recursive removal
+block	./rm -rf .git	recursive removal
+block	cd x && ../bin/rm -rf /	recursive removal
+block	rm.exe -rf /	recursive removal
+block	RM -rf /	recursive removal
+block	"/c/x y/rm" -rf /	recursive removal
+block	"C:\Git\usr\bin\rm.exe" -rf /	recursive removal
+block	(rm -rf /)	recursive removal
+block	rm -rf .git;true	recursive removal
+block	true&rm -rf .git	recursive removal
+allow	/bin/rm -rf build/
+allow	./rm -rf node_modules
+allow	confirm -rf /
+block	git push "--force$(true)"	force-push or mirror-push
+block	git push "--force`true`"	force-push or mirror-push
+block	git commit "--no-verify$(true)" -m x	--no-verify disables
+block	git commit "--no-verify`true`" -m x	--no-verify disables
+block	git push "$(true)--force"	force-push or mirror-push
+block	git push "--fo$(true)rce"	force-push or mirror-push
+block	git push "--force$(true;true)"	force-push or mirror-push
+block	git push "--fo$(true)"rce	force-push or mirror-push
+block	git push --fo$(true)rce	force-push or mirror-push
+block	git push --fo`true`rce	force-push or mirror-push
+block	git reset "--ha$(true)rd"	git reset --hard discards
+block	git push "--force$(echo "x y")"	force-push or mirror-push
+allow	git commit -m "fix: $(date) build"
+allow	git push origin "$(git branch --show-current)"
+allow	echo "--force$(true)"
+block	/mingw64/libexec/git-core/git-push --force	force-push or mirror-push
+block	git-push --force	force-push or mirror-push
+block	git-push.exe -f origin main	force-push or mirror-push
+block	git-stash	git stash sets work aside
+block	git-stash.exe	git stash sets work aside
+block	git-stash push -m wip	git stash sets work aside
+block	git-commit --no-verify -m x	--no-verify disables
+block	git-commit -n -m x	git commit -n is --no-verify
+block	git-reset --hard	git reset --hard discards
+block	"/c/x y/git-core/git-push.exe" --force	force-push or mirror-push
+block	C:/x/git-core/git-push.exe --force	force-push or mirror-push
+block	git-filter-repo --path x --invert-paths	history rewrite
+block	git-filter-branch.exe --tree-filter x	history rewrite
+block	/mingw64/libexec/git-core/git-config core.hooksPath /dev/null	setting core.hooksPath disables
+allow	git-stash list
+allow	git-stash.exe show
+allow	cat .git-blame-ignore-revs
+allow	npx simple-git-hooks
+allow	ls /mingw64/libexec/git-core/
+block	git stash "-m a b" list	git stash sets work aside
+block	git stash '-m a b' show	git stash sets work aside
+block	git stash "-m a b"list	git stash sets work aside
+block	git-stash "-m a b" list	git stash sets work aside
+block	git -C "a b" stash "x y" list	git stash sets work aside
+allow	git stash list "--format=%gd %s"
+allow	git stash show "stash@{1}"
+block	git.cmd push --force	force-push or mirror-push
+block	git.com push --force	force-push or mirror-push
+block	GIT.CMD reset --hard	git reset --hard discards
+block	git.bat stash	git stash sets work aside
+block	"/c/x y/git.cmd" push --force	force-push or mirror-push
+block	git.cmd -c core.hooksPath=/dev/null commit -m x	setting core.hooksPath disables
+allow	git.cmd stash list
+allow	git.com status
+block	gh pr edit 1 --add-label "control-change/$(echo approved)"	a label built from a variable or a substitution
+block	gh pr edit 1 --add-label "control-change/`echo approved`"	a label built from a variable or a substitution
+block	gh pr edit 1 --add-label control-change/$(echo approved)	a label built from a variable or a substitution
+block	gh pr edit 1 --add-label control-change/`echo approved`	a label built from a variable or a substitution
+block	gh pr edit 1 --add-label $(echo control-change/approved)	a label built from a variable or a substitution
+block	gh pr edit 1 --add-label "$L"	a label built from a variable or a substitution
+block	gh pr edit 1 --add-label=$L	a label built from a variable or a substitution
+block	gh issue edit 1 --add-label "bug,$L"	a label built from a variable or a substitution
+block	gh pr create -l "$L" --fill	a label built from a variable or a substitution
+block	gh api -X POST repos/o/r/issues/1/labels -f "labels[]=control-change/$(echo approved)"	a label built from a variable or a substitution
+block	gh api repos/o/r/issues/1/labels -f labels[]=$L	a label built from a variable or a substitution
+block	gh api -X PATCH repos/o/r/issues/1 -f "labels[]=$L"	a label built from a variable or a substitution
+block	gh api repos/o/r/issues/1/labels -F labels[]=@labels.txt	a label built from a variable or a substitution
+block	gh api -X PATCH repos/o/r/labels/bug -f new_name="$N"	a label built from a variable or a substitution
+block	gh api repos/o/r/issues/1/labels -f "$K=x"	a label built from a variable or a substitution
+allow	gh pr edit 1 --add-label bug
+allow	gh pr edit 1 --add-label "help wanted" --body "$B"
+allow	gh pr edit 1 --remove-label "$L"
+allow	gh pr list --label "$L"
+allow	gh pr edit $n --add-label bug
+allow	gh api repos/o/r/issues/$n/labels
+allow	gh api -X POST repos/o/r/issues/$n/comments -f body="$B"
+allow	gh api -X POST repos/o/r/issues/$n/labels -f labels[]=bug
+# A quoted git option value that holds a space earns the core.hooksPath read
+# exemptions, as an unquoted one does (#477). The legacy read beside a quote
+# stays refused, and so does a value that holds only whitespace
+# (SEC-IAENG-431-05).
+allow	git -C "/c/Program Files/repo" config --get core.hooksPath
+allow	git -C "my repo" config --get core.hooksPath
+allow	git --git-dir="/c/my repo/.git" config --get core.hooksPath
+allow	git -C "/c/Program Files/repo" config --get-all core.hooksPath
+allow	git -C "/c/Program Files/repo" config --file "/c/my repo/.git/config" --get core.hooksPath
+allow	git -C "/c/Program Files/repo" stash show
+block	git -C "/c/Program Files/repo" config core.hooksPath /dev/null	setting core.hooksPath disables
+block	git -C "/c/Program Files/repo" config core.hooksPath	setting core.hooksPath disables
+block	git -C ' ' config --get core.hooksPath	setting core.hooksPath disables
+# A substitution that stands for a git option's whole value is still a value in
+# the third reading, which reads it as empty: the read stays a read.
+allow	git -C "$(pwd)" config --get core.hooksPath
+allow	git -C $(pwd) config --get core.hooksPath
+allow	git -C `pwd` config --get core.hooksPath
+block	git -C $(true; true) config core.hooksPath /dev/null	setting core.hooksPath disables

@@ -1505,6 +1505,137 @@ else
   printf '   FAIL  escape-hatch: a large command read twice is judged within 30 s, and refused: exit %s after %s s\n' "$W440_RC" "$W440_S"
 fi
 
+# --- Escape-hatch hook: command recognition (WU-IAENG-450) ---------------------
+# What the case file cannot hold: the lexer's exact third reading and its KEEPQ
+# mark, commands over several lines, the process budget, and the cap and the
+# time for a command read three times. The expected outputs are worked by hand
+# from the grammar in strip-quotes.awk: the third reading follows the others,
+# on a line of its own, when it differs from both; a substitution prints
+# nothing in it, so the words on either side join; a quoted or escaped ; & |
+# is \005 in it; a dropped quoted region after a git option that takes a
+# value, or after `stash`, is \005 in every reading, unless it holds only
+# whitespace; in KEEPQ mode a substitution leaves a `$` where it opens. No
+# command here starts with a /, which Git Bash would rewrite into a Windows
+# path before jq read it.
+echo "== escape-hatch: command recognition (WU-IAENG-450)"
+# w450_lex <label> <KEEPQ: 0 or 1> <input, given without a line break> <exact output>
+w450_lex() {
+  local label="$1" kq="$2" in="$3" want="$4" got
+  TOTAL=$((TOTAL + 1))
+  got="$(printf '%s' "$in" | awk -v KEEPQ="$kq" -f "$HOOKS/strip-quotes.awk"; printf x)"
+  got="${got%x}"
+  if [ "$got" = "$want" ]; then
+    [ "$VERBOSE" -eq 1 ] && printf '   ok    %s\n' "$label"
+  else
+    FAILED=$((FAILED + 1))
+    printf '   FAIL  %s: got %q, want %q\n' "$label" "$got" "$want"
+  fi
+}
+w450_lex "lexer: a substitution is empty in the third reading, so the flag glued to it is whole" 0 \
+  "git push \"--force\$(true)\"" $'git push  true \ngit push --force'
+w450_lex "lexer: the words on either side of an unquoted substitution join in the third reading" 0 \
+  "git push --fo\`true\`rce" $'git push --fo true rce\ngit push --force'
+w450_lex "lexer: a quoted ; is a word byte in the third reading" 0 \
+  'git -C "a;b" x' $'git -C a;b x\ngit -C a\005b x'
+w450_lex "lexer: an escaped | is a word byte in the third reading" 0 \
+  'git -C a\|b x' $'git -C a|b x\ngit -C a\005b x'
+w450_lex "lexer: a substitution the text never closes is printed after the text before it" 0 \
+  "git push --fo\$(true)rce \$(git stash" $'git push --fo true rce  git stash\ngit push --force  git stash'
+w450_lex "lexer: a dropped value after -C, and the word after stash, are \\005 in every reading" 0 \
+  'git -C "a b" stash "c d" list' $'git -C \005 stash \005 list'
+w450_lex "lexer: a value of whitespace alone leaves nothing" 0 \
+  'git -C " " x' 'git -C  x'
+w450_lex "lexer: a substitution that is a value, quoted or not, is \\005 in the third reading" 0 \
+  "git -C \"\$(pwd)\" x; git -C \$(pwd) y" $'git -C  pwd  x; git -C  pwd  y\ngit -C \005 x; git -C \005 y'
+w450_lex "lexer: in KEEPQ mode a substitution leaves a \$ where it opens, and no third reading is made" 1 \
+  "gh pr edit 1 --add-label \"a/\$(echo b)\"" $'gh pr edit 1 --add-label $ echo b \ngh pr edit 1 --add-label a/$ echo b '
+w450_lex "lexer: in KEEPQ mode an escaped ; is a word byte in the first reading" 1 \
+  'gh -R o/r\;x pr' $'gh -R o/r\005x pr'
+# Over several lines, which the case file cannot hold.
+expect_reason "escape-hatch: a flag glued to a substitution over several lines is read whole" \
+  "$(mkbash $'git push "--force$(\ntrue\n)"')" "force-push or mirror-push"
+expect_reason "escape-hatch: a label built by a substitution over several lines is refused" \
+  "$(mkbash $'gh pr edit 1 --add-label "control-change/$(\necho approved\n)"')" "a label built from a variable or a substitution"
+expect_reason "escape-hatch: a ; inside a substitution on another line does not cut the git command around it" \
+  "$(mkbash $'git -C "$(true\ntrue)" config core.hooksPath x')" "setting core.hooksPath disables"
+# THE PROCESS BUDGET. Recording stand-ins first on PATH, as in the budgets
+# above: a dashed git and git.cmd start cat and one jq; a command read three
+# times starts one awk, as a command read once does; a gh api write in a
+# command that names a label starts the KEEPQ awk, and one that names none
+# does not.
+W450_BASE="$(mktemp -d)"
+W450_SHIMS="$W450_BASE/shims"
+W450_LOG="$W450_BASE/shims.log"
+W450_ON_PATH="$W450_SHIMS"
+command -v cygpath >/dev/null 2>&1 && W450_ON_PATH="$(cygpath -u "$W450_SHIMS")"
+mkdir -p "$W450_SHIMS"
+for w450_cmd in awk cat cut grep head jq sed sort tr wc; do
+  w450_real="$(command -v "$w450_cmd")" || continue
+  printf '#!/bin/sh\necho %s >> "%s"\nexec "%s" "$@"\n' "$w450_cmd" "$W450_LOG" "$w450_real" > "$W450_SHIMS/$w450_cmd"
+  chmod +x "$W450_SHIMS/$w450_cmd"
+done
+# w450_budget <label> <command> <awk wanted> <starts wanted>
+w450_budget() {
+  local label="$1" cmd="$2" want_awk="$3" want_all="$4" rc n_jq n_awk n_all
+  TOTAL=$((TOTAL + 1))
+  : > "$W450_LOG"
+  printf '%s' "$(mkbash "$cmd")" | PATH="$W450_ON_PATH:$PATH" bash "$HOOK" >/dev/null 2>&1
+  rc=$?
+  n_jq="$(grep -c '^jq$' "$W450_LOG")"
+  n_awk="$(grep -c '^awk$' "$W450_LOG")"
+  n_all="$(wc -l < "$W450_LOG" | tr -d ' ')"
+  if [ "$rc" -eq 0 ] && [ "$n_jq" -eq 1 ] && [ "$n_awk" -eq "$want_awk" ] && [ "$n_all" -eq "$want_all" ]; then
+    [ "$VERBOSE" -eq 1 ] && printf '   ok    %s\n' "$label"
+  else
+    FAILED=$((FAILED + 1))
+    printf '   FAIL  %s: exit %s, jq x%s, awk x%s, %s starts (want exit 0, jq x1, awk x%s, %s starts)\n' \
+      "$label" "$rc" "$n_jq" "$n_awk" "$n_all" "$want_awk" "$want_all"
+  fi
+}
+w450_budget "escape-hatch: budget — a dashed git starts cat and one jq" 'x/git-core/git-stash list' 0 2
+w450_budget "escape-hatch: budget — git.cmd starts cat and one jq" 'git.cmd log --oneline -3' 0 2
+w450_budget "escape-hatch: budget — a command read three times starts one awk" "echo \"a\$(date)b\" \"c d/e\"" 1 3
+w450_budget "escape-hatch: budget — a gh api write that names a label starts the KEEPQ awk" 'gh api repos/o/r/issues/1/labels -f labels[]=bug' 1 3
+w450_budget "escape-hatch: budget — a gh api write that names no label does not" 'gh api repos/o/r/issues/1/comments -f body=x' 0 2
+rm -rf "$W450_BASE"
+# THE CAP COUNTS THE THIRD READING. A command the lexer reads three times is
+# read up to 666 segments (1,998 in all) and refused from 667 (2,001). A
+# quoted path and a flag glued to a substitution are enough.
+W450_SEGS=""
+for ((w450_i = 1; w450_i < 666; w450_i++)); do W450_SEGS+="true;"; done
+expect_rc "escape-hatch: 666 segments read three times are read" 0 "$HOOK" "$(mkbash "${W450_SEGS}true \"a b/c\" \"-x\$(true)\"")"
+expect_reason "escape-hatch: 667 segments read three times are refused at the cap" \
+  "$(mkbash "${W450_SEGS}true;true \"a b/c\" \"-x\$(true)\"")" "pipeline segments after expansion"
+# A LARGE COMMAND READ THREE TIMES IS JUDGED IN TIME. 5,000 substitutions,
+# each glued to the word before it and to the one after it, then a
+# force-push: every reading runs, and the call is refused within 30 s, the
+# budget of the large-input checks above. 50,000 bytes, short of the
+# 65,536-byte here-string window, which those checks cover.
+W450_DIR="$(mktemp -d)"
+{
+  printf 'echo '
+  for ((w450_i = 0; w450_i < 5000; w450_i++)); do printf '%s' "a\$(true)b "; done
+  printf '; git push --force'
+} > "$W450_DIR/cmd"
+jq -n --rawfile c "$W450_DIR/cmd" '{tool_name:"Bash",tool_input:{command:$c}}' > "$W450_DIR/pay"
+w450_t0=$SECONDS
+if command -v timeout >/dev/null 2>&1; then
+  W450_OUT="$(timeout 30 bash "$HOOK" < "$W450_DIR/pay" 2>&1 >/dev/null)"
+  W450_RC=$?
+else
+  W450_OUT="$(bash "$HOOK" < "$W450_DIR/pay" 2>&1 >/dev/null)"
+  W450_RC=$?
+fi
+W450_S=$((SECONDS - w450_t0))
+rm -rf "$W450_DIR"
+TOTAL=$((TOTAL + 1))
+if [ "$W450_RC" -eq 2 ] && [ "$W450_S" -le 30 ] && grep -qF "force-push or mirror-push" <<< "$W450_OUT"; then
+  [ "$VERBOSE" -eq 1 ] && printf '   ok    %s (%s s)\n' "escape-hatch: a large command read three times is judged within 30 s, and refused" "$W450_S"
+else
+  FAILED=$((FAILED + 1))
+  printf '   FAIL  escape-hatch: a large command read three times is judged within 30 s, and refused: exit %s after %s s\n' "$W450_RC" "$W450_S"
+fi
+
 # --- Verdict ----------------------------------------------------------------
 
 echo

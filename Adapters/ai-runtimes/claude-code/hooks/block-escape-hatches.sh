@@ -24,7 +24,8 @@
 # call starts lib.sh's cat and one jq; the lexer's awk when the command holds
 # one of the ten bytes the lexer rewrites (a command without them skips it); a
 # second awk, the lexer in KEEPQ mode, for a gh pr|issue edit|create with a
-# label flag or a gh alias set|import; one tr for each of those texts that
+# label flag, a gh alias set|import, or a gh api write in a command that names
+# a label (WU-IAENG-450); one tr for each of those texts that
 # holds a byte above 0x7F (non-ASCII input is mapped once, in linear time);
 # and one grep -o, the only process a rule starts, for a command that names
 # commit.gpgsign in a git -c or --config-env option. jq, the awks, tr and
@@ -265,7 +266,10 @@ STRIPPED_LINES=(${SPLIT[@]+"${SPLIT[@]}"})
 # Two rules below judge the command one pipeline segment at a time: the
 # stripped text split on `;`, `&`, `|` and line breaks. SEGS holds those
 # segments, split once. `&&` leaves an empty segment between its two
-# characters, which no rule matches.
+# characters, which no rule matches. A quoted or escaped `;`, `&` or `|` does
+# not end a command, so the lexer's third reading prints it as \005, and a
+# substitution's own `;` is not in that reading: `git -C "a;b" config …` and
+# `git -C "$(true; true)" config …` stay one segment there (WU-IAENG-450).
 #
 # A COMMAND WITH MORE THAN MAX_SEGMENTS SEGMENTS IS REFUSED. The per-segment
 # work grows with the count, and a call that runs past the guard's 120 s
@@ -278,8 +282,9 @@ STRIPPED_LINES=(${SPLIT[@]+"${SPLIT[@]}"})
 # said. 2,000 is four times the most segments seen in 4,504 real commands of
 # this repository (463, where a brace expansion multiplied a 1,235-character
 # command; the 99.9th percentile is 137, the median 5). The count is taken
-# after the lexer, so brace alternatives count, and so does the lexer's second
-# reading of a command, when it prints one (WU-IAENG-440). At the cap, the heaviest
+# after the lexer, so brace alternatives count, and so do the lexer's second
+# and third readings of a command, when it prints them (WU-IAENG-440,
+# WU-IAENG-450). At the cap, the heaviest
 # command (2,000 lines, each a `gh` segment) was read in 2.5 s on the loaded
 # Windows machine of the measurement. The large inputs timed there, before
 # and after this change, are in that Governance document.
@@ -335,6 +340,17 @@ fi
 # exemption. The space form of those long options is read either way, as on
 # develop: the generic --[a-z][a-z-]* alternative may read the option alone.
 #
+# A QUOTED VALUE THAT HOLDS A SPACE IS A VALUE (WU-IAENG-450, #477). The lexer
+# drops a quoted region with whitespace, which left `-C` with no value, so GX
+# took the subcommand for it and `git -C "/c/Program Files/r" config --get
+# core.hooksPath` was refused. After an option that takes a value, the lexer
+# now leaves \005 where such a region was (a value context, strip-quotes.awk),
+# and GX reads it as the value. A region that holds only whitespace, or is
+# empty, still leaves nothing (SEC-IAENG-431-05). In the third reading, which
+# reads a substitution as empty, a substitution that stands for the whole
+# value leaves \005 too, so `git -C "$(pwd)" config --get core.hooksPath` is
+# still read as the read it is.
+#
 # GIT_NAME IS THE COMMAND NAME, IN EVERY SPELLING THE SHELL RUNS (WU-IAENG-440).
 # On Windows the file system folds case and the shell finds git.exe by either
 # name, so `GIT`, `Git.EXE` and `git.exe` run git as `git` does; G and GX
@@ -342,8 +358,26 @@ fi
 # reads it. A git named by a path is matched by its last component, and a
 # quoted path with a space reaches the rules as that component, with a /
 # before it (strip-quotes.awk).
-GIT_NAME='[Gg][Ii][Tt](\.[Ee][Xx][Ee])?'
-G="$GIT_NAME"'([[:space:]]+(-[Cc]([[:space:]]+[^[:space:]]+)?|--(git-dir|work-tree|namespace|exec-path|config-env|super-prefix|attr-source)(=[^[:space:]]*|[[:space:]]+[^[:space:]]+)|--[a-z][a-z-]*|-[pP]))*[[:space:]]+'
+#
+# GEXT IS EVERY EXTENSION WINDOWS RUNS A COMMAND BY (WU-IAENG-450). The shell
+# runs a git.cmd, git.com or git.bat on the PATH by its name as it runs
+# git.exe, so each is git to G and GX, in any case spelling.
+#
+# A DASHED GIT IS GIT (WU-IAENG-450). git-push, git-stash, git-commit and every
+# other git-<subcommand> in git's exec path run that subcommand: the program
+# reads the subcommand from its own name. G reads `git-` as `git ` plus no
+# global option, so every rule's subcommand follows it as it follows `git `,
+# under any directory (/mingw64/libexec/git-core/git-push) and with any GEXT
+# extension, which the rules whose subcommand is followed by a fixed set of
+# bytes (stash, filter-branch) accept after it. The byte before `git-` must
+# not be a letter, a digit, `_`, `.` or `-`, so .git-blame-ignore-revs and
+# simple-git-hooks are not git. A word that only ends in /git-<subcommand>,
+# such as a branch named feat/git-stash, is read as that command: an
+# over-refusal, in the direction this hook errs. The read exemptions (GX) do
+# not read the dashed form, so a dashed core.hooksPath read is refused.
+GEXT='(\.([Ee][Xx][Ee]|[Cc][Mm][Dd]|[Cc][Oo][Mm]|[Bb][Aa][Tt]))?'
+GIT_NAME="[Gg][Ii][Tt]${GEXT}"
+G="(${GIT_NAME}"'([[:space:]]+(-[Cc]([[:space:]]+[^[:space:]]+)?|--(git-dir|work-tree|namespace|exec-path|config-env|super-prefix|attr-source)(=[^[:space:]]*|[[:space:]]+[^[:space:]]+)|--[a-z][a-z-]*|-[pP]))*[[:space:]]+|(^|[^[:alnum:]_.-])[Gg][Ii][Tt]-)'
 GX="$GIT_NAME"'([[:space:]]+(-[Cc][[:space:]]+[^[:space:]]+|--(git-dir|work-tree|namespace|exec-path|config-env|super-prefix|attr-source)(=|[[:space:]]+)[^[:space:]]+|--[a-z][a-z-]*|-[pP]))*[[:space:]]+'
 S='[[:space:]]'
 E='([[:space:]]|;|&|\||\)|$)'
@@ -687,9 +721,12 @@ fi
 # its own: a read in one segment, or a `git … stash list` that is only text
 # inside another command, exempts nothing else. Every reading G allows is
 # tried, so an occurrence is refused when any of them reaches a word other
-# than `list` or `show`. Case is not folded: `stash LIST` is refused.
+# than `list` or `show`. Case is not folded: `stash LIST` is refused. A quoted
+# word right after `stash` that holds a space, which the lexer drops, leaves
+# \005 in its place (a value context, strip-quotes.awk), so `git stash "-m a
+# b" list` is refused: `list` is not the word after `stash` (WU-IAENG-450).
 STASH_OTHER="(${S}*\$|${S}*[;&|)]|${S}+([^[:space:];&|)ls]|l([^i]|\$)|li([^s]|\$)|lis([^t]|\$)|list[^[:space:];&|)]|s([^h]|\$)|sh([^o]|\$)|sho([^w]|\$)|show[^[:space:];&|)]))"
-if check "${G}stash${STASH_OTHER}"; then
+if check "${G}stash${GEXT}${STASH_OTHER}"; then
   iaeng_block "git stash sets work aside with no record; it is local, unlabelled, and lost with the clone" \
     "Standards/GIT_STANDARD.md, Escape Hatches. Commit as work in progress on the feature branch, or open a second branch."
 fi
@@ -779,15 +816,23 @@ if check "${G}update-ref[^|;&]*${S}(-d|--delete)$E"; then
   iaeng_block "update-ref -d deletes a ref outright" \
     "Standards/GIT_STANDARD.md, Escape Hatches; Standards/RISK_STANDARD.md (High). Branch deletion goes through the branch commands, which refuse when the branch is unmerged."
 fi
-if check "${G}filter-(branch|repo)$E"; then
+if check "${G}filter-(branch|repo)${GEXT}$E"; then
   iaeng_block "history rewrite" \
     "Standards/DATA_PROTECTION_STANDARD.md, purge protocol — a Director decision executed by a human, with a bundle backup first."
 fi
 # Long spellings and a trailing glob are the same command: `rm --recursive
 # --force /` and `rm -rf /*` were both allowed while this matched only the
 # bundled short form followed by an exact path.
+#
+# RM IS RECOGNISED BY ITS LAST PATH COMPONENT (WU-IAENG-450), as git is: /bin/rm,
+# /usr/bin/rm, ./rm, a quoted path read by its last component (strip-quotes.awk)
+# and rm.exe, in any case spelling, which Windows resolves alike. A path
+# separator may be / or \. The command may follow a subshell's ( or a lone &,
+# as well as a space, a ; or a |, and its target may end at a ; & | or ), as
+# well as at a space or the end of the line: `(rm -rf /)`, `rm -rf /;x`.
 RMFLAG="(-[a-zA-Z]*r[a-zA-Z]*|--recursive|--force|-[a-zA-Z]*f[a-zA-Z]*)"
-if check "(^|${S}|;|&&|\|)rm(${S}+${RMFLAG})*${S}+(/|\.git)(/|\*|${S}|$)"; then
+RM_NAME='([^[:space:];&|]*[/\\])?[Rr][Mm](\.[Ee][Xx][Ee])?'
+if check "(^|[[:space:];&|(])${RM_NAME}(${S}+${RMFLAG})*${S}+(/|\.git)([/*;&|)]|${S}|$)"; then
   iaeng_block "recursive removal of the repository metadata or the filesystem root" \
     "Standards/RISK_STANDARD.md, operational catalog (Critical)."
 fi
@@ -846,9 +891,30 @@ kept_view() {
   KEPT_SEGS=(${SPLIT[@]+"${SPLIT[@]}"})
 }
 
+#
+# A LABEL THAT IS NOT A STATIC LITERAL IS REFUSED (WU-IAENG-450). A label value
+# built from a variable or a substitution can expand to either approval label,
+# so a gh pr|issue edit|create label flag whose value holds one, and a gh api
+# write that sets labels from one, is refused, with a reason of its own
+# (LABEL_DYN). It is read in the KEEPQ view, where a variable keeps its `$`
+# and a substitution leaves a `$` where it opens (strip-quotes.awk), glued to
+# the text before it: `--add-label "control-change/$(echo approved)"` reads
+# `--add-label control-change/$ echo approved`. For gh api, the value is one
+# that sets labels: a field whose key names labels (labels[]=, labels=), the
+# name or new_name of a /labels endpoint, or any field with a substituted key
+# on an issue, pull request or labels endpoint. A -F value read from a file
+# (`=@file`) is not a literal either. A literal `$` in a single-quoted label
+# reads the same and is refused too. The KEEPQ view is made for an api write
+# only when the raw command names a label (any case), so a comment posted with
+# gh api starts no second awk.
+LDYN='[^[:space:]]*\$'
+API_FIELD="${S}(-f|-F|--field|--raw-field)(=|${S}*)"
 APPROVAL_LABEL=0
+LABEL_DYN=0
 GH_EDIT_LABELFLAG=0
 GH_ALIAS=0
+GH_API_LABEL=0
+case "$CMD" in *[lL][aA][bB][eE][lL]*) RAW_LABEL=1 ;; *) RAW_LABEL=0 ;; esac
 case "$STRIPPED" in *[gG][hH]*) GH_SEEN=1 ;; *) GH_SEEN=0 ;; esac
 if [ "$GH_SEEN" -eq 1 ]; then
   for SEG in ${SEGS[@]+"${SEGS[@]}"}; do
@@ -869,6 +935,7 @@ if [ "$GH_SEEN" -eq 1 ]; then
          && rx_any 1 "$WRITE_OPT" "$SEG"; then
         APPROVAL_LABEL=1
       fi
+      [ "$RAW_LABEL" -eq 1 ] && rx_any 1 "$WRITE_OPT" "$SEG" && GH_API_LABEL=1
       # --input names a file this hook cannot read: refused on the endpoints that
       # set labels, since unread input is refused (see the lexer LIMIT contract).
       if rx_any 1 "${S}--input" "$SEG" \
@@ -877,7 +944,7 @@ if [ "$GH_SEEN" -eq 1 ]; then
       fi
     fi
   done
-  if [ "$GH_EDIT_LABELFLAG" -eq 1 ] || [ "$GH_ALIAS" -eq 1 ]; then
+  if [ "$GH_EDIT_LABELFLAG" -eq 1 ] || [ "$GH_ALIAS" -eq 1 ] || [ "$GH_API_LABEL" -eq 1 ]; then
     # The KEEPQ view of the command: quoted regions kept as single words, their
     # inner whitespace replaced by PH, heredoc bodies still skipped. A flag or a
     # `gh` that sits INSIDE quoted prose has lost its whitespace boundary, so
@@ -891,6 +958,20 @@ if [ "$GH_SEEN" -eq 1 ]; then
          && rx_any 1 "${GHEDIT}[^|;&]*${LABEL_FLAG}${LVALK}" "$SEG"; then
         APPROVAL_LABEL=1
       fi
+      if [ "$GH_EDIT_LABELFLAG" -eq 1 ] \
+         && rx_any 1 "${GHEDIT}[^|;&]*${LABEL_FLAG}${LDYN}" "$SEG"; then
+        LABEL_DYN=1
+      fi
+      if [ "$GH_API_LABEL" -eq 1 ] \
+         && rx_any 1 "${GHB}${GHF}${S}+api${S}" "$SEG" \
+         && { ! rx_any 1 "$READ_M" "$SEG" || rx_any 1 "$WRITE_M" "$SEG"; } \
+         && { rx_any 1 "${API_FIELD}[^=[:space:]]*label[^=[:space:]]*=(${LDYN}|@)" "$SEG" \
+              || { rx_any 1 "/labels([/?[:space:]]|\$)" "$SEG" \
+                   && rx_any 1 "${API_FIELD}(name|new_name)=(${LDYN}|@)" "$SEG"; } \
+              || { rx_any 1 "(issues|pulls)/|/labels" "$SEG" \
+                   && rx_any 1 "${API_FIELD}[^=[:space:]]*\\\$[^=[:space:]]*=" "$SEG"; }; }; then
+        LABEL_DYN=1
+      fi
       if [ "$GH_ALIAS" -eq 1 ] \
          && rx_any 1 "${GHB}${GHF}${S}+alias${GHF}${S}+(set|import)${E}" "$SEG" \
          && rx_any 1 "(^|[^[:alnum:]_-])${LBL}" "$SEG"; then
@@ -902,6 +983,10 @@ fi
 if [ "$APPROVAL_LABEL" -eq 1 ]; then
   iaeng_block "applying control-change/approved or size/approved — only the Director applies these approval labels" \
     "Adapters/ai-runtimes/claude-code/hooks/README.md, Approval Label Guard. Ask the Director to apply the label; removing it, listing labels and mentioning it in text are allowed."
+fi
+if [ "$LABEL_DYN" -eq 1 ]; then
+  iaeng_block "applying a label built from a variable or a substitution — it can expand to control-change/approved or size/approved, which only the Director applies" \
+    "Adapters/ai-runtimes/claude-code/hooks/README.md, Approval Label Guard. Write the label as a literal in the command, so it can be read."
 fi
 
 exit 0

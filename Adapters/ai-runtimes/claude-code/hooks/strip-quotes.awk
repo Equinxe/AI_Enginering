@@ -55,6 +55,14 @@
 # A word that begins with - names no command, so it is not kept: the text of
 # `git commit -m "see docs/--no-verify"` stays dropped, as any message is.
 #
+# WORDS AS THE SHELL FORMS THEM (WU-IAENG-450). A quoted or escaped ; & | is a
+# character of a word, not the end of a command; a substitution's output may
+# be empty, so the words on either side of it may join; and a dropped region
+# after a git option that takes a value, or after `stash`, is still a word.
+# The first two are read in a third reading (sepw, close_sub), the last in
+# every reading (is_value_context). Each is described where it is done. In
+# KEEPQ mode a substitution leaves a `$` (subopen).
+#
 # BRACE EXPANSION needs no quoting at all, so it is done here: comma groups and
 # simple ranges are expanded and every alternative APPENDED to the text. The
 # rules only need the token to appear somewhere, so appending suffices and can
@@ -91,6 +99,7 @@ BEGIN {
   BL = "\002"          # a literal { the shell will not expand
   BR = "\003"          # a literal }
   PH = "\004"          # whitespace inside a quoted region, KEEPQ mode only
+  WB = "\005"          # a word byte: a quoted or escaped ; & |, or a dropped value
   LIMIT = " __IAENG_LEXER_LIMIT__ "
   MAX_ALTS = 32        # alternatives in one group
   MAX_GROUPS = 16      # groups expanded in one command
@@ -139,6 +148,63 @@ function is_command_context(w) {
 # boundary) is what stops a determined bypass.
 function is_decode_context(w) {
   return w == "printf" || w ~ /\/printf$/
+}
+
+# A VALUE CONTEXT (WU-IAENG-450) is a word after which a rule reads the next
+# word itself: a git option that takes its value as the next word or after
+# its `=` (the read exemptions read that value, so the word after it is the
+# subcommand), and `stash` (the stash rule reads the word after it). A quoted
+# region there that is dropped and holds something other than whitespace
+# leaves WB in its place: the shell passes it as a word, and without WB the
+# next word would take its place. `git -C "/c/x y" config --get
+# core.hooksPath` is a read, and `git stash "-m a b" list` is not. Whitespace
+# alone leaves nothing, as before (SEC-IAENG-431-05). A region that held a
+# substitution leaves WB only in the third reading, where the substitution is
+# muted (hadsub); the first two print the substitution's commands there.
+function is_value_context(w) {
+  return w ~ /^(-C|--(git-dir|work-tree|namespace|exec-path|super-prefix|attr-source|config-env|file|blob|default)=?)$/ \
+    || w ~ /(^|[\/\\-])stash(\.[A-Za-z]+)?$/
+}
+
+# The third reading reads a substitution as empty (close_sub). One that stands
+# for a whole word in a value context is still a word there, as a dropped
+# quoted value is: `git -C $(pwd) config --get core.hooksPath` and `git -C
+# "$(pwd)" config ...` keep -C's value, so the read is still read as one. A
+# substitution glued to other text joins it instead. word_before is 1 when the
+# text before a substitution ends a value-context word and a space; it reads
+# only the last 80 bytes, so a command of many substitutions stays linear.
+# word_after is 1 when the byte after the substitution ends a word.
+function word_before(   t, k, tw) {
+  if (out == "" || substr(out, length(out), 1) !~ /[ \t\n]/) return 0
+  t = substr(out, length(out) - 79)
+  sub(/[ \t\n]+$/, "", t)
+  k = split(t, tw, /[ \t\n]+/)
+  return (k > 0) ? is_value_context(tw[k]) : 0
+}
+function word_after(ch) {
+  return ch == "" || ch ~ /[ \t\n;&|)]/
+}
+
+# A QUOTED OR ESCAPED ; & | IS PART OF A WORD (WU-IAENG-450). The shell does
+# not end a command there, so the third reading prints each as WB and the
+# hook, which cuts segments at ; & | and line breaks, keeps the word in its
+# command: `git -C "a;b" config core.hooksPath x` is one command. The first
+# and second readings print the character as before, and note that the third
+# differs.
+function sepw(s) {
+  if (s ~ /[;&|]/) {
+    if (V3) gsub(/[;&|]/, WB, s)
+    else CHANGED = 1
+  }
+  return s
+}
+
+# In KEEPQ mode a substitution leaves `$` where it opens, glued to the text
+# before it (WU-IAENG-450). The approval-label rule reads a label value that
+# holds a `$` as not a static literal: a substitution, like a variable, can
+# expand to either approval label.
+function subopen() {
+  return (KEEPQ == 1) ? "$ " : " "
 }
 
 # Pulls the COMMANDS out of an unquoted heredoc body: the contents of every
@@ -198,7 +264,7 @@ function path_tail(s,   k, ch) {
   if (k == 0) return ""
   s = substr(s, k + 1)
   if (s == "" || s ~ /[ \t\n]/ || s ~ /^-/) return ""
-  return "/" mark_literal_braces(s)
+  return "/" sepw(mark_literal_braces(s))
 }
 
 # A SUBSTITUTION OPENED INSIDE DOUBLE QUOTES, by $( or by a backtick
@@ -208,14 +274,56 @@ function path_tail(s,   k, ch) {
 # it, wherever that close prints the region whatever it holds (a command
 # context, printf, the KEEPQ view). The contexts are saved with the region and
 # restored on return, since a quote opened inside the substitution clears them.
+#
+# In the third reading (V3, WU-IAENG-450) a substitution in double quotes
+# outside a command context or printf is muted instead (close_sub): the text
+# of its region is kept, and the region closes as if it held none.
 function open_dq_sub(kind) {
-  if (decodectx) out = out " " decode_ansic(buf) " "
-  else if (cmdctx) out = out " " buf " "
-  else if (KEEPQ == 1) out = out keepq(buf)
+  mstack[depth] = (V3 && !decodectx && !cmdctx)
+  if (mstack[depth]) {
+    bstack[depth] = buf; tstack[depth] = tainted; ostack[depth] = out
+    out = ""
+  } else {
+    if (decodectx) out = out " " decode_ansic(buf) " "
+    else if (cmdctx) out = out " " buf " "
+    else if (KEEPQ == 1) out = out keepq(buf)
+    out = out subopen()
+  }
   stack[depth] = kind; cstack[depth] = cmdctx; dstack[depth] = decodectx
+  vstack[depth] = valctx
   depth++
   mode = "out"; tainted = 1; buf = ""
-  out = out " "
+}
+
+# SUBSTITUTIONS READ AS EMPTY (WU-IAENG-450). In the third reading a
+# substitution prints nothing, as if its output were empty: the text it
+# printed is discarded when it closes, and a region it was opened in gets its
+# text and its state back. The words on either side of it then join as the
+# shell joins them, so `git push "--force$(true)"`, `--fo$(true)rce` and
+# their backtick forms read as `--force`, and a ; inside it no longer cuts the
+# command around it in two: `git -C "$(true; true)" push --force`. The first
+# two readings print its commands, so they are still read. close_sub is
+# called after depth has been decremented; it returns 1 when the substitution
+# was muted.
+#
+# The saved texts are released once restored, so that the next append to out
+# or buf extends it rather than copying it: a command of many substitutions
+# stays linear in its length.
+#
+# A region that gets its text back notes that it held a substitution
+# (hadsub), so that, in a value context, it is a word even when its text is
+# empty (dropped). One opened outside quotes, in a value context, standing
+# for a whole word (mvs, word_after), leaves WB.
+function close_sub(nextc) {
+  if (!mstack[depth]) return 0
+  out = ostack[depth]; ostack[depth] = ""
+  if (stack[depth] != "out") {
+    buf = bstack[depth]; bstack[depth] = ""
+    tainted = tstack[depth]
+    hadsub = 1
+  } else if (mvs[depth] && word_after(nextc)) out = out WB
+  mstack[depth] = 0
+  return 1
 }
 
 # Braces that came from a quoted or escaped source are literal to the shell.
@@ -358,9 +466,10 @@ function expand_braces(s,   extra, groups, grp, inner, alts, n, k, pre, post, r,
 }
 
 # lex(s) returns the words of s, read as described in the header. With V2 = 0
-# it is the reading this file gave before WU-IAENG-440, unchanged; with V2 = 1
-# it is the second reading (TWO READINGS, below). Pass 1 sets CHANGED where
-# the second would differ.
+# it is the reading this file gave before WU-IAENG-440, but for the value
+# context of WU-IAENG-450 (dropped); with V2 = 1 it is the second reading
+# (TWO READINGS, below), and with V3 = 1 as well, the third. Pass 1 sets
+# CHANGED where the second or the third would differ.
 function lex(s,   n, i) {
   n = length(s); i = 1
   out = ""
@@ -370,6 +479,9 @@ function lex(s,   n, i) {
   tainted = 0
   cmdctx = 0
   decodectx = 0
+  valctx = 0
+  hadsub = 0
+  split("", obt)
 
   while (i <= n) {
     c = substr(s, i, 1)
@@ -380,11 +492,22 @@ function lex(s,   n, i) {
         if (d == "\n") { i += 2; continue }
         if (d == "{") { out = out BL; i += 2; continue }
         if (d == "}") { out = out BR; i += 2; continue }
+        # An escaped ; & | is part of a word (sepw). KEEPQ mode keeps each
+        # word whole in every reading, as it does a quoted separator.
+        if (d ~ /[;&|]/) {
+          if (V3 || KEEPQ == 1) out = out WB
+          else { out = out d; CHANGED = 1 }
+          i += 2; continue
+        }
         out = out d; i += 2; continue
       }
       if (c == "$" && d == "(") {
+        if (!V2) CHANGED = 1
+        mstack[depth] = V3
+        if (V3) { mvs[depth] = word_before(); ostack[depth] = out; out = "" }
+        else out = out subopen()
         stack[depth] = "out"; depth++
-        out = out " "; i += 2; continue
+        i += 2; continue
       }
       if (c == "`") {
         # Backticks are command substitution too; their contents are commands.
@@ -392,36 +515,52 @@ function lex(s,   n, i) {
         # to that region (open_dq_sub).
         if (depth > 0 && stack[depth - 1] == "dqbt") {
           depth--; mode = "dq"; tainted = 1
-          cmdctx = cstack[depth]; decodectx = dstack[depth]
+          cmdctx = cstack[depth]; decodectx = dstack[depth]; valctx = vstack[depth]
+          if (!close_sub(d)) out = out " "
+          i++; continue
         }
-        out = out " "; i++; continue
+        # In the third reading a backtick pair outside quotes is muted, as
+        # $( is (close_sub). Such a pair does not nest, so one flag for each
+        # depth tells its opening backtick from its closing one.
+        if (V3) {
+          if (obt[depth]) {
+            out = obs[depth]; obs[depth] = ""; obt[depth] = 0
+            if (obv[depth] && word_after(d)) out = out WB
+          } else { obv[depth] = word_before(); obs[depth] = out; obt[depth] = 1; out = "" }
+          i++; continue
+        }
+        if (!V2) CHANGED = 1
+        out = out subopen(); i++; continue
       }
       # A ) closes a $( substitution, never a backtick one.
       if (c == ")" && depth > 0 && stack[depth - 1] != "dqbt") {
         depth--; mode = stack[depth]
         if (mode != "out") {
           tainted = 1
-          if (V2) { cmdctx = cstack[depth]; decodectx = dstack[depth] }
+          if (V2) { cmdctx = cstack[depth]; decodectx = dstack[depth]; valctx = vstack[depth] }
         }
-        out = out " "; i++; continue
+        if (!close_sub(d)) out = out " "
+        i++; continue
       }
       if (c == "$" && (d == SQ || d == "\"")) {
         # The shell consumes the $ in $'...' and $"...".
         mode = (d == SQ) ? "ansic" : "dq"
-        buf = ""; tainted = 0
+        buf = ""; tainted = 0; hadsub = 0
         prev = out; sub(/[ \t\n]+$/, "", prev)
         nw = split(prev, words, /[ \t\n]+/)
         cmdctx = (nw > 0) ? is_command_context(words[nw]) : 0
         decodectx = (nw > 0) ? is_decode_context(words[nw]) : 0
+        valctx = (nw > 0) ? is_value_context(words[nw]) : 0
         i += 2; continue
       }
       if (c == SQ || c == "\"") {
         mode = (c == SQ) ? "sq" : "dq"
-        buf = ""; tainted = 0
+        buf = ""; tainted = 0; hadsub = 0
         prev = out; sub(/[ \t\n]+$/, "", prev)
         nw = split(prev, words, /[ \t\n]+/)
         cmdctx = (nw > 0) ? is_command_context(words[nw]) : 0
         decodectx = (nw > 0) ? is_decode_context(words[nw]) : 0
+        valctx = (nw > 0) ? is_value_context(words[nw]) : 0
         i++; continue
       }
       # `<<<` IS A HERE-STRING, NOT A HEREDOC. It consumes one word on the
@@ -502,9 +641,9 @@ function lex(s,   n, i) {
         if (decodectx) out = out " " decode_ansic(buf) " "
         else if (cmdctx) out = out " " buf " "
         else if (KEEPQ == 1) out = out keepq(buf)
-        else if (!tainted && is_bare_word(buf)) out = out mark_literal_braces(buf)
+        else if (!tainted && is_bare_word(buf)) out = out sepw(mark_literal_braces(buf))
         else dropped(buf)
-        mode = "out"; buf = ""; tainted = 0; cmdctx = 0; decodectx = 0
+        mode = "out"; buf = ""; tainted = 0; cmdctx = 0; decodectx = 0; valctx = 0; hadsub = 0
         i++; continue
       }
       buf = buf c; i++; continue
@@ -519,9 +658,9 @@ function lex(s,   n, i) {
         buf = decode_ansic(buf)
         if (cmdctx) out = out " " buf " "
         else if (KEEPQ == 1) out = out keepq(buf)
-        else if (is_bare_word(buf)) out = out mark_literal_braces(buf)
+        else if (is_bare_word(buf)) out = out sepw(mark_literal_braces(buf))
         else dropped(buf)
-        mode = "out"; buf = ""; tainted = 0; cmdctx = 0; decodectx = 0
+        mode = "out"; buf = ""; tainted = 0; cmdctx = 0; decodectx = 0; valctx = 0; hadsub = 0
         i++; continue
       }
       buf = buf c; i++; continue
@@ -531,23 +670,25 @@ function lex(s,   n, i) {
     if (c == "\\") { buf = buf c d; i += 2; continue }
     if (c == "$" && d == "(") {
       if (V2) { open_dq_sub("dq"); i += 2; continue }
-      if (cmdctx || decodectx || KEEPQ == 1) CHANGED = 1
-      stack[depth] = "dq"; depth++
+      # The third reading reads every such substitution as empty.
+      CHANGED = 1
+      mstack[depth] = 0
+      stack[depth] = "dq"; vstack[depth] = valctx; depth++
       mode = "out"; tainted = 1; buf = ""
-      out = out " "; i += 2; continue
+      out = out subopen(); i += 2; continue
     }
     if (c == "`") {
       if (V2) { open_dq_sub("dqbt"); i++; continue }
       CHANGED = 1
-      tainted = 1; buf = buf " "; i++; continue
+      tainted = 1; buf = buf subopen(); i++; continue
     }
     if (c == "\"") {
       if (decodectx) out = out " " decode_ansic(buf) " "
       else if (cmdctx) out = out " " buf " "
       else if (KEEPQ == 1) out = out keepq(buf)
-      else if (!tainted && is_bare_word(buf)) out = out mark_literal_braces(buf)
+      else if (!tainted && is_bare_word(buf)) out = out sepw(mark_literal_braces(buf))
       else dropped(buf)
-      mode = "out"; buf = ""; tainted = 0; cmdctx = 0; decodectx = 0
+      mode = "out"; buf = ""; tainted = 0; cmdctx = 0; decodectx = 0; valctx = 0; hadsub = 0
       i++; continue
     }
     buf = buf c; i++
@@ -555,15 +696,30 @@ function lex(s,   n, i) {
 
   # An unterminated quote ran to the end of the text and is dropped, as any
   # other quoted text would be.
+  #
+  # A substitution or backtick pair the third reading muted and the text never
+  # closed is printed after the text before it, so nothing read is dropped:
+  # the innermost first, then each one around it.
+  while (V3) {
+    if (obt[depth]) { out = obs[depth] " " out; obt[depth] = 0 }
+    if (depth == 0) break
+    depth--
+    if (mstack[depth]) { out = ostack[depth] " " out; mstack[depth] = 0 }
+  }
   return out
 }
 
 # A quoted region the reading drops: nothing in pass 1, its path_tail in the
-# second reading. Pass 1 notes that the second reading differs.
+# second and third readings. Pass 1 notes that they differ. In a value context
+# (is_value_context), a region with no path tail to print leaves WB, in every
+# reading, when it holds something other than whitespace or held a
+# substitution the third reading muted (hadsub), and held none whose commands
+# the reading printed (tainted).
 function dropped(b,   t) {
   t = path_tail(b)
-  if (V2) out = out t
-  else if (t != "") CHANGED = 1
+  if (V2 && t != "") { out = out t; return }
+  if (t != "") CHANGED = 1
+  if (valctx && !tainted && (b ~ /[^ \t\n]/ || hadsub)) out = out WB
 }
 
 # TWO READINGS (WU-IAENG-440). The text is printed as this file read it before
@@ -576,24 +732,43 @@ function dropped(b,   t) {
 # refusal: the first is printed whole, so the rules that read words side by
 # side still find every pair they found. Brace alternatives are appended to
 # each reading of each record.
+#
+# A THIRD READING (WU-IAENG-450) is the second with every substitution read as
+# empty (close_sub) and every quoted or escaped ; & | printed as WB (sepw). It
+# follows the others on a line of its own when some record's third reading
+# differs from both of its others, and, like the second, can only add a
+# refusal. It is not made in KEEPQ mode, where a substitution leaves its `$`
+# (subopen) and a separator is already kept in its word. Two changes reach
+# every reading, pass 1 included: a dropped region in a value context leaves
+# WB (dropped), and, in KEEPQ mode, an escaped ; & | is WB.
 {
-  V2 = 0; CHANGED = 0
+  V2 = 0; V3 = 0; CHANGED = 0
   r1 = lex($0)
   one = r1 expand_braces(r1)
   two = one
+  three = one
   if (CHANGED) {
     V2 = 1
     r2 = lex($0)
-    V2 = 0
     if (r2 != r1) { two = r2 expand_braces(r2); ANY2 = 1 }
+    three = two
+    if (KEEPQ != 1) {
+      V3 = 1
+      r3 = lex($0)
+      V3 = 0
+      if (r3 != r1 && r3 != r2) { three = r3 expand_braces(r3); ANY3 = 1 }
+    }
+    V2 = 0
   }
   ALL1 = ALL1 one
   ALL2 = ALL2 two
+  ALL3 = ALL3 three
 }
 
 END {
   result = ALL1
   if (ANY2) result = result "\n" ALL2
+  if (ANY3) result = result "\n" ALL3
   gsub(BL, "{", result)
   gsub(BR, "}", result)
   printf "%s", result
