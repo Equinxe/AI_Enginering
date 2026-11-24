@@ -170,9 +170,10 @@ A Pull Request **changes executable behaviour** when it changes anything a progr
 2. When the Pull Request changes executable behaviour (Step 7), confirm the QA sign-off is documented. A Pull Request that does not change executable behaviour needs none.
 3. Whatever the Pull Request changes, confirm every other approval a rule requires: the Prompt Engineer's approval where a rule requires one, and the Director's content approval for any `Core/*.md` change (`Governance/CONTRIBUTING.md` §4), given directly by the Director as `Core/MAIN_AGENT_CONDUCT.md` (Git Execution via Named Employee) defines.
 4. Merge the Pull Request into `develop`.
-5. Delete the feature branch after merge.
+5. If a linked worktree has the feature branch checked out, such as the worktree a runtime made for the Engineer, remove that worktree first, with `git worktree remove <path>` and never with `--force`. Git refuses to delete a branch that a worktree has checked out. When git refuses to remove the worktree, because it holds uncommitted changes or untracked files, holds an initialised submodule, or is locked, stop and report it to the Director: what it holds is work, and the decision about it is the Director's.
+6. Delete the feature branch after merge, locally with `git branch -d`, which refuses a branch that is not fully merged, and on the remote.
 
-When the Main Agent executes this merge, an approval given before a merge of `develop` into the branch counts only as condition 1 of `Core/MAIN_AGENT_CONDUCT.md` (Git Execution via Named Employee) allows.
+When the Main Agent executes this merge, an approval given before a merge of `develop` into the branch counts only as condition 1 of `Core/MAIN_AGENT_CONDUCT.md` (Git Execution via Named Employee) allows. Its standing exception there names the merge and the deletion of the merged branch, not the removal of a worktree, so after a merge it executed, the Main Agent dispatches item 5 to the Engineering Manager or Technical Lead, or the Director runs it (issue #490). `Adapters/ai-runtimes/claude-code/DAILY_USE.md` (Step 7) gives the commands and git's refusals for a Claude Code project.
 
 **Output:** Feature merged into `develop`.
 
@@ -200,7 +201,7 @@ This workflow is complete when:
 
 - The Pull Request is merged into `develop`.
 - All acceptance criteria are verified by the QA Engineer, when the Pull Request changes executable behaviour (Step 7).
-- The feature branch is deleted.
+- The feature branch is deleted, after any worktree that had it checked out was removed.
 - The Work Unit is marked as complete.
 
 ---
@@ -235,7 +236,7 @@ The two entries are deliberately parallel. `Workflows/CODE_REVIEW.md` treats the
 
 Owner: IA Engineering
 
-Version: 0.0.16
+Version: 0.0.17
 
 Status: Draft
 

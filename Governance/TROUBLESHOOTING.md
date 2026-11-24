@@ -398,7 +398,7 @@ Do **not** use `git reset --hard origin/develop` or `git push --force`: both are
 
 **Cause.** A linked worktree shares the repository's configuration, but its submodules are not initialised: the framework is not there. Before WU-IAENG-414, `install.sh` set `core.hooksPath` to the relative `ia-engineering/Adapters/git-hooks`, and git reads a relative value from the root of the worktree that runs the hook. In a linked worktree that directory does not exist, and git runs no hook at all, with no message. The framework's own repository never showed it: there `core.hooksPath` names tracked files, present in every worktree.
 
-**Remedy.** In the main checkout, re-run `./ia-engineering/Adapters/scripts/install.sh`. It sets `core.hooksPath` to the main checkout's framework hooks, as an absolute path, so every worktree of the clone runs them, initialised submodule or not. `install.sh --check` reports the old relative value as `differs`, and the session-start drift check as a path that does not work. Initialising the submodule in each worktree (`git submodule update --init`) also works, but it clones the framework again for every worktree. The commits already made in a worktree were never checked. Before pushing them, run these from the **main checkout**, where the framework is present, naming the worktree's branch: `./ia-engineering/Adapters/scripts/check-employee-trailers.sh develop <branch>` and `./ia-engineering/Adapters/scripts/data-policy-scan.sh --history develop..<branch>`. They cannot run inside the worktree, where `ia-engineering/` is empty.
+**Remedy.** In the main checkout, re-run `./ia-engineering/Adapters/scripts/install.sh`. It sets `core.hooksPath` to the main checkout's framework hooks, as an absolute path, so every worktree of the clone runs them, initialised submodule or not. `install.sh --check` reports the old relative value as `differs`, and the session-start drift check as a path that does not work. Initialising the submodule in each worktree (`git submodule update --init`) also works, but it clones the framework again for every worktree, can fail on Windows with `Filename too long` (entry AD), and leaves a worktree that `git worktree remove` refuses without `--force`. The commits already made in a worktree were never checked. Before pushing them, run these from the **main checkout**, where the framework is present, naming the worktree's branch: `./ia-engineering/Adapters/scripts/check-employee-trailers.sh develop <branch>` and `./ia-engineering/Adapters/scripts/data-policy-scan.sh --history develop..<branch>`. They cannot run inside the worktree, where `ia-engineering/` is empty.
 
 **Prevention.** `install.sh` writes the absolute value in an adopting project, from the main working tree even when run from a worktree. That holds for a standalone clone, for a project that is itself a submodule, and for a bare repository with worktrees, where the value names the framework of the worktree it was run from. `commit-msg` reads the roster of the framework it belongs to before the worktree's own `ia-engineering/` path, so a roster planted in an empty submodule directory is not read. `Adapters/scripts/tests/run.sh` (WU-IAENG-414) commits in a worktree whose framework is not initialised and requires the refusals. The Claude Code hooks are not affected: a worktree subagent's hooks run with `$CLAUDE_PROJECT_DIR` set to the main checkout, where the framework is initialised. If the checkout itself is moved, the absolute value names a directory that no longer exists. The drift check reports it at the next session start, and re-running `install.sh` repairs it. In a bare repository with worktrees, `<project>/.git` included, there is no main working tree, and the value names the framework of the worktree `install.sh` ran from. If that worktree is removed or moved, the other worktrees run no hook. No drift check can say so from them either, because their `ia-engineering/` is empty. The only warning is the one `install.sh` prints when it runs. Re-run `install.sh` from another worktree first.
 
@@ -413,6 +413,24 @@ Do **not** use `git reset --hard origin/develop` or `git push --force`: both are
 **Remedy.** If such a command was run before the fix, check what it committed: `git log -1`, the `Employee:` line, and `git show --stat` for a document or data file. Take out what should not be there with a new commit, before any push.
 
 **Prevention.** `commit-msg`, `pre-commit`, `pre-push` and `data-policy-scan.sh` ignore SIGPIPE (`trap '' PIPE`, WU-IAENG-414, #397). A write to a closed pipe then only fails, and the hook's own `exit 1` decides. `Adapters/scripts/tests/run.sh` commits through `| head -n 0` and requires HEAD not to move. The class is a control whose verdict rides on being able to write its message. Any script a hook or guard execs needs the same trap.
+
+---
+
+## AD. On Windows, git fails in a nested worktree with `Filename too long`
+
+**Symptom.** On Windows, a git command that writes files deep inside a worktree nested in the project fails on a long path. The case met: `git submodule update --init` in a worktree under `.claude/worktrees/<name>/`, which checks the framework out at `.claude/worktrees/<name>/ia-engineering/…`. Git for Windows usually words this error `Filename too long`. The review that met it, the Security review of PR #387 (issue #402), recorded only that the 260-character path limit was reached.
+
+**Cause.** Git for Windows handles a path longer than 260 characters only when `core.longpaths` is `true`, and the option is off unless someone sets it. A nested worktree puts its own path, `.claude/worktrees/<name>/`, in front of every path in the repository, and the framework's own paths are long already.
+
+**Remedy.** The Director sets the option in his own git configuration, in a terminal:
+
+```
+git config --global core.longpaths true
+```
+
+`--global` sets it for every repository of that user on the machine. Issue #402 asks that the Director set it himself, never an agent.
+
+**Prevention.** The usual dispatch no longer meets it. Since WU-IAENG-430, an Employee in a worktree reads the framework from the main checkout ("Where the Framework Is" in its definition), and its git hooks come from the main checkout (entry AB), so nothing checks the framework out inside its worktree. Two remedies still do, and both point here: entry AB's alternative, and `Adapters/ai-runtimes/claude-code/TROUBLESHOOTING.md` entry C, remedy 1.
 
 ---
 
@@ -441,7 +459,7 @@ Do **not** use `git reset --hard origin/develop` or `git push --force`: both are
 
 Owner: IA Engineering
 
-Version: 0.0.12
+Version: 0.0.13
 
 Status: Draft
 
