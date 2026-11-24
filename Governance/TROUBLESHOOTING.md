@@ -416,6 +416,30 @@ Do **not** use `git reset --hard origin/develop` or `git push --force`: both are
 
 ---
 
+## AD. On a private repository on GitHub Free, GitHub refuses branch protection and nothing requires the checks
+
+**Symptom.** `setup-branch-protection.sh` stops with `GitHub refuses branch protection and rulesets on <owner>/<repo>`, after GitHub answered HTTP 403 `Upgrade to GitHub Pro or make this repository public to enable this feature.` Or, where the script never ran, a Pull Request whose `Employee Trailer` or `Work Unit Exists` check is red can still be merged.
+
+**Cause.** GitHub offers branch protection and rulesets on a private repository only with a paid plan. The REST docs (*Branch protection*) say: "Protected branches are available in public repositories with GitHub Free and GitHub Free for organizations, and in public and private repositories with GitHub Pro, GitHub Team, GitHub Enterprise Cloud, and GitHub Enterprise Server." On a private repository on GitHub Free, nothing on the server can make a check required. Before WU-IAENG-433 the script stopped on gh's raw 403 line and said nothing about what it meant (#448).
+
+**Remedy.** The repository's owner chooses one of three:
+
+- **Make the repository public**, if nothing in it must stay private (`Standards/DATA_PROTECTION_STANDARD.md`). Protection is then available, and standard runners are free.
+- **Move to a plan that has protection on private repositories**: GitHub Pro for a personal account, GitHub Team for an organization. One community thread (github.com/orgs/community/discussions/209198) started from a personal private repository on GitHub Free. Its settings page warned that the rules would not be enforced until the repository moved to a GitHub Team organization. A later reply, from an account on Pro, says the warning disappeared once Pro was active. After the change, check Settings > Branches, then run the script again.
+- **Stay private on Free.** Then only two things enforce the framework's rules, and neither is a boundary (`SECURITY.md`, Where the boundary is):
+  - the local git hooks (`commit-msg`, `pre-commit`, `pre-push`), on each clone where `install.sh` installed them. A clone without them, or `--no-verify`, goes around them;
+  - the CI checks. They still run on every Pull Request and still turn red, but they cannot be *required*, so a red check does not block a merge. Whoever merges reads them first.
+
+  Nothing on GitHub then stops a direct push, a force-push or the deletion of `main`, `develop` or `release/*` from a clone without the hooks. And the hooks never run on a merge made on GitHub, with the web button or `gh pr merge`: only the person who merges checks that merge.
+
+  Also turn off Settings > General > *Automatically delete head branches* by hand. On such a repository nothing else stops a merge from deleting a release branch (`Workflows/RELEASE.md` Step 10).
+
+**What the checks cost on a private repository.** On a public repository, standard GitHub-hosted runners are free. On a private one, every job draws from the plan's included Actions usage. GitHub Free includes $12 USD a month (GitHub Docs, *GitHub Actions billing*), which is 2,000 minutes on the standard Linux runner at $0.006 USD a minute. "GitHub rounds the minutes and partial minutes each job uses up to the nearest whole minute" (GitHub Docs, *Actions runner pricing*). A push to a Pull Request's branch runs the framework's 14 jobs: the 11 of PR Validation, plus Framework Validation, Data Policy and Control Path Guard. The project's own build comes on top. An edit of the title or description, or a label change, re-runs most of them. Measured on this repository on 4 Nov 2026 (the heads of #436 and #437), one such run took 6.4 to 6.8 minutes of runner time and bills 18 minutes: 3 each for Script Tests and Hook Tests (2 to 3 minutes each), 1 each for the other 12. So the 2,000 minutes cover about 110 runs a month. A merge into `main` or `develop` adds 2 more minutes (Framework Validation and Data Policy on push). "If your account does not have a valid payment method on file, usage is blocked once you consume the included compute usage". From then on, the checks do not run at all.
+
+**Prevention.** `setup-branch-protection.sh` reads every protection before it writes anything. A 403 carrying GitHub's upgrade message stops it with this explanation, nothing changed, exit 1. A private repository with neither `main` nor `develop` on GitHub is refused too, because no read could show whether its plan enforces a ruleset (WU-IAENG-433, #448). `Adapters/scripts/tests/run.sh` pins both against a fake `gh` that answers as GitHub does.
+
+---
+
 ## AD. On Windows, git fails in a nested worktree with `Filename too long`
 
 **Symptom.** On Windows, a git command that writes files deep inside a worktree nested in the project fails on a long path. The case met: `git submodule update --init` in a worktree under `.claude/worktrees/<name>/`, which checks the framework out at `.claude/worktrees/<name>/ia-engineering/…`. With git 2.54.0 on Windows, it prints `fatal: cannot create directory at '<dir>': Filename too long`, then `fatal: Unable to checkout '<sha>' in submodule path 'ia-engineering'` (observed on 24 November 2026, in the Code Review of PR #493). The review that first met it, the Security review of PR #387 (issue #402), recorded only that the 260-character path limit was reached.
