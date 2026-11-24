@@ -20,7 +20,9 @@
 #      else /tmp. The rule is context-dir.sh's, which the context alert
 #      sources too, so the two cannot name different directories (#340);
 #   3. prints the status line: the output of the user's own statusLine
-#      command when there is one and it succeeds, else one line of its own.
+#      command when there is one and it succeeds, else one line of its own;
+#      with .ia-engineering/statusline-own in the project, always its own
+#      (A LINE OF ITS OWN IN ONE PROJECT, below).
 #
 # THE FILE IS WRITTEN ONLY SAFELY (the guards of the peer kit studied on
 # 22 Oct 2026, plus the session id shape):
@@ -37,7 +39,10 @@
 #     directory, with noclobber, then renamed over <session_id>.pct: a reader sees the old value or the
 #     new one, never half of one. A rename replaces a symbolic link and never
 #     follows it, and a final name that exists but is a link or anything but
-#     a regular file is left alone and not written.
+#     a regular file is left alone and not written;
+#   - a .pct that already holds the value, a regular file of the user's in a
+#     directory of the user's, is not written again, so most renders start
+#     no find and no mv (WU-IAENG-421); the cleanup waits for a change.
 #   Any failure skips the write. The status line is printed anyway.
 #
 # FAIL-OPEN, ALWAYS (AC3, AC7). Exit 0 on every path but the switched-off
@@ -67,12 +72,50 @@
 # prints something; otherwise the line of its own is printed. The user's
 # padding and refreshInterval are not carried over from the user file.
 #
-# THE LINE OF ITS OWN: "[<model>] ctx <n>% | 5h <n>%", each part only when
-# known, or "ctx --". Every field from the JSON goes through the framework's
-# record sanitiser rule (install-hooks.sh, flat()): no control character,
-# C0 or C1, reaches the terminal. Colour only when NO_COLOR is unset or
-# empty: the ctx part is yellow at or above IAENG_CTX_ALERT_PCT when that is
-# set.
+# THE LINE OF ITS OWN (WU-IAENG-421, issue #390), each part only when known:
+#     [<model>] ctx <n>% <used>/<window> | wk <n>% (reset <T>, <cap>) | <WU> <branch>
+#   - ctx: the floor of context_window.used_percentage, then the input
+#     tokens in the window (total_input_tokens) out of its size
+#     (context_window_size): 999, 427k, 1.2M, each floored; "ctx --" before
+#     the first response;
+#   - wk: the weekly quota (rate_limits.seven_day), a percentage only, as it
+#     has no token budget, then its local reset time and the cap: "cap ~<T>"
+#     when a steady pace reaches 100 % before the reset (the window opened 7
+#     days before resets_at, and 100 % comes at its start plus the time gone
+#     times 100 over the share used), "no cap" when it does not, "capped" at
+#     100 %. Times are "%a %H:%M" in the local zone, from bash's own clock
+#     (4.2 or later; an older bash shows the percentage alone). The 5-hour
+#     quota is not shown (no such quota on the Director's plan, 24 Nov 2026);
+#   - the branch checked out where the session works (workspace.current_dir,
+#     else cwd), read from the repository's HEAD with builtins: the nearest
+#     .git above it, when the user owns it (git's own safe.directory
+#     default), a linked worktree's .git file followed; no git process is
+#     started; "@<commit>" when detached; cut to 48
+#     characters; first the Work Unit id the name carries (wu-421,
+#     wu433, WU-IAENG-421: "WU-", the project code when there is one, the
+#     number), when it carries one;
+#   - no count of running agents: the statusLine's stdin has none, and the
+#     SubagentStart and SubagentStop hooks cannot keep one (hooks/README.md,
+#     Context Status Line).
+# Colour only when NO_COLOR is unset or empty, at the context alert's two
+# steps, which both scripts take from context-thresholds.sh: yellow from the
+# alert (IAENG_CTX_ALERT_PCT, 60 by default), bold red with a "!" from the
+# last call (IAENG_CTX_LAST_CALL_PCT, the alert + 10 by default). The ctx
+# and wk percentages are each judged so; wk is also red with a "!" when
+# capped or when a cap comes before the reset. The "!" stays without
+# colour. Every field from the JSON goes through the framework's record
+# sanitiser rule (install-hooks.sh, flat()), and so does the branch: no
+# control character, C0 or C1, reaches the terminal.
+#
+# A LINE OF ITS OWN IN ONE PROJECT. With the file
+# .ia-engineering/statusline-own in the project (CLAUDE_PROJECT_DIR, else the
+# working directory), the line of its own is printed in place of any chained
+# line: neither the user's statusLine nor a --chain command is read or run.
+# Deleting the file restores the chaining. Nothing is written anywhere to
+# make the switch: ~/.claude/settings.json and the project's settings are
+# never touched. The off switch below wins over it. The file is meant to stay
+# untracked (the framework's .gitignore ignores .ia-engineering/*), so it
+# changes one checkout only.
 #
 # SWITCHED OFF by the file .ia-engineering/context-hooks.off in the project,
 # or IAENG_CONTEXT_HOOKS set to 0, off, false or no (any case). Then nothing
@@ -131,6 +174,9 @@ case "${IAENG_CONTEXT_HOOKS:-}" in
   [0]|[Oo][Ff][Ff]|[Ff][Aa][Ll][Ss][Ee]|[Nn][Oo]) OFF=1 ;;
 esac
 [ -e "${CLAUDE_PROJECT_DIR:-$PWD}/.ia-engineering/context-hooks.off" ] && OFF=1
+# A line of its own in this project, in place of any chained one (header).
+OWN=0
+[ -e "${CLAUDE_PROJECT_DIR:-$PWD}/.ia-engineering/statusline-own" ] && OWN=1
 
 # --- 1. stdin, bounded; a builtin read, no process started -----------------
 INPUT=""
@@ -201,10 +247,12 @@ user_statusline() {
 # The command: the project's own, wrapped by install-hooks.sh (--chain), or
 # the user's. A command that names this script is never run from here (no
 # loop); a --chain one that does (an earlier framework path) falls back to
-# the user's own, so neither line is lost.
+# the user's own, so neither line is lost. With statusline-own no command is
+# chained, so none is read (one jq call fewer); switched off, the user's own
+# still replaces this process, as below.
 MODE=""
 CMD=""
-if [ -z "${IAENG_CTX_CHAINED:-}" ]; then
+if [ -z "${IAENG_CTX_CHAINED:-}" ] && { [ "$OWN" -eq 0 ] || [ "$OFF" -eq 1 ]; }; then
   case "$CHAIN_ARG" in *context-statusline.sh*) HAVE_CHAIN_ARG=0 ;; esac
   if [ "$HAVE_CHAIN_ARG" -eq 1 ]; then
     MODE=bash
@@ -231,10 +279,10 @@ if [ "$OFF" -eq 1 ]; then
 fi
 
 # --- 3. the fields ------------------------------------------------------------
-SID="" PCT="" Q5="" MODEL=""
+SID="" PCT="" USED="" SIZE="" WK="" WKR="" MODEL="" CWD=""
 if command -v jq >/dev/null 2>&1; then
   # The first JSON value only; anything that is not an object gives nothing.
-  # Every control character in a string becomes a space here, so the four
+  # Every control character in a string becomes a space here, so the eight
   # fields come back as one line, joined by the unit separator (byte 31). It
   # is not IFS whitespace, so an empty field stays a field (a TAB would let
   # an absent quota shift the model name into its place).
@@ -245,13 +293,16 @@ if command -v jq >/dev/null 2>&1; then
       def num(f): (try ($in | f) catch null) | if type == "number" then floor | tostring else "" end;
       def str(f): (try ($in | f) catch null) | if type == "string" then gsub("[[:cntrl:]]"; " ") else "" end;
       # The session id is passed whole, so its shape check sees all of it;
-      # only the display name is cut.
+      # the display name and the directory are cut.
       [str(.session_id), num(.context_window.used_percentage),
-       num(.rate_limits.five_hour.used_percentage), (str(.model.display_name) | .[0:128])] | join($us)
+       num(.context_window.total_input_tokens), num(.context_window.context_window_size),
+       num(.rate_limits.seven_day.used_percentage), num(.rate_limits.seven_day.resets_at),
+       (str(.model.display_name) | .[0:128]),
+       (str(.workspace.current_dir) | if . == "" then str(.cwd) else . end | .[0:4096])] | join($us)
       end' 2>/dev/null)"
   FIELDS="${FIELDS%%$'\n'*}"
   FIELDS="${FIELDS%$'\r'}"
-  IFS=$'\x1f' read -r SID PCT Q5 MODEL <<< "$FIELDS"
+  IFS=$'\x1f' read -r SID PCT USED SIZE WK WKR MODEL CWD <<< "$FIELDS"
 else
   # No jq: the keys read by pattern. A key matched in valid JSON is a key,
   # never text inside a string (a quote there is escaped).
@@ -260,37 +311,202 @@ else
   re='"context_window"[[:space:]]*:[[:space:]]*\{(([^{}]|\{[^{}]*\})*)\}'
   if [[ $INPUT =~ $re ]]; then
     cw="${BASH_REMATCH[1]}"
-    # Nested objects (current_usage) out first: only the top-level key counts.
+    # Nested objects (current_usage) out first: only the top-level keys count.
     re='\{[^{}]*\}'
     while [[ $cw =~ $re ]]; do cw="${cw/"${BASH_REMATCH[0]}"/}"; done
     re='"used_percentage"[[:space:]]*:[[:space:]]*([0-9]+)'
     [[ $cw =~ $re ]] && PCT="${BASH_REMATCH[1]}"
+    re='"total_input_tokens"[[:space:]]*:[[:space:]]*([0-9]+)'
+    [[ $cw =~ $re ]] && USED="${BASH_REMATCH[1]}"
+    re='"context_window_size"[[:space:]]*:[[:space:]]*([0-9]+)'
+    [[ $cw =~ $re ]] && SIZE="${BASH_REMATCH[1]}"
   fi
-  re='"five_hour"[[:space:]]*:[[:space:]]*\{([^{}]*)\}'
+  re='"seven_day"[[:space:]]*:[[:space:]]*\{([^{}]*)\}'
   if [[ $INPUT =~ $re ]]; then
     q="${BASH_REMATCH[1]}"
     re='"used_percentage"[[:space:]]*:[[:space:]]*([0-9]+)'
-    [[ $q =~ $re ]] && Q5="${BASH_REMATCH[1]}"
+    [[ $q =~ $re ]] && WK="${BASH_REMATCH[1]}"
+    re='"resets_at"[[:space:]]*:[[:space:]]*([0-9]+)'
+    [[ $q =~ $re ]] && WKR="${BASH_REMATCH[1]}"
   fi
+  re='"model"[[:space:]]*:[[:space:]]*\{([^{}]*)\}'
+  if [[ $INPUT =~ $re ]]; then
+    q="${BASH_REMATCH[1]}"
+    re='"display_name"[[:space:]]*:[[:space:]]*"(([^"\\]|\\.)*)"'
+    [[ $q =~ $re ]] && json_unescape "${BASH_REMATCH[1]}" && MODEL="${UNESC:0:128}"
+  fi
+  # A \u escape is not decoded (json_unescape fails): no directory, no branch.
+  re='"current_dir"[[:space:]]*:[[:space:]]*"(([^"\\]|\\.)*)"'
+  [[ $INPUT =~ $re ]] || re='"cwd"[[:space:]]*:[[:space:]]*"(([^"\\]|\\.)*)"'
+  [[ $INPUT =~ $re ]] && json_unescape "${BASH_REMATCH[1]}" && CWD="${UNESC:0:4096}"
 fi
 
-# Shapes: anything else is dropped, not repaired.
+# Shapes: anything else is dropped, not repaired. Numbers are read base 10,
+# so a leading zero the pattern reader let through is not octal.
 [[ $SID =~ ^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$ ]] || SID=""
-[[ $PCT =~ ^[0-9]{1,3}$ ]] && [ "$PCT" -le 100 ] || PCT=""
-[[ $Q5 =~ ^[0-9]{1,3}$ ]] || Q5=""
+[[ $PCT =~ ^[0-9]{1,3}$ ]] && [ "$((10#$PCT))" -le 100 ] && PCT=$((10#$PCT)) || PCT=""
+[[ $USED =~ ^[0-9]{1,10}$ ]] && USED=$((10#$USED)) || USED=""
+[[ $SIZE =~ ^[0-9]{1,10}$ ]] && [ "$((10#$SIZE))" -gt 0 ] && SIZE=$((10#$SIZE)) || SIZE=""
+[[ $WK =~ ^[0-9]{1,3}$ ]] && WK=$((10#$WK)) || WK=""
+[[ $WKR =~ ^[0-9]{1,11}$ ]] && WKR=$((10#$WKR)) || WKR=""
 
 # --- 4. the line of its own -------------------------------------------------
-flat "$MODEL"; MODEL="${FLAT:0:40}"
-ESC_ON=""
-ESC_OFF=""
-if [ -z "${NO_COLOR:-}" ] && [ -n "$PCT" ] \
-   && [[ ${IAENG_CTX_ALERT_PCT:-} =~ ^[0-9]{1,3}$ ]] && [ "$PCT" -ge "$IAENG_CTX_ALERT_PCT" ]; then
-  ESC_ON=$'\033[33m'
-  ESC_OFF=$'\033[0m'
+# This script's own directory, never the working directory, named as the
+# other hooks name theirs (hooks/README.md, Design Rules, Load from the
+# hook's own directory; #362): $0 when it holds a / or \, which the
+# environment cannot set, else BASH_SOURCE[0], the path bash found; cut at
+# its last / or \. context-thresholds.sh and context-dir.sh come from here.
+HOOKS_DIR="$0"
+case "$HOOKS_DIR" in */*|*\\*) ;; *) HOOKS_DIR="${BASH_SOURCE[0]}" ;; esac
+case "$HOOKS_DIR" in
+  */*|*\\*) HOOKS_DIR="${HOOKS_DIR%[/\\]*}" ;;
+  *) HOOKS_DIR=. ;;
+esac
+# The context alert's two steps, from the file both scripts source (issue
+# #390). A missing file: no colour, the line is still printed.
+# shellcheck source=context-thresholds.sh
+. "$HOOKS_DIR/context-thresholds.sh" 2>/dev/null
+TH_ALERT=""
+TH_LAST=""
+iaeng_ctx_thresholds TH_ 2>/dev/null
+
+# tier_of <pct> — TIER: 0 under the alert, 1 from the alert, 2 from the last call.
+tier_of() {
+  TIER=0
+  [ -n "$TH_ALERT" ] || return 0
+  [ "$1" -ge "$TH_ALERT" ] && TIER=1
+  [ -n "$TH_LAST" ] && [ "$1" -ge "$TH_LAST" ] && TIER=2
+  return 0
+}
+# paint <tier> <text> — PAINT: the text, yellow at tier 1, bold red at 2;
+# with NO_COLOR, the text alone.
+paint() {
+  PAINT="$2"
+  [ -z "${NO_COLOR:-}" ] || return 0
+  case "$1" in
+    1) PAINT=$'\033[33m'"$2"$'\033[0m' ;;
+    2) PAINT=$'\033[1;31m'"$2"$'\033[0m' ;;
+  esac
+  return 0
+}
+# tok <n> — TOK: n under a thousand, whole thousands and k under a million,
+# then millions with one decimal and M, each floored: 999, 427k, 1.2M.
+tok() {
+  local n="$1" d
+  if [ "$n" -lt 1000 ]; then TOK="$n"
+  elif [ "$n" -lt 1000000 ]; then TOK="$((n / 1000))k"
+  else
+    d=$((n % 1000000 / 100000))
+    TOK="$((n / 1000000))"
+    [ "$d" -eq 0 ] || TOK+=".$d"
+    TOK+=M
+  fi
+}
+# head_branch <dir> — BRANCH: the branch checked out in the repository that
+# holds <dir>, "@<commit>" when HEAD is detached, else empty. Builtins only:
+# walks up at most 64 levels to a .git owned by the user (git's own
+# safe.directory default), follows a linked worktree's "gitdir:" file, and
+# reads 256 bytes of a HEAD that is a regular file. Backslashes are read as
+# separators, so a Windows path works.
+head_branch() {
+  local d="$1" g="" h="" gd="" i=0 bs=$'\x5c'
+  BRANCH=""
+  d="${d//"$bs"//}"
+  d="${d%/}"
+  while [ "$i" -lt 64 ]; do
+    if [ -e "$d/.git" ]; then g="$d/.git"; break; fi
+    case "$d" in */*) d="${d%/*}" ;; *) return 0 ;; esac
+    i=$((i + 1))
+  done
+  [ -n "$g" ] && [ -O "$g" ] || return 0
+  if [ -d "$g" ]; then
+    gd="$g"
+  elif [ -f "$g" ]; then
+    { IFS= read -r -n 4096 h < "$g"; } 2>/dev/null
+    h="${h%$'\r'}"
+    case "$h" in "gitdir: "?*) gd="${h#gitdir: }" ;; *) return 0 ;; esac
+    gd="${gd//"$bs"//}"
+    case "$gd" in /*|[A-Za-z]:/*) ;; *) gd="$d/$gd" ;; esac
+  else
+    return 0
+  fi
+  [ -f "$gd/HEAD" ] || return 0
+  h=""
+  { IFS= read -r -n 256 h < "$gd/HEAD"; } 2>/dev/null
+  h="${h%$'\r'}"
+  case "$h" in
+    "ref: refs/heads/"?*) BRANCH="${h#ref: refs/heads/}" ;;
+    *) [[ $h =~ ^[0-9a-f]{40} ]] && BRANCH="@${h:0:7}" ;;
+  esac
+  return 0
+}
+
+# The context: the percentage, then the tokens in the window out of its size.
+CTXV="--"
+if [ -n "$PCT" ]; then
+  tier_of "$PCT"
+  CTXV="$PCT%"
+  [ "$TIER" -eq 2 ] && CTXV+="!"
+  if [ -n "$USED" ] && [ -n "$SIZE" ]; then
+    tok "$USED"; CTXV+=" $TOK"
+    tok "$SIZE"; CTXV+="/$TOK"
+  fi
+  paint "$TIER" "$CTXV"; CTXV="$PAINT"
 fi
-LINE="ctx ${ESC_ON}${PCT:---}${PCT:+%}${ESC_OFF}"
+
+# The weekly quota: the percentage, then the reset and the cap.
+WKP=""
+if [ -n "$WK" ]; then
+  tier_of "$WK"
+  NOW="" RST="" CAPT="" STATE=""
+  printf -v NOW '%(%s)T' -1 2>/dev/null
+  if [[ $NOW =~ ^[0-9]+$ ]] && [ -n "$WKR" ] && [ "$WKR" -gt "$NOW" ]; then
+    printf -v RST '%(%a %H:%M)T' "$WKR" 2>/dev/null
+    WST=$((WKR - 604800))
+    if [ "$WK" -ge 100 ]; then
+      STATE="capped"; TIER=2
+    elif [ "$WK" -eq 0 ]; then
+      STATE="no cap"
+    elif [ "$NOW" -gt "$WST" ]; then
+      WCAP=$((WST + (NOW - WST) * 100 / WK))
+      if [ "$WCAP" -lt "$WKR" ]; then
+        printf -v CAPT '%(%a %H:%M)T' "$WCAP" 2>/dev/null
+        STATE="cap ~$CAPT"; TIER=2
+      else
+        STATE="no cap"
+      fi
+    fi
+  fi
+  V="$WK%"
+  [ "$TIER" -eq 2 ] && V+="!"
+  paint "$TIER" "$V"
+  WKP="wk $PAINT"
+  [ -n "$RST" ] && WKP+=" (reset $RST${STATE:+, $STATE})"
+fi
+
+# The branch, its Work Unit id first when its name carries one.
+BRP=""
+BRANCH=""
+[ -n "$CWD" ] && head_branch "$CWD"
+if [ -n "$BRANCH" ]; then
+  WU=""
+  re='(^|[^A-Za-z0-9])[Ww][Uu]-?(([A-Za-z]+)-)?([0-9]+)([^0-9]|$)'
+  if [ "${BRANCH:0:1}" != @ ] && [[ $BRANCH =~ $re ]]; then
+    p="${BASH_REMATCH[3]}"
+    # Upper case needs bash 4; an older one shows the code as written.
+    if [ -n "$p" ] && [ "${BASH_VERSINFO[0]:-0}" -ge 4 ]; then p="${p^^}"; fi
+    WU="WU-${p:+$p-}${BASH_REMATCH[4]}"
+  fi
+  flat "$BRANCH"; B="$FLAT"
+  [ "${#B}" -le 48 ] || B="${B:0:45}..."
+  BRP="${WU:+$WU }$B"
+fi
+
+flat "$MODEL"; MODEL="${FLAT:0:40}"
+LINE="ctx $CTXV"
 [ -n "$MODEL" ] && LINE="[$MODEL] $LINE"
-[ -n "$Q5" ] && LINE="$LINE | 5h $Q5%"
+[ -n "$WKP" ] && LINE+=" | $WKP"
+[ -n "$BRP" ] && LINE+=" | $BRP"
 
 # --- 5. the file ----------------------------------------------------------------
 # clean_dir <dir> <uid> — the writer cleans up after itself (Main Agent
@@ -322,12 +538,20 @@ clean_dir() {
 # The directory is named by context-dir.sh, which the context alert sources
 # too, so the writer and the reader cannot name two (issue #340). A missing
 # file means no directory: the write is skipped and the line still printed.
-case "${BASH_SOURCE[0]}" in */*) HOOKS_DIR="${BASH_SOURCE[0]%/*}" ;; *) HOOKS_DIR=. ;; esac
 # shellcheck source=context-dir.sh
 . "$HOOKS_DIR/context-dir.sh" 2>/dev/null
 write_pct() {
-  local uid="${UID:-}" dir="" f w
+  local uid="${UID:-}" dir="" f w v=""
   iaeng_ctx_dir dir 2>/dev/null || return 0
+  f="$dir/$SID.pct"
+  # Unchanged (WU-IAENG-421): a .pct of ours, in a directory of ours, that
+  # already holds the value is left as it is, so a render whose percentage
+  # has not moved starts no find and no mv. Builtins only; anything else
+  # goes on to the checks below. The hourly cleanup waits for a change.
+  if [ -d "$dir" ] && [ ! -L "$dir" ] && [ -O "$dir" ] && [ -f "$f" ] && [ ! -L "$f" ] && [ -O "$f" ]; then
+    { IFS= read -r -n 4 v < "$f"; } 2>/dev/null
+    [ "$v" = "$PCT" ] && return 0
+  fi
   # -m sets the mode whatever the umask; no umask is changed, so the user's
   # command below runs with the umask Claude Code gave this script.
   if [ ! -e "$dir" ] && [ ! -L "$dir" ]; then
@@ -340,7 +564,6 @@ write_pct() {
   w="$(find "$dir" -prune \( -perm -020 -o -perm -002 \) -print 2>/dev/null)" || return 0
   [ -z "$w" ] || return 0
   clean_dir "$dir" "$uid"
-  f="$dir/$SID.pct"
   if [ -L "$f" ] || { [ -e "$f" ] && [ ! -f "$f" ]; }; then
     return 0
   fi

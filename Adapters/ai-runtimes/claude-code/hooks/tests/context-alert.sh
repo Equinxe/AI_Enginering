@@ -28,7 +28,10 @@
 #   - the SessionStart warning against the estimated compaction threshold;
 #   - the payload read without jq;
 #   - the writer (context-statusline.sh) and this reader name the same
-#     directory for every TMPDIR form, a backslash .. included (issue #340).
+#     directory for every TMPDIR form, a backslash .. included (issue #340);
+#   - the status line changes colour at exactly the steps this hook speaks
+#     at, under the defaults and each override (WU-IAENG-421, issue #390):
+#     both read context-thresholds.sh.
 #
 # ORACLES (Standards/TESTING_STANDARD.md, Independent Oracle), none taken from
 # the hook's own output:
@@ -679,6 +682,59 @@ for c in "/tmp/iaeng-ctx-$ID|-unset|-unset" \
   got="$(named "$tmp" "$fb")"
   if [ "$got" = "$want" ]; then ok "the rule names $want for TMPDIR=[$tmp], fallback=[$fb]"; else bad "the rule names $want for TMPDIR=[$tmp], fallback=[$fb]" "named: [$got]"; fi
 done
+
+# =============================================================================
+echo "== context-statusline.sh and context-alert.sh — one pair of thresholds (WU-IAENG-421, issue #390)"
+# The line changes colour exactly where this hook speaks: no colour and
+# silence below the alert, yellow and the alert from it, bold red and the last
+# call from the last call. Both read context-thresholds.sh. For each case the
+# real statusLine renders the percentage for a new session, writing its .pct,
+# and the real alert then runs for that session under the same environment.
+# The expected step is written by hand from the documented rule (alert 60,
+# last call alert + 10, IAENG_CTX_LAST_CALL_PCT when above the alert, none
+# past 100, an invalid alert read as 60), so two hooks that agreed on a wrong
+# step would still fail.
+H421="$T/home421"; mkdir -p "$H421"
+N421=0
+# agree <none|alert|last> <pct> [VAR=value...]
+agree() {
+  local want="$1" p="$2" sid tier said; shift 2
+  N421=$((N421 + 1)); sid="s421-$$-$N421"
+  env -u IAENG_CONTEXT_HOOKS -u IAENG_CTX_CHAINED -u CLAUDE_CONFIG_DIR -u NO_COLOR -u IAENG_CTX_ALERT_PCT -u IAENG_CTX_LAST_CALL_PCT \
+    TMPDIR="$TMPD" IAENG_CTX_TEST_FALLBACK="$FB" HOME="$H421" CLAUDE_PROJECT_DIR="$PROJ" "$@" \
+    bash "$SL" <<< "{\"session_id\":\"$sid\",\"context_window\":{\"used_percentage\":$p}}" > "$T/out" 2> "$T/err"
+  tier=none
+  grep -qF $'\033[33m' "$T/out" && tier=alert
+  grep -qF $'\033[1;31m' "$T/out" && tier=last
+  env -u IAENG_CONTEXT_HOOKS -u IAENG_CTX_ALERT_PCT -u IAENG_CTX_LAST_CALL_PCT \
+    TMPDIR="$TMPD" IAENG_CTX_TEST_FALLBACK="$FB" CLAUDE_PROJECT_DIR="$PROJ" "$@" \
+    bash "$AL" <<< "$(ups "$sid")" > "$T/out" 2> "$T/err"
+  said=none
+  grep -qF "IA Engineering context alert:" "$T/out" && said=alert
+  grep -qF "IA Engineering context last call:" "$T/out" && said=last
+  if [ "$tier" = "$want" ] && [ "$said" = "$want" ]; then
+    ok "at $p % (${*:-defaults}): the line and the alert both say $want"
+  else
+    bad "at $p % (${*:-defaults}): the line and the alert both say $want" "line: $tier, alert: $said"
+  fi
+}
+agree none 59
+agree alert 60
+agree alert 69
+agree last 70
+agree last 100
+agree none 39 IAENG_CTX_ALERT_PCT=40
+agree alert 40 IAENG_CTX_ALERT_PCT=40
+agree alert 49 IAENG_CTX_ALERT_PCT=40
+agree last 50 IAENG_CTX_ALERT_PCT=40
+agree alert 44 IAENG_CTX_ALERT_PCT=40 IAENG_CTX_LAST_CALL_PCT=45
+agree last 45 IAENG_CTX_ALERT_PCT=40 IAENG_CTX_LAST_CALL_PCT=45
+agree alert 49 IAENG_CTX_ALERT_PCT=40 IAENG_CTX_LAST_CALL_PCT=40
+agree last 50 IAENG_CTX_ALERT_PCT=40 IAENG_CTX_LAST_CALL_PCT=40
+agree none 59 IAENG_CTX_ALERT_PCT=abc
+agree alert 60 IAENG_CTX_ALERT_PCT=abc
+agree none 94 IAENG_CTX_ALERT_PCT=95
+agree alert 100 IAENG_CTX_ALERT_PCT=95
 
 # =============================================================================
 echo "== the user's real context directory (issue #345)"

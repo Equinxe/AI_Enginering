@@ -81,13 +81,14 @@ Audience: the operator who runs `claude` with the framework installed. Pages che
 
 Audience: the operator, after `install-hooks.sh` has installed the context status line (WU-IAENG-379, issue #304). Pages checked on 26 October 2026.
 
-**Symptom.** The status line shows `[<model>] ctx <n>% | 5h <n>%` where your own status line used to be. Or you want the framework's status line gone.
+**Symptom.** The status line shows the framework's own line, such as `[Opus 5.5] ctx 42% 427k/1M | wk 41% (reset Thu 11:23, no cap)`, where your own status line used to be. Or you want the framework's status line gone.
 
-**Cause.** A `statusLine` in the project's `.claude/settings.json` wins over the one in your `~/.claude/settings.json` ([Settings precedence](https://code.claude.com/docs/en/settings.md#settings-precedence)). The framework's `hooks/context-statusline.sh` therefore runs your own command itself and prints its output. Its own line appears instead in four cases:
+**Cause.** A `statusLine` in the project's `.claude/settings.json` wins over the one in your `~/.claude/settings.json` ([Settings precedence](https://code.claude.com/docs/en/settings.md#settings-precedence)). The framework's `hooks/context-statusline.sh` therefore runs your own command itself and prints its output. Its own line appears instead in five cases:
 - your command exited non-zero, printed nothing, or took longer than `IAENG_CTX_CHAIN_TIMEOUT` seconds (10 by default). Claude Code also shows nothing for an empty output or a non-zero exit ([Script errors or hangs](https://code.claude.com/docs/en/statusline.md#script-errors-or-hangs));
 - `jq` is not installed and your `statusLine` command holds a `\u` escape, which the script does not decode without `jq`;
 - you have no `statusLine` of your own;
-- your `statusLine` is in a `settings.local.json`. That one wins over the project's for you alone, so the framework's never runs, and `install-hooks.sh --check` reports it as `shadowed`.
+- your `statusLine` is in a `settings.local.json`. That one wins over the project's for you alone, so the framework's never runs, and `install-hooks.sh --check` reports it as `shadowed`;
+- the file `.ia-engineering/statusline-own` exists in the project. It asks for the framework's line in place of yours there (`hooks/README.md`, Context Status Line, A line of its own in one project). Delete it to get yours back.
 
 **Remedy.** The one line that turns it off, run from the project root:
 
@@ -160,7 +161,7 @@ Follow `Governance/TROUBLESHOOTING.md`, "Adding an Entry", with one more rule. E
 
 Owner: IA Engineering
 
-Version: 0.0.17
+Version: 0.0.18
 
 Status: Draft
 
