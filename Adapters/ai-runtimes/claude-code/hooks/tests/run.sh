@@ -790,17 +790,21 @@ else
 fi
 # A pattern file that one grep cannot judge goes to the per-row loop, which
 # refuses as before: a row that does not compile, a row without a TAB, a row
-# with an empty pattern, each after the real rows and with clean code.
+# with an empty label, a row with an empty pattern, each after the real rows
+# and with clean code. The empty label's pattern matches nothing in that code:
+# kept on the fast path, it would let one grep allow the edit, where the
+# per-row loop refuses the row (F1(c) of the Code Review of PR #487).
 IS_SCR="$(mktemp -d)"
 mkdir -p "$IS_SCR/Adapters/ai-runtimes/claude-code/hooks" "$IS_SCR/Adapters/scripts"
 cp "$IS_HOOK" "$HOOKS/lib.sh" "$IS_SCR/Adapters/ai-runtimes/claude-code/hooks/"
 IS_COPY="$IS_SCR/Adapters/ai-runtimes/claude-code/hooks/block-inline-suppression.sh"
-for is_row in $'bad-regex\t(' 'no-tab-row' $'empty-pattern\t'; do
+for is_row in $'bad-regex\t(' 'no-tab-row' $'\tzzqqzz' $'empty-pattern\t'; do
   # The blank line ends the file's last row, which may have no line feed.
   { cat "$HOOKS/../../../scripts/suppression-patterns.tsv"; printf '\n%s\n' "$is_row"; } > "$IS_SCR/Adapters/scripts/suppression-patterns.tsv"
   case "$is_row" in
     bad-regex*) is_reason "inline-suppression: a pattern grep cannot compile is refused" "$IS_COPY" "$PAY_CLEAN" "holds a pattern grep cannot compile" ;;
     no-tab*) is_reason "inline-suppression: a row without a TAB is refused" "$IS_COPY" "$PAY_CLEAN" "malformed row in suppression-patterns.tsv (no TAB)" ;;
+    $'\t'*) is_reason "inline-suppression: a row with an empty label is refused" "$IS_COPY" "$PAY_CLEAN" "(empty label or pattern)" ;;
     *) is_reason "inline-suppression: a row with an empty pattern is refused" "$IS_COPY" "$PAY_CLEAN" "(empty label or pattern)" ;;
   esac
 done
