@@ -519,7 +519,7 @@ cmd_check() {
         while IFS= read -r id; do
           [ -n "$id" ] || continue
           total=$((total + 1))
-          grep -qxF "$id" <<< "$merged_ids" || missing_wu="$missing_wu$id "
+          grep -qxF -- "$id" <<< "$merged_ids" || missing_wu="$missing_wu$id "
         done < <(printf '%s\n' "$registry_ids")
 
         if [ -n "$missing_wu" ]; then
@@ -579,7 +579,7 @@ cmd_check() {
         else
           cl_frag=$((cl_frag + 1))
         fi
-      elif grep -qxF "$id" <<< "$cl_accounted"; then
+      elif grep -qxF -- "$id" <<< "$cl_accounted"; then
         cl_cited=$((cl_cited + 1))
       else
         cl_missing="$cl_missing$id "
@@ -1038,7 +1038,7 @@ cmd_publish() {
   fi
 
   local codename section
-  codename="$(grep -m1 -A2 "^## \[${version#v}\]" CHANGELOG.md | head -1 \
+  codename="$(grep -m1 -A2 -- "^## \[${version#v}\]" CHANGELOG.md | head -1 \
     | sed 's/.*] - //' | tr -d '\015')"
   section="$(changelog_section "$version")"
 
