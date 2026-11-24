@@ -68,12 +68,34 @@
 #       CHANGELOG.md section. Requires the release to already be merged to main
 #       (Steps 5 and 6 complete). Prints the plan and stops unless --confirm is
 #       given.
+#
+#   In an adopting project, every subcommand runs as
+#   ./ia-engineering/Adapters/scripts/release.sh and works on the PROJECT.
 
 set -uo pipefail
 
 SCRIPT_DIR="$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+
+# WHICH REPOSITORY IS RELEASED. In the framework's own repository, the one
+# this script belongs to. In an adopting project, the framework is imported
+# into the project (Workflows/ONBOARDING.md Step 1 item 1), as a submodule or
+# as a copied directory, and the release is the PROJECT's: its develop, its
+# VERSION.md and CHANGELOG.md, its Work Unit registry, its CI. So the root is
+# the superproject when the framework is a submodule, and otherwise the top
+# of the repository that holds the framework's directory, which is that
+# directory itself in the framework's own repository.
+#
+# The first version took the framework's directory as the root in every case.
+# Run from an adopting project, ./ia-engineering/Adapters/scripts/release.sh
+# check reviewed the pinned framework submodule instead (a detached HEAD, the
+# framework's own VERSION.md and milestone) and never the project. Found by
+# rehearsing an adopter's first release (WU-IAENG-447, issue #469).
+FRAMEWORK="$(cd "$SCRIPT_DIR/../.." && pwd)"
+ROOT="$(git -C "$FRAMEWORK" rev-parse --show-superproject-working-tree 2>/dev/null)"
+[ -n "$ROOT" ] || ROOT="$(git -C "$FRAMEWORK" rev-parse --show-toplevel 2>/dev/null)"
+[ -n "$ROOT" ] || ROOT="$FRAMEWORK"
 cd "$ROOT" || exit 2
+ROOT="$(pwd)"
 
 FAILURES=0
 MILESTONE_OVERRIDE=""
@@ -84,8 +106,14 @@ note() { printf '         %s\n' "$1"; }
 head2() { printf '\n== %s\n' "$1"; }
 
 current_version() {
-  grep -m1 -oE '^\*\*v[0-9]+\.[0-9]+\.[0-9]+(\.[0-9]+)?\*\*$' VERSION.md \
+  grep -m1 -oE '^\*\*v[0-9]+\.[0-9]+\.[0-9]+(\.[0-9]+)?\*\*$' VERSION.md 2>/dev/null \
     | tr -d '*' | tr -d '\015'
+}
+
+# True when CHANGELOG.md has at least one version section, "## [x.y.z]".
+# Before the first one, no version has been released from this changelog.
+has_version_section() {
+  grep -qE '^## \[[0-9]' CHANGELOG.md 2>/dev/null
 }
 
 # Extracts one version's section from CHANGELOG.md: from its own "## [x.y.z]"
@@ -97,16 +125,22 @@ current_version() {
 # whether an open defect blocks, what belongs in release notes. The host owns
 # only how to ask its own API. Keeping the split here rather than at each call
 # site means a second forge adds one directory and changes nothing in this file.
+#
+# SCRIPT_DIR, resolved once before the script changes directory. Recomputing
+# it here from BASH_SOURCE, as the first version did, failed whenever the
+# script was run by a relative path from anywhere but the root it changes
+# into (./ia-engineering/Adapters/scripts/release.sh, from an adopting
+# project): the relative path no longer resolved, and the host was reported
+# missing (WU-IAENG-447).
 host_dir() {
-  local root host
-  root="$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-  if [ ! -x "$root/resolve-host.sh" ]; then
+  local host
+  if [ ! -x "$SCRIPT_DIR/resolve-host.sh" ]; then
     echo "resolve-host.sh is missing beside this script" >&2
     return 1
   fi
-  host="$(bash "$root/resolve-host.sh" . 2>/dev/null)" || return 1
+  host="$(bash "$SCRIPT_DIR/resolve-host.sh" . 2>/dev/null)" || return 1
   [ -n "$host" ] || return 1
-  printf '%s\n' "$root/hosts/$host"
+  printf '%s\n' "$SCRIPT_DIR/hosts/$host"
 }
 
 changelog_section() {
@@ -278,6 +312,9 @@ cmd_check() {
 
   echo "IA Engineering — release readiness (Workflows/RELEASE.md Step 1)"
   echo "Repository: $ROOT"
+  # -ef, not string equality: on Git for Windows one directory can print as
+  # /tmp/... through one route and /c/Users/.../Temp/... through another.
+  [ "$FRAMEWORK" -ef "$ROOT" ] || echo "Framework:  $FRAMEWORK"
 
   head2 "Branch and working tree"
 
@@ -310,8 +347,21 @@ cmd_check() {
 
   local version
   version="$(current_version)"
+  if [ ! -f CHANGELOG.md ]; then
+    bad "CHANGELOG.md is missing" "Step 7 builds the release notes from its section for the version, and conditions 1 and 5 read it. An adopting project creates it before its first release (Workflows/RELEASE.md, An Adopting Project's First Release)."
+  fi
   if [ -z "$version" ]; then
-    bad "could not read the current version from VERSION.md" "Expected a line of the form **vX.X.X**."
+    # THE FIRST RELEASE. Step 1 runs before Step 2, so it normally reads the
+    # PREVIOUS release's version and section. An adopting project has none
+    # before its first release: Step 2 creates VERSION.md. That state is read
+    # from the changelog, not assumed: CHANGELOG.md exists and has no version
+    # section. Once any version section exists, a VERSION.md that cannot be
+    # read is the failure it always was (WU-IAENG-447).
+    if [ ! -f VERSION.md ] && [ -f CHANGELOG.md ] && ! has_version_section; then
+      ok "no version released yet: no VERSION.md, and CHANGELOG.md has no version section. This is the first release, and Step 2 creates VERSION.md"
+    else
+      bad "could not read the current version from VERSION.md" "Expected a line of the form **vX.X.X**."
+    fi
   else
     ok "VERSION.md says $version"
     if [ -n "$target" ] && [ "$target" != "$version" ] && [ "v${target#v}" != "$version" ]; then
@@ -392,13 +442,17 @@ cmd_check() {
   # project writes the CHANGELOG section in the bump commit itself. Exactly one
   # unreleased milestone is the normal case; --milestone overrides, and
   # ambiguity is reported rather than guessed.
-  local codename registry_ids merged_ids unreleased n_unreleased
+  # n_unreleased starts empty, not unset: the branch below that cannot derive
+  # the milestone left it unset, and `set -u` stopped the run on the first
+  # read of it, mid-report (WU-IAENG-447).
+  local codename registry_ids merged_ids unreleased n_unreleased=""
 
   if [ -n "$MILESTONE_OVERRIDE" ]; then
     codename="$MILESTONE_OVERRIDE"
     ok "milestone '$codename' (from --milestone)"
   elif [ ! -f Registry/work-units.yml ] || [ ! -f CHANGELOG.md ]; then
     codename=""
+    bad "cannot determine which milestone is being released: Registry/work-units.yml or CHANGELOG.md is missing" "The milestone under release is the one registry milestone with no CHANGELOG.md section, so both files are needed. Condition 1 is not evaluated, and an unevaluated condition is not a met one."
   else
     unreleased="$(awk '/^    milestone: / { m = $0; sub(/^    milestone: /, "", m); gsub(/\015/, "", m); print m }' \
       Registry/work-units.yml | sort -u | while IFS= read -r m; do
@@ -548,8 +602,16 @@ cmd_check() {
   # After Step 2 the section is versioned and the fragments are gone. A
   # fragment still in changelog.d/ for a Work Unit of a versioned section was
   # merged after the assembly and will not ship in these notes, so it fails.
-  local cl_ids cl_section cl_heading cl_accounted cl_versioned=0
+  #
+  # A repository without changelog.d/ writes CHANGELOG.md directly
+  # (Workflows/RELEASE.md Step 2), as an adopting project does unless it
+  # chooses fragments. There the section alone accounts: every Work Unit is
+  # named in it, or the condition fails and names those that are not. The
+  # first version failed on the missing directory itself, so a repository
+  # following Step 2's own rule for it could never pass Step 1 (WU-IAENG-447).
+  local cl_ids cl_section cl_heading cl_accounted cl_versioned=0 cl_has_dir=1
   local cl_missing="" cl_unassembled="" cl_frag=0 cl_cited=0 cl_total=0
+  [ -d "$FRAGMENT_DIR" ] || cl_has_dir=0
   if [ -z "$codename" ]; then
     if [ "$n_unreleased" = "0" ]; then
       ok "no unreleased milestone — no Work Unit to account for"
@@ -558,8 +620,6 @@ cmd_check() {
     fi
   elif [ ! -f Registry/work-units.yml ] || [ ! -f CHANGELOG.md ]; then
     bad "condition 5 not evaluated: Registry/work-units.yml or CHANGELOG.md is missing" "Both are needed to say which Work Units the milestone has and which are accounted for."
-  elif [ ! -d "$FRAGMENT_DIR" ]; then
-    bad "$FRAGMENT_DIR/ is missing" "Each Work Unit's changelog entry waits there until Step 2 assembles it (changelog.d/README.md). Without the directory no pending entry can be seen, and an unevaluated condition is not a met one."
   else
     cl_ids="$(milestone_wu_ids "$codename")"
     cl_section="$(milestone_section "$codename")"
@@ -589,13 +649,17 @@ cmd_check() {
     if [ "$cl_total" -eq 0 ]; then
       bad "condition 5 not evaluated: no Work Units registered against milestone '$codename'" "The same gap Work Unit completeness reports above. Nothing was accounted for either way."
     else
-      if [ -n "$cl_missing" ]; then
+      if [ -n "$cl_missing" ] && [ "$cl_has_dir" -eq 0 ]; then
+        bad "$(echo "$cl_missing" | wc -w | tr -d ' ') of $cl_total Work Units for '$codename' are not named in '${cl_heading:-[Unreleased]}': $cl_missing" "This repository has no $FRAGMENT_DIR/, so its Work Units account for themselves in CHANGELOG.md: end each one's bullet with its id in parentheses, as in '- the change (WU-ABC-001)', or add the line '<!-- No changelog entry (<id>): <reason> -->' to the section (Workflows/RELEASE.md, An Adopting Project's First Release)."
+      elif [ -n "$cl_missing" ]; then
         bad "$(echo "$cl_missing" | wc -w | tr -d ' ') of $cl_total Work Units for '$codename' have no changelog fragment, entry or exemption: $cl_missing" "Each is registered against this milestone, has no $FRAGMENT_DIR/<id>.md, and is not named in the final parenthesised group of any line of the '${cl_heading:-[Unreleased]}' section. Add the fragment — an entry, or 'No changelog entry: <reason>' — per changelog.d/README.md."
       fi
       if [ -n "$cl_unassembled" ]; then
         bad "fragments not assembled into '${cl_heading}': $cl_unassembled" "The section is already versioned, so Step 2 ran before these were merged and they are not in the release notes. Move each entry into that section by hand, ending each line with its Work Unit id in parentheses, and delete the fragment in the same commit."
       fi
-      if [ -z "$cl_missing" ] && [ -z "$cl_unassembled" ]; then
+      if [ -z "$cl_missing" ] && [ -z "$cl_unassembled" ] && [ "$cl_has_dir" -eq 0 ]; then
+        ok "all $cl_total Work Units for '$codename' named in '${cl_heading:-[Unreleased]}' (no $FRAGMENT_DIR/: entries are written into CHANGELOG.md directly)"
+      elif [ -z "$cl_missing" ] && [ -z "$cl_unassembled" ]; then
         ok "all $cl_total Work Units for '$codename' accounted for: $cl_frag fragment(s) waiting in $FRAGMENT_DIR/, $cl_cited named in '${cl_heading:-[Unreleased]}'"
       fi
     fi
@@ -638,12 +702,25 @@ cmd_check() {
   # Invoking via `bash` also means the executable bit is not load-bearing here:
   # WU-IAENG-150 fixed the committed modes, but a gate should not depend on
   # file metadata staying correct forever.
-  if [ ! -f Adapters/scripts/validate-framework.sh ]; then
-    bad "Adapters/scripts/validate-framework.sh is missing" "Release readiness cannot confirm framework consistency without it. Absent evidence is not the same as a passing check, so this blocks rather than being skipped."
+  #
+  # Run from the FRAMEWORK's directory, which is the repository root only in
+  # the framework's own repository. In an adopting project the validator
+  # checks the imported framework, from inside it, exactly as the project's
+  # Framework Validation check runs it (framework-validation.yml, the
+  # working-directory of its Locate step) (WU-IAENG-447).
+  local fw_label=""
+  if ! [ "$FRAMEWORK" -ef "$ROOT" ]; then
+    case "$FRAMEWORK" in
+      "$ROOT"/*) fw_label=" (the framework in ${FRAMEWORK#"$ROOT"/}/)" ;;
+      *) fw_label=" (the framework in $FRAMEWORK)" ;;
+    esac
+  fi
+  if [ ! -f "$FRAMEWORK/Adapters/scripts/validate-framework.sh" ]; then
+    bad "Adapters/scripts/validate-framework.sh is missing$fw_label" "Release readiness cannot confirm framework consistency without it. Absent evidence is not the same as a passing check, so this blocks rather than being skipped."
   else
     VALIDATE_LOG="$(mktemp)"
-    if bash Adapters/scripts/validate-framework.sh > "$VALIDATE_LOG" 2>&1; then
-      ok "validate-framework.sh passes"
+    if (cd "$FRAMEWORK" && bash Adapters/scripts/validate-framework.sh) > "$VALIDATE_LOG" 2>&1; then
+      ok "validate-framework.sh passes$fw_label"
     else
       bad "validate-framework.sh reports failures" "$(grep FAIL "$VALIDATE_LOG" | head -3 | tr '\n' ' ')"
     fi
@@ -690,6 +767,9 @@ cmd_check() {
     elif [ "${STEP2_DONE:-0}" -eq 1 ]; then
       echo "   Step 2 is already on this branch: VERSION.md and CHANGELOG.md both"
       echo "   carry this version. Ready for Step 3 (cut the release branch)."
+    elif [ ! -f VERSION.md ]; then
+      echo "   Ready for Step 2, the first release's: create VERSION.md and version"
+      echo "   the CHANGELOG.md section, then Step 3 (release branch)."
     else
       echo "   Ready for Step 2 (version bump on develop), then Step 3 (release branch)."
     fi
@@ -1171,7 +1251,9 @@ case "${1:-check}" in
   notes)   shift; cmd_notes "${1:-}" ;;
   publish) shift; cmd_publish "${1:-}" "${2:-}" ;;
   --help|-h|help)
-    sed -n '2,$p' "$0" | awk '/^#/{print; next} /^$/{print; next} {exit}'
+    # SCRIPT_DIR, not $0: a relative $0 no longer resolves once the script has
+    # changed into the repository's root (WU-IAENG-447).
+    sed -n '2,$p' "$SCRIPT_DIR/release.sh" | awk '/^#/{print; next} /^$/{print; next} {exit}'
     ;;
   *)
     echo "Unknown command: $1" >&2

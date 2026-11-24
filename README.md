@@ -21,7 +21,9 @@ PowerShell finds is WSL, not Git Bash
 With Claude Code you also need `jq`: `install-hooks.sh` uses it to merge into an
 existing `.claude/settings.json` and to check that file. On GitHub,
 `setup-branch-protection.sh` needs the GitHub CLI, `gh`, signed in
-(`gh auth status`).
+(`gh auth status`), and `jq`, which reads what GitHub answers. Git for
+Windows does not include `jq`: install it with `winget install jqlang.jq`
+(macOS: `brew install jq`; Debian or Ubuntu: `sudo apt-get install jq`).
 
 **An existing repository**, one whose `main` is already on its remote, adopts
 on a branch and merges it into `develop` through a Pull Request. `main`
@@ -45,11 +47,20 @@ Read them at one fixed point, the `develop` commit that merged Pull Request
 not change during the adoption. Read them without checking that commit out,
 on GitHub, or with `git -C ia-engineering fetch origin develop` and then
 `git -C ia-engineering show <that commit>:<file>`. The submodule stays pinned
-to v0.0.15: only the scripts come from it. The route works with those scripts
-unchanged, with two exceptions:
+to v0.0.15 until the project's first release: only the scripts come from it.
+That release is the exception to the fixed point, because the #465 commit
+predates its text. Move the pin first, as the second exception below says,
+then read `Workflows/RELEASE.md` (An Adopting Project's First Release), this
+page and `Workflows/ONBOARDING.md` (The adoption route, step 4) from the
+submodule. The route works with v0.0.15's scripts unchanged, with three
+exceptions:
 
 - Ignore the closing-report lines of `setup-project-bootstrap.sh` that issue
   #453 corrects (The steps that are not commands, below).
+- v0.0.15's `release.sh` reviews the framework's submodule, not the project
+  (WU-IAENG-447). Before the project's first release, move the pin to
+  v0.0.16, or to the `develop` commit that merged WU-IAENG-447 if v0.0.16 is
+  not tagged yet, as Which ref to pin, below, describes.
 - v0.0.15's `generate-agents.sh` does not write the section "Where the
   Framework Is" (WU-IAENG-430) into the agents. In a linked git worktree,
   `ia-engineering/` is empty, so an Employee dispatched there cannot read the
@@ -229,6 +240,16 @@ protection, and the release-branch ruleset:
 On any other forge it changes nothing and prints the equivalent as a checklist
 to apply by hand.
 
+On a repository that already has protection, a run keeps it. Its required
+checks become the union of the project's and the framework's, each keeps the
+app it is tied to, and no setting is lowered, required signed commits
+included. The default branch must be `main` or `develop`; for any other, the
+script refuses and names it. On a private repository on GitHub Free, GitHub
+refuses branch protection. The script says so, changes nothing and exits 1.
+Only the local hooks and the CI checks then enforce the rules, and the checks
+cannot be required ([`Governance/TROUBLESHOOTING.md`](Governance/TROUBLESHOOTING.md)
+entry AD, which also gives their cost in Actions minutes).
+
 ### The steps that are not commands
 
 With v0.0.15 pinned, the bootstrap's closing report in an existing repository
@@ -349,12 +370,16 @@ Until the first release, an existing repository's `main` stays as it was
 before the adoption. Whatever deploys from `main` keeps deploying that code,
 and work merged into `develop` reaches production only through a release
 (`Workflows/RELEASE.md`), which the Director may cut as soon as the adoption
-is merged. An adopting project's first release has not been rehearsed yet:
-`release.sh check`, which that workflow's Step 1 runs, reads a `VERSION.md`
-and a `CHANGELOG.md` that the adoption does not install (issue #469). Until
-that issue is resolved, bring the first release to the Director before
-`Workflows/RELEASE.md` Step 1. The framework's `ghcr-publish.yml` does not run before then, since it runs on
-pushes to `main` and on tags. A workflow of the project's own that runs only
+is merged. `release.sh`, which that workflow runs, reads a `VERSION.md` and a
+`CHANGELOG.md` that the adoption does not install. Before that release's
+Step 1, one Work Unit creates `CHANGELOG.md`, with an
+`## [Unreleased] - Bootstrap` section that names each Work Unit the release
+carries, and the release's Step 2 creates `VERSION.md`.
+`Workflows/RELEASE.md`, An Adopting Project's First Release, gives both
+files' shape. Run the script from the project's root as
+`./ia-engineering/Adapters/scripts/release.sh`: it then releases the project.
+The framework's `ghcr-publish.yml` does not run before the first release,
+since it runs on pushes to `main` and on tags. A workflow of the project's own that runs only
 for Pull Requests to `main` does not run for those to `develop` until
 `develop` is added to its branches. A fix cannot go through
 `Workflows/HOTFIX.md` before that release. A branch cut from `main` has no
@@ -375,6 +400,16 @@ declared absent". The **Risk Map (advisory)** CI check runs that command on
 every Pull Request. It does not block a merge, but it stays red on every Pull
 Request until the map is complete, and a check that is always red teaches
 everyone to ignore red.
+
+### Daily use
+
+Once the adoption is merged, the daily loop with Claude Code is in
+[`Adapters/ai-runtimes/claude-code/DAILY_USE.md`](Adapters/ai-runtimes/claude-code/DAILY_USE.md):
+how a Work Unit starts, where you approve its plan, how an Employee works in
+its own worktree, who reviews and who runs `gh pr merge`, how the worktree and
+the branch are cleaned up, and where you run a command that a guard refuses.
+[`Adapters/ai-runtimes/claude-code/TROUBLESHOOTING.md`](Adapters/ai-runtimes/claude-code/TROUBLESHOOTING.md)
+starts with an index from a refusal's text to its entry.
 
 ### Working on the framework itself
 

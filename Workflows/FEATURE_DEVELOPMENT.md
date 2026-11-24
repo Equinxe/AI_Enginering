@@ -104,7 +104,7 @@ This step is the Main Agent's own planning, not a dispatch, and its plan is the 
 **Actor:** Engineer
 
 1. Stage only the files relevant to this Work Unit.
-2. If the Work Unit is not already registered, add it to `Registry/work-units.yml` (id, employee, title, milestone, delivers) in this same commit. In a project that imported the framework this is the PROJECT's own registry (the bootstrap writes an empty starter; the check never reads the framework's). The required `Work Unit Exists` CI check resolves every commit's `Work Unit:` trailer against that file and fails the Pull Request if the ID is not registered there — see `Registry/README.md`. For the `milestone` value: in the framework repository, the current in-progress milestone is declared in `VERSION.md` ("Next Milestone") — a new Work Unit's `milestone:` uses that name. A project that imported the framework has no `VERSION.md`: its `milestone:` is the project's own release or iteration label, and the adoption Work Unit uses `Bootstrap` (`Registry/README.md`, Work Unit `milestone` in a Consuming Project). A plan's Work Units may instead be registered up front, in one bookkeeping Pull Request merged before any of them is dispatched; each Work Unit's own Pull Request then edits only its own entry, and a reserved Work Unit not delivered by the release is moved to a later milestone or removed (`Adapters/scripts/release.sh check`, condition 1, refuses a milestone with one undelivered).
+2. If the Work Unit is not already registered, add it to `Registry/work-units.yml` (id, employee, title, milestone, delivers) in this same commit. In a project that imported the framework this is the PROJECT's own registry (the bootstrap writes an empty starter; the check never reads the framework's). The required `Work Unit Exists` CI check resolves every commit's `Work Unit:` trailer against that file and fails the Pull Request if the ID is not registered there — see `Registry/README.md`. For the `milestone` value: in the framework repository, the current in-progress milestone is declared in `VERSION.md` ("Next Milestone") — a new Work Unit's `milestone:` uses that name. A project that imported the framework has no framework milestones, and no `VERSION.md` before its first release: its `milestone:` is the project's own release or iteration label. Every Work Unit merged before that first release, the adoption Work Unit included, uses `Bootstrap` (`Registry/README.md`, Work Unit `milestone` in a Consuming Project; `Workflows/RELEASE.md`, An Adopting Project's First Release). A plan's Work Units may instead be registered up front, in one bookkeeping Pull Request merged before any of them is dispatched; each Work Unit's own Pull Request then edits only its own entry, and a reserved Work Unit not delivered by the release is moved to a later milestone or removed (`Adapters/scripts/release.sh check`, condition 1, refuses a milestone with one undelivered).
 3. Write a commit message following the Commit Standard (Conventional Commits).
 4. One Work Unit = one commit. Do not bundle unrelated changes.
 
@@ -170,9 +170,10 @@ A Pull Request **changes executable behaviour** when it changes anything a progr
 2. When the Pull Request changes executable behaviour (Step 7), confirm the QA sign-off is documented. A Pull Request that does not change executable behaviour needs none.
 3. Whatever the Pull Request changes, confirm every other approval a rule requires: the Prompt Engineer's approval where a rule requires one, and the Director's content approval for any `Core/*.md` change (`Governance/CONTRIBUTING.md` §4), given directly by the Director as `Core/MAIN_AGENT_CONDUCT.md` (Git Execution via Named Employee) defines.
 4. Merge the Pull Request into `develop`.
-5. Delete the feature branch after merge.
+5. Before anything is removed or deleted, confirm that `develop` has every commit of the feature branch, both the local branch and its copy on the remote. After `git fetch origin`, `git merge-base --is-ancestor <branch> origin/develop` must exit 0, and so must `git merge-base --is-ancestor origin/<branch> origin/develop` for a branch that was pushed. When either does not, stop and report it to the Director: that is work that never reached `develop`, and the branch is deleted neither locally nor on the remote. Then, if a linked worktree has the feature branch checked out, such as the worktree a runtime made for the Engineer, remove that worktree first, with `git worktree remove <path>` and never with `--force`. Git refuses to delete a branch that a worktree has checked out. `git worktree remove` deletes the worktree's ignored files, such as a `.env`, without refusing: list them first with `git -C <path> status --short --ignored`, and move out anything still needed. When git refuses to remove the worktree, because it holds uncommitted changes or untracked files, holds an initialised submodule, or is locked, stop and report it to the Director: what it holds is work, and the decision about it is the Director's.
+6. Delete the feature branch after merge, locally with `git branch -d` and on the remote. `git branch -d` does not show that `develop` has the branch, which is why item 5 checks first. It refuses a branch that is not fully merged into its upstream, or into `HEAD` when the branch has no upstream, and after `git push -u` the upstream is the branch's own copy on the remote.
 
-When the Main Agent executes this merge, an approval given before a merge of `develop` into the branch counts only as condition 1 of `Core/MAIN_AGENT_CONDUCT.md` (Git Execution via Named Employee) allows.
+When the Main Agent executes this merge, an approval given before a merge of `develop` into the branch counts only as condition 1 of `Core/MAIN_AGENT_CONDUCT.md` (Git Execution via Named Employee) allows. Its standing exception there names the merge and the deletion of the merged branch, not the removal of a worktree, so after a merge it executed, the Main Agent dispatches item 5 to the Engineering Manager or Technical Lead, or the Director runs it (issue #490). That Employee works in the main checkout, not in an isolated worktree of its own, and the Main Agent runs no git command there until it reports (`Core/MAIN_AGENT_CONDUCT.md`, Workspace Isolation, Wait). `Adapters/ai-runtimes/claude-code/DAILY_USE.md` (Step 7) gives the commands and git's refusals for a Claude Code project.
 
 **Output:** Feature merged into `develop`.
 
@@ -200,7 +201,7 @@ This workflow is complete when:
 
 - The Pull Request is merged into `develop`.
 - All acceptance criteria are verified by the QA Engineer, when the Pull Request changes executable behaviour (Step 7).
-- The feature branch is deleted.
+- The feature branch is deleted, once `develop` was confirmed to have every commit of it and any worktree that had it checked out was removed.
 - The Work Unit is marked as complete.
 
 ---
@@ -235,7 +236,7 @@ The two entries are deliberately parallel. `Workflows/CODE_REVIEW.md` treats the
 
 Owner: IA Engineering
 
-Version: 0.0.16
+Version: 0.0.18
 
 Status: Draft
 
