@@ -395,6 +395,16 @@ every Pull Request. It does not block a merge, but it stays red on every Pull
 Request until the map is complete, and a check that is always red teaches
 everyone to ignore red.
 
+### Daily use
+
+Once the adoption is merged, the daily loop with Claude Code is in
+[`Adapters/ai-runtimes/claude-code/DAILY_USE.md`](Adapters/ai-runtimes/claude-code/DAILY_USE.md):
+how a Work Unit starts, where you approve its plan, how an Employee works in
+its own worktree, who reviews and who runs `gh pr merge`, how the worktree and
+the branch are cleaned up, and where you run a command that a guard refuses.
+[`Adapters/ai-runtimes/claude-code/TROUBLESHOOTING.md`](Adapters/ai-runtimes/claude-code/TROUBLESHOOTING.md)
+starts with an index from a refusal's text to its entry.
+
 ### Working on the framework itself
 
 Everything above is for *consuming* IA Engineering inside another project. If you
