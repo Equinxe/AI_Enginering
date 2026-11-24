@@ -284,10 +284,13 @@ STRIPPED_LINES=(${SPLIT[@]+"${SPLIT[@]}"})
 # command; the 99.9th percentile is 137, the median 5). The count is taken
 # after the lexer, so brace alternatives count, and so do the lexer's second
 # and third readings of a command, when it prints them (WU-IAENG-440,
-# WU-IAENG-450). At the cap, the heaviest
-# command (2,000 lines, each a `gh` segment) was read in 2.5 s on the loaded
-# Windows machine of the measurement. The large inputs timed there, before
-# and after this change, are in that Governance document.
+# WU-IAENG-450). At the cap, the heaviest command measured on 24 November 2026,
+# on a loaded Windows machine, was 1,999 `gh api` label writes: 6.8 s of CPU,
+# 9.9 s of wall time. 666 git segments read three times, each with a quoted
+# value and a substitution, took 0.3 s of CPU, once the lexer found the word
+# before a quote without splitting all the text before it (strip-quotes.awk,
+# last_word). The large inputs timed when the cap was set are in that
+# Governance document.
 MAX_SEGMENTS=2000
 split_into $';&|\n' "$STRIPPED"
 SEGS=(${SPLIT[@]+"${SPLIT[@]}"})
@@ -901,12 +904,15 @@ kept_view() {
 # the text before it: `--add-label "control-change/$(echo approved)"` reads
 # `--add-label control-change/$ echo approved`. For gh api, the value is one
 # that sets labels: a field whose key names labels (labels[]=, labels=), the
-# name or new_name of a /labels endpoint, or any field with a substituted key
-# on an issue, pull request or labels endpoint. A -F value read from a file
-# (`=@file`) is not a literal either. A literal `$` in a single-quoted label
-# reads the same and is refused too. The KEEPQ view is made for an api write
-# only when the raw command names a label (any case), so a comment posted with
-# gh api starts no second awk.
+# name or new_name of a /labels endpoint, or, on an issue, pull request or
+# labels endpoint, any field whose key holds a `$` before its `=`: a variable
+# (`"$K=$V"`), a substitution (`"$(echo labels)[]=$V"`, `lab$(echo e)ls[]=`),
+# whose commands the KEEPQ view prints after the `$`. A -F value read from a
+# file (`=@file`) is not a literal either. A literal `$` in a single-quoted
+# label reads the same and is refused too. The KEEPQ view is made for an api
+# write only when the raw command names a label (any case) or holds a `$` or a
+# backtick, which a key spelled `$'\x6c'abels[]` or `$K` needs, so a comment
+# posted with gh api and no `$` starts no second awk.
 LDYN='[^[:space:]]*\$'
 API_FIELD="${S}(-f|-F|--field|--raw-field)(=|${S}*)"
 APPROVAL_LABEL=0
@@ -914,7 +920,7 @@ LABEL_DYN=0
 GH_EDIT_LABELFLAG=0
 GH_ALIAS=0
 GH_API_LABEL=0
-case "$CMD" in *[lL][aA][bB][eE][lL]*) RAW_LABEL=1 ;; *) RAW_LABEL=0 ;; esac
+case "$CMD" in *[lL][aA][bB][eE][lL]*|*'$'*|*'`'*) RAW_LABEL=1 ;; *) RAW_LABEL=0 ;; esac
 case "$STRIPPED" in *[gG][hH]*) GH_SEEN=1 ;; *) GH_SEEN=0 ;; esac
 if [ "$GH_SEEN" -eq 1 ]; then
   for SEG in ${SEGS[@]+"${SEGS[@]}"}; do
@@ -969,7 +975,7 @@ if [ "$GH_SEEN" -eq 1 ]; then
               || { rx_any 1 "/labels([/?[:space:]]|\$)" "$SEG" \
                    && rx_any 1 "${API_FIELD}(name|new_name)=(${LDYN}|@)" "$SEG"; } \
               || { rx_any 1 "(issues|pulls)/|/labels" "$SEG" \
-                   && rx_any 1 "${API_FIELD}[^=[:space:]]*\\\$[^=[:space:]]*=" "$SEG"; }; }; then
+                   && rx_any 1 "${API_FIELD}[^=[:space:]]*\\\$" "$SEG"; }; }; then
         LABEL_DYN=1
       fi
       if [ "$GH_ALIAS" -eq 1 ] \

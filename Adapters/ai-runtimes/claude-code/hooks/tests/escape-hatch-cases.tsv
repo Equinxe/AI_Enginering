@@ -1000,10 +1000,13 @@ block	C:/x/git-core/git-push.exe --force	force-push or mirror-push
 block	git-filter-repo --path x --invert-paths	history rewrite
 block	git-filter-branch.exe --tree-filter x	history rewrite
 block	/mingw64/libexec/git-core/git-config core.hooksPath /dev/null	setting core.hooksPath disables
+block	git-config alias.p "push --force"	writing a git alias
 allow	git-stash list
 allow	git-stash.exe show
 allow	cat .git-blame-ignore-revs
 allow	npx simple-git-hooks
+allow	cat .git-stash
+allow	npx simple-git-push --force
 allow	ls /mingw64/libexec/git-core/
 block	git stash "-m a b" list	git stash sets work aside
 block	git stash '-m a b' show	git stash sets work aside
@@ -1018,6 +1021,7 @@ block	GIT.CMD reset --hard	git reset --hard discards
 block	git.bat stash	git stash sets work aside
 block	"/c/x y/git.cmd" push --force	force-push or mirror-push
 block	git.cmd -c core.hooksPath=/dev/null commit -m x	setting core.hooksPath disables
+block	git.cmd -c core.fsmonitor=x status	GIT_CONFIG_KEY_<n> or git -c
 allow	git.cmd stash list
 allow	git.com status
 block	gh pr edit 1 --add-label "control-change/$(echo approved)"	a label built from a variable or a substitution
@@ -1035,6 +1039,17 @@ block	gh api -X PATCH repos/o/r/issues/1 -f "labels[]=$L"	a label built from a v
 block	gh api repos/o/r/issues/1/labels -F labels[]=@labels.txt	a label built from a variable or a substitution
 block	gh api -X PATCH repos/o/r/labels/bug -f new_name="$N"	a label built from a variable or a substitution
 block	gh api repos/o/r/issues/1/labels -f "$K=x"	a label built from a variable or a substitution
+block	gh api repos/o/r/issues/1/labels -f "$(echo labels[])=$(cat f)"	a label built from a variable or a substitution
+block	gh api repos/o/r/issues/1/labels -f "$(echo labels)[]=$V"	a label built from a variable or a substitution
+block	gh api repos/o/r/issues/1/labels -f "lab$(echo e)ls[]=$(cat f)"	a label built from a variable or a substitution
+block	gh api repos/o/r/issues/1/labels -f "lab$(echo e)ls[]=$(echo x)"	a label built from a variable or a substitution
+block	gh api repos/o/r/issues/1/labels -f $(echo labels[])=$V	a label built from a variable or a substitution
+block	gh api repos/o/r/issues/1/labels -f "`echo labels`[]=$V"	a label built from a variable or a substitution
+block	gh api -X PATCH repos/o/r/issues/1 -f "$K=$V"	a label built from a variable or a substitution
+block	gh api -X PATCH repos/o/r/issues/1 -f "$(echo labels)[]=$V"	a label built from a variable or a substitution
+block	gh api -X PATCH repos/o/r/issues/1 -f $'\x6c'abels[]="$L"	a label built from a variable or a substitution
+block	gh api repos/o/r/issues/1/$'\x6c'abels -f $'\x6c'abels[]="$L"	a label built from a variable or a substitution
+block	gh api -X PATCH repos/o/r/labels/bug -F new_name=@name.txt	a label built from a variable or a substitution
 allow	gh pr edit 1 --add-label bug
 allow	gh pr edit 1 --add-label "help wanted" --body "$B"
 allow	gh pr edit 1 --remove-label "$L"
@@ -1043,6 +1058,8 @@ allow	gh pr edit $n --add-label bug
 allow	gh api repos/o/r/issues/$n/labels
 allow	gh api -X POST repos/o/r/issues/$n/comments -f body="$B"
 allow	gh api -X POST repos/o/r/issues/$n/labels -f labels[]=bug
+allow	gh api -X GET repos/o/r/issues -f labels="$L" && gh api -X POST repos/o/r/issues/1/comments -f body=x
+allow	gh api -X POST repos/o/r/issues/1/comments -f body="$(cat body.md)"
 # A quoted git option value that holds a space earns the core.hooksPath read
 # exemptions, as an unquoted one does (#477). The legacy read beside a quote
 # stays refused, and so does a value that holds only whitespace
@@ -1056,6 +1073,13 @@ allow	git -C "/c/Program Files/repo" stash show
 block	git -C "/c/Program Files/repo" config core.hooksPath /dev/null	setting core.hooksPath disables
 block	git -C "/c/Program Files/repo" config core.hooksPath	setting core.hooksPath disables
 block	git -C ' ' config --get core.hooksPath	setting core.hooksPath disables
+# A quoted --config-env value keeps its key, which the rules read, as the
+# unquoted form does.
+block	git --config-env "core.hooksPath=V X" commit -m x	setting core.hooksPath disables
+block	git --config-env="core.hooksPath=V X" commit -m x	setting core.hooksPath disables
+block	git --config-env 'core.fsmonitor=V X' status	GIT_CONFIG_KEY_<n> or git -c
+block	sh -c "git commit \"--no-verify\" -m x"	--no-verify disables
+allow	git --config-env "user.name=V X" log -1
 # A substitution that stands for a git option's whole value is still a value in
 # the third reading, which reads it as empty: the read stays a read.
 allow	git -C "$(pwd)" config --get core.hooksPath

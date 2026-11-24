@@ -161,9 +161,36 @@ function is_decode_context(w) {
 # alone leaves nothing, as before (SEC-IAENG-431-05). A region that held a
 # substitution leaves WB only in the third reading, where the substitution is
 # muted (hadsub); the first two print the substitution's commands there.
+#
+# --config-env is a value context of its own (2): its value is `<key>=<env
+# var>`, and the rules read the key. A dropped value there keeps its key, so
+# `git --config-env "core.hooksPath=V X" commit` reads as the unquoted
+# `--config-env=core.hooksPath=V` does (dropped).
 function is_value_context(w) {
-  return w ~ /^(-C|--(git-dir|work-tree|namespace|exec-path|super-prefix|attr-source|config-env|file|blob|default)=?)$/ \
+  if (w ~ /^--config-env=?$/) return 2
+  return w ~ /^(-C|--(git-dir|work-tree|namespace|exec-path|super-prefix|attr-source|file|blob|default)=?)$/ \
     || w ~ /(^|[\/\\-])stash(\.[A-Za-z]+)?$/
+}
+
+# THE LAST WORD OF out, which the contexts above are judged on when a quote or
+# a substitution opens. It walks back from the end of out over at most 256
+# bytes: past the whitespace that ends out, then over the word. Only a last
+# word, or a run of whitespace, that reaches back further than that is found
+# by splitting the whole of out. Splitting the whole of out at every quote
+# made a pass cost the square of the command's length (WU-IAENG-450): a
+# command of many quoted words now stays linear in its length.
+function last_word(   L, lo, j, e, t, k, tw) {
+  L = length(out)
+  lo = (L > 256) ? L - 256 : 0
+  j = L
+  while (j > lo && index(" \t\n", substr(out, j, 1))) j--
+  e = j
+  while (j > lo && !index(" \t\n", substr(out, j, 1))) j--
+  if (j > lo || lo == 0) return substr(out, j + 1, e - j)
+  t = out
+  sub(/[ \t\n]+$/, "", t)
+  k = split(t, tw, /[ \t\n]+/)
+  return (k > 0) ? tw[k] : ""
 }
 
 # The third reading reads a substitution as empty (close_sub). One that stands
@@ -171,15 +198,11 @@ function is_value_context(w) {
 # quoted value is: `git -C $(pwd) config --get core.hooksPath` and `git -C
 # "$(pwd)" config ...` keep -C's value, so the read is still read as one. A
 # substitution glued to other text joins it instead. word_before is 1 when the
-# text before a substitution ends a value-context word and a space; it reads
-# only the last 80 bytes, so a command of many substitutions stays linear.
+# text before a substitution ends a value-context word and a space (last_word).
 # word_after is 1 when the byte after the substitution ends a word.
-function word_before(   t, k, tw) {
+function word_before() {
   if (out == "" || substr(out, length(out), 1) !~ /[ \t\n]/) return 0
-  t = substr(out, length(out) - 79)
-  sub(/[ \t\n]+$/, "", t)
-  k = split(t, tw, /[ \t\n]+/)
-  return (k > 0) ? is_value_context(tw[k]) : 0
+  return is_value_context(last_word()) ? 1 : 0
 }
 function word_after(ch) {
   return ch == "" || ch ~ /[ \t\n;&|)]/
@@ -194,7 +217,7 @@ function word_after(ch) {
 function sepw(s) {
   if (s ~ /[;&|]/) {
     if (V3) gsub(/[;&|]/, WB, s)
-    else CHANGED = 1
+    else CH3 = 1
   }
   return s
 }
@@ -469,7 +492,7 @@ function expand_braces(s,   extra, groups, grp, inner, alts, n, k, pre, post, r,
 # it is the reading this file gave before WU-IAENG-440, but for the value
 # context of WU-IAENG-450 (dropped); with V2 = 1 it is the second reading
 # (TWO READINGS, below), and with V3 = 1 as well, the third. Pass 1 sets
-# CHANGED where the second or the third would differ.
+# CHANGED where the second would differ, and CH3 where only the third would.
 function lex(s,   n, i) {
   n = length(s); i = 1
   out = ""
@@ -496,13 +519,13 @@ function lex(s,   n, i) {
         # word whole in every reading, as it does a quoted separator.
         if (d ~ /[;&|]/) {
           if (V3 || KEEPQ == 1) out = out WB
-          else { out = out d; CHANGED = 1 }
+          else { out = out d; CH3 = 1 }
           i += 2; continue
         }
         out = out d; i += 2; continue
       }
       if (c == "$" && d == "(") {
-        if (!V2) CHANGED = 1
+        if (!V2) CH3 = 1
         mstack[depth] = V3
         if (V3) { mvs[depth] = word_before(); ostack[depth] = out; out = "" }
         else out = out subopen()
@@ -529,7 +552,7 @@ function lex(s,   n, i) {
           } else { obv[depth] = word_before(); obs[depth] = out; obt[depth] = 1; out = "" }
           i++; continue
         }
-        if (!V2) CHANGED = 1
+        if (!V2) CH3 = 1
         out = out subopen(); i++; continue
       }
       # A ) closes a $( substitution, never a backtick one.
@@ -546,21 +569,19 @@ function lex(s,   n, i) {
         # The shell consumes the $ in $'...' and $"...".
         mode = (d == SQ) ? "ansic" : "dq"
         buf = ""; tainted = 0; hadsub = 0
-        prev = out; sub(/[ \t\n]+$/, "", prev)
-        nw = split(prev, words, /[ \t\n]+/)
-        cmdctx = (nw > 0) ? is_command_context(words[nw]) : 0
-        decodectx = (nw > 0) ? is_decode_context(words[nw]) : 0
-        valctx = (nw > 0) ? is_value_context(words[nw]) : 0
+        lw = last_word()
+        cmdctx = is_command_context(lw)
+        decodectx = is_decode_context(lw)
+        valctx = is_value_context(lw)
         i += 2; continue
       }
       if (c == SQ || c == "\"") {
         mode = (c == SQ) ? "sq" : "dq"
         buf = ""; tainted = 0; hadsub = 0
-        prev = out; sub(/[ \t\n]+$/, "", prev)
-        nw = split(prev, words, /[ \t\n]+/)
-        cmdctx = (nw > 0) ? is_command_context(words[nw]) : 0
-        decodectx = (nw > 0) ? is_decode_context(words[nw]) : 0
-        valctx = (nw > 0) ? is_value_context(words[nw]) : 0
+        lw = last_word()
+        cmdctx = is_command_context(lw)
+        decodectx = is_decode_context(lw)
+        valctx = is_value_context(lw)
         i++; continue
       }
       # `<<<` IS A HERE-STRING, NOT A HEREDOC. It consumes one word on the
@@ -670,8 +691,10 @@ function lex(s,   n, i) {
     if (c == "\\") { buf = buf c d; i += 2; continue }
     if (c == "$" && d == "(") {
       if (V2) { open_dq_sub("dq"); i += 2; continue }
-      # The third reading reads every such substitution as empty.
-      CHANGED = 1
+      # The third reading reads every such substitution as empty (CH3). The
+      # second differs only in a command context, printf or KEEPQ mode.
+      if (cmdctx || decodectx || KEEPQ == 1) CHANGED = 1
+      else CH3 = 1
       mstack[depth] = 0
       stack[depth] = "dq"; vstack[depth] = valctx; depth++
       mode = "out"; tainted = 1; buf = ""
@@ -715,7 +738,14 @@ function lex(s,   n, i) {
 # reading, when it holds something other than whitespace or held a
 # substitution the third reading muted (hadsub), and held none whose commands
 # the reading printed (tainted).
+#
+# After --config-env (valctx 2) a region whose text begins `<key>=` keeps that
+# key, with WB for the rest of its value, in every reading.
 function dropped(b,   t) {
+  if (valctx == 2 && !tainted && match(b, /^[^ \t\n=]+=/)) {
+    out = out sepw(substr(b, 1, RLENGTH)) WB
+    return
+  }
   t = path_tail(b)
   if (V2 && t != "") { out = out t; return }
   if (t != "") CHANGED = 1
@@ -741,16 +771,23 @@ function dropped(b,   t) {
 # (subopen) and a separator is already kept in its word. Two changes reach
 # every reading, pass 1 included: a dropped region in a value context leaves
 # WB (dropped), and, in KEEPQ mode, an escaped ; & | is WB.
+#
+# Pass 1 sets CHANGED where the second reading would differ and CH3 where only
+# the third would. A record that sets CH3 alone is lexed twice, not three
+# times: its second reading is its first (WU-IAENG-450).
 {
-  V2 = 0; V3 = 0; CHANGED = 0
+  V2 = 0; V3 = 0; CHANGED = 0; CH3 = 0
   r1 = lex($0)
   one = r1 expand_braces(r1)
   two = one
   three = one
-  if (CHANGED) {
+  if (CHANGED || CH3) {
     V2 = 1
-    r2 = lex($0)
-    if (r2 != r1) { two = r2 expand_braces(r2); ANY2 = 1 }
+    r2 = r1
+    if (CHANGED) {
+      r2 = lex($0)
+      if (r2 != r1) { two = r2 expand_braces(r2); ANY2 = 1 }
+    }
     three = two
     if (KEEPQ != 1) {
       V3 = 1

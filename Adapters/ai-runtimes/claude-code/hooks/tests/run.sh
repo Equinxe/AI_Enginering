@@ -1561,8 +1561,8 @@ expect_reason "escape-hatch: a ; inside a substitution on another line does not 
 # THE PROCESS BUDGET. Recording stand-ins first on PATH, as in the budgets
 # above: a dashed git and git.cmd start cat and one jq; a command read three
 # times starts one awk, as a command read once does; a gh api write in a
-# command that names a label starts the KEEPQ awk, and one that names none
-# does not.
+# command that names a label starts the KEEPQ awk, and one that names none and
+# holds no $ or backtick does not.
 W450_BASE="$(mktemp -d)"
 W450_SHIMS="$W450_BASE/shims"
 W450_LOG="$W450_BASE/shims.log"
@@ -1606,35 +1606,64 @@ for ((w450_i = 1; w450_i < 666; w450_i++)); do W450_SEGS+="true;"; done
 expect_rc "escape-hatch: 666 segments read three times are read" 0 "$HOOK" "$(mkbash "${W450_SEGS}true \"a b/c\" \"-x\$(true)\"")"
 expect_reason "escape-hatch: 667 segments read three times are refused at the cap" \
   "$(mkbash "${W450_SEGS}true;true \"a b/c\" \"-x\$(true)\"")" "pipeline segments after expansion"
-# A LARGE COMMAND READ THREE TIMES IS JUDGED IN TIME. 5,000 substitutions,
-# each glued to the word before it and to the one after it, then a
-# force-push: every reading runs, and the call is refused within 30 s, the
-# budget of the large-input checks above. 50,000 bytes, short of the
-# 65,536-byte here-string window, which those checks cover.
+# THE WORD BEFORE A QUOTE (last_word in strip-quotes.awk) is found by walking
+# back at most 256 bytes, or, past that, by splitting all the text before it.
+# One check for each way: a quote more than 256 bytes into the command, a word
+# before a quote longer than 256 bytes, and more than 256 bytes of whitespace
+# between the word and the quote.
+printf -v W450_X '%300s' ''
+W450_X="${W450_X// /x}"
+expect_reason "escape-hatch: a quote more than 256 bytes into a command is judged on the word before it" \
+  "$(mkbash "echo $W450_X && bash -c \"git push --force\"")" "force-push or mirror-push"
+expect_reason "escape-hatch: a word longer than 256 bytes before a quote is read whole" \
+  "$(mkbash "git config alias.$W450_X \"push --force\"")" "writing a git alias"
+expect_reason "escape-hatch: more than 256 bytes of whitespace before a quote are passed over" \
+  "$(mkbash "bash -c${W450_X//x/ }\"git push --force\"")" "force-push or mirror-push"
+# A LARGE COMMAND IS JUDGED IN TIME. w450_large <label> <file of the command>:
+# the command must be refused as a force-push within 30 s, the budget of the
+# large-input checks above.
+w450_large() {
+  local label="$1" t0 out rc s
+  jq -n --rawfile c "$2" '{tool_name:"Bash",tool_input:{command:$c}}' > "$2.pay"
+  t0=$SECONDS
+  if command -v timeout >/dev/null 2>&1; then
+    out="$(timeout 30 bash "$HOOK" < "$2.pay" 2>&1 >/dev/null)"
+    rc=$?
+  else
+    out="$(bash "$HOOK" < "$2.pay" 2>&1 >/dev/null)"
+    rc=$?
+  fi
+  s=$((SECONDS - t0))
+  TOTAL=$((TOTAL + 1))
+  if [ "$rc" -eq 2 ] && [ "$s" -le 30 ] && grep -qF "force-push or mirror-push" <<< "$out"; then
+    [ "$VERBOSE" -eq 1 ] && printf '   ok    %s (%s s)\n' "$label" "$s"
+  else
+    FAILED=$((FAILED + 1))
+    printf '   FAIL  %s: exit %s after %s s\n' "$label" "$rc" "$s"
+  fi
+}
 W450_DIR="$(mktemp -d)"
+# 5,000 substitutions, each glued to the word before it and to the one after
+# it, then a force-push: every reading runs. 50,000 bytes, short of the
+# 65,536-byte here-string window, which those checks cover.
 {
   printf 'echo '
   for ((w450_i = 0; w450_i < 5000; w450_i++)); do printf '%s' "a\$(true)b "; done
   printf '; git push --force'
 } > "$W450_DIR/cmd"
-jq -n --rawfile c "$W450_DIR/cmd" '{tool_name:"Bash",tool_input:{command:$c}}' > "$W450_DIR/pay"
-w450_t0=$SECONDS
-if command -v timeout >/dev/null 2>&1; then
-  W450_OUT="$(timeout 30 bash "$HOOK" < "$W450_DIR/pay" 2>&1 >/dev/null)"
-  W450_RC=$?
-else
-  W450_OUT="$(bash "$HOOK" < "$W450_DIR/pay" 2>&1 >/dev/null)"
-  W450_RC=$?
-fi
-W450_S=$((SECONDS - w450_t0))
+w450_large "escape-hatch: a large command read three times is judged within 30 s, and refused" "$W450_DIR/cmd"
+# One substitution, then 15,000 quoted words, then a force-push: 60,030
+# bytes, read twice. Each quote is judged on the word before it; that word was
+# found by splitting all the text before the quote, so a reading cost the
+# square of the command's length, and the PR head took 56 s of CPU on a third
+# of this (code review of PR #501, P1).
+{
+  printf 'echo $(true)'
+  for ((w450_i = 0; w450_i < 15000; w450_i++)); do printf '%s' ' "a"'; done
+  printf '; git push --force'
+} > "$W450_DIR/cmd2"
+w450_large "escape-hatch: a command of many quoted words after a substitution is judged within 30 s, and refused" "$W450_DIR/cmd2"
 rm -rf "$W450_DIR"
-TOTAL=$((TOTAL + 1))
-if [ "$W450_RC" -eq 2 ] && [ "$W450_S" -le 30 ] && grep -qF "force-push or mirror-push" <<< "$W450_OUT"; then
-  [ "$VERBOSE" -eq 1 ] && printf '   ok    %s (%s s)\n' "escape-hatch: a large command read three times is judged within 30 s, and refused" "$W450_S"
-else
-  FAILED=$((FAILED + 1))
-  printf '   FAIL  escape-hatch: a large command read three times is judged within 30 s, and refused: exit %s after %s s\n' "$W450_RC" "$W450_S"
-fi
 
 # --- Verdict ----------------------------------------------------------------
 
