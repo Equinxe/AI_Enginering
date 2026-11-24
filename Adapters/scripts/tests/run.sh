@@ -10817,12 +10817,16 @@ expect_output "2 of 3 Work Units for 'Testing' have no changelog fragment, entry
 # 2: a repository without it writes CHANGELOG.md directly). WU-T-1 is named
 # there; WU-T-2 and WU-T-3 are not, so the condition still fails, and names
 # them (WU-IAENG-447: before, the missing directory was the whole verdict).
+# This fixture fails other conditions too (no origin, no validator), so its
+# exit 1 says nothing about condition 5: the line is read with its "FAIL  "
+# prefix. Without it, the case passed with that line turned into an ok
+# (Code Reviewer, PR #496, mutant M8b).
 frag_release_repo frag-cond5-nodir
 rm -rf changelog.d
 git add -A && git commit -q -m "fixture"
-expect 1 "condition 5: a missing changelog.d/ is a failure, not a pass" -- \
+expect 1 "condition 5 without changelog.d/: Work Units not named in the section fail it" -- \
   bash Adapters/scripts/release.sh check --milestone Testing
-expect_output "2 of 3 Work Units for 'Testing' are not named in '## [Unreleased] - Testing': WU-T-2 WU-T-3"
+expect_output "FAIL  2 of 3 Work Units for 'Testing' are not named in '## [Unreleased] - Testing': WU-T-2 WU-T-3"
 expect_output_absent "FAIL  changelog.d/ is missing"
 
 # --- release.sh in an adopting project (WU-IAENG-447, issue #469). The
@@ -10939,6 +10943,38 @@ expect_output_absent "resolve-host.sh is missing"
 cd .. || exit 1
 rmdir sub
 
+# The two relaxed readings keep their failures. Each case below is this same
+# project, which passed above, with one thing changed, so its exit 1 and the
+# single unmet condition can come only from the reading under test. Without
+# them, either reading could pass everything and no case would notice (Code
+# Reviewer, PR #496, mutants M8b and M2b).
+#
+# No changelog.d/: a merged Work Unit that the section does not name fails
+# condition 5, and the release is not ready.
+sed '/(WU-P-2)$/d' CHANGELOG.md > CHANGELOG.tmp && mv CHANGELOG.tmp CHANGELOG.md
+git add -A && git commit -q -m "fixture: WU-P-2 not named"
+git push -q origin develop > /dev/null 2>&1
+expect 1 "adopter, first release: a Work Unit the section does not name fails Step 1" -- \
+  bash ./ia-engineering/Adapters/scripts/release.sh check
+expect_output "FAIL  1 of 2 Work Units for 'Bootstrap' are not named in '## [Unreleased] - Bootstrap': WU-P-2"
+expect_line "   1 condition(s) not met."
+expect_output_absent "Ready for Step 2"
+rel_447_first_changelog
+
+# A VERSION.md whose version cannot be read is not a first release, even with
+# no version section yet: only an absent VERSION.md is.
+printf '# Version\n\nv0.1.0\n' > VERSION.md
+git add -A && git commit -q -m "fixture: VERSION.md without its version line"
+git push -q origin develop > /dev/null 2>&1
+expect 1 "adopter, first release: a VERSION.md with no **vX.Y.Z** line fails Step 1" -- \
+  bash ./ia-engineering/Adapters/scripts/release.sh check
+expect_line "   FAIL  could not read the current version from VERSION.md"
+expect_line "   1 condition(s) not met."
+expect_output_absent "no version released yet"
+rm VERSION.md
+git add -A && git commit -q -m "fixture: VERSION.md removed"
+git push -q origin develop > /dev/null 2>&1
+
 # Step 2 of the first release: VERSION.md created, the section versioned.
 printf '# Version\n\n**v0.1.0**\n' > VERSION.md
 sed 's/^## \[Unreleased\] - Bootstrap$/## [0.1.0] - Bootstrap/' CHANGELOG.md > CHANGELOG.tmp && mv CHANGELOG.tmp CHANGELOG.md
@@ -10966,13 +11002,17 @@ expect 1 "adopter: no VERSION.md after a version section is a failure" -- \
   bash ./ia-engineering/Adapters/scripts/release.sh check --milestone Bootstrap
 expect_output "FAIL  could not read the current version from VERSION.md"
 
-# No CHANGELOG.md: reported, and the check runs to its result.
+# No CHANGELOG.md: reported, and the check runs to its result. The
+# first-release reading needs a CHANGELOG.md with no version section; a
+# missing one is not that, and no "ok" line may say otherwise beside the
+# failure (Code Reviewer, PR #496, mutant M2c).
 adopter_447 rel-447-nochangelog
 expect 1 "adopter: no CHANGELOG.md is reported and the check runs to its result" -- \
   bash ./ia-engineering/Adapters/scripts/release.sh check
 expect_output "FAIL  CHANGELOG.md is missing"
 expect_output_absent "unbound variable"
 expect_output "condition(s) not met"
+expect_output_absent "no version released yet"
 
 # The same in the framework's own layout: before the fix the derivation left
 # n_unreleased unset and `set -u` stopped the run mid-report.
@@ -10984,6 +11024,7 @@ expect 1 "no CHANGELOG.md: the check runs to its result instead of stopping on a
 expect_output_absent "unbound variable"
 expect_output "condition(s) not met"
 expect_output "FAIL  cannot determine which milestone is being released: Registry/work-units.yml or CHANGELOG.md is missing"
+expect_output_absent "no version released yet"
 # The framework's own layout names no separate framework directory.
 expect_output_absent "Framework:  "
 

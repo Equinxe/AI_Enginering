@@ -45,8 +45,13 @@ Read them at one fixed point, the `develop` commit that merged Pull Request
 not change during the adoption. Read them without checking that commit out,
 on GitHub, or with `git -C ia-engineering fetch origin develop` and then
 `git -C ia-engineering show <that commit>:<file>`. The submodule stays pinned
-to v0.0.15: only the scripts come from it. The route works with those scripts
-unchanged, with three exceptions:
+to v0.0.15 until the project's first release: only the scripts come from it.
+That release is the exception to the fixed point, because the #465 commit
+predates its text. Move the pin first, as the second exception below says,
+then read `Workflows/RELEASE.md` (An Adopting Project's First Release), this
+page and `Workflows/ONBOARDING.md` (The adoption route, step 4) from the
+submodule. The route works with v0.0.15's scripts unchanged, with three
+exceptions:
 
 - Ignore the closing-report lines of `setup-project-bootstrap.sh` that issue
   #453 corrects (The steps that are not commands, below).

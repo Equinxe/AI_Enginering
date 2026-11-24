@@ -633,7 +633,7 @@ cmd_check() {
     while IFS= read -r id; do
       [ -n "$id" ] || continue
       cl_total=$((cl_total + 1))
-      if [ "$cl_has_dir" -eq 1 ] && [ -f "$FRAGMENT_DIR/$id.md" ]; then
+      if [ -f "$FRAGMENT_DIR/$id.md" ]; then
         if [ "$cl_versioned" -eq 1 ]; then
           cl_unassembled="$cl_unassembled$id "
         else
