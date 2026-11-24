@@ -122,7 +122,7 @@ Condition 3 is **reported, not failed** on purpose: whether an open issue is cri
 
 This table replaced a single sentence claiming the script "reports every condition below". It did not — condition 1 had no mechanical form at all, and the paragraph beneath the list correctly enumerated a narrower set, so one Step made two incompatible claims about the strength of the same gate. A reader stopping at the lead-in, which is where the instruction to run the command lives, would have concluded condition 1 was covered. Condition 1 is now implemented; conditions 4 and 5 are marked partial rather than described as fully enforced.
 
-If any condition is not met: block the release. Do not proceed until `develop` is ready.
+If any condition is not met: block the release. Do not proceed until `develop` is ready. One failure is the Director's to decide instead: `looks too thin` on a `CHANGELOG.md` section that shipped before the project adopted the framework (An Adopting Project's First Release, above).
 
 **Output:** Release readiness confirmation.
 

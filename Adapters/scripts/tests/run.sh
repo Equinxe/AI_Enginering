@@ -10798,13 +10798,17 @@ block_end
 
 # --- release.sh check, condition 5. The other conditions fail in a fixture
 # (no host, no validator, not develop), so the exit is 1 throughout and each
-# case reads condition 5's own line.
+# case reads condition 5's own line. A failing case also reads that the "all
+# accounted for" ok line is absent: without its "nothing missing" guard, the
+# report printed it beside the failure and every case still passed (QA
+# Engineer, PR #496 round 2, Note 2).
 frag_release_repo frag-cond5
 printf '### Added\n\n- x\n' > changelog.d/WU-T-2.md
 git add -A && git commit -q -m "fixture"
 expect 1 "condition 5: a Work Unit with no fragment and only a mention in the section fails" -- \
   bash Adapters/scripts/release.sh check --milestone Testing
 expect_output "1 of 3 Work Units for 'Testing' have no changelog fragment, entry or exemption: WU-T-3"
+expect_output_absent "Work Units for 'Testing' accounted for"
 
 printf 'No changelog entry: tests only\n' > changelog.d/WU-T-3.md
 git add -A && git commit -q -m "fixture: exemption"
@@ -10979,13 +10983,18 @@ rmdir sub
 # Reviewer, PR #496, mutants M8b and M2b).
 #
 # No changelog.d/: a merged Work Unit that the section does not name fails
-# condition 5, and the release is not ready.
+# condition 5, and the release is not ready. No "all named" ok line may say
+# otherwise beside that failure: without the "nothing missing" guard on that
+# line, the report printed both, and every case still passed (QA Engineer and
+# Code Reviewer, PR #496 round 2, mutant M12). The string cannot match the
+# FAIL line, which reads "are not named in".
 sed '/(WU-P-2)$/d' CHANGELOG.md > CHANGELOG.tmp && mv CHANGELOG.tmp CHANGELOG.md
 git add -A && git commit -q -m "fixture: WU-P-2 not named"
 git push -q origin develop > /dev/null 2>&1
 expect 1 "adopter, first release: a Work Unit the section does not name fails Step 1" -- \
   bash ./ia-engineering/Adapters/scripts/release.sh check
 expect_output "FAIL  1 of 2 Work Units for 'Bootstrap' are not named in '## [Unreleased] - Bootstrap': WU-P-2"
+expect_output_absent "Work Units for 'Bootstrap' named in"
 expect_line "   1 condition(s) not met."
 expect_output_absent "Ready for Step 2"
 rel_447_first_changelog
