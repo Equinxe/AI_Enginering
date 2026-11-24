@@ -287,7 +287,7 @@ suite() {
   if [[ $OUT == *$'\033[33m65%'* ]] && [ -f "$T/ctx/iaeng-ctx-${UID:-x}/own-$how.pct" ]; then
     ok "$l: its own thresholds colour 65 % yellow, and its own directory rule names the .pct"
   else
-    bad "$l: its own thresholds colour 65 % yellow, and its own directory rule names the .pct" "exit $RC, line [$OUT], .pct: $(ls "$T/ctx/iaeng-ctx-${UID:-x}" 2>&1 | tr '\n' ' ')"
+    bad "$l: its own thresholds colour 65 % yellow, and its own directory rule names the .pct" "exit $RC, line [$OUT], .pct files: $(find "$T/ctx" -name '*.pct' 2>&1 | tr '\n' ' ')"
   fi
 }
 
