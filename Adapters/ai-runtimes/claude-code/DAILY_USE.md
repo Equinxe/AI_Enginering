@@ -105,7 +105,7 @@ The Main Agent dispatches the Code Reviewer on the Pull Request (`Workflows/CODE
 **Who runs `gh pr merge`.** `Workflows/FEATURE_DEVELOPMENT.md` Step 8 names the actor:
 
 - **The Main Agent**, under the Director's standing exception, when all three of its conditions hold (`Core/MAIN_AGENT_CONDUCT.md`, Git Execution via Named Employee): the approvals are on the current head; every other approval a rule requires is recorded; and every required check is green on that head, with the merge pinned to it.
-- **The Engineering Manager or the Technical Lead**, dispatched by the Main Agent, in every other case.
+- **The Engineering Manager or the Technical Lead**, dispatched by the Main Agent, in every other case. That dispatch is made without `isolation: "worktree"`, so that the Employee works in the main checkout (Step 7, Who, says why).
 
 A merge into `main` or a `release/*` branch, a tag and a release are never the Main Agent's. They are the Release Manager's, with your approval (`Workflows/RELEASE.md`).
 
@@ -135,34 +135,44 @@ So the worktree is removed first, and the branch second (`Workflows/FEATURE_DEVE
 
 **Who.** Step 8's actor runs the cleanup. The Main Agent's standing exception names the merge and the deletion of the merged branch, not the removal of a worktree, which is a git mutation of its own (`Core/MAIN_AGENT_CONDUCT.md`, Git Execution via Named Employee). So after a merge the Main Agent ran, it dispatches this step to the Engineering Manager or the Technical Lead, or you run it in your terminal. Whether the exception should also cover this step is your decision (issue #490).
 
+**A dispatched cleanup runs in the main checkout.** The Main Agent dispatches it without `isolation: "worktree"`, and runs no git command in the main checkout until the Employee reports (`Core/MAIN_AGENT_CONDUCT.md`, Workspace Isolation, Wait). From a worktree of its own, the Employee could not do this step. Claude Code blocks an isolated agent's command whose working directory is the main checkout, and git redirected into it ([Worktrees, How Claude Code enforces isolation](https://code.claude.com/docs/en/worktrees.md#how-claude-code-enforces-isolation)). In that worktree, `git switch develop` fails as well, because the main checkout has `develop` checked out: `fatal: 'develop' is already used by worktree at '<path>'` (observed with git 2.54.0 on 24 November 2026). The generated agents set no `isolation`, so this is chosen at each dispatch.
+
 **The commands,** from the root of the main checkout:
 
 ```bash
 git switch develop
-git pull --ff-only                              # brings in the merge
-git worktree list                               # the Employee's line ends in [<branch>]
-git worktree remove .claude/worktrees/<name>    # never with --force
+git pull --ff-only                                          # fetches origin, brings in the merge
+git worktree list                                           # the Employee's line ends in [<branch>]
+git merge-base --is-ancestor <branch> origin/develop && echo merged          # prints merged
+git merge-base --is-ancestor origin/<branch> origin/develop && echo merged   # prints merged
+git -C .claude/worktrees/<name> status --short --ignored    # nothing you still need
+git worktree remove .claude/worktrees/<name>                # never with --force
 git branch -d <branch>
 git branch -d worktree-<name>
 git push origin --delete <branch>
 ```
 
+- `git pull --ff-only` fetches `origin` before it merges, so `origin/develop` and `origin/<branch>` are current for the lines after it.
+- The two `git merge-base` lines check that `develop` has the work. Each prints `merged` when every commit of the branch is in `origin/develop`: the first for your local branch, the second for its copy on `origin`, which can hold more, for example a fix round pushed from another worktree. Both must print `merged` before anything is removed or deleted. When one does not, the table below says what to do.
+- `git status --short --ignored` lists the worktree's ignored files, on lines that start with `!!`. `git worktree remove` refuses for modified or untracked files, but it deletes ignored files without asking (observed with git 2.54.0 on 24 November 2026). They can be a `.env` that `.worktreeinclude` copied there ([Worktrees, Copy gitignored files into worktrees](https://code.claude.com/docs/en/worktrees.md#copy-gitignored-files-into-worktrees)), or files the Employee left under `local_test_data/`. `install.sh` gitignores both. Move out anything you still need before the removal.
 - `git worktree remove` deletes the worktree's directory and its record. It keeps every commit: the commits stay on the branch.
-- `git branch -d` deletes the Work Unit's branch. It refuses a branch whose commits are not all merged, and that refusal is information. Never force it.
-- `worktree-<name>` is the branch Claude Code created with the worktree. When the Employee worked on a branch of its own, this one holds no commit of its own. If `git branch -d` refuses it, leave it.
+- `git branch -d` deletes the Work Unit's branch, but it does not check `develop`. It refuses a branch that is not fully merged into its upstream, or into the current branch when the branch has no upstream ([git-branch, `-d`](https://git-scm.com/docs/git-branch#Documentation/git-branch.txt--d)). After `git push -u`, the upstream is the branch's own copy on `origin`. So `-d` deletes a pushed branch that never reached `develop`, with only a warning that starts `warning: deleting branch '<branch>' that has been merged to` (observed with git 2.54.0 on 24 November 2026). That is why the `git merge-base` lines come first. When `-d` refuses, that refusal is information: never force it.
+- `worktree-<name>` is the branch Claude Code created with the worktree. When the Employee worked on a branch of its own, this one holds no commit of its own. If `git branch -d` refuses it, leave it. Such branches add up. When `git log --oneline origin/main..worktree-<name>` prints nothing, the branch holds no commit that `main` does not have, and deleting it loses nothing: you may delete it in your terminal with `git branch -D worktree-<name>`, which the guards refuse to an agent.
 - `git push origin --delete` deletes the remote branch. GitHub does not delete it on merge: `setup-branch-protection.sh` turns that setting off, so that GitHub never deletes a release branch.
 
-**When git refuses.** Never add `--force`: what git protects is work, and the decision about it is yours.
+**When git refuses.** Never add `--force`: what git protects is work, and the decision about it is yours. Git does not protect everything, though: `-d` does not check `develop`, and the removal takes ignored files. The commands above check both first.
 
 | git says | What it means | What to do |
 |---|---|---|
+| A `git merge-base` line prints nothing | `origin/develop` does not have every commit of the branch, or of its copy on `origin`. That is work that never reached `develop`. | Stop, and delete nothing, locally or on the remote. `git log --oneline origin/develop..<branch>`, or `git log --oneline origin/develop..origin/<branch>`, lists the commits. Bring the branch to the Main Agent. |
+| `fatal: Not a valid object name origin/<branch>` | The branch was never pushed: there is no copy on `origin`. | If the first `git merge-base` line printed `merged`, go on, and skip `git push origin --delete`. |
 | `'<path>' contains modified or untracked files, use --force to delete it` | The worktree holds changes nobody committed. | Run `git -C .claude/worktrees/<name> status --short` to see them. They are an Employee's unfinished work or files it left. Decide what happens to them before anything is removed. |
 | `cannot remove a locked working tree, lock reason: claude agent <name> (pid <n>)` | Claude Code locked the worktree for a running agent. | Wait for that Employee's Work Unit Report. A lock left by a session that has ended is released by Claude Code's sweep, or by you with `git worktree unlock .claude/worktrees/<name>` once you know no session runs there. |
 | `working trees containing submodules cannot be moved or removed` | The worktree's `ia-engineering/` was initialised, for example by `TROUBLESHOOTING.md` entry C, remedy 1. Git removes such a worktree only with `--force` ([git-worktree, remove](https://git-scm.com/docs/git-worktree#Documentation/git-worktree.txt-remove)), which also discards uncommitted changes. | This one is yours, by hand. First check that `git -C .claude/worktrees/<name> status --short` and `git -C .claude/worktrees/<name>/ia-engineering status --short` both print nothing. Then run `git worktree remove --force .claude/worktrees/<name>`. |
 | `cannot delete branch '<branch>' used by worktree at '<path>'` | The worktree is still there. | Remove the worktree first. |
-| The branch `is not fully merged` | The branch has commits that `develop` does not have. | `git log --oneline develop..<branch>` lists them. That is work that never reached `develop`: bring it to the Main Agent. |
+| The branch `is not fully merged` | The branch has commits that its upstream does not have, or, when it has no upstream, that `develop` does not have. For a pushed branch, these are commits that were never pushed. | `git log --oneline origin/develop..<branch>` lists what `develop` does not have. Bring the branch to the Main Agent. |
 
-**Older worktrees.** `git worktree list` shows every worktree of the clone. Clean up any whose branch is merged with the same commands. `git worktree prune` removes the record of a worktree whose directory no longer exists.
+**Older worktrees.** `git worktree list` shows every worktree of the clone. A stale one is where the checks above matter most: its Employee may have pushed its branch and never opened a Pull Request. From the main checkout, on `develop`, run `git fetch origin`, then, for each worktree, the commands above from the two `git merge-base` lines on, with that worktree's name and branch. When either line prints nothing, leave the worktree and the branch, locally and on the remote, and bring the branch to the Main Agent. `git worktree prune` removes the record of a worktree whose directory no longer exists.
 
 ---
 

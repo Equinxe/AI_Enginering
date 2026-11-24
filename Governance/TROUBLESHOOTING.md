@@ -418,7 +418,7 @@ Do **not** use `git reset --hard origin/develop` or `git push --force`: both are
 
 ## AD. On Windows, git fails in a nested worktree with `Filename too long`
 
-**Symptom.** On Windows, a git command that writes files deep inside a worktree nested in the project fails on a long path. The case met: `git submodule update --init` in a worktree under `.claude/worktrees/<name>/`, which checks the framework out at `.claude/worktrees/<name>/ia-engineering/…`. Git for Windows usually words this error `Filename too long`. The review that met it, the Security review of PR #387 (issue #402), recorded only that the 260-character path limit was reached.
+**Symptom.** On Windows, a git command that writes files deep inside a worktree nested in the project fails on a long path. The case met: `git submodule update --init` in a worktree under `.claude/worktrees/<name>/`, which checks the framework out at `.claude/worktrees/<name>/ia-engineering/…`. With git 2.54.0 on Windows, it prints `fatal: cannot create directory at '<dir>': Filename too long`, then `fatal: Unable to checkout '<sha>' in submodule path 'ia-engineering'` (observed on 24 November 2026, in the Code Review of PR #493). The review that first met it, the Security review of PR #387 (issue #402), recorded only that the 260-character path limit was reached.
 
 **Cause.** Git for Windows handles a path longer than 260 characters only when `core.longpaths` is `true`, and the option is off unless someone sets it. A nested worktree puts its own path, `.claude/worktrees/<name>/`, in front of every path in the repository, and the framework's own paths are long already.
 
@@ -428,7 +428,7 @@ Do **not** use `git reset --hard origin/develop` or `git push --force`: both are
 git config --global core.longpaths true
 ```
 
-`--global` sets it for every repository of that user on the machine. Issue #402 asks that the Director set it himself, never an agent.
+`--global` sets it for every repository of that user on the machine. That scope is the one that works. The framework is a submodule, a repository with its own configuration, and the project's configuration does not reach it. Set in the project's configuration, as issue #402 wrote it (`git config core.longpaths true`), the option leaves `git submodule update --init` in the nested worktree failing as above. Set with `--global`, the submodule checks out. Measured on 24 November 2026 in two reviews of PR #493: the Code Review ran both cases, and the DevOps review found the project's setting absent from the submodule's configuration. Issue #402 asks that the Director set it himself, never an agent.
 
 **Prevention.** The usual dispatch no longer meets it. Since WU-IAENG-430, an Employee in a worktree reads the framework from the main checkout ("Where the Framework Is" in its definition), and its git hooks come from the main checkout (entry AB), so nothing checks the framework out inside its worktree. Two remedies still do, and both point here: entry AB's alternative, and `Adapters/ai-runtimes/claude-code/TROUBLESHOOTING.md` entry C, remedy 1.
 

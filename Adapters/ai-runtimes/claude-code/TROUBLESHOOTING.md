@@ -183,8 +183,8 @@ iaeng: BLOCKED — <reason>
 
 | Reason, after `iaeng: BLOCKED —` | Guard | What to do |
 |---|---|---|
-| `cannot read the hook payload as a JSON object` | Both | Report it: the guard could not parse what Claude Code sent. |
-| `cannot read tool_input.command from the hook payload (is jq installed?)` | Bash | Install `jq`, or report it. |
+| `cannot read the hook payload as a JSON object` | Edit | Report it: the guard could not parse what Claude Code sent. |
+| `cannot read tool_input.command from the hook payload (is jq installed?)` | Bash | Install `jq`. If it is installed, the guard could not parse what Claude Code sent: report it. |
 | `strip-quotes.awk is missing next to this hook` | Bash | The framework checkout is incomplete. `git -C ia-engineering status` names the missing file. |
 | `the lexer (awk) failed or printed nothing for this command` | Bash | Check that `awk` runs in this shell. |
 | `this command expands to more alternatives than the hook will enumerate` | Bash | Write the command without the brace expansion. |
@@ -252,18 +252,18 @@ Audience: the operator, and the Main Agent reading an Employee's report. Pages c
 **Symptom.** A tool call is refused, and no `iaeng:` line says why. Variants:
 
 - An Employee in a worktree is refused with a message such as this one, observed on a framework Employee's worktree on 24 November 2026: `This agent is isolated in the worktree <path>, but this command names git in a form too complex to verify that it stays inside the worktree. Refusing to run it — a worktree-isolated agent's git operations must target its own worktree. Split it into plain, separate commands and run them from <path>.`
-- Claude Code asks permission for the call, or auto mode blocks it and shows a notification.
+- Claude Code asks permission for the call, or auto mode blocks it. A block usually shows a notification, but not when the classifier gives no verdict.
 
 **Cause.** Claude Code's own controls refused the call, not the framework's.
 
-1. **The worktree isolation checks.** In an isolated worktree, Claude Code blocks an edit of a path in the main checkout, a command whose working directory is the main checkout, a command that redirects git into it, and a command whose git it cannot verify from the text stays inside the worktree ([Worktrees, How Claude Code enforces isolation](https://code.claude.com/docs/en/worktrees.md#how-claude-code-enforces-isolation)). The page says that last check cannot be turned off. The message above came from a git command aimed at a scratch repository in a temporary directory: git aimed outside the worktree is refused even when it does not touch the main checkout.
-2. **Permissions.** A call the permission mode does not allow waits on a prompt. In auto mode, a call the classifier blocks shows a notification, and `/permissions` lists it under **Recently blocked** ([Permission modes, When auto mode falls back](https://code.claude.com/docs/en/permission-modes.md#when-auto-mode-falls-back)).
+1. **The worktree isolation checks.** In an isolated worktree, Claude Code blocks an edit of a path in the main checkout, a command whose working directory is the main checkout, a command that redirects git into it, and a command whose git it cannot verify from the text stays inside the worktree ([Worktrees, How Claude Code enforces isolation](https://code.claude.com/docs/en/worktrees.md#how-claude-code-enforces-isolation)). The page says that last check cannot be turned off. [Errors, Command blocked by the worktree isolation checks](https://code.claude.com/docs/en/errors.md#command-blocked-by-the-worktree-isolation-checks) gives the forms of the message and what to do. The message above came from a git command aimed at a scratch repository in a temporary directory, in a form the check could not verify. In another session on the same day, git work in a scratch directory ran when it was written as plain commands with every path spelled out in full, and a relative path was refused with a message that asked for the path in full (observed on 24 November 2026).
+2. **Permissions.** A call the permission mode does not allow waits on a prompt. In auto mode, a call the classifier blocks shows a notification, and `/permissions` lists it under **Recently blocked**. When the classifier gives no verdict, the block comes without the notification or the **Recently blocked** entry ([Permission modes, When auto mode falls back](https://code.claude.com/docs/en/permission-modes.md#when-auto-mode-falls-back)).
 3. A guard that cannot start, fails or times out also refuses with no `iaeng:` line. If every call is refused, that is entry C.
 
 **Remedy.**
 
-1. **Isolation.** Follow the remedy the message prints: plain, separate commands, run from the worktree. That is the check's own way through. Git work outside the worktree is not the Employee's in that dispatch: it says so in its Work Unit Report, and the Main Agent decides where that work runs.
-2. **Permission.** Answer the prompt. For an auto-mode block, approve the action in `/permissions` so that Claude may retry, or run the command yourself in a terminal (`DAILY_USE.md`, Where a Human Runs a Refused Command).
+1. **Isolation.** Follow the remedy the message prints, such as plain, separate commands, or a path spelled out in full. That is the check's own way through. Git work in the main checkout or in another worktree is not the Employee's in that dispatch: it says so in its Work Unit Report, and the Main Agent decides where that work runs.
+2. **Permission.** Answer the prompt. For an auto-mode block, approve the action in `/permissions` so that Claude may retry, or run the command yourself in a terminal (`DAILY_USE.md`, Where a Human Runs a Refused Command). A block with no verdict has no entry to approve: [Errors, Auto mode cannot determine the safety of an action](https://code.claude.com/docs/en/errors.md#auto-mode-cannot-determine-the-safety-of-an-action) gives its message and what to do.
 3. In both cases, an Employee never rewrites the command to get the same action past the check (`Standards/RISK_STANDARD.md`, Forbidden Practices).
 
 **Prevention.** None from the framework: these controls and their settings are Claude Code's. They come up less when an Employee does all its git work in its own worktree, on a branch made from `origin/develop` (`DAILY_USE.md`, Step 3).
