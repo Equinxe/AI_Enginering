@@ -1658,7 +1658,7 @@ w450_large "escape-hatch: a large command read three times is judged within 30 s
 # square of the command's length, and the PR head took 56 s of CPU on a third
 # of this (code review of PR #501, P1).
 {
-  printf 'echo $(true)'
+  printf '%s' "echo \$(true)"
   for ((w450_i = 0; w450_i < 15000; w450_i++)); do printf '%s' ' "a"'; done
   printf '; git push --force'
 } > "$W450_DIR/cmd2"
