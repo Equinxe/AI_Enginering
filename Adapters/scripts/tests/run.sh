@@ -14795,6 +14795,11 @@ expect 1 "#471: quick: an agent that records no commit is stale" -- bash "$G_445
 expect_line "agent${T445}stale${T445}.claude/agents/devops-engineer.md${T445}it records no framework commit: it was generated before agents recorded one"
 ss_445 "$AD_445"
 expect_output "IA Engineering agents: 1 of 3 agents are stale (devops-engineer): they were not generated from the framework commit in use"
+# The full check: the missing line is its only difference, a commit-only one,
+# not "out of date with Employees/" (Code Reviewer m1, PR #502).
+expect 1 "#471: --check: an agent that records no commit differs by its commit only" -- bash "$G_445" --check --format tsv
+expect_line "agent${T445}stale${T445}.claude/agents/devops-engineer.md${T445}framework commit only: generated from none; the framework is at $C2_445"
+expect_no_output "out of date with Employees/" "#471: --check: no agent said to be out of date with Employees/"
 expect 0 "#471: regenerated once more" -- bash "$G_445"
 
 # The framework repository records no commit: its agents stay as they were,
@@ -14825,6 +14830,16 @@ else
 fi
 echo more > more-445.txt && git add more-445.txt && git commit -q -m "a project commit"
 expect 0 "#471: a copied framework: a project commit leaves the agents current" -- bash "$G_445" --check --quick --format tsv
+# An agent that records a commit while git gives none for the framework: no
+# upgrade need be the cause, and session start says so in a clause of its
+# own (Prompt Engineer m2, PR #502).
+awk -v c="$C1_445" '{ print } /^  Tier:      /{ print "  Framework: " c }' .claude/agents/devops-engineer.md > "$WORK/copy-commit-445.md"
+cp "$WORK/copy-commit-445.md" .claude/agents/devops-engineer.md
+expect 1 "#471: a copied framework, an agent recording a commit: stale" -- bash "$G_445" --check --quick --format tsv
+expect_line "agent${T445}stale${T445}.claude/agents/devops-engineer.md${T445}it was generated from framework commit $C1_445, and git gives no commit for this framework: it is not a git checkout of its own (copied in), or git refuses to read it (dubious ownership, say)"
+ss_445 "$WORK/adopter-445-copy"
+expect_output "IA Engineering agents: 1 of 3 agents are stale (devops-engineer): each records a framework commit, but git gives none for this framework: it was copied in rather than checked out, or git refuses to read its checkout (git -C ./ia-engineering rev-parse --show-toplevel says which)."
+expect_no_output "before an upgrade" "#471: a commit git cannot give: not said to come from an upgrade"
 
 # --- #367: bootstrap --help and install.sh's closing block -------------------
 cd "$AD_445" || exit 1
@@ -14878,6 +14893,10 @@ expect 0 "#472: install.sh --check --quiet: nothing to act on, nothing printed" 
 expect_no_output "PULL_REQUEST_TEMPLATE" "#472: --quiet lists no action that is not drift"
 expect 0 "#472: install.sh --force" -- bash "$INST_445" --force
 same_pr_445 "#472: --force leaves the project's template as it was"
+# The quick check, the only one session start runs: customized, no action
+# (Code Reviewer M1(a), PR #502).
+expect 0 "#472: the quick drift check" -- bash "$DRIFT_445" --quick --format tsv
+expect_line "file${T445}customized${T445}.github/PULL_REQUEST_TEMPLATE.md${T445}the project's own pull request template, kept: install.sh never overwrites it"
 expect 0 "#472: the full drift check" -- bash "$DRIFT_445" --format tsv
 expect_line "file${T445}customized${T445}.github/PULL_REQUEST_TEMPLATE.md${T445}the project's own pull request template, kept: install.sh never overwrites it"
 expect_output "config${T445}todo${T445}.github/PULL_REQUEST_TEMPLATE.md${T445}the project's own template, kept"
@@ -14905,6 +14924,26 @@ expect_line "file${T445}kept${T445}.github/PULL_REQUEST_TEMPLATE.md${T445}ia-eng
 expect_no_output "${T445}sections${T445}" "#472: the framework's earlier template lacks no part"
 expect 0 "#472: after the upgrade, the full drift check" -- bash "$DRIFT_445" --format tsv
 expect_line "file${T445}stale${T445}.github/PULL_REQUEST_TEMPLATE.md${T445}never edited, an earlier version of the template: cp ia-engineering/Adapters/github/PULL_REQUEST_TEMPLATE.md .github/PULL_REQUEST_TEMPLATE.md"
+# The framework imported under a name with a space: the diff command
+# install.sh prints runs as printed (Code Reviewer m3, PR #502). Exit 1 is
+# diff's "the files differ"; 2 was its "extra operand".
+new_repo adopter-445-space
+git -c protocol.file.allow=always submodule add -q "$FW_445" "ia eng" >/dev/null 2>&1
+mkdir -p .github
+printf '## Our own template\n' > .github/PULL_REQUEST_TEMPLATE.md
+git add -A && git commit -q -m "a framework imported as ia eng, a template of its own"
+SP_OUT_445="$(bash "./ia eng/Adapters/scripts/install.sh" --check 2>&1)"
+SP_CMD_445="$(sed -n 's/^todo.*; \(diff .* \.github\/PULL_REQUEST_TEMPLATE\.md\)$/\1/p' <<< "$SP_OUT_445" | head -n 1)"
+if [ -z "$SP_CMD_445" ]; then
+  fail_445 "#472: a framework imported as 'ia eng': install.sh --check prints the diff command" "$SP_OUT_445"
+else
+  SP_DIFF_445="$(eval "$SP_CMD_445" 2>&1)"; SP_RC_445=$?
+  if [ "$SP_RC_445" -eq 1 ]; then
+    pass_445 "#472: a framework imported as 'ia eng': the printed diff command runs as printed"
+  else
+    fail_445 "#472: a framework imported as 'ia eng': the printed diff command runs as printed" "command [$SP_CMD_445], exit $SP_RC_445: $(printf '%s' "$SP_DIFF_445" | tail -n 2)"
+  fi
+fi
 cd "$HERE" || exit 1
 
 # --------------------------------------------------------------- verdict ----

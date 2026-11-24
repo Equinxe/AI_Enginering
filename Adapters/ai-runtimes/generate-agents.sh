@@ -771,7 +771,7 @@ if [ "$QUICK" -eq 1 ]; then
     else
       echo "  framework root they must name: $ROOT"
       framework_commit
-      echo "  framework commit they must record: ${FW_COMMIT:-none (the framework is not a git checkout of its own)}"
+      echo "  framework commit they must record: ${FW_COMMIT:-none (git gives none: the framework is not a git checkout of its own, or git refuses to read it)}"
     fi
     echo
   fi
@@ -834,7 +834,7 @@ if [ "$QUICK" -eq 1 ]; then
         if [ -z "$q_commit" ]; then
           q_why="it records no framework commit: it was generated before agents recorded one"
         elif [ -z "$Q_COMMIT" ]; then
-          q_why="it was generated from framework commit $q_commit, and this framework's commit cannot be read: it is not a git checkout of its own"
+          q_why="it was generated from framework commit $q_commit, and git gives no commit for this framework: it is not a git checkout of its own (copied in), or git refuses to read it (dubious ownership, say)"
         else
           q_why="it was generated from framework commit $q_commit, and the framework is now at $Q_COMMIT: upgraded since, so its Employee definition may have changed"
         fi
@@ -1239,14 +1239,16 @@ fi
 # Prints a generated agent file with the framework root its "Where the
 # Framework Is" section names replaced by a fixed token, everywhere in the
 # file, and the framework commit its header records (the first
-# "  Framework: " line) by another. Two files equal under this filter differ
-# in the root or the commit only. The root is
+# "  Framework: " line) left out: a file written before agents recorded a
+# commit has no such line, and its only difference is then that line's
+# absence, a commit-only difference too (Code Reviewer, PR #502). Two files
+# equal under this filter differ in the root or the commit only. The root is
 # read from the file's own "Framework root:" line, so each side is normalised
 # by its own value, and the comparison is by text (index), never by regular
 # expression: a path is full of characters a regex reads as operators.
 without_location() {
   awk '
-    !commit && /^  Framework: / { commit = 1; print "  Framework: <framework commit>"; next }
+    !commit && /^  Framework: / { commit = 1; next }
     root == "" && /^Framework root: `.*`$/ {
       root = $0
       sub(/^Framework root: `/, "", root)

@@ -360,9 +360,10 @@ whose other sections explain how to keep the state file and are not part of
 it. Fill in the placeholders, and at least the `_Last updated:` line with
 today's absolute date in the form `6 October 2026` (day, English month name,
 year). The session-start hook reads the date from that line and reports a
-date it cannot parse, the placeholder included. It also says when the Next
-Step or Blocked On section still holds the template's placeholder, rather
-than copying it as the step to take. This file is the project's dated operational state,
+date it cannot parse, the placeholder included. It also reads a Next Step or
+Blocked On section shaped as the template's placeholder, one bracketed text,
+as not filled in, rather than copying it as the step to take, and shows its
+first line. This file is the project's dated operational state,
 read right after `CLAUDE.md` on every resume, and never committed (the install
 gitignores it). Create it **after** those two commits, not before: the session-start
 hook compares the file's modification time with the latest commit, so a file

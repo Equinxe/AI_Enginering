@@ -691,8 +691,16 @@ if [ "$INSTALL_STATE" = kept ]; then
   done
   if [ -n "$PR_MISSING" ]; then
     PR_SRC="$HOOKS_REL/Adapters/github/PULL_REQUEST_TEMPLATE.md"
-    record todo sections ".github/PULL_REQUEST_TEMPLATE.md" "the project's own template, kept: copy into it by hand the framework's parts it lacks ($PR_MISSING) from $PR_SRC; diff $PR_SRC .github/PULL_REQUEST_TEMPLATE.md"
-    todo "Keep this project's own .github/PULL_REQUEST_TEMPLATE.md, and copy into it by hand the parts of the framework's template it lacks: $PR_MISSING. They are in $PR_SRC; 'diff $PR_SRC .github/PULL_REQUEST_TEMPLATE.md' shows them. Every Pull Request description gives its Work Unit, and the required PR Compliance check reads that ID."
+    # The diff command runs as printed: the path single-quoted when it holds
+    # a character a shell reads specially, such as the space of a framework
+    # imported as "ia eng" (Code Reviewer, PR #502; issue #417).
+    PR_SRC_W="$PR_SRC"
+    PR_Q="'"; PR_E="'\\''"
+    case "$PR_SRC_W" in
+      *[!A-Za-z0-9_./:=,+@%-]*) PR_SRC_W="$PR_Q${PR_SRC_W//"$PR_Q"/"$PR_E"}$PR_Q" ;;
+    esac
+    record todo sections ".github/PULL_REQUEST_TEMPLATE.md" "the project's own template, kept: copy into it by hand the framework's parts it lacks ($PR_MISSING) from $PR_SRC; diff $PR_SRC_W .github/PULL_REQUEST_TEMPLATE.md"
+    todo "Keep this project's own .github/PULL_REQUEST_TEMPLATE.md, and copy into it by hand the parts of the framework's template it lacks: $PR_MISSING. They are in $PR_SRC, and diff $PR_SRC_W .github/PULL_REQUEST_TEMPLATE.md shows them. Every Pull Request description gives its Work Unit, and the required PR Compliance check reads that ID."
   fi
 fi
 
