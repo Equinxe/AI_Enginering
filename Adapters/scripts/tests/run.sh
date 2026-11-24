@@ -10813,12 +10813,193 @@ expect 1 "condition 5: a wrapped bullet's first-line group, an empty-reason and 
   bash Adapters/scripts/release.sh check --milestone Testing
 expect_output "2 of 3 Work Units for 'Testing' have no changelog fragment, entry or exemption: WU-T-2 WU-T-3"
 
+# Without changelog.d/ the section alone accounts (Workflows/RELEASE.md Step
+# 2: a repository without it writes CHANGELOG.md directly). WU-T-1 is named
+# there; WU-T-2 and WU-T-3 are not, so the condition still fails, and names
+# them (WU-IAENG-447: before, the missing directory was the whole verdict).
 frag_release_repo frag-cond5-nodir
 rm -rf changelog.d
 git add -A && git commit -q -m "fixture"
 expect 1 "condition 5: a missing changelog.d/ is a failure, not a pass" -- \
   bash Adapters/scripts/release.sh check --milestone Testing
-expect_output "FAIL  changelog.d/ is missing"
+expect_output "2 of 3 Work Units for 'Testing' are not named in '## [Unreleased] - Testing': WU-T-2 WU-T-3"
+expect_output_absent "FAIL  changelog.d/ is missing"
+
+# --- release.sh in an adopting project (WU-IAENG-447, issue #469). The
+# framework is a SUBMODULE at ia-engineering/, as Workflows/ONBOARDING.md
+# installs it, and release.sh runs the way an adopter runs it: by the
+# relative path ./ia-engineering/Adapters/scripts/release.sh, from the
+# project's root. Before the fix the script took the framework's directory
+# as the repository under release, so it reviewed the submodule (a detached
+# HEAD, the framework's VERSION.md and milestone) and never the project. Its
+# host lookup recomputed its own directory from that relative path after
+# changing directory, and reported resolve-host.sh missing.
+#
+# The fixture framework has its own version (v9.9.9) and an unreleased
+# milestone (FrameworkNext), so a check that reviews the framework says so in
+# its output. Its validate-framework.sh passes only when run from the
+# framework's root, which is where the adopter's Framework Validation check
+# runs it.
+
+section "release.sh in an adopting project — the project's release, not the framework's (WU-IAENG-447, #469)"
+
+new_repo fw-447
+mkdir -p Adapters/scripts Registry
+cp "$SCRIPTS/release.sh" "$FRAG_PARSER" "$SCRIPTS/resolve-host.sh" Adapters/scripts/
+cp -R "$SCRIPTS/hosts" Adapters/scripts/hosts
+cat > Adapters/scripts/validate-framework.sh <<'EOF'
+#!/usr/bin/env bash
+# Fixture: passes only when run from the framework's root.
+[ -f Adapters/scripts/release.sh ] && grep -q '^\*\*v9\.9\.9\*\*$' VERSION.md
+EOF
+# The fixture's host answers as a forge with green CI and no open defect
+# would, so a project that meets every condition passes Step 1 outright and
+# the closing line can be read. The rules stay release.sh's own.
+printf '#!/usr/bin/env bash\necho success\n' > Adapters/scripts/hosts/none/ci-conclusion.sh
+printf '#!/usr/bin/env bash\nexit 0\n' > Adapters/scripts/hosts/none/open-bugs.sh
+printf '# Version\n\n**v9.9.9**\n' > VERSION.md
+printf '# Changelog\n\n## [9.9.9] - Framework\n\n### Added\n\n- a line (WU-F-0)\n- another line (WU-F-0)\n' > CHANGELOG.md
+printf 'work_units:\n  - id: WU-F-1\n    employee: Release Manager\n    title: t\n    milestone: FrameworkNext\n' > Registry/work-units.yml
+git add -A && git commit -q -m "framework fixture"
+FW_447="$PWD"
+
+# adopter_447 <name> — a project whose main predates the adoption, on a
+# develop that holds the fixture framework as a submodule and two Bootstrap
+# Work Units, with a bare origin; leaves the shell inside it.
+adopter_447() {
+  new_repo "$1"
+  git init -q --bare "$WORK/$1-origin.git"
+  git remote add origin "$WORK/$1-origin.git"
+  git switch -q -c develop
+  git -c protocol.file.allow=always submodule add -q "$FW_447" ia-engineering >/dev/null 2>&1
+  mkdir -p Registry
+  printf 'work_units:\n' > Registry/work-units.yml
+  local id
+  for id in WU-P-1 WU-P-2; do
+    printf '  - id: %s\n    employee: DevOps Engineer\n    title: t\n    milestone: Bootstrap\n' "$id" >> Registry/work-units.yml
+  done
+  git add -A
+  git commit -q -m "chore(adoption): adopt
+
+Work Unit: WU-P-1
+
+Employee: DevOps Engineer"
+  echo "# Project" > CLAUDE.md
+  git add -A
+  git commit -q -m "docs(adoption): CLAUDE.md
+
+Work Unit: WU-P-2
+
+Employee: DevOps Engineer"
+}
+
+# rel_447_first_changelog — the CHANGELOG.md an adopting project writes before
+# its first release: no version section yet, its Bootstrap Work Units named.
+rel_447_first_changelog() {
+  cat > CHANGELOG.md <<'EOF'
+# Changelog
+
+## [Unreleased] - Bootstrap
+
+### Added
+
+- IA Engineering adopted (WU-P-1)
+- CLAUDE.md (WU-P-2)
+EOF
+  git add -A && git commit -q -m "docs: start the changelog"
+  git push -q origin develop > /dev/null 2>&1
+}
+
+adopter_447 rel-447-first
+rel_447_first_changelog
+REL_447_ROOT="$(cd "$(git rev-parse --show-toplevel)" && pwd)"
+expect 0 "adopter, first release, Step 1: release.sh run from the project root passes" -- \
+  bash ./ia-engineering/Adapters/scripts/release.sh check
+expect_line "Repository: $REL_447_ROOT"
+expect_output "Framework:  "
+expect_line "   ok    on develop"
+expect_line "   ok    in sync with origin/develop"
+expect_output "no version released yet"
+expect_output "Ready for Step 2, the first release's"
+expect_output_absent "could not read the current version"
+expect_output "all 2 registered Work Units for 'Bootstrap' are on develop"
+expect_output "all 2 Work Units for 'Bootstrap' named in '## [Unreleased] - Bootstrap'"
+expect_output_absent "resolve-host.sh is missing"
+expect_output "ok    validate-framework.sh passes"
+expect_output_absent "v9.9.9"
+expect_output_absent "FrameworkNext"
+
+# From a subdirectory of the project, the same project.
+mkdir -p sub
+cd sub || exit 1
+expect 0 "adopter: release.sh run from a subdirectory reviews the same project" -- \
+  bash ../ia-engineering/Adapters/scripts/release.sh check
+expect_line "Repository: $REL_447_ROOT"
+expect_output_absent "resolve-host.sh is missing"
+cd .. || exit 1
+rmdir sub
+
+# Step 2 of the first release: VERSION.md created, the section versioned.
+printf '# Version\n\n**v0.1.0**\n' > VERSION.md
+sed 's/^## \[Unreleased\] - Bootstrap$/## [0.1.0] - Bootstrap/' CHANGELOG.md > CHANGELOG.tmp && mv CHANGELOG.tmp CHANGELOG.md
+git add -A && git commit -q -m "chore(release): v0.1.0"
+git push -q origin develop > /dev/null 2>&1
+expect 0 "adopter, first release, after Step 2: the project's version and section" -- \
+  bash ./ia-engineering/Adapters/scripts/release.sh check --milestone Bootstrap
+expect_output "ok    VERSION.md says v0.1.0"
+expect_output "ok    CHANGELOG.md section for v0.1.0 present"
+expect_output "all 2 Work Units for 'Bootstrap' named in '## [0.1.0] - Bootstrap'"
+expect_output "Ready for Step 3"
+expect_output_absent "no version released yet"
+
+# Without --milestone the versioned section marks Bootstrap released, as it
+# does for any milestone after its bump, and the check says so.
+expect 0 "adopter, after Step 2, without --milestone" -- \
+  bash ./ia-engineering/Adapters/scripts/release.sh check
+expect_output "every registry milestone already has a CHANGELOG.md section"
+
+# A VERSION.md that cannot be read is still a failure once a version section
+# exists: the first-release reading applies only before any.
+rm VERSION.md
+git add -A && git commit -q -m "fixture: VERSION.md lost"
+expect 1 "adopter: no VERSION.md after a version section is a failure" -- \
+  bash ./ia-engineering/Adapters/scripts/release.sh check --milestone Bootstrap
+expect_output "FAIL  could not read the current version from VERSION.md"
+
+# No CHANGELOG.md: reported, and the check runs to its result.
+adopter_447 rel-447-nochangelog
+expect 1 "adopter: no CHANGELOG.md is reported and the check runs to its result" -- \
+  bash ./ia-engineering/Adapters/scripts/release.sh check
+expect_output "FAIL  CHANGELOG.md is missing"
+expect_output_absent "unbound variable"
+expect_output "condition(s) not met"
+
+# The same in the framework's own layout: before the fix the derivation left
+# n_unreleased unset and `set -u` stopped the run mid-report.
+frag_release_repo frag-447-nochangelog
+rm CHANGELOG.md
+git add -A && git commit -q -m "fixture: no CHANGELOG.md"
+expect 1 "no CHANGELOG.md: the check runs to its result instead of stopping on an unset variable" -- \
+  bash Adapters/scripts/release.sh check
+expect_output_absent "unbound variable"
+expect_output "condition(s) not met"
+expect_output "FAIL  cannot determine which milestone is being released: Registry/work-units.yml or CHANGELOG.md is missing"
+# The framework's own layout names no separate framework directory.
+expect_output_absent "Framework:  "
+
+# A framework copied into the project rather than added as a submodule
+# (Workflows/ONBOARDING.md Step 1 item 1): the project is still the one
+# released.
+new_repo rel-447-copied
+git switch -q -c develop
+git -C "$FW_447" archive --prefix=ia-engineering/ HEAD | tar -xf -
+rel_447_first_changelog
+REL_447_COPY="$(cd "$(git rev-parse --show-toplevel)" && pwd)"
+expect 1 "adopter with a copied framework: the project is released" -- \
+  bash ./ia-engineering/Adapters/scripts/release.sh check
+expect_line "Repository: $REL_447_COPY"
+expect_line "   ok    on develop"
+expect_output_absent "v9.9.9"
 
 # --- The Pull Request early warning, on a real history.
 new_repo frag-advisory

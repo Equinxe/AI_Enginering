@@ -46,10 +46,14 @@ not change during the adoption. Read them without checking that commit out,
 on GitHub, or with `git -C ia-engineering fetch origin develop` and then
 `git -C ia-engineering show <that commit>:<file>`. The submodule stays pinned
 to v0.0.15: only the scripts come from it. The route works with those scripts
-unchanged, with two exceptions:
+unchanged, with three exceptions:
 
 - Ignore the closing-report lines of `setup-project-bootstrap.sh` that issue
   #453 corrects (The steps that are not commands, below).
+- v0.0.15's `release.sh` reviews the framework's submodule, not the project
+  (WU-IAENG-447). Before the project's first release, move the pin to
+  v0.0.16, or to the `develop` commit that merged WU-IAENG-447 if v0.0.16 is
+  not tagged yet, as Which ref to pin, below, describes.
 - v0.0.15's `generate-agents.sh` does not write the section "Where the
   Framework Is" (WU-IAENG-430) into the agents. In a linked git worktree,
   `ia-engineering/` is empty, so an Employee dispatched there cannot read the
@@ -349,12 +353,16 @@ Until the first release, an existing repository's `main` stays as it was
 before the adoption. Whatever deploys from `main` keeps deploying that code,
 and work merged into `develop` reaches production only through a release
 (`Workflows/RELEASE.md`), which the Director may cut as soon as the adoption
-is merged. An adopting project's first release has not been rehearsed yet:
-`release.sh check`, which that workflow's Step 1 runs, reads a `VERSION.md`
-and a `CHANGELOG.md` that the adoption does not install (issue #469). Until
-that issue is resolved, bring the first release to the Director before
-`Workflows/RELEASE.md` Step 1. The framework's `ghcr-publish.yml` does not run before then, since it runs on
-pushes to `main` and on tags. A workflow of the project's own that runs only
+is merged. `release.sh`, which that workflow runs, reads a `VERSION.md` and a
+`CHANGELOG.md` that the adoption does not install. Before that release's
+Step 1, one Work Unit creates `CHANGELOG.md`, with an
+`## [Unreleased] - Bootstrap` section that names each Work Unit the release
+carries, and the release's Step 2 creates `VERSION.md`.
+`Workflows/RELEASE.md`, An Adopting Project's First Release, gives both
+files' shape. Run the script from the project's root as
+`./ia-engineering/Adapters/scripts/release.sh`: it then releases the project.
+The framework's `ghcr-publish.yml` does not run before the first release,
+since it runs on pushes to `main` and on tags. A workflow of the project's own that runs only
 for Pull Requests to `main` does not run for those to `develop` until
 `develop` is added to its branches. A fix cannot go through
 `Workflows/HOTFIX.md` before that release. A branch cut from `main` has no
