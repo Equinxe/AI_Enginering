@@ -24,7 +24,7 @@ Search this table for the start of the message you see, then go to its entry.
 | Claude Code asks permission for a call, or auto mode blocks one | E |
 | Every Bash call, or every edit, is refused with no `iaeng:` line, sometimes about 120 s after the call | C |
 | git refuses during cleanup: `cannot delete branch '<branch>' used by worktree at '<path>'`, `contains modified or untracked files`, `cannot remove a locked working tree`, `working trees containing submodules cannot be moved or removed` | `DAILY_USE.md`, Step 7 |
-| On Windows, a git command in a worktree under `.claude/worktrees/` fails with `Filename too long` | `Governance/TROUBLESHOOTING.md`, entry AD |
+| On Windows, a git command in a worktree under `.claude/worktrees/` fails with `Filename too long` | `Governance/TROUBLESHOOTING.md`, entry AE |
 | Compaction comes later than the window you set | A |
 | Your own status line no longer shows | B |
 
@@ -142,7 +142,7 @@ Audience: the operator, with the guards installed by `install-hooks.sh` since WU
 
 **Remedy.**
 
-1. In a terminal, from that checkout's root, run `git submodule update --init`. Then check that the scripts the commands name exist: `ls ia-engineering/Adapters/ai-runtimes/claude-code/hooks/`. On Windows, if that fails with `Filename too long`, see `Governance/TROUBLESHOOTING.md` entry AD. A worktree whose `ia-engineering/` is initialised this way needs `--force` to be removed later (`DAILY_USE.md`, Step 7).
+1. In a terminal, from that checkout's root, run `git submodule update --init`. Then check that the scripts the commands name exist: `ls ia-engineering/Adapters/ai-runtimes/claude-code/hooks/`. On Windows, if that fails with `Filename too long`, see `Governance/TROUBLESHOOTING.md` entry AE. A worktree whose `ia-engineering/` is initialised this way needs `--force` to be removed later (`DAILY_USE.md`, Step 7).
 2. Bring the machine back within the parallel-agent cap of cause 2, then try the call again. The project's `CLAUDE.md` tells the Main Agent to keep to it: at or above the cap, a dispatch waits, and the cap never refuses one (`Templates/PROJECT_CLAUDE.md`, Main Agent).
    - **A project on v0.0.16 or later whose `CLAUDE.md` predates the cap:** copy the paragraph from the template.
    - **A project on v0.0.15:** neither its Core nor its template carries a cap, so the template's pointer leads nowhere. Write this in its `CLAUDE.md` instead, the cap of the v0.0.15 pilot conditions (#452, condition 2): "Never have more than 3 subagents running at once on this machine, Employees included, one fewer for every main session open on it beyond the first. Every Claude Code session on it counts. At or above the cap, tell the Director what waits; the cap delays a dispatch and never refuses one."

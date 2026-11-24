@@ -211,7 +211,7 @@ Tell the Main Agent what you ran and what it printed, so that the session state 
 
 - `README.md` — Getting Started, up to the merged adoption
 - `Adapters/ai-runtimes/claude-code/TROUBLESHOOTING.md` — the index from a refusal's text to its entry
-- `Governance/TROUBLESHOOTING.md` — entries AB (git hooks in a worktree) and AD (`Filename too long` in a nested worktree)
+- `Governance/TROUBLESHOOTING.md` — entries AB (git hooks in a worktree) and AE (`Filename too long` in a nested worktree)
 - `Workflows/FEATURE_DEVELOPMENT.md` — Steps 2 to 8, from branch to merge and cleanup
 - `Workflows/CODE_REVIEW.md` — the review and its decision
 - `Core/ORCHESTRATION.md` — the Main Agent's seven steps and the parallel-agent cap
