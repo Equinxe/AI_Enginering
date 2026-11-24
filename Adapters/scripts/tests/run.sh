@@ -9739,6 +9739,11 @@ git -C ia-engineering checkout -q v2
 expect 0 "an upgrade checked out but not committed" -- bash "$DRIFT_358" --format tsv
 expect_output "version${T}uncommitted${T}ia-engineering${T}the checkout is not the commit the project recorded (gitlink +)"
 git add ia-engineering && commit_353 "chore(adopt): upgrade the framework to v2"
+# The agents are regenerated, as the upgrade note says: since WU-IAENG-445
+# (#471) each records the framework commit it was generated from, so the one
+# generated at v1 is stale at v2. That case has its own section; this one
+# keeps to the version and the files.
+bash ./ia-engineering/Adapters/ai-runtimes/generate-agents.sh >/dev/null 2>&1
 
 expect 1 "DEF-01: after the upgrade, --strict reports drift (exit 1)" -- bash "$DRIFT_358" --format tsv --strict
 expect_output "version${T}tagged${T}ia-engineering${T}v2 ("

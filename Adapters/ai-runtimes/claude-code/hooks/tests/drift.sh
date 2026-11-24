@@ -527,7 +527,7 @@ if [ -r "$HK" ]; then
   info "chmod a-r leaves the file readable here (noacl, or root): the unreadable-hook case is built on Linux CI"
 else
   hook "$AD"
-  expect_drift "stop-gate.sh (not readable)" "a hook script made unreadable (mode only, mtime unchanged) is seen"
+  expect_drift "stop-gate.sh (not readable; the hook fails, so its check is silently off)" "a hook script made unreadable (mode only, mtime unchanged) is seen"
 fi
 chmod a+r "$HK"
 hook "$AD"; expect_lines 0 "clean after: readable again"
