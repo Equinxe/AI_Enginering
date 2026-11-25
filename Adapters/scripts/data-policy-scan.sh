@@ -55,8 +55,10 @@
 #   High-confidence secret shapes: private key blocks, AWS access key IDs,
 #   GitHub tokens, Slack tokens, Stripe live/test keys. No entropy heuristics —
 #   see the noise argument above. The matched VALUE is never printed; the path,
-#   the line number, and the pattern's name are. Every reported path is
-#   sanitised: printed on one line, each control character a space.
+#   the line number, and the pattern's name are. The path is the file's own
+#   name, read back from the diff header's quoting (see header_path), and every
+#   reported path is sanitised: printed on one line, each control character a
+#   space.
 #   Lines are read as text whatever git thinks of the file (--text), so a path
 #   marked -diff or binary in .gitattributes, or holding a NUL byte, is scanned
 #   like any other. In --history, what a MERGE itself authored (a conflict
@@ -87,7 +89,9 @@
 # offers them (diff, ls-tree, and log in --history; the object walk of
 # --history is the one newline-separated source, see there), so a non-ASCII
 # or otherwise unusual name is matched as itself rather than as git's quoted
-# rendering of it — a real file once escaped a pattern that way.
+# rendering of it — a real file once escaped a pattern that way. A patch has
+# no NUL-separated form: the content scan takes a line's path from its diff
+# header, and a finding's path is read back from git's quoting there.
 #
 # Configuration (environment, all optional):
 #   IAENG_LOCAL_DATA_DIR    directory name treated as local-only (local_test_data)
@@ -329,7 +333,9 @@ classify_path() {
 # added line whose text begins "++ " reads "+++ " in the diff; taking it for a
 # header skipped that line and attributed every later line to a path that does
 # not exist. The trailing TAB git puts on the header of a path with spaces is
-# stripped.
+# stripped. A header git quotes ("b/conf\rx.txt") is kept as it is: it holds
+# no TAB and no LF, so the record stays one line, and header_path reads the
+# name back from it when the line is reported.
 
 added_lines() {
   awk '
@@ -466,10 +472,63 @@ scan_paths_kinds_nul() {
   done
 }
 
+# header_path <path> — sets HEADER_PATH to the file's own name, read back from
+# <path> as added_lines takes it from a "+++ " header (#484). Git quotes a
+# name in a header when it holds a control character, a double quote or a
+# backslash (core.quotePath=false leaves every other byte as it is), and its
+# b/ prefix goes inside the quotes: "b/conf\rx.txt". The escapes are C's \a
+# \b \t \n \v \f \r \" \\ and an octal one of exactly three digits, so \0015
+# is the byte 0x01, then a 5. Every backslash inside the quotes begins an
+# escape, a backslash of the name itself being written \\. An unquoted header
+# path is already the name: added_lines removed its b/. The prefix is b/
+# whatever the user's configuration, because both diffs below pin it.
+#
+# One diff per staged path, each named from diff --name-only -z, would read
+# no header, and was rejected. Git for Windows reads a backslash in a
+# pathspec as a directory separator, so the diff of a file whose name holds
+# one would be empty there and its secret never scanned; a pathspec also
+# hides a rename's old side, so a renamed file would be scanned whole; and it
+# costs one git process per path, at every commit. The one diff scans every
+# file as before, and only a finding's path is read back.
+header_path() {
+  local q="$1" name="" lit c
+  case "$q" in
+    \"*\") q="${q:1:${#q}-2}" ;;
+    *) HEADER_PATH="$q"; return 0 ;;
+  esac
+  while [ -n "$q" ]; do
+    lit="${q%%\\*}"
+    name+="$lit"
+    q="${q:${#lit}}"
+    [ -n "$q" ] || break
+    case "${q:1:1}" in
+      [0-7]) printf -v c '%b' "\\0${q:1:3}"; name+="$c"; q="${q:4}"; continue ;;
+      a) c=$'\a' ;;
+      b) c=$'\b' ;;
+      t) c=$'\t' ;;
+      n) c=$'\n' ;;
+      v) c=$'\v' ;;
+      f) c=$'\f' ;;
+      r) c=$'\r' ;;
+      *) c="${q:1:1}" ;;
+    esac
+    name+="$c"
+    q="${q:2}"
+  done
+  HEADER_PATH="${name#b/}"
+}
+
+# scan_content [header] — reads "path TAB line TAB text" records and reports
+# the lines that no content rule allows. "header": each path is as
+# added_lines took it from a diff header, and the name is read back from it
+# (header_path) before it is reported. Without it, each path is already the
+# name, as merge_authored_lines writes it, and a name that begins and ends
+# with a double quote is the name.
 scan_content() {
-  local path ln text
+  local from="${1:-}" path ln text
   while IFS=$'\t' read -r path ln text; do
     allowed_content "$text" && continue
+    if [ "$from" = header ]; then header_path "$path"; path="$HEADER_PATH"; fi
     report_line "$path" "$ln" "$(name_of_pattern "$text")"
   done
 }
@@ -487,9 +546,13 @@ case "$MODE" in
     # same text with no warning. The pipeline's exit status is not checked
     # here, with or without tr, so this changes nothing about how a git
     # failure is handled.
-    DIFF="$(git -c core.quotePath=false diff --cached --text -U0 --no-color --no-ext-diff --no-textconv --diff-filter=ACMRT | tr -d '\0')"
+    # --src-prefix and --dst-prefix: the header's prefix is a/ and b/ whatever
+    # the user's diff.noprefix, diff.mnemonicPrefix (i/ for the index) or
+    # diff.dstPrefix says, so the b/ added_lines and header_path remove is
+    # always the prefix, never a directory of the path's own.
+    DIFF="$(git -c core.quotePath=false diff --cached --text -U0 --no-color --no-ext-diff --no-textconv --src-prefix=a/ --dst-prefix=b/ --diff-filter=ACMRT | tr -d '\0')"
     ADDED_LINES="$(printf '%s\n' "$DIFF" | added_lines)"
-    scan_content < <(printf '%s\n' "$ADDED_LINES" | match_secret_lines)
+    scan_content header < <(printf '%s\n' "$ADDED_LINES" | match_secret_lines)
     LINES_SCANNED="$(count_lines "$ADDED_LINES")"
     ;;
   tree)
@@ -566,9 +629,11 @@ case "$MODE" in
     # --no-textconv and --no-ext-diff stay: a configured converter or external
     # driver must not rewrite the bytes being scanned.
     # tr -d '\0': same as the staged branch — no "ignored null byte" warning.
-    DIFF="$(git -c core.quotePath=false log -p --text -U0 --no-color --no-ext-diff --no-textconv --format= "$ARG" | tr -d '\0')"
+    # The prefixes are pinned, and a finding's path read back from the
+    # header, as in the staged branch.
+    DIFF="$(git -c core.quotePath=false log -p --text -U0 --no-color --no-ext-diff --no-textconv --src-prefix=a/ --dst-prefix=b/ --format= "$ARG" | tr -d '\0')"
     ADDED_LINES="$(printf '%s\n' "$DIFF" | added_lines)"
-    scan_content < <(printf '%s\n' "$ADDED_LINES" | match_secret_lines)
+    scan_content header < <(printf '%s\n' "$ADDED_LINES" | match_secret_lines)
 
     # MERGE-AUTHORED CONTENT (PT2-01): see merge_authored_lines. Its lines are
     # part of the reported denominator.
