@@ -15180,10 +15180,14 @@ expect 0 "a CRLF template: the agents are still current" -- bash "$GEN_453" --ch
 # A template without the rule, or no template: nothing is generated or
 # checked (exit 2, a condition not evaluated, never a stale agent's 1), and
 # the message names the template.
+#
+# Each refusal is asserted by its own reason, not only by the path: awk's own
+# error on a missing file, and the count guard's message, both name the path
+# too, so a case asserting the path alone stays green with a guard deleted.
 grep -vE -- "$RULE_RE_453" "$WORK/brief-453.md" > "$TPL_453"
 rm -rf .claude
 expect 2 "a template without the rule: no generation (exit 2)" -- bash "$GEN_453"
-expect_output "Templates/EMPLOYEE_BRIEF.md"
+expect_output "Templates/EMPLOYEE_BRIEF.md has 0 lines that begin with"
 TOTAL=$((TOTAL + 1))
 if [ -n "$(ls -A .claude/agents 2>/dev/null)" ]; then
   printf '   FAIL an agent was written without the rule\n'
@@ -15194,9 +15198,12 @@ fi
 expect 2 "a template without the rule: --check is not evaluated (exit 2)" -- bash "$GEN_453" --check --format tsv
 { cat "$WORK/brief-453.md"; grep -E -- "$RULE_RE_453" "$WORK/brief-453.md"; } > "$TPL_453"
 expect 2 "a template that states the rule twice: no generation (exit 2)" -- bash "$GEN_453"
+expect_output "Templates/EMPLOYEE_BRIEF.md has 2 lines that begin with"
 rm -f "$TPL_453"
 expect 2 "no template: no generation (exit 2)" -- bash "$GEN_453"
-expect_output "Templates/EMPLOYEE_BRIEF.md"
+expect_output "Templates/EMPLOYEE_BRIEF.md not found."
+expect 2 "no template: --check is not evaluated (exit 2)" -- bash "$GEN_453" --check --format tsv
+expect_output "Templates/EMPLOYEE_BRIEF.md not found."
 
 # The quick check (session start) and --print-tier-map generate nothing, and
 # read no template.
