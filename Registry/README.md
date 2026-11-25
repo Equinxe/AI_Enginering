@@ -76,6 +76,8 @@ A project may define **Domain Employees** — roles whose expertise is the proje
 
 The `commit-msg` hook, the `Employee Trailer` CI job, and `generate-agents.sh` read the project roster **in addition to** `Registry/employees.yml`, so a Domain Employee's trailer validates and its runtime agent is generated without touching the framework. Each roster's `file:` paths are relative to **its own** root — the framework's to the framework, a project's to the project. Resolution is the same in both: `IAENG_PROJECT_ROSTER` if set — and a set value naming a missing file is refused, not skipped, because validating against the framework roster alone would silently refuse every Domain Employee — otherwise the default path, whose absence is the ordinary case and is stated in the rejection message.
 
+**A project roster that lists no names** — an empty file, or one with no line `  - name: <Name>` — adds no Domain Employee, as an absent one adds none: the `commit-msg` hook and the `Employee Trailer` CI job validate against the framework roster alone, and the hook's rejection of a name says that the project roster lists no names (issue #443). It is not refused, because it accepts no name the framework roster does not, so falling back widens nothing, while a refusal would block every commit of a project that created the file before registering its first Domain Employee. The hook refuses two cases, with a message naming the file: a framework roster that lists no names, since no trailer can be validated against nothing (the `Employee Trailer` job fails on it too, with its exit 2), and a roster it cannot read.
+
 The project roster never wins over the framework roster either: a project cannot redefine or remove a framework Employee by listing it. It can only add.
 
 ---

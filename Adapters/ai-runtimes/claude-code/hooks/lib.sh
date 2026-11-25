@@ -15,6 +15,15 @@
 #   2  block the tool call (PreToolUse) or keep the session going (Stop), with
 #      stderr shown to the model as the reason
 #   other  non-blocking error, stderr shown to the user only
+#
+# It sets its callers' options. Sourcing it runs `set -uo pipefail` and
+# `export LC_ALL=C` in the hook that sources it, which sets none of its own:
+# this is the library the Check Convention's Shell Scripts rule 2 lets set
+# them (Standards/CODE_QUALITY_STANDARD.md). It does not set -e: each hook
+# tests what matters and exits with the code above it means. A stop under -e
+# exits with the failed command's status, most often 1, which Claude Code
+# reads as a non-blocking error, so a guard stopped that way would let the
+# call through.
 
 set -uo pipefail
 export LC_ALL=C
