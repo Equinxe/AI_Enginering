@@ -9238,13 +9238,15 @@ section "setup-project-bootstrap.sh — the closing message names its cause (WU-
 adopter_353 boot-262-differs
 bash "$BOOT_353" generic >/dev/null 2>&1
 commit_353 "chore(adopt): install the Adapters"
+# Two workflows: the pull request template is the project's own once it
+# differs, kept and never a problem (WU-IAENG-445, issue #472).
 printf '# a local edit\n' >> .github/workflows/pr-validation.yml
-printf '\na local line\n' >> .github/PULL_REQUEST_TEMPLATE.md
+printf '# a local line\n' >> .github/workflows/data-policy.yml
 commit_353 "chore(ci): edit two installed Adapters"
 expect 1 "a re-run with two differing Adapters exits 1" -- bash "$BOOT_353" generic
 expect_output "2 installed file(s) differ from the framework's Adapter and were left untouched:"
 expect_output "      review: diff ia-engineering/Adapters/github-actions/pr-validation.yml .github/workflows/pr-validation.yml"
-expect_output "    .github/PULL_REQUEST_TEMPLATE.md"
+expect_output "    .github/workflows/data-policy.yml"
 expect_output "--force is the wrong tool for one file"
 expect_output "setup-project-bootstrap.sh --check"
 expect_output "commit-msg hook accepts a valid Employee trailer"
@@ -9737,6 +9739,11 @@ git -C ia-engineering checkout -q v2
 expect 0 "an upgrade checked out but not committed" -- bash "$DRIFT_358" --format tsv
 expect_output "version${T}uncommitted${T}ia-engineering${T}the checkout is not the commit the project recorded (gitlink +)"
 git add ia-engineering && commit_353 "chore(adopt): upgrade the framework to v2"
+# The agents are regenerated, as the upgrade note says: since WU-IAENG-445
+# (#471) each records the framework commit it was generated from, so the one
+# generated at v1 is stale at v2. That case has its own section; this one
+# keeps to the version and the files.
+bash ./ia-engineering/Adapters/ai-runtimes/generate-agents.sh >/dev/null 2>&1
 
 expect 1 "DEF-01: after the upgrade, --strict reports drift (exit 1)" -- bash "$DRIFT_358" --format tsv --strict
 expect_output "version${T}tagged${T}ia-engineering${T}v2 ("
@@ -9890,7 +9897,7 @@ cat > .claude/settings.local.json <<'EOF'
 EOF
 expect 1 "a broken path in settings.local.json is drift" -- bash "$DRIFT_358" --format tsv --strict
 expect_output "path${T}ok${T}.claude/hooks/mine.sh${T}"
-expect_output "path${T}broken${T}.claude/hooks/gone.sh${T}not found; named by .claude/settings.local.json (hooks.Stop.0.hooks.1.command)."
+expect_output "path${T}broken${T}.claude/hooks/gone.sh${T}not found; the hook fails, so its check is silently off; named by .claude/settings.local.json (hooks.Stop.0.hooks.1.command)."
 expect_output "path${T}unresolved${T}jq${T}a command looked up on PATH"
 expect_output "path${T}unresolved${T}(inline code)${T}"
 expect_output "path${T}broken${T}.claude/hooks/x [31m FORGED file current.sh${T}"
@@ -9908,7 +9915,7 @@ rm .claude/settings.local.json
 # A hook script deleted from the framework, then the submodule moved.
 mv ia-engineering/Adapters/ai-runtimes/claude-code/hooks/stop-gate.sh stop-gate.moved
 expect 1 "a framework hook script that is gone is a broken path" -- bash "$DRIFT_358" --format tsv --strict
-expect_output "path${T}broken${T}ia-engineering/Adapters/ai-runtimes/claude-code/hooks/stop-gate.sh${T}not found; named by .claude/settings.json"
+expect_output "path${T}broken${T}ia-engineering/Adapters/ai-runtimes/claude-code/hooks/stop-gate.sh${T}not found; the hook fails, so its check is silently off; named by .claude/settings.json"
 mv stop-gate.moved ia-engineering/Adapters/ai-runtimes/claude-code/hooks/stop-gate.sh
 mv ia-engineering ia-moved
 expect 0 "a renamed submodule breaks every framework path" -- bash ./ia-moved/Adapters/scripts/check-framework-drift.sh --format tsv
@@ -14689,6 +14696,254 @@ sbp433_err POST-repos/o/r/rulesets 403 "$SBP433_UPGRADE"
 sbp433_run 1 "a ruleset write refused for the plan: the run stops"
 expect_output "GitHub refuses branch protection and rulesets on o/r"
 expect_output "Already applied before the refusal: main."
+
+section "Session messages true for an existing project (WU-IAENG-445, #367, #471, #472)"
+
+# pass_445 / fail_445 <label> [detail] — one check, counted.
+pass_445() { TOTAL=$((TOTAL + 1)); [ -n "$VERBOSE" ] && printf '   ok   %s\n' "$1"; return 0; }
+fail_445() {
+  TOTAL=$((TOTAL + 1)); FAILED=$((FAILED + 1))
+  printf '   FAIL %s\n' "$1"
+  [ -z "${2:-}" ] || printf '%s\n' "$2" | sed 's/^/        | /'
+  return 0
+}
+T445=$'\t'
+G_445=./ia-engineering/Adapters/ai-runtimes/generate-agents.sh
+INST_445=./ia-engineering/Adapters/scripts/install.sh
+BOOT_445=./ia-engineering/Adapters/scripts/setup-project-bootstrap.sh
+DRIFT_445=./ia-engineering/Adapters/scripts/check-framework-drift.sh
+# ss_445 <project> — session-start.sh's output in LAST_OUTPUT, as Claude Code
+# runs it, with the drift check out of the way (a `timeout` that runs
+# nothing: hooks/tests/drift.sh is its bench) and the cache in the test tree.
+ss_445() {
+  LAST_OUTPUT="$(cd "$1" && env CLAUDE_PROJECT_DIR="$1" XDG_CACHE_HOME="$WORK/cache-445" \
+    PATH="$WORK/notimeout-445:$PATH" bash ./ia-engineering/Adapters/ai-runtimes/claude-code/hooks/session-start.sh </dev/null 2>&1)"
+}
+mkdir -p "$WORK/notimeout-445"
+printf '#!/bin/sh\nexit 0\n' > "$WORK/notimeout-445/timeout"
+chmod +x "$WORK/notimeout-445/timeout"
+
+# --- the bench: a framework of three Employees, with its own history ---------
+new_repo fw-445
+for d445 in Core Standards Templates Workflows Employees Registry Adapters Governance; do
+  cp -R "$SCRIPTS/../../$d445" "./$d445"
+done
+cp "$SCRIPTS/../../.gitattributes" ./.gitattributes
+awk '/^  - name: /{ seen = 1; keep = ($0 ~ /^  - name: (Software Architect|Solution Architect|DevOps Engineer)$/) } !seen || keep' \
+  "$SCRIPTS/../../Registry/employees.yml" > Registry/employees.yml
+git add -A && git commit -q -m "framework fixture, three Employees"
+FW_445="$PWD"
+C1_445="$(git rev-parse HEAD)"
+# A space, an accented letter and two CJK characters, as #471 was reproduced
+# (".../proj é日本 a"): the commit is read and compared on such a path too.
+AD_NAME_445="adopter-445 my app é日本"
+AD_445="$WORK/$AD_NAME_445"
+new_repo "$AD_NAME_445"
+git -c protocol.file.allow=always submodule add -q "$FW_445" ia-engineering >/dev/null 2>&1
+git commit -q -m "chore(adopt): add the framework submodule"
+
+# --- #471: an upgrade that changes only Employees/ is said at session start ---
+# Each agent of an adopting project records the framework commit it was
+# generated from; session start's quick check compares it with the commit in
+# use (Director decision, 18 November 2026: an automatic signal).
+expect 0 "#471: the agents are generated" -- bash "$G_445"
+A_445=.claude/agents/devops-engineer.md
+if grep -qxF "  Framework: $C1_445" "$A_445"; then
+  pass_445 "#471: each agent's header records the framework commit it was generated from"
+else
+  fail_445 "#471: each agent's header records the framework commit it was generated from" "$(sed -n '/^<!--/,/^-->/p' "$A_445")"
+fi
+expect 0 "#471: quick: every agent records the commit in use" -- bash "$G_445" --check --quick --format tsv
+expect_output "# generate-agents.sh --check --quick: 0 to act on. 3 agent(s): 3 present, 0 missing, 0 stale."
+ss_445 "$AD_445"
+expect_no_output "IA Engineering agents" "#471: session start: every agent current, not one line"
+# The upgrade: one sentence added to one Employee's Mission. Every agent still
+# names the same framework root, so the root check alone said nothing (#471).
+cd "$FW_445" || exit 1
+sed 's/by automating everything that can be automated\./& It reads every upgrade note first./' \
+  Employees/DevOps/DEVOPS_ENGINEER.md > "$WORK/devops-445.md"
+cp "$WORK/devops-445.md" Employees/DevOps/DEVOPS_ENGINEER.md
+git commit -q -am "an Employee's Mission gains one sentence"
+C2_445="$(git rev-parse HEAD)"
+cd "$AD_445" || exit 1
+git -C ia-engineering fetch -q origin
+git -C ia-engineering checkout -q "$C2_445"
+expect 1 "#471: quick: after an upgrade that changes only Employees/, every agent is stale" -- \
+  bash "$G_445" --check --quick --format tsv
+expect_output "# generate-agents.sh --check --quick: 3 to act on. 3 agent(s): 0 present, 0 missing, 3 stale."
+expect_line "agent${T445}stale${T445}.claude/agents/devops-engineer.md${T445}it was generated from framework commit $C1_445, and the framework is now at $C2_445: upgraded since, so its Employee definition may have changed"
+ss_445 "$AD_445"
+expect_line "IA Engineering agents: 3 of 3 agents are stale (software-architect, solution-architect, devops-engineer): they were not generated from the framework commit in use, but before an upgrade or before agents recorded their commit, so each Employee may follow a definition the upgrade changed. Agents are generated in each clone and never committed. Regenerate them before dispatching any Employee: ./ia-engineering/Adapters/ai-runtimes/generate-agents.sh --target claude-code"
+expect_no_output "If the project moved" "#471: session start: a commit difference is not a moved project"
+SS_CMD_445="$(sed -n 's/.*Regenerate them before dispatching any Employee: //p' <<< "$LAST_OUTPUT" | head -n 1)"
+# The full check tells the agent whose definition changed from the two whose
+# only difference is the commit they record.
+expect 1 "#471: --check: the upgraded definition and the commit are told apart" -- bash "$G_445" --check --format tsv
+expect_line "agent${T445}stale${T445}.claude/agents/devops-engineer.md${T445}out of date with Employees/ or the roster"
+expect_line "agent${T445}stale${T445}.claude/agents/software-architect.md${T445}framework commit only: generated from $C1_445; the framework is at $C2_445"
+expect 1 "#471: --check, text" -- bash "$G_445" --check
+expect_output "  2 were generated from another commit of this framework (now"
+expect_output "  1 out of date with Employees/ or the roster, or missing."
+expect 0 "#471: session start's command runs as printed from a project path with a space" -- eval "$SS_CMD_445"
+expect 0 "#471: quick: the regenerated agents record the commit in use" -- bash "$G_445" --check --quick --format tsv
+ss_445 "$AD_445"
+expect_no_output "IA Engineering agents" "#471: session start: regenerated, not one line"
+# An agent written before agents recorded a commit: stale too.
+grep -v '^  Framework: ' "$A_445" > "$WORK/nocommit-445.md"
+cp "$WORK/nocommit-445.md" "$A_445"
+expect 1 "#471: quick: an agent that records no commit is stale" -- bash "$G_445" --check --quick --format tsv
+expect_line "agent${T445}stale${T445}.claude/agents/devops-engineer.md${T445}it records no framework commit: it was generated before agents recorded one"
+ss_445 "$AD_445"
+expect_output "IA Engineering agents: 1 of 3 agents are stale (devops-engineer): they were not generated from the framework commit in use"
+# The full check: the missing line is its only difference, a commit-only one,
+# not "out of date with Employees/" (Code Reviewer m1, PR #502).
+expect 1 "#471: --check: an agent that records no commit differs by its commit only" -- bash "$G_445" --check --format tsv
+expect_line "agent${T445}stale${T445}.claude/agents/devops-engineer.md${T445}framework commit only: generated from none; the framework is at $C2_445"
+expect_no_output "out of date with Employees/" "#471: --check: no agent said to be out of date with Employees/"
+expect 0 "#471: regenerated once more" -- bash "$G_445"
+
+# The framework repository records no commit: its agents stay as they were,
+# and would otherwise change with every commit.
+cd "$FW_445" || exit 1
+expect 0 "#471: the framework repository generates its own agents" -- bash ./Adapters/ai-runtimes/generate-agents.sh
+if ! grep -q '^  Framework: ' .claude/agents/devops-engineer.md \
+   && [ -z "$(sed -n '/^  Tier:      /{n;p;}' .claude/agents/devops-engineer.md)" ]; then
+  pass_445 "#471: the framework repository's agents record no commit: the line after Tier is blank, as before"
+else
+  fail_445 "#471: the framework repository's agents record no commit: the line after Tier is blank, as before" "$(sed -n '/^<!--/,/^-->/p' .claude/agents/devops-engineer.md)"
+fi
+expect 0 "#471: quick in the framework repository: present, no commit asked" -- \
+  bash ./Adapters/ai-runtimes/generate-agents.sh --check --quick --format tsv
+rm -rf .claude
+# A framework copied into the project, not a git checkout of its own: git
+# would answer with the PROJECT's commit, which moves with every project
+# commit. Nothing is recorded, and a project commit leaves the agents current.
+new_repo adopter-445-copy
+cp -R "$FW_445" ia-engineering
+rm -rf ia-engineering/.git
+git add -A && git commit -q -m "the framework, copied"
+expect 0 "#471: a copied framework: the agents are generated" -- bash "$G_445"
+if grep -q '^  Framework: ' .claude/agents/devops-engineer.md; then
+  fail_445 "#471: a copied framework: no commit recorded (the project's is not the framework's)" "$(grep '^  Framework: ' .claude/agents/devops-engineer.md)"
+else
+  pass_445 "#471: a copied framework: no commit recorded (the project's is not the framework's)"
+fi
+echo more > more-445.txt && git add more-445.txt && git commit -q -m "a project commit"
+expect 0 "#471: a copied framework: a project commit leaves the agents current" -- bash "$G_445" --check --quick --format tsv
+# An agent that records a commit while git gives none for the framework: no
+# upgrade need be the cause, and session start says so in a clause of its
+# own (Prompt Engineer m2, PR #502).
+awk -v c="$C1_445" '{ print } /^  Tier:      /{ print "  Framework: " c }' .claude/agents/devops-engineer.md > "$WORK/copy-commit-445.md"
+cp "$WORK/copy-commit-445.md" .claude/agents/devops-engineer.md
+expect 1 "#471: a copied framework, an agent recording a commit: stale" -- bash "$G_445" --check --quick --format tsv
+expect_line "agent${T445}stale${T445}.claude/agents/devops-engineer.md${T445}it was generated from framework commit $C1_445, and git gives no commit for this framework: it is not a git checkout of its own (copied in), or git refuses to read it (dubious ownership, say)"
+ss_445 "$WORK/adopter-445-copy"
+expect_output "IA Engineering agents: 1 of 3 agents are stale (devops-engineer): each records a framework commit, but git gives none for this framework: it was copied in rather than checked out, or git refuses to read its checkout (git -C ./ia-engineering rev-parse --show-toplevel says which)."
+expect_no_output "before an upgrade" "#471: a commit git cannot give: not said to come from an upgrade"
+
+# --- #367: bootstrap --help and install.sh's closing block -------------------
+cd "$AD_445" || exit 1
+expect 0 "#367: setup-project-bootstrap.sh --help" -- bash "$BOOT_445" --help
+USAGE_AT_445="$(grep -n '^# Usage:$' <<< "$LAST_OUTPUT" | head -n 1 | cut -d: -f1)"
+if [ -n "$USAGE_AT_445" ] && [ "$USAGE_AT_445" -le 12 ]; then
+  pass_445 "#367: --help reaches Usage within its first 12 lines"
+else
+  fail_445 "#367: --help reaches Usage within its first 12 lines" "Usage at line ${USAGE_AT_445:-none}"
+fi
+expect_no_output "WHAT CHANGED" "#367: --help leaves out the script's change history"
+expect 0 "#367: install.sh, a real run" -- bash "$INST_445"
+NOTE_445="$(awk '/^  Runtime hooks /{ getline; h = $0 } /^  Runtime skills /{ getline; s = $0 } END { print h; print s }' <<< "$LAST_OUTPUT")"
+case "$NOTE_445" in
+  *"(writes the COMMITTED .claude/settings.json"*$'\n'*"(writes the COMMITTED skills under .claude/skills/)"*)
+    pass_445 "#367: the settings note is under Runtime hooks, the skills note under Runtime skills" ;;
+  *) fail_445 "#367: the settings note is under Runtime hooks, the skills note under Runtime skills" "$NOTE_445" ;;
+esac
+
+# --- #472: a project's own pull request template is kept and reported --------
+# Director decision, 18 November 2026: the bootstrap never modifies it and no
+# longer exits 1 on it; install.sh --check lists one action.
+for part445 in "Work Unit:" "Merge danger" "How to test" "Falsifiability"; do
+  if grep -qF -- "$part445" "$SCRIPTS/../github/PULL_REQUEST_TEMPLATE.md"; then
+    pass_445 "#472: the framework's template holds the part install.sh asks for: $part445"
+  else
+    fail_445 "#472: the framework's template holds the part install.sh asks for: $part445"
+  fi
+done
+new_repo adopter-445-pr
+git -c protocol.file.allow=always submodule add -q "$FW_445" ia-engineering >/dev/null 2>&1
+mkdir -p .github
+printf '## Our own template\n\nDescribe the change.\n' > .github/PULL_REQUEST_TEMPLATE.md
+cp .github/PULL_REQUEST_TEMPLATE.md "$WORK/own-pr-445.md"
+git add -A && git commit -q -m "a project with its own pull request template"
+# same_pr_445 <label> — the project's template is byte for byte its own.
+same_pr_445() {
+  if cmp -s .github/PULL_REQUEST_TEMPLATE.md "$WORK/own-pr-445.md"; then pass_445 "$1"; else fail_445 "$1" "$(cat .github/PULL_REQUEST_TEMPLATE.md)"; fi
+}
+expect 0 "#472: the bootstrap over a project's own pull request template exits 0" -- bash "$BOOT_445" generic
+expect_output "  = .github/PULL_REQUEST_TEMPLATE.md (this project's own: kept, never overwritten, --force included)"
+expect_output "  > Keep this project's own .github/PULL_REQUEST_TEMPLATE.md, and copy into it by hand the parts of the framework's template it lacks: Work Unit:, Merge danger, How to test, Falsifiability."
+expect_no_output "--- Problems reported ---" "#472: no problem reported for the project's own template"
+same_pr_445 "#472: the bootstrap leaves the project's template as it was"
+expect 0 "#472: install.sh --check: the kept template is not drift" -- bash "$INST_445" --check
+expect_line "file${T445}kept${T445}.github/PULL_REQUEST_TEMPLATE.md${T445}ia-engineering/Adapters/github/PULL_REQUEST_TEMPLATE.md"
+expect_output "todo${T445}sections${T445}.github/PULL_REQUEST_TEMPLATE.md${T445}the project's own template, kept: copy into it by hand the framework's parts it lacks (Work Unit:, Merge danger, How to test, Falsifiability)"
+expect_output ", 1 kept;"
+expect_output "todo(s) for the project, not drift."
+expect 0 "#472: install.sh --check --quiet: nothing to act on, nothing printed" -- bash "$INST_445" --check --quiet
+expect_no_output "PULL_REQUEST_TEMPLATE" "#472: --quiet lists no action that is not drift"
+expect 0 "#472: install.sh --force" -- bash "$INST_445" --force
+same_pr_445 "#472: --force leaves the project's template as it was"
+# The quick check, the only one session start runs: customized, no action
+# (Code Reviewer M1(a), PR #502).
+expect 0 "#472: the quick drift check" -- bash "$DRIFT_445" --quick --format tsv
+expect_line "file${T445}customized${T445}.github/PULL_REQUEST_TEMPLATE.md${T445}the project's own pull request template, kept: install.sh never overwrites it"
+expect 0 "#472: the full drift check" -- bash "$DRIFT_445" --format tsv
+expect_line "file${T445}customized${T445}.github/PULL_REQUEST_TEMPLATE.md${T445}the project's own pull request template, kept: install.sh never overwrites it"
+expect_output "config${T445}todo${T445}.github/PULL_REQUEST_TEMPLATE.md${T445}the project's own template, kept"
+# Its parts copied in by hand: the action is no longer listed.
+printf 'Work Unit: [WU-ID]\n\n### Merge danger\n\n### How to test\n\n- [ ] Falsifiability evidence is in the report.\n' >> .github/PULL_REQUEST_TEMPLATE.md
+expect 0 "#472: the parts copied in: install.sh --check" -- bash "$INST_445" --check
+expect_line "file${T445}kept${T445}.github/PULL_REQUEST_TEMPLATE.md${T445}ia-engineering/Adapters/github/PULL_REQUEST_TEMPLATE.md"
+expect_no_output "${T445}sections${T445}" "#472: the parts copied in: the action is no longer listed"
+# A copy of the framework's template, never edited, that an upgrade then
+# changes: kept by install.sh, and the full drift check says it is stale, so
+# an unchanged install still hears of an update.
+new_repo adopter-445-old
+git -c protocol.file.allow=always submodule add -q "$FW_445" ia-engineering >/dev/null 2>&1
+git commit -q -m "chore(adopt): add the framework submodule"
+expect 0 "#472: an install of the framework's template" -- bash "$INST_445"
+cd "$FW_445" || exit 1
+printf '\n<!-- one more line, an upgrade -->\n' >> Adapters/github/PULL_REQUEST_TEMPLATE.md
+git commit -q -am "the pull request template changes"
+C3_445="$(git rev-parse HEAD)"
+cd "$WORK/adopter-445-old" || exit 1
+git -C ia-engineering fetch -q origin
+git -C ia-engineering checkout -q "$C3_445"
+expect 0 "#472: after the upgrade, install.sh --check: kept, not drift" -- bash "$INST_445" --check
+expect_line "file${T445}kept${T445}.github/PULL_REQUEST_TEMPLATE.md${T445}ia-engineering/Adapters/github/PULL_REQUEST_TEMPLATE.md"
+expect_no_output "${T445}sections${T445}" "#472: the framework's earlier template lacks no part"
+expect 0 "#472: after the upgrade, the full drift check" -- bash "$DRIFT_445" --format tsv
+expect_line "file${T445}stale${T445}.github/PULL_REQUEST_TEMPLATE.md${T445}never edited, an earlier version of the template: cp ia-engineering/Adapters/github/PULL_REQUEST_TEMPLATE.md .github/PULL_REQUEST_TEMPLATE.md"
+# The framework imported under a name with a space: the diff command
+# install.sh prints runs as printed (Code Reviewer m3, PR #502). Exit 1 is
+# diff's "the files differ"; 2 was its "extra operand".
+new_repo adopter-445-space
+git -c protocol.file.allow=always submodule add -q "$FW_445" "ia eng" >/dev/null 2>&1
+mkdir -p .github
+printf '## Our own template\n' > .github/PULL_REQUEST_TEMPLATE.md
+git add -A && git commit -q -m "a framework imported as ia eng, a template of its own"
+SP_OUT_445="$(bash "./ia eng/Adapters/scripts/install.sh" --check 2>&1)"
+SP_CMD_445="$(sed -n 's/^todo.*; \(diff .* \.github\/PULL_REQUEST_TEMPLATE\.md\)$/\1/p' <<< "$SP_OUT_445" | head -n 1)"
+if [ -z "$SP_CMD_445" ]; then
+  fail_445 "#472: a framework imported as 'ia eng': install.sh --check prints the diff command" "$SP_OUT_445"
+else
+  SP_DIFF_445="$(eval "$SP_CMD_445" 2>&1)"; SP_RC_445=$?
+  if [ "$SP_RC_445" -eq 1 ]; then
+    pass_445 "#472: a framework imported as 'ia eng': the printed diff command runs as printed"
+  else
+    fail_445 "#472: a framework imported as 'ia eng': the printed diff command runs as printed" "command [$SP_CMD_445], exit $SP_RC_445: $(printf '%s' "$SP_DIFF_445" | tail -n 2)"
+  fi
+fi
 
 section "data-policy reports a secret under its file's own name, not git's quoted diff header (WU-IAENG-446, #484)"
 

@@ -39,6 +39,8 @@
 #               "onFailure": "block" (the framework's two PreToolUse
 #               guards, Claude Code 2.1.295 or later) then refuses every
 #               call it guards (claude-code/TROUBLESHOOTING.md, entry C).
+#               Each record says which of the two applies, from the entry's
+#               "onFailure" and its event (issue #415).
 #   agent    E. The Employees' agents in .claude/agents/, generated in each
 #               clone and never committed: one record per roster Employee,
 #               current, missing, or stale with its cause, from
@@ -62,7 +64,9 @@
 #   modified       matches no version of the template: edited by the project,
 #                  or the template was renamed (history is not followed across
 #                  a rename). Remedy: review the diff; never --force.
-#   customized     a file the project is expected to edit (installer's list)
+#   customized     a file the project is expected to edit (installer's list),
+#                  or its own pull request template, kept (install.sh `kept`,
+#                  issue #472), unless that is an earlier framework copy: stale
 #   project-owned  a file the bootstrap writes once and the project owns:
 #                  presence only
 #   indeterminate  could not be decided — said with its cause, never counted
@@ -264,7 +268,7 @@ finish() {
         noun["agent"] = "agent item(s)"
         order["version"] = "tagged untagged latest behind remote-same behind-remote recorded uncommitted uninitialized not-a-submodule indeterminate"
         order["file"] = "current absent stale modified differs customized project-owned indeterminate"
-        order["config"] = "current present absent missing differs stale modified customized near-miss not-executable shadowed disabled placeholder not-applicable skipped not-evaluated indeterminate"
+        order["config"] = "current present absent missing differs stale modified customized near-miss not-executable shadowed disabled placeholder todo not-applicable skipped not-evaluated indeterminate"
         order["path"] = "ok broken unresolved indeterminate"
         order["agent"] = "current missing stale not-evaluated indeterminate"
       }
@@ -800,6 +804,23 @@ while IFS=$'\t' read -r fam st path detail; do
     file:current) rec file current "$path" "" ;;
     file:absent) rec file absent "$path" "re-run $BOOTSTRAP_CMD without --force: it writes what is absent and overwrites nothing" ;;
     file:customized) rec file customized "$path" "expected to differ: the project edits it after install" ;;
+    file:kept)
+      # The project's own pull request template, which install.sh never
+      # overwrites (issue #472): no action of itself, its missing parts are
+      # a todo record. A full run still tells a copy of an earlier
+      # framework template, never edited (stale: copy it), from the
+      # project's own, so an unchanged install hears of an update.
+      KEPT_WHY="the project's own pull request template, kept: install.sh never overwrites it"
+      if [ "$QUICK" -eq 1 ]; then
+        rec file customized "$path" "$KEPT_WHY"
+        continue
+      fi
+      classify "$path" "${detail#"$REL"/}"
+      case "$CLASS" in
+        stale) rec file stale "$path" "never edited, an earlier version of the template: cp $detail $path" ;;
+        modified) rec file customized "$path" "$KEPT_WHY" ;;
+        *) rec file indeterminate "$path" "$WHY" ;;
+      esac ;;
     file:differs)
       if [ "$QUICK" -eq 1 ]; then
         rec file differs "$path" "differs from $detail, line endings aside; --quick reads no history: run $REL/Adapters/scripts/check-framework-drift.sh to tell stale (copy it) from modified (review it)"
@@ -821,6 +842,7 @@ while IFS=$'\t' read -r fam st path detail; do
         rec config not-evaluated "$path" "$detail"
       fi ;;
     todo:placeholder) rec config placeholder "$path" "$detail" ;;
+    todo:sections) rec config todo "$path" "$detail" ;;
     gitattributes:present|gitignore:present) rec config present "$path: $detail" "" ;;
     gitattributes:missing|gitignore:missing) rec config missing "$path: $detail" "re-run $REL/Adapters/scripts/install.sh without --force" ;;
     *:fault) rec config indeterminate "$path" "$detail" ;;
@@ -1076,20 +1098,40 @@ for SF in .claude/settings.json .claude/settings.local.json; do
     rec path indeterminate "$SF" "jq is not installed: the commands in this file are not resolved"
     continue
   fi
+  # Each command with the event it is under and its entry's "onFailure"
+  # ("-" when it has none: TAB is a white space to read, so an empty field
+  # would vanish), so a missing script is reported with the outcome that
+  # applies, not both (issue #415).
   if ! CMDS="$(jq -r 'paths(strings) as $p | select($p[-1] == "command")
                      | ($p | map(tostring) | join(".") | gsub("[[:cntrl:]]"; " "))
+                       + "\t" + (if ($p | length) > 1 and $p[0] == "hooks" then ($p[1] | tostring | gsub("[[:cntrl:]\\s]"; "_")) else "-" end)
+                       + "\t" + (getpath($p[:-1] + ["onFailure"]) // "-" | tostring | gsub("[[:cntrl:]\\s]"; "_"))
                        + "\t" + (getpath($p) | gsub("[[:cntrl:]]"; " "))' "$SF" 2>/dev/null)"; then
     rec path indeterminate "$SF" "not valid JSON: the commands in this file are not resolved"
     continue
   fi
   CMDS="${CMDS//$'\r'/}"
-  while IFS=$'\t' read -r WHERE CMD; do
+  while IFS=$'\t' read -r WHERE EVENT ONFAIL CMD; do
     [ -z "$WHERE" ] && continue
     resolve_command "$CMD"
     case "$RSTATUS" in ok|broken) watch_add "$RPATH" ;; esac
+    # What a hook whose script is gone does, in fixed words that
+    # session-start.sh matches (its d_broken) and prints in its own. With
+    # "onFailure": "block" a failure does what exit code 2 does on its event
+    # (Claude Code 2.1.295 or later): on PreToolUse, the call is refused. It
+    # has no effect on Stop, SubagentStop, TaskCompleted and TeammateIdle
+    # (Governance/BLOCKING_HOOK_LATENCY_MEASUREMENT.md, Hooks reference).
+    OUTCOME="the hook fails, so its check is silently off"
+    if [ "$ONFAIL" = block ]; then
+      case "$EVENT" in
+        PreToolUse) OUTCOME="its entry has \"onFailure\": \"block\", so Claude Code refuses every call it guards (Adapters/ai-runtimes/claude-code/TROUBLESHOOTING.md, entry C)" ;;
+        Stop|SubagentStop|TaskCompleted|TeammateIdle) ;;
+        *) OUTCOME="its entry has \"onFailure\": \"block\", so a failure does what exit code 2 does on its event ($EVENT)" ;;
+      esac
+    fi
     case "$RSTATUS" in
       ok) rec path ok "$RPATH" "" ;;
-      broken) rec path broken "$RPATH" "$RWHY; named by $SF ($WHERE). The hook fails (exit 127): its check is silently gone, or, for an entry with \"onFailure\": \"block\" (the framework's guards, Claude Code 2.1.295 or later), every call it guards is refused (Adapters/ai-runtimes/claude-code/TROUBLESHOOTING.md, entry C). Restore the file, or fix the entry (re-run $REL/Adapters/ai-runtimes/claude-code/install-hooks.sh for the framework's)" ;;
+      broken) rec path broken "$RPATH" "$RWHY; $OUTCOME; named by $SF ($WHERE). Restore the file, or fix the entry (re-run $REL/Adapters/ai-runtimes/claude-code/install-hooks.sh for the framework's)" ;;
       *) rec path unresolved "$RPATH" "$RWHY; named by $SF ($WHERE)" ;;
     esac
   done <<< "$CMDS"

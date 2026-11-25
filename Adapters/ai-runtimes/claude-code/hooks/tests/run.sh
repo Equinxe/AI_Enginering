@@ -1163,7 +1163,7 @@ ss_check_has  "stop-gate: the reminder names the helper that creates it (#218)" 
 
 ss_run "$STATETEMPLATE" "$STOPGATE"
 ss_check_rc   "stop-gate: missing SESSION_STATE with the framework found — still not blocking" 0
-ss_check_has  "stop-gate: framework found — the reminder gives the helper's path (#218)" yes "run $STATETEMPLATE/Adapters/scripts/create-session-state.sh"
+ss_check_has  "stop-gate: framework found — the reminder gives the helper as a command from the project root (#218, #417)" yes "from the project root, run ./Adapters/scripts/create-session-state.sh, which writes"
 
 ss_run "$STALE" "$STOPGATE" '{"stop_hook_active":true}'
 ss_check_rc   "stop-gate: loop guard still yields even when SESSION_STATE is stale" 0
@@ -1337,10 +1337,14 @@ ss_check_has  "session-start: CLAUDE.md missing, template not found — says so"
 ss_check_has  "session-start: CLAUDE.md missing — does not print the stable-contract line" no "1. CLAUDE.md — the project's stable contract."
 
 ss_run "$STATETEMPLATE" "$SESSTART" ''
-ss_check_has  "session-start: SESSION_STATE missing, template found — names the helper that creates it (#218)" yes "Create it before any other action with $STATETEMPLATE/Adapters/scripts/create-session-state.sh, which writes the Template block of $STATETEMPLATE/Templates/SESSION_STATE.md"
+ss_check_has  "session-start: SESSION_STATE missing, template found — names the helper as a command from the project root (#218, #417)" yes "Create it before any other action: from the project root, run ./Adapters/scripts/create-session-state.sh, which writes the Template block of $STATETEMPLATE/Templates/SESSION_STATE.md"
 
 ss_run "$CLAUDETEMPLATE" "$SESSTART" ''
-ss_check_has  "session-start: CLAUDE.md missing, template found — points to PROJECT_BOOTSTRAP Phase B and Templates/PROJECT_CLAUDE.md" yes "CLAUDE.md does not exist yet — this project has not completed Workflows/PROJECT_BOOTSTRAP.md Phase B. It is created from $CLAUDETEMPLATE/Templates/PROJECT_CLAUDE.md at Workflows/ONBOARDING.md Step 1"
+ss_check_has  "session-start: CLAUDE.md missing, template found — names Templates/PROJECT_CLAUDE.md and ONBOARDING Step 1 item 2, both from the framework root" yes "1. CLAUDE.md does not exist yet. The DevOps Engineer writes it from $CLAUDETEMPLATE/Templates/PROJECT_CLAUDE.md after the adoption commit ($CLAUDETEMPLATE/Workflows/ONBOARDING.md Step 1 item 2)"
+# An existing project that adopts has no Phase A or B: both routes are named,
+# and no Phase B is said to be unfinished (issue #367).
+ss_check_has  "session-start: CLAUDE.md missing — names what fills it in a new project and in an existing one (#367)" yes "from the Project Charter and the Stack Decision ADR in a new project, from the project's code, its existing documents and the Director in an existing one."
+ss_check_has  "session-start: CLAUDE.md missing — says no Phase B is unfinished (#367)" no "Phase B"
 ss_check_has  "session-start: CLAUDE.md missing, template found — does not print the stable-contract line" no "1. CLAUDE.md — the project's stable contract."
 
 echo 'placeholder' > "$CLAUDETEMPLATE/Core/MAIN_AGENT_CONDUCT.md"
@@ -1351,6 +1355,113 @@ ss_check_has  "session-start: framework root not found — no Main Agent pointer
 rm -f "$CLAUDETEMPLATE/Core/MAIN_AGENT_CONDUCT.md"
 ss_run "$CLAUDETEMPLATE" "$SESSTART" ''
 ss_check_has  "session-start: root found but MAIN_AGENT_CONDUCT.md absent — no Main Agent pointer" no "The Main Agent follows"
+
+# --- The template's placeholders are not a Next Step (WU-IAENG-445, #367) ---
+# A SESSION_STATE.md written from the template's block keeps its bracketed
+# placeholders until someone fills them in. The hook copied them as "Next
+# Step, as recorded", the step to take; it now reads a section shaped as the
+# placeholder as unfilled, and shows its first line, since the shape alone
+# cannot tell the placeholder from an entry written in brackets (Prompt
+# Engineer m3, PR #502). The block is the real template's, so a reworded
+# placeholder is tested too.
+REAL_FW="$(cd "$HOOKS/../../../.." && pwd)"
+ss_block() {
+  awk '{ sub(/\r$/, "") } /^# Template$/ { t = 1; next } t && !f && /^```markdown$/ { f = 1; next } f && /^```$/ { exit } f { print }' \
+    "$REAL_FW/Templates/SESSION_STATE.md"
+}
+PLACEHOLDER="$(ss_repo placeholder)"
+ss_block > "$PLACEHOLDER/.ia-engineering/SESSION_STATE.md"
+ss_run "$PLACEHOLDER" "$SESSTART" ''
+ss_check_has  "session-start: the template's Next Step placeholder — read as unfilled (#367)" yes "Next Step: read as not filled in: one bracketed text, the shape of the template's placeholder. It begins: [The very next concrete action"
+ss_check_has  "session-start: the template's Next Step placeholder — not copied as the step to take (#367)" no "Next Step, as recorded:"
+ss_check_has  "session-start: the template's Next Step placeholder — the action it asks for (#367)" yes "Write the next concrete step there, outside brackets."
+ss_check_has  "session-start: the template's Next Step placeholder — its second line is not printed (#367)" no "two or three that follow"
+ss_check_has  "session-start: the template's Blocked On placeholder — read as unfilled, its first line shown (#367)" yes "Blocked On: read as not filled in: one bracketed text, the shape of the template's placeholder. It begins: [What is waiting for a decision"
+ss_check_has  "session-start: the template's Blocked On placeholder — not printed as a blocker (#367)" no "Blocked on:"
+# The same file with CRLF line endings: each line's CR is not part of it.
+sed 's/$/\r/' "$PLACEHOLDER/.ia-engineering/SESSION_STATE.md" > "$SSBASE/crlf.md"
+mv "$SSBASE/crlf.md" "$PLACEHOLDER/.ia-engineering/SESSION_STATE.md"
+ss_run "$PLACEHOLDER" "$SESSTART" ''
+ss_check_has  "session-start: a CRLF copy of the placeholders — still read as unfilled (#367)" yes "Next Step: read as not filled in:"
+# An entry of the project's own written wholly in brackets has the shape too:
+# it is read as unfilled, and still shown, so it is never hidden.
+{
+  echo '_Last updated: 24 September 2026, afternoon by Tester_'
+  echo '## Next Step'
+  echo 'Merge it.'
+  echo '## Blocked On — and On Whom'
+  echo '[PR #12 waiting for the Director]'
+} > "$PLACEHOLDER/.ia-engineering/SESSION_STATE.md"
+ss_run "$PLACEHOLDER" "$SESSTART" ''
+ss_check_has  "session-start: a Blocked On written wholly in brackets — shown, not hidden (Prompt Engineer m3)" yes "It begins: [PR #12 waiting for the Director]"
+# Filled sections are printed as recorded, one that opens with a bracket and
+# ends with one included: only the "]" before its end tells it from a
+# placeholder. A Blocked On with a line beginning "Nothing" says nothing, as
+# the grep it replaces read it.
+{
+  echo '_Last updated: 24 September 2026, afternoon by Tester_'
+  echo '## Next Step'
+  echo '[WU-12] merge the pull request'
+  echo 'then tag it [v1]'
+  echo '## Blocked On — and On Whom'
+  echo 'Review of PR #3, nothing more.'
+  echo 'Nothing else.'
+} > "$PLACEHOLDER/.ia-engineering/SESSION_STATE.md"
+ss_run "$PLACEHOLDER" "$SESSTART" ''
+ss_check_has  "session-start: a Next Step that opens with a bracket is printed as recorded (#367)" yes "Next Step, as recorded:"
+ss_check_has  "session-start: ... its first line, as written (#367)" yes "       [WU-12] merge the pull request"
+ss_check_has  "session-start: ... and not read as unfilled (#367)" no "not filled in"
+ss_check_has  "session-start: a Blocked On with a line beginning Nothing — nothing printed" no "Blocked on:"
+
+# --- Every printed helper command runs as printed (WU-IAENG-445, #417) ------
+# The stop gate and session start printed create-session-state.sh as an
+# absolute path, unquoted: from a project path with a space (a OneDrive or
+# user folder), it split there and exited 127. Each hook's command is taken
+# from its output and run exactly as printed, from the project root, and the
+# file it writes must then exist. The framework inside the project (the
+# path from the project root), then outside it under a name with a space
+# (the absolute path, quoted).
+ss_minimal_fw() {
+  mkdir -p "$1/Core" "$1/Templates" "$1/Adapters/scripts"
+  cp "$REAL_FW/Core/AGENT_CONDUCT.md" "$1/Core/"
+  cp "$REAL_FW/Templates/SESSION_STATE.md" "$1/Templates/"
+  cp "$REAL_FW/Adapters/scripts/create-session-state.sh" "$1/Adapters/scripts/"
+}
+SPACE417="$(ss_repo "my app 417")"
+ss_minimal_fw "$SPACE417/ia-engineering"
+printf '.ia-engineering/SESSION_STATE.md\n' > "$SPACE417/.gitignore"
+OUT417="$SSBASE/out 417"
+mkdir -p "$OUT417"
+ss_minimal_fw "$OUT417/fw dir"
+PROJ417="$(ss_repo proj417)"
+printf '.ia-engineering/SESSION_STATE.md\n' > "$PROJ417/.gitignore"
+# ss_run_printed <label> <project> — runs the command the last ss_run printed
+# after "from the project root, run ", as printed, from <project>.
+ss_run_printed() {
+  local label="$1" dir="$2" cmd out rc
+  cmd="$(sed -n 's/.*from the project root, run \(.*\), which writes the Template block.*/\1/p' <<< "$SS_OUT" | head -n 1)"
+  TOTAL=$((TOTAL + 1))
+  out="$(cd "$dir" && eval "$cmd" 2>&1)"; rc=$?
+  if [ -n "$cmd" ] && [ "$rc" -eq 0 ] && [ -f "$dir/.ia-engineering/SESSION_STATE.md" ]; then
+    [ "$VERBOSE" -eq 1 ] && printf '   ok    %s\n' "$label"
+  else
+    FAILED=$((FAILED + 1))
+    printf '   FAIL  %s: command [%s], exit %s: %s\n' "$label" "$cmd" "$rc" "$(printf '%s' "$out" | head -c 300)"
+  fi
+  rm -f "$dir/.ia-engineering/SESSION_STATE.md"
+}
+ss_run "$SPACE417" "$STOPGATE"
+ss_check_has  "stop-gate: a project path with a space — the helper is printed from the project root (#417)" yes "run ./ia-engineering/Adapters/scripts/create-session-state.sh, which writes"
+ss_run_printed "stop-gate: a project path with a space — the printed command runs as printed (#417)" "$SPACE417"
+ss_run "$SPACE417" "$SESSTART" ''
+ss_check_has  "session-start: a project path with a space — the helper is printed from the project root (#417)" yes "run ./ia-engineering/Adapters/scripts/create-session-state.sh, which writes"
+ss_run_printed "session-start: a project path with a space — the printed command runs as printed (#417)" "$SPACE417"
+IAENG_FRAMEWORK="$OUT417/fw dir" ss_run "$PROJ417" "$STOPGATE"
+ss_check_has  "stop-gate: a framework outside the project, with a space — its path is quoted (#417)" yes "run '$OUT417/fw dir/Adapters/scripts/create-session-state.sh', which"
+ss_run_printed "stop-gate: a framework outside the project, with a space — the printed command runs as printed (#417)" "$PROJ417"
+IAENG_FRAMEWORK="$OUT417/fw dir" ss_run "$PROJ417" "$SESSTART" ''
+ss_check_has  "session-start: a framework outside the project, with a space — its path is quoted (#417)" yes "run '$OUT417/fw dir/Adapters/scripts/create-session-state.sh', which"
+ss_run_printed "session-start: a framework outside the project, with a space — the printed command runs as printed (#417)" "$PROJ417"
 
 # --- Every SessionStart source, the same read-first context (WU-IAENG-373) ---
 # /clear starts a new session (payload "source": "clear"); it must get what a
