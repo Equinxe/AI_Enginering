@@ -23,6 +23,17 @@
 # Configuration is the scanner's (see its header): IAENG_LOCAL_DATA_DIR,
 # IAENG_DATA_ALLOW_FILE, and the committed allow file
 # .ia-engineering/data-policy.allow.
+#
+# Why `set -e` (Standards/CODE_QUALITY_STANDARD.md, The Check Convention,
+# Shell Scripts rule 2): any status but 0 makes git refuse the commit, and
+# refusing is the only verdict this hook gives itself. Everything else is the
+# scanner's: locating it is tested explicitly below, with a message, and its
+# exit becomes the hook's through exec (an exec that fails ends the hook
+# non-zero, with or without set -e). A command left untested fails only when
+# the hook cannot resolve its own directory, before any scanner is chosen, or
+# cannot write a refusal it is already making. set -e then stops it, non-zero,
+# and the commit is refused: a data-protection hook that could not run its
+# scan refuses the commit, never passes it.
 
 set -euo pipefail
 # SIGPIPE ignored (#397, SEC-IAENG-414-05): see commit-msg. The setting is

@@ -1688,9 +1688,9 @@ work_units:
 
   - id: WU-IAENG-406
     employee: Platform Engineer
-    title: Reserved 28 Oct 2026 before dispatch (WU-IAENG-408) - scripts that set -e state their reason, and hooks/lib.sh says it sets its callers' options (issue #328) - Check Convention shell rule 2; commit-msg, pre-commit, pre-push, setup-branch-protection.sh and setup-project-bootstrap.sh run set -euo pipefail without stating in their header why any unhandled non-zero status is a correct fail-closed verdict, and lib.sh sets -uo pipefail for the hooks that source it without its header saying so
+    title: scripts that set -e state their reason, hooks/lib.sh says it sets its callers' options, and commit-msg reads a roster that lists no names (issues #328 and #443) - Check Convention shell rule 2; commit-msg, pre-commit, pre-push, setup-branch-protection.sh and setup-project-bootstrap.sh ran set -euo pipefail without stating in their header why any unhandled non-zero status is a correct fail-closed verdict, and each now states it; lib.sh says it sets -uo pipefail and LC_ALL=C for the hooks that source it, and why not -e; commit-msg exited 1 with no message under set -e when the project roster listed no names, a valid framework Employee included, and now validates against the framework roster alone, as the Employee Trailer check did (Registry/README.md), while a framework roster that lists no names and a roster it cannot read are refused with the file named, seen red first
     milestone: Usage
-    delivers: planned - Adapters/git-hooks/commit-msg, Adapters/git-hooks/pre-commit, Adapters/git-hooks/pre-push, Adapters/scripts/setup-branch-protection.sh, Adapters/scripts/setup-project-bootstrap.sh, Adapters/ai-runtimes/claude-code/hooks/lib.sh, changelog.d/WU-IAENG-406.md, Registry/work-units.yml
+    delivers: Adapters/git-hooks/commit-msg, Adapters/git-hooks/pre-commit, Adapters/git-hooks/pre-push, Adapters/scripts/setup-branch-protection.sh, Adapters/scripts/setup-project-bootstrap.sh, Adapters/ai-runtimes/claude-code/hooks/lib.sh, Registry/README.md, Adapters/scripts/tests/run.sh, changelog.d/WU-IAENG-406.md, Registry/work-units.yml
 
   - id: WU-IAENG-407
     employee: DevOps Engineer

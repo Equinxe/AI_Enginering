@@ -51,6 +51,20 @@
 #   Work Unit: WU-IAENG-042
 #
 #   Employee: Backend Engineer
+#
+# Why `set -e` (Standards/CODE_QUALITY_STANDARD.md, The Check Convention,
+# Shell Scripts rule 2): this hook has two verdicts, exit 0, the commit is
+# made, and any other status, git refuses it. Every command whose status
+# decides a rule is tested explicitly below (the trailer parse, the merge
+# classification, the Work Unit check, each roster read), and each refusal
+# says why. A command left untested fails only when the hook cannot
+# evaluate the message at all (a message file it cannot read, a git call
+# that fails) or cannot write a refusal it is already making. set -e then
+# stops the hook there, non-zero, and the commit is refused, never passed:
+# the correct verdict for a message nobody could check. A status that means
+# something else is handled, never left to set -e. An empty project roster
+# was one (issue #443): grep's "no name found" ended the hook and refused a
+# valid trailer with no message, until the roster reads below tested it.
 
 set -euo pipefail
 # SIGPIPE ignored (#397, SEC-IAENG-414-05). Run as `git commit … 2>&1 | head
@@ -469,10 +483,49 @@ if [ -z "$EMPLOYEE_LINES" ]; then
   exit 1
 fi
 
-VALID_NAMES="$(grep -E '^  - name: ' "$ROSTER" | sed $'s/^  - name: //; s/\r$//')"
+# --- The names each roster lists (issue #443) ------------------------------
+# Each read is tested here, not left to set -e. grep exits 1 when a file lists
+# no name and 2 when it cannot read the file. Under set -e the first ended
+# this hook with exit 1 and no message, so a project roster that listed no
+# names refused even a valid framework Employee (issue #443): a refusal, but
+# not a correct verdict. Each case is now decided and said:
+#   the framework roster lists no names  -> refused, the file named: no trailer
+#                                          can be validated against nothing,
+#                                          as check-employee-trailers.sh says
+#   the project roster lists no names    -> it adds no Domain Employee, as an
+#                                          absent one adds none, and the
+#                                          framework roster alone validates
+#                                          (Registry/README.md, Project Roster)
+#   either roster cannot be read         -> refused, the file named
+# A project roster that lists no names is never appended: it would add an
+# empty line to VALID_NAMES, which an `Employee: ` line with no name matches.
+NAMES_RC=0
+VALID_NAMES="$(grep -E '^  - name: ' "$ROSTER" | sed $'s/^  - name: //; s/\r$//')" || NAMES_RC=$?
+if [ "$NAMES_RC" -gt 1 ]; then
+  echo "commit-msg: rejected — could not read the Employee roster $ROSTER (exit $NAMES_RC, reason above)." >&2
+  exit 1
+fi
+if [ -z "$VALID_NAMES" ]; then
+  echo "commit-msg: rejected — the Employee roster $ROSTER lists no names." >&2
+  echo "  Its parsing contract (Registry/README.md): each entry's first line is exactly" >&2
+  echo "  '  - name: <Name>'. With no name to compare against, no 'Employee:' trailer" >&2
+  echo "  can be validated, so the commit is refused, not passed." >&2
+  exit 1
+fi
+PROJECT_NAMES=""
 if [ -n "$PROJECT_ROSTER" ]; then
-  VALID_NAMES="$VALID_NAMES
-$(grep -E '^  - name: ' "$PROJECT_ROSTER" | sed $'s/^  - name: //; s/\r$//')"
+  NAMES_RC=0
+  PROJECT_NAMES="$(grep -E '^  - name: ' "$PROJECT_ROSTER" | sed $'s/^  - name: //; s/\r$//')" || NAMES_RC=$?
+  if [ "$NAMES_RC" -gt 1 ]; then
+    echo "commit-msg: rejected — could not read the project roster $PROJECT_ROSTER (exit $NAMES_RC, reason above)." >&2
+    echo "  A Domain Employee it registers cannot be recognised, so the commit is refused" >&2
+    echo "  rather than validated against the framework roster alone." >&2
+    exit 1
+  fi
+  if [ -n "$PROJECT_NAMES" ]; then
+    VALID_NAMES="$VALID_NAMES
+$PROJECT_NAMES"
+  fi
 fi
 
 REJECTED=0
@@ -491,8 +544,11 @@ EOF
 
 if [ "$REJECTED" -eq 1 ]; then
   echo "  Must exactly match an entry in $ROSTER" >&2
-  if [ -n "$PROJECT_ROSTER" ]; then
+  if [ -n "$PROJECT_NAMES" ]; then
     echo "  or in the project roster $PROJECT_ROSTER (Templates/DOMAIN_EMPLOYEE.md)" >&2
+  elif [ -n "$PROJECT_ROSTER" ]; then
+    echo "  (the project roster $PROJECT_ROSTER lists no names, so it adds no" >&2
+    echo "  Domain Employee: each entry's first line is '  - name: <Name>', Registry/README.md)" >&2
   else
     echo "  (no project roster found at .ia-engineering/Registry/employees.yml —" >&2
     echo "  Domain Employees, if any, are registered there: Templates/DOMAIN_EMPLOYEE.md)" >&2
