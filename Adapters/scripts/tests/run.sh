@@ -14989,27 +14989,43 @@ printf 'employees:\n' > "$WORK/u406-project-roster.yml"
 expect 0 "#443: IAENG_PROJECT_ROSTER naming a roster that lists no names: a framework Employee is accepted" -- \
   env IAENG_PROJECT_ROSTER="$WORK/u406-project-roster.yml" bash "$HOOK406" msg-framework.txt
 
-# A project roster that exists and cannot be read is refused, as set -e
-# refused it before, now with the file named. chmod 000 makes it so on Linux
-# for a user other than root; Git for Windows ignores chmod, so there a deny
-# ACE does, and is taken off again (the pattern of WU-IAENG-434 above).
+# A roster that exists and cannot be read is refused, as set -e refused it
+# before, now with the file named: the project roster, and the framework
+# roster, whose own refusal is a separate branch of the hook. Each is tested
+# with the other one readable. chmod 000 makes a file unreadable on Linux for
+# a user other than root; Git for Windows ignores chmod, so there a deny ACE
+# does, and is taken off again (the pattern of WU-IAENG-434 above).
+# u406_deny returns 0 only when the file exists and cannot be read.
+u406_deny() {
+  chmod 000 "$1" 2>/dev/null
+  if cat "$1" >/dev/null 2>&1 && command -v icacls >/dev/null 2>&1 && command -v cygpath >/dev/null 2>&1; then
+    MSYS2_ARG_CONV_EXCL='*' icacls "$(cygpath -w "$1")" /deny "${USERNAME:-}:(R)" >/dev/null 2>&1
+  fi
+  [ -f "$1" ] && ! cat "$1" >/dev/null 2>&1
+}
+u406_allow() {
+  if command -v icacls >/dev/null 2>&1 && command -v cygpath >/dev/null 2>&1; then
+    MSYS2_ARG_CONV_EXCL='*' icacls "$(cygpath -w "$1")" /remove:d "${USERNAME:-}" >/dev/null 2>&1
+  fi
+  chmod 644 "$1"
+}
 U406_PR=".ia-engineering/Registry/employees.yml"
 ROSTER_TARGET="$U406_PR" write_employee_roster "Domain Expert"
-block_begin 2 "commit-msg: a project roster that cannot be read"
-chmod 000 "$U406_PR" 2>/dev/null
-if cat "$U406_PR" >/dev/null 2>&1 && command -v icacls >/dev/null 2>&1 && command -v cygpath >/dev/null 2>&1; then
-  MSYS2_ARG_CONV_EXCL='*' icacls "$(cygpath -w "$U406_PR")" /deny "${USERNAME:-}:(R)" >/dev/null 2>&1
-fi
-if [ -f "$U406_PR" ] && ! cat "$U406_PR" >/dev/null 2>&1; then
+block_begin 4 "commit-msg: a roster that cannot be read"
+if u406_deny "$U406_PR"; then
   expect 1 "#443: a project roster that cannot be read is refused" -- bash "$HOOK406" msg-framework.txt
   expect_output "could not read the project roster"
 else
   skip 2 "no file can be made unreadable here: chmod 000 as root, and no icacls"
 fi
-if command -v icacls >/dev/null 2>&1 && command -v cygpath >/dev/null 2>&1; then
-  MSYS2_ARG_CONV_EXCL='*' icacls "$(cygpath -w "$U406_PR")" /remove:d "${USERNAME:-}" >/dev/null 2>&1
+u406_allow "$U406_PR"
+if u406_deny Registry/employees.yml; then
+  expect 1 "#443: a framework roster that cannot be read is refused" -- bash "$HOOK406" msg-framework.txt
+  expect_output "could not read the Employee roster"
+else
+  skip 2 "no file can be made unreadable here: chmod 000 as root, and no icacls"
 fi
-chmod 644 "$U406_PR"
+u406_allow Registry/employees.yml
 block_end
 expect 0 "#443: a project roster that lists a name: its Domain Employee is accepted" -- \
   bash "$HOOK406" msg-domain.txt
