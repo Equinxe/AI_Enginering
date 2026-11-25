@@ -690,7 +690,211 @@ cp "$HOOKS/block-inline-suppression.sh" "$HOOKS/lib.sh" "$SCRATCH/Adapters/ai-ru
 expect_rc "inline-suppression: pattern file missing fails closed" 2 "$SCRATCH/Adapters/ai-runtimes/claude-code/hooks/block-inline-suppression.sh" "$PAY_CLEAN"
 cp "$HOOKS/../../../scripts/suppression-patterns.tsv" "$SCRATCH/Adapters/scripts/"
 expect_rc "inline-suppression: the same copy with the pattern file allows clean code" 0 "$SCRATCH/Adapters/ai-runtimes/claude-code/hooks/block-inline-suppression.sh" "$PAY_CLEAN"
-rm -rf "$SCRATCH"
+
+# THE EDIT GUARD'S FAST PATHS (WU-IAENG-444). One jq reads every field, one
+# cygpath converts every path, and one grep gets every pattern; anything they
+# cannot judge exactly as before goes to the code that judged it before. The
+# checks below hold each fast path to that: a refusal names the row that
+# fired, a row that is malformed or does not compile is refused as before,
+# and a field the one read cannot reproduce is judged as before.
+IS_HOOK="$HOOKS/block-inline-suppression.sh"
+is_pay() { jq -n --arg f "${2:-a.py}" --arg c "$1" '{tool_name:"Write",tool_input:{file_path:$f,content:$c}}'; }
+# is_reason <label> <hook> <payload> <substring> — refused, with the substring
+# in the "iaeng: BLOCKED — " line.
+is_reason() {
+  local label="$1" hook="$2" payload="$3" want="$4" out rc
+  TOTAL=$((TOTAL + 1))
+  out="$(printf '%s' "$payload" | bash "$hook" 2>&1 >/dev/null)"
+  rc=$?
+  if [ "$rc" -eq 2 ] && printf '%s\n' "$out" | sed -n 's/^iaeng: BLOCKED — //p' | grep -qF -- "$want"; then
+    [ "$VERBOSE" -eq 1 ] && printf '   ok    %s\n' "$label"
+  else
+    FAILED=$((FAILED + 1))
+    printf '   FAIL  %s: exit %s, want 2 with "%s"\n' "$label" "$rc" "$want"
+    printf '%s\n' "$out" | sed 's/^/         | /'
+  fi
+}
+# One refusal per row of the pattern file, each named by its own label: one
+# grep reads every pattern, so a pattern it dropped would pass its directive.
+IS_EXC="$(printf '%s%s' 'exc' 'ept:')"
+is_reason "inline-suppression: the python row refuses, by its label" "$IS_HOOK" "$PAY_CODE" "inline suppression: python-lint-suppression"
+is_reason "inline-suppression: the JS/TS row refuses, by its label" "$IS_HOOK" "$PAY_JS" "inline suppression: js-ts-suppression"
+is_reason "inline-suppression: the other-suppression row refuses, by its label" "$IS_HOOK" "$(is_pay "$(printf '%s%s' 'x = 1  #no' 'sec')")" "inline suppression: other-suppression"
+is_reason "inline-suppression: the skipped-test row refuses, by its label" "$IS_HOOK" "$PAY_TEST" "inline suppression: skipped-or-focused-test"
+is_reason "inline-suppression: the swallowed-exception row refuses, by its label" "$IS_HOOK" "$(is_pay "$(printf 'try:\n    f()\n%s\n    raise\n' "$IS_EXC")")" "inline suppression: swallowed-exception"
+# The text values are read one per line, as before: a whole-line rule still
+# matches the second edit of a MultiEdit when the first does not end its line.
+is_reason "inline-suppression: each MultiEdit text starts its own line" "$IS_HOOK" \
+  "$(jq -n --arg s "$IS_EXC" '{tool_name:"MultiEdit",tool_input:{file_path:"a.py",edits:[{old_string:"a",new_string:"x = 1"},{old_string:"b",new_string:$s}]}}')" \
+  "inline suppression: swallowed-exception"
+# The one grep folds case, as each per-row grep does: without its -i, an
+# upper-case directive matched no pattern there and was allowed before the
+# per-row loop could refuse it. And the text is everything after the read's
+# fourth separator, not after its last: a separator inside the text, after a
+# directive, must leave the directive in the text that is read (F2 of the
+# Security review of PR #487).
+is_reason "inline-suppression: an upper-case directive is refused, by its label" "$IS_HOOK" \
+  "$(is_pay "$(printf 'x = 1  #%s' ' NOQA')")" "inline suppression: python-lint-suppression"
+is_reason "inline-suppression: a unit separator in the text after a directive leaves it in the text" "$IS_HOOK" \
+  "$(is_pay "$(printf 'x = 1  #%s\037y = 2' ' noqa')")" "inline suppression: python-lint-suppression"
+# A field the one jq read cannot carry is judged as before. The path's trailing
+# line break was stripped by its command substitution, so "a.md<LF>" is read as
+# documentation, as it was; a \037 inside a path is the read's own separator.
+# Both are judged as develop judged them, which allows them, a .md path; a
+# verdict change here would be a decision of its own.
+expect_rc "inline-suppression: a path ending in a line break is judged as before (a.md)" 0 "$IS_HOOK" \
+  "$(jq -n --arg c "$SUPPRESSED" '{tool_name:"Write",tool_input:{file_path:"a.md\n",content:$c}}')"
+expect_rc "inline-suppression: a path holding the read's separator is judged as before (ends .md)" 0 "$IS_HOOK" \
+  "$(jq -n --arg c "$SUPPRESSED" '{tool_name:"Write",tool_input:{file_path:"a.py\u001fb.md",content:$c}}')"
+# The pattern file's path with a trailing CR: on Git for Windows the per-path
+# cygpath's command substitution strips the CR with the line feed, so this is
+# the pattern file and allowed; with no cygpath the CR stays, and it is code.
+# The one cygpath for every path must not change that.
+IS_CR_WANT=2
+command -v cygpath >/dev/null 2>&1 && IS_CR_WANT=0
+expect_rc "inline-suppression: the pattern file's path with a trailing CR is judged as before" "$IS_CR_WANT" "$IS_HOOK" \
+  "$(jq -n --arg f "$PATFILE_ABS" --arg c "$SUPPRESSED" '{tool_name:"Write",tool_input:{file_path:($f + "\r"),content:$c}}')"
+# The same for a cwd: tests/ followed by a CR names no directory, so cygpath
+# keeps the CR it was given, where the per-path command substitution strips it.
+# A bare name resolved against that cwd is in tests/ only if the CR goes.
+expect_rc "inline-suppression: a cwd of tests/ with a trailing CR is judged as before" "$IS_CR_WANT" "$IS_HOOK" \
+  "$(jq -n --arg w "$HOOKTESTS_ABS" --arg c "$SUPPRESSED" '{tool_name:"Write",cwd:($w + "\r"),tool_input:{file_path:"cases.sh",content:$c}}')"
+# A CR inside a segment of the file path, before its last one (F1 of the
+# Security review of PR #487). `local args=("$FILE")` dropped it on Git for
+# Windows' bash 5.3.9, so the one cygpath's CR guard never saw it, and
+# <hooks>/tests<CR>/x.sh was read as a file in tests/ and allowed. tests<CR>
+# is not tests, with cygpath or without, so it is code on every platform, as
+# it was: with no cwd, with one, and the same for the pattern file's directory.
+IS_JS="$(printf '%s%s' '// eslint' '-disable-next-line')"
+is_reason "inline-suppression: a path into tests<CR>/ is code, with no cwd" "$IS_HOOK" \
+  "$(jq -n --arg f "$HOOKTESTS_ABS" --arg c "$IS_JS" '{tool_name:"Write",tool_input:{file_path:($f + "\r/x.sh"),content:$c}}')" \
+  "inline suppression: js-ts-suppression"
+is_reason "inline-suppression: a path into tests<CR>/ is code, with a cwd" "$IS_HOOK" \
+  "$(jq -n --arg f "$HOOKTESTS_ABS" --arg w "$HOOKS" --arg c "$IS_JS" '{tool_name:"Write",cwd:$w,tool_input:{file_path:($f + "\r/x.sh"),content:$c}}')" \
+  "inline suppression: js-ts-suppression"
+is_reason "inline-suppression: the pattern file's name under scripts<CR>/ is code" "$IS_HOOK" \
+  "$(jq -n --arg d "$(dirname "$PATFILE_ABS")" --arg c "$SUPPRESSED" '{tool_name:"Write",tool_input:{file_path:($d + "\r/suppression-patterns.tsv"),content:$c}}')" \
+  "inline suppression: python-lint-suppression"
+# The path exemptions are looked at only when the file path, the payload's cwd
+# or, without a cwd, the working directory names tests or the pattern file.
+# Each of the three can be the only one that does: a bare file name resolved
+# against a cwd inside tests/, and the same with no cwd, from a working
+# directory inside tests/. Both are exempt, as before.
+expect_rc "inline-suppression: a bare name resolved against a cwd inside tests/ is exempt" 0 "$IS_HOOK" "$(mkpay "cases.sh" "$HOOKTESTS_ABS")"
+TOTAL=$((TOTAL + 1))
+if (cd "$HOOKTESTS_ABS" && printf '%s' "$(is_pay "$SUPPRESSED" cases.sh)" | bash "$IS_HOOK" >/dev/null 2>&1); then
+  [ "$VERBOSE" -eq 1 ] && printf '   ok    %s\n' "inline-suppression: a bare name with no cwd, run from inside tests/, is exempt"
+else
+  FAILED=$((FAILED + 1))
+  printf '   FAIL  %s\n' "inline-suppression: a bare name with no cwd, run from inside tests/, is exempt: refused"
+fi
+# A pattern file that one grep cannot judge goes to the per-row loop, which
+# refuses as before: a row that does not compile, a row without a TAB, a row
+# with an empty label, a row with an empty pattern, each after the real rows
+# and with clean code. The empty label's pattern matches nothing in that code:
+# kept on the fast path, it would let one grep allow the edit, where the
+# per-row loop refuses the row (F1(c) of the Code Review of PR #487).
+IS_SCR="$(mktemp -d)"
+mkdir -p "$IS_SCR/Adapters/ai-runtimes/claude-code/hooks" "$IS_SCR/Adapters/scripts"
+cp "$IS_HOOK" "$HOOKS/lib.sh" "$IS_SCR/Adapters/ai-runtimes/claude-code/hooks/"
+IS_COPY="$IS_SCR/Adapters/ai-runtimes/claude-code/hooks/block-inline-suppression.sh"
+for is_row in $'bad-regex\t(' 'no-tab-row' $'\tzzqqzz' $'empty-pattern\t'; do
+  # The blank line ends the file's last row, which may have no line feed.
+  { cat "$HOOKS/../../../scripts/suppression-patterns.tsv"; printf '\n%s\n' "$is_row"; } > "$IS_SCR/Adapters/scripts/suppression-patterns.tsv"
+  case "$is_row" in
+    bad-regex*) is_reason "inline-suppression: a pattern grep cannot compile is refused" "$IS_COPY" "$PAY_CLEAN" "holds a pattern grep cannot compile" ;;
+    no-tab*) is_reason "inline-suppression: a row without a TAB is refused" "$IS_COPY" "$PAY_CLEAN" "malformed row in suppression-patterns.tsv (no TAB)" ;;
+    $'\t'*) is_reason "inline-suppression: a row with an empty label is refused" "$IS_COPY" "$PAY_CLEAN" "(empty label or pattern)" ;;
+    *) is_reason "inline-suppression: a row with an empty pattern is refused" "$IS_COPY" "$PAY_CLEAN" "(empty label or pattern)" ;;
+  esac
+done
+rm -rf "$IS_SCR"
+# A TEXT OF 65,536 TO 65,663 BYTES (WU-IAENG-444). The guard gave its text to
+# grep through a here-string, which never finishes on Git for Windows in that
+# window, so such an edit waited for the guard's 120 s timeout. Two texts of
+# 65,600 bytes, judged within LT_BUDGET seconds: clean code allowed, and a
+# directive on the first line refused for it. On Linux the window does not
+# hang, and both pass at once.
+IS_WS="$(mktemp -d)"
+is_ws() {  # <label> <first line> <exit wanted>
+  local label="$1" head="$2" want="$3" fill=a n rc t0 s
+  n=$((65600 - ${#head} - 1))
+  while [ "${#fill}" -lt "$n" ]; do fill="$fill$fill"; done
+  printf '%s\n%s' "$head" "${fill:0:$n}" > "$IS_WS/text"
+  jq -n --rawfile c "$IS_WS/text" '{tool_name:"Write",tool_input:{file_path:"a.py",content:$c}}' > "$IS_WS/pay"
+  t0=$SECONDS
+  if command -v timeout >/dev/null 2>&1; then
+    timeout "$LT_BUDGET" bash "$IS_HOOK" < "$IS_WS/pay" >/dev/null 2>&1
+    rc=$?
+  else
+    bash "$IS_HOOK" < "$IS_WS/pay" >/dev/null 2>&1
+    rc=$?
+  fi
+  s=$((SECONDS - t0))
+  TOTAL=$((TOTAL + 1))
+  if [ "$(wc -c < "$IS_WS/text")" -eq 65600 ] && [ "$rc" -eq "$want" ] && [ "$s" -le "$LT_BUDGET" ]; then
+    [ "$VERBOSE" -eq 1 ] && printf '   ok    %s (%s s)\n' "$label" "$s"
+  else
+    FAILED=$((FAILED + 1))
+    printf '   FAIL  %s: exit %s after %s s, %s bytes\n' "$label" "$rc" "$s" "$(wc -c < "$IS_WS/text")"
+  fi
+}
+is_ws "inline-suppression: a 65,600-byte clean text is judged within ${LT_BUDGET} s, and allowed" 'x = 1' 0
+is_ws "inline-suppression: a 65,600-byte text with a directive is judged within ${LT_BUDGET} s, and refused" "$SUPPRESSED" 2
+rm -rf "$IS_WS"
+# THE EDIT GUARD'S PROCESS BUDGET (WU-IAENG-444). Counted with recording
+# stand-ins first on PATH, as the escape-hatch budget above. Before, a clean
+# edit started five jq (the object check, three fields, the text), one grep per
+# row of the pattern file and, on Windows, four cygpath: 45 processes per call
+# (Governance/BLOCKING_HOOK_LATENCY_MEASUREMENT.md). Now one jq, one grep and
+# at most one cygpath; a refusal adds the per-row greps up to the row that
+# fires. A log without jq means nothing was counted, which is not a pass.
+IB_BASE="$(mktemp -d)"
+IB_SHIMS="$IB_BASE/shims"
+IB_LOG="$IB_BASE/shims.log"
+IB_SHIMS_ON_PATH="$IB_SHIMS"
+command -v cygpath >/dev/null 2>&1 && IB_SHIMS_ON_PATH="$(cygpath -u "$IB_SHIMS")"
+IB_CMDS="awk cat cygpath grep jq sed tr"
+IB_CYG=0
+command -v cygpath >/dev/null 2>&1 && IB_CYG=1
+mkdir -p "$IB_SHIMS"
+for ib_cmd in $IB_CMDS; do
+  ib_real="$(command -v "$ib_cmd")" || continue
+  printf '#!/bin/sh\necho %s >> "%s"\nexec "%s" "$@"\n' "$ib_cmd" "$IB_LOG" "$ib_real" > "$IB_SHIMS/$ib_cmd"
+  chmod +x "$IB_SHIMS/$ib_cmd"
+done
+# ib_budget <label> <payload> <exit wanted> <grep wanted> <cygpath wanted where it exists>
+ib_budget() {
+  local label="$1" payload="$2" want_rc="$3" want_grep="$4" want_cyg="$5" rc n_jq n_grep n_cyg n_all seen
+  [ "$IB_CYG" -eq 1 ] || want_cyg=0
+  TOTAL=$((TOTAL + 1))
+  : > "$IB_LOG"
+  printf '%s' "$payload" | PATH="$IB_SHIMS_ON_PATH:$PATH" bash "$IS_HOOK" >/dev/null 2>&1
+  rc=$?
+  n_jq="$(grep -c '^jq$' "$IB_LOG")"
+  n_grep="$(grep -c '^grep$' "$IB_LOG")"
+  n_cyg="$(grep -c '^cygpath$' "$IB_LOG")"
+  n_all="$(wc -l < "$IB_LOG" | tr -d ' ')"
+  if [ "$rc" -eq "$want_rc" ] && [ "$n_jq" -eq 1 ] && [ "$n_grep" -eq "$want_grep" ] && [ "$n_cyg" -eq "$want_cyg" ] \
+     && [ "$n_all" -eq $((2 + want_grep + want_cyg)) ]; then
+    [ "$VERBOSE" -eq 1 ] && printf '   ok    %s\n' "$label"
+  else
+    FAILED=$((FAILED + 1))
+    seen="$(sort "$IB_LOG" | uniq -c | awk '{printf "%s x%s, ", $2, $1}')"
+    [ -n "$seen" ] || seen="nothing (no stand-in ran, so nothing was counted)"
+    printf '   FAIL  %s: exit %s, started %s(want exit %s, cat x1, jq x1, grep x%s, cygpath x%s, of: %s)\n' \
+      "$label" "$rc" "$seen" "$want_rc" "$want_grep" "$want_cyg" "$IB_CMDS"
+  fi
+}
+ib_budget "inline-suppression: budget — clean code starts cat, one jq and one grep" "$PAY_CLEAN" 0 1 0
+ib_budget "inline-suppression: budget — clean code with a cwd converts no path" \
+  "$(jq -n '{tool_name:"Edit",cwd:"/work/proj",tool_input:{file_path:"src/a.ts",old_string:"a",new_string:"const a = 1;"}}')" 0 1 0
+ib_budget "inline-suppression: budget — documentation starts cat and one jq" "$PAY_DOC" 0 0 0
+ib_budget "inline-suppression: budget — a refusal on the first row adds that row's grep" "$PAY_CODE" 2 2 0
+ib_budget "inline-suppression: budget — a path that names tests converts every path in one cygpath" \
+  "$(jq -n '{tool_name:"Edit",cwd:"/work/proj",tool_input:{file_path:"src/tests/a.ts",old_string:"a",new_string:"const a = 1;"}}')" 0 1 1
+ib_budget "inline-suppression: budget — the tests/ directory itself is exempt after one cygpath" "$(mkpay "$HOOKTESTS_ABS/cases.sh")" 0 0 1
+rm -rf "$IB_BASE" "$SCRATCH"
 
 expect_rc "stop-gate: yields to its own loop guard"        0 "$HOOKS/stop-gate.sh"                '{"stop_hook_active":true}'
 
@@ -1387,6 +1591,123 @@ agg_case "exit 1 with no failed check counted: one failure more" "38 0" 1 "39 1"
 agg_case "no counts written (exit 2): one failure" "" 2 "1 1" "reported no counts (exit 2)"
 agg_case "counts that are not two numbers: one failure" "38 two" 0 "1 1" "reported no counts (exit 0)"
 rm -rf "$AGG_DIR"
+
+# --- Escape-hatch hook: git recognition, quoted substitutions, the stash -------
+# --- exemption (WU-IAENG-440) --------------------------------------------------
+# What the case file cannot hold: a command on several lines, the lexer's exact
+# output, the processes a call starts, and a large command read twice. The
+# expected outputs are worked by hand from the grammar in strip-quotes.awk's
+# header: a quoted region holding whitespace is dropped in the first reading
+# and leaves its last path component, with a / before it, in the second; a
+# backtick in double quotes opens a substitution in the second reading only;
+# the second reading follows the first on a line of its own, only when it
+# differs, after every record of the first. No command here starts with a /,
+# which Git Bash would rewrite into a Windows path before jq read it.
+echo "== escape-hatch: git recognition, quoted substitutions, stash exemption (WU-IAENG-440)"
+expect_reason "escape-hatch: a git stash is not exempted by a read on the next line" \
+  "$(mkbash $'git stash\ngit stash list')" "git stash sets work aside"
+expect_reason "escape-hatch: a git stash is not exempted by a read on the line before" \
+  "$(mkbash $'git stash list\ngit stash push -m x')" "git stash sets work aside"
+expect_reason "escape-hatch: a backtick substitution in double quotes is read across lines" \
+  "$(mkbash $'echo "`\ngit push --force\n`"')" "force-push or mirror-push"
+# w440_lex <label> <input, given to the lexer without a line break> <exact output>
+w440_lex() {
+  local label="$1" in="$2" want="$3" got
+  TOTAL=$((TOTAL + 1))
+  got="$(printf '%s' "$in" | awk -f "$HOOKS/strip-quotes.awk"; printf x)"
+  got="${got%x}"
+  if [ "$got" = "$want" ]; then
+    [ "$VERBOSE" -eq 1 ] && printf '   ok    %s\n' "$label"
+  else
+    FAILED=$((FAILED + 1))
+    printf '   FAIL  %s: got %q, want %q\n' "$label" "$got" "$want"
+  fi
+}
+w440_lex "lexer: the first reading is the earlier one, the second follows on its own line" \
+  'rm -rf "a b/c" /' $'rm -rf  /\nrm -rf /c /'
+w440_lex "lexer: a command the second reading would not change is read once" \
+  'git commit -m "a b"' 'git commit -m '
+w440_lex "lexer: a backtick in double quotes opens a substitution in the second reading" \
+  "x=\"\`git push --force\`\"" $'x=\nx= git push --force '
+w440_lex "lexer: the quoted text before a substitution is kept in a command context" \
+  "bash -c \"a \$(b) c\"" $'bash -c  b   c \nbash -c  a   b   c '
+w440_lex "lexer: records are joined in the first reading as before, the second follows them all" \
+  $'rm -rf "a b/c" /\001x' $'rm -rf  /x\nrm -rf /c /x'
+# THE CAP COUNTS BOTH READINGS. The 2,000-segment cap counts every segment the
+# lexer prints, so a command it reads twice is read up to 1,000 segments and
+# refused from 1,001, where a command read once is read up to 2,000. One
+# quoted path is enough to read the whole command twice.
+W440_SEGS=""
+for ((w440_i = 1; w440_i < 1000; w440_i++)); do W440_SEGS+="true;"; done
+expect_rc "escape-hatch: 1,000 segments read twice are read" 0 "$HOOK" "$(mkbash "${W440_SEGS}true \"a b/c\"")"
+expect_reason "escape-hatch: 1,001 segments read twice are refused at the cap" \
+  "$(mkbash "${W440_SEGS}true;true \"a b/c\"")" "pipeline segments after expansion"
+# THE PROCESS BUDGET IS UNCHANGED. Recording stand-ins first on PATH, as in
+# the budget of WU-IAENG-431 above: a git named git.exe and a stash read
+# beside a show start cat and one jq; a command read twice starts one awk, as
+# a command read once does.
+W440_BASE="$(mktemp -d)"
+W440_SHIMS="$W440_BASE/shims"
+W440_LOG="$W440_BASE/shims.log"
+W440_ON_PATH="$W440_SHIMS"
+command -v cygpath >/dev/null 2>&1 && W440_ON_PATH="$(cygpath -u "$W440_SHIMS")"
+mkdir -p "$W440_SHIMS"
+for w440_cmd in awk cat cut grep head jq sed sort tr wc; do
+  w440_real="$(command -v "$w440_cmd")" || continue
+  printf '#!/bin/sh\necho %s >> "%s"\nexec "%s" "$@"\n' "$w440_cmd" "$W440_LOG" "$w440_real" > "$W440_SHIMS/$w440_cmd"
+  chmod +x "$W440_SHIMS/$w440_cmd"
+done
+# w440_budget <label> <command> <awk wanted> <starts wanted>
+w440_budget() {
+  local label="$1" cmd="$2" want_awk="$3" want_all="$4" rc n_jq n_awk n_all
+  TOTAL=$((TOTAL + 1))
+  : > "$W440_LOG"
+  printf '%s' "$(mkbash "$cmd")" | PATH="$W440_ON_PATH:$PATH" bash "$HOOK" >/dev/null 2>&1
+  rc=$?
+  n_jq="$(grep -c '^jq$' "$W440_LOG")"
+  n_awk="$(grep -c '^awk$' "$W440_LOG")"
+  n_all="$(wc -l < "$W440_LOG" | tr -d ' ')"
+  if [ "$rc" -eq 0 ] && [ "$n_jq" -eq 1 ] && [ "$n_awk" -eq "$want_awk" ] && [ "$n_all" -eq "$want_all" ]; then
+    [ "$VERBOSE" -eq 1 ] && printf '   ok    %s\n' "$label"
+  else
+    FAILED=$((FAILED + 1))
+    printf '   FAIL  %s: exit %s, jq x%s, awk x%s, %s starts (want exit 0, jq x1, awk x%s, %s starts)\n' \
+      "$label" "$rc" "$n_jq" "$n_awk" "$n_all" "$want_awk" "$want_all"
+  fi
+}
+w440_budget "escape-hatch: budget — git.exe starts cat and one jq" 'git.exe push origin main' 0 2
+w440_budget "escape-hatch: budget — a stash read beside a show starts cat and one jq" 'git stash list; git stash show' 0 2
+w440_budget "escape-hatch: budget — a command read twice starts one awk" "echo \"\`date\`\" \"a b/c\"" 1 3
+rm -rf "$W440_BASE"
+# A LARGE COMMAND READ TWICE IS JUDGED IN TIME. 5,000 backtick substitutions
+# inside one double-quoted region, each beside a quoted path, then a
+# force-push: both readings run, and the call is refused for the push within
+# 30 s, the budget of the large-input checks above. 55,000 bytes, short of the
+# 65,536-byte here-string window, which those checks cover.
+W440_DIR="$(mktemp -d)"
+{
+  printf 'echo "'
+  for ((w440_i = 0; w440_i < 5000; w440_i++)); do printf '%s' "\`true\` a/b "; done
+  printf '"; git push --force'
+} > "$W440_DIR/cmd"
+jq -n --rawfile c "$W440_DIR/cmd" '{tool_name:"Bash",tool_input:{command:$c}}' > "$W440_DIR/pay"
+w440_t0=$SECONDS
+if command -v timeout >/dev/null 2>&1; then
+  W440_OUT="$(timeout 30 bash "$HOOK" < "$W440_DIR/pay" 2>&1 >/dev/null)"
+  W440_RC=$?
+else
+  W440_OUT="$(bash "$HOOK" < "$W440_DIR/pay" 2>&1 >/dev/null)"
+  W440_RC=$?
+fi
+W440_S=$((SECONDS - w440_t0))
+rm -rf "$W440_DIR"
+TOTAL=$((TOTAL + 1))
+if [ "$W440_RC" -eq 2 ] && [ "$W440_S" -le 30 ] && grep -qF "force-push or mirror-push" <<< "$W440_OUT"; then
+  [ "$VERBOSE" -eq 1 ] && printf '   ok    %s (%s s)\n' "escape-hatch: a large command read twice is judged within 30 s, and refused" "$W440_S"
+else
+  FAILED=$((FAILED + 1))
+  printf '   FAIL  escape-hatch: a large command read twice is judged within 30 s, and refused: exit %s after %s s\n' "$W440_RC" "$W440_S"
+fi
 
 # --- Verdict ----------------------------------------------------------------
 

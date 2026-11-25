@@ -12,6 +12,26 @@ Every claim about Claude Code's behaviour cites the official page it comes from,
 
 ---
 
+# Find Your Message
+
+Search this table for the start of the message you see, then go to its entry.
+
+| The message or symptom | Entry |
+|---|---|
+| Starts with `iaeng: BLOCKED —` | D |
+| Starts with `iaeng: stop gate —`, `iaeng: SESSION_STATE.md does not exist`, `iaeng: lint failed for` or `iaeng: no linter ran for` | D |
+| `… is isolated in the worktree <path>, but this command … Refusing to run it …` | E |
+| Claude Code asks permission for a call, or auto mode blocks one | E |
+| Every Bash call, or every edit, is refused with no `iaeng:` line, sometimes about 120 s after the call | C |
+| git refuses during cleanup: `cannot delete branch '<branch>' used by worktree at '<path>'`, `contains modified or untracked files`, `cannot remove a locked working tree`, `working trees containing submodules cannot be moved or removed` | `DAILY_USE.md`, Step 7 |
+| On Windows, a git command in a worktree under `.claude/worktrees/` fails with `Filename too long` | `Governance/TROUBLESHOOTING.md`, entry AE |
+| Compaction comes later than the window you set | A |
+| Your own status line no longer shows | B |
+
+Where a human runs a command that a guard refused, and why an Employee stops instead of rewording it, is in `DAILY_USE.md`, Where a Human Runs a Refused Command.
+
+---
+
 # Catalog
 
 ## A. Claude Code compacts later than expected, or the compaction setting seems ignored
@@ -123,7 +143,7 @@ Audience: the operator, with the guards installed by `install-hooks.sh` since WU
 
 **Remedy.**
 
-1. In a terminal, from that checkout's root, run `git submodule update --init`. Then check that the scripts the commands name exist: `ls ia-engineering/Adapters/ai-runtimes/claude-code/hooks/`.
+1. In a terminal, from that checkout's root, run `git submodule update --init`. Then check that the scripts the commands name exist: `ls ia-engineering/Adapters/ai-runtimes/claude-code/hooks/`. On Windows, if that fails with `Filename too long`, see `Governance/TROUBLESHOOTING.md` entry AE. A worktree whose `ia-engineering/` is initialised this way needs `--force` to be removed later (`DAILY_USE.md`, Step 7).
 2. Bring the machine back within the parallel-agent cap of cause 2, then try the call again. The project's `CLAUDE.md` tells the Main Agent to keep to it: at or above the cap, a dispatch waits, and the cap never refuses one (`Templates/PROJECT_CLAUDE.md`, Main Agent).
    - **A project on v0.0.16 or later whose `CLAUDE.md` predates the cap:** copy the paragraph from the template.
    - **A project on v0.0.15:** neither its Core nor its template carries a cap, so the template's pointer leads nowhere. Write this in its `CLAUDE.md` instead, the cap of the v0.0.15 pilot conditions (#452, condition 2): "Never have more than 3 subagents running at once on this machine, Employees included, one fewer for every main session open on it beyond the first. Every Claude Code session on it counts. At or above the cap, tell the Director what waits; the cap delays a dispatch and never refuses one."
@@ -138,6 +158,117 @@ Audience: the operator, with the guards installed by `install-hooks.sh` since WU
 
 **Prevention.** Do not remove `onFailure`, or set it to `"continue"`, to get past this. Before WU-IAENG-410, the same checkout ran with no guard at all, and nothing said so. That is the failure this setting ends. `install-hooks.sh` reports a weakened guard entry as a near miss and adds the framework's entry back beside it.
 
+## D. A call is refused with `iaeng: BLOCKED —`
+
+Audience: the operator, and the Main Agent reading an Employee's report. The reasons below are the ones the guards on `develop` print, read from the hooks on 24 November 2026.
+
+**Symptom.** A Bash call, or an Edit or Write, is refused at once with four lines:
+
+```
+iaeng: BLOCKED — <reason>
+  <the rule, and what to do instead>
+  A control in the way is a rule in the way: escalate it with this message quoted.
+  If the Director has decided this action, a human runs it by hand — the hook never learns exceptions.
+```
+
+**Cause.** One of the framework's two guards refused the call. `block-escape-hatches.sh` reads every Bash command, and `block-inline-suppression.sh` reads every Edit, Write and MultiEdit (`hooks/README.md`). The first line gives the reason, and the second gives the rule and what to do instead. The tables below list every reason the two guards print.
+
+**Remedy.**
+
+1. Find the reason in the tables below.
+2. If the message's second line names an allowed form, use it. The guard prints that form itself, so using it is not a way around the guard.
+3. Otherwise an Employee stops and quotes the message in its Work Unit Report. It never rewrites the command into another form that does the same thing: that is routing around a blocking control (`Standards/RISK_STANDARD.md`, Forbidden Practices). A refusal it believes is wrong is reported the same way, with why the command is legitimate, and the Main Agent files it as an issue.
+4. If the Director decides that the action should happen, a human runs it outside Claude Code (`DAILY_USE.md`, Where a Human Runs a Refused Command).
+
+**The guard could not read the call.** These reasons say nothing about what the command does. The guard refuses what it could not inspect (`hooks/README.md`, Design Rules). Report a refusal that persists, with the message.
+
+| Reason, after `iaeng: BLOCKED —` | Guard | What to do |
+|---|---|---|
+| `cannot read the hook payload as a JSON object` | Edit | Report it: the guard could not parse what Claude Code sent. |
+| `cannot read tool_input.command from the hook payload (is jq installed?)` | Bash | Install `jq`. If it is installed, the guard could not parse what Claude Code sent: report it. |
+| `strip-quotes.awk is missing next to this hook` | Bash | The framework checkout is incomplete. `git -C ia-engineering status` names the missing file. |
+| `the lexer (awk) failed or printed nothing for this command` | Bash | Check that `awk` runs in this shell. |
+| `this command expands to more alternatives than the hook will enumerate` | Bash | Write the command without the brace expansion. |
+| `a rule's pattern does not compile in this shell` | Bash | Report it, with the bash version. |
+| `the byte mapping (tr) failed` | Bash | Check that `tr` runs in this shell. |
+| `this command has more than 2000 pipeline segments after expansion` | Bash | Split the command, or write it to a script file and run that. |
+| `the option extraction (grep -o) failed or printed nothing` | Bash | Check that `grep` runs in this shell. |
+| `Adapters/scripts/suppression-patterns.tsv is missing` | Edit | The framework checkout is incomplete. `git -C ia-engineering status` names the missing file. |
+| `suppression-patterns.tsv holds a pattern grep cannot compile` | Edit | Fix the row the message quotes. |
+| `malformed row in suppression-patterns.tsv` | Edit | Each row is a label, a TAB, then a pattern. Fix the row the message quotes. |
+| `suppression-patterns.tsv holds no patterns` | Edit | Restore the file: an empty list would allow everything. |
+
+**An escape hatch.** The command does what `Standards/GIT_STANDARD.md` (Escape Hatches) forbids.
+
+| Reason, after `iaeng: BLOCKED —` | What to do instead |
+|---|---|
+| `--no-verify disables the commit-msg and pre-commit hooks` | Fix what the git hook refuses. A git hook that is wrong is a Work Unit against the hook. |
+| `git commit -n is --no-verify in short form` | The same. |
+| `disabling commit signing` | Fix the signing setup. |
+| `setting core.hooksPath disables every git hook` | Only `install.sh` writes this setting. When the reason ends with `if this is a read, run git config --get core.hooksPath`, run that. |
+| `GIT_CONFIG_PARAMETERS (or an assigning builtin naming GIT_CONFIG_KEY_<n>) sets arbitrary git config` | Set the value another way, or a human runs it. |
+| `GIT_CONFIG_KEY_<n> names a git config key this hook cannot read` | Write the key literally in the command. |
+| `GIT_CONFIG_KEY_<n> with a variable or substituted index` | Write the index and the key literally in the command. |
+| `GIT_CONFIG_KEY_<n> or git -c / --config-env sets commit.gpgsign, include.*, includeIf.*, alias.* or core.fsmonitor` | Use the setting the project already has. |
+| `git stash sets work aside with no record` | Commit work in progress on the branch. `git stash list` and `git stash show` are allowed. |
+| `interactive git command in a non-interactive session` | Use the non-interactive form, and check the result with `git log` or `git status`. |
+| `force-push or mirror-push` | Never. The one sanctioned rewrite is the data-purge protocol, run by a human on a Director decision. |
+| `a + prefix on a push refspec forces the update` | Push without the `+`. If the remote refuses, that refusal is information. |
+| `deleting a protected branch on the remote` | Never, for `main`, `develop` or `release/*`. |
+| `an empty source in a refspec deletes the remote branch` | The same. |
+| `git reset --hard discards uncommitted work` | Inspect first. Prefer a new branch, or a checkout of the one path you mean. |
+| `git clean -f deletes untracked files that may not be yours` | Report the unexpected files instead of deleting them. |
+| `discarding every working-tree change at once` | Restore the one path you mean, by name. |
+| `force-deleting a branch discards unmerged commits` | Use `git branch -d`, which refuses an unmerged branch. For a branch checked out in a worktree, remove the worktree first (`DAILY_USE.md`, Step 7). |
+| `checkout --force discards every uncommitted change to switch` | Commit the changes, or report them, first. |
+| `writing a git alias whose value is an escape hatch` | Do not write it: the alias is the forbidden command with a shorter name. |
+| `update-ref -d deletes a ref outright` | Delete a branch with `git branch -d`. |
+| `history rewrite` | A Director decision, run by a human with a bundle backup first (`Standards/DATA_PROTECTION_STANDARD.md`, purge protocol). |
+| `recursive removal of the repository metadata or the filesystem root` | Never (`Standards/RISK_STANDARD.md`, operational catalog, Critical). |
+
+**An approval label, or an inline suppression.**
+
+| Reason, after `iaeng: BLOCKED —` | What to do instead |
+|---|---|
+| `applying control-change/approved or size/approved — only the Director applies these approval labels` | Ask the Director to apply it. Removing the label, listing labels and naming it in text are allowed (`hooks/README.md`, Approval Label Guard). |
+| `inline suppression: <label> (<file>)` | Configure the rule for the project, or satisfy it (`Standards/CODE_QUALITY_STANDARD.md`, No Inline Suppression). A tool's false positive that configuration cannot scope is applied by a human, with the constraint named on the line before it. |
+
+**The Stop gate.** `stop-gate.sh` runs when a session is about to stop. It blocks the stop, not a tool call, and the agent then does what the message asks.
+
+| Message | What to do |
+|---|---|
+| `iaeng: stop gate — tracked files have uncommitted changes:` | Commit, with the `Work Unit:` and `Employee:` trailers, or say in the final message why the changes stay uncommitted and what the Director must decide. |
+| `iaeng: stop gate — .ia-engineering/SESSION_STATE.md is behind the repository` | Update `SESSION_STATE.md`. This is expected after a pull of `develop` (`DAILY_USE.md`, Step 8). |
+
+Three other Stop gate lines block nothing: `iaeng: stop gate — HEAD's last commit is dated after the system clock`, `iaeng: stop gate — could not determine whether SESSION_STATE.md is current`, and `iaeng: SESSION_STATE.md does not exist — not blocking`.
+
+**After an edit.** `iaeng: lint failed for <file>` comes from `post-edit-lint.sh`, after the edit is made. It refuses nothing. It hands the lint failure back to be fixed (`Standards/CODE_QUALITY_STANDARD.md`). `iaeng: no linter ran for <file>` only says that no linter applied to that file.
+
+**Prevention.** Each rule of the Bash guard has a refused case and an allowed case in `hooks/tests/escape-hatch-cases.tsv`, which the **Hook Tests** check runs on every Pull Request (`Governance/TROUBLESHOOTING.md` entry W). Nothing yet checks these tables against the reasons the guards print (issue #491). Until something does, a Work Unit that adds or rewords a reason updates this entry in the same commit, as `Standards/DOCUMENTATION_STANDARD.md` asks of every change.
+
+## E. A call is refused, and the message is not the framework's
+
+Audience: the operator, and the Main Agent reading an Employee's report. Pages checked on 24 November 2026.
+
+**Symptom.** A tool call is refused, and no `iaeng:` line says why. Variants:
+
+- An Employee in a worktree is refused with a message such as this one, observed on a framework Employee's worktree on 24 November 2026: `This agent is isolated in the worktree <path>, but this command names git in a form too complex to verify that it stays inside the worktree. Refusing to run it — a worktree-isolated agent's git operations must target its own worktree. Split it into plain, separate commands and run them from <path>.`
+- Claude Code asks permission for the call, or auto mode blocks it. A block usually shows a notification, but not when the classifier gives no verdict.
+
+**Cause.** Claude Code's own controls refused the call, not the framework's.
+
+1. **The worktree isolation checks.** In an isolated worktree, Claude Code blocks an edit of a path in the main checkout, a command whose working directory is the main checkout, a command that redirects git into it, and a command whose git it cannot verify from the text stays inside the worktree ([Worktrees, How Claude Code enforces isolation](https://code.claude.com/docs/en/worktrees.md#how-claude-code-enforces-isolation)). The page says that last check cannot be turned off. [Errors, Command blocked by the worktree isolation checks](https://code.claude.com/docs/en/errors.md#command-blocked-by-the-worktree-isolation-checks) gives the forms of the message and what to do. The message above came from a git command aimed at a scratch repository in a temporary directory, in a form the check could not verify. In another session on the same day, git work in a scratch directory ran when it was written as plain commands with every path spelled out in full, and a relative path was refused with a message that asked for the path in full (observed on 24 November 2026).
+2. **Permissions.** A call the permission mode does not allow waits on a prompt. In auto mode, a call the classifier blocks shows a notification, and `/permissions` lists it under **Recently blocked**. When the classifier gives no verdict, the block comes without the notification or the **Recently blocked** entry ([Permission modes, When auto mode falls back](https://code.claude.com/docs/en/permission-modes.md#when-auto-mode-falls-back)).
+3. A guard that cannot start, fails or times out also refuses with no `iaeng:` line. If every call is refused, that is entry C.
+
+**Remedy.**
+
+1. **Isolation.** Follow the remedy the message prints, such as plain, separate commands, or a path spelled out in full. That is the check's own way through. Git work in the main checkout or in another worktree is not the Employee's in that dispatch: it says so in its Work Unit Report, and the Main Agent decides where that work runs.
+2. **Permission.** Answer the prompt. For an auto-mode block, approve the action in `/permissions` so that Claude may retry, or run the command yourself in a terminal (`DAILY_USE.md`, Where a Human Runs a Refused Command). A block with no verdict has no entry to approve: [Errors, Auto mode cannot determine the safety of an action](https://code.claude.com/docs/en/errors.md#auto-mode-cannot-determine-the-safety-of-an-action) gives its message and what to do.
+3. In both cases, an Employee never rewrites the command to get the same action past the check (`Standards/RISK_STANDARD.md`, Forbidden Practices).
+
+**Prevention.** None from the framework: these controls and their settings are Claude Code's. They come up less when an Employee does all its git work in its own worktree, on a branch made from `origin/develop` (`DAILY_USE.md`, Step 3).
+
 ---
 
 # Adding an Entry
@@ -149,6 +280,7 @@ Follow `Governance/TROUBLESHOOTING.md`, "Adding an Entry", with one more rule. E
 # Related Documents
 
 - `Governance/TROUBLESHOOTING.md` — the runtime-neutral catalog and its entry format
+- `Adapters/ai-runtimes/claude-code/DAILY_USE.md` — the daily loop, its cleanup, and where a human runs a refused command
 - `Core/AI_MANIFEST.md` — Principle X, why runtime-specific entries live here
 - `Adapters/ai-runtimes/claude-code/hooks/README.md` — what `session-start.sh` prints and when
 - `Adapters/ai-runtimes/claude-code/settings.example.json` — the `SessionStart` matcher the installer writes

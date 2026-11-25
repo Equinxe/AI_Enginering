@@ -1,0 +1,3 @@
+### Changed
+
+- `Adapters/ai-runtimes/README.md`, section Generated Output Is a Build Artifact, names the two qualifiers of `generate-agents.sh --check`, as its `--help` does. `--check --quick` generates nothing: it checks that each roster Employee's agent exists and names this framework as its root, and session start runs it. `--check --format tsv` prints one record per agent for a caller, and `check-framework-drift.sh` reads it, without `--quick`, as its `agent` family. The section also says that in an adopting project the pre-commit hook and the data-policy check refuse an entry under `.claude/agents/`, and that a hand-written agent of the project's own takes an anchored rule in `.ia-engineering/data-policy.allow` (#468, WU-IAENG-448)
