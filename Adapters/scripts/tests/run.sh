@@ -9666,6 +9666,10 @@ cp "$SCRIPTS/../../.gitattributes" ./.gitattributes
 cp -R "$SCRIPTS/../../Employees" ./Employees
 awk '/^  - name: /{ seen = 1; keep = ($0 == "  - name: DevOps Engineer") } !seen || keep' \
   "$SCRIPTS/../../Registry/employees.yml" > Registry/employees.yml
+# Every agent states the one-suite rule read from the brief template
+# (WU-IAENG-453): a generation needs that template.
+mkdir -p Templates
+cp "$SCRIPTS/../../Templates/EMPLOYEE_BRIEF.md" Templates/EMPLOYEE_BRIEF.md
 head -n 60 Adapters/github-actions/pr-validation.yml > "$V1_358/pr-validation.yml"
 head -n 8 Adapters/ai-runtimes/claude-code/skills/dashboard/SKILL.md > "$V1_358/SKILL.md"
 cp "$V1_358/pr-validation.yml" Adapters/github-actions/pr-validation.yml
@@ -12900,6 +12904,9 @@ expect_output "  framework root, named in every agent: $ROOT_430"
 # Employees: each full pass costs minutes on a loaded Windows machine.
 mkdir -p "$WORK/fw-430-self"
 cp -R "$FW_430/Adapters" "$FW_430/Employees" "$FW_430/Registry" "$WORK/fw-430-self/"
+# The brief template holds the one-suite rule every agent states (WU-IAENG-453).
+mkdir -p "$WORK/fw-430-self/Templates"
+cp "$FW_430/Templates/EMPLOYEE_BRIEF.md" "$WORK/fw-430-self/Templates/"
 awk '/^  - name: /{ n++ } n <= 2' "$FW_430/Registry/employees.yml" > "$WORK/fw-430-self/Registry/employees.yml"
 cd "$WORK/fw-430-self" || exit 1
 expect 0 "framework: the agents are generated" -- bash Adapters/ai-runtimes/generate-agents.sh
@@ -15168,6 +15175,137 @@ printf 'employees:\n' > Registry/employees.yml
 printf 'fix(u406): x\n\nEmployee: Platform Engineer\n' > msg-framework.txt
 expect 1 "#443: a framework roster that lists no names is refused" -- bash "$HOOK406" msg-framework.txt
 expect_output "/Registry/employees.yml lists no names"
+cd "$HERE" || exit 1
+
+# -------- generate-agents.sh: the one-suite rule in every agent (WU-IAENG-453) --
+#
+# Issue #373. The one-suite-at-a-time rule lived in Templates/EMPLOYEE_BRIEF.md
+# only, so an Employee dispatched without a brief built from that template
+# never read it, and an adopter's Employees ran full suites side by side
+# (25 to 48 bash.exe on one Windows machine in acceptance). Every generated
+# agent now states the rule in the template's own words, read from the
+# template at each generation: one source, so a change to the rule reaches
+# every agent, and --check calls an agent stale until it is regenerated.
+
+section "generate-agents.sh — every agent states the one-suite rule of Templates/EMPLOYEE_BRIEF.md (WU-IAENG-453, #373)"
+
+# pass_453 / fail_453 <label> [detail] — one check, counted.
+pass_453() { TOTAL=$((TOTAL + 1)); [ -n "$VERBOSE" ] && printf '   ok   %s\n' "$1"; return 0; }
+fail_453() {
+  TOTAL=$((TOTAL + 1)); FAILED=$((FAILED + 1))
+  printf '   FAIL %s\n' "$1"
+  [ -z "${2:-}" ] || printf '%s\n' "$2" | sed 's/^/        | /'
+  return 0
+}
+T453=$'\t'
+RULE_RE_453='^- Run at most one full test suite at a time\. '
+
+# The rule, as the template in this checkout writes it: the expected text is
+# the template's, never the generator's.
+RULE_453="$(strip_eol_cr < "$SCRIPTS/../../Templates/EMPLOYEE_BRIEF.md" | grep -E -- "$RULE_RE_453")"
+if [ "$(grep -c . <<< "$RULE_453")" -eq 1 ]; then
+  pass_453 "the template writes the one-suite rule on exactly one line"
+else
+  fail_453 "the template writes the one-suite rule on exactly one line" "$RULE_453"
+fi
+
+# A framework copy with a roster of two Employees, one per default tier, to
+# keep each generation short; the project is a directory of its own.
+FW_453="$WORK/fw-453"
+P_453="$WORK/p-453"
+rm -rf "$FW_453" "$P_453"
+mkdir -p "$FW_453" "$P_453"
+cp -R "$SCRIPTS/../../Adapters" "$SCRIPTS/../../Employees" "$SCRIPTS/../../Registry" "$SCRIPTS/../../Templates" "$FW_453/"
+awk '/^  - name: /{ seen = 1; keep = ($0 == "  - name: Software Architect" || $0 == "  - name: DevOps Engineer") } !seen || keep' \
+  "$SCRIPTS/../../Registry/employees.yml" > "$FW_453/Registry/employees.yml"
+GEN_453="$FW_453/Adapters/ai-runtimes/generate-agents.sh"
+TPL_453="$FW_453/Templates/EMPLOYEE_BRIEF.md"
+cp "$TPL_453" "$WORK/brief-453.md"
+
+# rule_in_each_453 <rule> <label> — each of the two agents has exactly one
+# line equal to <rule>, byte for byte.
+rule_in_each_453() {
+  local f n bad=""
+  for f in "$P_453/.claude/agents/software-architect.md" "$P_453/.claude/agents/devops-engineer.md"; do
+    n="$(grep -cxF -- "$1" "$f" 2>/dev/null)"
+    [ "${n:-0}" -eq 1 ] || bad="$bad ${f##*/}:${n:-no file}"
+  done
+  if [ -z "$bad" ]; then pass_453 "$2"; else fail_453 "$2" "lines equal to the rule, per agent:$bad"; fi
+}
+
+cd "$P_453" || exit 1
+expect 0 "the agents are generated" -- bash "$GEN_453"
+rule_in_each_453 "$RULE_453" "each agent states the rule exactly as the template does, once"
+TOTAL=$((TOTAL + 1))
+if grep -qx '## Test Runs' .claude/agents/devops-engineer.md; then
+  [ -n "$VERBOSE" ] && printf '   ok   the rule has a section of its own, ## Test Runs\n'
+else
+  printf '   FAIL the agent has no ## Test Runs section\n'
+  FAILED=$((FAILED + 1))
+fi
+expect 0 "--check is green on the agents just generated" -- bash "$GEN_453" --check --format tsv
+
+# An agent the generator wrote before this change: the same file without the
+# Test Runs section, the only text the change adds. Stale until it is
+# regenerated, in the record check-framework-drift.sh reads (W1.3).
+awk '/^## Test Runs$/{ skip = 1; next } skip && /^## /{ skip = 0 } !skip' \
+  .claude/agents/devops-engineer.md > "$WORK/old-453.md"
+cp "$WORK/old-453.md" .claude/agents/devops-engineer.md
+expect 1 "an agent generated before the rule was stated is stale" -- bash "$GEN_453" --check --format tsv
+expect_line "agent${T453}stale${T453}.claude/agents/devops-engineer.md${T453}out of date with Employees/ or the roster"
+expect_line "agent${T453}current${T453}.claude/agents/software-architect.md${T453}"
+expect 0 "it is regenerated" -- bash "$GEN_453"
+expect 0 "--check is green once it is regenerated" -- bash "$GEN_453" --check --format tsv
+
+# One source: the rule changes in the template, and nothing else does. Every
+# agent is stale until regenerated, then states the new words.
+sed 's/^\(- Run at most one full test suite at a time\.\) /\1 Changed here. /' "$WORK/brief-453.md" > "$TPL_453"
+RULE2_453="$(strip_eol_cr < "$TPL_453" | grep -E -- "$RULE_RE_453")"
+expect 1 "the rule changed in the template: --check calls every agent stale" -- bash "$GEN_453" --check --format tsv
+expect_line "# generate-agents.sh --check: 2 to act on. 2 agent(s): 0 current, 0 missing, 2 stale."
+expect 0 "the agents are regenerated after the rule changed" -- bash "$GEN_453"
+rule_in_each_453 "$RULE2_453" "each agent states the changed rule, read from the template"
+# A CRLF template gives the same agents: the line-ending carriage return is
+# not part of the rule (Check Convention, Shell Scripts rule 3).
+sed 's/$/\r/' "$TPL_453" > "$WORK/crlf-453.md"
+cp "$WORK/crlf-453.md" "$TPL_453"
+expect 0 "a CRLF template: the agents are still current" -- bash "$GEN_453" --check --format tsv
+
+# A template without the rule, or no template: nothing is generated or
+# checked (exit 2, a condition not evaluated, never a stale agent's 1), and
+# the message names the template.
+#
+# Each refusal is asserted by its own reason, not only by the path: awk's own
+# error on a missing file, and the count guard's message, both name the path
+# too, so a case asserting the path alone stays green with a guard deleted.
+grep -vE -- "$RULE_RE_453" "$WORK/brief-453.md" > "$TPL_453"
+rm -rf .claude
+expect 2 "a template without the rule: no generation (exit 2)" -- bash "$GEN_453"
+expect_output "Templates/EMPLOYEE_BRIEF.md has 0 lines that begin with"
+TOTAL=$((TOTAL + 1))
+if [ -n "$(ls -A .claude/agents 2>/dev/null)" ]; then
+  printf '   FAIL an agent was written without the rule\n'
+  FAILED=$((FAILED + 1))
+else
+  [ -n "$VERBOSE" ] && printf '   ok   no agent is written without the rule\n'
+fi
+expect 2 "a template without the rule: --check is not evaluated (exit 2)" -- bash "$GEN_453" --check --format tsv
+{ cat "$WORK/brief-453.md"; grep -E -- "$RULE_RE_453" "$WORK/brief-453.md"; } > "$TPL_453"
+expect 2 "a template that states the rule twice: no generation (exit 2)" -- bash "$GEN_453"
+expect_output "Templates/EMPLOYEE_BRIEF.md has 2 lines that begin with"
+rm -f "$TPL_453"
+expect 2 "no template: no generation (exit 2)" -- bash "$GEN_453"
+expect_output "Templates/EMPLOYEE_BRIEF.md not found."
+expect 2 "no template: --check is not evaluated (exit 2)" -- bash "$GEN_453" --check --format tsv
+expect_output "Templates/EMPLOYEE_BRIEF.md not found."
+
+# The quick check (session start) and --print-tier-map generate nothing, and
+# read no template.
+cp "$WORK/brief-453.md" "$TPL_453"
+bash "$GEN_453" >/dev/null 2>&1
+rm -f "$TPL_453"
+expect 0 "no template: the quick check still runs" -- bash "$GEN_453" --check --quick --format tsv
+expect 0 "no template: --print-tier-map still runs" -- bash "$GEN_453" --print-tier-map
 cd "$HERE" || exit 1
 
 # --------------------------------------------------------------- verdict ----
