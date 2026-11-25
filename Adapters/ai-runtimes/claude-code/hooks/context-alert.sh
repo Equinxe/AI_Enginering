@@ -57,7 +57,9 @@
 # ONCE PER STEP. Two steps: the alert at IAENG_CTX_ALERT_PCT (default 60, the
 # Director's provisional default of 23 Oct 2026, issue #304) and the last call
 # at IAENG_CTX_LAST_CALL_PCT (default: the alert + 10; none when that passes
-# 100). Each is said once: the step said is kept in
+# 100). The rule that sets the two steps is context-thresholds.sh's, which
+# the status line sources too, so its colours change at the same two steps
+# (WU-IAENG-421, issue #390). Each is said once: the step said is kept in
 #     <same directory>/<session_id>.alert
 # — the user-level directory above, never inside the project — written to a
 # new name with noclobber and renamed over it (a rename replaces a link, never
@@ -131,24 +133,28 @@ esac
 [ -e "${CLAUDE_PROJECT_DIR:-$PWD}/.ia-engineering/context-hooks.off" ] && exit 0
 
 # --- Thresholds ---------------------------------------------------------------
-DEFAULT_ALERT=60
-ALERT_RAW="${IAENG_CTX_ALERT_PCT:-}"
-ALERT_BAD=0
-if [ -z "$ALERT_RAW" ]; then
-  ALERT=$DEFAULT_ALERT
-elif [[ $ALERT_RAW =~ ^[0-9]{1,3}$ ]] && [ "$((10#$ALERT_RAW))" -ge 1 ] && [ "$((10#$ALERT_RAW))" -le 100 ]; then
-  ALERT=$((10#$ALERT_RAW))
-else
-  ALERT=$DEFAULT_ALERT
-  ALERT_BAD=1
-fi
+# The rule (the alert, 60 by default; the last call, the alert + 10 by
+# default) lives in context-thresholds.sh, which the status line sources too,
+# so the line changes colour exactly where this hook speaks (WU-IAENG-421,
+# issue #390). A missing file: silence, as for context-dir.sh below. Both
+# come from this hook's own directory, never the working directory, named as
+# the other hooks name theirs (hooks/README.md, Design Rules, Load from the
+# hook's own directory; #362): $0 when it holds a / or \, which the
+# environment cannot set, else BASH_SOURCE[0], the path bash found; cut at
+# its last / or \.
+HOOKS_DIR="$0"
+case "$HOOKS_DIR" in */*|*\\*) ;; *) HOOKS_DIR="${BASH_SOURCE[0]}" ;; esac
+case "$HOOKS_DIR" in
+  */*|*\\*) HOOKS_DIR="${HOOKS_DIR%[/\\]*}" ;;
+  *) HOOKS_DIR=. ;;
+esac
+# shellcheck source=context-thresholds.sh
+. "$HOOKS_DIR/context-thresholds.sh" 2>/dev/null
+DEFAULT_ALERT=""
+ALERT=""
+ALERT_BAD=""
 LAST=""
-LAST_RAW="${IAENG_CTX_LAST_CALL_PCT:-}"
-if [[ $LAST_RAW =~ ^[0-9]{1,3}$ ]] && [ "$((10#$LAST_RAW))" -gt "$ALERT" ] && [ "$((10#$LAST_RAW))" -le 100 ]; then
-  LAST=$((10#$LAST_RAW))
-elif [ $((ALERT + 10)) -le 100 ]; then
-  LAST=$((ALERT + 10))
-fi
+iaeng_ctx_thresholds "" 2>/dev/null || exit 0
 
 # step_of <pct> — STEP: 0 under the alert, 1 from the alert, 2 from the last call.
 step_of() {
@@ -213,7 +219,6 @@ fi
 # --- The directory --------------------------------------------------------------
 # Named by context-dir.sh, the writer's own rule, sourced by both so they
 # cannot name two directories (issue #340). A missing file: silence.
-case "${BASH_SOURCE[0]}" in */*) HOOKS_DIR="${BASH_SOURCE[0]%/*}" ;; *) HOOKS_DIR=. ;; esac
 # shellcheck source=context-dir.sh
 . "$HOOKS_DIR/context-dir.sh" 2>/dev/null
 DIR=""

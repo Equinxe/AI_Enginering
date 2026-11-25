@@ -40,7 +40,21 @@
 #     PowerShell one as it is and says so, reports a settings.local.json one
 #     as shadowed, and --check reports each case; the installed command, run
 #     as Claude Code runs it (bash -c), writes the .pct and prints the
-#     adopter's line.
+#     adopter's line;
+#   - the line of its own (WU-IAENG-421, issue #390), each case the exact
+#     bytes expected: the context as a percentage and as input tokens out of
+#     the window; the weekly quota with its reset time and the time a steady
+#     pace reaches 100 %, and no cap for a reset more than 7 days ahead; no
+#     5-hour quota; the branch read from the repository's HEAD, its Work Unit
+#     id, a linked worktree, a detached HEAD, a Windows path, and no branch
+#     for a bare path in .git, an empty HEAD or a tag ref; colours at the
+#     context alert's two steps, NO_COLOR;
+#   - a .git, a HEAD or a .pct that is a FIFO is never read: each such run
+#     is bounded by timeout and must print its line;
+#   - .ia-engineering/statusline-own: the line of its own replaces the user's
+#     and the --chain command, which are not run; the off switch wins;
+#     deleting the file restores the chaining; the user's settings.json is
+#     never written. A .pct that already holds the value is not rewritten.
 #
 # A check that the platform cannot run (a symbolic link Git Bash cannot
 # create, a mode Windows does not enforce) is reported as "n/a" with the
@@ -104,11 +118,11 @@ real_ctx_begin "$T"
 
 # run <stdin> [args...] — runs the statusLine as Claude Code does: stdin, a
 # scratch TMPDIR, fallback, HOME and project, none of the switches. Sets OUT,
-# ERR, RC.
+# ERR, RC. RUN_WRAP, when set, is the command it runs under (timeout <s>).
 run() {
   local input="$1"; shift
-  printf '%s' "$input" | env -u IAENG_CONTEXT_HOOKS -u IAENG_CTX_CHAINED -u CLAUDE_CONFIG_DIR \
-    -u NO_COLOR -u IAENG_CTX_ALERT_PCT \
+  printf '%s' "$input" | ${RUN_WRAP[@]+"${RUN_WRAP[@]}"} env -u IAENG_CONTEXT_HOOKS -u IAENG_CTX_CHAINED -u CLAUDE_CONFIG_DIR \
+    -u NO_COLOR -u IAENG_CTX_ALERT_PCT -u IAENG_CTX_LAST_CALL_PCT \
     TMPDIR="$TMPD" IAENG_CTX_TEST_FALLBACK="$FB" HOME="$HOMED" CLAUDE_PROJECT_DIR="$PROJ" ${RUN_ENV[@]+"${RUN_ENV[@]}"} \
     bash "$SL" "$@" > "$T/out" 2> "$T/err"
   RC=$?
@@ -116,6 +130,19 @@ run() {
   ERR="$(cat "$T/err")"
 }
 RUN_ENV=()
+RUN_WRAP=()
+# A FIFO in place of a file the line reads would block that read, and the
+# line would never be printed. Those cases run under timeout, so a hang
+# fails its check instead of stalling the suite; without mkfifo or timeout
+# they are n/a.
+fifo_ok() {
+  rm -f "$T/probe-fifo"
+  command -v timeout >/dev/null 2>&1 || return 1
+  mkfifo "$T/probe-fifo" 2>/dev/null || return 1
+  [ -p "$T/probe-fifo" ] || return 1
+  rm -f "$T/probe-fifo"
+}
+FIFO_WRAP=(timeout 30)
 
 # fine <label> — exit 0, a non-blank line, nothing on stderr.
 fine() {
@@ -144,14 +171,24 @@ mode_enforced() {
   chmod 755 "$T/probe-ro"; rm -rf "$T/probe-ro"; return 0
 }
 
-GOOD='{"session_id":"sess-1","model":{"display_name":"Opus 5.5"},"context_window":{"used_percentage":42.7,"context_window_size":1000000,"current_usage":{"input_tokens":5}},"rate_limits":{"five_hour":{"used_percentage":23.5,"resets_at":1}}}'
+GOOD='{"session_id":"sess-1","model":{"display_name":"Opus 5.5"},"context_window":{"used_percentage":42.7,"total_input_tokens":427000,"context_window_size":1000000,"current_usage":{"input_tokens":5}},"rate_limits":{"five_hour":{"used_percentage":23.5,"resets_at":1}}}'
+# The line of its own for GOOD: no 5-hour quota (issue #390, the Director's
+# scope of 24 Nov 2026), and no weekly one or branch in this payload.
+GOOD_LINE="[Opus 5.5] ctx 42% 427k/1M"
+
+# line_is <label> <expected> — exit 0, nothing on stderr, and the line is
+# exactly <expected>, escapes included.
+line_is() {
+  if [ "$RC" -eq 0 ] && [ -z "$ERR" ] && [ "$OUT" = "$2" ]; then ok "$1"
+  else bad "$1" "rc=$RC err=[$ERR] got: $(printf '%s' "$OUT" | od -c | tr -s ' ' | tr '\n' ' ' | head -c 400)"; fi
+}
 
 # =============================================================================
 echo "== context-statusline.sh — the line and the file"
 
 run "$GOOD"
 fine "a valid payload"
-has "a valid payload: the line shows model, ctx and 5 h quota" "[Opus 5.5] ctx 42% | 5h 23%"
+line_is "a valid payload: the model and the context, its tokens out of the window; no 5-hour quota" "$GOOD_LINE"
 pct_is "a valid payload: <session_id>.pct holds the floor of the percentage" sess-1 42
 if [ "$(od -An -c "$DIR/sess-1.pct" 2>/dev/null | tr -d ' ')" = '42\n' ]; then ok "the .pct is the integer and one LF, nothing else"; else bad "the .pct is the integer and one LF, nothing else" "$(od -c "$DIR/sess-1.pct")"; fi
 if [ -z "$(find "$DIR" -name '*.tmp' 2>/dev/null)" ]; then ok "no temporary file is left in the directory"; else bad "no temporary file is left in the directory"; fi
@@ -243,6 +280,24 @@ run '{"session_id":"sess-cl","context_window":{"used_percentage":7}}'
 RUN_ENV=()
 if [ ! -e "$CLD/old-c.pct" ]; then ok "cleanup: an hour after the last one, it cleans again"; else bad "cleanup: an hour after the last one, it cleans again"; fi
 
+# --- an unchanged value is not rewritten (WU-IAENG-421) ----------------------------
+# The line runs on every render. A .pct that already holds the value is left
+# as it is, so such a render starts no find and no mv. Seen by the file's
+# modification time, set 48 hours back: unchanged when the value is the same
+# (33.9 floors to 33), rewritten when it changes. A TMPDIR of its own, so the
+# file counts of the main directory below are not moved.
+SM="$T/sametmp"; SMF="$SM/iaeng-ctx-$ID/sess-same.pct"; mkdir -p "$SM"
+RUN_ENV=(TMPDIR="$SM")
+run '{"session_id":"sess-same","context_window":{"used_percentage":33}}'
+touch -d "@$OLD" "$SMF"
+M0="$(stat -c %Y "$SMF" 2>/dev/null)"
+run '{"session_id":"sess-same","context_window":{"used_percentage":33.9}}'
+fine "the same value again"
+if [ -n "$M0" ] && [ "$(stat -c %Y "$SMF" 2>/dev/null)" = "$M0" ] && [ "$(cat "$SMF")" = 33 ]; then ok "a .pct that already holds the value is not written again"; else bad "a .pct that already holds the value is not written again" "mtime $M0 -> $(stat -c %Y "$SMF" 2>&1)"; fi
+run '{"session_id":"sess-same","context_window":{"used_percentage":34}}'
+if [ "$(cat "$SMF")" = 34 ] && [ "$(stat -c %Y "$SMF" 2>/dev/null)" != "$M0" ]; then ok "a new value is written"; else bad "a new value is written" "$(cat "$SMF")"; fi
+RUN_ENV=()
+
 # --- hostile session ids -------------------------------------------------------
 mkdir -p "$T/victim"
 for sid in '../../victim/owned' '../x' '..' '.hidden' 'a/b' 'a\\b' '-rf' 'a.b' "$(printf 'a%.0s' $(seq 1 129))" ''; do
@@ -283,6 +338,227 @@ run "$GOOD"
 if [[ $OUT != *$'\033'* ]] && [[ $OUT == *"ctx 42%"* ]]; then ok "NO_COLOR: no escape sequence at all"; else bad "NO_COLOR: no escape sequence at all" "$(printf '%s' "$OUT" | od -c | head -2)"; fi
 RUN_ENV=()
 
+# =============================================================================
+echo "== context-statusline.sh — the line of its own (WU-IAENG-421, issue #390)"
+# Oracles: the Director's scope of 24 Nov 2026 for issue #390, written out
+# here by hand. The model; the context as a percentage, then the input tokens
+# in the window out of its size (total_input_tokens and context_window_size,
+# the statusline page's field table); the weekly quota (seven_day) as a
+# percentage, its reset time, and when a steady pace reaches 100 %; the
+# branch, and the Work Unit id its name carries. No 5-hour quota. Colours at
+# the context alert's two steps: yellow from the alert, bold red and a "!"
+# from the last call (60 and 70 by default; IAENG_CTX_ALERT_PCT and
+# IAENG_CTX_LAST_CALL_PCT as context-alert.sh reads them).
+Y=$'\033[33m'; R=$'\033[1;31m'; Z=$'\033[0m'
+# ctxp <pct> <used> <size> — a payload with the context fields only.
+ctxp() { jq -cn --argjson p "$1" --argjson u "$2" --argjson s "$3" '{session_id:"sess-421", context_window:{used_percentage:$p, total_input_tokens:$u, context_window_size:$s}}'; }
+
+run "$(ctxp 42.7 427000 1000000)"
+line_is "ctx: the floor of the percentage, then the input tokens out of the window" "ctx 42% 427k/1M"
+run "$(ctxp 7.9 15500 200000)"
+line_is "ctx: a 200k window, thousands floored" "ctx 7% 15k/200k"
+run "$(ctxp 0 999 200000)"
+line_is "ctx: under a thousand tokens, the count itself" "ctx 0% 999/200k"
+run "$(ctxp 37 750000 2000000)"
+line_is "ctx: a 2M window" "ctx 37% 750k/2M"
+run "$(ctxp 50 1250000 2500000)"
+line_is "ctx: millions with one decimal, floored" "ctx 50% 1.2M/2.5M"
+run "$(jq -cn '{session_id:"sess-421", context_window:{used_percentage:42}}')"
+line_is "ctx: no token counts, the percentage alone" "ctx 42%"
+run "$(jq -cn '{session_id:"sess-421", context_window:{used_percentage:42, total_input_tokens:"427000", context_window_size:1000000}}')"
+line_is "ctx: a token count given as a string is dropped" "ctx 42%"
+run "$(jq -cn '{session_id:"sess-421", context_window:{used_percentage:42, total_input_tokens:427000, context_window_size:0}}')"
+line_is "ctx: a window of 0 tokens is dropped" "ctx 42%"
+run "$(ctxp null 0 200000)"
+line_is "ctx: no percentage yet (before the first response)" "ctx --"
+
+# tier_case <pct> <expected> [VAR=value...] — the context at <pct> % of a 1M
+# window, under the given environment.
+tier_case() {
+  local p="$1" want="$2"; shift 2
+  RUN_ENV=("$@")
+  run "$(ctxp "$p" "$((p * 10000))" 1000000)"
+  RUN_ENV=()
+  line_is "colour at $p % (${*:-the default steps 60 and 70})" "$want"
+}
+tier_case 59 "ctx 59% 590k/1M"
+tier_case 60 "ctx ${Y}60% 600k/1M${Z}"
+tier_case 69 "ctx ${Y}69% 690k/1M${Z}"
+tier_case 70 "ctx ${R}70%! 700k/1M${Z}"
+tier_case 100 "ctx ${R}100%! 1M/1M${Z}"
+tier_case 39 "ctx 39% 390k/1M" IAENG_CTX_ALERT_PCT=40
+tier_case 40 "ctx ${Y}40% 400k/1M${Z}" IAENG_CTX_ALERT_PCT=40
+tier_case 49 "ctx ${Y}49% 490k/1M${Z}" IAENG_CTX_ALERT_PCT=40
+tier_case 50 "ctx ${R}50%! 500k/1M${Z}" IAENG_CTX_ALERT_PCT=40
+tier_case 44 "ctx ${Y}44% 440k/1M${Z}" IAENG_CTX_ALERT_PCT=40 IAENG_CTX_LAST_CALL_PCT=45
+tier_case 45 "ctx ${R}45%! 450k/1M${Z}" IAENG_CTX_ALERT_PCT=40 IAENG_CTX_LAST_CALL_PCT=45
+tier_case 59 "ctx 59% 590k/1M" IAENG_CTX_ALERT_PCT=abc
+tier_case 60 "ctx ${Y}60% 600k/1M${Z}" IAENG_CTX_ALERT_PCT=abc
+tier_case 100 "ctx ${Y}100% 1M/1M${Z}" IAENG_CTX_ALERT_PCT=95
+tier_case 75 "ctx 75%! 750k/1M" NO_COLOR=1
+
+# --- the weekly quota ------------------------------------------------------------
+# Times in UTC (TZ=UTC0 for the script; the expected text from date -u, a
+# process the script never starts). The window is the 7 days before
+# resets_at. A steady pace reaches 100 % at the window's start plus the time
+# elapsed times 100 over the percentage used; worked by hand for each case
+# below. The script reads its clock a moment after the test, so the cap may
+# move by a few seconds: every second from before the run to after it is
+# accepted.
+# wkp <used> <resets_at> — the context, the weekly window, and a 5-hour window
+# that must not show.
+wkp() { jq -cn --argjson u "$1" --argjson r "$2" '{session_id:"sess-421", context_window:{used_percentage:10, total_input_tokens:100000, context_window_size:1000000}, rate_limits:{five_hour:{used_percentage:55, resets_at:$r}, seven_day:{used_percentage:$u, resets_at:$r}}}'; }
+utc() { date -u -d "@$1" '+%a %H:%M'; }
+W="ctx 10% 100k/1M"
+# wk_run <used> <reset offset from now, s> — runs it at TZ=UTC0; sets T0, T1, RS.
+wk_run() {
+  T0="$(date +%s)"; RS=$((T0 + $2))
+  RUN_ENV=(TZ=UTC0); run "$(wkp "$1" "$RS")"; RUN_ENV=()
+  T1="$(date +%s)"
+}
+# cap_is <label> <text before the cap time> <used %> <cap at T0, in s after T0>
+# — the line is <text><cap time>) for the script's clock at some second from
+# T0 to T1 + 1. The cap for a clock t: the window's start plus (t - start) x
+# 100 / used. The hand-worked value at T0 is checked against it first, so a
+# mistaken oracle fails here rather than passing a wrong line.
+cap_is() {
+  local label="$1" pre="$2" used="$3" at="$4" t c s=$((RS - 604800)) hit=0 want=""
+  if [ $((s + (T0 - s) * 100 / used)) -ne $((T0 + at)) ]; then
+    bad "$label" "the oracle's own arithmetic disagrees with the hand-worked $at s"; return
+  fi
+  for ((t = T0; t <= T1 + 1; t++)); do
+    c=$((s + (t - s) * 100 / used))
+    want="$pre$(utc "$c"))"
+    [ "$OUT" = "$want" ] && hit=1
+  done
+  if [ "$hit" -eq 1 ] && [ "$RC" -eq 0 ] && [ -z "$ERR" ]; then ok "$label"; else bad "$label" "got [$OUT], last tried [$want]"; fi
+}
+
+wk_run 41.2 $((3 * 86400))
+# 4 of 7 days gone and 41 % used: 100 % comes after 9.8 days, past the reset.
+line_is "wk: below the pace, the reset and no cap; the 5-hour quota is not shown" "$W | wk 41% (reset $(utc "$RS"), no cap)"
+wk_run 80 $((5 * 86400))
+# 2 days gone and 80 % used: 100 % at 2.5 days, half a day from now, 43,200 s.
+# A cap before the reset is red with a "!".
+cap_is "wk: a cap before the reset, its time, red" "$W | wk ${R}80%!${Z} (reset $(utc "$RS"), cap ~" 80 43200
+wk_run 30 $((6 * 86400))
+# 1 day gone and 30 % used: 100 % at 3 1/3 days, 2 1/3 days from now,
+# 201,600 s. Red, although 30 % is under the alert.
+cap_is "wk: a cap before the reset at 30 %, red although under the alert" "$W | wk ${R}30%!${Z} (reset $(utc "$RS"), cap ~" 30 201600
+wk_run 100 $((2 * 86400))
+line_is "wk: at 100 %, capped" "$W | wk ${R}100%!${Z} (reset $(utc "$RS"), capped)"
+wk_run 0 $((2 * 86400))
+line_is "wk: at 0 %, no cap" "$W | wk 0% (reset $(utc "$RS"), no cap)"
+wk_run 65 3600
+# An hour before the reset at 65 %: no cap, yellow from the alert's 60.
+line_is "wk: at the alert's 60 to 69 %, yellow" "$W | wk ${Y}65%${Z} (reset $(utc "$RS"), no cap)"
+wk_run 72 3600
+line_is "wk: from the last call's 70 %, red" "$W | wk ${R}72%!${Z} (reset $(utc "$RS"), no cap)"
+T0="$(date +%s)"
+RUN_ENV=(TZ=UTC0 IAENG_CTX_ALERT_PCT=40); run "$(wkp 45 $((T0 + 3 * 86400)))"; RUN_ENV=()
+line_is "wk: the thresholds follow IAENG_CTX_ALERT_PCT, as the context's do" "$W | wk ${Y}45%${Z} (reset $(utc $((T0 + 3 * 86400))), no cap)"
+RUN_ENV=(TZ=UTC0); run "$(jq -cn '{session_id:"sess-421", context_window:{used_percentage:10, total_input_tokens:100000, context_window_size:1000000}, rate_limits:{seven_day:{used_percentage:41}}}')"; RUN_ENV=()
+line_is "wk: no resets_at, the percentage alone" "$W | wk 41%"
+RUN_ENV=(TZ=UTC0); run "$(wkp 41 $(($(date +%s) - 60)))"; RUN_ENV=()
+line_is "wk: a reset already past, the percentage alone" "$W | wk 41%"
+wk_run 20 $((9 * 86400))
+# The window is the 7 days before the reset: 9 days ahead, it opens in 2
+# days, so no time has gone and no pace exists. The reset alone, no cap.
+line_is "wk: a reset more than 7 days ahead, the reset alone, no cap" "$W | wk 20% (reset $(utc "$RS"))"
+RUN_ENV=(TZ=UTC0); run "$(jq -cn '{session_id:"sess-421", context_window:{used_percentage:10, total_input_tokens:100000, context_window_size:1000000}, rate_limits:{seven_day:{used_percentage:41, resets_at:"soon"}}}')"; RUN_ENV=()
+line_is "wk: a resets_at given as a string, the percentage alone" "$W | wk 41%"
+RUN_ENV=(TZ=UTC0); run "$(jq -cn '{session_id:"sess-421", context_window:{used_percentage:10, total_input_tokens:100000, context_window_size:1000000}, rate_limits:{five_hour:{used_percentage:99, resets_at:9999999999}}}')"; RUN_ENV=()
+line_is "wk: a 5-hour window alone shows nothing" "$W"
+
+# --- the branch and its Work Unit -------------------------------------------------
+# Read from the repository's HEAD, found by walking up from the payload's
+# workspace.current_dir (or cwd). Fake repositories: a .git directory, or a
+# .git file naming the git directory, as a linked worktree has.
+RP="$T/repos"
+# mkhead <dir holding HEAD> <content>
+mkhead() { mkdir -p "$1"; printf '%s' "$2" > "$1/HEAD"; }
+# bp <current_dir> — the context and the working directory.
+bp() { jq -cn --arg d "$1" '{session_id:"sess-421", context_window:{used_percentage:10, total_input_tokens:100000, context_window_size:1000000}, workspace:{current_dir:$d}}'; }
+mkhead "$RP/a/.git" $'ref: refs/heads/feat/x-wu-421-usage\n'
+mkdir -p "$RP/a/sub/deep"
+run "$(bp "$RP/a/sub/deep")"
+line_is "branch: from the repository above the working directory, its Work Unit first" "$W | WU-421 feat/x-wu-421-usage"
+run "$(jq -cn --arg d "$RP/a" '{session_id:"sess-421", context_window:{used_percentage:10, total_input_tokens:100000, context_window_size:1000000}, cwd:$d}')"
+line_is "branch: cwd when there is no workspace.current_dir" "$W | WU-421 feat/x-wu-421-usage"
+mkhead "$RP/b/.git" $'0123abcd0123abcd0123abcd0123abcd0123abcd\n'
+run "$(bp "$RP/b")"
+line_is "branch: a detached HEAD, its short commit" "$W | @0123abc"
+mkhead "$RP/gd/wt1" $'ref: refs/heads/fix/y-wu-7\n'
+mkdir -p "$RP/c"; printf 'gitdir: %s\n' "$RP/gd/wt1" > "$RP/c/.git"
+run "$(bp "$RP/c")"
+line_is "branch: a linked worktree's .git file, an absolute gitdir" "$W | WU-7 fix/y-wu-7"
+mkhead "$RP/gd/wt2" $'ref: refs/heads/main\r\n'
+mkdir -p "$RP/d"; printf 'gitdir: ../gd/wt2\r\n' > "$RP/d/.git"
+run "$(bp "$RP/d")"
+line_is "branch: a relative gitdir, CRLF line ends" "$W | main"
+# <branch>|<segment expected>
+for c in "develop|develop" "feat/wu-iaeng-12-x|WU-IAENG-12 feat/wu-iaeng-12-x" "WU-IAENG-12-x|WU-IAENG-12 WU-IAENG-12-x" \
+         "wu433-merge|WU-433 wu433-merge" "perf/wu-444-edit|WU-444 perf/wu-444-edit" "menu-12|menu-12" \
+         "fix/wu-escape-guard|fix/wu-escape-guard" "fix/swu-12|fix/swu-12"; do
+  mkhead "$RP/e/.git" "ref: refs/heads/${c%%|*}"
+  run "$(bp "$RP/e")"
+  line_is "branch [${c%%|*}]: the Work Unit id only when the name carries one" "$W | ${c#*|}"
+done
+mkhead "$RP/e/.git" "ref: refs/heads/feat/$(printf 'a%.0s' $(seq 1 60))"
+run "$(bp "$RP/e")"
+line_is "branch: a long name is cut to 48 characters" "$W | feat/$(printf 'a%.0s' $(seq 1 40))..."
+mkhead "$RP/e/.git" $'ref: refs/heads/a\033[31mb\302\233c\n'
+run "$(bp "$RP/e")"
+line_is "branch: a control character in HEAD becomes a space" "$W | a [31mb c"
+rm -f "$RP/e/.git/HEAD"; mkdir -p "$RP/e/.git/HEAD"
+run "$(bp "$RP/e")"
+line_is "branch: a HEAD that is a directory, no branch" "$W"
+mkdir -p "$RP/f"; printf 'not a gitdir line\n' > "$RP/f/.git"
+run "$(bp "$RP/f")"
+line_is "branch: a .git file without a gitdir, no branch" "$W"
+# Only a "gitdir: " line is followed: a bare path to a git directory that
+# holds a branch is not.
+mkhead "$RP/gd/wt3" $'ref: refs/heads/wu-9-np\n'
+mkdir -p "$RP/g"; printf '%s\n' "$RP/gd/wt3" > "$RP/g/.git"
+run "$(bp "$RP/g")"
+line_is "branch: a .git file holding a bare path, not a gitdir line, no branch" "$W"
+# Only a branch ref or a commit is shown: an empty HEAD and a tag ref are
+# neither.
+for c in "" "ref: refs/tags/v1"; do
+  mkhead "$RP/h/.git" "$c"
+  run "$(bp "$RP/h")"
+  line_is "branch: a HEAD holding [$c], neither a branch nor a commit, no branch" "$W"
+done
+# A .git, or the HEAD a gitdir names, that is not a regular file is never
+# read: a FIFO would block the read (fifo_ok, above). A .git file can name
+# any directory.
+if fifo_ok; then
+  mkdir -p "$RP/fg"; mkfifo "$RP/fg/.git"
+  RUN_WRAP=("${FIFO_WRAP[@]}"); run "$(bp "$RP/fg")"; RUN_WRAP=()
+  line_is "branch: a .git that is a FIFO is not read, no branch" "$W"
+  mkdir -p "$RP/gd/fh" "$RP/fh"; mkfifo "$RP/gd/fh/HEAD"
+  printf 'gitdir: %s\n' "$RP/gd/fh" > "$RP/fh/.git"
+  RUN_WRAP=("${FIFO_WRAP[@]}"); run "$(bp "$RP/fh")"; RUN_WRAP=()
+  line_is "branch: a HEAD that is a FIFO is not read, no branch" "$W"
+else
+  na "branch: a .git or a HEAD that is a FIFO" "no mkfifo or no timeout on this platform"
+fi
+mkdir -p "$RP/none/x"
+up="$RP/none/x"; above=0
+while :; do [ -e "$up/.git" ] && above=1; [ "$up" = "${up%/*}" ] && break; up="${up%/*}"; done
+if [ "$above" -eq 0 ]; then
+  run "$(bp "$RP/none/x")"
+  line_is "branch: no repository above the working directory, no branch" "$W"
+else
+  na "branch: no repository above the working directory" "the scratch directory is inside a repository here"
+fi
+if command -v cygpath >/dev/null 2>&1; then
+  run "$(bp "$(cygpath -w "$RP/a/sub")")"
+  line_is "branch: a Windows working directory (backslashes)" "$W | WU-421 feat/x-wu-421-usage"
+else
+  na "branch: a Windows working directory" "no Windows paths on this platform (no cygpath)"
+fi
+
 # --- planted links and other files ------------------------------------------------
 echo "== context-statusline.sh — planted links, modes, read-only TMP"
 if can_link; then
@@ -318,6 +594,18 @@ mkdir -p "$DIR/sess-dir.pct"
 run '{"session_id":"sess-dir","context_window":{"used_percentage":9}}'
 fine "a directory in place of <session_id>.pct"
 if [ -d "$DIR/sess-dir.pct" ] && [ "$(count_files "$DIR/sess-dir.pct")" = 0 ]; then ok "a directory in place of <session_id>.pct: nothing moved into it"; else bad "a directory in place of <session_id>.pct: nothing moved into it"; fi
+# A FIFO there: the unchanged-value read, which comes first, must not open
+# it (fifo_ok, above). A TMPDIR of its own, as the cases above use theirs.
+if fifo_ok; then
+  FI="$T/fifotmp"; mkdir -p "$FI/iaeng-ctx-$ID"; chmod 700 "$FI/iaeng-ctx-$ID"; mkfifo "$FI/iaeng-ctx-$ID/sess-fifo.pct"
+  RUN_ENV=(TMPDIR="$FI"); RUN_WRAP=("${FIFO_WRAP[@]}")
+  run '{"session_id":"sess-fifo","context_window":{"used_percentage":9}}'
+  RUN_ENV=(); RUN_WRAP=()
+  line_is "a FIFO in place of <session_id>.pct: not read, the line printed" "ctx 9%"
+  if [ -p "$FI/iaeng-ctx-$ID/sess-fifo.pct" ]; then ok "a FIFO in place of <session_id>.pct: left as it is"; else bad "a FIFO in place of <session_id>.pct: left as it is"; fi
+else
+  na "a FIFO in place of <session_id>.pct" "no mkfifo or no timeout on this platform"
+fi
 
 if mode_enforced; then
   OW="$T/openwrite"; mkdir -p "$OW/iaeng-ctx-$ID"; chmod 777 "$OW/iaeng-ctx-$ID"
@@ -386,12 +674,26 @@ for tool in find mv mkdir head timeout cat rm bash; do
   chmod +x "$NOJQ/$tool"
 done
 BASH_BIN="$(command -v bash)"
-printf '%s' '{"session_id":"sess-nojq","context_window":{"current_usage":{"used_percentage":99},"used_percentage":61.9},"rate_limits":{"five_hour":{"used_percentage":8}}}' \
-  | env -i PATH="$NOJQ" TMPDIR="$TMPD" IAENG_CTX_TEST_FALLBACK="$FB" HOME="$HOMED" CLAUDE_PROJECT_DIR="$PROJ" "$BASH_BIN" "$SL" > "$T/out" 2> "$T/err"
+# The same line as with jq: model, context and its tokens (the top-level
+# keys, not current_usage's), the weekly quota and the branch; no 5-hour
+# quota. The working directory is JSON-escaped, as a Windows path is.
+NJR="$(( $(date +%s) + 3 * 86400 ))"
+jq -cn --arg d "$RP/a/sub" --argjson r "$NJR" '{session_id:"sess-nojq", model:{display_name:"Opus 5.5"}, workspace:{current_dir:$d},
+  context_window:{current_usage:{used_percentage:99, total_input_tokens:5}, used_percentage:61.9, total_input_tokens:619000, context_window_size:1000000},
+  rate_limits:{five_hour:{used_percentage:8, resets_at:$r}, seven_day:{used_percentage:12, resets_at:$r}}}' > "$T/nojq.json"
+env -i PATH="$NOJQ" TZ=UTC0 TMPDIR="$TMPD" IAENG_CTX_TEST_FALLBACK="$FB" HOME="$HOMED" CLAUDE_PROJECT_DIR="$PROJ" NO_COLOR=1 "$BASH_BIN" "$SL" < "$T/nojq.json" > "$T/out" 2> "$T/err"
 RC=$?; OUT="$(cat "$T/out")"; ERR="$(cat "$T/err")"
 fine "no jq"
-has "no jq: the line still shows ctx and 5 h quota" "ctx 61% | 5h 8%"
+line_is "no jq: the same line, model, ctx and tokens, weekly quota, branch" "[Opus 5.5] ctx 61% 619k/1M | wk 12% (reset $(utc "$NJR"), no cap) | WU-421 feat/x-wu-421-usage"
 pct_is "no jq: the .pct is written from the top-level used_percentage, not current_usage's" sess-nojq 61
+if command -v cygpath >/dev/null 2>&1; then
+  jq -cn --arg d "$(cygpath -w "$RP/a/sub")" '{session_id:"sess-nojq", workspace:{current_dir:$d}, context_window:{used_percentage:10, total_input_tokens:100000, context_window_size:1000000}}' \
+    | env -i PATH="$NOJQ" TMPDIR="$TMPD" IAENG_CTX_TEST_FALLBACK="$FB" HOME="$HOMED" CLAUDE_PROJECT_DIR="$PROJ" "$BASH_BIN" "$SL" > "$T/out" 2> "$T/err"
+  RC=$?; OUT="$(cat "$T/out")"; ERR="$(cat "$T/err")"
+  line_is "no jq: a Windows working directory, its backslashes JSON-escaped" "$W | WU-421 feat/x-wu-421-usage"
+else
+  na "no jq: a Windows working directory" "no Windows paths on this platform (no cygpath)"
+fi
 printf '%s' 'garbage {"session_id": "x' | env -i PATH="$NOJQ" TMPDIR="$TMPD" IAENG_CTX_TEST_FALLBACK="$FB" HOME="$HOMED" "$BASH_BIN" "$SL" > "$T/out" 2> "$T/err"
 RC=$?; OUT="$(cat "$T/out")"; ERR="$(cat "$T/err")"
 fine "no jq, bad JSON"
@@ -523,6 +825,37 @@ rm -f "$US"
 run "$GOOD"
 if [ -z "$OUT" ] && [ "$RC" -eq 0 ] && [ ! -e "$DIR" ]; then ok "switched off, no user statusLine: nothing printed, as before install"; else bad "switched off, no user statusLine: nothing printed, as before install" "rc=$RC [$OUT]"; fi
 rm -f "$PROJ/.ia-engineering/context-hooks.off" "$US"
+
+# --- a line of its own in this project (WU-IAENG-421) ------------------------------
+# Oracle: the Director's decision for issue #390. With the file
+# .ia-engineering/statusline-own in the project, the script prints its own
+# line instead of the chained one: neither the user's statusLine nor a
+# --chain command is run (each would leave a marker file). Deleting the file
+# restores the chaining. The off switch wins over it. ~/.claude/settings.json
+# is never written.
+OWNF="$PROJ/.ia-engineering/statusline-own"
+MARK421="$T/user-ran"
+mkdir -p "$PROJ/.ia-engineering"
+jq -n --arg m "$MARK421" '{statusLine:{type:"command", command:("touch \"" + $m + "\"; echo USER-LINE")}}' > "$US"
+cp "$US" "$T/us.before"
+: > "$OWNF"
+rm -f "$MARK421" "$DIR/sess-1.pct"
+run "$GOOD"
+line_is "statusline-own: the line of its own in place of the user's" "$GOOD_LINE"
+if [ ! -e "$MARK421" ]; then ok "statusline-own: the user's statusLine command is not run"; else bad "statusline-own: the user's statusLine command is not run"; fi
+pct_is "statusline-own: the .pct is still written for the context alert" sess-1 42
+run "$GOOD" --chain "touch '$MARK421'; echo PROJECT-LINE"
+line_is "statusline-own: a --chain command gives way too" "$GOOD_LINE"
+if [ ! -e "$MARK421" ]; then ok "statusline-own: the --chain command is not run"; else bad "statusline-own: the --chain command is not run"; fi
+RUN_ENV=(IAENG_CONTEXT_HOOKS=off)
+run "$GOOD"
+RUN_ENV=()
+if [ "$OUT" = USER-LINE ]; then ok "statusline-own and the off switch: the off switch wins, the user's line passes through"; else bad "statusline-own and the off switch: the off switch wins" "[$OUT]"; fi
+rm -f "$OWNF" "$MARK421"
+run "$GOOD"
+if [ "$OUT" = USER-LINE ] && [ -e "$MARK421" ]; then ok "statusline-own deleted: the user's line is chained again"; else bad "statusline-own deleted: the user's line is chained again" "[$OUT]"; fi
+if cmp -s "$US" "$T/us.before"; then ok "the user's settings.json is never written"; else bad "the user's settings.json is never written"; fi
+rm -f "$US" "$MARK421"
 
 # =============================================================================
 echo "== install-hooks.sh — the statusLine"
