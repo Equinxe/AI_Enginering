@@ -1112,3 +1112,37 @@ block	env 'V X=1' git --config-env "x.a;b.c=V X" config core.hooksPath /dev/null
 allow	git -C "$(pwd)x" config --get core.hooksPath
 allow	git -C "$(pwd)" config --get core.hooksPath; echo "$(date)"
 allow	git -C "$(cd "a b" && pwd)" config --get core.hooksPath
+# A label word inside a quoted region that holds a space is dropped by the
+# lexer, so the gate reads the command as written for it (review round 3). A
+# key split by brace expansion is read as the lexer expands it.
+block	gh api -X PATCH repos/o/r/issues/1 -F "labels[]=@my file"	a label built from a variable or a substitution
+block	gh api -X POST repos/o/r/issues -f title=t -F "labels[]=@lab list.txt"	a label built from a variable or a substitution
+block	gh api -X PATCH repos/o/r/issues/1 -Fla{b,}els[]=@f	a label built from a variable or a substitution
+# The endpoint that creates an issue takes labels too, so a field key built
+# from a variable or a substitution is read there as on a numbered issue.
+block	gh api repos/o/r/issues -f title=t -f "$K[]=x"	a label built from a variable or a substitution
+block	gh api -X POST repos/o/r/issues -F "$K=@f"	a label built from a variable or a substitution
+block	gh api repos/o/r/issues?x=1 -f "$(echo labels)[]=x"	a label built from a variable or a substitution
+block	gh api repos/o/r/issues -f title=t -f "labels[]=$(cat f)"	a label built from a variable or a substitution
+allow	gh api repos/o/r/issues -f title=t -f "body=$(cat b.md)"
+allow	gh api -X POST repos/o/r/issues -f title="$T" -f body="$B" -f "labels[]=bug"
+# A flag glued to a substitution in a quoted command string is read whole in
+# the third reading, and a + glued to one is a + refspec.
+block	bash -c "git push --fo$(true)rce"	force-push or mirror-push
+block	sh -c "git push --fo`true`rce"	force-push or mirror-push
+block	eval "git push --fo$(true)rce"	force-push or mirror-push
+allow	bash -c "echo $(date) done"
+block	git push origin +$(git branch --show-current)	a + prefix on a push refspec
+block	git push origin "+$(git branch --show-current)"	a + prefix on a push refspec
+block	git push origin +`git branch --show-current`	a + prefix on a push refspec
+allow	git push origin "$(git branch --show-current)"
+# A label created or renamed from a variable or a substitution.
+block	gh label edit bug --name "$X"	a label built from a variable or a substitution
+block	gh label edit bug -n control-change/$(echo approved)	a label built from a variable or a substitution
+block	gh label create "$X"	a label built from a variable or a substitution
+block	gh label create "control-change/$(echo approved)" --color ff0000	a label built from a variable or a substitution
+allow	gh label edit bug --description "$D"
+allow	gh label create bug --color ff0000
+# A $'…' region is judged on the word before it, as a quote is.
+block	bash -c $'git push --force'	force-push or mirror-push
+allow	git -C $'/c/my repo' config --get core.hooksPath

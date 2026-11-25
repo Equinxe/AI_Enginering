@@ -24,8 +24,9 @@
 # call starts lib.sh's cat and one jq; the lexer's awk when the command holds
 # one of the ten bytes the lexer rewrites (a command without them skips it); a
 # second awk, the lexer in KEEPQ mode, for a gh pr|issue edit|create with a
-# label flag, a gh alias set|import, or a gh api write in a command that names
-# a label, as written or as the lexer reads it, or holds a $ or a backtick
+# label flag, a gh alias set|import, a gh label edit|create in a command that
+# holds a $ or a backtick, or a gh api write in a command that names a label,
+# as written or as the lexer reads it, or holds a $ or a backtick
 # (WU-IAENG-450), a GraphQL query with $variables included; one tr for each of
 # those texts that holds a byte above 0x7F (non-ASCII input is mapped once, in
 # linear time); and one grep -o, the only process a rule starts, for a command that names
@@ -750,7 +751,12 @@ if check "${G}push[^|;&]*${S}(-f|--force|--force-with-lease(=[^[:space:]]*)?|--m
 fi
 # A refspec prefixed with + forces the update with no -f anywhere on the line:
 # `git push origin +main`, `git push origin +HEAD:main`. Same effect, same rule.
-if check "${G}push[^|;&]*${S}\+[^[:space:]]+"; then
+# A + glued to a substitution, `+$(git branch --show-current)`, names its ref
+# by the substitution's output: the first reading prints the substitution's
+# commands after the +, and the third reads it as empty, so either reading
+# leaves a + that ends its word. A word that begins with + is enough
+# (WU-IAENG-450).
+if check "${G}push[^|;&]*${S}\+"; then
   iaeng_block "a + prefix on a push refspec forces the update — a force-push written without --force" \
     "Standards/GIT_STANDARD.md, Escape Hatches; Standards/RISK_STANDARD.md (Critical). Push without the +, and if the remote refuses, that refusal is information."
 fi
@@ -913,7 +919,14 @@ kept_view() {
 # label reads the same and is refused too. A field whose key is a literal that
 # names no labels and whose quoted value holds a substitution (`-f
 # "body=$(cat c.md)"`) reads `-f body=$ cat c.md`, a key with no `$`, and is
-# allowed.
+# allowed. The issue endpoint is read with or without a number after it: the
+# endpoint that creates an issue (`repos/o/r/issues`) takes labels too.
+#
+# A label created or renamed from one is refused the same way: the --name (-n)
+# value of gh label edit, and any word after gh label create, as the literal
+# rules above read either. A create whose description or color holds a `$`
+# is refused with it. The KEEPQ view is made for these only when the command
+# holds a `$` or a backtick (GH_LABEL_NAME).
 #
 # The KEEPQ view is made for an api write only when the command names a label
 # (any case), as written or as the lexer read it (STRIPPED), or holds a `$` or
@@ -929,12 +942,14 @@ LABEL_DYN=0
 GH_EDIT_LABELFLAG=0
 GH_ALIAS=0
 GH_API_LABEL=0
+GH_LABEL_NAME=0
 case "$STRIPPED" in *[gG][hH]*) GH_SEEN=1 ;; *) GH_SEEN=0 ;; esac
 if [ "$GH_SEEN" -eq 1 ]; then
   case "$CMD" in
     *[lL][aA][bB][eE][lL]*|*'$'*|*'`'*) API_KEEPQ=1 ;;
     *) case "$STRIPPED" in *[lL][aA][bB][eE][lL]*) API_KEEPQ=1 ;; *) API_KEEPQ=0 ;; esac ;;
   esac
+  case "$CMD" in *'$'*|*'`'*) CMD_SUBST=1 ;; *) CMD_SUBST=0 ;; esac
   for SEG in ${SEGS[@]+"${SEGS[@]}"}; do
     rx_any 1 "${GHB}${S}" "$SEG" || continue
     if rx_any 1 "${GHEDIT}[^|;&]*${LABEL_FLAG}${LVAL}" "$SEG" \
@@ -945,6 +960,8 @@ if [ "$GH_SEEN" -eq 1 ]; then
     fi
     rx_any 1 "${GHEDIT}[^|;&]*${LABEL_FLAG}" "$SEG" && GH_EDIT_LABELFLAG=1
     rx_any 1 "${GHB}${GHF}${S}+alias${GHF}${S}+(set|import)${E}" "$SEG" && GH_ALIAS=1
+    [ "$CMD_SUBST" -eq 1 ] && rx_any 1 "${GHB}${GHF}${S}+label${GHF}${S}+(edit|create)${E}" "$SEG" \
+      && GH_LABEL_NAME=1
     # The read exemption applies only when no write method is also present.
     if rx_any 1 "${GHB}${GHF}${S}+api${S}" "$SEG" \
        && { ! rx_any 1 "$READ_M" "$SEG" || rx_any 1 "$WRITE_M" "$SEG"; }; then
@@ -962,7 +979,8 @@ if [ "$GH_SEEN" -eq 1 ]; then
       fi
     fi
   done
-  if [ "$GH_EDIT_LABELFLAG" -eq 1 ] || [ "$GH_ALIAS" -eq 1 ] || [ "$GH_API_LABEL" -eq 1 ]; then
+  if [ "$GH_EDIT_LABELFLAG" -eq 1 ] || [ "$GH_ALIAS" -eq 1 ] || [ "$GH_API_LABEL" -eq 1 ] \
+     || [ "$GH_LABEL_NAME" -eq 1 ]; then
     # The KEEPQ view of the command: quoted regions kept as single words, their
     # inner whitespace replaced by PH, heredoc bodies still skipped. A flag or a
     # `gh` that sits INSIDE quoted prose has lost its whitespace boundary, so
@@ -986,8 +1004,13 @@ if [ "$GH_SEEN" -eq 1 ]; then
          && { rx_any 1 "${API_FIELD}[^=[:space:]]*label[^=[:space:]]*=(${LDYN}|@)" "$SEG" \
               || { rx_any 1 "/labels([/?[:space:]]|\$)" "$SEG" \
                    && rx_any 1 "${API_FIELD}(name|new_name)=(${LDYN}|@)" "$SEG"; } \
-              || { rx_any 1 "(issues|pulls)/|/labels" "$SEG" \
+              || { rx_any 1 "(issues|pulls)([/?[:space:]]|\$)|/labels" "$SEG" \
                    && rx_any 1 "${API_FIELD}[^=[:space:]]*\\\$" "$SEG"; }; }; then
+        LABEL_DYN=1
+      fi
+      if [ "$GH_LABEL_NAME" -eq 1 ] \
+         && { rx_any 1 "${GHB}${GHF}${S}+label${GHF}${S}+edit[^|;&]*${S}(--name|-n)(=|${S}*)${LDYN}" "$SEG" \
+              || rx_any 1 "${GHB}${GHF}${S}+label${GHF}${S}+create${S}([^|;&]*${S})?${LDYN}" "$SEG"; }; then
         LABEL_DYN=1
       fi
       if [ "$GH_ALIAS" -eq 1 ] \

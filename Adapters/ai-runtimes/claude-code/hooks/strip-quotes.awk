@@ -174,41 +174,66 @@ function is_value_context(w) {
 
 # THE LAST WORD OF out, which the contexts above are judged on when a quote or
 # a substitution opens. Splitting the whole of out at every quote made a pass
-# cost the square of the command's length (WU-IAENG-450), so the word is found
-# from the end of out, and kept:
+# cost the square of the command's length (WU-IAENG-450), and so did walking
+# back over a word, or splitting the text before it, every time a quote or a
+# substitution followed one. So out is read once, and what was read is kept:
 #
-# - The word found last is kept with the length out had then (LWW, LWL).
-#   When out has since grown only by whitespace, as it does after a dropped
-#   quoted region or a substitution the third reading mutes, that word is
-#   still the last one, and nothing is read again but the bytes added.
-# - Otherwise the walk goes back past the whitespace that ends out, all of
-#   it, which is text added since the word was last found, then over the word,
-#   at most 256 bytes. A word it does not see begin, a longer one or one that
-#   begins out, is found by splitting the text before it.
+# - LWL is the length of out already read, LWW the last word in it, and LWC,
+#   LWD and LWV its command, decode and value contexts, judged once, when the
+#   word is found.
+# - A call reads only the bytes added since, from their end: back over the
+#   whitespace that ends them, then back over the word before it. A word that
+#   begins in them is the new last word. One that reaches back to the text
+#   read before goes on from the word that text ended in, when it ended in
+#   one, and its new bytes are added to LWW. Bytes that are all whitespace
+#   leave the word and its contexts as they were.
+# - A line break after the word ends its command, so a quote or a
+#   substitution after it has no word before it: the word and its contexts
+#   are cleared. A \<newline> was removed before it reached out, so a line
+#   break there always ends a command. Read across it, `--config-env` at the
+#   end of one line made the next line's quoted command path a value of its
+#   own, and the path was not read as the command it names.
 #
 # The kept word belongs to the text it was found in. Every place that sets out
-# to another text sets LWL too: lex() clears it, a substitution the third
-# reading mutes saves it with out and clears it (open_dq_sub, and the $( and
-# backtick of lex()), and the close that gives out back gives it back
-# (close_sub). A command of many quoted regions or substitutions separated by
-# whitespace stays linear in its length.
-function last_word(   L, lo, j, e, t, k, tw) {
+# to another text sets the kept word too: lex() clears it (kept_clear), a
+# substitution the third reading mutes saves it with out and clears it
+# (kept_save: open_dq_sub, and the $( and backtick of lex()), and the close
+# that gives out back gives it back (kept_restore: close_sub, and the
+# backtick's close). Each byte of out is then read once, and each word judged
+# once, so the work grows linearly with the length of the command, however
+# long its words. One shape is still read again: a word that goes on past a
+# quote glued into it is judged again at each such quote, so its cost grows
+# with the square of its length, as it did before WU-IAENG-450.
+function last_word(   L, j, e) {
   L = length(out)
-  if (!LWL || substr(out, LWL + 1) ~ /[^ \t\n]/) {
-    j = L
-    while (j > 0 && index(" \t\n", substr(out, j, 1))) j--
-    e = j
-    lo = (e > 256) ? e - 256 : 0
-    while (j > lo && !index(" \t\n", substr(out, j, 1))) j--
-    if (j > lo) LWW = substr(out, j + 1, e - j)
-    else {
-      t = substr(out, 1, e)
-      k = split(t, tw, /[ \t\n]+/)
-      LWW = (k > 0) ? tw[k] : ""
-    }
+  j = L
+  while (j > LWL && index(" \t\n", substr(out, j, 1))) j--
+  e = j
+  if (j > LWL) {
+    while (j > LWL && !index(" \t\n", substr(out, j, 1))) j--
+    if (j == LWL && substr(out, LWL, 1) ~ /[^ \t\n]/) LWW = LWW substr(out, j + 1, e - j)
+    else LWW = substr(out, j + 1, e - j)
+    LWC = is_command_context(LWW)
+    LWD = is_decode_context(LWW)
+    LWV = is_value_context(LWW)
   }
+  if (index(substr(out, e + 1, L - e), "\n")) { LWW = ""; LWC = 0; LWD = 0; LWV = 0 }
   LWL = L
   return LWW
+}
+function kept_clear() {
+  LWL = 0; LWW = ""; LWC = 0; LWD = 0; LWV = 0
+}
+# k is a depth, for a $( or a substitution in double quotes, or "b" and a
+# depth, for a backtick pair outside quotes: one slot for each opening that
+# a close can give back.
+function kept_save(k) {
+  KN[k] = LWL " " LWC " " LWD " " LWV; KW[k] = LWW
+  kept_clear()
+}
+function kept_restore(k,   f) {
+  split(KN[k], f, " ")
+  LWL = f[1] + 0; LWC = f[2] + 0; LWD = f[3] + 0; LWV = f[4] + 0; LWW = KW[k]
 }
 
 # The third reading reads a substitution as empty (close_sub). One that stands
@@ -220,7 +245,8 @@ function last_word(   L, lo, j, e, t, k, tw) {
 # word_after is 1 when the byte after the substitution ends a word.
 function word_before() {
   if (out == "" || substr(out, length(out), 1) !~ /[ \t\n]/) return 0
-  return is_value_context(last_word()) ? 1 : 0
+  last_word()
+  return LWV ? 1 : 0
 }
 function word_after(ch) {
   return ch == "" || ch ~ /[ \t\n;&|)]/
@@ -316,15 +342,17 @@ function path_tail(s,   k, ch) {
 # context, printf, the KEEPQ view). The contexts are saved with the region and
 # restored on return, since a quote opened inside the substitution clears them.
 #
-# In the third reading (V3, WU-IAENG-450) a substitution in double quotes
-# outside a command context or printf is muted instead (close_sub): the text
-# of its region is kept, and the region closes as if it held none.
+# In the third reading (V3, WU-IAENG-450) a substitution in double quotes is
+# muted instead (close_sub): the text of its region is kept, and the region
+# closes as if it held none. In a command context or printf's argument that
+# text is then printed whole, so `bash -c "git push --fo$(true)rce"` reads
+# `git push --force` there; the first two readings print the substitution's
+# commands.
 function open_dq_sub(kind) {
-  mstack[depth] = (V3 && !decodectx && !cmdctx)
+  mstack[depth] = V3
   if (mstack[depth]) {
     bstack[depth] = buf; tstack[depth] = tainted; ostack[depth] = out
-    lwl[depth] = LWL; lww[depth] = LWW
-    out = ""; LWL = 0
+    out = ""; kept_save(depth)
   } else {
     if (decodectx) out = out " " decode_ansic(buf) " "
     else if (cmdctx) out = out " " buf " "
@@ -359,7 +387,7 @@ function open_dq_sub(kind) {
 function close_sub(nextc) {
   if (!mstack[depth]) return 0
   out = ostack[depth]; ostack[depth] = ""
-  LWL = lwl[depth]; LWW = lww[depth]
+  kept_restore(depth)
   if (stack[depth] != "out") {
     buf = bstack[depth]; bstack[depth] = ""
     tainted = tstack[depth]
@@ -515,7 +543,7 @@ function expand_braces(s,   extra, groups, grp, inner, alts, n, k, pre, post, r,
 # CHANGED where the second would differ, and CH3 where only the third would.
 function lex(s,   n, i) {
   n = length(s); i = 1
-  out = ""; LWL = 0
+  out = ""; kept_clear()
   mode = "out"
   depth = 0
   buf = ""
@@ -549,7 +577,7 @@ function lex(s,   n, i) {
         mstack[depth] = V3
         if (V3) {
           mvs[depth] = word_before(); ostack[depth] = out; out = ""
-          lwl[depth] = LWL; lww[depth] = LWW; LWL = 0
+          kept_save(depth)
         }
         else out = out subopen()
         stack[depth] = "out"; depth++
@@ -571,11 +599,11 @@ function lex(s,   n, i) {
         if (V3) {
           if (obt[depth]) {
             out = obs[depth]; obs[depth] = ""; obt[depth] = 0
-            LWL = obl[depth]; LWW = obw[depth]
+            kept_restore("b" depth)
             if (obv[depth] && word_after(d)) out = out WB
           } else {
             obv[depth] = word_before(); obs[depth] = out; obt[depth] = 1; out = ""
-            obl[depth] = LWL; obw[depth] = LWW; LWL = 0
+            kept_save("b" depth)
           }
           i++; continue
         }
@@ -596,19 +624,13 @@ function lex(s,   n, i) {
         # The shell consumes the $ in $'...' and $"...".
         mode = (d == SQ) ? "ansic" : "dq"
         buf = ""; tainted = 0; hadsub = 0
-        lw = last_word()
-        cmdctx = is_command_context(lw)
-        decodectx = is_decode_context(lw)
-        valctx = is_value_context(lw)
+        last_word(); cmdctx = LWC; decodectx = LWD; valctx = LWV
         i += 2; continue
       }
       if (c == SQ || c == "\"") {
         mode = (c == SQ) ? "sq" : "dq"
         buf = ""; tainted = 0; hadsub = 0
-        lw = last_word()
-        cmdctx = is_command_context(lw)
-        decodectx = is_decode_context(lw)
-        valctx = is_value_context(lw)
+        last_word(); cmdctx = LWC; decodectx = LWD; valctx = LWV
         i++; continue
       }
       # `<<<` IS A HERE-STRING, NOT A HEREDOC. It consumes one word on the
@@ -719,7 +741,8 @@ function lex(s,   n, i) {
     if (c == "$" && d == "(") {
       if (V2) { open_dq_sub("dq"); i += 2; continue }
       # The third reading reads every such substitution as empty (CH3). The
-      # second differs only in a command context or printf. In KEEPQ mode the
+      # second differs only in a command context or printf, where the third
+      # is made too, since a second reading always is. In KEEPQ mode the
       # region's text before the substitution is printed first, as the second
       # reading prints it (open_dq_sub), so that the `$` is glued to it:
       # `-f "body=$(cat c.md)"` reads `-f body=$ cat c.md`, a field whose key
