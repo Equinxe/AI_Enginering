@@ -322,12 +322,21 @@ hook "$AD"
 expect_lines 1 "an absent file alone: one line"
 expect_drift "1 of 14 framework-managed file(s) to act on (absent: Registry/work-units.yml)" "the absent file is named, with the count"
 expect_drift "$RUN_CMD, which tells a stale file (copy it) from a modified one (review it)" "the absent-file line names the full command"
-# /clear starts a new session (WU-IAENG-373): the same drift line as startup.
-HOOK_STDIN='{"hook_event_name":"SessionStart","source":"clear"}'
+# /clear starts a new session (WU-IAENG-373), and until WU-IAENG-452 it ran
+# the drift check again and printed the same line as startup. The check now
+# runs on startup and resume only: /clear and compaction do not change the
+# framework's installation, and the session's startup or resume said what it
+# found (hooks/README.md, Session Start Budget).
+for d_src in clear compact; do
+  HOOK_STDIN="{\"hook_event_name\":\"SessionStart\",\"source\":\"$d_src\"}"
+  hook "$AD"
+  expect_lines 0 "#452: source $d_src, an absent file: the drift check is not run, no line"
+done
+HOOK_STDIN='{"hook_event_name":"SessionStart","source":"resume"}'
 hook "$AD"
 HOOK_STDIN=""
-expect_lines 1 "#373: source clear, an absent file: the same one line"
-expect_drift "1 of 14 framework-managed file(s) to act on (absent: Registry/work-units.yml)" "#373: source clear: the absent file is named"
+expect_lines 1 "#452: source resume, an absent file: the same one line as startup"
+expect_drift "1 of 14 framework-managed file(s) to act on (absent: Registry/work-units.yml)" "#452: source resume: the absent file is named"
 # Put back with an OLD mtime: only the presence check can see it came back.
 mv "$T/work-units.yml" Registry/work-units.yml
 touch -t 202001010000 Registry/work-units.yml

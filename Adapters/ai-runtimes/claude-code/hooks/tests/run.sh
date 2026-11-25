@@ -1468,6 +1468,11 @@ ss_run_printed "session-start: a framework outside the project, with a space —
 # startup gets — SESSION_STATE read, its Next Step printed — not a shorter or
 # different context. The payload is the one Claude Code sends, per source;
 # the output is compared whole, so any branch on the source would show.
+# Since WU-IAENG-452 the hook branches on clear and compact, but only in
+# parts this fixture does not reach: the tier map and the drift check need a
+# framework root, which it has none of, and the context-alert check prints
+# nothing under its defaults. tests/session-start-budget.sh compares those
+# per source.
 {
   echo '# SESSION STATE — test'
   echo '_Last updated: 24 September 2026, afternoon by Tester_'
@@ -1819,6 +1824,25 @@ else
   FAILED=$((FAILED + 1))
   printf '   FAIL  escape-hatch: a large command read twice is judged within 30 s, and refused: exit %s after %s s\n' "$W440_RC" "$W440_S"
 fi
+
+# --- session-start.sh within a budget (WU-IAENG-452) ---------------------------
+# Its own file too (tests/session-start-budget.sh), counted here the same way.
+SSB_COUNTS="$(mktemp "${TMPDIR:-/tmp}/iaeng-ssb-counts.XXXXXX")"
+IAENG_HOOK_TESTS_COUNTS="$SSB_COUNTS" bash "$HERE/session-start-budget.sh" ${DASH_ARGS[@]+"${DASH_ARGS[@]}"}
+SSB_RC=$?
+if read -r SSB_TOTAL SSB_FAILED < "$SSB_COUNTS" 2>/dev/null \
+    && [[ "$SSB_TOTAL" =~ ^[0-9]+$ ]] && [[ "$SSB_FAILED" =~ ^[0-9]+$ ]] && [ "$SSB_TOTAL" -gt 0 ]; then
+  TOTAL=$((TOTAL + SSB_TOTAL))
+  FAILED=$((FAILED + SSB_FAILED))
+  if [ "$SSB_RC" -ne 0 ] && [ "$SSB_FAILED" -eq 0 ]; then
+    TOTAL=$((TOTAL + 1)); FAILED=$((FAILED + 1))
+    echo "   FAIL  tests/session-start-budget.sh exited $SSB_RC with no failed check counted"
+  fi
+else
+  TOTAL=$((TOTAL + 1)); FAILED=$((FAILED + 1))
+  echo "   FAIL  tests/session-start-budget.sh reported no counts (exit $SSB_RC) — it could not run"
+fi
+rm -f "$SSB_COUNTS"
 
 # --- Verdict ----------------------------------------------------------------
 

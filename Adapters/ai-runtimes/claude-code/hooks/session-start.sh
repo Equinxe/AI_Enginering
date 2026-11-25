@@ -6,6 +6,22 @@
 # session, so the reading order is not something the model has to remember —
 # it is the first thing it sees. It prints the pointers and the *current*
 # state, never a copy of CLAUDE.md (one fact, one place — Templates/SESSION_STATE.md).
+#
+# ITS BUDGET (WU-IAENG-452, issue #515). The whole hook took 7.5 to 16.9 s
+# under load and did all its work again on every /clear and compaction. It
+# now has a budget, stated and measured in hooks/README.md (Session Start
+# Budget) and Governance/BLOCKING_HOOK_LATENCY_MEASUREMENT.md, and a timeout
+# in settings.example.json above it. On startup and resume it runs every
+# check. On clear and compact it runs what those events need: the read-first
+# pointers, SESSION_STATE (Next Step, Blocked On, its freshness warnings), the
+# parallel-agent cap and the repository state, all read again, since a
+# /clear or a compaction is when they are read back (#304, AC2). The tier map
+# and the agents check come from the result the last full run kept, when
+# nothing it read has changed since (The Tier Map and Agents, Kept, below),
+# and from the generator otherwise. The drift check and the context-alert
+# threshold check are not run: they read the framework's installation and the
+# runtime's environment, which neither event changes, and the startup or
+# resume of the same session already said what they found.
 
 # This hook's own directory, never the working directory (issue #344). It is
 # taken from $0 when $0 holds a / or \, because the environment cannot set $0.
@@ -25,8 +41,22 @@ esac
 . "$HOOKS_DIR/lib.sh"
 
 BASE="${CLAUDE_PROJECT_DIR:-.}"
-ROOT="$(iaeng_framework_root || true)"
+ROOT=""
+iaeng_framework_root_to ROOT
 STATE="$BASE/.ia-engineering/SESSION_STATE.md"
+
+# The event (WU-IAENG-452). lib.sh has read the payload; its "source" is
+# matched in the shell, no process. A JSON string cannot hold an unescaped
+# quote, so no value inside another field can pass for this one. Only clear
+# and compact take the shorter path; any other source, none, or a payload
+# that cannot be read runs every check, as before. The white space is JSON's
+# own four bytes, written out: Git for Windows' bash reads [[:space:]] under
+# LC_ALL=C as Latin-1, where it also holds 0xA0.
+SS_LIGHT=0
+SS_RE_SOURCE=$'"source"[ \t\r\n]*:[ \t\r\n]*"(clear|compact)"'
+if [[ $IAENG_INPUT =~ $SS_RE_SOURCE ]]; then
+  SS_LIGHT=1
+fi
 
 # a_flat <text> — A_FLAT is the text with every control character a space,
 # the C1 pairs \xc2\x80 to \xc2\x9f included, read byte by byte as the record
@@ -100,9 +130,53 @@ else
     echo "  1. CLAUDE.md does not exist yet and the framework's template was not found (looked for Core/AGENT_CONDUCT.md at ., ia-engineering/, \$IAENG_FRAMEWORK)."
   fi
 fi
+# Whether the project is a git work tree, asked once: the freshness warning
+# and the repository state below both need it. git status, whose output the
+# repository state prints, is run here; git rev-parse only when it fails,
+# and decides as it decided when it ran first, as stop-gate.sh does: a bare
+# repository fails git status but rev-parse --is-inside-work-tree exits 0
+# there, so it still gets the freshness check and an empty repository state.
+GIT_WT=0
+GS_OUT="$(git -C "$BASE" status --short --branch 2>/dev/null)" && GIT_WT=1
+if [ "$GIT_WT" -eq 0 ]; then
+  GS_OUT=""
+  git -C "$BASE" rev-parse --is-inside-work-tree >/dev/null 2>&1 && GIT_WT=1
+fi
+
 if [ -f "$STATE" ]; then
   echo "  2. .ia-engineering/SESSION_STATE.md — where things actually stand. Never committed."
-  LAST="$(grep -m1 -E '^_Last updated:' "$STATE" | sed 's/^_//; s/_$//')"
+  # One awk reads the file once (WU-IAENG-452), where a grep, a sed and two
+  # awk read it before: the first "_Last updated:" line, tagged L, then the
+  # Next Step's lines, each tagged N, then Blocked On's, each tagged B. A
+  # line's ending CR is dropped before it is tagged. The header line is then
+  # cut of its leading and trailing "_" as the sed cut it; with the CR gone
+  # first, a CRLF file gives the same line on every platform (Git for
+  # Windows' grep dropped that CR and Linux's kept it). A section line is
+  # never empty (NF), so a tag always begins a line, and the shell takes the
+  # three parts apart by parameter expansion: no loop over the lines, so a
+  # long section costs no more than its length.
+  SS_PARTS="$(awk '
+    { line = $0; sub(/\r$/, "", line) }
+    !have_last && line ~ /^_Last updated:/ { last = line; have_last = 1 }
+    /^## Next Step/ { fn = 1; fb = 0; next }
+    /^## Blocked On/ { fb = 1; fn = 0; next }
+    /^## / { fn = 0; fb = 0 }
+    { $0 = line }
+    fn && NF { n[++nn] = $0 }
+    fb && NF { b[++nb] = $0 }
+    END {
+      sub(/^_/, "", last); sub(/_$/, "", last)
+      print "L" last
+      for (i = 1; i <= nn; i++) print "N" n[i]
+      for (i = 1; i <= nb; i++) print "B" b[i]
+    }' "$STATE")"
+  LAST="${SS_PARTS%%$'\n'*}"; LAST="${LAST#L}"
+  SS_REST=""
+  case "$SS_PARTS" in *$'\n'*) SS_REST=$'\n'"${SS_PARTS#*$'\n'}" ;; esac
+  SS_NPART="${SS_REST%%$'\n'B*}"
+  SS_BPART="${SS_REST#"$SS_NPART"}"
+  NEXT="${SS_NPART//$'\n'N/$'\n'}"; NEXT="${NEXT#$'\n'}"
+  BLOCKED="${SS_BPART//$'\n'B/$'\n'}"; BLOCKED="${BLOCKED#$'\n'}"
   [ -n "$LAST" ] && echo "     $LAST"
   # Each section read whole, its line-ending CRs dropped, so a placeholder
   # is seen as one even past the lines shown. A section shaped as the
@@ -111,7 +185,6 @@ if [ -f "$STATE" ]; then
   # since the shape alone cannot tell the placeholder from an entry written
   # in brackets. At most five lines of the Next Step and three of Blocked On
   # are shown, cut in the shell.
-  NEXT="$(awk '/^## Next Step/{f=1; next} /^## /{f=0} { sub(/\r$/, "") } f && NF' "$STATE")"
   if [ -n "$NEXT" ] && ss_unfilled "$NEXT"; then
     echo "     Next Step: read as not filled in: one bracketed text, the shape of the template's placeholder. It begins: $SS_FIRST"
     echo "       Write the next concrete step there, outside brackets."
@@ -123,8 +196,7 @@ if [ -f "$STATE" ]; then
     done <<< "$NEXT"
   fi
   # Nothing is said when a line of it begins "Nothing" or "[Nothing", in any
-  # letter case, as the grep it replaces read it.
-  BLOCKED="$(awk '/^## Blocked On/{f=1; next} /^## /{f=0} { sub(/\r$/, "") } f && NF' "$STATE")"
+  # letter case, as the grep it replaces read it. BLOCKED was read above.
   shopt -s nocasematch
   case $'\n'"$BLOCKED" in
     $'\n'|*$'\n'nothing*|*$'\n''[nothing'*) ;;
@@ -145,8 +217,10 @@ if [ -f "$STATE" ]; then
   # mtime is computed once and used by both Warning 1 and Warning 2: it is
   # the file's own record of when it was last touched, independent of
   # whether the header inside it was updated in the same edit (Warning 2
-  # exists because it often was not).
-  STATE_MTIME="$(iaeng_file_mtime "$STATE")"
+  # exists because it often was not). The by-name helpers set a variable
+  # and start no subshell around their own command (lib.sh).
+  STATE_MTIME=""
+  iaeng_file_mtime_to STATE_MTIME "$STATE"
 
   # --- Warning 1: behind the repository -----------------------------------
   # A future HEAD_TS (clock skew, or a deliberately future-dated commit) is
@@ -155,9 +229,10 @@ if [ -f "$STATE" ]; then
   # but was not — "now" moves forward on every invocation while mtime stays
   # fixed, so it silently re-warned a second later with no edit made. A
   # future HEAD_TS is instead reported as its own, distinct condition.
-  if [ -n "$STATE_MTIME" ] && git -C "$BASE" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-    HEAD_TS="$(iaeng_head_commit_time "$BASE")"
-    NOW="$(iaeng_now)"
+  if [ -n "$STATE_MTIME" ] && [ "$GIT_WT" -eq 1 ]; then
+    HEAD_TS=""; NOW=""
+    iaeng_head_commit_time_to HEAD_TS "$BASE"
+    iaeng_now_to NOW
     if [ -n "$HEAD_TS" ] && [ -n "$NOW" ] && [ "$HEAD_TS" -gt "$NOW" ]; then
       HEAD_CDATE="$(git -C "$BASE" log -1 --format=%cd 2>/dev/null)"
       echo "     WARNING: HEAD's last commit is dated after the system clock ($HEAD_CDATE vs. $(date 2>/dev/null)) — cannot verify SESSION_STATE.md's freshness; check it by hand."
@@ -177,11 +252,19 @@ if [ -f "$STATE" ]; then
   # silently skipped — that silence is exactly the failure mode this Work
   # Unit exists to catch (the header can go stale while the body keeps
   # moving, and nothing said so).
+  # The date is the header's first "D(D) Month YYYY", matched by the shell
+  # where grep -oE and head matched it, the same leftmost match under the C
+  # locale lib.sh sets. The file's day is its mtime's, read by bash's own
+  # clock (printf '%()T', bash 4.2 and later, local time as date -r gives
+  # it), with date -r kept for an older bash.
   if [ -n "$STATE_MTIME" ]; then
-    HEADER_DATE="$(printf '%s' "$LAST" | grep -oE '[0-9]{1,2} [A-Za-z]+ [0-9]{4}' | head -1)"
+    HEADER_DATE=""
+    [[ $LAST =~ [0-9]{1,2}\ [A-Za-z]+\ [0-9]{4} ]] && HEADER_DATE="${BASH_REMATCH[0]}"
     if [ -n "$HEADER_DATE" ]; then
-      HEADER_YMD="$(iaeng_ymd_from_header_date "$HEADER_DATE")"
-      MTIME_YMD="$(date -r "$STATE" +%Y-%m-%d 2>/dev/null)"
+      HEADER_YMD=""; MTIME_YMD=""
+      iaeng_ymd_from_header_date_to HEADER_YMD "$HEADER_DATE"
+      printf -v MTIME_YMD '%(%Y-%m-%d)T' "$STATE_MTIME" 2>/dev/null
+      [[ $MTIME_YMD =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]] || MTIME_YMD="$(date -r "$STATE" +%Y-%m-%d 2>/dev/null)"
       if [ -n "$HEADER_YMD" ] && [ -n "$MTIME_YMD" ]; then
         if [[ "$HEADER_YMD" < "$MTIME_YMD" ]]; then
           echo "     WARNING: the _Last updated: header ($HEADER_DATE) was not refreshed on the file's last edit ($MTIME_YMD) — update it every time the body changes."
@@ -210,6 +293,39 @@ echo "  3. The Employee Brief for the Work Unit, and the Standards it names."
 if [ -n "$ROOT" ] && [ -f "$ROOT/Core/MAIN_AGENT_CONDUCT.md" ]; then
   echo "  The Main Agent follows $ROOT/Core/MAIN_AGENT_CONDUCT.md: delegate every Work Unit to its named Employee, and present the plan to the Director before executing."
 fi
+
+# --- The parallel-agent cap, where every session starts (WU-IAENG-452, #486)
+# The Director's review of develop at 67ad444 (finding 13, part ii) asked
+# that every session see the cap where it starts. The numbers are read from
+# Core/ORCHESTRATION.md's own paragraph (Dispatch Rules, "Parallel-agent
+# cap."), never written here, so the line says what Core says and changes
+# when Core does. Read by the shell (read and [[ =~ ]], up to that line), no
+# process. The v0.0.15 clause and the main-session clause are said only while
+# Core says them. A paragraph in which the first number cannot be read gives
+# the pointer alone, never a number of this hook's own.
+CAP_DOC="${ROOT:+$ROOT/Core/ORCHESTRATION.md}"
+if [ -n "$CAP_DOC" ] && [ -f "$CAP_DOC" ]; then
+  CAP_PARA=""
+  while IFS= read -r c_l || [ -n "$c_l" ]; do
+    case "$c_l" in '**Parallel-agent cap.**'*) CAP_PARA="${c_l%$'\r'}"; break ;; esac
+  done < "$CAP_DOC"
+  CAP_SHOWN="Core/ORCHESTRATION.md"
+  case "$ROOT" in "$BASE") ;; "$BASE"/*) CAP_SHOWN="${ROOT#"$BASE"/}/$CAP_SHOWN" ;; *) CAP_SHOWN="$ROOT/$CAP_SHOWN" ;; esac
+  CAP_SHOWN="${CAP_SHOWN#./}"
+  a_flat "$CAP_SHOWN"; CAP_SHOWN="$A_FLAT"
+  if [[ $CAP_PARA =~ At\ most\ ([0-9]{1,3})\ subagents\ run\ at\ once\ per\ machine ]]; then
+    CAP_TXT="Parallel-agent cap: at most ${BASH_REMATCH[1]} subagents at once on this machine, counting every Claude Code session's"
+    if [[ $CAP_PARA =~ runs\ a\ framework\ at\ (v[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,4})\ or\ earlier,\ the\ cap\ is\ ([0-9]{1,3}) ]]; then
+      CAP_TXT="$CAP_TXT; ${BASH_REMATCH[2]} while any session on it runs ${BASH_REMATCH[1]} or earlier"
+    fi
+    if [[ $CAP_PARA == *'Every main session open on the machine beyond the first lowers the cap by one.'* ]]; then
+      CAP_TXT="$CAP_TXT; one fewer for each main session beyond the first"
+    fi
+    echo "  $CAP_TXT. At the cap, a dispatch waits and the Director is told ($CAP_SHOWN, Dispatch Rules)."
+  else
+    echo "  Parallel-agent cap: read it in $CAP_SHOWN, Dispatch Rules, before any parallel dispatch."
+  fi
+fi
 echo
 
 # --- Tier map in force (WU-IAENG-336) ----------------------------------------
@@ -228,7 +344,140 @@ echo
 # from the project, with --project ., so the command it prints to regenerate
 # them runs as printed from where a session works.
 GEN="${ROOT:+$ROOT/Adapters/ai-runtimes/generate-agents.sh}"
-if [ -n "$GEN" ] && [ -f "$GEN" ]; then
+
+# --- The user's cache directory (WU-IAENG-359, shared since WU-IAENG-452) ---
+# The user's cache directory, or, when that lies inside the project (a $HOME
+# that is itself a repository, a dev container), a per-user one in $TMPDIR;
+# never one inside the project (lib.sh, iaeng_cache_dir). The drift check and
+# the kept tier map and agents block below use it, and trust it only when the
+# user alone can write it (SEC-IAENG-359-01, -03). SS_KEY is the project's
+# absolute path, which names this project's files in it.
+IA_CACHE=""
+SS_KEY=""
+if [ -n "$ROOT" ]; then
+  D_PRIMARY=""
+  if [ -n "${XDG_CACHE_HOME:-}" ]; then
+    D_PRIMARY="$XDG_CACHE_HOME/ia-engineering"
+  elif [ -n "${HOME:-}" ]; then
+    D_PRIMARY="$HOME/.cache/ia-engineering"
+  fi
+  for d_c in "$D_PRIMARY" "${TMPDIR:-/tmp}/ia-engineering-${EUID:-0}"; do
+    if [ -n "$d_c" ] && iaeng_cache_dir "$d_c" "$BASE" IA_CACHE; then
+      break
+    fi
+  done
+  case "$BASE" in
+    /*|[A-Za-z]:*) SS_KEY="$BASE" ;;
+    *) SS_KEY="$PWD/$BASE" ;;
+  esac
+fi
+
+# --- The tier map and agents, kept for /clear and compaction (WU-IAENG-452)
+# The block below costs a generator run, the hook's most expensive step. A
+# full run (startup, resume, or a clear or compact that finds nothing usable)
+# keeps what it printed in the cache directory, as ss-<project>: a format
+# line, "project TAB <path>", "inputs TAB <what it read>", the block, and an
+# end line. On clear and compact the block is printed from that file, with no
+# generator run, only when all of this holds:
+#
+#   - the file is a regular file the user alone can write, in a directory the
+#     user alone can write (iaeng_untrusted), about this project, whole (its
+#     end line is there, within 64 KiB);
+#   - what the generator reads has not changed since the run that wrote it:
+#     no input is newer than the file (test -nt), and the inputs line is the
+#     same. The inputs are every file generate-agents.sh --print-tier-map
+#     --check --quick reads: the project's .ia-engineering/tier-map, the
+#     framework's and the project's rosters, .claude/agents/ and each agent in
+#     it, the generator itself, and this hook. The inputs line holds which of
+#     them exist, the framework root, whether cygpath is there (the quick
+#     check spells the root with it), and, in an adopting project, the
+#     framework's top level and commit, read by the same git command the
+#     quick check runs (#471). A file created, removed, renamed into
+#     .claude/agents/ or edited, a framework upgrade, or a moved project
+#     therefore sends the event to the generator.
+#
+# The file's time is set to one second before the run started, not when it
+# was written, so an input changed while the generator ran is newer than it.
+# A full run whose block is already kept, unchanged and still valid, writes
+# nothing. Anything that fails here (no cache directory, no GNU touch -d, a
+# file another user could write) leaves the event to the generator, never to
+# an older block.
+SS_KEPT=""
+SS_KEPT_HEAD="iaeng session-start kept v1"
+SS_KEPT_END="end"$'\t'"iaeng session-start kept"
+if [ -n "$IA_CACHE" ] && [ -n "$SS_KEY" ]; then
+  SS_KEPT="$IA_CACHE/ss-${SS_KEY//[^A-Za-z0-9._-]/_}"
+  a_flat "$SS_KEY"; SS_KEY_FLAT="$A_FLAT"
+fi
+
+# ss_kept_inputs — SS_FP: the inputs line; SS_IN: every input that exists,
+# each compared with the kept file by -nt.
+ss_kept_inputs() {
+  local f c=0 top="" sha="" g=""
+  SS_IN=()
+  SS_FP="root=$ROOT"
+  for f in "$BASE/.ia-engineering/tier-map" "$BASE/.ia-engineering/Registry/employees.yml" \
+           "$ROOT/Registry/employees.yml" "$GEN" "$HOOKS_DIR/session-start.sh" "$BASE/.claude/agents"; do
+    if [ -e "$f" ]; then SS_FP="$SS_FP 1"; SS_IN+=("$f"); else SS_FP="$SS_FP 0"; fi
+  done
+  for f in "$BASE"/.claude/agents/*.md; do
+    [ -e "$f" ] && SS_IN+=("$f")
+  done
+  command -v cygpath >/dev/null 2>&1 && c=1
+  SS_FP="$SS_FP cygpath=$c"
+  if ! [ "$ROOT" -ef "$BASE" ]; then
+    g="$(git -C "$ROOT" rev-parse --show-toplevel HEAD 2>/dev/null)"
+    top="${g%%$'\n'*}"
+    case "$g" in *$'\n'*) sha="${g#*$'\n'}" ;; esac
+    SS_FP="$SS_FP commit=$top $sha"
+  fi
+  a_flat "$SS_FP"; SS_FP="$A_FLAT"
+  return 0
+}
+
+# ss_kept_valid — true when the kept file is this project's, whole, with this
+# inputs line, and no input is newer; SS_KEPT_BLOCK is then its block. Who
+# could write it is checked by the caller that prints it.
+ss_kept_valid() {
+  local f k="" hdr
+  SS_KEPT_BLOCK=""
+  [ -n "$SS_KEPT" ] && [ -f "$SS_KEPT" ] && [ ! -L "$SS_KEPT" ] || return 1
+  for f in ${SS_IN[@]+"${SS_IN[@]}"}; do
+    [ "$f" -nt "$SS_KEPT" ] && return 1
+  done
+  IFS= read -r -d '' -n 65536 k < "$SS_KEPT" 2>/dev/null
+  hdr="$SS_KEPT_HEAD"$'\n'"project"$'\t'"$SS_KEY_FLAT"$'\n'"inputs"$'\t'"$SS_FP"$'\n'
+  case "$k" in
+    "$hdr"*$'\n'"$SS_KEPT_END"$'\n') ;;
+    *) return 1 ;;
+  esac
+  k="${k#"$hdr"}"
+  SS_KEPT_BLOCK="${k%"$SS_KEPT_END"$'\n'}"
+  return 0
+}
+
+# ss_kept_write <block> <start> — keeps the block, its time set to one
+# second before <start>, through a new file renamed into place, never
+# through a link, only into a cache directory the user alone can write, made
+# 0700 here when nothing made it yet (as the drift check makes it).
+ss_kept_write() {
+  local tmp
+  [ -n "$SS_KEPT" ] && [ ! -L "$SS_KEPT" ] || return 0
+  case "$1" in *$'\n') ;; *) return 0 ;; esac
+  if [ ! -d "$IA_CACHE" ]; then
+    mkdir -p "${IA_CACHE%/*}" 2>/dev/null
+    mkdir -m 700 "$IA_CACHE" 2>/dev/null
+  fi
+  [ -d "$IA_CACHE" ] && ! iaeng_untrusted "$IA_CACHE" || return 0
+  tmp="$SS_KEPT.$$.tmp"
+  { (umask 077; printf '%s\n%s\t%s\n%s\t%s\n%s%s\n' "$SS_KEPT_HEAD" project "$SS_KEY_FLAT" inputs "$SS_FP" "$1" "$SS_KEPT_END" > "$tmp") \
+      && touch -d "@$(($2 - 1))" "$tmp" && mv -f "$tmp" "$SS_KEPT"; } 2>/dev/null
+  [ -e "$tmp" ] && rm -f "$tmp" 2>/dev/null
+  return 0
+}
+
+# ss_tier_block — the tier map in force and the agents check, printed.
+ss_tier_block() {
   # Claude Code watches only the agents directories that existed when the
   # session started: one created later is loaded by the next session. Read
   # before anything can create it.
@@ -272,10 +521,18 @@ if [ -n "$GEN" ] && [ -f "$GEN" ]; then
   # 0 or 1 is the quick check's verdict; the map is printed either way. Any
   # other exit, or no map line, is a refusal.
   if [ "$TIER_RC" -le 1 ] && [ -n "$TIER_MAP" ]; then
-    tier_of() { sed -n "s/.*[=,]$1=\([^,]*\).*/\1/p" <<< "$TIER_MAP"; }
-    T_STRATEGIC="$(tier_of strategic)"
-    T_STANDARD="$(tier_of standard)"
-    T_LIGHTWEIGHT="$(tier_of lightweight)"
+    # tier_of <tier> — TIER_VAL: the value after the last "=<tier>=" or
+    # ",<tier>=" of the map, up to the next comma, as the sed it replaces
+    # read it (greedy .*), in the shell: no process (WU-IAENG-452).
+    tier_of() {
+      TIER_VAL=""
+      case "$TIER_MAP" in
+        *[=,]"$1"=*) TIER_VAL="${TIER_MAP##*[=,]"$1"=}"; TIER_VAL="${TIER_VAL%%,*}" ;;
+      esac
+    }
+    tier_of strategic; T_STRATEGIC="$TIER_VAL"
+    tier_of standard; T_STANDARD="$TIER_VAL"
+    tier_of lightweight; T_LIGHTWEIGHT="$TIER_VAL"
     echo "Tier map in force — mapping: $TIER_SRC"
     echo "  $TIER_MAP"
     echo "  $TIER_EFFORT"
@@ -284,7 +541,7 @@ if [ -n "$GEN" ] && [ -f "$GEN" ]; then
       echo "  Here Strategic Judgment, Standard Execution and Lightweight Execution all map to $T_LIGHTWEIGHT: an override between them changes no model — dispatch without a model parameter."
     fi
   else
-    echo "WARNING: the tier map could not be resolved — $(head -1 <<< "$TIER_OUT")"
+    echo "WARNING: the tier map could not be resolved — ${TIER_OUT%%$'\n'*}"
     echo "  Fix .ia-engineering/tier-map (Adapters/ai-runtimes/README.md). Until then a Tier Override has no model to use: ask the Director rather than pick one."
   fi
   echo
@@ -373,11 +630,45 @@ if [ -n "$GEN" ] && [ -f "$GEN" ]; then
       echo
     fi
   fi
+  return 0
+}
+
+if [ -n "$GEN" ] && [ -f "$GEN" ]; then
+  SS_DONE=0
+  [ -n "$SS_KEPT" ] && ss_kept_inputs
+  # clear and compact: the kept block, when only the user could have written
+  # it, checked before it is read, and it is valid.
+  if [ "$SS_LIGHT" -eq 1 ] && [ -n "$SS_KEPT" ] && [ -f "$SS_KEPT" ] \
+     && ! iaeng_untrusted "$IA_CACHE" "$SS_KEPT" && ss_kept_valid; then
+    printf '%s' "$SS_KEPT_BLOCK"
+    SS_DONE=1
+  fi
+  if [ "$SS_DONE" -eq 0 ]; then
+    SS_T0=""
+    iaeng_now_to SS_T0
+    # The block's own trailing empty line survives the substitution (x).
+    SS_BLOCK="$(ss_tier_block; printf x)"
+    SS_BLOCK="${SS_BLOCK%x}"
+    printf '%s' "$SS_BLOCK"
+    if [ -n "$SS_KEPT" ] && [ -n "$SS_T0" ] \
+       && ! { ss_kept_valid && [ "$SS_KEPT_BLOCK" = "$SS_BLOCK" ]; }; then
+      ss_kept_write "$SS_BLOCK" "$SS_T0"
+    fi
+  fi
 fi
 
-if git -C "$BASE" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+# The repository state: read on every event, the work the session left is
+# what /clear and compaction need back (#304, AC2). Its first 15 lines, cut in
+# the shell where head and sed cut them; git status ran above, with the
+# work-tree test.
+if [ "$GIT_WT" -eq 1 ]; then
   echo "Repository state now:"
-  git -C "$BASE" status --short --branch 2>/dev/null | head -15 | sed 's/^/  /'
+  if [ -n "$GS_OUT" ]; then
+    g_i=0
+    while IFS= read -r g_l && [ "$g_i" -lt 15 ]; do
+      printf '  %s\n' "$g_l"; g_i=$((g_i + 1))
+    done <<< "$GS_OUT"
+  fi
   echo
 fi
 
@@ -415,8 +706,12 @@ fi
 # Check Convention, rule 1). The command these lines name keeps its result in
 # the same cache by hand. Declared limit: the result reported after an
 # overrun is the earlier run's, so a change made since shows one session late.
+#
+# Not on clear or compact (WU-IAENG-452): neither changes the framework's
+# installation, which is what this reads, and the session's startup or resume
+# already ran it.
 DRIFT_SH="${ROOT:+$ROOT/Adapters/scripts/check-framework-drift.sh}"
-if [ -n "$DRIFT_SH" ] && [ -f "$DRIFT_SH" ] && ! [ "$ROOT" -ef "$BASE" ]; then
+if [ "$SS_LIGHT" -eq 0 ] && [ -n "$DRIFT_SH" ] && [ -f "$DRIFT_SH" ] && ! [ "$ROOT" -ef "$BASE" ]; then
   DRIFT_SHOWN="$ROOT"
   case "$ROOT" in "$BASE"/*) DRIFT_SHOWN="${ROOT#"$BASE"/}" ;; esac
   DRIFT_SHOWN="${DRIFT_SHOWN#./}"
@@ -424,27 +719,11 @@ if [ -n "$DRIFT_SH" ] && [ -f "$DRIFT_SH" ] && ! [ "$ROOT" -ef "$BASE" ]; then
   # imported under a name with a space, runs as printed too (issue #417).
   a_word "$DRIFT_SHOWN/Adapters/scripts/check-framework-drift.sh"
   DRIFT_RUN="bash $A_WORD"
-  # The user's cache directory, or, when that lies inside the project (a
-  # $HOME that is itself a repository, a dev container), a per-user one in
-  # $TMPDIR; never one inside the project (lib.sh, iaeng_cache_dir). The
-  # script applies the same rule again, and trusts the directory only when
-  # the user alone can write it (SEC-IAENG-359-01, -03).
-  DRIFT_CACHE=""
-  D_PRIMARY=""
-  if [ -n "${XDG_CACHE_HOME:-}" ]; then
-    D_PRIMARY="$XDG_CACHE_HOME/ia-engineering"
-  elif [ -n "${HOME:-}" ]; then
-    D_PRIMARY="$HOME/.cache/ia-engineering"
-  fi
-  for d_c in "$D_PRIMARY" "${TMPDIR:-/tmp}/ia-engineering-${EUID:-0}"; do
-    if [ -n "$d_c" ] && iaeng_cache_dir "$d_c" "$BASE" DRIFT_CACHE; then
-      break
-    fi
-  done
-  case "$BASE" in
-    /*|[A-Za-z]:*) DRIFT_KEY="$BASE" ;;
-    *) DRIFT_KEY="$PWD/$BASE" ;;
-  esac
+  # The cache directory resolved above (IA_CACHE). The script applies the
+  # same rule again, and trusts the directory only when the user alone can
+  # write it (SEC-IAENG-359-01, -03).
+  DRIFT_CACHE="$IA_CACHE"
+  DRIFT_KEY="$SS_KEY"
   DRIFT_SAID="${DRIFT_CACHE:+$DRIFT_CACHE/said-${DRIFT_KEY//[^A-Za-z0-9._-]/_}}"
   DRIFT_BG="${DRIFT_CACHE:+$DRIFT_CACHE/bg-${DRIFT_KEY//[^A-Za-z0-9._-]/_}}"
   DRIFT_BGV="${DRIFT_BG:+$DRIFT_BG.tsv}"
@@ -483,8 +762,10 @@ if [ -n "$DRIFT_SH" ] && [ -f "$DRIFT_SH" ] && ! [ "$ROOT" -ef "$BASE" ]; then
       # from every rehearsal (issue #367). Regular files only (-type f is
       # false for a link), named as this hook names them, at the top of a
       # cache directory the user alone can write. A project still drifting
-      # after 30 days hears its line once more.
-      find "$DRIFT_CACHE" -maxdepth 1 -type f \( -name 'said-*' -o -name 'bg-*' \) \
+      # after 30 days hears its line once more. The kept tier map and agents
+      # block (ss-*) goes the same way: a project whose block was not
+      # rewritten for 30 days runs its generator again on its next /clear.
+      find "$DRIFT_CACHE" -maxdepth 1 -type f \( -name 'said-*' -o -name 'bg-*' -o -name 'ss-*' \) \
         -mtime +30 -exec rm -f {} + 2>/dev/null
     fi
     return 0
@@ -824,9 +1105,12 @@ fi
 # would come after the estimated auto-compaction, or its threshold is not a
 # number; otherwise nothing. Run here rather than from a SessionStart entry of
 # its own, so the template keeps one SessionStart group. It reads only the
-# environment, exits 0 on every path, and its stderr is dropped.
+# environment, exits 0 on every path, and its stderr is dropped. Not on clear
+# or compact (WU-IAENG-452): the runtime's environment is the one the
+# session's startup or resume read, and that line asks to tell the Director
+# once.
 CTX_ALERT_SH="$HOOKS_DIR/context-alert.sh"
-if [ -f "$CTX_ALERT_SH" ]; then
+if [ "$SS_LIGHT" -eq 0 ] && [ -f "$CTX_ALERT_SH" ]; then
   CTX_WARN="$(bash "$CTX_ALERT_SH" --session-start </dev/null 2>/dev/null)"
   [ -n "$CTX_WARN" ] && printf '%s\n\n' "$CTX_WARN"
 fi
