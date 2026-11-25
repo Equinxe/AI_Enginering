@@ -123,6 +123,8 @@ These three bind you whether or not this brief lists them, because their Scope s
 - [e.g., Do not add new dependencies without Engineering Manager approval]
 - [e.g., The response schema must match the approved contract exactly — no additions]
 
+<!-- Adapters/ai-runtimes/generate-agents.sh copies the list's line that begins "- Run at most one full test suite at a time. " into every generated agent: reword after that beginning freely, but change the beginning there too (ONE_SUITE_PREFIX), or every generation and full --check stops with exit 2. -->
+
 Whatever this brief adds, these bind every Work Unit that runs tests:
 
 - Run first the tests that cover what you changed: the test file, or the section of the suite, that exercises it, where the suite can run one.
