@@ -20,6 +20,14 @@
 #     fetched that the checkout is behind, a checkout the project did not
 #     record. Each gives exactly ONE line, naming the item and the full
 #     command to run. Each also proves the cache saw the change.
+#   - A missing hook script is said with the outcome that applies, from its
+#     entry's "onFailure" and its event (issue #415): what exit code 2 does
+#     on that event, the event named, and for a guard that refuses every
+#     call, the Director runs the line's command from a terminal with
+#     TROUBLESHOOTING entry C. Both core.hooksPath records are said in the
+#     hook's words. A pull request template of the project's own is not
+#     drift (#472). A drift line's command runs as printed from a project
+#     path with a space (#417).
 #   - Every cause at once: three lines, never more, the long list cut.
 #   - The framework repository itself: the check is not even run.
 #   - The time bound, with the real `timeout`: a check that would take 600 s
@@ -47,7 +55,8 @@
 #     the hook's cache (the next run is a hit) and removes the stamp a cut
 #     run left.
 #   - A fault (the check exits 3, or prints no summary) is one line, said
-#     once; the hook exits 0 in every case.
+#     once; the hook exits 0 in every case. Saying it removes the said- and
+#     bg- files of 30 days and more, regular files only (issue #367).
 #   - An incomplete check is said once and never cached.
 #   - Read-only: the adopter, its .git and the submodule's git dir are the
 #     same after cold and warm runs; the cache lives outside the project, and
@@ -331,13 +340,88 @@ expect_drift "differ from the framework: .github/workflows/pr-validation.yml" "t
 git -C ia-engineering show HEAD:Adapters/github-actions/pr-validation.yml > .github/workflows/pr-validation.yml
 hook "$AD"; expect_lines 0 "clean after: the file restored"
 
+# A pull request template of the project's own is kept, never drift (issue
+# #472): install.sh records it kept, and the quick check, the only one
+# session start runs, records it customized (Code Reviewer M1(a), PR #502).
+echo "<!-- the project's own line -->" >> .github/PULL_REQUEST_TEMPLATE.md
+hook "$AD"
+expect_lines 0 "#472: a pull request template of the project's own: not drift at session start"
+Q_OUT="$("${QUICK[@]}" 2>&1)"
+case "$Q_OUT" in *"file${TAB}customized${TAB}.github/PULL_REQUEST_TEMPLATE.md${TAB}the project's own pull request template, kept"*) ok "#472: ... the quick check records it customized" ;; *) bad "#472: ... the quick check records it customized" "$Q_OUT" ;; esac
+git -C ia-engineering show HEAD:Adapters/github/PULL_REQUEST_TEMPLATE.md > .github/PULL_REQUEST_TEMPLATE.md
+
 cp .claude/settings.json "$T/settings.json"
 jq '.hooks.Stop[0].hooks += [{"type":"command","command":"bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/gone.sh\""}]' "$T/settings.json" | sed $'s/\r$//' > .claude/settings.json
 hook "$AD"
 expect_lines 1 "a hook command naming a missing script alone: one line"
-expect_drift "1 hook command(s) or core.hooksPath name a path that does not work, so that guard is silently off: .claude/hooks/gone.sh (not found). $RUN_CMD" "the broken path is named, with why and the command"
+expect_drift "1 hook command(s) or core.hooksPath name a path that does not work: .claude/hooks/gone.sh (not found; the hook fails, so its check is silently off). $RUN_CMD" "the broken path is named, with why, what it does and the command"
 cp "$T/settings.json" .claude/settings.json
 hook "$AD"; expect_lines 0 "clean after: settings.json restored"
+
+# The outcome that applies, from the entry's "onFailure" and its event (issue
+# #415, case S5-15): a guard whose entry has "onFailure": "block" refuses
+# every call it guards, the opposite of "silently off", which the line said
+# of every missing script. On Stop, onFailure has no effect; on another event
+# a failure does what exit code 2 does there.
+jq '.hooks.PreToolUse += [{"matcher":"Bash","hooks":[{"type":"command","command":"bash \"$CLAUDE_PROJECT_DIR/scripts/hooks/my-guard.sh\"","timeout":30,"onFailure":"block"}]}]' "$T/settings.json" | sed $'s/\r$//' > .claude/settings.json
+hook "$AD"
+expect_lines 1 "#415: a PreToolUse guard with onFailure block naming a missing script: one line"
+expect_drift "1 hook command(s) or core.hooksPath name a path that does not work: scripts/hooks/my-guard.sh (not found; its entry has \"onFailure\": \"block\", so Claude Code refuses every call it guards). If such a guard refuses this command too, the Director runs it from a terminal and follows ia-engineering/Adapters/ai-runtimes/claude-code/TROUBLESHOOTING.md, entry C. $RUN_CMD" "#415: the line names the outcome that applies: every call it guards is refused"
+case "$DRIFT" in *"silently off"*) bad "#415: ... and does not say the guard is silently off" "$DRIFT" ;; *) ok "#415: ... and does not say the guard is silently off" ;; esac
+# That guard's matcher is Bash, so the line's own command is refused too: the
+# line names the human remedy, from a terminal (Prompt Engineer M1, PR #502).
+expect_drift "the Director runs it from a terminal and follows ia-engineering/Adapters/ai-runtimes/claude-code/TROUBLESHOOTING.md, entry C" "#415: a guard that refuses every call: the line sends its command to the Director, in a terminal, with entry C"
+Q_OUT="$("${QUICK[@]}" 2>&1)"
+case "$Q_OUT" in *"path${TAB}broken${TAB}scripts/hooks/my-guard.sh${TAB}not found; its entry has \"onFailure\": \"block\", so Claude Code refuses every call it guards (Adapters/ai-runtimes/claude-code/TROUBLESHOOTING.md, entry C); named by .claude/settings.json (hooks.PreToolUse.2.hooks.0.command)."*) ok "#415: the check's own record names that outcome, then where the entry is" ;; *) bad "#415: the check's own record names that outcome, then where the entry is" "$Q_OUT" ;; esac
+jq '.hooks.Stop[0].hooks += [{"type":"command","command":"bash .claude/hooks/stop-gone.sh","onFailure":"block"}]' "$T/settings.json" | sed $'s/\r$//' > .claude/settings.json
+hook "$AD"
+expect_drift ".claude/hooks/stop-gone.sh (not found; the hook fails, so its check is silently off)" "#415: onFailure block on Stop has no effect: its check is silently off"
+case "$DRIFT" in *"the Director runs it from a terminal"*) bad "#415: ... and no terminal clause: nothing is refused" "$DRIFT" ;; *) ok "#415: ... and no terminal clause: nothing is refused" ;; esac
+# On another event, what exit code 2 does there, in fixed words with the
+# event named (Prompt Engineer m1, PR #502): on UserPromptSubmit, every prompt.
+jq '.hooks.UserPromptSubmit[0].hooks += [{"type":"command","command":"bash .claude/hooks/prompt-gone.sh","onFailure":"block"}]' "$T/settings.json" | sed $'s/\r$//' > .claude/settings.json
+hook "$AD"
+expect_drift ".claude/hooks/prompt-gone.sh (not found; its entry has \"onFailure\": \"block\", so Claude Code blocks every prompt (UserPromptSubmit))" "#415: onFailure block on UserPromptSubmit: every prompt is blocked, the event named"
+case "$DRIFT" in *"the Director runs it from a terminal"*) bad "#415: ... and no terminal clause: no guard of tool calls" "$DRIFT" ;; *) ok "#415: ... and no terminal clause: no guard of tool calls" ;; esac
+# An event where exit code 2 blocks nothing, and one the list does not know:
+# named as it stands, in letters alone.
+jq '.hooks.PostToolUse += [{"hooks":[{"type":"command","command":"bash .claude/hooks/post-gone.sh","onFailure":"block"}]}] | .hooks.FutureEvent = [{"hooks":[{"type":"command","command":"bash .claude/hooks/future-gone.sh","onFailure":"block"}]}]' "$T/settings.json" | sed $'s/\r$//' > .claude/settings.json
+hook "$AD"
+expect_drift ".claude/hooks/post-gone.sh (not found; its entry has \"onFailure\": \"block\", which blocks nothing on PostToolUse, so its check is off)" "#415: onFailure block on PostToolUse blocks nothing: its check is off"
+expect_drift ".claude/hooks/future-gone.sh (not found; its entry has \"onFailure\": \"block\", so a failure does what exit code 2 does on FutureEvent)" "#415: onFailure block on an event the list does not know: that event named"
+cp "$T/settings.json" .claude/settings.json
+hook "$AD"; expect_lines 0 "clean after: settings.json restored (#415 cases)"
+
+# core.hooksPath, the other broken path the quick check reports, in the
+# hook's own words (Code Reviewer M1(b), PR #502): the relative value an
+# earlier install.sh wrote, then a directory that does not exist.
+HP_SAVED="$(git config --get core.hooksPath)"
+git config core.hooksPath ia-engineering/Adapters/git-hooks
+hook "$AD"
+expect_lines 1 "core.hooksPath relative, alone: one line"
+expect_drift "1 hook command(s) or core.hooksPath name a path that does not work: ia-engineering/Adapters/git-hooks (core.hooksPath is relative, so a linked git worktree runs no git hook). $RUN_CMD" "core.hooksPath relative: named, with what it does"
+git config core.hooksPath no-such-hooks
+hook "$AD"
+expect_lines 1 "core.hooksPath naming no directory, alone: one line"
+expect_drift "1 hook command(s) or core.hooksPath name a path that does not work: no-such-hooks (core.hooksPath names a directory that does not exist, so git runs no git hook). $RUN_CMD" "core.hooksPath naming no directory: named, with what it does"
+if [ -n "$HP_SAVED" ]; then git config core.hooksPath "$HP_SAVED"; else git config --unset core.hooksPath; fi
+hook "$AD"; expect_lines 0 "clean after: core.hooksPath restored"
+
+# The command a drift line names runs as printed from a project whose path
+# holds a space (issue #417): a copy of the adopter at "my ad", a missing
+# script to make a line, then that line's command, exactly as printed.
+cp -R "$AD" "$T/my ad"
+jq '.hooks.Stop[0].hooks += [{"type":"command","command":"bash .claude/hooks/gone.sh"}]' "$T/settings.json" | sed $'s/\r$//' > "$T/my ad/.claude/settings.json"
+hook "$T/my ad"
+expect_lines 1 "#417: a project path with a space, a missing script: one line"
+SP_CMD="$(sed -n 's/.*\. Run: \(.*\)$/\1/p' <<< "$DRIFT" | head -n 1)"
+SP_OUT="$(cd "$T/my ad" && eval "$SP_CMD" 2>&1)"; SP_RC=$?
+case "$SP_RC:$SP_OUT" in
+  "0:"*"# check-framework-drift: "*) ok "#417: the drift line's command runs as printed from a project path with a space" ;;
+  *) bad "#417: the drift line's command runs as printed from a project path with a space" "command [$SP_CMD], exit $SP_RC: $(printf '%s' "$SP_OUT" | tail -n 3)" ;;
+esac
+cd "$AD" || exit 2
+rm -rf "$T/my ad"
 
 # Hook forms a shell reads that this check cannot resolve are never drift
 # (the WU-IAENG-358 lessons: -O takes an argument, a c in a flag cluster is
@@ -403,7 +487,7 @@ if [ -n "$CACHE_FILE" ]; then
   touch -r "$CACHE_FILE" "$T/tampered"
   cp -p "$T/tampered" "$CACHE_FILE"
   hook "$AD"
-  expect_drift ".claude/hooks/x [31mX (not found)" "a tampered cache is still data: its row is replayed, flattened"
+  expect_drift ".claude/hooks/x [31mX (not found; the hook fails: its check is off, or, for an entry with \"onFailure\": \"block\", every call it guards is refused)" "a tampered cache is still data: its row is replayed, flattened, its outcome said in words true of both (#415)"
   case "$OUT" in *"$ESC"*) bad "no ESC byte reaches the session from a tampered cache" ;; *) ok "no ESC byte reaches the session from a tampered cache" ;; esac
   rm -f "$CACHE_FILE"
 else
@@ -486,7 +570,7 @@ if [ -r "$HK" ]; then
   info "chmod a-r leaves the file readable here (noacl, or root): the unreadable-hook case is built on Linux CI"
 else
   hook "$AD"
-  expect_drift "stop-gate.sh (not readable)" "a hook script made unreadable (mode only, mtime unchanged) is seen"
+  expect_drift "stop-gate.sh (not readable; the hook fails, so its check is silently off)" "a hook script made unreadable (mode only, mtime unchanged) is seen"
 fi
 chmod a+r "$HK"
 hook "$AD"; expect_lines 0 "clean after: readable again"
@@ -1093,8 +1177,35 @@ hook "$AD"
 expect_lines 1 "a drift status with no line of its own: one line, never silence"
 expect_drift "IA Engineering drift: 1 item(s) to act on. $RUN_CMD" "the fallback line gives the count and the command"
 
+# The cache keeps no project forever (issue #367): writing a line it says
+# once, the hook removes said- and bg- files of 30 days and more, and leaves
+# a newer one, one of another name, and a link.
+: > "$CACHE/said-old-project"; : > "$CACHE/bg-old-project"; : > "$CACHE/bg-old-project.tsv"
+: > "$CACHE/said-recent-project"; : > "$CACHE/other-old"
+touch -t 202001010000 "$CACHE/said-old-project" "$CACHE/bg-old-project" "$CACHE/bg-old-project.tsv" "$CACHE/other-old"
+ln -s "$CACHE/other-old" "$CACHE/said-link" 2>/dev/null
+LINK_MADE=0
+[ -L "$CACHE/said-link" ] && LINK_MADE=1
 printf '#!/usr/bin/env bash\nexit 3\n' > "$DRIFT_SH"
 hook "$AD"
+if [ ! -e "$CACHE/said-old-project" ] && [ ! -e "$CACHE/bg-old-project" ] && [ ! -e "$CACHE/bg-old-project.tsv" ]; then
+  ok "#367: a line said once removes the said- and bg- files of 30 days and more"
+else
+  bad "#367: a line said once removes the said- and bg- files of 30 days and more" "$(ls -la "$CACHE" 2>&1)"
+fi
+if [ -e "$CACHE/said-recent-project" ] && [ -e "$CACHE/other-old" ]; then
+  ok "#367: ... and leaves a newer one and a file of another name"
+else
+  bad "#367: ... and leaves a newer one and a file of another name" "$(ls -la "$CACHE" 2>&1)"
+fi
+if [ "$LINK_MADE" -eq 0 ]; then
+  info "ln -s makes a copy here: the link left in place is checked on Linux CI"
+elif [ -L "$CACHE/said-link" ]; then
+  ok "#367: ... and leaves a link of that name: it removes regular files only"
+else
+  bad "#367: ... and leaves a link of that name: it removes regular files only" "$(ls -la "$CACHE" 2>&1)"
+fi
+rm -f "$CACHE/said-recent-project" "$CACHE/other-old" "$CACHE/said-link"
 expect_lines 1 "a check that fails (exit 3): one line, and the hook exits 0"
 expect_drift "IA Engineering drift check: it failed (exit 3), so nothing is reported (said once). Run it by hand: bash ia-engineering/Adapters/scripts/check-framework-drift.sh" "the fault line gives the exit code and the command"
 hook "$AD"

@@ -89,11 +89,14 @@
 #                     anything. Each roster Employee's agent exists, and names
 #                     as its framework root this framework (-ef: the same
 #                     directory, never a spelling), or, in the framework
-#                     repository itself, names none. A moved project, an agent
-#                     from another clone, and one written before agents named
-#                     a root are stale. A content difference (an upgraded
-#                     Employees/, another mapping) needs --check without it.
-#                     A root that is a network path is never opened.
+#                     repository itself, names none. In an adopting project
+#                     its header also records the framework commit in use
+#                     (#471). A moved project, an agent from another clone,
+#                     one written before agents named a root or recorded a
+#                     commit, and one generated before an upgrade are stale.
+#                     Any other content difference (another mapping, an edit)
+#                     needs --check without it. A root that is a network path
+#                     is never opened.
 #   --format text|tsv with --check only (default text). tsv is for a caller:
 #                     one record per roster Employee,
 #                       agent TAB <status> TAB <path> TAB <detail>
@@ -739,6 +742,24 @@ same_spelling() {
   fi
 }
 
+# framework_commit — FW_COMMIT is the commit this framework checkout is on,
+# or empty when it is not the top of a git checkout of its own (#471). That
+# test matters: a framework copied into the project, not a submodule, would
+# otherwise give the PROJECT's HEAD, which moves with every project commit.
+# One git process, asked only where an agent records or is given a commit.
+framework_commit() {
+  local top="" sha=""
+  FW_COMMIT=""
+  { IFS= read -r top; IFS= read -r sha; } \
+    < <(git -C "$ROOT" rev-parse --show-toplevel HEAD 2> /dev/null)
+  [ -n "$top" ] && [ "$top" -ef "$ROOT" ] || return 0
+  case "${#sha}:$sha" in
+    40:*[!0-9a-f]*|64:*[!0-9a-f]*) return 0 ;;
+    40:*|64:*) FW_COMMIT="$sha" ;;
+  esac
+  return 0
+}
+
 if [ "$QUICK" -eq 1 ]; then
   if [ "$FORMAT" = text ]; then
     echo "IA Engineering — checking agent definitions, quick: each one present and naming"
@@ -749,18 +770,31 @@ if [ "$QUICK" -eq 1 ]; then
       echo "  framework root they must name: none (this is the framework repository)"
     else
       echo "  framework root they must name: $ROOT"
+      framework_commit
+      echo "  framework commit they must record: ${FW_COMMIT:-none (git gives none: the framework is not a git checkout of its own, or git refuses to read it)}"
     fi
     echo
   fi
   # One awk process for the rosters and the agents (Code Reviewer, PR #467):
   # it reads each roster entry's name, makes its agent's file name with the
   # generation's own slug(), and reads that file's root line. One line per
-  # roster Employee, in roster order: the agent's path, TAB, the root it
-  # names, empty when it names none, \001 when the file cannot be opened
-  # (missing, or unreadable: told apart below). The first root line only, as
-  # location_of reads it; a CR ending the line is not part of it.
+  # roster Employee, in roster order: the agent's path, TAB, the framework
+  # commit its header records ("-" when none: TAB is a white space to read,
+  # so an empty field would vanish), TAB, the root it names, empty when it
+  # names none, \001 when the file cannot be opened (missing, or unreadable:
+  # told apart below). The first of each line only, as location_of and
+  # commit_of read them; a CR ending the line is not part of it.
+  #
+  # An agent whose root is this framework is then compared by commit
+  # (#471): an upgrade that changes only Employees/ leaves every root as it
+  # was. Its header records the commit it was generated from; one recording
+  # another, or none, is stale. The commit in use is read once, and only
+  # when an agent gets that far.
   Q_N=0; Q_PRESENT=0; Q_MISSING=0; Q_STALE=0
-  while IFS=$'\t' read -r q_dest q_root; do
+  Q_ADOPTER=1
+  [ "$ROOT" -ef "$PROJECT" ] && Q_ADOPTER=0
+  while IFS=$'\t' read -r q_dest q_commit q_root; do
+    [ "$q_commit" = - ] && q_commit=""
     [ -n "$q_dest" ] || continue
     Q_N=$((Q_N + 1))
     if [ "$q_root" = $'\001' ] && [ ! -f "$q_dest" ]; then
@@ -790,6 +824,22 @@ if [ "$QUICK" -eq 1 ]; then
         fi ;;
       *) q_why="its framework root $q_root is not an absolute path" ;;
     esac
+    if [ -z "$q_why" ] && [ "$Q_ADOPTER" -eq 1 ]; then
+      if [ -z "${Q_COMMIT_DONE:-}" ]; then
+        Q_COMMIT_DONE=1
+        framework_commit
+        Q_COMMIT="$FW_COMMIT"
+      fi
+      if [ "$q_commit" != "$Q_COMMIT" ]; then
+        if [ -z "$q_commit" ]; then
+          q_why="it records no framework commit: it was generated before agents recorded one"
+        elif [ -z "$Q_COMMIT" ]; then
+          q_why="it was generated from framework commit $q_commit, and git gives no commit for this framework: it is not a git checkout of its own (copied in), or git refuses to read it (dubious ownership, say)"
+        else
+          q_why="it was generated from framework commit $q_commit, and the framework is now at $Q_COMMIT: upgraded since, so its Employee definition may have changed"
+        fi
+      fi
+    fi
     if [ -n "$q_why" ]; then
       Q_STALE=$((Q_STALE + 1)); report stale "$q_dest" "$q_why"
     else
@@ -800,11 +850,17 @@ if [ "$QUICK" -eq 1 ]; then
     # backslashes as escapes, and C:\Users\... is a path this script accepts
     # (Code Reviewer, PR #467).
     BEGIN { out = ENVIRON["Q_OUT"] }
+    # The header, where the commit line is, comes before the root line, so
+    # reading up to the root line reads both. Sets c, the commit, to "-"
+    # when there is none.
     function root_of(f,   line, r, n, rc) {
-      r = ""; n = 0
+      r = ""; n = 0; c = "-"
       while ((rc = (getline line < f)) > 0) {
         n++
         sub(/\r$/, "", line)
+        if (c == "-" && line ~ /^  Framework: ./) {
+          c = line; sub(/^  Framework: /, "", c); gsub(/\t/, " ", c)
+        }
         if (line ~ /^Framework root: `.*`$/) {
           r = line; sub(/^Framework root: `/, "", r); sub(/`$/, "", r); break
         }
@@ -813,10 +869,11 @@ if [ "$QUICK" -eq 1 ]; then
       close(f)
       return r
     }
-    function emit(   d) {
+    function emit(   d, r) {
       if (name == "") return
       d = out "/" slug(name) ".md"
-      print d "\t" root_of(d)
+      r = root_of(d)
+      print d "\t" c "\t" r
     }
     /^  - name: / { emit(); name = $0; sub(/^  - name: /, "", name); gsub(/\015/, "", name); next }
     END { emit() }
@@ -921,6 +978,22 @@ if ! [ "$ROOT" -ef "$PROJECT" ]; then
     exit 2
   fi
   FRAMEWORK_SHOWN="$SHOWN_ROOT"
+fi
+
+# The framework commit an adopting project's agents record in their header,
+# "  Framework: <commit>", for the quick check that session start runs to
+# compare with the commit in use (#471, Director decision, 18 November 2026:
+# an automatic signal). Without it, an upgrade that changed only Employees/
+# left every agent naming the same root, and nothing said they were stale.
+# None in the framework repository, whose agents stay byte-identical and
+# would otherwise change with every commit; none either when the framework is
+# not a git checkout of its own (framework_commit).
+GEN_COMMIT=""
+COMMIT_HEADER=""
+if [ -n "$FRAMEWORK_SHOWN" ]; then
+  framework_commit
+  GEN_COMMIT="$FW_COMMIT"
+  [ -n "$GEN_COMMIT" ] && COMMIT_HEADER="  Framework: $GEN_COMMIT"$'\n'
 fi
 
 # --- Extraction ------------------------------------------------------------
@@ -1094,6 +1167,11 @@ LOCATION_ONLY=0
 # only" nor "location only" (DEF-IAENG-456-01: it was counted as mapping only,
 # and the lines of the summary added up to more than the agents that differ).
 MAPPING_AND_LOCATION=0
+# The subset of DIFFERENT that names this framework's root but records
+# another of its commits (#471), alone or beside a mapping difference, and
+# the part of it that also differs in the mapping.
+COMMIT_DRIFT=0
+MAPPING_AND_COMMIT=0
 # The subset of DIFFERENT with no file on disk.
 MISSING=0
 
@@ -1160,12 +1238,17 @@ fi
 
 # Prints a generated agent file with the framework root its "Where the
 # Framework Is" section names replaced by a fixed token, everywhere in the
-# file. Two files equal under this filter differ in the root only. The root is
+# file, and the framework commit its header records (the first
+# "  Framework: " line) left out: a file written before agents recorded a
+# commit has no such line, and its only difference is then that line's
+# absence, a commit-only difference too (Code Reviewer, PR #502). Two files
+# equal under this filter differ in the root or the commit only. The root is
 # read from the file's own "Framework root:" line, so each side is normalised
 # by its own value, and the comparison is by text (index), never by regular
 # expression: a path is full of characters a regex reads as operators.
 without_location() {
   awk '
+    !commit && /^  Framework: / { commit = 1; next }
     root == "" && /^Framework root: `.*`$/ {
       root = $0
       sub(/^Framework root: `/, "", root)
@@ -1187,6 +1270,11 @@ without_location() {
 # The framework root a generated file names, or nothing.
 location_of() {
   awk '/^Framework root: `.*`$/ { sub(/^Framework root: `/, ""); sub(/`$/, ""); print; exit }' "$1"
+}
+
+# The framework commit a generated file's header records, or nothing.
+commit_of() {
+  awk '/^  Framework: / { sub(/^  Framework: /, ""); print; exit }' "$1"
 }
 
 # Reads a generated agent file on stdin (without_location's output, so the
@@ -1290,7 +1378,7 @@ generate_claude_code() {
   Generator: Adapters/ai-runtimes/generate-agents.sh --target claude-code
   Roster:    $from_roster
   Tier:      $tier -> $model$effort_note
-
+${COMMIT_HEADER}
   Edit the Employee definition and regenerate. An edited copy is a second
   definition of this Employee that will silently diverge from Employees/,
   which is the duplication Registry/employees.yml exists to end.
@@ -1398,19 +1486,27 @@ FOOTER
   } > "$tmp"
 
   if [ "$CHECK" -eq 1 ]; then
-    local disk_root
+    local disk_root disk_commit
     if diff -q "$tmp" "$dest" > /dev/null 2>&1; then
       UNCHANGED=$((UNCHANGED + 1))
       report current "$dest"
     elif diff -q <(without_location "$tmp") <(without_location "$dest") > /dev/null 2>&1; then
-      # Same content once each side's framework root is set aside: the agent
-      # names another checkout's framework (WU-IAENG-430). Equal under the
-      # filter but not before it means the two roots differ.
+      # Same content once each side's framework root and commit are set
+      # aside: the agent names another checkout's framework (WU-IAENG-430),
+      # or, naming this one, was generated from another of its commits
+      # (#471). Equal under the filter but not before it means one of the
+      # two differs.
       DIFFERENT=$((DIFFERENT + 1))
-      LOCATION_DRIFT=$((LOCATION_DRIFT + 1))
-      LOCATION_ONLY=$((LOCATION_ONLY + 1))
       disk_root="$(location_of "$dest")"
-      report stale "$dest" "framework location only: on disk ${disk_root:-none}; resolved ${FRAMEWORK_SHOWN:-none}"
+      if [ "$disk_root" = "$FRAMEWORK_SHOWN" ]; then
+        COMMIT_DRIFT=$((COMMIT_DRIFT + 1))
+        disk_commit="$(commit_of "$dest")"
+        report stale "$dest" "framework commit only: generated from ${disk_commit:-none}; the framework is at ${GEN_COMMIT:-none}"
+      else
+        LOCATION_DRIFT=$((LOCATION_DRIFT + 1))
+        LOCATION_ONLY=$((LOCATION_ONLY + 1))
+        report stale "$dest" "framework location only: on disk ${disk_root:-none}; resolved ${FRAMEWORK_SHOWN:-none}"
+      fi
     elif diff -q <(without_location "$tmp" | without_mapping) <(without_location "$dest" | without_mapping) > /dev/null 2>&1; then
       # Same content once the mapping lines are set aside: the Employee
       # definition did not change, the mapping did. Said so, rather than
@@ -1424,8 +1520,15 @@ FOOTER
       disk_model="$(awk '/^---$/{n++; next} n==1 && /^model: /{sub(/^model: /, ""); print; exit}' "$dest")"
       disk_effort="$(awk '/^---$/{n++; next} n==1 && /^effort: /{sub(/^effort: /, ""); print; exit}' "$dest")"
       disk_root="$(location_of "$dest")"
-      if [ "$disk_root" = "$FRAMEWORK_SHOWN" ]; then
+      disk_commit="$(commit_of "$dest")"
+      if [ "$disk_root" = "$FRAMEWORK_SHOWN" ] && [ "$disk_commit" = "$GEN_COMMIT" ]; then
         report stale "$dest" "mapping only: on disk $disk_model, effort: ${disk_effort:-inherit}; resolved $model, effort: ${effort:-inherit}"
+      elif [ "$disk_root" = "$FRAMEWORK_SHOWN" ]; then
+        # Counted apart, for the reason the location case below is: a
+        # recorded mapping alone would not make it current.
+        COMMIT_DRIFT=$((COMMIT_DRIFT + 1))
+        MAPPING_AND_COMMIT=$((MAPPING_AND_COMMIT + 1))
+        report stale "$dest" "mapping and framework commit: on disk $disk_model, effort: ${disk_effort:-inherit}, generated from ${disk_commit:-none}; resolved $model, effort: ${effort:-inherit}, the framework at ${GEN_COMMIT:-none}"
       else
         # Counted apart: it is not a "mapping only" difference, and it is
         # one of the agents the framework-location line counts.
@@ -1541,10 +1644,12 @@ if [ "$CHECK" -eq 1 ]; then
   echo
   echo "Result: $UNCHANGED current, $DIFFERENT stale or missing"
   if [ "$DIFFERENT" -gt 0 ]; then
-    # Three groups that never overlap, so their counts add up to DIFFERENT
-    # (DEF-IAENG-456-01): mapping only (root unchanged), every agent naming
-    # another root (with or without a mapping difference), and the rest.
-    MAPPING_ONLY=$((MAPPING_DRIFT - MAPPING_AND_LOCATION))
+    # Four groups that never overlap, so their counts add up to DIFFERENT
+    # (DEF-IAENG-456-01): mapping only (root and commit unchanged), every
+    # agent naming another root (with or without a mapping difference),
+    # every agent naming this root but another commit (#471, the same), and
+    # the rest.
+    MAPPING_ONLY=$((MAPPING_DRIFT - MAPPING_AND_LOCATION - MAPPING_AND_COMMIT))
     if [ "$MAPPING_ONLY" -gt 0 ]; then
       echo "  $MAPPING_ONLY differ in the tier mapping only (model/effort), not in their"
       echo "  Employee definition: they were generated with a different mapping than the"
@@ -1561,8 +1666,17 @@ if [ "$CHECK" -eq 1 ]; then
         echo "  regeneration writes the mapping resolved now (mapping: $MAPPING_SOURCE)."
       fi
     fi
-    if [ "$DIFFERENT" -gt $((MAPPING_ONLY + LOCATION_DRIFT)) ]; then
-      echo "  $((DIFFERENT - MAPPING_ONLY - LOCATION_DRIFT)) out of date with Employees/ or the roster, or missing."
+    if [ "$COMMIT_DRIFT" -gt 0 ]; then
+      echo "  $COMMIT_DRIFT were generated from another commit of this framework (now"
+      echo "  ${GEN_COMMIT:-none}): it was upgraded since, and session start reports them as"
+      echo "  stale until they are regenerated. Their content differs in nothing else."
+      if [ "$MAPPING_AND_COMMIT" -gt 0 ]; then
+        echo "  $MAPPING_AND_COMMIT of them also differ in the tier mapping (model/effort): the"
+        echo "  regeneration writes the mapping resolved now (mapping: $MAPPING_SOURCE)."
+      fi
+    fi
+    if [ "$DIFFERENT" -gt $((MAPPING_ONLY + LOCATION_DRIFT + COMMIT_DRIFT)) ]; then
+      echo "  $((DIFFERENT - MAPPING_ONLY - LOCATION_DRIFT - COMMIT_DRIFT)) out of date with Employees/ or the roster, or missing."
     fi
     echo "  Regenerate, from the directory this check was run from:"
     echo "    $REMEDY"

@@ -690,7 +690,211 @@ cp "$HOOKS/block-inline-suppression.sh" "$HOOKS/lib.sh" "$SCRATCH/Adapters/ai-ru
 expect_rc "inline-suppression: pattern file missing fails closed" 2 "$SCRATCH/Adapters/ai-runtimes/claude-code/hooks/block-inline-suppression.sh" "$PAY_CLEAN"
 cp "$HOOKS/../../../scripts/suppression-patterns.tsv" "$SCRATCH/Adapters/scripts/"
 expect_rc "inline-suppression: the same copy with the pattern file allows clean code" 0 "$SCRATCH/Adapters/ai-runtimes/claude-code/hooks/block-inline-suppression.sh" "$PAY_CLEAN"
-rm -rf "$SCRATCH"
+
+# THE EDIT GUARD'S FAST PATHS (WU-IAENG-444). One jq reads every field, one
+# cygpath converts every path, and one grep gets every pattern; anything they
+# cannot judge exactly as before goes to the code that judged it before. The
+# checks below hold each fast path to that: a refusal names the row that
+# fired, a row that is malformed or does not compile is refused as before,
+# and a field the one read cannot reproduce is judged as before.
+IS_HOOK="$HOOKS/block-inline-suppression.sh"
+is_pay() { jq -n --arg f "${2:-a.py}" --arg c "$1" '{tool_name:"Write",tool_input:{file_path:$f,content:$c}}'; }
+# is_reason <label> <hook> <payload> <substring> — refused, with the substring
+# in the "iaeng: BLOCKED — " line.
+is_reason() {
+  local label="$1" hook="$2" payload="$3" want="$4" out rc
+  TOTAL=$((TOTAL + 1))
+  out="$(printf '%s' "$payload" | bash "$hook" 2>&1 >/dev/null)"
+  rc=$?
+  if [ "$rc" -eq 2 ] && printf '%s\n' "$out" | sed -n 's/^iaeng: BLOCKED — //p' | grep -qF -- "$want"; then
+    [ "$VERBOSE" -eq 1 ] && printf '   ok    %s\n' "$label"
+  else
+    FAILED=$((FAILED + 1))
+    printf '   FAIL  %s: exit %s, want 2 with "%s"\n' "$label" "$rc" "$want"
+    printf '%s\n' "$out" | sed 's/^/         | /'
+  fi
+}
+# One refusal per row of the pattern file, each named by its own label: one
+# grep reads every pattern, so a pattern it dropped would pass its directive.
+IS_EXC="$(printf '%s%s' 'exc' 'ept:')"
+is_reason "inline-suppression: the python row refuses, by its label" "$IS_HOOK" "$PAY_CODE" "inline suppression: python-lint-suppression"
+is_reason "inline-suppression: the JS/TS row refuses, by its label" "$IS_HOOK" "$PAY_JS" "inline suppression: js-ts-suppression"
+is_reason "inline-suppression: the other-suppression row refuses, by its label" "$IS_HOOK" "$(is_pay "$(printf '%s%s' 'x = 1  #no' 'sec')")" "inline suppression: other-suppression"
+is_reason "inline-suppression: the skipped-test row refuses, by its label" "$IS_HOOK" "$PAY_TEST" "inline suppression: skipped-or-focused-test"
+is_reason "inline-suppression: the swallowed-exception row refuses, by its label" "$IS_HOOK" "$(is_pay "$(printf 'try:\n    f()\n%s\n    raise\n' "$IS_EXC")")" "inline suppression: swallowed-exception"
+# The text values are read one per line, as before: a whole-line rule still
+# matches the second edit of a MultiEdit when the first does not end its line.
+is_reason "inline-suppression: each MultiEdit text starts its own line" "$IS_HOOK" \
+  "$(jq -n --arg s "$IS_EXC" '{tool_name:"MultiEdit",tool_input:{file_path:"a.py",edits:[{old_string:"a",new_string:"x = 1"},{old_string:"b",new_string:$s}]}}')" \
+  "inline suppression: swallowed-exception"
+# The one grep folds case, as each per-row grep does: without its -i, an
+# upper-case directive matched no pattern there and was allowed before the
+# per-row loop could refuse it. And the text is everything after the read's
+# fourth separator, not after its last: a separator inside the text, after a
+# directive, must leave the directive in the text that is read (F2 of the
+# Security review of PR #487).
+is_reason "inline-suppression: an upper-case directive is refused, by its label" "$IS_HOOK" \
+  "$(is_pay "$(printf 'x = 1  #%s' ' NOQA')")" "inline suppression: python-lint-suppression"
+is_reason "inline-suppression: a unit separator in the text after a directive leaves it in the text" "$IS_HOOK" \
+  "$(is_pay "$(printf 'x = 1  #%s\037y = 2' ' noqa')")" "inline suppression: python-lint-suppression"
+# A field the one jq read cannot carry is judged as before. The path's trailing
+# line break was stripped by its command substitution, so "a.md<LF>" is read as
+# documentation, as it was; a \037 inside a path is the read's own separator.
+# Both are judged as develop judged them, which allows them, a .md path; a
+# verdict change here would be a decision of its own.
+expect_rc "inline-suppression: a path ending in a line break is judged as before (a.md)" 0 "$IS_HOOK" \
+  "$(jq -n --arg c "$SUPPRESSED" '{tool_name:"Write",tool_input:{file_path:"a.md\n",content:$c}}')"
+expect_rc "inline-suppression: a path holding the read's separator is judged as before (ends .md)" 0 "$IS_HOOK" \
+  "$(jq -n --arg c "$SUPPRESSED" '{tool_name:"Write",tool_input:{file_path:"a.py\u001fb.md",content:$c}}')"
+# The pattern file's path with a trailing CR: on Git for Windows the per-path
+# cygpath's command substitution strips the CR with the line feed, so this is
+# the pattern file and allowed; with no cygpath the CR stays, and it is code.
+# The one cygpath for every path must not change that.
+IS_CR_WANT=2
+command -v cygpath >/dev/null 2>&1 && IS_CR_WANT=0
+expect_rc "inline-suppression: the pattern file's path with a trailing CR is judged as before" "$IS_CR_WANT" "$IS_HOOK" \
+  "$(jq -n --arg f "$PATFILE_ABS" --arg c "$SUPPRESSED" '{tool_name:"Write",tool_input:{file_path:($f + "\r"),content:$c}}')"
+# The same for a cwd: tests/ followed by a CR names no directory, so cygpath
+# keeps the CR it was given, where the per-path command substitution strips it.
+# A bare name resolved against that cwd is in tests/ only if the CR goes.
+expect_rc "inline-suppression: a cwd of tests/ with a trailing CR is judged as before" "$IS_CR_WANT" "$IS_HOOK" \
+  "$(jq -n --arg w "$HOOKTESTS_ABS" --arg c "$SUPPRESSED" '{tool_name:"Write",cwd:($w + "\r"),tool_input:{file_path:"cases.sh",content:$c}}')"
+# A CR inside a segment of the file path, before its last one (F1 of the
+# Security review of PR #487). `local args=("$FILE")` dropped it on Git for
+# Windows' bash 5.3.9, so the one cygpath's CR guard never saw it, and
+# <hooks>/tests<CR>/x.sh was read as a file in tests/ and allowed. tests<CR>
+# is not tests, with cygpath or without, so it is code on every platform, as
+# it was: with no cwd, with one, and the same for the pattern file's directory.
+IS_JS="$(printf '%s%s' '// eslint' '-disable-next-line')"
+is_reason "inline-suppression: a path into tests<CR>/ is code, with no cwd" "$IS_HOOK" \
+  "$(jq -n --arg f "$HOOKTESTS_ABS" --arg c "$IS_JS" '{tool_name:"Write",tool_input:{file_path:($f + "\r/x.sh"),content:$c}}')" \
+  "inline suppression: js-ts-suppression"
+is_reason "inline-suppression: a path into tests<CR>/ is code, with a cwd" "$IS_HOOK" \
+  "$(jq -n --arg f "$HOOKTESTS_ABS" --arg w "$HOOKS" --arg c "$IS_JS" '{tool_name:"Write",cwd:$w,tool_input:{file_path:($f + "\r/x.sh"),content:$c}}')" \
+  "inline suppression: js-ts-suppression"
+is_reason "inline-suppression: the pattern file's name under scripts<CR>/ is code" "$IS_HOOK" \
+  "$(jq -n --arg d "$(dirname "$PATFILE_ABS")" --arg c "$SUPPRESSED" '{tool_name:"Write",tool_input:{file_path:($d + "\r/suppression-patterns.tsv"),content:$c}}')" \
+  "inline suppression: python-lint-suppression"
+# The path exemptions are looked at only when the file path, the payload's cwd
+# or, without a cwd, the working directory names tests or the pattern file.
+# Each of the three can be the only one that does: a bare file name resolved
+# against a cwd inside tests/, and the same with no cwd, from a working
+# directory inside tests/. Both are exempt, as before.
+expect_rc "inline-suppression: a bare name resolved against a cwd inside tests/ is exempt" 0 "$IS_HOOK" "$(mkpay "cases.sh" "$HOOKTESTS_ABS")"
+TOTAL=$((TOTAL + 1))
+if (cd "$HOOKTESTS_ABS" && printf '%s' "$(is_pay "$SUPPRESSED" cases.sh)" | bash "$IS_HOOK" >/dev/null 2>&1); then
+  [ "$VERBOSE" -eq 1 ] && printf '   ok    %s\n' "inline-suppression: a bare name with no cwd, run from inside tests/, is exempt"
+else
+  FAILED=$((FAILED + 1))
+  printf '   FAIL  %s\n' "inline-suppression: a bare name with no cwd, run from inside tests/, is exempt: refused"
+fi
+# A pattern file that one grep cannot judge goes to the per-row loop, which
+# refuses as before: a row that does not compile, a row without a TAB, a row
+# with an empty label, a row with an empty pattern, each after the real rows
+# and with clean code. The empty label's pattern matches nothing in that code:
+# kept on the fast path, it would let one grep allow the edit, where the
+# per-row loop refuses the row (F1(c) of the Code Review of PR #487).
+IS_SCR="$(mktemp -d)"
+mkdir -p "$IS_SCR/Adapters/ai-runtimes/claude-code/hooks" "$IS_SCR/Adapters/scripts"
+cp "$IS_HOOK" "$HOOKS/lib.sh" "$IS_SCR/Adapters/ai-runtimes/claude-code/hooks/"
+IS_COPY="$IS_SCR/Adapters/ai-runtimes/claude-code/hooks/block-inline-suppression.sh"
+for is_row in $'bad-regex\t(' 'no-tab-row' $'\tzzqqzz' $'empty-pattern\t'; do
+  # The blank line ends the file's last row, which may have no line feed.
+  { cat "$HOOKS/../../../scripts/suppression-patterns.tsv"; printf '\n%s\n' "$is_row"; } > "$IS_SCR/Adapters/scripts/suppression-patterns.tsv"
+  case "$is_row" in
+    bad-regex*) is_reason "inline-suppression: a pattern grep cannot compile is refused" "$IS_COPY" "$PAY_CLEAN" "holds a pattern grep cannot compile" ;;
+    no-tab*) is_reason "inline-suppression: a row without a TAB is refused" "$IS_COPY" "$PAY_CLEAN" "malformed row in suppression-patterns.tsv (no TAB)" ;;
+    $'\t'*) is_reason "inline-suppression: a row with an empty label is refused" "$IS_COPY" "$PAY_CLEAN" "(empty label or pattern)" ;;
+    *) is_reason "inline-suppression: a row with an empty pattern is refused" "$IS_COPY" "$PAY_CLEAN" "(empty label or pattern)" ;;
+  esac
+done
+rm -rf "$IS_SCR"
+# A TEXT OF 65,536 TO 65,663 BYTES (WU-IAENG-444). The guard gave its text to
+# grep through a here-string, which never finishes on Git for Windows in that
+# window, so such an edit waited for the guard's 120 s timeout. Two texts of
+# 65,600 bytes, judged within LT_BUDGET seconds: clean code allowed, and a
+# directive on the first line refused for it. On Linux the window does not
+# hang, and both pass at once.
+IS_WS="$(mktemp -d)"
+is_ws() {  # <label> <first line> <exit wanted>
+  local label="$1" head="$2" want="$3" fill=a n rc t0 s
+  n=$((65600 - ${#head} - 1))
+  while [ "${#fill}" -lt "$n" ]; do fill="$fill$fill"; done
+  printf '%s\n%s' "$head" "${fill:0:$n}" > "$IS_WS/text"
+  jq -n --rawfile c "$IS_WS/text" '{tool_name:"Write",tool_input:{file_path:"a.py",content:$c}}' > "$IS_WS/pay"
+  t0=$SECONDS
+  if command -v timeout >/dev/null 2>&1; then
+    timeout "$LT_BUDGET" bash "$IS_HOOK" < "$IS_WS/pay" >/dev/null 2>&1
+    rc=$?
+  else
+    bash "$IS_HOOK" < "$IS_WS/pay" >/dev/null 2>&1
+    rc=$?
+  fi
+  s=$((SECONDS - t0))
+  TOTAL=$((TOTAL + 1))
+  if [ "$(wc -c < "$IS_WS/text")" -eq 65600 ] && [ "$rc" -eq "$want" ] && [ "$s" -le "$LT_BUDGET" ]; then
+    [ "$VERBOSE" -eq 1 ] && printf '   ok    %s (%s s)\n' "$label" "$s"
+  else
+    FAILED=$((FAILED + 1))
+    printf '   FAIL  %s: exit %s after %s s, %s bytes\n' "$label" "$rc" "$s" "$(wc -c < "$IS_WS/text")"
+  fi
+}
+is_ws "inline-suppression: a 65,600-byte clean text is judged within ${LT_BUDGET} s, and allowed" 'x = 1' 0
+is_ws "inline-suppression: a 65,600-byte text with a directive is judged within ${LT_BUDGET} s, and refused" "$SUPPRESSED" 2
+rm -rf "$IS_WS"
+# THE EDIT GUARD'S PROCESS BUDGET (WU-IAENG-444). Counted with recording
+# stand-ins first on PATH, as the escape-hatch budget above. Before, a clean
+# edit started five jq (the object check, three fields, the text), one grep per
+# row of the pattern file and, on Windows, four cygpath: 45 processes per call
+# (Governance/BLOCKING_HOOK_LATENCY_MEASUREMENT.md). Now one jq, one grep and
+# at most one cygpath; a refusal adds the per-row greps up to the row that
+# fires. A log without jq means nothing was counted, which is not a pass.
+IB_BASE="$(mktemp -d)"
+IB_SHIMS="$IB_BASE/shims"
+IB_LOG="$IB_BASE/shims.log"
+IB_SHIMS_ON_PATH="$IB_SHIMS"
+command -v cygpath >/dev/null 2>&1 && IB_SHIMS_ON_PATH="$(cygpath -u "$IB_SHIMS")"
+IB_CMDS="awk cat cygpath grep jq sed tr"
+IB_CYG=0
+command -v cygpath >/dev/null 2>&1 && IB_CYG=1
+mkdir -p "$IB_SHIMS"
+for ib_cmd in $IB_CMDS; do
+  ib_real="$(command -v "$ib_cmd")" || continue
+  printf '#!/bin/sh\necho %s >> "%s"\nexec "%s" "$@"\n' "$ib_cmd" "$IB_LOG" "$ib_real" > "$IB_SHIMS/$ib_cmd"
+  chmod +x "$IB_SHIMS/$ib_cmd"
+done
+# ib_budget <label> <payload> <exit wanted> <grep wanted> <cygpath wanted where it exists>
+ib_budget() {
+  local label="$1" payload="$2" want_rc="$3" want_grep="$4" want_cyg="$5" rc n_jq n_grep n_cyg n_all seen
+  [ "$IB_CYG" -eq 1 ] || want_cyg=0
+  TOTAL=$((TOTAL + 1))
+  : > "$IB_LOG"
+  printf '%s' "$payload" | PATH="$IB_SHIMS_ON_PATH:$PATH" bash "$IS_HOOK" >/dev/null 2>&1
+  rc=$?
+  n_jq="$(grep -c '^jq$' "$IB_LOG")"
+  n_grep="$(grep -c '^grep$' "$IB_LOG")"
+  n_cyg="$(grep -c '^cygpath$' "$IB_LOG")"
+  n_all="$(wc -l < "$IB_LOG" | tr -d ' ')"
+  if [ "$rc" -eq "$want_rc" ] && [ "$n_jq" -eq 1 ] && [ "$n_grep" -eq "$want_grep" ] && [ "$n_cyg" -eq "$want_cyg" ] \
+     && [ "$n_all" -eq $((2 + want_grep + want_cyg)) ]; then
+    [ "$VERBOSE" -eq 1 ] && printf '   ok    %s\n' "$label"
+  else
+    FAILED=$((FAILED + 1))
+    seen="$(sort "$IB_LOG" | uniq -c | awk '{printf "%s x%s, ", $2, $1}')"
+    [ -n "$seen" ] || seen="nothing (no stand-in ran, so nothing was counted)"
+    printf '   FAIL  %s: exit %s, started %s(want exit %s, cat x1, jq x1, grep x%s, cygpath x%s, of: %s)\n' \
+      "$label" "$rc" "$seen" "$want_rc" "$want_grep" "$want_cyg" "$IB_CMDS"
+  fi
+}
+ib_budget "inline-suppression: budget — clean code starts cat, one jq and one grep" "$PAY_CLEAN" 0 1 0
+ib_budget "inline-suppression: budget — clean code with a cwd converts no path" \
+  "$(jq -n '{tool_name:"Edit",cwd:"/work/proj",tool_input:{file_path:"src/a.ts",old_string:"a",new_string:"const a = 1;"}}')" 0 1 0
+ib_budget "inline-suppression: budget — documentation starts cat and one jq" "$PAY_DOC" 0 0 0
+ib_budget "inline-suppression: budget — a refusal on the first row adds that row's grep" "$PAY_CODE" 2 2 0
+ib_budget "inline-suppression: budget — a path that names tests converts every path in one cygpath" \
+  "$(jq -n '{tool_name:"Edit",cwd:"/work/proj",tool_input:{file_path:"src/tests/a.ts",old_string:"a",new_string:"const a = 1;"}}')" 0 1 1
+ib_budget "inline-suppression: budget — the tests/ directory itself is exempt after one cygpath" "$(mkpay "$HOOKTESTS_ABS/cases.sh")" 0 0 1
+rm -rf "$IB_BASE" "$SCRATCH"
 
 expect_rc "stop-gate: yields to its own loop guard"        0 "$HOOKS/stop-gate.sh"                '{"stop_hook_active":true}'
 
@@ -959,7 +1163,7 @@ ss_check_has  "stop-gate: the reminder names the helper that creates it (#218)" 
 
 ss_run "$STATETEMPLATE" "$STOPGATE"
 ss_check_rc   "stop-gate: missing SESSION_STATE with the framework found — still not blocking" 0
-ss_check_has  "stop-gate: framework found — the reminder gives the helper's path (#218)" yes "run $STATETEMPLATE/Adapters/scripts/create-session-state.sh"
+ss_check_has  "stop-gate: framework found — the reminder gives the helper as a command from the project root (#218, #417)" yes "from the project root, run ./Adapters/scripts/create-session-state.sh, which writes"
 
 ss_run "$STALE" "$STOPGATE" '{"stop_hook_active":true}'
 ss_check_rc   "stop-gate: loop guard still yields even when SESSION_STATE is stale" 0
@@ -1133,10 +1337,14 @@ ss_check_has  "session-start: CLAUDE.md missing, template not found — says so"
 ss_check_has  "session-start: CLAUDE.md missing — does not print the stable-contract line" no "1. CLAUDE.md — the project's stable contract."
 
 ss_run "$STATETEMPLATE" "$SESSTART" ''
-ss_check_has  "session-start: SESSION_STATE missing, template found — names the helper that creates it (#218)" yes "Create it before any other action with $STATETEMPLATE/Adapters/scripts/create-session-state.sh, which writes the Template block of $STATETEMPLATE/Templates/SESSION_STATE.md"
+ss_check_has  "session-start: SESSION_STATE missing, template found — names the helper as a command from the project root (#218, #417)" yes "Create it before any other action: from the project root, run ./Adapters/scripts/create-session-state.sh, which writes the Template block of $STATETEMPLATE/Templates/SESSION_STATE.md"
 
 ss_run "$CLAUDETEMPLATE" "$SESSTART" ''
-ss_check_has  "session-start: CLAUDE.md missing, template found — points to PROJECT_BOOTSTRAP Phase B and Templates/PROJECT_CLAUDE.md" yes "CLAUDE.md does not exist yet — this project has not completed Workflows/PROJECT_BOOTSTRAP.md Phase B. It is created from $CLAUDETEMPLATE/Templates/PROJECT_CLAUDE.md at Workflows/ONBOARDING.md Step 1"
+ss_check_has  "session-start: CLAUDE.md missing, template found — names Templates/PROJECT_CLAUDE.md and ONBOARDING Step 1 item 2, both from the framework root" yes "1. CLAUDE.md does not exist yet. The DevOps Engineer writes it from $CLAUDETEMPLATE/Templates/PROJECT_CLAUDE.md after the adoption commit ($CLAUDETEMPLATE/Workflows/ONBOARDING.md Step 1 item 2)"
+# An existing project that adopts has no Phase A or B: both routes are named,
+# and no Phase B is said to be unfinished (issue #367).
+ss_check_has  "session-start: CLAUDE.md missing — names what fills it in a new project and in an existing one (#367)" yes "from the Project Charter and the Stack Decision ADR in a new project, from the project's code, its existing documents and the Director in an existing one."
+ss_check_has  "session-start: CLAUDE.md missing — says no Phase B is unfinished (#367)" no "Phase B"
 ss_check_has  "session-start: CLAUDE.md missing, template found — does not print the stable-contract line" no "1. CLAUDE.md — the project's stable contract."
 
 echo 'placeholder' > "$CLAUDETEMPLATE/Core/MAIN_AGENT_CONDUCT.md"
@@ -1147,6 +1355,113 @@ ss_check_has  "session-start: framework root not found — no Main Agent pointer
 rm -f "$CLAUDETEMPLATE/Core/MAIN_AGENT_CONDUCT.md"
 ss_run "$CLAUDETEMPLATE" "$SESSTART" ''
 ss_check_has  "session-start: root found but MAIN_AGENT_CONDUCT.md absent — no Main Agent pointer" no "The Main Agent follows"
+
+# --- The template's placeholders are not a Next Step (WU-IAENG-445, #367) ---
+# A SESSION_STATE.md written from the template's block keeps its bracketed
+# placeholders until someone fills them in. The hook copied them as "Next
+# Step, as recorded", the step to take; it now reads a section shaped as the
+# placeholder as unfilled, and shows its first line, since the shape alone
+# cannot tell the placeholder from an entry written in brackets (Prompt
+# Engineer m3, PR #502). The block is the real template's, so a reworded
+# placeholder is tested too.
+REAL_FW="$(cd "$HOOKS/../../../.." && pwd)"
+ss_block() {
+  awk '{ sub(/\r$/, "") } /^# Template$/ { t = 1; next } t && !f && /^```markdown$/ { f = 1; next } f && /^```$/ { exit } f { print }' \
+    "$REAL_FW/Templates/SESSION_STATE.md"
+}
+PLACEHOLDER="$(ss_repo placeholder)"
+ss_block > "$PLACEHOLDER/.ia-engineering/SESSION_STATE.md"
+ss_run "$PLACEHOLDER" "$SESSTART" ''
+ss_check_has  "session-start: the template's Next Step placeholder — read as unfilled (#367)" yes "Next Step: read as not filled in: one bracketed text, the shape of the template's placeholder. It begins: [The very next concrete action"
+ss_check_has  "session-start: the template's Next Step placeholder — not copied as the step to take (#367)" no "Next Step, as recorded:"
+ss_check_has  "session-start: the template's Next Step placeholder — the action it asks for (#367)" yes "Write the next concrete step there, outside brackets."
+ss_check_has  "session-start: the template's Next Step placeholder — its second line is not printed (#367)" no "two or three that follow"
+ss_check_has  "session-start: the template's Blocked On placeholder — read as unfilled, its first line shown (#367)" yes "Blocked On: read as not filled in: one bracketed text, the shape of the template's placeholder. It begins: [What is waiting for a decision"
+ss_check_has  "session-start: the template's Blocked On placeholder — not printed as a blocker (#367)" no "Blocked on:"
+# The same file with CRLF line endings: each line's CR is not part of it.
+sed 's/$/\r/' "$PLACEHOLDER/.ia-engineering/SESSION_STATE.md" > "$SSBASE/crlf.md"
+mv "$SSBASE/crlf.md" "$PLACEHOLDER/.ia-engineering/SESSION_STATE.md"
+ss_run "$PLACEHOLDER" "$SESSTART" ''
+ss_check_has  "session-start: a CRLF copy of the placeholders — still read as unfilled (#367)" yes "Next Step: read as not filled in:"
+# An entry of the project's own written wholly in brackets has the shape too:
+# it is read as unfilled, and still shown, so it is never hidden.
+{
+  echo '_Last updated: 24 September 2026, afternoon by Tester_'
+  echo '## Next Step'
+  echo 'Merge it.'
+  echo '## Blocked On — and On Whom'
+  echo '[PR #12 waiting for the Director]'
+} > "$PLACEHOLDER/.ia-engineering/SESSION_STATE.md"
+ss_run "$PLACEHOLDER" "$SESSTART" ''
+ss_check_has  "session-start: a Blocked On written wholly in brackets — shown, not hidden (Prompt Engineer m3)" yes "It begins: [PR #12 waiting for the Director]"
+# Filled sections are printed as recorded, one that opens with a bracket and
+# ends with one included: only the "]" before its end tells it from a
+# placeholder. A Blocked On with a line beginning "Nothing" says nothing, as
+# the grep it replaces read it.
+{
+  echo '_Last updated: 24 September 2026, afternoon by Tester_'
+  echo '## Next Step'
+  echo '[WU-12] merge the pull request'
+  echo 'then tag it [v1]'
+  echo '## Blocked On — and On Whom'
+  echo 'Review of PR #3, nothing more.'
+  echo 'Nothing else.'
+} > "$PLACEHOLDER/.ia-engineering/SESSION_STATE.md"
+ss_run "$PLACEHOLDER" "$SESSTART" ''
+ss_check_has  "session-start: a Next Step that opens with a bracket is printed as recorded (#367)" yes "Next Step, as recorded:"
+ss_check_has  "session-start: ... its first line, as written (#367)" yes "       [WU-12] merge the pull request"
+ss_check_has  "session-start: ... and not read as unfilled (#367)" no "not filled in"
+ss_check_has  "session-start: a Blocked On with a line beginning Nothing — nothing printed" no "Blocked on:"
+
+# --- Every printed helper command runs as printed (WU-IAENG-445, #417) ------
+# The stop gate and session start printed create-session-state.sh as an
+# absolute path, unquoted: from a project path with a space (a OneDrive or
+# user folder), it split there and exited 127. Each hook's command is taken
+# from its output and run exactly as printed, from the project root, and the
+# file it writes must then exist. The framework inside the project (the
+# path from the project root), then outside it under a name with a space
+# (the absolute path, quoted).
+ss_minimal_fw() {
+  mkdir -p "$1/Core" "$1/Templates" "$1/Adapters/scripts"
+  cp "$REAL_FW/Core/AGENT_CONDUCT.md" "$1/Core/"
+  cp "$REAL_FW/Templates/SESSION_STATE.md" "$1/Templates/"
+  cp "$REAL_FW/Adapters/scripts/create-session-state.sh" "$1/Adapters/scripts/"
+}
+SPACE417="$(ss_repo "my app 417")"
+ss_minimal_fw "$SPACE417/ia-engineering"
+printf '.ia-engineering/SESSION_STATE.md\n' > "$SPACE417/.gitignore"
+OUT417="$SSBASE/out 417"
+mkdir -p "$OUT417"
+ss_minimal_fw "$OUT417/fw dir"
+PROJ417="$(ss_repo proj417)"
+printf '.ia-engineering/SESSION_STATE.md\n' > "$PROJ417/.gitignore"
+# ss_run_printed <label> <project> — runs the command the last ss_run printed
+# after "from the project root, run ", as printed, from <project>.
+ss_run_printed() {
+  local label="$1" dir="$2" cmd out rc
+  cmd="$(sed -n 's/.*from the project root, run \(.*\), which writes the Template block.*/\1/p' <<< "$SS_OUT" | head -n 1)"
+  TOTAL=$((TOTAL + 1))
+  out="$(cd "$dir" && eval "$cmd" 2>&1)"; rc=$?
+  if [ -n "$cmd" ] && [ "$rc" -eq 0 ] && [ -f "$dir/.ia-engineering/SESSION_STATE.md" ]; then
+    [ "$VERBOSE" -eq 1 ] && printf '   ok    %s\n' "$label"
+  else
+    FAILED=$((FAILED + 1))
+    printf '   FAIL  %s: command [%s], exit %s: %s\n' "$label" "$cmd" "$rc" "$(printf '%s' "$out" | head -c 300)"
+  fi
+  rm -f "$dir/.ia-engineering/SESSION_STATE.md"
+}
+ss_run "$SPACE417" "$STOPGATE"
+ss_check_has  "stop-gate: a project path with a space — the helper is printed from the project root (#417)" yes "run ./ia-engineering/Adapters/scripts/create-session-state.sh, which writes"
+ss_run_printed "stop-gate: a project path with a space — the printed command runs as printed (#417)" "$SPACE417"
+ss_run "$SPACE417" "$SESSTART" ''
+ss_check_has  "session-start: a project path with a space — the helper is printed from the project root (#417)" yes "run ./ia-engineering/Adapters/scripts/create-session-state.sh, which writes"
+ss_run_printed "session-start: a project path with a space — the printed command runs as printed (#417)" "$SPACE417"
+IAENG_FRAMEWORK="$OUT417/fw dir" ss_run "$PROJ417" "$STOPGATE"
+ss_check_has  "stop-gate: a framework outside the project, with a space — its path is quoted (#417)" yes "run '$OUT417/fw dir/Adapters/scripts/create-session-state.sh', which"
+ss_run_printed "stop-gate: a framework outside the project, with a space — the printed command runs as printed (#417)" "$PROJ417"
+IAENG_FRAMEWORK="$OUT417/fw dir" ss_run "$PROJ417" "$SESSTART" ''
+ss_check_has  "session-start: a framework outside the project, with a space — its path is quoted (#417)" yes "run '$OUT417/fw dir/Adapters/scripts/create-session-state.sh', which"
+ss_run_printed "session-start: a framework outside the project, with a space — the printed command runs as printed (#417)" "$PROJ417"
 
 # --- Every SessionStart source, the same read-first context (WU-IAENG-373) ---
 # /clear starts a new session (payload "source": "clear"); it must get what a

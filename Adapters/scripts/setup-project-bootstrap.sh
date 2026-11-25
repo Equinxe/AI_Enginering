@@ -1,9 +1,56 @@
 #!/usr/bin/env bash
 # IA Engineering — setup-project-bootstrap.sh
 #
-# Scaffolds a newly-bootstrapped project so that running this script, plus
-# setup-branch-protection.sh, actually satisfies Workflows/PROJECT_BOOTSTRAP.md's
-# Coverage Checklist — rather than leaving items on it that no script performs.
+# Scaffolds a project, new or adopting the framework, so that running this
+# script, plus setup-branch-protection.sh, actually satisfies
+# Workflows/PROJECT_BOOTSTRAP.md's Coverage Checklist — rather than leaving
+# items on it that no script performs.
+#
+# Run from the root of the target project.
+#
+# Usage:
+#   ./setup-project-bootstrap.sh <stack> [--dry-run] [--force]
+#   ./setup-project-bootstrap.sh [<stack>] --check [--quiet]
+#     where <stack> is one of: node | web | python | go | jvm | dotnet | php | generic
+#
+#     `web` is a static front end (React, Vue, Svelte, Astro, a site
+#     generator): it builds with Node and ships files behind a web
+#     server, with no Node in the runtime image. It is the one stack that
+#     cannot be inferred, because a site and a server both have
+#     package.json — which is why the chosen stack is recorded.
+#
+# What it installs:
+#   everything install.sh installs (hooks, CI, templates, line endings)
+#   Adapters/github-actions/ci-build-test.yml -> .github/workflows/
+#   Adapters/github-actions/ghcr-publish.yml  -> .github/workflows/
+#   Adapters/dockerfiles/<stack>.Dockerfile   -> ./Dockerfile
+#   .ia-engineering/stack, .ia-engineering/risk-map.yml  (starters)
+#   Registry/work-units.yml                   (starter, empty: the project's own
+#                                              Work Unit registry, read by the
+#                                              required Work Unit Exists check)
+#
+# Still not installed here, deliberately: branch protection. It mutates shared
+# repository settings through the GitHub API and needs an authenticated `gh`;
+# run Adapters/scripts/setup-branch-protection.sh once per repository.
+#
+# --check (WU-IAENG-353) writes nothing. It runs `install.sh --check` (its
+# records, its closing `#` line and its exit code, documented in install.sh's
+# header), then adds one record per file this script owns:
+#
+#   project-file TAB present|absent TAB <path> TAB <detail>
+#
+# Those files are the project's own once written (an existing one is left
+# untouched without --force), so presence is this script's whole decision and
+# the whole check: `absent` is drift (re-run this script without --force),
+# `present` is not compared with anything. A second `#` line counts them.
+# The stack is optional under --check, since no project-owned file is
+# compared with a stack template. --quiet prints nothing when nothing needs
+# acting on. Exit: 0 nothing to act on, 3 drift, 1 a fault (the worse of the
+# two halves wins: 1 over 3 over 0), 2 usage. It is a building block for the
+# drift checks that run on their own in a session, not a flag to type.
+#
+# --help prints the header down to this line. What follows is history, which
+# a newcomer read for about 45 lines before Usage (issue #367).
 #
 # WHAT CHANGED IN WU-IAENG-142, and why it mattered:
 #
@@ -26,49 +73,6 @@
 # issue templates, and the .gitattributes LF rules. This script owns only what
 # genuinely depends on the stack chosen in PROJECT_BOOTSTRAP.md Phase B, which
 # is the one thing install.sh cannot know.
-#
-# What it installs:
-#   everything install.sh installs (hooks, CI, templates, line endings)
-#   Adapters/github-actions/ci-build-test.yml -> .github/workflows/
-#   Adapters/github-actions/ghcr-publish.yml  -> .github/workflows/
-#   Adapters/dockerfiles/<stack>.Dockerfile   -> ./Dockerfile
-#   .ia-engineering/stack, .ia-engineering/risk-map.yml  (starters)
-#   Registry/work-units.yml                   (starter, empty: the project's own
-#                                              Work Unit registry, read by the
-#                                              required Work Unit Exists check)
-#
-# Still not installed here, deliberately: branch protection. It mutates shared
-# repository settings through the GitHub API and needs an authenticated `gh`;
-# run Adapters/scripts/setup-branch-protection.sh once per repository.
-#
-# Run from the root of the target project.
-#
-# Usage:
-#   ./setup-project-bootstrap.sh <stack> [--dry-run] [--force]
-#   ./setup-project-bootstrap.sh [<stack>] --check [--quiet]
-#     where <stack> is one of: node | web | python | go | jvm | dotnet | php | generic
-#
-#     `web` is a static front end (React, Vue, Svelte, Astro, a site
-#     generator): it builds with Node and ships files behind a web
-#     server, with no Node in the runtime image. It is the one stack that
-#     cannot be inferred, because a site and a server both have
-#     package.json — which is why the chosen stack is recorded.
-#
-# --check (WU-IAENG-353) writes nothing. It runs `install.sh --check` (its
-# records, its closing `#` line and its exit code, documented in install.sh's
-# header), then adds one record per file this script owns:
-#
-#   project-file TAB present|absent TAB <path> TAB <detail>
-#
-# Those files are the project's own once written (an existing one is left
-# untouched without --force), so presence is this script's whole decision and
-# the whole check: `absent` is drift (re-run this script without --force),
-# `present` is not compared with anything. A second `#` line counts them.
-# The stack is optional under --check, since no project-owned file is
-# compared with a stack template. --quiet prints nothing when nothing needs
-# acting on. Exit: 0 nothing to act on, 3 drift, 1 a fault (the worse of the
-# two halves wins: 1 over 3 over 0), 2 usage. It is a building block for the
-# drift checks that run on their own in a session, not a flag to type.
 
 set -euo pipefail
 
@@ -85,7 +89,8 @@ for arg in "$@"; do
     --check) CHECK=1 ;;
     --quiet) QUIET=1 ;;
     --help|-h)
-      sed -n '2,$p' "$0" | awk '/^#/{print; next} /^$/{print; next} {exit}'
+      # The header down to the line that says where the history begins.
+      sed -n '2,$p' "$0" | awk '/^# --help prints the header down to this line/ || !/^#/ {exit} {print}'
       exit 0
       ;;
     -*)
