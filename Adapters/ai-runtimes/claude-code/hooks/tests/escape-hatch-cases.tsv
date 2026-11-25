@@ -1086,3 +1086,29 @@ allow	git -C "$(pwd)" config --get core.hooksPath
 allow	git -C $(pwd) config --get core.hooksPath
 allow	git -C `pwd` config --get core.hooksPath
 block	git -C $(true; true) config core.hooksPath /dev/null	setting core.hooksPath disables
+# A label key or a /labels endpoint split by a quote or a backslash names a
+# label only as the lexer reads it, and the label rule reads it there too, so
+# its -F value read from a file is refused; a key built by a backtick
+# substitution is read through the backtick (review round 2). A literal key
+# whose quoted value holds a substitution is not a key built from one.
+block	gh api -X PATCH repos/o/r/issues/1 -F "la"bels[]=@f	a label built from a variable or a substitution
+block	gh api -X PATCH repos/o/r/issues/1 -F la''bels[]=@f	a label built from a variable or a substitution
+block	gh api -X PATCH repos/o/r/issues/1 -F la\bels[]=@f	a label built from a variable or a substitution
+block	gh api -X PATCH repos/o/r/issues/1 --field=la\bels[]=@f	a label built from a variable or a substitution
+block	gh api -X PATCH repos/o/r/la''bels/bug -F new_name=@f	a label built from a variable or a substitution
+block	gh api -X PATCH repos/o/r/issues/1 -f "`printf la`bels[]=x"	a label built from a variable or a substitution
+allow	gh api repos/o/r/issues/1/comments -f "body=$(cat c.md)"
+allow	gh api repos/o/r/pulls/1/reviews -f "body=$(cat r.md)" -f event=APPROVE
+allow	gh api -X PATCH repos/o/r/pulls/1 -f "title=$(git log -1 --format=%s)"
+allow	gh api repos/o/r/issues/1/comments --raw-field "body=$(cat c.md)"
+allow	gh api repos/o/r/issues/1/comments -f body="$(cat c.md)" -f "x=$(echo y)"
+# A ; in a dropped region's path tail, or in a --config-env key, is a word
+# byte in the third reading, which keeps the git command in one segment.
+block	git commit -m "fix a/b;c" "--no-verify$(true)"	--no-verify disables
+block	env 'V X=1' git --config-env "x.a;b.c=V X" config core.hooksPath /dev/null	setting core.hooksPath disables
+# A substitution that is a git option's value, or part of it, leaves the read
+# a read, also when a later substitution follows or one of its own words is
+# quoted.
+allow	git -C "$(pwd)x" config --get core.hooksPath
+allow	git -C "$(pwd)" config --get core.hooksPath; echo "$(date)"
+allow	git -C "$(cd "a b" && pwd)" config --get core.hooksPath

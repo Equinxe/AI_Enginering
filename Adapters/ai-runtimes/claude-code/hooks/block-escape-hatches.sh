@@ -25,9 +25,10 @@
 # one of the ten bytes the lexer rewrites (a command without them skips it); a
 # second awk, the lexer in KEEPQ mode, for a gh pr|issue edit|create with a
 # label flag, a gh alias set|import, or a gh api write in a command that names
-# a label (WU-IAENG-450); one tr for each of those texts that
-# holds a byte above 0x7F (non-ASCII input is mapped once, in linear time);
-# and one grep -o, the only process a rule starts, for a command that names
+# a label, as written or as the lexer reads it, or holds a $ or a backtick
+# (WU-IAENG-450), a GraphQL query with $variables included; one tr for each of
+# those texts that holds a byte above 0x7F (non-ASCII input is mapped once, in
+# linear time); and one grep -o, the only process a rule starts, for a command that names
 # commit.gpgsign in a git -c or --config-env option. jq, the awks, tr and
 # grep -o read their text from a pipe, never a here-string, so each adds the
 # bash that runs printf (split_into, below). A carriage return is removed before matching,
@@ -909,10 +910,18 @@ kept_view() {
 # (`"$K=$V"`), a substitution (`"$(echo labels)[]=$V"`, `lab$(echo e)ls[]=`),
 # whose commands the KEEPQ view prints after the `$`. A -F value read from a
 # file (`=@file`) is not a literal either. A literal `$` in a single-quoted
-# label reads the same and is refused too. The KEEPQ view is made for an api
-# write only when the raw command names a label (any case) or holds a `$` or a
-# backtick, which a key spelled `$'\x6c'abels[]` or `$K` needs, so a comment
-# posted with gh api and no `$` starts no second awk.
+# label reads the same and is refused too. A field whose key is a literal that
+# names no labels and whose quoted value holds a substitution (`-f
+# "body=$(cat c.md)"`) reads `-f body=$ cat c.md`, a key with no `$`, and is
+# allowed.
+#
+# The KEEPQ view is made for an api write only when the command names a label
+# (any case), as written or as the lexer read it (STRIPPED), or holds a `$` or
+# a backtick (API_KEEPQ). A key spelled `$'\x6c'abels[]` or `$K` needs the `$`,
+# one built by a backtick substitution the backtick; a key or an endpoint split
+# by a quote or a backslash (`"la"bels[]`, `la''bels[]`, `la\bels[]`) names a
+# label only as the lexer reads it. A comment posted with gh api and no `$`
+# starts no second awk.
 LDYN='[^[:space:]]*\$'
 API_FIELD="${S}(-f|-F|--field|--raw-field)(=|${S}*)"
 APPROVAL_LABEL=0
@@ -920,9 +929,12 @@ LABEL_DYN=0
 GH_EDIT_LABELFLAG=0
 GH_ALIAS=0
 GH_API_LABEL=0
-case "$CMD" in *[lL][aA][bB][eE][lL]*|*'$'*|*'`'*) RAW_LABEL=1 ;; *) RAW_LABEL=0 ;; esac
 case "$STRIPPED" in *[gG][hH]*) GH_SEEN=1 ;; *) GH_SEEN=0 ;; esac
 if [ "$GH_SEEN" -eq 1 ]; then
+  case "$CMD" in
+    *[lL][aA][bB][eE][lL]*|*'$'*|*'`'*) API_KEEPQ=1 ;;
+    *) case "$STRIPPED" in *[lL][aA][bB][eE][lL]*) API_KEEPQ=1 ;; *) API_KEEPQ=0 ;; esac ;;
+  esac
   for SEG in ${SEGS[@]+"${SEGS[@]}"}; do
     rx_any 1 "${GHB}${S}" "$SEG" || continue
     if rx_any 1 "${GHEDIT}[^|;&]*${LABEL_FLAG}${LVAL}" "$SEG" \
@@ -941,7 +953,7 @@ if [ "$GH_SEEN" -eq 1 ]; then
          && rx_any 1 "$WRITE_OPT" "$SEG"; then
         APPROVAL_LABEL=1
       fi
-      [ "$RAW_LABEL" -eq 1 ] && rx_any 1 "$WRITE_OPT" "$SEG" && GH_API_LABEL=1
+      [ "$API_KEEPQ" -eq 1 ] && rx_any 1 "$WRITE_OPT" "$SEG" && GH_API_LABEL=1
       # --input names a file this hook cannot read: refused on the endpoints that
       # set labels, since unread input is refused (see the lexer LIMIT contract).
       if rx_any 1 "${S}--input" "$SEG" \

@@ -173,24 +173,42 @@ function is_value_context(w) {
 }
 
 # THE LAST WORD OF out, which the contexts above are judged on when a quote or
-# a substitution opens. It walks back from the end of out over at most 256
-# bytes: past the whitespace that ends out, then over the word. Only a last
-# word, or a run of whitespace, that reaches back further than that is found
-# by splitting the whole of out. Splitting the whole of out at every quote
-# made a pass cost the square of the command's length (WU-IAENG-450): a
-# command of many quoted words now stays linear in its length.
+# a substitution opens. Splitting the whole of out at every quote made a pass
+# cost the square of the command's length (WU-IAENG-450), so the word is found
+# from the end of out, and kept:
+#
+# - The word found last is kept with the length out had then (LWW, LWL).
+#   When out has since grown only by whitespace, as it does after a dropped
+#   quoted region or a substitution the third reading mutes, that word is
+#   still the last one, and nothing is read again but the bytes added.
+# - Otherwise the walk goes back past the whitespace that ends out, all of
+#   it, which is text added since the word was last found, then over the word,
+#   at most 256 bytes. A word it does not see begin, a longer one or one that
+#   begins out, is found by splitting the text before it.
+#
+# The kept word belongs to the text it was found in. Every place that sets out
+# to another text sets LWL too: lex() clears it, a substitution the third
+# reading mutes saves it with out and clears it (open_dq_sub, and the $( and
+# backtick of lex()), and the close that gives out back gives it back
+# (close_sub). A command of many quoted words, or of many substitutions apart,
+# stays linear in its length.
 function last_word(   L, lo, j, e, t, k, tw) {
   L = length(out)
-  lo = (L > 256) ? L - 256 : 0
-  j = L
-  while (j > lo && index(" \t\n", substr(out, j, 1))) j--
-  e = j
-  while (j > lo && !index(" \t\n", substr(out, j, 1))) j--
-  if (j > lo || lo == 0) return substr(out, j + 1, e - j)
-  t = out
-  sub(/[ \t\n]+$/, "", t)
-  k = split(t, tw, /[ \t\n]+/)
-  return (k > 0) ? tw[k] : ""
+  if (!LWL || substr(out, LWL + 1) ~ /[^ \t\n]/) {
+    j = L
+    while (j > 0 && index(" \t\n", substr(out, j, 1))) j--
+    e = j
+    lo = (e > 256) ? e - 256 : 0
+    while (j > lo && !index(" \t\n", substr(out, j, 1))) j--
+    if (j > lo) LWW = substr(out, j + 1, e - j)
+    else {
+      t = substr(out, 1, e)
+      k = split(t, tw, /[ \t\n]+/)
+      LWW = (k > 0) ? tw[k] : ""
+    }
+  }
+  LWL = L
+  return LWW
 }
 
 # The third reading reads a substitution as empty (close_sub). One that stands
@@ -305,7 +323,8 @@ function open_dq_sub(kind) {
   mstack[depth] = (V3 && !decodectx && !cmdctx)
   if (mstack[depth]) {
     bstack[depth] = buf; tstack[depth] = tainted; ostack[depth] = out
-    out = ""
+    lwl[depth] = LWL; lww[depth] = LWW
+    out = ""; LWL = 0
   } else {
     if (decodectx) out = out " " decode_ansic(buf) " "
     else if (cmdctx) out = out " " buf " "
@@ -340,6 +359,7 @@ function open_dq_sub(kind) {
 function close_sub(nextc) {
   if (!mstack[depth]) return 0
   out = ostack[depth]; ostack[depth] = ""
+  LWL = lwl[depth]; LWW = lww[depth]
   if (stack[depth] != "out") {
     buf = bstack[depth]; bstack[depth] = ""
     tainted = tstack[depth]
@@ -495,7 +515,7 @@ function expand_braces(s,   extra, groups, grp, inner, alts, n, k, pre, post, r,
 # CHANGED where the second would differ, and CH3 where only the third would.
 function lex(s,   n, i) {
   n = length(s); i = 1
-  out = ""
+  out = ""; LWL = 0
   mode = "out"
   depth = 0
   buf = ""
@@ -527,7 +547,10 @@ function lex(s,   n, i) {
       if (c == "$" && d == "(") {
         if (!V2) CH3 = 1
         mstack[depth] = V3
-        if (V3) { mvs[depth] = word_before(); ostack[depth] = out; out = "" }
+        if (V3) {
+          mvs[depth] = word_before(); ostack[depth] = out; out = ""
+          lwl[depth] = LWL; lww[depth] = LWW; LWL = 0
+        }
         else out = out subopen()
         stack[depth] = "out"; depth++
         i += 2; continue
@@ -548,8 +571,12 @@ function lex(s,   n, i) {
         if (V3) {
           if (obt[depth]) {
             out = obs[depth]; obs[depth] = ""; obt[depth] = 0
+            LWL = obl[depth]; LWW = obw[depth]
             if (obv[depth] && word_after(d)) out = out WB
-          } else { obv[depth] = word_before(); obs[depth] = out; obt[depth] = 1; out = "" }
+          } else {
+            obv[depth] = word_before(); obs[depth] = out; obt[depth] = 1; out = ""
+            obl[depth] = LWL; obw[depth] = LWW; LWL = 0
+          }
           i++; continue
         }
         if (!V2) CH3 = 1
@@ -692,9 +719,16 @@ function lex(s,   n, i) {
     if (c == "$" && d == "(") {
       if (V2) { open_dq_sub("dq"); i += 2; continue }
       # The third reading reads every such substitution as empty (CH3). The
-      # second differs only in a command context, printf or KEEPQ mode.
-      if (cmdctx || decodectx || KEEPQ == 1) CHANGED = 1
-      else CH3 = 1
+      # second differs only in a command context or printf. In KEEPQ mode the
+      # region's text before the substitution is printed first, as the second
+      # reading prints it (open_dq_sub), so that the `$` is glued to it:
+      # `-f "body=$(cat c.md)"` reads `-f body=$ cat c.md`, a field whose key
+      # is `body`, in every reading (WU-IAENG-450).
+      if (cmdctx || decodectx) CHANGED = 1
+      else {
+        CH3 = 1
+        if (KEEPQ == 1) out = out keepq(buf)
+      }
       mstack[depth] = 0
       stack[depth] = "dq"; vstack[depth] = valctx; depth++
       mode = "out"; tainted = 1; buf = ""
@@ -740,10 +774,12 @@ function lex(s,   n, i) {
 # the reading printed (tainted).
 #
 # After --config-env (valctx 2) a region whose text begins `<key>=` keeps that
-# key, with WB for the rest of its value, in every reading.
+# key and its `=`, in every reading. The rest of its value, the name of a
+# variable, is not printed: the key and its `=` are already a word, and G and
+# GX read the word after the option as its value whatever follows the `=`.
 function dropped(b,   t) {
   if (valctx == 2 && !tainted && match(b, /^[^ \t\n=]+=/)) {
-    out = out sepw(substr(b, 1, RLENGTH)) WB
+    out = out sepw(substr(b, 1, RLENGTH))
     return
   }
   t = path_tail(b)
@@ -768,9 +804,11 @@ function dropped(b,   t) {
 # follows the others on a line of its own when some record's third reading
 # differs from both of its others, and, like the second, can only add a
 # refusal. It is not made in KEEPQ mode, where a substitution leaves its `$`
-# (subopen) and a separator is already kept in its word. Two changes reach
+# (subopen) and a separator is already kept in its word. Three changes reach
 # every reading, pass 1 included: a dropped region in a value context leaves
-# WB (dropped), and, in KEEPQ mode, an escaped ; & | is WB.
+# WB (dropped); in KEEPQ mode, an escaped ; & | is WB; and in KEEPQ mode, the
+# quoted text before a substitution opened in double quotes is printed before
+# its `$`, as the second reading prints it.
 #
 # Pass 1 sets CHANGED where the second reading would differ and CH3 where only
 # the third would. A record that sets CH3 alone is lexed twice, not three
