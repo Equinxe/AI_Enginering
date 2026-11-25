@@ -15175,6 +15175,7 @@ printf 'employees:\n' > Registry/employees.yml
 printf 'fix(u406): x\n\nEmployee: Platform Engineer\n' > msg-framework.txt
 expect 1 "#443: a framework roster that lists no names is refused" -- bash "$HOOK406" msg-framework.txt
 expect_output "/Registry/employees.yml lists no names"
+cd "$HERE" || exit 1
 
 # -------- generate-agents.sh: the one-suite rule in every agent (WU-IAENG-453) --
 #
