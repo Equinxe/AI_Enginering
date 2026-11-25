@@ -14951,6 +14951,136 @@ else
     fail_445 "#472: a framework imported as 'ia eng': the printed diff command runs as printed" "command [$SP_CMD_445], exit $SP_RC_445: $(printf '%s' "$SP_DIFF_445" | tail -n 2)"
   fi
 fi
+
+section "data-policy reports a secret under its file's own name, not git's quoted diff header (WU-IAENG-446, #484)"
+
+# The content scan takes each added line's path from the diff header, and git
+# quotes a name there when it holds a control character, a double quote or a
+# backslash: "b/conf\rx.txt", each escape written out. A secret added under
+# such a name was reported under that rendering, in --staged and in the
+# ordinary patches of --history. Each name below is staged with git
+# update-index and never checked out, so every case runs on Windows too. The
+# shown name is the record sanitiser's, written here by hand: each control
+# character a space, a C1 pair one space.
+new_repo dp-446
+DPS_446="$SCRIPTS/data-policy-scan.sh"
+T446=$'\t'
+LF446=$'\n'
+CR446=$'\r'
+git config core.protectNTFS false
+# stage_446 <name>... — stages a file holding one secret line under each
+# <name>, in the repository the shell is in.
+stage_446() {
+  local n blob
+  blob="$(printf 'key = %s%s\n' 'AKIA' 'ABCDEFGHIJKLMNOP' | git hash-object -w --stdin)"
+  for n in "$@"; do
+    printf '100644 %s\t%s\0' "$blob" "$n" | git update-index -z --index-info
+  done
+}
+# refused_446 <n> <label> — one check: the previous output has <n> REFUSED
+# lines.
+refused_446() {
+  TOTAL=$((TOTAL + 1))
+  if [ "$(grep -c '^data-policy: REFUSED' <<< "$LAST_OUTPUT")" -eq "$1" ]; then
+    [ -n "$VERBOSE" ] && printf '   ok   %s\n' "$2"
+    return 0
+  fi
+  printf '   FAIL %s\n' "$2"
+  printf '%s\n' "$LAST_OUTPUT" | sed 's/^/        | /'
+  FAILED=$((FAILED + 1))
+  return 1
+}
+# one_line_446 <label> — one check: the previous output holds no CR, and no
+# line of it starts, after blanks, with "::".
+one_line_446() {
+  TOTAL=$((TOTAL + 1))
+  case "$LAST_OUTPUT" in
+    *"$CR446"*) ;;
+    *)
+      if ! grep -qE '^[[:space:]]*::' <<< "$LAST_OUTPUT"; then
+        [ -n "$VERBOSE" ] && printf '   ok   %s\n' "$1"
+        return 0
+      fi
+      ;;
+  esac
+  printf '   FAIL %s\n' "$1"
+  printf '%s\n' "$LAST_OUTPUT" | od -c | sed 's/^/        | /'
+  FAILED=$((FAILED + 1))
+  return 1
+}
+
+# Parallel arrays: the name, and the name as the report shows it. The
+# backslash cases hold what a decoder could misread: a backslash before three
+# digits is no octal escape, one before a double quote is two characters, and
+# the byte 0x01 before a digit is git's three-digit escape \001, then the 5.
+N446=(); S446=()
+case_446() { N446+=("$1"); S446+=("$2"); }
+case_446 "conf${CR446}x.txt" 'conf x.txt'
+case_446 'q"x.conf' 'q"x.conf'
+case_446 'b\s.conf' 'b\s.conf'
+case_446 'e\101.conf' 'e\101.conf'
+case_446 'k\"q.conf' 'k\"q.conf'
+case_446 "t${T446}ab.conf" 't ab.conf'
+case_446 "n${LF446}l.conf" 'n l.conf'
+case_446 "c"$'\001'"5.conf" 'c 5.conf'
+case_446 "d"$'\177'".conf" 'd .conf'
+case_446 "sp ace${T446}t.conf" 'sp ace t.conf'
+case_446 'é"日本.conf' 'é"日本.conf'
+case_446 "x"$'\xc2\x85'"\"y.conf" 'x "y.conf'
+case_446 '"b/q".conf' '"b/q".conf'
+case_446 '"b/r.conf"' '"b/r.conf"'
+case_446 "i${LF446}::warning::x${CR446}.conf" 'i ::warning::x .conf'
+case_446 'plain.conf' 'plain.conf'
+stage_446 "${N446[@]}"
+expect 1 "--staged refuses the secret under each of ${#N446[@]} names" -- bash "$DPS_446" --staged
+for s446 in "${S446[@]}"; do expect_line "data-policy: REFUSED  $s446:1"; done
+refused_446 "${#N446[@]}" "--staged: each secret is refused once"
+expect_output "scanned ${#N446[@]} path(s), ${#N446[@]} added line(s)"
+one_line_446 "--staged: the report holds no CR and no line that starts with ::"
+git commit -q -m "a secret under each name"
+expect 1 "--history refuses the secret under each of ${#N446[@]} names" -- bash "$DPS_446" --history HEAD~1..HEAD
+for s446 in "${S446[@]}"; do expect_line "data-policy: REFUSED  $s446:1"; done
+refused_446 "${#N446[@]}" "--history: each secret is refused once"
+one_line_446 "--history: the report holds no CR and no line that starts with ::"
+git reset -q HEAD~1
+
+# The header's prefix is the scanner's, not the user's configuration: under
+# diff.mnemonicPrefix a staged file's header reads i/, under diff.noprefix it
+# has none, and a b/ that is the path's own directory was then removed;
+# diff.dstPrefix (git 2.45 and later) names any prefix. Each setting is
+# key=value.
+for cfg446 in diff.mnemonicPrefix=true diff.noprefix=true diff.dstPrefix=z/; do
+  git config "${cfg446%%=*}" "${cfg446#*=}"
+  stage_446 'b/plain.conf' 'q"x.conf'
+  expect 1 "--staged under $cfg446: each secret is refused" -- bash "$DPS_446" --staged
+  expect_line "data-policy: REFUSED  b/plain.conf:1"
+  expect_line 'data-policy: REFUSED  q"x.conf:1'
+  git commit -q -m "two secrets under $cfg446"
+  expect 1 "--history under $cfg446: each secret is refused" -- bash "$DPS_446" --history HEAD~1..HEAD
+  expect_line "data-policy: REFUSED  b/plain.conf:1"
+  expect_line 'data-policy: REFUSED  q"x.conf:1'
+  git reset -q HEAD~1
+  git config --unset "${cfg446%%=*}"
+done
+
+# A merge-authored record already holds the name itself, read from
+# diff-tree -z, and is never read back as a header: a file a merge adds as
+# "b/r.conf", a name that begins and ends with a double quote as a quoted
+# header does, is reported under that name.
+new_repo dp-446-merge
+BASE_446="$(git rev-parse HEAD)"
+git checkout -qb feat
+echo f > f.txt && git add f.txt && git commit -qm "feat"
+git checkout -q main
+echo m > m.txt && git add m.txt && git commit -qm "main"
+git merge --no-commit --no-ff feat >/dev/null 2>&1
+git config core.protectNTFS false
+stage_446 '"b/r.conf"'
+git commit -qm "Merge feat"
+expect 1 "--history refuses the secret in a file a merge adds as \"b/r.conf\"" -- \
+  bash "$DPS_446" --history "$BASE_446..HEAD"
+expect_line 'data-policy: REFUSED  "b/r.conf":1'
+refused_446 1 "--history: the merge-authored secret is refused once"
 cd "$HERE" || exit 1
 
 # -------- generate-agents.sh: the one-suite rule in every agent (WU-IAENG-453) --
