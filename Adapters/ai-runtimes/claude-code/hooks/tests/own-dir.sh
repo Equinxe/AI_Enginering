@@ -46,8 +46,12 @@
 #         also under the working directory's tests/;
 #       post-edit-lint.sh fails a .sh file with a syntax error;
 #       session-start.sh runs its own context-alert.sh, which warns about an
-#         IAENG_CTX_ALERT_PCT that is not a whole number;
+#         IAENG_CTX_ALERT_PCT that is not a whole number, a warning that
+#         needs its own context-thresholds.sh (WU-IAENG-421);
 #       stop-gate.sh yields on stop_hook_active, a guard that needs lib.sh;
+#       context-statusline.sh colours 65 % yellow, which needs its own
+#         context-thresholds.sh, and writes the .pct where its own
+#         context-dir.sh names it (WU-IAENG-421, #362);
 #     and none of them prints "command not found".
 #
 # ORACLES (Standards/TESTING_STANDARD.md, Independent Oracle). None is taken
@@ -98,7 +102,7 @@ for tool in jq git; do
     exit 2
   }
 done
-HOOK_NAMES="block-escape-hatches.sh block-inline-suppression.sh post-edit-lint.sh session-start.sh stop-gate.sh"
+HOOK_NAMES="block-escape-hatches.sh block-inline-suppression.sh post-edit-lint.sh session-start.sh stop-gate.sh context-statusline.sh"
 for h in $HOOK_NAMES; do
   [ -f "$HOOKS/$h" ] || { echo "own-dir.sh: $HOOKS/$h is missing" >&2; exit 2; }
 done
@@ -131,6 +135,14 @@ EOF
 cat > "$W/context-alert.sh" <<EOF
 printf '%s\n' context-alert.sh >> "$LOG"
 EOF
+# The two files the context hooks source: each logs and defines nothing, so
+# a hook that sourced one would also lose its colours or its .pct.
+for f in context-thresholds.sh context-dir.sh; do
+  cat > "$W/$f" <<EOF
+printf '%s\n' $f >> "$LOG"
+EOF
+done
+mkdir -p "$T/ctx" "$T/home"
 printf 'planted\t^this-planted-row-matches-nothing$\n' > "$T/w/scripts/suppression-patterns.tsv"
 for h in $HOOK_NAMES; do
   [ ! -e "$W/$h" ] || { echo "own-dir.sh: $W/$h exists, so bash would not search PATH" >&2; exit 2; }
@@ -245,6 +257,7 @@ suite() {
   hook "$how" session-start.sh '{"hook_event_name":"SessionStart","source":"startup"}' IAENG_CTX_ALERT_PCT=abc
   not_used "$l" lib.sh
   not_used "$l" context-alert.sh
+  not_used "$l" context-thresholds.sh
   all_found "$l"
   if grep -qF 'IAENG_CTX_ALERT_PCT is not a whole number' <<< "$OUT"; then
     ok "$l: runs its own context-alert.sh"
@@ -260,6 +273,21 @@ suite() {
     ok "$l: yields on stop_hook_active with a tracked change"
   else
     bad "$l: yields on stop_hook_active with a tracked change" "want exit 0, got exit $RC: $(head -1 <<< "$ERR")"
+  fi
+
+  # A session of its own per form, so a .pct an earlier form wrote cannot
+  # stand in for this one. No user statusLine (HOME and CLAUDE_CONFIG_DIR
+  # scratch), colour on (NO_COLOR empty).
+  l="context-statusline.sh ($how)"
+  hook "$how" context-statusline.sh "{\"session_id\":\"own-$how\",\"context_window\":{\"used_percentage\":65}}" \
+    TMPDIR="$T/ctx" IAENG_CTX_TEST_FALLBACK="$T/ctx" HOME="$T/home" CLAUDE_CONFIG_DIR="$T/home" NO_COLOR=
+  not_used "$l" context-thresholds.sh
+  not_used "$l" context-dir.sh
+  all_found "$l"
+  if [[ $OUT == *$'\033[33m65%'* ]] && [ -f "$T/ctx/iaeng-ctx-${UID:-x}/own-$how.pct" ]; then
+    ok "$l: its own thresholds colour 65 % yellow, and its own directory rule names the .pct"
+  else
+    bad "$l: its own thresholds colour 65 % yellow, and its own directory rule names the .pct" "exit $RC, line [$OUT], .pct files: $(find "$T/ctx" -name '*.pct' 2>&1 | tr '\n' ' ')"
   fi
 }
 
