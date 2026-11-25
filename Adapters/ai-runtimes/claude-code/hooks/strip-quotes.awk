@@ -190,8 +190,8 @@ function is_value_context(w) {
 # to another text sets LWL too: lex() clears it, a substitution the third
 # reading mutes saves it with out and clears it (open_dq_sub, and the $( and
 # backtick of lex()), and the close that gives out back gives it back
-# (close_sub). A command of many quoted words, or of many substitutions apart,
-# stays linear in its length.
+# (close_sub). A command of many quoted regions or substitutions separated by
+# whitespace stays linear in its length.
 function last_word(   L, lo, j, e, t, k, tw) {
   L = length(out)
   if (!LWL || substr(out, LWL + 1) ~ /[^ \t\n]/) {
