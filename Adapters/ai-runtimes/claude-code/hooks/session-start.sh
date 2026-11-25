@@ -398,6 +398,8 @@ fi
 #
 # The file's time is set to one second before the run started, not when it
 # was written, so an input changed while the generator ran is newer than it.
+# An input changed in the second or two before a run is newer too: the next
+# clear runs the generator once more, and keeps its block again.
 # A full run whose block is already kept, unchanged and still valid, writes
 # nothing. Anything that fails here (no cache directory, no GNU touch -d, a
 # file another user could write) leaves the event to the generator, never to
@@ -635,13 +637,19 @@ ss_tier_block() {
 
 if [ -n "$GEN" ] && [ -f "$GEN" ]; then
   SS_DONE=0
+  SS_KEPT_UNTRUSTED=0
   [ -n "$SS_KEPT" ] && ss_kept_inputs
   # clear and compact: the kept block, when only the user could have written
-  # it, checked before it is read, and it is valid.
-  if [ "$SS_LIGHT" -eq 1 ] && [ -n "$SS_KEPT" ] && [ -f "$SS_KEPT" ] \
-     && ! iaeng_untrusted "$IA_CACHE" "$SS_KEPT" && ss_kept_valid; then
-    printf '%s' "$SS_KEPT_BLOCK"
-    SS_DONE=1
+  # it, checked before it is read, and it is valid. One that someone else
+  # could have written is not read, and is replaced below, so that a full run
+  # finding it valid and unchanged does not leave it in place for good.
+  if [ "$SS_LIGHT" -eq 1 ] && [ -n "$SS_KEPT" ] && [ -f "$SS_KEPT" ]; then
+    if iaeng_untrusted "$IA_CACHE" "$SS_KEPT"; then
+      SS_KEPT_UNTRUSTED=1
+    elif ss_kept_valid; then
+      printf '%s' "$SS_KEPT_BLOCK"
+      SS_DONE=1
+    fi
   fi
   if [ "$SS_DONE" -eq 0 ]; then
     SS_T0=""
@@ -651,7 +659,7 @@ if [ -n "$GEN" ] && [ -f "$GEN" ]; then
     SS_BLOCK="${SS_BLOCK%x}"
     printf '%s' "$SS_BLOCK"
     if [ -n "$SS_KEPT" ] && [ -n "$SS_T0" ] \
-       && ! { ss_kept_valid && [ "$SS_KEPT_BLOCK" = "$SS_BLOCK" ]; }; then
+       && { [ "$SS_KEPT_UNTRUSTED" -eq 1 ] || ! { ss_kept_valid && [ "$SS_KEPT_BLOCK" = "$SS_BLOCK" ]; }; }; then
       ss_kept_write "$SS_BLOCK" "$SS_T0"
     fi
   fi

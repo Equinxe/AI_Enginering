@@ -146,6 +146,12 @@ printf 'agent b\n' > "$P/.claude/agents/code-reviewer.md"
 # Behind the repository: the freshness warning must come back on clear too.
 touch -d '2020-01-01 12:00:00' "$P/.ia-engineering/SESSION_STATE.md"
 printf 'work in progress\n' > "$P/wip.txt"
+# The kept file's time is one second before the run that wrote it started,
+# so an input changed in the two seconds before a run is newer than it and
+# the next clear runs the generator once more. Every change below is
+# followed by two seconds, so each check sees the case it names, on a
+# machine where a run takes milliseconds.
+sleep 2
 
 # ss <source> [cache] — runs the hook as Claude Code does, the payload on
 # stdin; SS_OUT its stdout and stderr, SS_GEN and SS_DRIFT how many times the
@@ -231,8 +237,8 @@ if [ "$SS_GEN" -eq 1 ]; then ok "resume: the generator runs (a full run)"; else 
 invalidates() {
   local label="$1"; shift
   ss startup
-  sleep 1
   "$@"
+  sleep 2
   ss clear
   local first="$SS_GEN" out="$SS_OUT"
   ss clear
@@ -299,6 +305,13 @@ if [ -n "$KEPT" ] && [ -f "$KEPT" ]; then
   if [ -n "$(find "$KEPT" -prune -perm -020 2>/dev/null)" ]; then
     ss clear
     if [ "$SS_GEN" -eq 1 ]; then ok "a kept file the group can write is not used"; else bad "a kept file the group can write is not used" "generator ran $SS_GEN times"; fi
+    # Replaced by that clear's run, though its block was valid and the same.
+    ss clear
+    if [ "$SS_GEN" -eq 0 ] && [ -z "$(find "$KEPT" -prune -perm -020 2>/dev/null)" ]; then
+      ok "... and is replaced by that run, so the next clear uses the kept block again"
+    else
+      bad "... and is replaced by that run, so the next clear uses the kept block again" "generator ran $SS_GEN times"
+    fi
   else
     na "a kept file the group can write is not used" "chmod g+w has no effect on this file system"
   fi
