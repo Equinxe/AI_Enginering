@@ -895,6 +895,39 @@ if [ "$QUICK" -eq 1 ]; then
   exit 0
 fi
 
+# --- The one-suite rule, read from the brief template (WU-IAENG-453) --------
+#
+# Issue #373. The rule that an Employee runs at most one full test suite at a
+# time lived in Templates/EMPLOYEE_BRIEF.md only, so an Employee dispatched
+# without a brief built from that template never read it. In an adopter's
+# acceptance run, Employees ran their suites side by side: 25 to 48 bash.exe
+# at once on one Windows machine. Every generated agent now states the rule
+# in its "Test Runs" section.
+#
+# Read from the template at each generation, never copied here: one source,
+# so a change to the rule's words changes every generated agent, and --check
+# calls each agent stale until it is regenerated. The line is the one that
+# begins with ONE_SUITE_PREFIX; its line-ending carriage return is removed
+# (Check Convention, Shell Scripts rule 3), so a CRLF checkout writes the same
+# agents. A template that is missing, or that holds the line zero times or
+# twice, stops the run with exit 2, a condition not evaluated: an agent
+# without the rule is not written, and no agent is called current or stale
+# against a rule that could not be read. Read after the quick check, which
+# generates nothing and so needs no template.
+ONE_SUITE_SOURCE="Templates/EMPLOYEE_BRIEF.md"
+ONE_SUITE_PREFIX="- Run at most one full test suite at a time. "
+if [ ! -f "$ONE_SUITE_SOURCE" ]; then
+  echo "generate-agents.sh: $ROOT/$ONE_SUITE_SOURCE not found. Every agent states the one-suite rule read from it: nothing was generated or checked." >&2
+  exit 2
+fi
+ONE_SUITE_RULE="$(awk -v p="$ONE_SUITE_PREFIX" '{ sub(/\r$/, "") } index($0, p) == 1' "$ONE_SUITE_SOURCE")"
+ONE_SUITE_N="$(printf '%s\n' "$ONE_SUITE_RULE" | grep -c .)"
+if [ "$ONE_SUITE_N" -ne 1 ]; then
+  echo "generate-agents.sh: $ROOT/$ONE_SUITE_SOURCE has $ONE_SUITE_N lines that begin with \"$ONE_SUITE_PREFIX\", one expected. Every agent states that rule: nothing was generated or checked." >&2
+  exit 2
+fi
+unset ONE_SUITE_N
+
 # --- Where an adopting project's agents read the framework (WU-IAENG-430) ----
 #
 # Every generated agent names framework documents by their path from the
@@ -1432,6 +1465,20 @@ missing, stop immediately and request it. Never make assumptions.
 Escalation is not failure. It is the correct engineering decision whenever
 responsibility or authority is exceeded.
 
+FOOTER
+
+    # The rule's words are the template's, read once above (WU-IAENG-453),
+    # and printed as data: its backticks are text, never a command.
+    printf '%s\n' \
+      "## Test Runs" \
+      "" \
+      "Every Employee shares one machine. This rule of $ONE_SUITE_SOURCE" \
+      "binds every Work Unit that runs tests, whether or not your brief repeats it:" \
+      "" \
+      "$ONE_SUITE_RULE" \
+      ""
+
+    cat <<'FOOTER'
 ## Your Commit
 
 One Work Unit, one commit, per Standards/COMMIT_STANDARD.md:

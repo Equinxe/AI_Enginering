@@ -1688,9 +1688,9 @@ work_units:
 
   - id: WU-IAENG-406
     employee: Platform Engineer
-    title: Reserved 28 Oct 2026 before dispatch (WU-IAENG-408) - scripts that set -e state their reason, and hooks/lib.sh says it sets its callers' options (issue #328) - Check Convention shell rule 2; commit-msg, pre-commit, pre-push, setup-branch-protection.sh and setup-project-bootstrap.sh run set -euo pipefail without stating in their header why any unhandled non-zero status is a correct fail-closed verdict, and lib.sh sets -uo pipefail for the hooks that source it without its header saying so
+    title: scripts that set -e state their reason, hooks/lib.sh says it sets its callers' options, and commit-msg reads a roster that lists no names (issues #328 and #443) - Check Convention shell rule 2; commit-msg, pre-commit, pre-push, setup-branch-protection.sh and setup-project-bootstrap.sh ran set -euo pipefail without stating in their header why any unhandled non-zero status is a correct fail-closed verdict, and each now states it; lib.sh says it sets -uo pipefail and LC_ALL=C for the hooks that source it, and why not -e; commit-msg exited 1 with no message under set -e when the project roster listed no names, a valid framework Employee included, and now validates against the framework roster alone, as the Employee Trailer check did (Registry/README.md), while a framework roster that lists no names and a roster it cannot read are refused with the file named, seen red first
     milestone: Usage
-    delivers: planned - Adapters/git-hooks/commit-msg, Adapters/git-hooks/pre-commit, Adapters/git-hooks/pre-push, Adapters/scripts/setup-branch-protection.sh, Adapters/scripts/setup-project-bootstrap.sh, Adapters/ai-runtimes/claude-code/hooks/lib.sh, changelog.d/WU-IAENG-406.md, Registry/work-units.yml
+    delivers: Adapters/git-hooks/commit-msg, Adapters/git-hooks/pre-commit, Adapters/git-hooks/pre-push, Adapters/scripts/setup-branch-protection.sh, Adapters/scripts/setup-project-bootstrap.sh, Adapters/ai-runtimes/claude-code/hooks/lib.sh, Registry/README.md, Adapters/scripts/tests/run.sh, changelog.d/WU-IAENG-406.md, Registry/work-units.yml
 
   - id: WU-IAENG-407
     employee: DevOps Engineer
@@ -1937,6 +1937,12 @@ work_units:
     title: The data-policy scan reports a secret under its file's own name, not git's quoted diff header (#484, Usage) - the content scan takes a line's path from the diff header, which git quotes when a name holds a control character, a double quote or a backslash; data-policy-scan.sh reads a finding's path back from that quoting (header_path) before the record sanitiser of WU-IAENG-366 prints it, in --staged and in the ordinary patches of --history, and pins the headers' a/ and b/ prefixes against diff.noprefix, diff.mnemonicPrefix and diff.dstPrefix; one diff as before, so every staged file is still scanned and renames and the added-line count are unchanged; tests/run.sh pins sixteen names in both modes, the three prefix settings and a merge-authored name, on every platform
     milestone: Usage
     delivers: Adapters/scripts/data-policy-scan.sh, Adapters/scripts/tests/run.sh, changelog.d/WU-IAENG-446.md, Registry/work-units.yml
+
+  - id: WU-IAENG-453
+    employee: Prompt Engineer
+    title: Every generated agent states the one-suite rule (issue #373, Usage plan item W2.7) - the rule that an Employee runs at most one full test suite at a time lived in Templates/EMPLOYEE_BRIEF.md only, so an Employee dispatched without a brief built from it never read it and an adopter's Employees ran their suites side by side (25 to 48 bash.exe in acceptance); generate-agents.sh reads the rule's line from the template at each generation, its line-ending carriage return removed, and writes it word for word into a Test Runs section of every agent, so --check calls an agent generated before the change, or before the rule's words change, stale until it is regenerated, and check-framework-drift.sh reports it in its agent family; a template that is missing or holds the line zero times or twice stops a generation or a full check with exit 2 and writes no agent, while the quick check and --print-tier-map, which generate nothing, read no template; tests/run.sh gains a red-first section, and its fw-358 and fw-430-self fixtures carry the template
+    milestone: Usage
+    delivers: Adapters/ai-runtimes/generate-agents.sh, Adapters/ai-runtimes/README.md, Templates/EMPLOYEE_BRIEF.md, Adapters/scripts/tests/run.sh, changelog.d/WU-IAENG-453.md, Registry/work-units.yml
 
   - id: WU-IAENG-452
     employee: Platform Engineer

@@ -32,6 +32,7 @@ Each generated agent carries:
 - The universal rules from `Core/AGENT_CONDUCT.md` and a pointer to `Core/DECISION_TREE.md`, which every Employee inherits.
 - The exact commit trailer it must use, and the statement that a commit without it is rejected mechanically.
 - Its first and last actions: Read First, and the Work Unit Report (`Core/AGENT_CONDUCT.md`), plus the risk-classification and escape-hatch rules.
+- A `Test Runs` section: the one-suite rule of `Templates/EMPLOYEE_BRIEF.md` (at most one full test suite at a time), read from that template at each generation and written word for word, so an Employee dispatched without a brief built from the template reads it too. A generation or a full `--check` stops with exit 2, and writes no agent, when the template is missing or holds that line zero times or twice; `--check --quick` and `--print-tier-map` do not read it (WU-IAENG-453).
 - An execution capability derived from the Employee's Default Complexity Tier.
 - A header naming the definition it came from and the roster that declared it, so a Domain Employee's provenance is visible in the generated file.
 
@@ -225,6 +226,7 @@ Depends On:
 - `Core/CAPABILITY_TIERS.md`
 - `Core/AGENT_CONDUCT.md`
 - `Core/MAIN_AGENT_CONDUCT.md`
+- `Templates/EMPLOYEE_BRIEF.md` (the one-suite rule every agent states; a generation or a full `--check` exits 2 without it)
 
 Referenced By:
 
