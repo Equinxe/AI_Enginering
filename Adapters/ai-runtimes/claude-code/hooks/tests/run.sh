@@ -1930,6 +1930,38 @@ expect_reason "escape-hatch: a quoted git path after a --config-env line is read
   "$(mkbash $'git --config-env\n"/opt/a=b c/git" push --force')" "force-push or mirror-push"
 expect_reason "escape-hatch: a quoted rm path after a --config-env line is read as rm" \
   "$(mkbash $'echo --config-env\n"/opt/a=b c/rm" -rf /')" "recursive removal of the repository metadata"
+# A line break that a quoted region's text holds ends no command around it:
+# each command below passes one argument, or two that eval joins, so the
+# region after the line break is judged on the command word before the first
+# (review round 4). A line break read outside quotes still ends a command,
+# but not the word after it; so does the end of a heredoc's first line; and
+# one inside a muted substitution is left out with it.
+expect_reason "escape-hatch: a line break in a quoted region does not end eval's argument" \
+  "$(mkbash $'eval "\n""git push --force"')" "force-push or mirror-push"
+expect_reason "escape-hatch: a line break in a quoted region does not end bash -c's argument" \
+  "$(mkbash $'bash -c "\n""git push --force"')" "force-push or mirror-push"
+expect_reason "escape-hatch: a line break in a single-quoted region does not end eval's argument" \
+  "$(mkbash $'eval \'\n\'"git push --force"')" "force-push or mirror-push"
+expect_reason "escape-hatch: a line break in a quoted region does not end eval's argument (commit)" \
+  "$(mkbash $'eval "\n""git commit --no-verify -m x"')" "--no-verify disables"
+expect_reason "escape-hatch: a line break in a quoted region does not end sh -c's single-quoted argument" \
+  "$(mkbash $'sh -c "\n"\'git push --force\'')" "force-push or mirror-push"
+expect_reason "escape-hatch: a line break in a quoted region does not end eval's ANSI-C argument" \
+  "$(mkbash $'eval "\n"$\'git push --force\'')" "force-push or mirror-push"
+expect_reason "escape-hatch: a line break in a quoted region does not end eval's argument (config)" \
+  "$(mkbash $'eval "\n"\'git config core.hooksPath /dev/null\'')" "setting core.hooksPath disables"
+expect_reason "escape-hatch: a line break among blanks in a quoted region does not end eval's argument" \
+  "$(mkbash $'eval " \t\n ""git push --force"')" "force-push or mirror-push"
+expect_reason "escape-hatch: eval's second argument after a line break in its first is judged on eval" \
+  "$(mkbash $'eval "\n" "git push --force"')" "force-push or mirror-push"
+expect_reason "escape-hatch: a line break in a quoted region does not end eval's argument (label)" \
+  "$(mkbash $'eval "\n""gh pr edit 1 --add-label \\$L"')" "a label built from a variable or a substitution"
+expect_reason "escape-hatch: a line break in a muted substitution is left out with it" \
+  "$(mkbash $'eval "\n$(\n)""git push --force"')" "force-push or mirror-push"
+expect_reason "escape-hatch: the word after a line break is judged on its own" \
+  "$(mkbash $'true\nbash -c "git push --force"')" "force-push or mirror-push"
+expect_reason "escape-hatch: a heredoc's first line ends a command" \
+  "$(mkbash $'cat <<EOF --config-env\nx\nEOF\n"/opt/a=b c/git" push --force')" "force-push or mirror-push"
 # THE PROCESS BUDGET. Recording stand-ins first on PATH, as in the budgets
 # above: a dashed git and git.cmd start cat and one jq; a command read three
 # times starts one awk, as a command read once does; a gh api write in a

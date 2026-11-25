@@ -187,12 +187,25 @@ function is_value_context(w) {
 #   read before goes on from the word that text ended in, when it ended in
 #   one, and its new bytes are added to LWW. Bytes that are all whitespace
 #   leave the word and its contexts as they were.
-# - A line break after the word ends its command, so a quote or a
-#   substitution after it has no word before it: the word and its contexts
-#   are cleared. A \<newline> was removed before it reached out, so a line
-#   break there always ends a command. Read across it, `--config-env` at the
-#   end of one line made the next line's quoted command path a value of its
-#   own, and the path was not read as the command it names.
+# - A line break that lex() read outside quotes ends the command before it,
+#   so a quote or a substitution after it has no word before it: when out
+#   holds a line break after the word and lex() noted such a line break since
+#   the last call (NLP), the word and its contexts are cleared. lex() notes
+#   the line breaks the shell reads as the end of a command: one printed
+#   outside quotes (a \<newline> was removed before it reached out) and the
+#   one that ends a heredoc's first line. Read across one, `--config-env` at
+#   the end of a line made the next line's quoted command path a value of
+#   its own, and the path was not read as the command it names.
+# - A line break that a quoted region's text holds, printed in a command
+#   context or after printf, ends no command around it, so it clears
+#   nothing: `eval "a<line break>""b c"` passes eval one argument, and the
+#   second region is judged on eval. A region's text is
+#   printed after its opening called last_word, so it comes first among the
+#   bytes a call reads, before any line break lex() notes after it. The
+#   exception is the rest of a double-quoted region after a substitution
+#   that the first two readings print: a line break in that substitution
+#   still clears a word of the region's rest there, and the third reading,
+#   which mutes the substitution, judges it.
 #
 # The kept word belongs to the text it was found in. Every place that sets out
 # to another text sets the kept word too: lex() clears it (kept_clear), a
@@ -217,23 +230,28 @@ function last_word(   L, j, e) {
     LWD = is_decode_context(LWW)
     LWV = is_value_context(LWW)
   }
-  if (index(substr(out, e + 1, L - e), "\n")) { LWW = ""; LWC = 0; LWD = 0; LWV = 0 }
-  LWL = L
+  if (NLP && index(substr(out, e + 1, L - e), "\n")) { LWW = ""; LWC = 0; LWD = 0; LWV = 0 }
+  LWL = L; NLP = 0
   return LWW
 }
+# Clearing NLP here changes no output: the first bytes a text's first call
+# reads were all read outside quotes, so a line break there is one lex()
+# noted. It keeps the note with the text it was read in, as the word is.
 function kept_clear() {
-  LWL = 0; LWW = ""; LWC = 0; LWD = 0; LWV = 0
+  LWL = 0; LWW = ""; LWC = 0; LWD = 0; LWV = 0; NLP = 0
 }
 # k is a depth, for a $( or a substitution in double quotes, or "b" and a
 # depth, for a backtick pair outside quotes: one slot for each opening that
-# a close can give back.
+# a close can give back. The note of a line break (NLP) is saved and given
+# back with the word: one read in a muted substitution left out with it.
 function kept_save(k) {
-  KN[k] = LWL " " LWC " " LWD " " LWV; KW[k] = LWW
+  KN[k] = LWL " " LWC " " LWD " " LWV " " NLP; KW[k] = LWW
   kept_clear()
 }
 function kept_restore(k,   f) {
   split(KN[k], f, " ")
-  LWL = f[1] + 0; LWC = f[2] + 0; LWD = f[3] + 0; LWV = f[4] + 0; LWW = KW[k]
+  LWL = f[1] + 0; LWC = f[2] + 0; LWD = f[3] + 0; LWV = f[4] + 0; NLP = f[5] + 0
+  LWW = KW[k]
 }
 
 # The third reading reads a substitution as empty (close_sub). One that stands
@@ -677,6 +695,7 @@ function lex(s,   n, i) {
           if (k == 0) { out = out substr(s, i, j - i) LIMIT; i = n + 1; continue }
           lineend = j + k - 1
           out = out substr(s, i, lineend - i + 1)
+          NLP = 1
           pos = lineend + 1
           bodystart = pos
           found = 0
@@ -703,6 +722,8 @@ function lex(s,   n, i) {
           i = pos; continue
         }
       }
+      # A line break read here ends a command (last_word).
+      if (c == "\n") NLP = 1
       out = out c; i++; continue
     }
 

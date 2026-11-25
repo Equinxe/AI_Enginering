@@ -1009,7 +1009,7 @@ if [ "$GH_SEEN" -eq 1 ]; then
         LABEL_DYN=1
       fi
       if [ "$GH_LABEL_NAME" -eq 1 ] \
-         && { rx_any 1 "${GHB}${GHF}${S}+label${GHF}${S}+edit[^|;&]*${S}(--name|-n)(=|${S}*)${LDYN}" "$SEG" \
+         && { rx_any 1 "${GHB}${GHF}${S}+label${GHF}${S}+edit[^|;&]*${S}(--name|-n)${S}*${LDYN}" "$SEG" \
               || rx_any 1 "${GHB}${GHF}${S}+label${GHF}${S}+create${S}([^|;&]*${S})?${LDYN}" "$SEG"; }; then
         LABEL_DYN=1
       fi

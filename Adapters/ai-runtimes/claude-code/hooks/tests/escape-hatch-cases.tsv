@@ -1146,3 +1146,17 @@ allow	gh label create bug --color ff0000
 # A $'…' region is judged on the word before it, as a quote is.
 block	bash -c $'git push --force'	force-push or mirror-push
 allow	git -C $'/c/my repo' config --get core.hooksPath
+# A label created from a backtick substitution, or with a flag before its
+# name, and a field key built from a variable before the endpoint that
+# creates an issue (review round 4).
+block	gh label create "`echo x`"	a label built from a variable or a substitution
+block	gh label create --color ff0000 "$X"	a label built from a variable or a substitution
+block	gh api -f "$K[]=x" repos/o/r/issues	a label built from a variable or a substitution
+# printf's argument after a substitution is decoded in the third reading,
+# where the word before it is printf again (review round 4).
+block	printf "$(true)" 'git push \x2d\x2dforce' | sh	force-push or mirror-push
+block	printf "$(true)" 'git push origin \x2bmain' | bash	a + prefix on a push refspec
+block	printf `true` 'git push \x2d\x2dforce' | sh	force-push or mirror-push
+# Known over-refusal, pinned: the third reading reads a substitution as empty,
+# so a removal whose path starts with one reads as a removal of the root.
+block	rm -rf "$(pwd)"/*	recursive removal
