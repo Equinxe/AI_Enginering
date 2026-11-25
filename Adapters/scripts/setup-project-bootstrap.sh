@@ -73,6 +73,19 @@
 # issue templates, and the .gitattributes LF rules. This script owns only what
 # genuinely depends on the stack chosen in PROJECT_BOOTSTRAP.md Phase B, which
 # is the one thing install.sh cannot know.
+#
+# Why `set -e` (Standards/CODE_QUALITY_STANDARD.md, The Check Convention,
+# Shell Scripts rule 2): exit 0 is this script's claim that the project is
+# scaffolded as it reports, or, under --check, that nothing needs acting on.
+# What decides an outcome is tested explicitly: install.sh's exit is
+# captured, never discarded, and each project-owned file's presence is a
+# condition. A command left untested does the work: it writes into the
+# project (a mkdir, a cp, a file written), makes a temporary file, or prints
+# a report line, and fails only when the project cannot be scaffolded or
+# reported as this script says. set -e then stops it
+# there, non-zero, with that command's own error: a run that did not finish
+# never exits 0, and stopping before the next step keeps it from reporting
+# files it did not write.
 
 set -euo pipefail
 

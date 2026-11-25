@@ -56,6 +56,19 @@
 #
 # If owner/repo is omitted, it is detected from the current directory's git
 # remote via `gh repo view`.
+#
+# Why `set -e` (Standards/CODE_QUALITY_STANDARD.md, The Check Convention,
+# Shell Scripts rule 2): this run changes shared repository settings, one
+# write after another, and exit 0 is its claim that every write was applied.
+# Every `gh api` and `jq` call is tested explicitly, and a refusal says what
+# GitHub answered and what was already applied (refuse_read,
+# stop_after_write, apply). What is left untested comes before the first
+# write or between two of them: `gh repo view`, naming the repository when
+# no argument does, and local work (mktemp, a temporary file written or
+# read). It fails only when the run cannot go on as written. set -e then
+# stops it there, non-zero, with that command's own error, before the next
+# write: no setting is built from a value that was not computed, and the run
+# never exits 0 on protection it did not apply.
 
 set -euo pipefail
 

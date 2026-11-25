@@ -15083,6 +15083,99 @@ expect_line 'data-policy: REFUSED  "b/r.conf":1'
 refused_446 1 "--history: the merge-authored secret is refused once"
 cd "$HERE" || exit 1
 
+# ------ commit-msg: a roster that lists no names (WU-IAENG-406, #443) --------
+# Issue #443: the hook read the project roster at
+# .ia-engineering/Registry/employees.yml with a grep under set -euo pipefail.
+# When the file listed no names, grep exited 1 and set -e ended the hook with
+# exit 1 and no message, even for a valid trailer naming a framework Employee.
+# The decision, in Registry/README.md (Project Roster): a project roster that
+# lists no names adds no Domain Employee, as an absent one adds none, and the
+# framework roster alone validates; the Employee Trailer check already read it
+# so. A framework roster that lists no names, and a roster that cannot be
+# read, are refused with a message naming the file. No message here claims a
+# Work Unit, so the hook needs no registry.
+
+section "commit-msg: a roster that lists no names (WU-IAENG-406, #443)"
+
+HOOK406="$SCRIPTS/../git-hooks/commit-msg"
+new_repo u406-hook
+write_employee_roster "Platform Engineer"
+git add -A && git commit -q -m "roster"
+printf 'fix(u406): x\n\nEmployee: Platform Engineer\n' > msg-framework.txt
+printf 'fix(u406): x\n\nEmployee: Domain Expert\n' > msg-domain.txt
+# An Employee line with no name, in the body, where git reads no trailer but
+# the hook validates every line that starts `Employee: `. Only an empty line
+# in the list of valid names would let it pass.
+printf 'fix(u406): x\n\nEmployee: \n\nbody\n\nEmployee: Platform Engineer\n' > msg-no-name.txt
+mkdir -p .ia-engineering/Registry
+printf 'employees:\n' > .ia-engineering/Registry/employees.yml
+expect 0 "#443: a project roster that lists no names: a framework Employee is accepted" -- \
+  bash "$HOOK406" msg-framework.txt
+expect 1 "#443: a project roster that lists no names: a Domain Employee is refused" -- \
+  bash "$HOOK406" msg-domain.txt
+expect_output "'Employee: Domain Expert' is not a recognized Employee"
+expect_output "/.ia-engineering/Registry/employees.yml lists no names"
+expect 1 "#443: a project roster that lists no names widens nothing: a line with no name is refused" -- \
+  bash "$HOOK406" msg-no-name.txt
+expect_output "'Employee: ' is not a recognized Employee"
+: > .ia-engineering/Registry/employees.yml
+expect 0 "#443: an empty project roster file: a framework Employee is accepted" -- \
+  bash "$HOOK406" msg-framework.txt
+rm -rf .ia-engineering
+printf 'employees:\n' > "$WORK/u406-project-roster.yml"
+expect 0 "#443: IAENG_PROJECT_ROSTER naming a roster that lists no names: a framework Employee is accepted" -- \
+  env IAENG_PROJECT_ROSTER="$WORK/u406-project-roster.yml" bash "$HOOK406" msg-framework.txt
+
+# A roster that exists and cannot be read is refused, as set -e refused it
+# before, now with the file named: the project roster, and the framework
+# roster, whose own refusal is a separate branch of the hook. Each is tested
+# with the other one readable. chmod 000 makes a file unreadable on Linux for
+# a user other than root; Git for Windows ignores chmod, so there a deny ACE
+# does, and is taken off again (the pattern of WU-IAENG-434 above).
+# u406_deny returns 0 only when the file exists and cannot be read.
+u406_deny() {
+  chmod 000 "$1" 2>/dev/null
+  if cat "$1" >/dev/null 2>&1 && command -v icacls >/dev/null 2>&1 && command -v cygpath >/dev/null 2>&1; then
+    MSYS2_ARG_CONV_EXCL='*' icacls "$(cygpath -w "$1")" /deny "${USERNAME:-}:(R)" >/dev/null 2>&1
+  fi
+  [ -f "$1" ] && ! cat "$1" >/dev/null 2>&1
+}
+u406_allow() {
+  if command -v icacls >/dev/null 2>&1 && command -v cygpath >/dev/null 2>&1; then
+    MSYS2_ARG_CONV_EXCL='*' icacls "$(cygpath -w "$1")" /remove:d "${USERNAME:-}" >/dev/null 2>&1
+  fi
+  chmod 644 "$1"
+}
+U406_PR=".ia-engineering/Registry/employees.yml"
+ROSTER_TARGET="$U406_PR" write_employee_roster "Domain Expert"
+block_begin 4 "commit-msg: a roster that cannot be read"
+if u406_deny "$U406_PR"; then
+  expect 1 "#443: a project roster that cannot be read is refused" -- bash "$HOOK406" msg-framework.txt
+  expect_output "could not read the project roster"
+else
+  skip 2 "no file can be made unreadable here: chmod 000 as root, and no icacls"
+fi
+u406_allow "$U406_PR"
+if u406_deny Registry/employees.yml; then
+  expect 1 "#443: a framework roster that cannot be read is refused" -- bash "$HOOK406" msg-framework.txt
+  expect_output "could not read the Employee roster"
+else
+  skip 2 "no file can be made unreadable here: chmod 000 as root, and no icacls"
+fi
+u406_allow Registry/employees.yml
+block_end
+expect 0 "#443: a project roster that lists a name: its Domain Employee is accepted" -- \
+  bash "$HOOK406" msg-domain.txt
+
+# The framework roster lists no names: there is nothing to validate against,
+# and the hook refuses with the file named, where set -e ended it silently.
+new_repo u406-framework
+mkdir -p Registry
+printf 'employees:\n' > Registry/employees.yml
+printf 'fix(u406): x\n\nEmployee: Platform Engineer\n' > msg-framework.txt
+expect 1 "#443: a framework roster that lists no names is refused" -- bash "$HOOK406" msg-framework.txt
+expect_output "/Registry/employees.yml lists no names"
+
 # -------- generate-agents.sh: the one-suite rule in every agent (WU-IAENG-453) --
 #
 # Issue #373. The one-suite-at-a-time rule lived in Templates/EMPLOYEE_BRIEF.md

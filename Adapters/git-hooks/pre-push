@@ -50,6 +50,16 @@
 # replaced on every framework update. The branch names below are the ones
 # Standards/BRANCH_STANDARD.md prescribes; a project that needs different
 # ones escalates the standard rather than patching the hook.
+#
+# Why `set -e` (Standards/CODE_QUALITY_STANDARD.md, The Check Convention,
+# Shell Scripts rule 2): any status but 0 makes git refuse the whole push, and
+# every refusal this hook decides is an explicit exit 1 with its reason. The
+# tests that classify a ref are conditions, which set -e does not stop on. A
+# command left untested fails only when the hook cannot judge a ref (the case
+# fold of a remote ref, a pipe to tr, fails) or cannot write a refusal it is
+# already making. set -e then stops the hook, non-zero, and the push is
+# refused: a ref this hook could not judge may be a case variant that
+# overwrites a protected branch, so refusing it is the correct verdict.
 
 set -euo pipefail
 # SIGPIPE ignored (#397, SEC-IAENG-414-05): see commit-msg. A refusal written
