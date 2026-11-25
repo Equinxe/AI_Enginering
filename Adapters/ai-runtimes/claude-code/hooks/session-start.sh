@@ -401,9 +401,14 @@ fi
 # An input changed in the second or two before a run is newer too: the next
 # clear runs the generator once more, and keeps its block again.
 # A full run whose block is already kept, unchanged and still valid, writes
-# nothing. Anything that fails here (no cache directory, no GNU touch -d, a
-# file another user could write) leaves the event to the generator, never to
-# an older block.
+# nothing. Only a verdict is kept: a map line from a generator that exited 0
+# or 1, and the quick check's count of agents. A run that gave no verdict (the
+# tier map refused, the agents not checked, a generator that could not start)
+# keeps nothing and removes the kept block, so the next clear or compact asks
+# the generator again rather than replaying a failure or an older block (PR
+# #520, CR F1). Anything that fails here (no cache directory, no GNU touch -d,
+# a file or directory another user could write) leaves the event to the
+# generator, never to an older block.
 SS_KEPT=""
 SS_KEPT_HEAD="iaeng session-start kept v1"
 SS_KEPT_END="end"$'\t'"iaeng session-start kept"
@@ -443,6 +448,10 @@ ss_kept_inputs() {
 ss_kept_valid() {
   local f k="" hdr
   SS_KEPT_BLOCK=""
+  # Defence in depth: a link is already refused by iaeng_untrusted before a
+  # clear reads the file and by ss_kept_write before a run writes it, so no
+  # test can see this ! -L alone (PR #520, CR N1). Kept so that this
+  # function never reads through a link whoever calls it.
   [ -n "$SS_KEPT" ] && [ -f "$SS_KEPT" ] && [ ! -L "$SS_KEPT" ] || return 1
   for f in ${SS_IN[@]+"${SS_IN[@]}"}; do
     [ "$f" -nt "$SS_KEPT" ] && return 1
@@ -461,7 +470,9 @@ ss_kept_valid() {
 # ss_kept_write <block> <start> — keeps the block, its time set to one
 # second before <start>, through a new file renamed into place, never
 # through a link, only into a cache directory the user alone can write, made
-# 0700 here when nothing made it yet (as the drift check makes it).
+# 0700 here when nothing made it yet (as the drift check makes it). That
+# directory test is the only one: iaeng_cache_dir checks where the directory
+# is, not who can write it.
 ss_kept_write() {
   local tmp
   [ -n "$SS_KEPT" ] && [ ! -L "$SS_KEPT" ] || return 0
@@ -479,7 +490,10 @@ ss_kept_write() {
 }
 
 # ss_tier_block — the tier map in force and the agents check, printed.
+# SS_VERDICT is 1 only when both gave a verdict: the map, and the quick
+# check's count of agents. Only such a block is kept.
 ss_tier_block() {
+  SS_VERDICT=0
   # Claude Code watches only the agents directories that existed when the
   # session started: one created later is loaded by the next session. Read
   # before anything can create it.
@@ -575,6 +589,7 @@ ss_tier_block() {
     a_flat "$GEN"; a_sq "$A_FLAT"; A_GEN="$A_SQ"
     A_N="${A_SUM#*to act on. }"; A_N="${A_N%% agent(s)*}"
     case "$A_N" in ''|*[!0-9]*) A_N="" ;; esac
+    [ -n "$A_N" ] && SS_VERDICT=1
     # Every case where an Employee cannot be dispatched by name ends on the
     # same rule: no generic agent in its place (Core/MAIN_AGENT_CONDUCT.md,
     # Dispatch Discipline), and a failure goes to the Director.
@@ -654,11 +669,22 @@ if [ -n "$GEN" ] && [ -f "$GEN" ]; then
   if [ "$SS_DONE" -eq 0 ]; then
     SS_T0=""
     iaeng_now_to SS_T0
-    # The block's own trailing empty line survives the substitution (x).
-    SS_BLOCK="$(ss_tier_block; printf x)"
-    SS_BLOCK="${SS_BLOCK%x}"
+    # The block's own trailing empty line survives the substitution: the
+    # verdict (0 or 1) and an x follow it, and are cut off.
+    SS_VERDICT=0
+    SS_BLOCK="$(ss_tier_block; printf '%sx' "$SS_VERDICT")"
+    SS_VERDICT="${SS_BLOCK: -2:1}"
+    SS_BLOCK="${SS_BLOCK%??}"
     printf '%s' "$SS_BLOCK"
-    if [ -n "$SS_KEPT" ] && [ -n "$SS_T0" ] \
+    if [ -z "$SS_KEPT" ]; then
+      :
+    elif [ "$SS_VERDICT" != 1 ]; then
+      # No verdict: nothing kept, and no older block left to replay. A link
+      # is removed, never followed.
+      if [ -e "$SS_KEPT" ] || [ -L "$SS_KEPT" ]; then
+        rm -f "$SS_KEPT" 2>/dev/null
+      fi
+    elif [ -n "$SS_T0" ] \
        && { [ "$SS_KEPT_UNTRUSTED" -eq 1 ] || ! { ss_kept_valid && [ "$SS_KEPT_BLOCK" = "$SS_BLOCK" ]; }; }; then
       ss_kept_write "$SS_BLOCK" "$SS_T0"
     fi

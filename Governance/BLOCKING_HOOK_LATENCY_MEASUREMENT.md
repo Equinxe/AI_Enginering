@@ -574,20 +574,33 @@ What `startup` and `resume` start beyond `clear` and `compact`, 34 processes in 
 
 ### The Budget
 
-The budget is for the whole hook, measured as above: 6 calls at a time, interleaved with the no-op, on a load whose no-op p50 is 2 s or more. A fixed number of seconds would be passed or failed by the day's load (the no-op's p50 was 835 ms one at a time and 2.4 to 3.5 s six at a time on the same day), so the test is floor-relative, as The Condition for Raising or Lifting the Cap made it, with a process count beside it that no load moves:
+The budget is for the whole hook, measured as above: 6 calls at a time, interleaved with the no-op, at the day's capped load, whatever its no-op p50. A fixed number of seconds would be passed or failed by the day's load (the no-op's p50 was 835 ms one at a time and 2.4 to 3.5 s six at a time on the same day), so the test is floor-relative, as The Condition for Raising or Lifting the Cap made it. On `startup` and `resume` in an adopting project it adds 3 s: the drift check there is cut by wall-clock time, TERM at 2.8 s and KILL 0.2 s later, a constant that does not scale with the no-op, so below a no-op p50 of 2 s it is a larger share of the call than 20 no-ops leave room for (Re-measured in Review, below). A process count stands beside it:
 
 | Event | p95, at most | Processes per call, at most | This Work Unit (adopting project / framework repository) | Develop |
 |---|---|---|---|---|
 | `clear`, `compact` | 12 × the no-op's p50 | 30 | 7.6 / 7.2 no-ops; 25 / 21 processes | 21.4 / 18.9 no-ops; 98 / 74 processes |
-| `startup`, `resume` | 20 × the no-op's p50 | 70 (adopting project), 40 (framework repository) | 15.9 / 10.9 no-ops; 59 / 33 processes | 24.5 / 19.1 no-ops; 98 / 74 processes |
+| `startup`, `resume` | 20 × the no-op's p50, plus 3 s | 80 (adopting project), 40 (framework repository), counted until the hook exits | 15.9 / 10.9 no-ops; 59 / 33 processes (median) | 24.5 / 19.1 no-ops; 98 / 74 processes |
 
 In the earlier, lighter round the hook was at 10.0 and 7.1 no-ops on `clear` and `compact`, and 14.6 and 8.1 on `startup` and `resume`; develop at 18.9 and 13.9, and 19.2 and 13.6.
 
-**Why these values.** `clear` and `compact` exist to give a session back its state, not to check the installation again: their budget is the work they need, about a quarter of develop's processes, with room for the commit count and an adopting project's commit. `startup` and `resume` still run every check, the generator and the drift check included. Their budget bounds them against the timeout: at the heaviest load measured in this document (a no-op p50 of 4.0 s, 17 November), 20 no-ops are 80 s, two thirds of the 120 s timeout below, and 12 no-ops are 48 s.
+**What the process count counts.** Every process of the call, from its start until the hook exits and its output closes. On `clear` and `compact`, and in the framework repository on every event, the hook starts the same commands whatever the load, so the count does not move with it. On `startup` and `resume` in an adopting project it does: the drift check is cut by wall-clock time, so the load decides how far it gets before its cut and whether its rerun is started. That rerun is detached from the hook's output, runs on for up to 300 s after the hook exits (WU-IAENG-418), and is not counted here: no hook budget covers it, and it belongs to the drift check. Counted until the Job Object empties, that rerun included, the Performance Engineer found a median of 81 and a maximum of 136.
+
+**Why these values.** `clear` and `compact` exist to give a session back its state, not to check the installation again: their budget is the work they need, about a quarter of develop's processes, with room for the commit count and an adopting project's commit. `startup` and `resume` still run every check, the generator and the drift check included. Their budget bounds them against the timeout: at the heaviest load measured in this document (a no-op p50 of 4.0 s, 17 November), 20 no-ops and 3 s are 83 s, about 70 % of the 120 s timeout below, and 12 no-ops are 48 s. Their process count is 80, not 70: 59 was the median of the author's run, and the Performance Engineer's maximum at the hook's exit was 75, with 2 of 16 runs above 70, the drift check's share moving with the load.
 
 **The timeout.** `settings.example.json`, and through `install-hooks.sh` every installed `settings.json`, gives the SessionStart entry `"timeout": 120`. It had none, so Claude Code's default of 600 s applied: a hook that hung held the session's start for ten minutes. The slowest call measured here took 58.5 s for this hook and 96.5 s for develop's, both under load six times as harsh as a single session start meets. A hook cancelled at its timeout has its output discarded, so the session starts without the read-first context; the budget keeps the hook well under it. No `onFailure`: a SessionStart failure blocks nothing (The Timeout Actually in Force). One value with the guards: 120 s. `install-hooks.sh` adds the field in place to the framework's earlier entry, under either earlier matcher, as it added the guards' fields (The Guards Fail Closed, The upgrade does not double the guards): a second SessionStart group would run the whole hook twice on every event.
 
 **Held in CI.** `tests/session-start-budget.sh` counts, with recording stand-ins first on `PATH`, the commands each path starts: at most 10 on `clear` and `compact` with a valid kept block, the hook's own `bash` the only one, and at most 12 on `startup`, with no `grep`, `sed`, `head` or `tr` on either. Develop fails both.
+
+### Re-measured in Review (PR #520)
+
+The Performance Engineer re-measured the hook at 0417fcb with an independent Job Object harness of this document's method, interleaved with develop's and the no-op, 6 calls at a time, on two capped loads, neither of which reached a no-op p50 of 2 s:
+
+- **`clear` and `compact`.** The hook's p50 was 25 % of develop's in the adopting project and 33 % in the framework repository; its p95 9.2 and 7.3 no-ops, against 12; 24 and 21 processes in every run, against 30.
+- **`startup` and `resume`, framework repository.** 10.4 no-ops and 33 processes, against 20 and 40.
+- **`startup` and `resume`, adopting project.** A p95 of 19.5 no-ops at a no-op p50 of 1.58 s, and of 21.8 no-ops at 0.67 s: under 20 no-ops on the first load, over it on the second, where the drift check's fixed 2.8 s cut weighs most. With the 3 s the budget now adds, these are 30.8 s against 34.6 s and 14.6 s against 16.4 s. Processes counted at the hook's exit: a maximum of 75, 2 of 16 runs above 70.
+- **The slowest call** took 30.8 s, against develop's 52.4 s and the 120 s timeout.
+
+What the hook prints on `clear`, `compact` and `resume` matched its project's `startup` output in every run but for the drift lines, and develop's and the hook's `clear` differ only by the cap line, added, and the drift line, dropped. The fix of that review round (a run that gives no verdict keeps nothing) starts no process on a run that gives one, so these figures stand for it.
 
 ### The Cap Line (#486)
 
@@ -611,6 +624,7 @@ The v0.0.15 clause is still true in Core, so it is said (Limits of the Cap, abov
 - **One machine, Windows only, one day.** Linux and macOS were not measured; CI runs the tests on Linux.
 - **The production effect is not yet measured.** Claude Code records each SessionStart hook's duration in the session's transcript (`hook_success`, `durationMs`, with the source in `hookName`), so the next sessions will show it.
 - **The kept block can be one session behind a change its inputs do not show** (`hooks/README.md`, Session Start Budget, its declared limit): `startup` and `resume` always run the generator.
+- **The drift check's detached rerun is outside this budget.** After an overrun it runs on for up to 300 s after the hook exits; the process count stops at the hook's exit (What the process count counts, above).
 
 ---
 

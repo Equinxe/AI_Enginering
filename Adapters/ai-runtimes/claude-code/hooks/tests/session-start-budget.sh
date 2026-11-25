@@ -22,8 +22,13 @@
 #     Each input of the generator, changed, sends the next clear back to it:
 #     the tier map created, edited and removed, an agent added, edited and
 #     removed, either roster, the generator itself, this hook, and the
-#     framework's commit. A kept file that is not whole, is another
-#     project's, is a link, or could be written by others is not used.
+#     framework's commit, and an input changed while the generator ran. A
+#     kept file that is not whole, is another project's, is a link, or could
+#     be written by others is not used, and none is written into a cache
+#     directory others could write.
+#   - A run that gives no verdict (a generator that fails once, a quick check
+#     that gives no count) keeps nothing and removes the kept block: the next
+#     clear and compact ask the generator again, never replay the failure.
 #   - The drift check and the context-alert threshold check run on startup
 #     and resume, and not on clear or compact.
 #   - A source other than clear or compact, none, or one that appears only
@@ -77,6 +82,11 @@ T="$(mktemp -d)"
 trap 'rm -rf "$T"' EXIT
 CALLS="$T/calls"
 export SSB_CALLS="$CALLS"
+# One run of the generator stand-in behaves as this file says, then the file
+# is emptied: fail (exit 2, as a fork failure), no-count (a map, no quick
+# check summary) or edit-input (the tier map rewritten while it runs).
+MODE="$T/mode"
+export SSB_MODE="$MODE"
 
 # --- The stand-in framework --------------------------------------------------
 FW="$T/fw"
@@ -91,6 +101,15 @@ printf 'employees:\n  - name: Backend Engineer\n' > "$FW/Registry/employees.yml"
 cat > "$FW/Adapters/ai-runtimes/generate-agents.sh" <<'GEN'
 #!/usr/bin/env bash
 echo gen >> "$SSB_CALLS"
+mode=""
+if [ -n "${SSB_MODE:-}" ] && [ -f "$SSB_MODE" ]; then
+  read -r mode < "$SSB_MODE"
+  printf '\n' > "$SSB_MODE"
+fi
+if [ "$mode" = fail ]; then
+  echo "bash: fork: retry: Resource temporarily unavailable"
+  exit 2
+fi
 map="map=strategic=s-model,standard=m-model,lightweight=l-model,frontier=f-model"
 if [ -f .ia-engineering/tier-map ]; then
   while IFS= read -r l; do case "$l" in map=*) map="$l"; break ;; esac; done < .ia-engineering/tier-map
@@ -98,6 +117,8 @@ fi
 echo "# mapping: stub"
 echo "$map"
 echo "effort-map=strategic=high,standard=,lightweight=,frontier="
+[ "$mode" = edit-input ] && printf 'map=strategic=t9,standard=t9,lightweight=t9,frontier=t9\n' > .ia-engineering/tier-map
+[ "$mode" = no-count ] && exit 0
 n=0
 for f in .claude/agents/*.md; do [ -e "$f" ] && n=$((n + 1)); done
 echo "# generate-agents.sh --check --quick: 0 to act on. $n agent(s): $n present, 0 missing, 0 stale."
@@ -317,6 +338,74 @@ if [ -n "$KEPT" ] && [ -f "$KEPT" ]; then
   fi
 else
   bad "a full run keeps its block in the cache directory (ss-<project>)" "no ss-* file in $T/cache/ia-engineering"
+fi
+
+# An input changed while the generator ran: the kept file's time is one
+# second before the run started, so that input is newer than it and the next
+# clear runs the generator (CR F2, M7 of PR #520). The tier map exists before
+# the run, so the inputs line alone cannot tell.
+if [ -n "$KEPT" ]; then
+  printf 'map=strategic=t8,standard=t8,lightweight=t8,frontier=t8\n' > "$P/.ia-engineering/tier-map"
+  sleep 2
+  ss startup
+  printf 'edit-input\n' > "$MODE"
+  ss startup
+  has "a run during which the tier map was edited prints the map it read" "$SS_OUT" "map=strategic=t8,standard=t8"
+  ss clear
+  if [ "$SS_GEN" -eq 1 ]; then ok "clear after an input changed while the generator ran: the generator runs again"; else bad "clear after an input changed while the generator ran: the generator runs again" "ran $SS_GEN times"; fi
+  has "... and the clear prints the map as edited" "$SS_OUT" "map=strategic=t9,standard=t9"
+  rm -f "$P/.ia-engineering/tier-map"
+  sleep 2
+fi
+
+# A run that gives no verdict keeps nothing (CR F1 of PR #520): a generator
+# that fails once, as a fork failure under load does, and a quick check that
+# gives no count. The failure is printed by the run that met it, then the
+# kept block is gone, a clear that fails too is not replayed, and the first
+# clear that succeeds keeps its block again.
+if [ -n "$KEPT" ]; then
+  for mode in fail no-count; do
+    case "$mode" in
+      fail) said="WARNING: the tier map could not be resolved" ;;
+      no-count) said="IA Engineering agents: not checked" ;;
+    esac
+    ss startup
+    printf '%s\n' "$mode" > "$MODE"
+    ss startup
+    has "[$mode] startup: the run that failed says so" "$SS_OUT" "$said"
+    if [ ! -e "$KEPT" ]; then ok "[$mode] ... and the kept block is removed, not replaced by the failure"; else bad "[$mode] ... and the kept block is removed, not replaced by the failure" "$(head -c 300 "$KEPT")"; fi
+    printf '%s\n' "$mode" > "$MODE"
+    ss clear
+    if [ "$SS_GEN" -eq 1 ]; then ok "[$mode] clear after a failed run: the generator runs"; else bad "[$mode] clear after a failed run: the generator runs" "ran $SS_GEN times"; fi
+    has "[$mode] ... and the clear's own failure is said" "$SS_OUT" "$said"
+    ss clear
+    if [ "$SS_GEN" -eq 1 ]; then ok "[$mode] a failed clear is not replayed: the next clear runs the generator"; else bad "[$mode] a failed clear is not replayed: the next clear runs the generator" "ran $SS_GEN times"; fi
+    hasnt "[$mode] ... and, the generator now succeeding, says no failure" "$SS_OUT" "$said"
+    has "[$mode] ... and prints the map" "$SS_OUT" "map=strategic=s-model,standard=m-model"
+    ss compact
+    if [ "$SS_GEN" -eq 0 ]; then ok "[$mode] the compact after it reuses the block that clear kept"; else bad "[$mode] the compact after it reuses the block that clear kept" "ran $SS_GEN times"; fi
+    hasnt "[$mode] ... which holds no failure" "$SS_OUT" "$said"
+  done
+  : > "$MODE"
+fi
+
+# A cache directory the group can write: nothing is kept in it (CR F2, M16
+# of PR #520). iaeng_cache_dir checks where the directory is, not who can
+# write it, so ss_kept_write's own test is the guard.
+if [ -n "$KEPT" ]; then
+  KD="${KEPT%/*}"
+  rm -f "$KEPT"
+  chmod g+w "$KD" 2>/dev/null
+  if [ -n "$(find "$KD" -prune -perm -020 2>/dev/null)" ]; then
+    ss startup
+    if [ ! -e "$KEPT" ]; then ok "a cache directory the group can write: nothing is kept in it"; else bad "a cache directory the group can write: nothing is kept in it" "$KEPT was written"; fi
+    ss clear
+    if [ "$SS_GEN" -eq 1 ]; then ok "... and clear runs the generator"; else bad "... and clear runs the generator" "ran $SS_GEN times"; fi
+  else
+    na "a cache directory the group can write: nothing is kept in it" "chmod g+w has no effect on this file system"
+  fi
+  chmod g-w "$KD" 2>/dev/null
+  ss startup
 fi
 
 # Without a cache directory, every event runs the generator: the user's
@@ -541,7 +630,7 @@ for m in "$SS_NEW" "$SS_OLD"; do
   if [ "$INST_RC" -eq 0 ] && grep -q "present exactly" "$T/inst.out" && cmp -s "$SET" "$T/upgraded.json"; then
     ok "[$m] re-run after the update: present exactly, byte-identical"
   else
-    bad "[$m] re-run after the update: present exactly, byte-identical" "$(cat "$T/inst.out" | tr '\n' ' ')"
+    bad "[$m] re-run after the update: present exactly, byte-identical" "$(tr '\n' ' ' < "$T/inst.out")"
   fi
   inst --check
   if [ "$INST_RC" -eq 0 ]; then ok "[$m] --check after the update: nothing to act on"; else bad "[$m] --check after the update: nothing to act on" "rc=$INST_RC"; fi
