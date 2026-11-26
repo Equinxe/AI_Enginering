@@ -298,9 +298,17 @@ RENDERED="$(sed "s#__IAENG_ROOT__#$ROOT#g" "$EXAMPLE")"
 # command spelling kept. Same rule: exactly the earlier entries and nothing
 # else, or it is the project's.
 #   SessionStart: "clear" added, so /clear starts with the read-first context.
+#   SessionStart: its timeout (WU-IAENG-452), the ceiling above the hook's
+#     budget (hooks/README.md, Session Start Budget). An earlier entry is the
+#     template's without it, under either matcher: the second line updates the
+#     oldest (its matcher and the field), the third one already holding
+#     "clear" (the field alone). The first line's entry, the earlier matcher
+#     holding the template's entries as they are now, is kept too.
 #   PreToolUse: the guards' timeout and onFailure, so a guard that times out,
 #     cannot start or exits other than 0 or 2 blocks the call it guards.
-SUPERSEDED='{"SessionStart":[{"from":"startup|resume|compact","to":"startup|resume|clear|compact"}],
+SUPERSEDED='{"SessionStart":[{"from":"startup|resume|compact","to":"startup|resume|clear|compact"},
+                  {"from":"startup|resume|compact","to":"startup|resume|clear|compact","without":["timeout"]},
+                  {"from":"startup|resume|clear|compact","to":"startup|resume|clear|compact","without":["timeout"]}],
   "PreToolUse":[{"from":"Bash","to":"Bash","without":["timeout","onFailure"]},
                 {"from":"Edit|Write|MultiEdit","to":"Edit|Write|MultiEdit","without":["timeout","onFailure"]}]}'
 
@@ -590,7 +598,7 @@ merge_settings() {
                     | .hooks = [.hooks as $h | range(0; $h | length) as $i
                                 | $h[$i] + ($tg.hooks[$i] | with_entries(select(.key as $k | any($wo[]; . == $k))))]
                   else . end)
-                | .u += [{l: ($tg | where($s.key) + ": " + (scripts | join(", "))), from: $r.from, without: $wo}]
+                | .u += [{l: ($tg | where($s.key) + ": " + (scripts | join(", "))), from: $r.from, to: $r.to, without: $wo}]
               end
             end))) as $up
     | $up.c as $cur
@@ -699,7 +707,8 @@ if [ "$CHECK" -eq 1 ]; then
       | jq -r 'def flat: gsub("[\t\n\r]"; " ");
                (.p[] | "present\t" + flat), (.a[] | "absent\t" + flat),
                (.u[] | "absent\t" + (.l + "  (a run updates the framework\u0027s earlier entry "
-                 + (if (.without // []) == [] then "under [" + .from + "]" else "without " + (.without | join(", ")) end)
+                 + ([(if .from != (.to // .from) or (.without // []) == [] then "under [" + .from + "]" else empty end),
+                     (if (.without // []) != [] then "without " + (.without | join(", ")) else empty end)] | join(" "))
                  + " in place)" | flat)),
                (.w[] | "near-miss\t" + flat)' 2>/dev/null \
       | sed $'s/\r$//')
@@ -767,7 +776,8 @@ if [ -f "$DEST" ] && [ "$FORCE" -eq 0 ]; then
   PRESENT="$(printf '%s\n' "$MERGED" | jq -r '.p[]' | sed $'s/\r$//')"
   NEAR="$(printf '%s\n' "$MERGED" | jq -r '.w[] | gsub("[\t\n\r]"; " ")' | sed $'s/\r$//')"
   UPDATED="$(printf '%s\n' "$MERGED" | jq -r '.u[] | .l + "  ("
-    + (if (.without // []) == [] then "matcher was [" + .from + "]" else "added: " + (.without | join(", ")) end) + ")"' | sed $'s/\r$//')"
+    + ([(if .from != (.to // .from) or (.without // []) == [] then "matcher was [" + .from + "]" else empty end),
+        (if (.without // []) != [] then "added: " + (.without | join(", ")) else empty end)] | join("; ")) + ")"' | sed $'s/\r$//')"
   # The statusLine is listed with the hook entries: added (installed, or
   # wrapped around the project's own) or present; a near miss is on stderr.
   # Its text holds a command read from the project's settings, so it is
