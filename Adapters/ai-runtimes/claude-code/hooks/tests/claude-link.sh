@@ -320,7 +320,7 @@ case_hooks_home() {
   printf '{}\n' > "$tgt/settings.json"
   if ! dirlink "$k" "$tgt" "$IP/.claude"; then na "$L" "$WHY_NA"; return 0; fi
   snap "$tgt"
-  ENV_CFG=unset
+  ENV_CFG='unset'
   run install-hooks.sh --follow-claude-link
   ENV_CFG=""
   [ "$RC" -eq 1 ] && same_as "$tgt" && said "Claude Code's user settings directory"

@@ -379,7 +379,7 @@ dir_link() {
 CLAUDE_USER_DIR="${CLAUDE_CONFIG_DIR:-${HOME:-}/.claude}"
 CLAUDE_LINK=""
 if dir_link "$PROJECT/.claude"; then
-  if [ "$PROJECT/.claude" -ef "$CLAUDE_USER_DIR" ]; then CLAUDE_LINK=user; else CLAUDE_LINK=link; fi
+  if [ "$PROJECT/.claude" -ef "$CLAUDE_USER_DIR" ]; then CLAUDE_LINK='user'; else CLAUDE_LINK='link'; fi
 fi
 if [ "$CHECK" -eq 0 ] && [ "$CLAUDE_LINK" = user ]; then
   {
