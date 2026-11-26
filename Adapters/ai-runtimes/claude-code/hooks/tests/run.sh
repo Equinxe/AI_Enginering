@@ -2184,6 +2184,25 @@ else
 fi
 rm -f "$SSB_COUNTS"
 
+# --- The template denies the PowerShell tool, installed in place (WU-IAENG-458)
+# Its own file too (tests/powershell-deny.sh), counted here the same way.
+PSD_COUNTS="$(mktemp "${TMPDIR:-/tmp}/iaeng-psd-counts.XXXXXX")"
+IAENG_HOOK_TESTS_COUNTS="$PSD_COUNTS" bash "$HERE/powershell-deny.sh" ${DASH_ARGS[@]+"${DASH_ARGS[@]}"}
+PSD_RC=$?
+if read -r PSD_TOTAL PSD_FAILED < "$PSD_COUNTS" 2>/dev/null \
+    && [[ "$PSD_TOTAL" =~ ^[0-9]+$ ]] && [[ "$PSD_FAILED" =~ ^[0-9]+$ ]] && [ "$PSD_TOTAL" -gt 0 ]; then
+  TOTAL=$((TOTAL + PSD_TOTAL))
+  FAILED=$((FAILED + PSD_FAILED))
+  if [ "$PSD_RC" -ne 0 ] && [ "$PSD_FAILED" -eq 0 ]; then
+    TOTAL=$((TOTAL + 1)); FAILED=$((FAILED + 1))
+    echo "   FAIL  tests/powershell-deny.sh exited $PSD_RC with no failed check counted"
+  fi
+else
+  TOTAL=$((TOTAL + 1)); FAILED=$((FAILED + 1))
+  echo "   FAIL  tests/powershell-deny.sh reported no counts (exit $PSD_RC) — it could not run"
+fi
+rm -f "$PSD_COUNTS"
+
 # --- Verdict ----------------------------------------------------------------
 
 echo

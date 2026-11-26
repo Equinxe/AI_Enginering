@@ -1,0 +1,8 @@
+### Changed
+
+- `settings.example.json`, and the framework's own `.claude/settings.json`, deny Claude Code's PowerShell tool with `"permissions": {"deny": ["PowerShell"]}`, the rule as Claude Code's permissions page spells it: a bare tool name in `deny` removes the tool from Claude's context. The guards read Bash commands, so every shell command now goes through the Bash tool, in Git Bash on Windows, where they apply (Director decision, 26 Nov 2026, WU-IAENG-458)
+- `install-hooks.sh` adds the rule to an existing `settings.json` in place: at the end of the project's own `permissions.deny`, created with `permissions` when absent or null, every other rule and key kept. An `allow` or `ask` rule of the project's for the tool is kept and reported, on stderr and as a `permission near-miss` record. `--check` gains the `permission` family: it reports a `settings.json` without the rule as `absent` (exit 3), and its closing line counts the permission rules. A `permissions` that is not an object, or a `deny` that is not a list, is refused, named, as a `hooks` out of shape is (WU-IAENG-458)
+
+### Notes
+
+- After upgrading, re-run `./ia-engineering/Adapters/ai-runtimes/claude-code/install-hooks.sh`, commit `.claude/settings.json`, and restart the Claude Code session. Until then `install-hooks.sh --check`, and `check-framework-drift.sh` without `--quick`, report the rule as absent. On Windows, Git for Windows is required: without Git Bash, the session has no shell tool once PowerShell is denied. `hooks/README.md`, Shell Commands Go Through Bash, and `TROUBLESHOOTING.md`, entry F, say what an adopter sees (WU-IAENG-458)

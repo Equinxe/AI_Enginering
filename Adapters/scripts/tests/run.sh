@@ -9420,7 +9420,7 @@ SNAP_357A="$(snapshot_353)"
 expect 3 "install-hooks.sh --check without a settings.json is drift (exit 3)" -- bash "$HK_357" --check
 expect_output "settings${T}absent${T}.claude/settings.json${T}a run writes it from settings.example.json"
 expect_output "gitattributes${T}missing${T}.gitattributes${T}$HOOKS_RULE_357"
-expect_output "# install-hooks.sh --check: 2 to act on. 1 settings item(s): 1 absent; 0 hook entries; 0 statusLine(s); 1 .gitattributes rule(s): 1 missing; 0 fault(s). absent/missing: re-run $HK_357 without --force"
+expect_output "# install-hooks.sh --check: 2 to act on. 1 settings item(s): 1 absent; 0 hook entries; 0 statusLine(s); 0 permission rule(s); 1 .gitattributes rule(s): 1 missing; 0 fault(s). absent/missing: re-run $HK_357 without --force"
 expect 3 "install-skills.sh --check without skills is drift (exit 3)" -- bash "$SK_357" --check
 expect_output "skill${T}absent${T}.claude/skills/dashboard${T}ia-engineering/Adapters/ai-runtimes/claude-code/skills/dashboard"
 expect_output "skill${T}absent${T}.claude/skills/create-project${T}"
@@ -9446,7 +9446,7 @@ expect 0 "install-hooks.sh --check on an installed project exits 0" -- bash "$HK
 expect_output "settings${T}current${T}.claude/settings.json${T}the template, rendered for framework root ia-engineering"
 expect_output "hook${T}present${T}.claude/settings.json${T}PreToolUse [Bash]: block-escape-hatches.sh"
 expect_output "hook${T}present${T}.claude/settings.json${T}Stop: dashboard-refresh.sh"
-expect_output "# install-hooks.sh --check: 0 to act on. 1 settings item(s): 1 current; 8 hook entries: 8 present; 1 statusLine(s): 1 present; 1 .gitattributes rule(s): 1 present; 0 fault(s)."
+expect_output "# install-hooks.sh --check: 0 to act on. 1 settings item(s): 1 current; 8 hook entries: 8 present; 1 statusLine(s): 1 present; 1 permission rule(s): 1 present; 1 .gitattributes rule(s): 1 present; 0 fault(s)."
 expect_output "statusline${T}present${T}.claude/settings.json${T}context-statusline.sh"
 expect 0 "install-hooks.sh --check --quiet on an installed project exits 0" -- bash "$HK_357" --check --quiet
 expect_empty_357 "install-hooks.sh --check --quiet prints nothing when nothing needs acting on"
@@ -9503,7 +9503,7 @@ jq_edit_357 '.hooks.Stop |= map(select([.hooks[].command] | any(test("dashboard-
 expect 3 "a missing framework entry alone is drift (exit 3)" -- bash "$HK_357" --check
 expect_output "settings${T}customized${T}.claude/settings.json"
 expect_output "hook${T}absent${T}.claude/settings.json${T}Stop: dashboard-refresh.sh"
-expect_output "# install-hooks.sh --check: 1 to act on. 1 settings item(s): 1 customized; 8 hook entries: 7 present, 1 absent; 1 statusLine(s): 1 present; 1 .gitattributes rule(s): 1 present; 0 fault(s). absent/missing:"
+expect_output "# install-hooks.sh --check: 1 to act on. 1 settings item(s): 1 customized; 8 hook entries: 7 present, 1 absent; 1 statusLine(s): 1 present; 1 permission rule(s): 1 present; 1 .gitattributes rule(s): 1 present; 0 fault(s). absent/missing:"
 expect 3 "--check --quiet keeps the missing entry" -- bash "$HK_357" --check --quiet
 expect_output "hook${T}absent${T}.claude/settings.json${T}Stop: dashboard-refresh.sh"
 expect_no_output "${T}present${T}" "--check --quiet leaves out the present entries"

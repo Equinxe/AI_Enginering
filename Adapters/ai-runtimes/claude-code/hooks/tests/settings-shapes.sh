@@ -63,7 +63,9 @@
 #     the framework's entries: 8 hook groups and the statusLine);
 #   - what is kept: the input fixture itself, per install-hooks.sh's header,
 #     "nothing already in the file is changed, reordered or removed — the
-#     project's own hooks, its env, its permissions";
+#     project's own hooks, its env, its permissions"; the template's
+#     permissions.deny rules are appended to the input's (WU-IAENG-458,
+#     tested on its own in tests/powershell-deny.sh);
 #   - the statusLine wrap: install-hooks.sh's header (WU-IAENG-379) and
 #     hooks/README.md, Context Status Line: "the framework's command, then
 #     --chain and the project's command in single quotes. The statusLine's
@@ -172,14 +174,19 @@ groups_once() {
         and ([$m[0].hooks[][]] | length) == ([$t[0].hooks[][]] | length)' | strip_eol_cr)" = true ]
 }
 # others_kept <input> — every key but hooks and statusLine, as compact JSON
-# in its order, is the input's.
+# in its order, is the input's, with the template's deny rules appended to
+# its permissions.deny, which is created when absent (WU-IAENG-458; none of
+# these inputs holds one of them already).
 others_kept() {
-  [ "$(jq -c 'del(.hooks, .statusLine)' "$1" | strip_eol_cr)" = "$(jq -c 'del(.hooks, .statusLine)' "$SET" | strip_eol_cr)" ]
+  [ "$(jq -c --slurpfile t "$TPL" 'del(.hooks, .statusLine) | .permissions.deny = ((.permissions.deny // []) + ($t[0].permissions.deny // []))' "$1" | strip_eol_cr)" \
+    = "$(jq -c 'del(.hooks, .statusLine)' "$SET" | strip_eol_cr)" ]
 }
 # check_absent — the hook "absent" details of the last --check, sorted.
 check_absent() { awk -F '\t' '$1 == "hook" && $2 == "absent" { print $4 }' "$C/inst.out" | sort; }
-# run_added — the hook lines a run reported as added, sorted.
-run_added() { sed -n 's/^    added:   //p' "$C/inst.out" | grep -v '^statusLine: ' | sort; }
+# run_added — the hook lines a run reported as added, sorted: not the
+# statusLine's, nor the template's deny rule's, which tests/powershell-deny.sh
+# checks on its own (WU-IAENG-458).
+run_added() { sed -n 's/^    added:   //p' "$C/inst.out" | grep -v -e '^statusLine: ' -e '^permissions[.]deny: ' | sort; }
 
 # merges <label> <fixture> — the whole contract for a file that gets the
 # framework's entries and holds no statusLine of its own.
@@ -201,7 +208,7 @@ merges() {
   else
     bad "$label: a run exits 0 and adds every template hook group once, and the template statusLine" "rc=$INST_RC $(head -c 300 "$C/inst.err")"
   fi
-  if others_kept "$fixture"; then ok "$label: every other key is kept as it was, in its order"; else bad "$label: every other key is kept as it was, in its order" "$(jq -c 'del(.hooks, .statusLine)' "$SET" 2>&1 | head -c 300)"; fi
+  if others_kept "$fixture"; then ok "$label: every other key is kept as it was, in its order, the template's deny rule added"; else bad "$label: every other key is kept as it was, in its order, the template's deny rule added" "$(jq -c 'del(.hooks, .statusLine)' "$SET" 2>&1 | head -c 300)"; fi
   if [ -n "$absent" ] && [ "$absent" = "$(run_added)" ]; then
     ok "$label: the run adds exactly the entries --check named absent"
   else
@@ -298,9 +305,9 @@ EOF
   cp "$C/in.json" "$SET"
   inst
   if [ "$INST_RC" -eq 0 ] && groups_once && others_kept "$C/in.json"; then
-    ok "every other key: merged, every template group once; \$schema, permissions, env and model kept, in their order"
+    ok "every other key: merged, every template group once; \$schema, permissions (the template's deny rule added), env and model kept, in their order"
   else
-    bad "every other key: merged, every template group once; \$schema, permissions, env and model kept, in their order" "rc=$INST_RC $(head -c 300 "$C/inst.err")"
+    bad "every other key: merged, every template group once; \$schema, permissions (the template's deny rule added), env and model kept, in their order" "rc=$INST_RC $(head -c 300 "$C/inst.err")"
   fi
   local want_sl
   want_sl="$(jq -cn --arg c "$TPL_SL_CMD --chain '~/.claude/statusline.sh'" '{type: "command", command: $c, padding: 0}' | strip_eol_cr)"
