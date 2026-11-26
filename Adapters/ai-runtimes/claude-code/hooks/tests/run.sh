@@ -1755,12 +1755,13 @@ w440_lex "lexer: records are joined in the first reading as before, the second f
 # THE CAP COUNTS BOTH READINGS. The 2,000-segment cap counts every segment the
 # lexer prints, so a command it reads twice is read up to 1,000 segments and
 # refused from 1,001, where a command read once is read up to 2,000. One
-# quoted path is enough to read the whole command twice.
+# quoted path is enough to read the whole command twice, when its last
+# component names a command a rule reads, as rm does (WU-IAENG-455).
 W440_SEGS=""
 for ((w440_i = 1; w440_i < 1000; w440_i++)); do W440_SEGS+="true;"; done
-expect_rc "escape-hatch: 1,000 segments read twice are read" 0 "$HOOK" "$(mkbash "${W440_SEGS}true \"a b/c\"")"
+expect_rc "escape-hatch: 1,000 segments read twice are read" 0 "$HOOK" "$(mkbash "${W440_SEGS}true \"a b/rm\"")"
 expect_reason "escape-hatch: 1,001 segments read twice are refused at the cap" \
-  "$(mkbash "${W440_SEGS}true;true \"a b/c\"")" "pipeline segments after expansion"
+  "$(mkbash "${W440_SEGS}true;true \"a b/rm\"")" "pipeline segments after expansion"
 # THE PROCESS BUDGET IS UNCHANGED. Recording stand-ins first on PATH, as in
 # the budget of WU-IAENG-431 above: a git named git.exe and a stash read
 # beside a show start cat and one jq; a command read twice starts one awk, as
@@ -2043,12 +2044,13 @@ w450_budget "escape-hatch: budget — a gh label create that holds none starts n
 rm -rf "$W450_BASE"
 # THE CAP COUNTS THE THIRD READING. A command the lexer reads three times is
 # read up to 666 segments (1,998 in all) and refused from 667 (2,001). A
-# quoted path and a flag glued to a substitution are enough.
+# quoted path whose last component names a command (WU-IAENG-455) and a
+# flag glued to a substitution are enough.
 W450_SEGS=""
 for ((w450_i = 1; w450_i < 666; w450_i++)); do W450_SEGS+="true;"; done
-expect_rc "escape-hatch: 666 segments read three times are read" 0 "$HOOK" "$(mkbash "${W450_SEGS}true \"a b/c\" \"-x\$(true)\"")"
+expect_rc "escape-hatch: 666 segments read three times are read" 0 "$HOOK" "$(mkbash "${W450_SEGS}true \"a b/rm\" \"-x\$(true)\"")"
 expect_reason "escape-hatch: 667 segments read three times are refused at the cap" \
-  "$(mkbash "${W450_SEGS}true;true \"a b/c\" \"-x\$(true)\"")" "pipeline segments after expansion"
+  "$(mkbash "${W450_SEGS}true;true \"a b/rm\" \"-x\$(true)\"")" "pipeline segments after expansion"
 # THE WORD BEFORE A QUOTE (last_word in strip-quotes.awk) is found by reading
 # back over the bytes added since the last word was found: the whitespace
 # before the quote, then the word, however long. Until review round 3 the walk
