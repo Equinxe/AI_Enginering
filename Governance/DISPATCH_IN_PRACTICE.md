@@ -113,6 +113,91 @@ The gates. Every Director gate in every Workflow held, including the ones it wou
 
 ---
 
+# The Adopter-Worktree Rehearsal
+
+On 26 November 2026, before the Director's first real use, one Work Unit was run end to end in an existing project (WU-IAENG-459, Usage plan item W2.1). Only the published documents were followed: `README.md` Getting Started (the existing-repository route), `Workflows/ONBOARDING.md` (The adoption route), `Adapters/ai-runtimes/claude-code/DAILY_USE.md` and `Workflows/FEATURE_DEVELOPMENT.md`.
+
+**The project.** It was fabricated under the temp directory and was never one of the Director's. It was a Node.js library with:
+
+- six commits on `main` and `develop`;
+- its own CI workflow (pull requests to `main` only), a README, sources and tests;
+- a `.claude/settings.json` with a `model` key and a `permissions.allow` list, and its own `.claude/agents/code-reviewer.md`;
+- a path with spaces (`…/client projects/acme invoices`).
+
+Its `origin` was a bare repository in the same temp directory, and nothing was pushed anywhere else. The framework was `develop` at 2496a78, pinned as "Which ref to pin" allows an early adopter. The machine ran Windows 11, Git Bash, git 2.54.0, Claude Code 2.1.332 and Node 24.
+
+**What ran, how, and how long.**
+
+| Step | How it ran | Time | Outcome |
+|---|---|---|---|
+| Adoption, README route | By hand, command by command, each git command as `git -C "<project root>"`, because the rehearsing session's own worktree isolation refuses git behind `cd`. Not dispatched to the DevOps Engineer | 2,281 s of commands, of which 1,644 s were `generate-agents.sh` in three runs | Adopted; #533, #534, #535, #536 |
+| Adoption Pull Request | Emulated: the merge commit was made in a second clone of the bare remote, as GitHub would. No CI, no review, no `size/approved` | — | Merged |
+| Session start | The SessionStart command from the project's settings, run with Claude Code's payload, then for real in each headless run | 42.7 s | Printed the reading order, the state, the tier map, the cap and the agents, naming the missing Code Reviewer (#534) |
+| 1–2 Plan and approval | Real: a headless Main Agent | 99 s | A full plan with two questions for the Director. No worktree chosen (#538) |
+| 3–4 Dispatch, commit, push | Real: the Backend Engineer, `isolation: "worktree"` | 152 s + 198 s | First run BLOCKED by the rehearsal's own allow list, then resumed; 3928b72 pushed |
+| 5 Review | Real: the Code Reviewer, `isolation: "worktree"` | 259 s | `Decision: changes requested` on 3928b72: no test caught a change to the rounding |
+| 5 Fix round and re-review | Real: the same two agents, resumed | 378 s + 518 s | 1297118 pushed; `Decision: approved` on 1297118 |
+| QA (FEATURE_DEVELOPMENT Step 7) | By hand, by this Work Unit's QA Engineer | 1 min | 14 of 14 tests pass; a replayed mutant fails 2 |
+| 6 Merge | Emulated on the bare remote; the head was matched to 1297118 by hand, as `--match-head-commit` would | — | 4a2f7b6 |
+| 7 Cleanup | By hand, DAILY_USE Step 7's commands in order | 27 s for the pull and both removals | 2 worktrees, 3 local branches and 1 remote branch removed, with no refusal |
+| 8 Back on `develop` | Real: a headless Main Agent | 226 s | `## develop...origin/develop` and `?? .ia-engineering/reports/` (#540) |
+
+Each headless run used these flags: `claude -p --model opus --setting-sources project,local --strict-mcp-config --permission-mode dontAsk --allowedTools <list>`. Each was capped at 15 minutes, 60 turns and USD 6, and none used `--dangerously-skip-permissions`. The seven runs resumed one conversation, which reported USD 4.20 in total.
+
+**Agents and processes.** In the project there were three agents:
+
+- one Main Agent conversation, run as seven headless runs, never two at once;
+- the Backend Engineer, dispatched once and resumed twice, in its own worktree;
+- the Code Reviewer, dispatched once and resumed once, in its own worktree.
+
+Never more than one subagent ran at a time. This Work Unit's QA Engineer drove the runs from outside the project.
+
+The machine ran 530 to 656 processes throughout:
+
+- 13 `claude.exe` before and after every run, so none of them was the rehearsal's (a headless run shows as `node.exe`);
+- 10 to 20 `node.exe`;
+- 17 to 69 `bash.exe`.
+
+The Main Agent counted only its own subagents against the parallel-agent cap. Nothing told it the machine's count.
+
+**Plan items.**
+
+- **S3-27 passes.** S3-27 checks that a worktree subagent's own hooks run with `$CLAUDE_PROJECT_DIR` set to the main checkout. It was never evaluated in v0.0.15.
+  - The Employee's calls came from its worktree, where `ia-engineering/` is empty, and went through the framework's PreToolUse guard. The resumed run recorded 26 guard runs, its own and the Employee's. The one refusal answered a call from the worktree, an unreadable heredoc, with an `iaeng: BLOCKED` line, so the hook command resolved through the main checkout.
+  - Its two commits ran the project's git hooks (`data-policy: clean`).
+  - The worktree started on `worktree-agent-…`, at the remote's `main`. The Employee branched from `origin/develop`, and `git worktree list --porcelain` showed `locked claude agent <name> (pid <n>)`. All three match DAILY_USE Step 3.
+- **S2-07 is still refused at 2496a78.** S2-07 is the read `echo "…$(git config --get core.hooksPath)"` around the bootstrap, which was refused in v0.0.15. All three forms, `echo`, `printf` and backtick, exit 2, while `git config --get core.hooksPath` alone passes. #272 holds the evidence, and PR #529 targets it.
+
+**The gap "the Stop gate blocks after every pull of develop" is refuted as stated.** The gate blocks a stop when HEAD's last commit is newer than `.ia-engineering/SESSION_STATE.md` (`stop-gate.sh`, SESSION_STATE gate). A pull alone does not trigger it:
+
+- Right after the pull that brought merge 4a2f7b6, made after the state was last saved, the gate exited 2 with `iaeng: stop gate — .ia-engineering/SESSION_STATE.md is behind the repository`.
+- In the real Step 8 run, the Main Agent updated the file before its turn ended, and both Stop hooks exited 0.
+- After a pull that brought nothing, the gate exited 0.
+
+So it asks once for each merge that lands after the last save, as DAILY_USE Step 8 says to expect, and never when the Main Agent keeps the state current.
+
+**Findings.** Each is filed as an `adoption-finding` issue. None is fixed here.
+
+- #533: the project's own `code-reviewer.md` makes `generate-agents.sh` exit 1, leaving the Code Reviewer with no agent. The data-policy hook then refuses the rename that the generator asks for, until an allow rule exists. README's route mentions neither.
+- #534: the route's `git switch develop` checks out a pre-adoption commit that tracks that file, which overwrites the generated agent, and the pull then removes it. Session start catches it, and regenerating took another 395 s.
+- #535: the adoption documents give `git config core.hooksPath`, which the guard refuses next to a quoted path, and a path with spaces needs quotes.
+- #536: each `generate-agents.sh` run took 395 to 633 s, a commit's git hooks took 98 to 130 s, and the Stop gate took 8.9 to 35.2 s.
+- #538: nothing the adopter's Main Agent reads asks for the worktree dispatch of DAILY_USE Step 3. Its plan chose none until the Director asked.
+- #540: the brief sent the worktree Employee's report to the main checkout, which the Employee cannot write to, and the report directory is not ignored.
+- #541: Step 7 does not cover the reviewer's detached worktree, and nothing deletes the adoption branch.
+
+**Limits.**
+
+- There was no forge, so there was no Pull Request, no CI check, no `size/approved` and no `gh pr merge`. Review decisions were in the Main Agent's reports, not in Pull Request comments.
+- This Work Unit's QA Engineer, not a dispatched Employee, ran the adoption and the Step 7 cleanup by hand, and made both merges in the emulated forge.
+- The headless runs loaded the project's settings only, not a Director's user settings. Claude Code also ignored the project's `permissions.allow`, because the workspace had never been trusted interactively.
+- The first dispatch stopped because the rehearsal's allow list did not include `node -e`. The Employee reported the refusal and did not route around it.
+- The fabricated project's `npm test` script fails on Node 24. That is a defect of the fabrication, so the agents ran `node --test` instead.
+- The rehearsal's own adoption commits put a blank line between `Employee:` and the attribution line. The Employee copied that layout, and the Code Reviewer flagged it against `Standards/COMMIT_STANDARD.md`. This was an operator error, not a framework finding.
+- The timings come from one run on one loaded machine.
+
+---
+
 # Related Documents
 
 - `Core/ORCHESTRATION.md` — the protocol itself, and the authority
@@ -127,7 +212,7 @@ The gates. Every Director gate in every Workflow held, including the ones it wou
 
 Owner: IA Engineering
 
-Version: 0.0.14
+Version: 0.0.15
 
 Status: Draft
 
