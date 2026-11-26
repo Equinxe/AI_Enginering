@@ -14951,6 +14951,7 @@ else
     fail_445 "#472: a framework imported as 'ia eng': the printed diff command runs as printed" "command [$SP_CMD_445], exit $SP_RC_445: $(printf '%s' "$SP_DIFF_445" | tail -n 2)"
   fi
 fi
+cd "$HERE" || exit 1
 
 section "data-policy reports a secret under its file's own name, not git's quoted diff header (WU-IAENG-446, #484)"
 
@@ -15306,6 +15307,341 @@ bash "$GEN_453" >/dev/null 2>&1
 rm -f "$TPL_453"
 expect 0 "no template: the quick check still runs" -- bash "$GEN_453" --check --quick --format tsv
 expect 0 "no template: --print-tier-map still runs" -- bash "$GEN_453" --print-tier-map
+cd "$HERE" || exit 1
+
+# ------ generate-agents.sh: a project's own agent; a linked framework (WU-IAENG-454) --
+#
+# Issue #516. An existing Claude Code project often keeps agents of its own in
+# .claude/agents/, under names the framework's Employees take (code-reviewer.md,
+# backend-engineer.md). The generator replaced such a file after a content
+# diff only. A path that holds no file with the generated header is now never
+# replaced: the generation names it, writes the other agents and exits 1 with
+# the command that regenerates, and --check, full or quick, reports it.
+#
+# Issue #476. An agent names the framework's directory in the project, the
+# ia-engineering/ prefix, when a walk up from the framework reaches the
+# project. A framework directory that is a link or a junction is not under the
+# project physically, so the walk missed it and the sentence was lost. The
+# walk now also goes up the path the generator was reached by, and the command
+# --check prints goes through the link too.
+#
+# Review round 1 of PR #528. The header is the comment opened on the first
+# line after the frontmatter that is not blank (QA, DEF-IAENG-454-01), and both
+# its lines must be in that comment; a dangling link is never replaced and is
+# not missing (Code Reviewer, Major 1); the command --check prints goes
+# through the link from any directory (Code Reviewer, Minor 1).
+
+section "generate-agents.sh — a project's own agent is never replaced; a linked framework keeps its prefix (WU-IAENG-454, #516, #476)"
+
+# pass_454 / fail_454 <label> [detail] — one check, counted.
+pass_454() { TOTAL=$((TOTAL + 1)); [ -n "$VERBOSE" ] && printf '   ok   %s\n' "$1"; return 0; }
+fail_454() {
+  TOTAL=$((TOTAL + 1)); FAILED=$((FAILED + 1))
+  printf '   FAIL %s\n' "$1"
+  [ -z "${2:-}" ] || printf '%s\n' "$2" | sed 's/^/        | /'
+  return 0
+}
+T454=$'\t'
+BT454='`'
+# The reasons the generator gives, written out here, never read from it.
+OWN_FILE_454="not a generated agent: it has no generated header, so it is the project's own file, which a generation never replaces. Rename it, its file and the name: in its frontmatter if it has one, or move it elsewhere; its Employee's agent is written once that name is free"
+OWN_ENTRY_454="not a generated agent: it is not a regular file, which a generation never replaces. Move it elsewhere; its Employee's agent is written once that name is free"
+# regen_454 — the command printed after "Regenerate" by the last run.
+regen_454() { sed -n '/^  Regenerate/{n;s/^    //;p;}' <<< "$LAST_OUTPUT" | head -n 1; }
+# same_454 <file> <saved> <label> — <file> is <saved>, byte for byte.
+same_454() { if cmp -s "$1" "$2"; then pass_454 "$3"; else fail_454 "$3" "$(head -n 12 "$1" 2>&1)"; fi; }
+# generated_454 <file> <label> — <file> is an agent the generator wrote.
+generated_454() {
+  if grep -qxF '  Generator: Adapters/ai-runtimes/generate-agents.sh --target claude-code' "$1" 2>/dev/null; then
+    pass_454 "$2"
+  else
+    fail_454 "$2" "$(head -n 12 "$1" 2>&1)"
+  fi
+}
+# link_454 <link> <target> — a directory link: ln -s, or, where ln -s copies
+# (Git Bash), a Windows junction. True when <link> is a link to <target>.
+link_454() {
+  ln -s "$2" "$1" 2>/dev/null
+  if ! [ -L "$1" ]; then
+    rm -rf "$1"
+    if command -v cygpath >/dev/null 2>&1 && command -v cmd >/dev/null 2>&1; then
+      MSYS2_ARG_CONV_EXCL='*' cmd /c mklink /J "$(cygpath -w "$1")" "$(cygpath -w "$2")" >/dev/null 2>&1
+    fi
+  fi
+  [ -L "$1" ] && [ "$1" -ef "$2" ]
+}
+
+# The bench, as WU-IAENG-453's: a framework copy with two Employees, one per
+# default tier, and a project of its own beside it.
+FW_454="$WORK/fw-454"
+P_454="$WORK/p-454"
+rm -rf "$FW_454" "$P_454"
+mkdir -p "$FW_454" "$P_454/.claude/agents"
+cp -R "$SCRIPTS/../../Adapters" "$SCRIPTS/../../Employees" "$SCRIPTS/../../Registry" "$SCRIPTS/../../Templates" "$FW_454/"
+awk '/^  - name: /{ seen = 1; keep = ($0 == "  - name: Software Architect" || $0 == "  - name: DevOps Engineer") } !seen || keep' \
+  "$SCRIPTS/../../Registry/employees.yml" > "$FW_454/Registry/employees.yml"
+GEN_454="$FW_454/Adapters/ai-runtimes/generate-agents.sh"
+A_454=.claude/agents/devops-engineer.md
+
+# --- #516: the project's own devops-engineer.md, a name an Employee takes ----
+cd "$P_454" || exit 1
+printf '%s\n' "---" "name: devops-engineer" "description: This project's own DevOps agent, written by hand." "---" "" \
+  "You keep this project's deployments green." > "$A_454"
+cp "$A_454" "$WORK/own-454.md"
+expect 1 "#516: a generation over the project's own agent exits 1" -- bash "$GEN_454"
+expect_output "$P_454/$A_454: $OWN_FILE_454"
+same_454 "$A_454" "$WORK/own-454.md" "#516: the project's own agent is left as it was, byte for byte"
+generated_454 .claude/agents/software-architect.md "#516: the other Employee's agent is written"
+REGEN_454="$(regen_454)"
+if [ -n "$REGEN_454" ]; then
+  pass_454 "#516: the generation prints the command that regenerates"
+else
+  fail_454 "#516: the generation prints the command that regenerates" "$LAST_OUTPUT"
+fi
+expect 1 "#516: --dry-run answers the same" -- bash "$GEN_454" --dry-run
+expect_output "$P_454/$A_454: $OWN_FILE_454"
+same_454 "$A_454" "$WORK/own-454.md" "#516: --dry-run leaves it as it was"
+expect 1 "#516: --check reports it as the project's own file" -- bash "$GEN_454" --check --format tsv
+expect_line "agent${T454}stale${T454}${A_454}${T454}${OWN_FILE_454}"
+expect_line "agent${T454}current${T454}.claude/agents/software-architect.md${T454}"
+expect 1 "#516: --check, text" -- bash "$GEN_454" --check
+expect_output "  1 hold something that is not a generated agent, which a generation never"
+expect_no_output "out of date with Employees/" "#516: --check does not call the project's own file out of date with Employees/"
+expect 1 "#516: the quick check, which session start runs, reports it" -- bash "$GEN_454" --check --quick --format tsv
+expect_line "agent${T454}stale${T454}${A_454}${T454}${OWN_FILE_454}"
+
+# The header's lines quoted after a heading are not the header: the file is
+# still the project's own.
+printf '%s\n' "---" "name: devops-engineer" "---" "" "# Our DevOps agent" "" "<!--" \
+  "  GENERATED FILE — do not edit." "" "  Generator: Adapters/ai-runtimes/generate-agents.sh --target claude-code" "-->" > "$A_454"
+cp "$A_454" "$WORK/own2-454.md"
+expect 1 "#516: the header's lines quoted after a heading: still the project's own" -- bash "$GEN_454"
+same_454 "$A_454" "$WORK/own2-454.md" "#516: ... and left as it was"
+expect 1 "#516: ... and the quick check agrees" -- bash "$GEN_454" --check --quick --format tsv
+expect_line "agent${T454}stale${T454}${A_454}${T454}${OWN_FILE_454}"
+
+# own_case_454 <label> — the file now at the agent's path is the project's own:
+# the generation exits 1 naming it with its reason and leaves it, byte for
+# byte, and the quick check, whose awk reads the header on lines of its own,
+# reports it with the same reason. Five checks.
+own_case_454() {
+  cp "$A_454" "$WORK/case-454.md"
+  expect 1 "#516: $1: the generation exits 1" -- bash "$GEN_454"
+  expect_output "$P_454/$A_454: $OWN_FILE_454"
+  same_454 "$A_454" "$WORK/case-454.md" "#516: $1: ... and leaves it as it was"
+  expect 1 "#516: $1: ... and the quick check reports it" -- bash "$GEN_454" --check --quick --format tsv
+  expect_line "agent${T454}stale${T454}${A_454}${T454}${OWN_FILE_454}"
+}
+# The header is where every version of the generator wrote it: the comment
+# opened on the first line after the frontmatter that is not blank. Any other
+# line there ends the search, a heading of any level among them (QA, PR #528,
+# DEF-IAENG-454-01: the search ended only at a "# " heading, so this file was
+# replaced).
+printf '%s\n' "---" "name: devops-engineer" "---" "" "## Our DevOps agent" "" "<!--" \
+  "  GENERATED FILE — do not edit." "" "  Generator: Adapters/ai-runtimes/generate-agents.sh --target claude-code" "-->" > "$A_454"
+own_case_454 "the header's lines quoted after an ## heading"
+# Both lines, in that comment (Code Reviewer, PR #528, Major 1): the GENERATED
+# FILE line beside another tool's Generator: line is not the header.
+printf '%s\n' "---" "name: devops-engineer" "---" "" "<!--" "  GENERATED FILE — do not edit." "" \
+  "  Generator: our-own-tool --target claude-code" "-->" "" "Ours." > "$A_454"
+own_case_454 "a first comment with the GENERATED FILE line and another tool's Generator: line"
+# That comment only: the header's lines in a second comment are not the header.
+printf '%s\n' "---" "name: devops-engineer" "---" "" "<!--" "  Our DevOps agent, kept by hand." "-->" "<!--" \
+  "  GENERATED FILE — do not edit." "" "  Generator: Adapters/ai-runtimes/generate-agents.sh --target claude-code" "-->" > "$A_454"
+own_case_454 "the header's lines in a second comment"
+# After a frontmatter: every version wrote one on the file's first line, so a
+# file without it is not a generated agent, even with the header's comment on
+# its first line that is not blank.
+printf '%s\n' "" "<!--" "  GENERATED FILE — do not edit." "" "  Generator: Adapters/ai-runtimes/generate-agents.sh --target claude-code" \
+  "-->" "" "Ours, with no frontmatter." > "$A_454"
+own_case_454 "the header's lines in a file with no frontmatter"
+# An empty file holds no header either, and is left as it is.
+: > "$A_454"
+own_case_454 "an empty file"
+
+# A file that cannot be read is not known to be a generated agent, and is
+# never replaced either. chmod 000 makes it so on Linux for a user other than
+# root; Git for Windows ignores chmod, so there a deny ACE does, and is taken
+# off again (as in WU-IAENG-434's case).
+cp "$WORK/own-454.md" "$A_454"
+# unread_454 — takes the deny ACE off, where one was put, and makes the file
+# readable again.
+unread_454() {
+  if command -v icacls >/dev/null 2>&1 && command -v cygpath >/dev/null 2>&1; then
+    MSYS2_ARG_CONV_EXCL='*' icacls "$(cygpath -w "$A_454")" /remove:d "${USERNAME:-}" >/dev/null 2>&1
+  fi
+  chmod 644 "$A_454"
+}
+block_begin 3 "#516: an agent's path holding a file that cannot be read"
+chmod 000 "$A_454" 2>/dev/null
+if cat "$A_454" >/dev/null 2>&1 && command -v icacls >/dev/null 2>&1 && command -v cygpath >/dev/null 2>&1; then
+  MSYS2_ARG_CONV_EXCL='*' icacls "$(cygpath -w "$A_454")" /deny "${USERNAME:-}:(R)" >/dev/null 2>&1
+fi
+if [ -f "$A_454" ] && ! cat "$A_454" >/dev/null 2>&1; then
+  expect 1 "#516: a file that cannot be read at the agent's path: the generation exits 1" -- bash "$GEN_454"
+  expect_output "$P_454/$A_454: it cannot be read, so it is not known to be a generated agent, and a generation never replaces it. Make it readable, or move it elsewhere"
+  unread_454
+  same_454 "$A_454" "$WORK/own-454.md" "#516: ... and it is left as it was"
+else
+  skip "$BLOCK_N" "no file can be made unreadable here: chmod 000 as root, and no icacls"
+fi
+unread_454
+block_end
+
+# A directory at the agent's path: nothing is moved into it.
+rm -f "$A_454"
+mkdir "$A_454"
+expect 1 "#516: a directory at the agent's path: the generation exits 1" -- bash "$GEN_454"
+expect_output "$P_454/$A_454: $OWN_ENTRY_454"
+if [ -d "$A_454" ] && [ -z "$(ls -A "$A_454")" ]; then
+  pass_454 "#516: ... and nothing is moved into the directory"
+else
+  fail_454 "#516: ... and nothing is moved into the directory" "$(ls -la "$A_454" 2>&1)"
+fi
+expect 1 "#516: --check reports the directory" -- bash "$GEN_454" --check --format tsv
+expect_line "agent${T454}stale${T454}${A_454}${T454}${OWN_ENTRY_454}"
+expect 1 "#516: ... and so does the quick check" -- bash "$GEN_454" --check --quick --format tsv
+expect_line "agent${T454}stale${T454}${A_454}${T454}${OWN_ENTRY_454}"
+rmdir "$A_454"
+
+# A dangling link at the agent's path, its target gone: not a regular file, so
+# never replaced, and not missing either, since something is there (Code
+# Reviewer, PR #528, Major 1; QA Minor). A link to a directory then removed:
+# ln -s, or under Git Bash a junction, as #476's block below makes them.
+GONE_454="$WORK/gone-454"
+mkdir -p "$GONE_454"
+block_begin 7 "#516: a dangling link at the agent's path"
+if link_454 "$A_454" "$GONE_454" && rmdir "$GONE_454" 2>/dev/null && [ -L "$A_454" ] && ! [ -e "$A_454" ]; then
+  expect 1 "#516: a dangling link at the agent's path: the generation exits 1" -- bash "$GEN_454"
+  expect_output "$P_454/$A_454: $OWN_ENTRY_454"
+  if [ -L "$A_454" ] && ! [ -e "$A_454" ]; then
+    pass_454 "#516: ... and the link is left as it was"
+  else
+    fail_454 "#516: ... and the link is left as it was" "$(ls -la "$A_454" 2>&1)"
+  fi
+  expect 1 "#516: --check reports the dangling link as not a regular file, not as missing" -- \
+    bash "$GEN_454" --check --format tsv
+  expect_line "agent${T454}stale${T454}${A_454}${T454}${OWN_ENTRY_454}"
+  expect 1 "#516: ... and so does the quick check" -- bash "$GEN_454" --check --quick --format tsv
+  expect_line "agent${T454}stale${T454}${A_454}${T454}${OWN_ENTRY_454}"
+else
+  skip "$BLOCK_N" "no dangling link can be made here: ln -s copies and no junction could be made"
+fi
+block_end
+# The link itself is removed, never what it named (rm without -r).
+rm -f "$A_454" 2>/dev/null
+if [ -L "$A_454" ]; then rmdir "$A_454" 2>/dev/null; fi
+rm -rf "$GONE_454"
+
+# The remedy: the project's own agent renamed, its file and its name, then the
+# command the generation printed, run as printed.
+sed 's/^name: devops-engineer$/name: our-devops/' "$WORK/own-454.md" > .claude/agents/our-devops.md
+cp .claude/agents/our-devops.md "$WORK/our-454.md"
+expect 0 "#516: the own agent renamed, the printed command runs as printed" -- eval "$REGEN_454"
+generated_454 "$A_454" "#516: ... and writes the Employee's agent"
+same_454 .claude/agents/our-devops.md "$WORK/our-454.md" "#516: ... and leaves the renamed agent as it was"
+expect 0 "#516: --check is green beside the project's own agent" -- bash "$GEN_454" --check --format tsv
+
+# What the generator wrote is still replaced, as before: an agent edited by
+# hand, its header kept, and one with CRLF line endings.
+printf 'hand edit\n' >> "$A_454"
+expect 1 "#516: an agent the generator wrote, edited by hand: out of date, not the project's own" -- \
+  bash "$GEN_454" --check --format tsv
+expect_line "agent${T454}stale${T454}${A_454}${T454}out of date with Employees/ or the roster"
+expect 0 "#516: ... and replaced" -- bash "$GEN_454"
+expect 0 "#516: ... and current" -- bash "$GEN_454" --check --format tsv
+# Which difference --check names for a CRLF copy depends on the platform's awk
+# (Git for Windows' drops the carriage return as it reads); what is pinned
+# here is that its header is read through them, so it is not the project's.
+sed 's/$/\r/' "$A_454" > "$WORK/crlf-454.md"
+cp "$WORK/crlf-454.md" "$A_454"
+expect 1 "#516: an agent the generator wrote, with CRLF line endings: stale" -- \
+  bash "$GEN_454" --check --format tsv
+expect_no_output "not a generated agent" "#516: ... and not the project's own: its header is read through the carriage returns"
+expect 0 "#516: ... and replaced" -- bash "$GEN_454"
+expect 0 "#516: ... and current" -- bash "$GEN_454" --check --format tsv
+
+# --- #476: the framework directory is a link ---------------------------------
+P2_454="$WORK/p2-454"
+rm -rf "$P2_454"
+mkdir -p "$P2_454"
+# from_454 <dir> <label> — run from <dir>, --check, through the link, prints
+# the command that regenerates; run as printed from there, that command
+# leaves every agent current for a check through the link, so the prefix
+# sentence is kept (Code Reviewer, PR #528, Minor 1: from a subdirectory, the
+# command named the framework's physical path, and its agents were then out
+# of date). Three checks.
+from_454() {
+  rm -f "$P2_454/.claude/agents/software-architect.md"
+  cd "$1" || exit 1
+  expect 1 "#476: from $2, --check through the link prints the command that regenerates" -- \
+    bash "$P2_454/ia-engineering/Adapters/ai-runtimes/generate-agents.sh" --project "$P2_454" --check
+  expect 0 "#476: from $2: ... which runs as printed" -- eval "$(regen_454)"
+  cd "$P2_454" || exit 1
+  expect 0 "#476: from $2: ... and every agent is current through the link, the prefix kept" -- \
+    bash "$G2_454" --check --format tsv
+}
+block_begin 22 "#476: a framework directory that is a link"
+if link_454 "$P2_454/ia-engineering" "$FW_454"; then
+  cd "$P2_454" || exit 1
+  G2_454=./ia-engineering/Adapters/ai-runtimes/generate-agents.sh
+  expect 0 "#476: the agents are generated through the link" -- bash "$G2_454"
+  if grep -qxF "This project imports IA Engineering at" "$A_454" \
+    && grep -qxF "So does such a path written with the prefix" "$A_454" \
+    && grep -qxF "${BT454}ia-engineering/${BT454}," "$A_454"; then
+    pass_454 "#476: the agent names the ia-engineering/ prefix"
+  else
+    fail_454 "#476: the agent names the ia-engineering/ prefix" "$(sed -n '/^## Where the Framework Is$/,/^Read it there/p' "$A_454")"
+  fi
+  # The root is still the framework's own path, never the link's
+  # (SEC-IAENG-467-01).
+  ROOT2_454="$(sed -n "s/^Framework root: ${BT454}\(.*\)${BT454}\$/\1/p" "$A_454" | head -n 1)"
+  case "$ROOT2_454" in
+    *p2-454*) fail_454 "#476: the root is the framework's own path, not the link's" "$ROOT2_454" ;;
+    *) if [ -n "$ROOT2_454" ] && [ "$ROOT2_454" -ef "$FW_454" ]; then
+         pass_454 "#476: the root is the framework's own path, not the link's"
+       else
+         fail_454 "#476: the root is the framework's own path, not the link's" "${ROOT2_454:-<none>}"
+       fi ;;
+  esac
+  expect 0 "#476: --check finds them current" -- bash "$G2_454" --check --format tsv
+  expect 0 "#476: so does the quick check" -- bash "$G2_454" --check --quick --format tsv
+  # The command --check prints goes through the link, so the agents it
+  # writes keep the sentence.
+  rm .claude/agents/software-architect.md
+  expect 1 "#476: an agent removed: --check prints the command that regenerates" -- bash "$G2_454" --check
+  expect_line "    ./ia-engineering/Adapters/ai-runtimes/generate-agents.sh --target claude-code"
+  expect 0 "#476: the printed command runs as printed" -- eval "$(regen_454)"
+  expect 0 "#476: ... and every agent is current, the prefix kept" -- bash "$G2_454" --check --format tsv
+  # From a directory the link is not below, from one above both the link and
+  # the framework, and from the framework's own directory, the link's target.
+  mkdir -p "$P2_454/src"
+  from_454 "$P2_454/src" "a subdirectory of the project"
+  from_454 "$WORK" "a directory above both the link and the framework"
+  from_454 "$FW_454" "the framework's own directory"
+  # From the project by another path to it (a second link here; the project
+  # as git spells it, in the drift check): the command stays relative,
+  # through the link, as it was by identity before.
+  rm -f "$P2_454/.claude/agents/software-architect.md"
+  if link_454 "$WORK/alias-454" "$P2_454"; then
+    cd "$WORK/alias-454" || exit 1
+    expect 1 "#476: from the project by another path to it, --check through the link prints the command" -- \
+      bash "$P2_454/ia-engineering/Adapters/ai-runtimes/generate-agents.sh" --check
+    expect_line "    ./ia-engineering/Adapters/ai-runtimes/generate-agents.sh --target claude-code"
+    expect 0 "#476: from the project by another path to it: ... which runs as printed" -- eval "$(regen_454)"
+    cd "$P2_454" || exit 1
+    expect 0 "#476: from the project by another path to it: ... and every agent is current through the link" -- \
+      bash "$G2_454" --check --format tsv
+  else
+    skip 4 "no second directory link can be made here: ln -s copies and no junction could be made"
+  fi
+  # The link itself is removed, never what it names (rm without -r).
+  rm -f "$WORK/alias-454" 2>/dev/null
+  if [ -L "$WORK/alias-454" ]; then rmdir "$WORK/alias-454" 2>/dev/null; fi
+else
+  skip "$BLOCK_N" "no directory link can be made here: ln -s copies and no junction could be made"
+fi
+block_end
 cd "$HERE" || exit 1
 
 # --------------------------------------------------------------- verdict ----
