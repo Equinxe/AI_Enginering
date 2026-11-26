@@ -52,8 +52,13 @@
 # component. When the region holds a / or a \ and the text after the last one
 # is a word with no whitespace, that word is printed with a / before it. The
 # / keeps the word from reading as an option, a keyword or a name of its own.
-# A word that begins with - names no command, so it is not kept: the text of
-# `git commit -m "see docs/--no-verify"` stays dropped, as any message is.
+# The word is kept only where it can be a command a rule reads (WU-IAENG-455,
+# code review of PR #485, F3): when it names git, a dashed git-<subcommand>,
+# gh, rm or printf, in any case and with any extension Windows runs, or when
+# the region is glued to the text after it, which may complete such a name
+# (`"/c/x y/gi"t`). Any other tail is dropped with its region, as a message's
+# text is: `git commit -m "see docs/x--no-verify"` and `-m "see
+# Standards/core.hooksPath"` reach the rules as `git commit -m`.
 #
 # WORDS AS THE SHELL FORMS THEM (WU-IAENG-450). A quoted or escaped ; & | is a
 # character of a word, not the end of a command; a substitution's output may
@@ -351,8 +356,10 @@ function keepq(s) {
 # The last path component of a dropped quoted region, with a / before it, or
 # nothing (see the header, A DROPPED REGION KEEPS ITS LAST PATH COMPONENT). A
 # backslash counts as a separator, as it does in a Windows path. The search
-# runs once from the end of the region, so it is linear in its length.
-function path_tail(s,   k, ch) {
+# runs once from the end of the region, so it is linear in its length. nx is
+# the byte after the region's closing quote: a byte that does not end a word
+# (word_after) glues the region to the text after it.
+function path_tail(s, nx,   k, ch) {
   for (k = length(s); k > 0; k--) {
     ch = substr(s, k, 1)
     if (ch == "/" || ch == "\\") break
@@ -360,7 +367,14 @@ function path_tail(s,   k, ch) {
   if (k == 0) return ""
   s = substr(s, k + 1)
   if (s == "" || s ~ /[ \t\n]/ || s ~ /^-/) return ""
+  if (word_after(nx) && !is_rule_command(s)) return ""
   return "/" sepw(mark_literal_braces(s))
+}
+
+# A command name a rule reads (path_tail): git, a dashed git-<subcommand>, gh,
+# rm or printf, in any case, with any extension Windows runs a command by.
+function is_rule_command(s) {
+  return tolower(s) ~ /^(git(-[^\/\\]*)?|gh|rm|printf)(\.(exe|cmd|com|bat))?$/
 }
 
 # A SUBSTITUTION OPENED INSIDE DOUBLE QUOTES, by $( or by a backtick
@@ -744,7 +758,7 @@ function lex(s,   n, i) {
         else if (cmdctx) out = out " " buf " "
         else if (KEEPQ == 1) out = out keepq(buf)
         else if (!tainted && is_bare_word(buf)) out = out sepw(mark_literal_braces(buf))
-        else dropped(buf)
+        else dropped(buf, d)
         mode = "out"; buf = ""; tainted = 0; cmdctx = 0; decodectx = 0; valctx = 0; hadsub = 0
         i++; continue
       }
@@ -761,7 +775,7 @@ function lex(s,   n, i) {
         if (cmdctx) out = out " " buf " "
         else if (KEEPQ == 1) out = out keepq(buf)
         else if (is_bare_word(buf)) out = out sepw(mark_literal_braces(buf))
-        else dropped(buf)
+        else dropped(buf, d)
         mode = "out"; buf = ""; tainted = 0; cmdctx = 0; decodectx = 0; valctx = 0; hadsub = 0
         i++; continue
       }
@@ -799,7 +813,7 @@ function lex(s,   n, i) {
       else if (cmdctx) out = out " " buf " "
       else if (KEEPQ == 1) out = out keepq(buf)
       else if (!tainted && is_bare_word(buf)) out = out sepw(mark_literal_braces(buf))
-      else dropped(buf)
+      else dropped(buf, d)
       mode = "out"; buf = ""; tainted = 0; cmdctx = 0; decodectx = 0; valctx = 0; hadsub = 0
       i++; continue
     }
@@ -822,7 +836,8 @@ function lex(s,   n, i) {
 }
 
 # A quoted region the reading drops: nothing in pass 1, its path_tail in the
-# second and third readings. Pass 1 notes that they differ. In a value context
+# second and third readings, judged with nx, the byte after its closing quote.
+# Pass 1 notes that they differ. In a value context
 # (is_value_context), a region with no path tail to print leaves WB, in every
 # reading, when it holds something other than whitespace or held a
 # substitution the third reading muted (hadsub), and held none whose commands
@@ -832,12 +847,12 @@ function lex(s,   n, i) {
 # key and its `=`, in every reading. The rest of its value, the name of a
 # variable, is not printed: the key and its `=` are already a word, and G and
 # GX read the word after the option as its value whatever follows the `=`.
-function dropped(b,   t) {
+function dropped(b, nx,   t) {
   if (valctx == 2 && !tainted && match(b, /^[^ \t\n=]+=/)) {
     out = out sepw(substr(b, 1, RLENGTH))
     return
   }
-  t = path_tail(b)
+  t = path_tail(b, nx)
   if (V2 && t != "") { out = out t; return }
   if (t != "") CHANGED = 1
   if (valctx && !tainted && (b ~ /[^ \t\n]/ || hadsub)) out = out WB

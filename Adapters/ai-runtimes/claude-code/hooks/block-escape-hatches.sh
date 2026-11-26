@@ -494,6 +494,56 @@ case "$CMD" in
   *\'*|*\"*|*\\*|*'`'*|*\$\(*|*$'\n'*|*\{*|*\}*|*,*|*\[*|*\]*|*\?*|*\**) LEGACY_OK=0 ;;
   *) LEGACY_OK=1 ;;
 esac
+# A READ IN ANOTHER COMMAND'S ARGUMENTS (WU-IAENG-455, issue #272). The lexer
+# prints a substitution's commands where the substitution stood, so `echo
+# "$(git config --get core.hooksPath)"`, its backtick form and printf's reach
+# the rules as `echo  git config --get core.hooksPath `: the read does not
+# begin its segment, and the anchored exemption above does not see it. A
+# segment those exemptions refuse is judged again on HOOKSPATH_REST, the
+# segment with every keyword read of the key that begins a word replaced by
+# \005, a byte no rule names (hookspath_rest). READ_HOOKSPATH_AT is
+# READ_HOOKSPATH's read after a word boundary instead of at the start. The
+# segment is exempt when its rest no longer names core.hooksPath in a git
+# command; otherwise the rest is judged, and refused, as any segment is.
+#
+# Removing a keyword read cannot hide a write. git config takes one action per
+# call, and a write names its key as one of its own arguments. A write whose
+# arguments held a keyword read would hold a second action (--get, --get-all,
+# --get-regexp, --list, -l), or, for get and list, more arguments than any
+# write takes, with `config` as its key: git refuses both. So a write the hook
+# can read keeps a mention of its key in the rest: beside the read (`git config
+# core.hooksPath "$(git config --get core.hooksPath)"`, where the \005 left for
+# the read is the value, so the rest is no legacy read), in another
+# substitution, or in a GIT_CONFIG_KEY_<n> value. A -c or --config-env write is
+# judged on the whole segment (WRITE_HOOKSPATH_VIA_C). A key joined across a
+# substitution (`core.hooks$(…)Path x`) is read whole in the third reading,
+# where the substitution is empty, and judged there. A legacy read is not
+# removed: one in a substitution stays refused, as a legacy read beside a `$(`
+# or a backtick is (LEGACY_OK), and gets the read hint (READ_HOOKSPATH_LEGACY_AT).
+#
+# The removal goes from left to right, at most HOOKSPATH_MAX_READS times in a
+# segment, so its cost stays linear in the segment's length; a segment with
+# more reads keeps the others and is refused. A pattern bash cannot compile
+# ends the removal, which leaves the key, and the segment is refused.
+READ_HOOKSPATH_AT="(^|[[:space:](\`{])${GXP}config${S}+(${READ_OPT}${S}+)*(--get(-all|-regexp)?|--list|-l|get|list)${S}+(${READ_OPT}${S}+)*core\.hooksPath"
+READ_HOOKSPATH_LEGACY_AT="(^|[[:space:](\`{])${GXP}config${S}+(${READ_OPT}${S}+)*core\.hooksPath${S}*\$"
+HOOKSPATH_MAX_READS=16
+HOOKSPATH_REST=""
+hookspath_rest() {
+  local _todo="$1" _done="" _m _pre _n=0
+  shopt -s nocasematch
+  while [ "$_n" -lt "$HOOKSPATH_MAX_READS" ] && [[ $_todo =~ $READ_HOOKSPATH_AT ]]; do
+    shopt -u nocasematch
+    _m="${BASH_REMATCH[0]}"
+    _pre="${_todo%%"$_m"*}"
+    _done="${_done}${_pre}${BASH_REMATCH[1]}"$'\005'
+    _todo="${_todo:$((${#_pre} + ${#_m}))}"
+    _n=$((_n + 1))
+    shopt -s nocasematch
+  done
+  shopt -u nocasematch
+  HOOKSPATH_REST="${_done}${_todo}"
+}
 HOOKSPATH_WRITE=0
 # A refused segment that is shaped like the legacy read (nothing after the key)
 # and was refused only because LEGACY_OK withheld the exemption. The refusal
@@ -515,11 +565,14 @@ case "$STRIPPED" in
          || { [ "$LEGACY_OK" -eq 1 ] && rx_any 1 "$READ_HOOKSPATH_LEGACY" "$SEG"; }; then
         :
       else
-        HOOKSPATH_WRITE=1
-        if rx_any 1 "$READ_HOOKSPATH_LEGACY" "$SEG"; then
-          HOOKSPATH_READ_HINT=1
-        else
-          HOOKSPATH_REAL_WRITE=1
+        hookspath_rest "$SEG"
+        if rx_any 1 "git[^|;&]*core\.hooksPath" "$HOOKSPATH_REST"; then
+          HOOKSPATH_WRITE=1
+          if rx_any 1 "$READ_HOOKSPATH_LEGACY_AT" "$HOOKSPATH_REST"; then
+            HOOKSPATH_READ_HINT=1
+          else
+            HOOKSPATH_REAL_WRITE=1
+          fi
         fi
       fi
       if rx_any 1 "$WRITE_HOOKSPATH_VIA_C" "$SEG"; then
@@ -735,7 +788,13 @@ if check "${G}stash${GEXT}${STASH_OTHER}"; then
   iaeng_block "git stash sets work aside with no record; it is local, unlabelled, and lost with the clone" \
     "Standards/GIT_STANDARD.md, Escape Hatches. Commit as work in progress on the feature branch, or open a second branch."
 fi
-if check "${G}(rebase|add|commit|checkout|reset)[^|;&]*${S}(-i|--interactive|-p|--patch)$E"; then
+# THE SUBCOMMAND ENDS ITS WORD (WU-IAENG-455, issue #261). `commit` was matched
+# as a prefix, so `git commit-tree -p <parent>`, where -p names a parent
+# commit, was refused as interactive; commit-graph and checkout-index were
+# read the same way. The subcommand is now followed by an optional GEXT, for a
+# dashed git (`git-commit.exe -p`), and then whitespace, so a longer command
+# name is that other command.
+if check "${G}(rebase|add|commit|checkout|reset)${GEXT}${S}([^|;&]*${S})?(-i|--interactive|-p|--patch)$E"; then
   iaeng_block "interactive git command in a non-interactive session — it hangs or does nothing, and the session assumes a result" \
     "Standards/GIT_STANDARD.md, Escape Hatches. Use the non-interactive equivalent and verify with git log / git status."
 fi
@@ -840,11 +899,27 @@ fi
 # separator may be / or \. The command may follow a subshell's ( or a lone &,
 # as well as a space, a ; or a |, and its target may end at a ; & | or ), as
 # well as at a space or the end of the line: `(rm -rf /)`, `rm -rf /;x`.
+#
+# THE REASON SAYS WHAT WAS TYPED (WU-IAENG-455, issue #235). The rule refuses an
+# rm of a path under .git with no -r too, such as the stale .git/index.lock a
+# session that ended mid-command leaves behind; whether to allow that is a
+# Director decision not yet taken, so the verdict is unchanged. The reason no
+# longer calls such a command recursive. It is the recursive reason when an rm
+# the rule matches carries a recursive flag (RMREC), before its target or
+# after it in the same command, as rm reads options in either place, and
+# otherwise a reason that names the path and the remedy.
 RMFLAG="(-[a-zA-Z]*r[a-zA-Z]*|--recursive|--force|-[a-zA-Z]*f[a-zA-Z]*)"
+RMREC="(-[a-zA-Z]*[rR][a-zA-Z]*|--recursive)"
 RM_NAME='([^[:space:];&|]*[/\\])?[Rr][Mm](\.[Ee][Xx][Ee])?'
-if check "(^|[[:space:];&|(])${RM_NAME}(${S}+${RMFLAG})*${S}+(/|\.git)([/*;&|)]|${S}|$)"; then
-  iaeng_block "recursive removal of the repository metadata or the filesystem root" \
-    "Standards/RISK_STANDARD.md, operational catalog (Critical)."
+RM_AT="(^|[[:space:];&|(])${RM_NAME}(${S}+${RMFLAG})*${S}+"
+if check "${RM_AT}(/|\.git)([/*;&|)]|${S}|$)"; then
+  if check "(^|[[:space:];&|(])${RM_NAME}(${S}+${RMFLAG})*${S}+${RMREC}(${S}+${RMFLAG})*${S}+(/|\.git)([/*;&|)]|${S}|$)" \
+     || check "${RM_AT}(/|\.git)([/*][^[:space:]|;&)]*)?(${S}+[^|;&)]*)?${S}${RMREC}([[:space:];&|)]|$)"; then
+    iaeng_block "recursive removal of the repository metadata or the filesystem root" \
+      "Standards/RISK_STANDARD.md, operational catalog (Critical)."
+  fi
+  iaeng_block "removing the repository metadata (.git), a path under it, or the filesystem root" \
+    "Standards/RISK_STANDARD.md, operational catalog (Critical). For a stale .git/index.lock left by another session: wait until that session has finished, or ask a human to remove the lock by hand."
 fi
 
 # --- Approval labels (WU-IAENG-311) --------------------------------------------

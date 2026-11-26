@@ -1739,8 +1739,10 @@ w440_lex() {
     printf '   FAIL  %s: got %q, want %q\n' "$label" "$got" "$want"
   fi
 }
+# The quoted path's last component names a command (rm), so the second
+# reading keeps it (WU-IAENG-455: a component that names none is dropped).
 w440_lex "lexer: the first reading is the earlier one, the second follows on its own line" \
-  'rm -rf "a b/c" /' $'rm -rf  /\nrm -rf /c /'
+  'rm -rf "a b/rm" /' $'rm -rf  /\nrm -rf /rm /'
 w440_lex "lexer: a command the second reading would not change is read once" \
   'git commit -m "a b"' 'git commit -m '
 w440_lex "lexer: a backtick in double quotes opens a substitution in the second reading" \
@@ -1749,7 +1751,7 @@ w440_lex "lexer: a backtick in double quotes opens a substitution in the second 
 w440_lex "lexer: the quoted text before a substitution is kept in a command context" \
   "bash -c \"a \$(b) c\"" $'bash -c  b   c \nbash -c  a   b   c \nbash -c  a  c '
 w440_lex "lexer: records are joined in the first reading as before, the second follows them all" \
-  $'rm -rf "a b/c" /\001x' $'rm -rf  /x\nrm -rf /c /x'
+  $'rm -rf "a b/rm" /\001x' $'rm -rf  /x\nrm -rf /rm /x'
 # THE CAP COUNTS BOTH READINGS. The 2,000-segment cap counts every segment the
 # lexer prints, so a command it reads twice is read up to 1,000 segments and
 # refused from 1,001, where a command read once is read up to 2,000. One
@@ -2183,6 +2185,94 @@ else
   echo "   FAIL  tests/session-start-budget.sh reported no counts (exit $SSB_RC) — it could not run"
 fi
 rm -f "$SSB_COUNTS"
+
+# --- Escape-hatch hook: false positives (WU-IAENG-455) -------------------------
+# What the case file cannot hold: the read hint, the second line of an rm
+# refusal, the lexer's exact output for a quoted path's last component, the
+# cap on the reads removed from a segment, and the time a segment of many
+# reads takes. No command here starts with a /, which Git Bash would rewrite
+# into a Windows path before jq read it.
+echo "== escape-hatch: false positives (WU-IAENG-455)"
+# A legacy read in a substitution is refused with the --get read to run, which
+# passes there (issue #272). A write whose value is a read, or beside a read
+# in another substitution, is refused without the hint: a removed read leaves
+# a word, the value, not nothing, so the rest is no legacy read.
+expect_hint "hooksPath: a legacy read in a substitution is refused with the --get hint" \
+  "echo \`git config core.hooksPath\`" 1
+expect_hint "hooksPath: a write whose value is a read is refused without the read hint" \
+  "git config core.hooksPath \"\$(git config --get core.hooksPath)\"" 0
+expect_hint "hooksPath: a read beside a write in another substitution gets no read hint" \
+  "echo \$(git config --get core.hooksPath) \$(git config core.hooksPath x)" 0
+# hookspath_rest removes at most 16 reads from a segment, from left to right:
+# 16 pass, and a 17th is left in the rest, which is refused.
+W455_READS=""
+for ((w455_i = 0; w455_i < 16; w455_i++)); do W455_READS+=" \$(git config --get core.hooksPath)"; done
+expect_rc "escape-hatch: 16 reads of core.hooksPath in one segment are read" 0 "$HOOK" \
+  "$(mkbash "echo$W455_READS")"
+expect_reason "escape-hatch: a 17th read of core.hooksPath in one segment is refused" \
+  "$(mkbash "echo$W455_READS \`git config --get core.hooksPath\`")" "setting core.hooksPath disables"
+# An rm of a path under .git with no -r is refused, as before (the Director's
+# decision on allowing it is open, issue #235), and no line of its refusal
+# calls it recursive; the second names what to do about a stale lock.
+w455_rm() {
+  local label="$1" cmd="$2" out rc
+  TOTAL=$((TOTAL + 1))
+  out="$(printf '%s' "$(mkbash "$cmd")" | bash "$HOOK" 2>&1 >/dev/null)"
+  rc=$?
+  if [ "$rc" -eq 2 ] && ! grep -qi 'recursive' <<< "$out" \
+     && grep -qF 'wait until that session has finished, or ask a human to remove the lock by hand' <<< "$out"; then
+    [ "$VERBOSE" -eq 1 ] && printf '   ok    %s\n' "$label"
+  else
+    FAILED=$((FAILED + 1))
+    printf '   FAIL  %s: exit %s, want 2, the remedy and no "recursive"\n' "$label" "$rc"
+    printf '%s\n' "$out" | sed 's/^/         | /'
+  fi
+}
+w455_rm "escape-hatch: a stale lock's rm is refused, never as recursive, with the remedy" \
+  'rm -f .git/index.lock'
+w455_rm "escape-hatch: an rm of one file under .git is refused, never as recursive, with the remedy" \
+  'rm .git/info/attributes'
+w455_rm "escape-hatch: an rm of a stale lock beside a recursive rm elsewhere is not called recursive" \
+  'rm .git/index.lock && rm -rf build'
+# A dropped region keeps its last path component only where it can be a
+# command a rule reads (code review of PR #485, F3): a message's last word is
+# dropped with it, so the command is read once; a git path, or a region glued
+# to the text after it, keeps it in the second reading; a value's last
+# component that names no command leaves \005 in each reading, as in the first.
+w440_lex "lexer: the last word of a quoted message is dropped with it" \
+  'git commit -m "see docs/x--no-verify"' 'git commit -m '
+w440_lex "lexer: a quoted path's last component that names git is kept" \
+  '"/c/x y/GIT.CMD" status' $' status\n/GIT.CMD status'
+w440_lex "lexer: a quoted path glued to the text after it keeps its last component" \
+  '"/c/x y/gi"t push' $'t push\n/git push'
+w440_lex "lexer: a value's last component that names no command is not kept" \
+  'git -C "/c/x y/repo" status' $'git -C \005 status'
+# A segment of many reads is judged in time: 6,000 substitutions of a read
+# after an echo, 210 KB in one segment. The removal stops at 16, so the rest
+# is refused, and its cost stays linear in the segment's length.
+W455_DIR="$(mktemp -d)"
+{
+  printf 'echo'
+  for ((w455_i = 0; w455_i < 6000; w455_i++)); do printf '%s' " \$(git config --get core.hooksPath)"; done
+} > "$W455_DIR/cmd"
+jq -n --rawfile c "$W455_DIR/cmd" '{tool_name:"Bash",tool_input:{command:$c}}' > "$W455_DIR/pay"
+W455_T0=$SECONDS
+if command -v timeout >/dev/null 2>&1; then
+  W455_OUT="$(timeout 30 bash "$HOOK" < "$W455_DIR/pay" 2>&1 >/dev/null)"
+  W455_RC=$?
+else
+  W455_OUT="$(bash "$HOOK" < "$W455_DIR/pay" 2>&1 >/dev/null)"
+  W455_RC=$?
+fi
+W455_S=$((SECONDS - W455_T0))
+TOTAL=$((TOTAL + 1))
+if [ "$W455_RC" -eq 2 ] && [ "$W455_S" -le 30 ] && grep -qF "setting core.hooksPath disables" <<< "$W455_OUT"; then
+  [ "$VERBOSE" -eq 1 ] && printf '   ok    escape-hatch: 210 KB of reads in one segment is judged within 30 s, and refused (%s s)\n' "$W455_S"
+else
+  FAILED=$((FAILED + 1))
+  printf '   FAIL  escape-hatch: 210 KB of reads in one segment: exit %s after %s s\n' "$W455_RC" "$W455_S"
+fi
+rm -rf "$W455_DIR"
 
 # --- Verdict ----------------------------------------------------------------
 
