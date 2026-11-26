@@ -393,6 +393,7 @@ function is_rule_command(s) {
 # commands.
 function open_dq_sub(kind) {
   mstack[depth] = V3
+  if (V3) note_nested(depth > 0 || obt[depth])
   if (mstack[depth]) {
     bstack[depth] = buf; tstack[depth] = tainted; ostack[depth] = out
     out = ""; kept_save(depth)
@@ -438,6 +439,23 @@ function close_sub(nextc) {
   } else if (mvs[depth] && word_after(nextc)) out = out WB
   mstack[depth] = 0
   return 1
+}
+
+# A SUBSTITUTION INSIDE ANOTHER (WU-IAENG-455, review of PR #529). The third
+# reading tracks every substitution it mutes: a $( and a substitution in
+# double quotes by depth, a backtick pair outside quotes by obt at its depth.
+# A substitution it opens while one of those is open, at a depth above 0 or
+# inside a backtick pair, is nested, and NESTED is set. The first two readings
+# print a nested substitution's commands as words of the one around it, so a
+# word there may be one the shell never passes: in `$(git config $(--get)
+# core.hooksPath x)`, --get is a command whose output is empty, and the outer
+# command is a write. The hook reads NESTED (NESTMARK, below) and grants no
+# exemption that reads a substitution's words as a command's arguments when
+# one is set. An escaped backtick inside a backtick pair is printed as a
+# backtick, not read as a substitution; the rule that reads the words keeps
+# that byte out of them.
+function note_nested(inside) {
+  if (inside) NESTED = 1
 }
 
 # Braces that came from a quoted or escaped source are literal to the shell.
@@ -619,6 +637,7 @@ function lex(s,   n, i) {
         if (!V2) CH3 = 1
         mstack[depth] = V3
         if (V3) {
+          note_nested(depth > 0 || obt[depth])
           mvs[depth] = word_before(); ostack[depth] = out; out = ""
           kept_save(depth)
         }
@@ -645,6 +664,7 @@ function lex(s,   n, i) {
             kept_restore("b" depth)
             if (obv[depth] && word_after(d)) out = out WB
           } else {
+            note_nested(depth > 0)
             obv[depth] = word_before(); obs[depth] = out; obt[depth] = 1; out = ""
             kept_save("b" depth)
           }
@@ -918,6 +938,11 @@ END {
   gsub(BR, "}", result)
   printf "%s", result
 }
+
+# THE NESTING MARK (`awk -v NESTMARK=...`, set by block-escape-hatches.sh).
+# Printed after the output, before the end mark, when the third reading found
+# a substitution inside another (note_nested). Unset, nothing is printed.
+END { if (NESTMARK != "" && NESTED) printf "%s", NESTMARK }
 
 # THE END MARK (`awk -v MARK=...`, set by block-escape-hatches.sh). Printed
 # once, after the whole output, so the hook can tell a command that lexes to

@@ -2191,9 +2191,11 @@ rm -f "$SSB_COUNTS"
 # --- Escape-hatch hook: false positives (WU-IAENG-455) -------------------------
 # What the case file cannot hold: the read hint, the second line of an rm
 # refusal, the lexer's exact output for a quoted path's last component, the
-# cap on the reads removed from a segment, and the time a segment of many
-# reads takes. No command here starts with a /, which Git Bash would rewrite
-# into a Windows path before jq read it.
+# cap on the reads removed from a segment, the time a segment of many reads
+# takes, and, from the review of PR #529, the lexer's nesting mark, a heredoc
+# body, and the line that says to run a read on its own. No command here
+# starts with a /, which Git Bash would rewrite into a Windows path before jq
+# read it.
 echo "== escape-hatch: false positives (WU-IAENG-455)"
 # A legacy read in a substitution is refused with the --get read to run, which
 # passes there (issue #272). A write whose value is a read, or beside a read
@@ -2236,6 +2238,69 @@ w455_rm "escape-hatch: an rm of one file under .git is refused, never as recursi
   'rm .git/info/attributes'
 w455_rm "escape-hatch: an rm of a stale lock beside a recursive rm elsewhere is not called recursive" \
   'rm .git/index.lock && rm -rf build'
+# After --, a -r is a file name, so the rm is not recursive (review of PR
+# #529: QA minor 2, CR note 1).
+w455_rm "escape-hatch: a -r after -- is a file name, not a recursive flag" \
+  'rm -f .git/index.lock -- -r'
+# A SUBSTITUTION INSIDE ANOTHER (review of PR #529, SEC-IAENG-455-01). The
+# lexer prints NESTMARK, when it is set, after its output when the third
+# reading opened a substitution inside another: a $( in a $(, a backtick pair
+# or a substitution in double quotes in a $(, a $( in a backtick pair. One
+# substitution after another is not nested, and neither is a subshell's ( in
+# one. The hook then removes no read (hookspath_rest).
+w455_nest() {
+  local label="$1" in="$2" want="$3" got
+  TOTAL=$((TOTAL + 1))
+  got="$(printf '%s\n' "$in" | awk -v NESTMARK=N -v MARK=. -f "$HOOKS/strip-quotes.awk")"
+  case "$got" in *N.) got=1 ;; *.) got=0 ;; *) got=x ;; esac
+  if [ "$got" = "$want" ]; then
+    [ "$VERBOSE" -eq 1 ] && printf '   ok    %s\n' "$label"
+  else
+    FAILED=$((FAILED + 1))
+    printf '   FAIL  %s: nesting mark %s, want %s\n' "$label" "$got" "$want"
+  fi
+}
+w455_nest "lexer: a \$( in a \$( is nested" 'echo $(a $(b))' 1
+w455_nest "lexer: a backtick pair in a \$( is nested" 'echo $(a `b`)' 1
+w455_nest "lexer: a \$( in double quotes in a \$( is nested" 'echo $(a "$(b)")' 1
+w455_nest "lexer: a backtick pair in double quotes in a \$( is nested" 'echo $(a "`b`")' 1
+w455_nest "lexer: a \$( in a backtick pair is nested" 'echo `a $(b)`' 1
+w455_nest "lexer: a \$( in double quotes in a backtick pair is nested" 'echo `a "$(b)"`' 1
+w455_nest "lexer: two substitutions side by side are not nested" 'echo $(a) `b` "$(c)"' 0
+w455_nest "lexer: a subshell in a substitution is not nested" 'echo $( (a))' 0
+# A heredoc body's substitutions are printed as written, a nested one with
+# them: a ( in an option's value ends the read there (READ_VAL), so the
+# second, whose --type value is glued to a substitution, is no read
+# (SEC-IAENG-455-01; allowed at 46ec516). A read beside another
+# substitution in a body passes.
+expect_reason "escape-hatch: a heredoc body's write behind a value glued to a substitution is refused" \
+  "$(mkbash $'cat <<EOF\n$(echo) $(git config --type=path$(: --get core.hooksPath) core.hooksPath /dev/null)\nEOF')" \
+  "setting core.hooksPath disables"
+expect_rc "escape-hatch: a heredoc body's read beside another substitution is read" 0 "$HOOK" \
+  "$(mkbash $'cat <<EOF\n$(echo) $(git config --get core.hooksPath)\nEOF')"
+# A read not removed only because the rest names git or an option follows it
+# is refused with the read to run on its own; a real write beside it in the
+# command gets no such line, since one message covers the whole command.
+w455_arg() {
+  local label="$1" cmd="$2" want="$3" out rc has=0
+  TOTAL=$((TOTAL + 1))
+  out="$(printf '%s' "$(mkbash "$cmd")" | bash "$HOOK" 2>&1 >/dev/null)"
+  rc=$?
+  grep -qF -- "as a command of its own" <<< "$out" && has=1
+  if [ "$rc" -eq 2 ] && [ "$has" -eq "$want" ]; then
+    [ "$VERBOSE" -eq 1 ] && printf '   ok    %s\n' "$label"
+  else
+    FAILED=$((FAILED + 1))
+    printf '   FAIL  %s: exit %s, read line present=%s (want exit 2, line=%s)\n' "$label" "$rc" "$has" "$want"
+    printf '%s\n' "$out" | sed 's/^/         | /'
+  fi
+}
+w455_arg "hooksPath: a read in a git command's arguments is refused with the read to run" \
+  'git log "$(git config --get core.hooksPath)"' 1
+w455_arg "hooksPath: a read followed by an option is refused with the read to run" \
+  'echo $(git config --get core.hooksPath --default=x)' 1
+w455_arg "hooksPath: a read in a git command's arguments beside a write gets no read line" \
+  'git log "$(git config --get core.hooksPath)"; git config core.hooksPath x' 0
 # A dropped region keeps its last path component only where it can be a
 # command a rule reads (code review of PR #485, F3): a message's last word is
 # dropped with it, so the command is read once; a git path, or a region glued

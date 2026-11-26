@@ -130,15 +130,30 @@ fi
 # after everything else: a non-zero exit, or an output without the mark,
 # refuses the call, since an emptied command would match no rule. The mark
 # and the line break the hook added are removed after.
+#
+# The lexer prints a BEL before the end mark when its third reading found a
+# substitution inside another (strip-quotes.awk, note_nested), and the hook
+# sets LEX_NESTED; the core.hooksPath rule then removes no read from a command
+# (hookspath_rest). A BEL of the command's own at the end of the output (a
+# quote left open drops the line break the hook added) reads as the mark too,
+# which can only withhold that removal, never grant it. KEEPQ mode makes no
+# third reading and is not asked.
+LEX_NESTED=0
 run_lexer() {
   local _lx _kq=()
   [ "$2" = 1 ] && _kq=(-v KEEPQ=1)
+  [ "$2" = 1 ] || _kq=(-v NESTMARK=$'\a')
   _lx="$(printf '%s\n' "$CMD" | awk ${_kq[@]+"${_kq[@]}"} -v MARK=. -f "$LEXER")" || _lx=""
   case "$_lx" in
     *.) _lx="${_lx%.}" ;;
     *) iaeng_block "the lexer (awk) failed or printed nothing for this command, so it could not be read" \
          "Adapters/ai-runtimes/claude-code/hooks/README.md — unread input is refused rather than allowed. Check that awk runs in this shell." ;;
   esac
+  if [ "$2" != 1 ]; then
+    case "$_lx" in
+      *$'\a') _lx="${_lx%$'\a'}"; LEX_NESTED=1 ;;
+    esac
+  fi
   printf -v "$1" '%s' "${_lx%$'\n'}"
 }
 case "$CMD" in
@@ -462,7 +477,13 @@ fi
 # blocked when it names core.hooksPath in a git command and either fails the
 # read match or carries a `-c` / `--config-env` that names hooksPath (a write
 # layered under a read, never exempted).
-READ_OPT="(--(global|system|local|worktree|show-origin|show-scope|includes|no-includes|null|name-only)|-z|--(file|blob|type|default)(=|${S}+)[^[:space:]]+)"
+#
+# AN OPTION'S VALUE IS ONE WORD THE SHELL PASSES (WU-IAENG-455, review of PR
+# #529, SEC-IAENG-455-01). READ_VAL holds no <, >, backtick or parenthesis: a
+# value glued to a redirection (`--type=path> --get`) made the redirection's
+# target, which git never sees, read as the read keyword.
+READ_VAL='[^[:space:]<>`()]+'
+READ_OPT="(--(global|system|local|worktree|show-origin|show-scope|includes|no-includes|null|name-only)|-z|--(file|blob|type|default)(=|${S}+)${READ_VAL})"
 # A QUOTED GIT PATH (WU-IAENG-440). The lexer reads a quoted command path that
 # holds a space by its last component with a / before it, `/git.exe`, so GXP
 # is GX after an optional /.
@@ -500,37 +521,62 @@ esac
 # the rules as `echo  git config --get core.hooksPath `: the read does not
 # begin its segment, and the anchored exemption above does not see it. A
 # segment those exemptions refuse is judged again on HOOKSPATH_REST, the
-# segment with every keyword read of the key that begins a word replaced by
-# \005, a byte no rule names (hookspath_rest). READ_HOOKSPATH_AT is
-# READ_HOOKSPATH's read after a word boundary instead of at the start. The
-# segment is exempt when its rest no longer names core.hooksPath in a git
-# command; otherwise the rest is judged, and refused, as any segment is.
+# segment with each such read of the key replaced by \005, a byte no rule
+# names (hookspath_rest). READ_HOOKSPATH_AT is the read, after a word boundary
+# instead of at the start.
 #
-# Removing a keyword read cannot hide a write. git config takes one action per
-# call, and a write names its key as one of its own arguments. A write whose
-# arguments held a keyword read would hold a second action (--get, --get-all,
-# --get-regexp, --list, -l), or, for get and list, more arguments than any
-# write takes, with `config` as its key: git refuses both. So a write the hook
-# can read keeps a mention of its key in the rest: beside the read (`git config
-# core.hooksPath "$(git config --get core.hooksPath)"`, where the \005 left for
-# the read is the value, so the rest is no legacy read), in another
-# substitution, or in a GIT_CONFIG_KEY_<n> value. A -c or --config-env write is
-# judged on the whole segment (WRITE_HOOKSPATH_VIA_C). A key joined across a
-# substitution (`core.hooks$(…)Path x`) is read whole in the third reading,
-# where the substitution is empty, and judged there. A legacy read is not
-# removed: one in a substitution stays refused, as a legacy read beside a `$(`
-# or a backtick is (LEGACY_OK), and gets the read hint (READ_HOOKSPATH_LEGACY_AT).
+# THE READ IS REMOVED ONLY WHERE NOTHING CAN BE HIDDEN BY ITS REMOVAL (review
+# of PR #529). A word removed with the read is gone from the rest the rule
+# then judges, so a removed read must be one whose words are the arguments git
+# receives, and whose output is the value the setting holds. Four conditions
+# make it so; when one fails, the segment is judged whole, and refused:
+#
+# - The command holds no substitution inside another (LEX_NESTED). The first
+#   two readings print a nested substitution's commands as words of the one
+#   around it: in `echo $(git config $(--get) core.hooksPath x)`, --get is a
+#   command whose output is empty, and git receives a write
+#   (SEC-IAENG-455-01). A redirection's target is no word either, which
+#   READ_VAL keeps out of an option's value.
+# - The read is a --get, --get-all or get read of the key, with only a scope
+#   option (--global, --system, --local, --worktree), --includes,
+#   --no-includes, --type, --null or -z around its keyword (READ_SAFE_OPT).
+#   --get-regexp, --list, list and --name-only print key names, and --default,
+#   --file and --blob print a value the command text chooses: `git config
+#   "$(git config --name-only --get-regexp core.hooksPath)" /dev/null` is a
+#   write whose key is the read's output. The anchored exemption keeps its own
+#   list, since a read that begins its segment prints to no command.
+# - No word that begins with - follows the first removed read in the rest. A
+#   ) or a backtick that ends the substitution is printed as a space, so an
+#   option after the key may be the read's own (`--default=/` after it makes
+#   the read print `/`).
+# - The rest names no git command and no `config` word (HOOKSPATH_GIT_WORD,
+#   HOOKSPATH_CONFIG_WORD). A read's output is then no argument of a git
+#   command in the text the hook reads; one carried by a pipe, a variable or
+#   a file is a runtime value (README.md, Not an adversary boundary).
+#
+# A -c or --config-env write is judged on the whole segment
+# (WRITE_HOOKSPATH_VIA_C). A key joined across a substitution
+# (`core.hooks$(…)Path x`) is read whole in the third reading, where the
+# substitution is empty, and judged there. A legacy read is not removed: one
+# in a substitution stays refused, as a legacy read beside a `$(` or a
+# backtick is (LEGACY_OK), and gets the read hint (READ_HOOKSPATH_LEGACY_AT).
 #
 # The removal goes from left to right, at most HOOKSPATH_MAX_READS times in a
 # segment, so its cost stays linear in the segment's length; a segment with
 # more reads keeps the others and is refused. A pattern bash cannot compile
 # ends the removal, which leaves the key, and the segment is refused.
-READ_HOOKSPATH_AT="(^|[[:space:](\`{])${GXP}config${S}+(${READ_OPT}${S}+)*(--get(-all|-regexp)?|--list|-l|get|list)${S}+(${READ_OPT}${S}+)*core\.hooksPath"
+READ_SAFE_OPT="(--(global|system|local|worktree|includes|no-includes|null)|-z|--type(=|${S}+)${READ_VAL})"
+READ_HOOKSPATH_AT="(^|[[:space:](\`{])${GXP}config${S}+(${READ_SAFE_OPT}${S}+)*(--get(-all)?|get)${S}+(${READ_SAFE_OPT}${S}+)*core\.hooksPath"
 READ_HOOKSPATH_LEGACY_AT="(^|[[:space:](\`{])${GXP}config${S}+(${READ_OPT}${S}+)*core\.hooksPath${S}*\$"
+# A word that names git, as G reads it: git and its dashed and extension
+# forms, under a path or after a quote, never .git or digit. And config.
+HOOKSPATH_GIT_WORD='(^|[^[:alnum:]_.-])[Gg][Ii][Tt]([^[:alnum:]_]|$)'
+HOOKSPATH_CONFIG_WORD='(^|[^[:alnum:]_.-])[Cc][Oo][Nn][Ff][Ii][Gg]([^[:alnum:]_.-]|$)'
 HOOKSPATH_MAX_READS=16
 HOOKSPATH_REST=""
 hookspath_rest() {
   local _todo="$1" _done="" _m _pre _n=0
+  if [ "$LEX_NESTED" -eq 1 ]; then HOOKSPATH_REST="$1"; return 0; fi
   shopt -s nocasematch
   while [ "$_n" -lt "$HOOKSPATH_MAX_READS" ] && [[ $_todo =~ $READ_HOOKSPATH_AT ]]; do
     shopt -u nocasematch
@@ -544,6 +590,18 @@ hookspath_rest() {
   shopt -u nocasematch
   HOOKSPATH_REST="${_done}${_todo}"
 }
+# hookspath_rest_names_more — true when HOOKSPATH_REST names git or config,
+# or holds a word that begins with - after its first removed read (above).
+hookspath_rest_names_more() {
+  local _after
+  rx_any 1 "$HOOKSPATH_GIT_WORD" "$HOOKSPATH_REST" && return 0
+  rx_any 1 "$HOOKSPATH_CONFIG_WORD" "$HOOKSPATH_REST" && return 0
+  case "$HOOKSPATH_REST" in
+    *$'\005'*) _after="${HOOKSPATH_REST#*$'\005'}"
+               rx_any 0 '(^|[[:space:]])-' "$_after" && return 0 ;;
+  esac
+  return 1
+}
 HOOKSPATH_WRITE=0
 # A refused segment that is shaped like the legacy read (nothing after the key)
 # and was refused only because LEGACY_OK withheld the exemption. The refusal
@@ -554,6 +612,10 @@ HOOKSPATH_WRITE=0
 # command was only a read.
 HOOKSPATH_READ_HINT=0
 HOOKSPATH_REAL_WRITE=0
+# A segment refused only because a read in it was not removed for the
+# conditions above: the rest names git or config, or an option follows the
+# read. Its message says to run the read as a command of its own.
+HOOKSPATH_READ_ARG=0
 # Gate: a command whose stripped text never contains the key (any case) cannot
 # trip the loop, so skip its forks. Judged on STRIPPED, where a split key is
 # already rejoined; bash 3.2 has no ${var,,}, so the case is folded by the pattern.
@@ -573,6 +635,9 @@ case "$STRIPPED" in
           else
             HOOKSPATH_REAL_WRITE=1
           fi
+        elif hookspath_rest_names_more; then
+          HOOKSPATH_WRITE=1
+          HOOKSPATH_READ_ARG=1
         fi
       fi
       if rx_any 1 "$WRITE_HOOKSPATH_VIA_C" "$SEG"; then
@@ -586,6 +651,9 @@ if [ "$HOOKSPATH_WRITE" -eq 1 ]; then
   HOOKSPATH_REASON="setting core.hooksPath disables every git hook — the same effect as --no-verify, written as configuration"
   if [ "$HOOKSPATH_READ_HINT" -eq 1 ] && [ "$HOOKSPATH_REAL_WRITE" -eq 0 ]; then
     HOOKSPATH_REASON="$HOOKSPATH_REASON; if this is a read, run \`git config --get core.hooksPath\`"
+  fi
+  if [ "$HOOKSPATH_READ_ARG" -eq 1 ] && [ "$HOOKSPATH_REAL_WRITE" -eq 0 ]; then
+    HOOKSPATH_REASON="$HOOKSPATH_REASON; a read of it in another command's arguments passes only when that command runs no git and no option follows the read: run \`git config --get core.hooksPath\` as a command of its own"
   fi
   iaeng_block "$HOOKSPATH_REASON" \
     "Standards/GIT_STANDARD.md, Escape Hatches. The sanctioned write of this setting is ./ia-engineering/Adapters/scripts/install.sh, which points it at the framework's hooks."
@@ -794,7 +862,17 @@ fi
 # read the same way. The subcommand is now followed by an optional GEXT, for a
 # dashed git (`git-commit.exe -p`), and then whitespace, so a longer command
 # name is that other command.
-if check "${G}(rebase|add|commit|checkout|reset)${GEXT}${S}([^|;&]*${S})?(-i|--interactive|-p|--patch)$E"; then
+#
+# A WORD GLUED TO THE SUBCOMMAND MAY EXPAND TO NOTHING (review of PR #529). The
+# lexer prints an expansion as written, without the quotes around it, so
+# `git commit$X -p`, `git commit"$X" -p`, `git rebase${X} -i`, `git
+# checkout${x:-} -p` and `git add$1 -p` reach the rules with the expansion
+# glued to the subcommand, and an empty one leaves the subcommand alone. So the
+# subcommand may be followed by a $, a quote or a backtick, and the rest of its
+# word. add--interactive is git add -i's own helper, where git still has it
+# (it was removed in 2.40), and is read as add is.
+INTERACTIVE_GLUED="([\$\`\"'][^[:space:]|;&]*)?"
+if check "${G}(rebase|add|add--interactive|commit|checkout|reset)${GEXT}${INTERACTIVE_GLUED}${S}([^|;&]*${S})?(-i|--interactive|-p|--patch)$E"; then
   iaeng_block "interactive git command in a non-interactive session — it hangs or does nothing, and the session assumes a result" \
     "Standards/GIT_STANDARD.md, Escape Hatches. Use the non-interactive equivalent and verify with git log / git status."
 fi
@@ -906,15 +984,23 @@ fi
 # Director decision not yet taken, so the verdict is unchanged. The reason no
 # longer calls such a command recursive. It is the recursive reason when an rm
 # the rule matches carries a recursive flag (RMREC), before its target or
-# after it in the same command, as rm reads options in either place, and
-# otherwise a reason that names the path and the remedy.
+# after it in the same command, and otherwise a reason that names the path and
+# the remedy. GNU rm, the one Git for Windows and Linux ship, reads an option
+# after an operand too, up to a `--`, after which every word is an operand: a
+# flag after the path is read up to the first --, and `rm -f
+# .git/index.lock -- -r` is not recursive (review of PR #529). A POSIX rm (BSD
+# and macOS, or GNU's with POSIXLY_CORRECT) stops at the first operand, so a
+# flag after the path is a file name there; the reason follows GNU rm, where
+# the same command removes recursively, and the verdict is the same in both.
 RMFLAG="(-[a-zA-Z]*r[a-zA-Z]*|--recursive|--force|-[a-zA-Z]*f[a-zA-Z]*)"
 RMREC="(-[a-zA-Z]*[rR][a-zA-Z]*|--recursive)"
 RM_NAME='([^[:space:];&|]*[/\\])?[Rr][Mm](\.[Ee][Xx][Ee])?'
 RM_AT="(^|[[:space:];&|(])${RM_NAME}(${S}+${RMFLAG})*${S}+"
+# A word of the same command that is not `--`.
+RM_NOT_DD='([^[:space:]|;&)-][^[:space:]|;&)]*|-([^[:space:]|;&)-][^[:space:]|;&)]*)?|--[^[:space:]|;&)]+)'
 if check "${RM_AT}(/|\.git)([/*;&|)]|${S}|$)"; then
   if check "(^|[[:space:];&|(])${RM_NAME}(${S}+${RMFLAG})*${S}+${RMREC}(${S}+${RMFLAG})*${S}+(/|\.git)([/*;&|)]|${S}|$)" \
-     || check "${RM_AT}(/|\.git)([/*][^[:space:]|;&)]*)?(${S}+[^|;&)]*)?${S}${RMREC}([[:space:];&|)]|$)"; then
+     || check "${RM_AT}(/|\.git)([/*][^[:space:]|;&)]*)?(${S}+${RM_NOT_DD})*${S}+${RMREC}([[:space:];&|)]|$)"; then
     iaeng_block "recursive removal of the repository metadata or the filesystem root" \
       "Standards/RISK_STANDARD.md, operational catalog (Critical)."
   fi
