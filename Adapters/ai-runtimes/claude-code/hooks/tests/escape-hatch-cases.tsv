@@ -937,3 +937,226 @@ allow	/usr/bin/git stash list
 allow	command git stash list
 allow	git stash show stash@{1}
 allow	git -C stash list
+# Command recognition (WU-IAENG-450). A quoted or escaped ; & | is part of a
+# word, so a git option's value cannot cut its command in two; a substitution
+# is also read as empty, so a flag glued to one is read as the flag; git is
+# recognised as git.cmd, git.com and git.bat and as a dashed git-<subcommand>;
+# rm by any path; a dropped quoted word after a git option that takes a value,
+# or after `stash`, keeps its place; and a label that is not a static literal
+# is refused. Rows that start with a / are rewritten by Git Bash into a Windows
+# path before jq reads them; both forms are refused.
+block	git -C "a;b" config core.hooksPath /dev/null	setting core.hooksPath disables
+block	git -C 'a|b' config core.hooksPath /dev/null	setting core.hooksPath disables
+block	git -C "a&b" config --unset core.hooksPath	setting core.hooksPath disables
+block	git --git-dir="a;b" config core.hooksPath /dev/null	setting core.hooksPath disables
+block	git -C $'a;b' config core.hooksPath /dev/null	setting core.hooksPath disables
+block	git -C a\;b config core.hooksPath /dev/null	setting core.hooksPath disables
+block	git -C "$(true; true)" config core.hooksPath /dev/null	setting core.hooksPath disables
+block	git -C "$(true; true)" push --force	force-push or mirror-push
+block	gh -R "o/r;x" pr edit 1 --add-label control-change/approved	only the Director applies these approval labels
+block	gh pr edit 1 -R o/r\|x --add-label size/approved	only the Director applies these approval labels
+allow	git -C "a;b" config --get core.hooksPath
+allow	git log --format='%h;%s' -3
+block	/bin/rm -rf /	recursive removal
+block	/usr/bin/rm -rf /	recursive removal
+block	./rm -rf .git	recursive removal
+block	cd x && ../bin/rm -rf /	recursive removal
+block	rm.exe -rf /	recursive removal
+block	RM -rf /	recursive removal
+block	"/c/x y/rm" -rf /	recursive removal
+block	"C:\Git\usr\bin\rm.exe" -rf /	recursive removal
+block	(rm -rf /)	recursive removal
+block	rm -rf .git;true	recursive removal
+block	true&rm -rf .git	recursive removal
+allow	/bin/rm -rf build/
+allow	./rm -rf node_modules
+allow	confirm -rf /
+block	git push "--force$(true)"	force-push or mirror-push
+block	git push "--force`true`"	force-push or mirror-push
+block	git commit "--no-verify$(true)" -m x	--no-verify disables
+block	git commit "--no-verify`true`" -m x	--no-verify disables
+block	git push "$(true)--force"	force-push or mirror-push
+block	git push "--fo$(true)rce"	force-push or mirror-push
+block	git push "--force$(true;true)"	force-push or mirror-push
+block	git push "--fo$(true)"rce	force-push or mirror-push
+block	git push --fo$(true)rce	force-push or mirror-push
+block	git push --fo`true`rce	force-push or mirror-push
+block	git reset "--ha$(true)rd"	git reset --hard discards
+block	git push "--force$(echo "x y")"	force-push or mirror-push
+allow	git commit -m "fix: $(date) build"
+allow	git push origin "$(git branch --show-current)"
+allow	echo "--force$(true)"
+block	/mingw64/libexec/git-core/git-push --force	force-push or mirror-push
+block	git-push --force	force-push or mirror-push
+block	git-push.exe -f origin main	force-push or mirror-push
+block	git-stash	git stash sets work aside
+block	git-stash.exe	git stash sets work aside
+block	git-stash push -m wip	git stash sets work aside
+block	git-commit --no-verify -m x	--no-verify disables
+block	git-commit -n -m x	git commit -n is --no-verify
+block	git-reset --hard	git reset --hard discards
+block	"/c/x y/git-core/git-push.exe" --force	force-push or mirror-push
+block	C:/x/git-core/git-push.exe --force	force-push or mirror-push
+block	git-filter-repo --path x --invert-paths	history rewrite
+block	git-filter-branch.exe --tree-filter x	history rewrite
+block	/mingw64/libexec/git-core/git-config core.hooksPath /dev/null	setting core.hooksPath disables
+block	git-config alias.p "push --force"	writing a git alias
+allow	git-stash list
+allow	git-stash.exe show
+allow	cat .git-blame-ignore-revs
+allow	npx simple-git-hooks
+allow	cat .git-stash
+allow	npx simple-git-push --force
+allow	ls /mingw64/libexec/git-core/
+block	git stash "-m a b" list	git stash sets work aside
+block	git stash '-m a b' show	git stash sets work aside
+block	git stash "-m a b"list	git stash sets work aside
+block	git-stash "-m a b" list	git stash sets work aside
+block	git -C "a b" stash "x y" list	git stash sets work aside
+allow	git stash list "--format=%gd %s"
+allow	git stash show "stash@{1}"
+block	git.cmd push --force	force-push or mirror-push
+block	git.com push --force	force-push or mirror-push
+block	GIT.CMD reset --hard	git reset --hard discards
+block	git.bat stash	git stash sets work aside
+block	"/c/x y/git.cmd" push --force	force-push or mirror-push
+block	git.cmd -c core.hooksPath=/dev/null commit -m x	setting core.hooksPath disables
+block	git.cmd -c core.fsmonitor=x status	GIT_CONFIG_KEY_<n> or git -c
+allow	git.cmd stash list
+allow	git.com status
+block	gh pr edit 1 --add-label "control-change/$(echo approved)"	a label built from a variable or a substitution
+block	gh pr edit 1 --add-label "control-change/`echo approved`"	a label built from a variable or a substitution
+block	gh pr edit 1 --add-label control-change/$(echo approved)	a label built from a variable or a substitution
+block	gh pr edit 1 --add-label control-change/`echo approved`	a label built from a variable or a substitution
+block	gh pr edit 1 --add-label $(echo control-change/approved)	a label built from a variable or a substitution
+block	gh pr edit 1 --add-label "$L"	a label built from a variable or a substitution
+block	gh pr edit 1 --add-label=$L	a label built from a variable or a substitution
+block	gh issue edit 1 --add-label "bug,$L"	a label built from a variable or a substitution
+block	gh pr create -l "$L" --fill	a label built from a variable or a substitution
+block	gh api -X POST repos/o/r/issues/1/labels -f "labels[]=control-change/$(echo approved)"	a label built from a variable or a substitution
+block	gh api repos/o/r/issues/1/labels -f labels[]=$L	a label built from a variable or a substitution
+block	gh api -X PATCH repos/o/r/issues/1 -f "labels[]=$L"	a label built from a variable or a substitution
+block	gh api repos/o/r/issues/1/labels -F labels[]=@labels.txt	a label built from a variable or a substitution
+block	gh api -X PATCH repos/o/r/labels/bug -f new_name="$N"	a label built from a variable or a substitution
+block	gh api repos/o/r/issues/1/labels -f "$K=x"	a label built from a variable or a substitution
+block	gh api repos/o/r/issues/1/labels -f "$(echo labels[])=$(cat f)"	a label built from a variable or a substitution
+block	gh api repos/o/r/issues/1/labels -f "$(echo labels)[]=$V"	a label built from a variable or a substitution
+block	gh api repos/o/r/issues/1/labels -f "lab$(echo e)ls[]=$(cat f)"	a label built from a variable or a substitution
+block	gh api repos/o/r/issues/1/labels -f "lab$(echo e)ls[]=$(echo x)"	a label built from a variable or a substitution
+block	gh api repos/o/r/issues/1/labels -f $(echo labels[])=$V	a label built from a variable or a substitution
+block	gh api repos/o/r/issues/1/labels -f "`echo labels`[]=$V"	a label built from a variable or a substitution
+block	gh api -X PATCH repos/o/r/issues/1 -f "$K=$V"	a label built from a variable or a substitution
+block	gh api -X PATCH repos/o/r/issues/1 -f "$(echo labels)[]=$V"	a label built from a variable or a substitution
+block	gh api -X PATCH repos/o/r/issues/1 -f $'\x6c'abels[]="$L"	a label built from a variable or a substitution
+block	gh api repos/o/r/issues/1/$'\x6c'abels -f $'\x6c'abels[]="$L"	a label built from a variable or a substitution
+block	gh api -X PATCH repos/o/r/labels/bug -F new_name=@name.txt	a label built from a variable or a substitution
+allow	gh pr edit 1 --add-label bug
+allow	gh pr edit 1 --add-label "help wanted" --body "$B"
+allow	gh pr edit 1 --remove-label "$L"
+allow	gh pr list --label "$L"
+allow	gh pr edit $n --add-label bug
+allow	gh api repos/o/r/issues/$n/labels
+allow	gh api -X POST repos/o/r/issues/$n/comments -f body="$B"
+allow	gh api -X POST repos/o/r/issues/$n/labels -f labels[]=bug
+allow	gh api -X GET repos/o/r/issues -f labels="$L" && gh api -X POST repos/o/r/issues/1/comments -f body=x
+allow	gh api -X POST repos/o/r/issues/1/comments -f body="$(cat body.md)"
+# A quoted git option value that holds a space earns the core.hooksPath read
+# exemptions, as an unquoted one does (#477). The legacy read beside a quote
+# stays refused, and so does a value that holds only whitespace
+# (SEC-IAENG-431-05).
+allow	git -C "/c/Program Files/repo" config --get core.hooksPath
+allow	git -C "my repo" config --get core.hooksPath
+allow	git --git-dir="/c/my repo/.git" config --get core.hooksPath
+allow	git -C "/c/Program Files/repo" config --get-all core.hooksPath
+allow	git -C "/c/Program Files/repo" config --file "/c/my repo/.git/config" --get core.hooksPath
+allow	git -C "/c/Program Files/repo" stash show
+block	git -C "/c/Program Files/repo" config core.hooksPath /dev/null	setting core.hooksPath disables
+block	git -C "/c/Program Files/repo" config core.hooksPath	setting core.hooksPath disables
+block	git -C ' ' config --get core.hooksPath	setting core.hooksPath disables
+# A quoted --config-env value keeps its key, which the rules read, as the
+# unquoted form does.
+block	git --config-env "core.hooksPath=V X" commit -m x	setting core.hooksPath disables
+block	git --config-env="core.hooksPath=V X" commit -m x	setting core.hooksPath disables
+block	git --config-env 'core.fsmonitor=V X' status	GIT_CONFIG_KEY_<n> or git -c
+block	sh -c "git commit \"--no-verify\" -m x"	--no-verify disables
+allow	git --config-env "user.name=V X" log -1
+# A substitution that stands for a git option's whole value is still a value in
+# the third reading, which reads it as empty: the read stays a read.
+allow	git -C "$(pwd)" config --get core.hooksPath
+allow	git -C $(pwd) config --get core.hooksPath
+allow	git -C `pwd` config --get core.hooksPath
+block	git -C $(true; true) config core.hooksPath /dev/null	setting core.hooksPath disables
+# A label key or a /labels endpoint split by a quote or a backslash names a
+# label only as the lexer reads it, and the label rule reads it there too, so
+# its -F value read from a file is refused; a key built by a backtick
+# substitution is read through the backtick (review round 2). A literal key
+# whose quoted value holds a substitution is not a key built from one.
+block	gh api -X PATCH repos/o/r/issues/1 -F "la"bels[]=@f	a label built from a variable or a substitution
+block	gh api -X PATCH repos/o/r/issues/1 -F la''bels[]=@f	a label built from a variable or a substitution
+block	gh api -X PATCH repos/o/r/issues/1 -F la\bels[]=@f	a label built from a variable or a substitution
+block	gh api -X PATCH repos/o/r/issues/1 --field=la\bels[]=@f	a label built from a variable or a substitution
+block	gh api -X PATCH repos/o/r/la''bels/bug -F new_name=@f	a label built from a variable or a substitution
+block	gh api -X PATCH repos/o/r/issues/1 -f "`printf la`bels[]=x"	a label built from a variable or a substitution
+allow	gh api repos/o/r/issues/1/comments -f "body=$(cat c.md)"
+allow	gh api repos/o/r/pulls/1/reviews -f "body=$(cat r.md)" -f event=APPROVE
+allow	gh api -X PATCH repos/o/r/pulls/1 -f "title=$(git log -1 --format=%s)"
+allow	gh api repos/o/r/issues/1/comments --raw-field "body=$(cat c.md)"
+allow	gh api repos/o/r/issues/1/comments -f body="$(cat c.md)" -f "x=$(echo y)"
+# A ; in a dropped region's path tail, or in a --config-env key, is a word
+# byte in the third reading, which keeps the git command in one segment.
+block	git commit -m "fix a/b;c" "--no-verify$(true)"	--no-verify disables
+block	env 'V X=1' git --config-env "x.a;b.c=V X" config core.hooksPath /dev/null	setting core.hooksPath disables
+# A substitution that is a git option's value, or part of it, leaves the read
+# a read, also when a later substitution follows or one of its own words is
+# quoted.
+allow	git -C "$(pwd)x" config --get core.hooksPath
+allow	git -C "$(pwd)" config --get core.hooksPath; echo "$(date)"
+allow	git -C "$(cd "a b" && pwd)" config --get core.hooksPath
+# A label word inside a quoted region that holds a space is dropped by the
+# lexer, so the gate reads the command as written for it (review round 3). A
+# key split by brace expansion is read as the lexer expands it.
+block	gh api -X PATCH repos/o/r/issues/1 -F "labels[]=@my file"	a label built from a variable or a substitution
+block	gh api -X POST repos/o/r/issues -f title=t -F "labels[]=@lab list.txt"	a label built from a variable or a substitution
+block	gh api -X PATCH repos/o/r/issues/1 -Fla{b,}els[]=@f	a label built from a variable or a substitution
+# The endpoint that creates an issue takes labels too, so a field key built
+# from a variable or a substitution is read there as on a numbered issue.
+block	gh api repos/o/r/issues -f title=t -f "$K[]=x"	a label built from a variable or a substitution
+block	gh api -X POST repos/o/r/issues -F "$K=@f"	a label built from a variable or a substitution
+block	gh api repos/o/r/issues?x=1 -f "$(echo labels)[]=x"	a label built from a variable or a substitution
+block	gh api repos/o/r/issues -f title=t -f "labels[]=$(cat f)"	a label built from a variable or a substitution
+allow	gh api repos/o/r/issues -f title=t -f "body=$(cat b.md)"
+allow	gh api -X POST repos/o/r/issues -f title="$T" -f body="$B" -f "labels[]=bug"
+# A flag glued to a substitution in a quoted command string is read whole in
+# the third reading, and a + glued to one is a + refspec.
+block	bash -c "git push --fo$(true)rce"	force-push or mirror-push
+block	sh -c "git push --fo`true`rce"	force-push or mirror-push
+block	eval "git push --fo$(true)rce"	force-push or mirror-push
+allow	bash -c "echo $(date) done"
+block	git push origin +$(git branch --show-current)	a + prefix on a push refspec
+block	git push origin "+$(git branch --show-current)"	a + prefix on a push refspec
+block	git push origin +`git branch --show-current`	a + prefix on a push refspec
+allow	git push origin "$(git branch --show-current)"
+# A label created or renamed from a variable or a substitution.
+block	gh label edit bug --name "$X"	a label built from a variable or a substitution
+block	gh label edit bug -n control-change/$(echo approved)	a label built from a variable or a substitution
+block	gh label create "$X"	a label built from a variable or a substitution
+block	gh label create "control-change/$(echo approved)" --color ff0000	a label built from a variable or a substitution
+allow	gh label edit bug --description "$D"
+allow	gh label create bug --color ff0000
+# A $'…' region is judged on the word before it, as a quote is.
+block	bash -c $'git push --force'	force-push or mirror-push
+allow	git -C $'/c/my repo' config --get core.hooksPath
+# A label created from a backtick substitution, or with a flag before its
+# name, and a field key built from a variable before the endpoint that
+# creates an issue (review round 4).
+block	gh label create "`echo x`"	a label built from a variable or a substitution
+block	gh label create --color ff0000 "$X"	a label built from a variable or a substitution
+block	gh api -f "$K[]=x" repos/o/r/issues	a label built from a variable or a substitution
+# printf's argument after a substitution is decoded in the third reading,
+# where the word before it is printf again (review round 4).
+block	printf "$(true)" 'git push \x2d\x2dforce' | sh	force-push or mirror-push
+block	printf "$(true)" 'git push origin \x2bmain' | bash	a + prefix on a push refspec
+block	printf `true` 'git push \x2d\x2dforce' | sh	force-push or mirror-push
+# Known over-refusal, pinned: the third reading reads a substitution as empty,
+# so a removal whose path starts with one reads as a removal of the root.
+block	rm -rf "$(pwd)"/*	recursive removal
