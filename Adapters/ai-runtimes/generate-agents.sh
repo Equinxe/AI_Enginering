@@ -48,6 +48,19 @@
 # from Employees/ — precisely the duplication Registry/employees.yml was
 # created to end. Every generated file says so in its own header.
 #
+# A PROJECT'S OWN AGENTS ARE NEVER REPLACED (WU-IAENG-454, issue #516)
+#
+# An existing Claude Code project often keeps agents of its own in
+# .claude/agents/, under names the Employees take: code-reviewer.md,
+# backend-engineer.md. An agent's path is written only when it holds nothing,
+# or a file with the generated header: the file's first HTML comment, opened
+# before any heading, holding the "GENERATED FILE" and "Generator:" lines that
+# every generated agent has carried since this script's first version.
+# Anything else there, a file without that header, a file that cannot be read
+# or an entry that is not a regular file, is the project's own and is never
+# replaced: the generation names it, writes the other agents and exits 1 with
+# the command that regenerates, and --check, full or quick, reports it.
+#
 # Usage:
 #   ./Adapters/ai-runtimes/generate-agents.sh [options]
 #
@@ -83,10 +96,13 @@
 #                     what is on disk, or is missing. Resolves the mapping the
 #                     same way as a generation, and says so when a file
 #                     differs in its mapping only rather than in its Employee
-#                     definition. Ends with the command that regenerates, as
-#                     it runs from the directory --check was run from.
+#                     definition, or is the project's own (no generated
+#                     header), which a generation never replaces. Ends with
+#                     the command that regenerates, as it runs from the
+#                     directory --check was run from.
 #   --quick           with --check only: what can be told without generating
-#                     anything. Each roster Employee's agent exists, and names
+#                     anything. Each roster Employee's agent exists, carries
+#                     the generated header, and names
 #                     as its framework root this framework (-ef: the same
 #                     directory, never a spelling), or, in the framework
 #                     repository itself, names none. In an adopting project
@@ -287,6 +303,12 @@ case "$TARGET" in
     EFFORT_STANDARD=""
     EFFORT_LIGHTWEIGHT=""
     EFFORT_FRONTIER=""
+    # The two lines of this target's generated header (WU-IAENG-454): written
+    # into every agent, and the lines a file at an agent's path must carry to
+    # be replaced. Both are the words of this script's first version, so an
+    # agent any earlier version generated is still recognised as one.
+    GEN_HEADER_MARK="  GENERATED FILE — do not edit."
+    GEN_HEADER_GENERATOR="  Generator: Adapters/ai-runtimes/generate-agents.sh --target claude-code"
     ;;
   *)
     echo "Unknown target: $TARGET" >&2
@@ -580,6 +602,75 @@ read_roster() {
   ' "$1"
 }
 
+# --- A project's own agent: never replaced (WU-IAENG-454, #516) ---------------
+#
+# The generated header is the file's first HTML comment, opened by a line
+# "<!--" before any "# " heading and closed by "-->", holding GEN_HEADER_MARK
+# and GEN_HEADER_GENERATOR as lines of their own. header() reads one line, its
+# line-ending carriage return already removed (Check Convention, Shell Scripts
+# rule 3), and keeps the state in hs (0 before the comment, 1 inside, 2 past
+# it), hm and hg (each line seen there): the file has the header when hm and
+# hg are both set. Held once, here, and given to both awk programs that ask,
+# own_entry's and the quick check's, so the two cannot disagree. Only the
+# first comment counts: the lines quoted further down, in the project's own
+# file, do not make it a generated one.
+AWK_HEADER='
+    function header(l) {
+      if (hs == 0) {
+        if (l == "<!--") hs = 1
+        else if (l ~ /^# /) hs = 2
+      } else if (hs == 1) {
+        if (l == "-->") hs = 2
+        else if (l == hmark) hm = 1
+        else if (l == hgen) hg = 1
+      }
+    }'
+
+# The reason each kind of path that is never replaced is reported with, by
+# --check, the quick check, and the generation that leaves it.
+OWN_WHY_FILE="not a generated agent: it has no generated header, so it is the project's own file, which a generation never replaces. Rename it, its file and the name: in its frontmatter, or move it elsewhere; its Employee's agent is written once that name is free"
+OWN_WHY_ENTRY="not a generated agent: it is not a regular file, which a generation never replaces. Move it elsewhere; its Employee's agent is written once that name is free"
+OWN_WHY_UNREAD="it cannot be read, so it is not known to be a generated agent, and a generation never replaces it. Make it readable, or move it elsewhere"
+
+# own_entry <path> — true when something is at <path> that a generation must
+# never replace, with OWN_WHY its reason: an entry that is not a regular file
+# (a directory, a dangling link: mv would move the agent into the one and
+# replace the other), a file that cannot be read, or a file without the
+# generated header, the project's own. False, OWN_WHY empty, when nothing is
+# there or the file is a generated agent. One awk process, which reads no
+# further than the header; asked only for a path whose content differs from
+# the agent's, since a current agent is the agent, header included. The path
+# reaches awk through the environment: -v would read its backslashes as
+# escapes (C:\Users\..., an --out this script accepts).
+own_entry() {
+  OWN_WHY=""
+  if ! [ -e "$1" ] && ! [ -L "$1" ]; then
+    return 1
+  fi
+  if ! [ -f "$1" ]; then
+    OWN_WHY="$OWN_WHY_ENTRY"
+    return 0
+  fi
+  HF="$1" awk -v hmark="$GEN_HEADER_MARK" -v hgen="$GEN_HEADER_GENERATOR" "$AWK_HEADER"'
+    BEGIN {
+      f = ENVIRON["HF"]; n = 0
+      while ((rc = (getline l < f)) > 0) {
+        n++
+        sub(/\r$/, "", l)
+        header(l)
+        if (hs == 2) break
+      }
+      if (rc < 0 && n == 0) exit 2
+      exit (hm && hg) ? 0 : 1
+    }'
+  case "$?" in
+    0) return 1 ;;
+    1) OWN_WHY="$OWN_WHY_FILE" ;;
+    *) OWN_WHY="$OWN_WHY_UNREAD" ;;
+  esac
+  return 0
+}
+
 # Both rosters' rows, the framework's first.
 roster_rows() {
   read_roster "$ROSTER" "$ROOT" "$ROSTER"
@@ -665,6 +756,27 @@ below() {
   done
 }
 
+# logical_root — true when this script was reached through a path to this
+# framework other than its physical one, FW_LOGICAL being that path (#476).
+# SCRIPT_DIR keeps the path the script was run by, links included (pwd
+# without -P), and the framework is the directory that holds its
+# Adapters/ai-runtimes. ROOT is physical (pwd -P), so a framework directory
+# that is a symbolic link or a junction into the project is not under the
+# project by ROOT: the walks up from ROOT, which name the framework's
+# directory in the project, miss it, and the walks up from FW_LOGICAL find
+# it. Taken only when it is this framework (-ef). Parameter expansion, not
+# a process: the quick check of session start asks it for its command.
+logical_root() {
+  if [ -z "${FW_LOGICAL_DONE:-}" ]; then
+    FW_LOGICAL_DONE=1
+    FW_LOGICAL="${SCRIPT_DIR%/Adapters/ai-runtimes}"
+    if [ "$FW_LOGICAL" = "$SCRIPT_DIR" ] || [ -z "$FW_LOGICAL" ] || ! [ "$FW_LOGICAL" -ef "$ROOT" ]; then
+      FW_LOGICAL=""
+    fi
+  fi
+  [ -n "$FW_LOGICAL" ]
+}
+
 # The command that regenerates exactly what was checked, run from the
 # directory this was run from (issue #412). It printed a fixed
 # `./Adapters/ai-runtimes/generate-agents.sh`, which exists only inside the
@@ -672,10 +784,17 @@ below() {
 # exited 127, and from inside the framework it targeted the framework. Now:
 # this script by the path that reaches it from there, the project when it is
 # not that directory, and every option that decided what was compared.
+#
+# A framework directory that is a link (#476) is reached through the link
+# when this script was run through it: the agents the command writes then
+# name the framework's directory in the project, as the ones checked do. By
+# the framework's physical path, they would not.
 REMEDY=""
 make_remedy() {
   local cmd
   if below "$ROOT" "$INVOCATION_DIR"; then
+    sh_word "./${BELOW:+$BELOW/}Adapters/ai-runtimes/generate-agents.sh"
+  elif logical_root && below "$FW_LOGICAL" "$INVOCATION_DIR"; then
     sh_word "./${BELOW:+$BELOW/}Adapters/ai-runtimes/generate-agents.sh"
   else
     sh_word "$ROOT/Adapters/ai-runtimes/generate-agents.sh"
@@ -778,12 +897,20 @@ if [ "$QUICK" -eq 1 ]; then
   # One awk process for the rosters and the agents (Code Reviewer, PR #467):
   # it reads each roster entry's name, makes its agent's file name with the
   # generation's own slug(), and reads that file's root line. One line per
-  # roster Employee, in roster order: the agent's path, TAB, the framework
-  # commit its header records ("-" when none: TAB is a white space to read,
-  # so an empty field would vanish), TAB, the root it names, empty when it
-  # names none, \001 when the file cannot be opened (missing, or unreadable:
-  # told apart below). The first of each line only, as location_of and
-  # commit_of read them; a CR ending the line is not part of it.
+  # roster Employee, in roster order: the agent's path, TAB, 1 when the file
+  # carries the generated header and 0 otherwise (WU-IAENG-454: read with
+  # own_entry's header(), on the lines read for the root anyway), TAB, the
+  # framework commit its header records ("-" when none: TAB is a white space
+  # to read, so an empty field would vanish), TAB, the root it names, empty
+  # when it names none, \001 when the file cannot be opened (missing, or
+  # unreadable: told apart below). The first of each line only, as
+  # location_of and commit_of read them; a CR ending the line is not part of
+  # it.
+  #
+  # A path holding something a generation never replaces is stale, with
+  # own_entry's reason: an entry that is not a regular file, or a file
+  # without the generated header, the project's own. An unreadable file keeps
+  # its own reason, below.
   #
   # An agent whose root is this framework is then compared by commit
   # (#471): an upgrade that changes only Employees/ leaves every root as it
@@ -793,37 +920,43 @@ if [ "$QUICK" -eq 1 ]; then
   Q_N=0; Q_PRESENT=0; Q_MISSING=0; Q_STALE=0
   Q_ADOPTER=1
   [ "$ROOT" -ef "$PROJECT" ] && Q_ADOPTER=0
-  while IFS=$'\t' read -r q_dest q_commit q_root; do
+  while IFS=$'\t' read -r q_dest q_gen q_commit q_root; do
     [ "$q_commit" = - ] && q_commit=""
     [ -n "$q_dest" ] || continue
     Q_N=$((Q_N + 1))
-    if [ "$q_root" = $'\001' ] && [ ! -f "$q_dest" ]; then
+    if [ "$q_root" = $'\001' ] && ! [ -e "$q_dest" ] && ! [ -L "$q_dest" ]; then
       Q_MISSING=$((Q_MISSING + 1)); report missing "$q_dest"; continue
     fi
     q_why=""
-    case "$q_root" in
-      $'\001') q_why="it cannot be read" ;;
-      "")
-        [ "$ROOT" -ef "$PROJECT" ] \
-          || q_why="it names no framework root: it was written before agents named one, or for the framework repository itself" ;;
-      [/\\][/\\]*) q_why="its framework root $q_root is a network path, never opened here" ;;
-      /*|[A-Za-z]:[/\\]*)
-        if ! [ "$q_root" -ef "$ROOT" ]; then
-          q_why="its framework root $q_root is not this project's framework: the project moved, or it was generated in another clone"
-        else
-          if [ -z "${Q_SHOWN_DONE:-}" ]; then
-            Q_SHOWN_DONE=1
-            Q_SHOWN=""
-            shown_root && Q_SHOWN="$SHOWN_ROOT"
-          fi
-          if [ -z "$Q_SHOWN" ]; then
-            q_why="this framework's root cannot be written as a path that names it, so no agent's root can be confirmed"
-          elif ! same_spelling "$q_root" "$Q_SHOWN"; then
-            q_why="its framework root $q_root reaches this framework, but is not written as the generator writes it ($Q_SHOWN): through a link, which can be pointed elsewhere, or another spelling"
-          fi
-        fi ;;
-      *) q_why="its framework root $q_root is not an absolute path" ;;
-    esac
+    if [ "$q_gen" != 1 ] && ! [ -f "$q_dest" ]; then
+      q_why="$OWN_WHY_ENTRY"
+    elif [ "$q_gen" != 1 ] && [ "$q_root" != $'\001' ]; then
+      q_why="$OWN_WHY_FILE"
+    else
+      case "$q_root" in
+        $'\001') q_why="it cannot be read" ;;
+        "")
+          [ "$ROOT" -ef "$PROJECT" ] \
+            || q_why="it names no framework root: it was written before agents named one, or for the framework repository itself" ;;
+        [/\\][/\\]*) q_why="its framework root $q_root is a network path, never opened here" ;;
+        /*|[A-Za-z]:[/\\]*)
+          if ! [ "$q_root" -ef "$ROOT" ]; then
+            q_why="its framework root $q_root is not this project's framework: the project moved, or it was generated in another clone"
+          else
+            if [ -z "${Q_SHOWN_DONE:-}" ]; then
+              Q_SHOWN_DONE=1
+              Q_SHOWN=""
+              shown_root && Q_SHOWN="$SHOWN_ROOT"
+            fi
+            if [ -z "$Q_SHOWN" ]; then
+              q_why="this framework's root cannot be written as a path that names it, so no agent's root can be confirmed"
+            elif ! same_spelling "$q_root" "$Q_SHOWN"; then
+              q_why="its framework root $q_root reaches this framework, but is not written as the generator writes it ($Q_SHOWN): through a link, which can be pointed elsewhere, or another spelling"
+            fi
+          fi ;;
+        *) q_why="its framework root $q_root is not an absolute path" ;;
+      esac
+    fi
     if [ -z "$q_why" ] && [ "$Q_ADOPTER" -eq 1 ]; then
       if [ -z "${Q_COMMIT_DONE:-}" ]; then
         Q_COMMIT_DONE=1
@@ -845,19 +978,20 @@ if [ "$QUICK" -eq 1 ]; then
     else
       Q_PRESENT=$((Q_PRESENT + 1)); report present "$q_dest"
     fi
-  done < <(Q_OUT="$OUT" awk "$AWK_SLUG"'
+  done < <(Q_OUT="$OUT" awk -v hmark="$GEN_HEADER_MARK" -v hgen="$GEN_HEADER_GENERATOR" "$AWK_SLUG$AWK_HEADER"'
     # The output directory through the environment, not -v: -v reads its
     # backslashes as escapes, and C:\Users\... is a path this script accepts
     # (Code Reviewer, PR #467).
     BEGIN { out = ENVIRON["Q_OUT"] }
     # The header, where the commit line is, comes before the root line, so
     # reading up to the root line reads both. Sets c, the commit, to "-"
-    # when there is none.
+    # when there is none, and hm and hg through header().
     function root_of(f,   line, r, n, rc) {
-      r = ""; n = 0; c = "-"
+      r = ""; n = 0; c = "-"; hs = 0; hm = 0; hg = 0
       while ((rc = (getline line < f)) > 0) {
         n++
         sub(/\r$/, "", line)
+        if (hs < 2) header(line)
         if (c == "-" && line ~ /^  Framework: ./) {
           c = line; sub(/^  Framework: /, "", c); gsub(/\t/, " ", c)
         }
@@ -873,7 +1007,7 @@ if [ "$QUICK" -eq 1 ]; then
       if (name == "") return
       d = out "/" slug(name) ".md"
       r = root_of(d)
-      print d "\t" c "\t" r
+      print d "\t" ((hm && hg) ? 1 : 0) "\t" c "\t" r
     }
     /^  - name: / { emit(); name = $0; sub(/^  - name: /, "", name); gsub(/\015/, "", name); next }
     END { emit() }
@@ -982,6 +1116,16 @@ unset ONE_SUITE_N
 # from the framework the same way, so a nested import (vendor/ia-engineering)
 # reads right too; a framework outside the project leaves it empty.
 #
+# A framework directory that is a symbolic link or a junction (#476) is not
+# under the project by ROOT, which is physical: the walk up from ROOT left the
+# path empty, so the agents lost the sentence naming the ia-engineering/
+# prefix. The path is then found by walking up the path this script was run
+# by (logical_root), as the documented command, the drift check and session
+# start run it, and as the command --check prints does. The root the agents
+# name stays ROOT, never the link (SEC-IAENG-467-01). No entry of the project
+# is opened to look for the link: a link there could name a network path
+# (SEC-IAENG-358-02).
+#
 # A moved project, or agents copied from another clone, name a root that is
 # not this one. --check reports that as its own kind of difference ("framework
 # location only"), never as an Employee definition out of date.
@@ -1002,6 +1146,9 @@ if ! [ "$ROOT" -ef "$PROJECT" ]; then
     fi
   done
   unset _probe _rel _parent
+  if [ -z "$FRAMEWORK_REL" ] && logical_root && below "$FW_LOGICAL" "$PROJECT"; then
+    FRAMEWORK_REL="$BELOW"
+  fi
   if ! shown_root; then
     FRAMEWORK_SHOWN="$SHOWN_ROOT"
     echo "generate-agents.sh: cannot write the framework root as a path that names it." >&2
@@ -1207,6 +1354,9 @@ COMMIT_DRIFT=0
 MAPPING_AND_COMMIT=0
 # The subset of DIFFERENT with no file on disk.
 MISSING=0
+# The subset of DIFFERENT whose path holds something a generation never
+# replaces (own_entry, WU-IAENG-454): the project's own, left as it is.
+OWN=0
 
 # The "Where the Framework Is" section of an adopting project's agents, built
 # once (see "Where an adopting project's agents read the framework" above). The
@@ -1355,7 +1505,9 @@ generate_claude_code() {
 
   # A missing agent is missing whatever it would contain: said before any
   # generation, which costs it nothing (a fresh clone has none of them).
-  if [ "$CHECK" -eq 1 ] && [ ! -f "$dest" ]; then
+  # Missing means nothing at all is there: a directory or a dangling link at
+  # the path is an entry the generation leaves (own_entry, below).
+  if [ "$CHECK" -eq 1 ] && ! [ -e "$dest" ] && ! [ -L "$dest" ]; then
     DIFFERENT=$((DIFFERENT + 1))
     MISSING=$((MISSING + 1))
     report missing "$dest"
@@ -1403,12 +1555,14 @@ generate_claude_code() {
     [ -n "$effort" ] && echo "effort: $effort"
     echo "---"
     echo
+    # The two header lines own_entry reads, from the one place they are
+    # spelled (the target's block above).
     cat <<HEADER
 <!--
-  GENERATED FILE — do not edit.
+$GEN_HEADER_MARK
 
   Source:    $source_label
-  Generator: Adapters/ai-runtimes/generate-agents.sh --target claude-code
+$GEN_HEADER_GENERATOR
   Roster:    $from_roster
   Tier:      $tier -> $model$effort_note
 ${COMMIT_HEADER}
@@ -1537,6 +1691,12 @@ FOOTER
     if diff -q "$tmp" "$dest" > /dev/null 2>&1; then
       UNCHANGED=$((UNCHANGED + 1))
       report current "$dest"
+    elif own_entry "$dest"; then
+      # The project's own (WU-IAENG-454): a generation leaves it, so no
+      # difference below applies to it, and none is reported.
+      DIFFERENT=$((DIFFERENT + 1))
+      OWN=$((OWN + 1))
+      report stale "$dest" "$OWN_WHY"
     elif diff -q <(without_location "$tmp") <(without_location "$dest") > /dev/null 2>&1; then
       # Same content once each side's framework root and commit are set
       # aside: the agent names another checkout's framework (WU-IAENG-430),
@@ -1599,6 +1759,18 @@ FOOTER
   # happen was in the file while the branch above it did exactly that.
   if [ -f "$dest" ] && diff -q "$tmp" "$dest" > /dev/null 2>&1; then
     UNCHANGED=$((UNCHANGED + 1))
+    rm -f "$tmp"
+    return
+  fi
+
+  # Never over the project's own (WU-IAENG-454, issue #516): what is at the
+  # path is replaced only when it is a generated agent. Asked before the
+  # dry-run branch, for the reason the identical-file test is: --dry-run
+  # answers what a generation would do. The summary prints the remedy.
+  if own_entry "$dest"; then
+    DIFFERENT=$((DIFFERENT + 1))
+    OWN=$((OWN + 1))
+    echo "  ! $dest: $OWN_WHY" >&2
     rm -f "$tmp"
     return
   fi
@@ -1691,11 +1863,11 @@ if [ "$CHECK" -eq 1 ]; then
   echo
   echo "Result: $UNCHANGED current, $DIFFERENT stale or missing"
   if [ "$DIFFERENT" -gt 0 ]; then
-    # Four groups that never overlap, so their counts add up to DIFFERENT
+    # Five groups that never overlap, so their counts add up to DIFFERENT
     # (DEF-IAENG-456-01): mapping only (root and commit unchanged), every
     # agent naming another root (with or without a mapping difference),
-    # every agent naming this root but another commit (#471, the same), and
-    # the rest.
+    # every agent naming this root but another commit (#471, the same), every
+    # path holding the project's own (WU-IAENG-454), and the rest.
     MAPPING_ONLY=$((MAPPING_DRIFT - MAPPING_AND_LOCATION - MAPPING_AND_COMMIT))
     if [ "$MAPPING_ONLY" -gt 0 ]; then
       echo "  $MAPPING_ONLY differ in the tier mapping only (model/effort), not in their"
@@ -1722,8 +1894,13 @@ if [ "$CHECK" -eq 1 ]; then
         echo "  regeneration writes the mapping resolved now (mapping: $MAPPING_SOURCE)."
       fi
     fi
-    if [ "$DIFFERENT" -gt $((MAPPING_ONLY + LOCATION_DRIFT + COMMIT_DRIFT)) ]; then
-      echo "  $((DIFFERENT - MAPPING_ONLY - LOCATION_DRIFT - COMMIT_DRIFT)) out of date with Employees/ or the roster, or missing."
+    if [ "$OWN" -gt 0 ]; then
+      echo "  $OWN are the project's own, not generated agents (no generated header): a"
+      echo "  generation never replaces them, so each one's Employee has no agent until"
+      echo "  it is renamed, its file and the name: in its frontmatter, or moved elsewhere."
+    fi
+    if [ "$DIFFERENT" -gt $((MAPPING_ONLY + LOCATION_DRIFT + COMMIT_DRIFT + OWN)) ]; then
+      echo "  $((DIFFERENT - MAPPING_ONLY - LOCATION_DRIFT - COMMIT_DRIFT - OWN)) out of date with Employees/ or the roster, or missing."
     fi
     echo "  Regenerate, from the directory this check was run from:"
     echo "    $REMEDY"
@@ -1744,6 +1921,21 @@ else
   echo "Result: $WRITTEN written, $UNCHANGED already current"
 fi
 [ "$DIFFERENT" -gt 0 ] && echo "        $DIFFERENT skipped — see the warnings above" >&2
+
+# The project's own, left in place (WU-IAENG-454): what to do, and the command
+# that then writes the agents it kept out, as --check prints it.
+if [ "$OWN" -gt 0 ]; then
+  make_remedy
+  {
+    echo
+    echo "$OWN path(s) in $OUT hold the project's own, not a generated agent, and"
+    echo "were left as they are: a generation replaces only a file with the generated"
+    echo "header. Each one's Employee has no agent until the path is free: rename the"
+    echo "project's agent, its file and the name: in its frontmatter, or move it elsewhere."
+    echo "  Regenerate, from the directory this was run from:"
+    echo "    $REMEDY"
+  } >&2
+fi
 
 if [ "$DRY_RUN" -eq 0 ] && [ "$WRITTEN" -gt 0 ]; then
   echo
