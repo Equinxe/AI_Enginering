@@ -294,7 +294,7 @@ Audience: the operator on Windows, with the settings `install-hooks.sh` writes s
 3. If Claude has no shell tool at all, install Git for Windows. Without Git Bash, Claude Code on Windows enables the PowerShell tool automatically, and the Bash tool is the one that "remains available for POSIX scripts when Git Bash is installed" ([Tools reference, PowerShell tool](https://code.claude.com/docs/en/tools-reference.md#powershell-tool)); so the PowerShell tool was the only shell tool, and with the rule there is none (derived). The framework needs Git Bash in any case: every hook command runs under `bash`.
 4. For an allow or ask rule for PowerShell that `install-hooks.sh` named: remove it, or keep it knowingly. It has no effect either way.
 
-**Prevention.** Do not remove the rule to get the tool back: the guards read Bash commands only, and the next `install-hooks.sh` run adds the rule again. `install-hooks.sh --check` reports a `settings.json` without it as `permission absent`, and so does `check-framework-drift.sh` without `--quick`.
+**Prevention.** Do not remove the rule to get the tool back: the guards read Bash commands only, and the next `install-hooks.sh` run adds the rule again. `install-hooks.sh --check` reports a `settings.json` without it as `permission absent` (exit 3). `check-framework-drift.sh`, without `--quick`, reports it as drift: `config absent permissions.deny: PowerShell`, with the remedy to re-run `install-hooks.sh`.
 
 ---
 

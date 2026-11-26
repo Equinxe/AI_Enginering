@@ -2,6 +2,7 @@
 
 - `settings.example.json`, and the framework's own `.claude/settings.json`, deny Claude Code's PowerShell tool with `"permissions": {"deny": ["PowerShell"]}`, the rule as Claude Code's permissions page spells it: a bare tool name in `deny` removes the tool from Claude's context. The guards read Bash commands, so every shell command now goes through the Bash tool, in Git Bash on Windows, where they apply (Director decision, 26 Nov 2026, WU-IAENG-458)
 - `install-hooks.sh` adds the rule to an existing `settings.json` in place: at the end of the project's own `permissions.deny`, created with `permissions` when absent or null, every other rule and key kept. An `allow` or `ask` rule of the project's for the tool is kept and reported, on stderr and as a `permission near-miss` record. `--check` gains the `permission` family: it reports a `settings.json` without the rule as `absent` (exit 3), and its closing line counts the permission rules. A `permissions` that is not an object, or a `deny` that is not a list, is refused, named, as a `hooks` out of shape is (WU-IAENG-458)
+- `check-framework-drift.sh` reports the rule's records by name: a missing rule is drift, `config absent permissions.deny: PowerShell`, with the remedy to re-run `install-hooks.sh`; an `allow` or `ask` rule for the denied tool is information (WU-IAENG-458)
 
 ### Notes
 
