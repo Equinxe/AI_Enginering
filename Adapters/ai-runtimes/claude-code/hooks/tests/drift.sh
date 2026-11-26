@@ -474,6 +474,178 @@ cp "$T/settings.json" .claude/settings.json
 git -C ia-engineering tag -d v2 >/dev/null
 hook "$AD"; expect_lines 0 "clean once more after every cause"
 
+# --- a reviewed edit, accepted (WU-IAENG-456, issue #420) -------------------------
+# A project that keeps a reviewed edit of a framework-managed file records it
+# with --accept in .ia-engineering/drift-accepted.tsv, a committed file, with
+# the hash of the framework's file and of the project's. While neither
+# changes, the file is not drift: not to act on, --strict exits 0, and session
+# start prints one "N accepted" line where it printed a line to act on at
+# every session. It lapses back to drift when either file changes. The git
+# hooks and the Claude Code hook entries are never accepted.
+#
+# The full check compares the Employees' agents too, so the bench gets them
+# for this section alone: the framework's Employees/ beside its checkout's
+# files (untracked in the submodule), the agents generated from them. A full
+# --strict then says what the accepted file does to it, nothing else.
+DRIFT_456=(bash ./ia-engineering/Adapters/scripts/check-framework-drift.sh)
+ACC_456=.ia-engineering/drift-accepted.tsv
+DP_456=.github/workflows/data-policy.yml
+TPL_456=ia-engineering/Adapters/github-actions/data-policy.yml
+# r456 <args...> — the check from the adopter's root: R456 its exit, O456 its output.
+r456() { O456="$("${DRIFT_456[@]}" "$@" 2>&1)"; R456=$?; }
+# e456 <exit> <text, or nothing> <label> — the last r456 exited so, its output
+# holding the text.
+e456() {
+  if [ "$R456" -eq "$1" ] && { [ -z "$2" ] || [[ "$O456" == *"$2"* ]]; }; then
+    ok "$3"
+  else
+    bad "$3" "exit $R456, want $1; want the text: $2
+$(printf '%s\n' "$O456" | grep -v "${TAB}current${TAB}\|${TAB}present${TAB}\|${TAB}ok${TAB}" | tail -n 12)"
+  fi
+}
+# h456 <file> — its hash as the check takes it: the CR that ends a line dropped.
+h456() { sed $'s/\r$//' "$1" | git hash-object --stdin; }
+cp -R "$SRC/Employees" ia-engineering/Employees
+bash ./ia-engineering/Adapters/ai-runtimes/generate-agents.sh --target claude-code --project . >/dev/null 2>&1
+r456 --strict --format tsv
+e456 0 "# check-framework-drift: 0 to act on, 0 indeterminate." "#420: the bench with its agents: the full check is clean, --strict exits 0"
+
+cp "$DP_456" "$T/dp-456.yml"
+echo "# the project's own line, reviewed and kept" >> "$DP_456"
+cp "$DP_456" "$T/dp-456-edit.yml"
+hook "$AD"
+expect_lines 1 "#420: a reviewed edit not yet accepted: one line to act on"
+r456 --strict --format tsv
+e456 1 "file${TAB}modified${TAB}$DP_456" "#420: ... the full check calls it modified, --strict exits 1"
+
+SNAP_456A="$(snapshot | grep -v 'drift-accepted')"
+r456 --accept "$DP_456"
+e456 0 "accepted: $DP_456" "#420: --accept records the modified file (exit 0)"
+SNAP_456B="$(snapshot | grep -v 'drift-accepted')"
+if [ "$SNAP_456A" = "$SNAP_456B" ]; then ok "#420: --accept writes nothing but $ACC_456"; else bad "#420: --accept writes nothing but $ACC_456" "$(diff <(printf '%s\n' "$SNAP_456A") <(printf '%s\n' "$SNAP_456B"))"; fi
+ENTRY_456="$DP_456${TAB}Adapters/github-actions/data-policy.yml${TAB}$(h456 "$TPL_456")${TAB}$(h456 "$DP_456")"
+if [ -f "$ACC_456" ] && grep -qxF "$ENTRY_456" "$ACC_456"; then ok "#420: the entry holds the path, the framework file and both hashes"; else bad "#420: the entry holds the path, the framework file and both hashes" "want: $ENTRY_456
+got: $(cat "$ACC_456" 2>&1)"; fi
+if [ "$(grep -c "^$DP_456$TAB" "$ACC_456" 2>/dev/null)" = 1 ]; then ok "#420: one entry for the file"; else bad "#420: one entry for the file" "$(cat "$ACC_456" 2>&1)"; fi
+r456 --accept "$DP_456"
+e456 0 "" "#420: --accept again, nothing changed: exit 0"
+if [ "$(grep -c "^$DP_456$TAB" "$ACC_456" 2>/dev/null)" = 1 ]; then ok "#420: ... and still one entry for the file"; else bad "#420: ... and still one entry for the file" "$(cat "$ACC_456" 2>&1)"; fi
+
+r456 --strict --format tsv
+e456 0 "file${TAB}accepted${TAB}$DP_456" "#420: accepted: the full check records it accepted, --strict exits 0"
+e456 0 "# check-framework-drift: 0 to act on, 0 indeterminate, 1 accepted." "#420: ... the summary counts it accepted, not to act on"
+r456 --quick --strict --format tsv
+e456 0 "file${TAB}accepted${TAB}$DP_456" "#420: accepted: the quick check records it accepted too, --strict exits 0"
+hook "$AD"
+expect_lines 1 "#420: accepted: session start prints one line"
+expect_drift "IA Engineering drift: 1 accepted ($DP_456)" "#420: ... the line says 1 accepted and names the file"
+case "$DRIFT" in *"file(s) to act on"*|*"item(s) to act on"*) bad "#420: ... and no line to act on" "$DRIFT" ;; *) ok "#420: ... and no line to act on" ;; esac
+hook "$AD"
+expect_lines 1 "#420: accepted, warm (the cache replayed): the same one line"
+expect_drift "IA Engineering drift: 1 accepted ($DP_456)" "#420: ... saying 1 accepted"
+
+# What an acceptance costs the quick check, which session start runs within
+# its 3 s bound: counted with recording stand-ins for git and sed first on
+# PATH, the same project with no cache, with and without its entries file.
+# One git process hashes both files when neither holds a CR; no sed.
+mkdir -p "$T/rec-456"
+for c456 in git sed; do
+  cat > "$T/rec-456/$c456" <<EOF
+#!/usr/bin/env bash
+printf '%s\n' "$c456" >> "$T/rec-456/calls"
+exec "$(command -v "$c456")" "\$@"
+EOF
+  chmod +x "$T/rec-456/$c456"
+done
+# count456 — G456 and S456: the git and sed processes a quick check started.
+count456() {
+  : > "$T/rec-456/calls"
+  env PATH="$T/rec-456:$PATH" "${DRIFT_456[@]}" --quick --format tsv >/dev/null 2>&1
+  G456="$(grep -cx git "$T/rec-456/calls")"; S456="$(grep -cx sed "$T/rec-456/calls")"
+}
+mv "$ACC_456" "$T/acc-456-off.tsv"
+count456; G0_456="$G456"; S0_456="$S456"
+mv "$T/acc-456-off.tsv" "$ACC_456"
+count456
+printf '   info  #420: a quick check with no cache started %s git and %s sed without the entries file, %s and %s with the accepted entry\n' "$G0_456" "$S0_456" "$G456" "$S456"
+if [ "$((G456 - G0_456))" -eq 1 ] && [ "$S456" -eq "$S0_456" ]; then
+  ok "#420: an accepted file with no CR costs the quick check one git process and no sed"
+else
+  bad "#420: an accepted file with no CR costs the quick check one git process and no sed" "git $G0_456 -> $G456, sed $S0_456 -> $S456"
+fi
+
+# Line endings aside, as the installers compare: a CRLF copy of the accepted
+# edit is still the accepted edit, so a clone on another platform agrees.
+sed 's/$/\r/' "$T/dp-456-edit.yml" > "$DP_456"
+r456 --strict --format tsv
+e456 0 "file${TAB}accepted${TAB}$DP_456" "#420: a CRLF copy of the accepted edit is still accepted (full check)"
+r456 --quick --strict --format tsv
+e456 0 "file${TAB}accepted${TAB}$DP_456" "#420: ... and in the quick check"
+cp "$T/dp-456-edit.yml" "$DP_456"
+
+# Lapse, the project's side.
+echo "# a later line, not reviewed" >> "$DP_456"
+hook "$AD"
+expect_lines 1 "#420: the project's file changed: the acceptance lapses, one line to act on"
+expect_drift "1 of 14 framework-managed file(s) to act on (differ from the framework: $DP_456 (its acceptance lapsed))" "#420: ... the file is named, its acceptance said to have lapsed"
+r456 --strict --format tsv
+e456 1 "file${TAB}modified${TAB}$DP_456" "#420: ... the full check calls it modified again, --strict exits 1"
+e456 1 "the project's file changed since it was accepted" "#420: ... and says which side changed"
+r456 --quick --strict --format tsv
+e456 1 "file${TAB}differs${TAB}$DP_456" "#420: ... the quick check too, --strict exits 1"
+cp "$T/dp-456-edit.yml" "$DP_456"
+hook "$AD"
+expect_drift "IA Engineering drift: 1 accepted ($DP_456)" "#420: the project's file back as accepted: accepted again"
+
+# Lapse, the framework's side: its file changed, as an upgrade changes it.
+cp "$TPL_456" "$T/tpl-456.yml"
+echo "# the framework's later line" >> "$TPL_456"
+hook "$AD"
+expect_lines 1 "#420: the framework's file changed: the acceptance lapses, one line to act on"
+expect_drift "differ from the framework: $DP_456 (its acceptance lapsed)" "#420: ... the file is named, its acceptance said to have lapsed"
+r456 --strict --format tsv
+e456 1 "the framework's file changed since it was accepted" "#420: ... the full check says the framework's side changed, --strict exits 1"
+cp "$T/tpl-456.yml" "$TPL_456"
+hook "$AD"
+expect_drift "IA Engineering drift: 1 accepted ($DP_456)" "#420: the framework's file back: accepted again"
+
+# Never accepted: the git hooks, the Claude Code hook entries and their
+# scripts, anything inside the framework's checkout or .git. A file that does
+# not differ, or that no installer manages, is not a reviewed edit either.
+cp "$ACC_456" "$T/acc-456.tsv"
+for p456 in core.hooksPath .git/hooks/pre-commit ia-engineering/Adapters/git-hooks/commit-msg \
+            .claude/settings.json .claude/settings.local.json .claude/hooks/guard.sh \
+            "hook: PreToolUse Bash block-escape-hatches.sh" ia-engineering/Adapters/ai-runtimes/claude-code/hooks/session-start.sh; do
+  r456 --accept "$p456"
+  e456 1 "refused: $p456" "#420: --accept $p456 is refused (exit 1)"
+done
+r456 --accept .github/workflows/pr-validation.yml
+e456 1 "nothing to accept" "#420: --accept of a current file: nothing to accept (exit 1)"
+r456 --accept src/main.c
+e456 1 "not a file the framework installs" "#420: --accept of a file no installer manages: refused (exit 1)"
+if cmp -s "$ACC_456" "$T/acc-456.tsv"; then ok "#420: a refused --accept leaves the file as it was"; else bad "#420: a refused --accept leaves the file as it was" "$(diff "$T/acc-456.tsv" "$ACC_456")"; fi
+r456 --accept "$DP_456" --strict
+e456 64 "" "#420: --accept with another option is a usage error (64)"
+
+# A line written by hand for a refused target is not an acceptance: it is
+# reported, to act on, and --strict exits 1. A line that is not an entry is
+# indeterminate: --strict exits 2.
+printf '.claude/settings.json\tAdapters/ai-runtimes/claude-code/settings.example.json\t%s\t%s\n' "$(h456 "$TPL_456")" "$(h456 "$DP_456")" >> "$ACC_456"
+r456 --strict --format tsv
+e456 1 "config${TAB}refused${TAB}.claude/settings.json" "#420: a hand-written entry for .claude/settings.json is reported refused, --strict exits 1"
+hook "$AD"
+expect_drift "1 item(s) to act on" "#420: ... session start says it is to act on"
+cp "$T/acc-456.tsv" "$ACC_456"
+printf 'not an entry\n' >> "$ACC_456"
+r456 --strict --format tsv
+e456 2 "config${TAB}indeterminate${TAB}$ACC_456" "#420: a line that is not an entry is indeterminate, --strict exits 2"
+cp "$T/acc-456.tsv" "$ACC_456"
+
+rm -f "$ACC_456"
+cp "$T/dp-456.yml" "$DP_456"
+rm -rf ia-engineering/Employees .claude/agents
+hook "$AD"; expect_lines 0 "clean after the accepted edits"
+
 # --- an escape sequence never reaches the session --------------------------------
 ESC=$'\033'
 jq --arg c "bash .claude/hooks/x${ESC}[31mRED.sh" '.hooks.Stop[0].hooks += [{"type":"command","command":$c}]' "$T/settings.json" | sed $'s/\r$//' > .claude/settings.json
