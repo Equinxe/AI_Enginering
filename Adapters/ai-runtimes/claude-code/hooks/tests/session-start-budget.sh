@@ -471,13 +471,13 @@ CORE_V="$(printf '%s' "$CORE_PARA" | grep -o 'runs a framework at v[0-9.]* or ea
 CORE_VV="$(printf '%s' "$CORE_V" | grep -o 'v[0-9][0-9.]*[0-9]')"
 CORE_VN="${CORE_V##* }"
 if [ -n "$CORE_N" ]; then
-  WANT="Parallel-agent cap: at most $CORE_N subagents at once on this machine, counting every Claude Code session's"
-  [ -n "$CORE_V" ] && WANT="$WANT; $CORE_VN while any session on it runs $CORE_VV or earlier"
+  WANT="Parallel-agent cap: at most $CORE_N subagents at once on this machine, Employees included, counting those of every Claude Code session on it"
+  [ -n "$CORE_V" ] && WANT="$WANT; $CORE_VN while any session on it runs the framework at $CORE_VV or earlier"
   case "$CORE_PARA" in *'Every main session open on the machine beyond the first lowers the cap by one.'*) WANT="$WANT; one fewer for each main session beyond the first" ;; esac
   ss startup
-  has "the cap line states Core's numbers ($CORE_N${CORE_VN:+, $CORE_VN with $CORE_VV})" "$SS_OUT" "  $WANT. At the cap, a dispatch waits and the Director is told ("
+  has "the cap line states Core's numbers ($CORE_N${CORE_VN:+, $CORE_VN with $CORE_VV})" "$SS_OUT" "  $WANT. At or above the cap, a dispatch waits and the Main Agent tells the Director what waits ("
   if [ "$(printf '%s\n' "$SS_OUT" | grep -c 'Parallel-agent cap')" = 1 ]; then ok "the cap is one line"; else bad "the cap is one line" "$(printf '%s\n' "$SS_OUT" | grep -c 'Parallel-agent cap') lines"; fi
-  has "the cap line names where the rule is" "$SS_OUT" "Core/ORCHESTRATION.md, Dispatch Rules)."
+  has "the cap line names where the rule is" "$SS_OUT" "Core/ORCHESTRATION.md, Step 4, Dispatch Rules)."
 else
   bad "Core/ORCHESTRATION.md states the cap in its Parallel-agent cap paragraph" "no 'At most N subagents run at once per machine' in it"
 fi
@@ -492,6 +492,7 @@ hasnt "Core without the v0.0.15 sentence: no v0.0.15 clause" "$SS_OUT" "or earli
 sed 's/At most [0-9]* subagents run at once per machine/Few subagents run at once per machine/' "$ORCH_SAVE" > "$FW/Core/ORCHESTRATION.md"
 ss startup
 has   "Core whose number cannot be read: the pointer alone" "$SS_OUT" "Parallel-agent cap: read it in "
+has   "Core whose number cannot be read: the pointer names Step 4 and the first dispatch" "$SS_OUT" "Core/ORCHESTRATION.md, Step 4, Dispatch Rules, before your first dispatch."
 hasnt "Core whose number cannot be read: no number of the hook's own" "$SS_OUT" "Parallel-agent cap: at most"
 # No paragraph at all: the pointer.
 grep -v '^\*\*Parallel-agent cap\.\*\*' "$ORCH_SAVE" > "$FW/Core/ORCHESTRATION.md"
@@ -500,7 +501,7 @@ has   "Core with no cap paragraph: the pointer alone" "$SS_OUT" "Parallel-agent 
 # CRLF Core: the same line.
 sed 's/$/\r/' "$ORCH_SAVE" > "$FW/Core/ORCHESTRATION.md"
 ss startup
-has   "a CRLF Core/ORCHESTRATION.md: the same cap line" "$SS_OUT" "  ${WANT:-none}. At the cap"
+has   "a CRLF Core/ORCHESTRATION.md: the same cap line" "$SS_OUT" "  ${WANT:-none}. At or above the cap"
 cp "$ORCH_SAVE" "$FW/Core/ORCHESTRATION.md"
 
 # =============================================================================

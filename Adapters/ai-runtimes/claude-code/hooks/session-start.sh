@@ -314,16 +314,16 @@ if [ -n "$CAP_DOC" ] && [ -f "$CAP_DOC" ]; then
   CAP_SHOWN="${CAP_SHOWN#./}"
   a_flat "$CAP_SHOWN"; CAP_SHOWN="$A_FLAT"
   if [[ $CAP_PARA =~ At\ most\ ([0-9]{1,3})\ subagents\ run\ at\ once\ per\ machine ]]; then
-    CAP_TXT="Parallel-agent cap: at most ${BASH_REMATCH[1]} subagents at once on this machine, counting every Claude Code session's"
+    CAP_TXT="Parallel-agent cap: at most ${BASH_REMATCH[1]} subagents at once on this machine, Employees included, counting those of every Claude Code session on it"
     if [[ $CAP_PARA =~ runs\ a\ framework\ at\ (v[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,4})\ or\ earlier,\ the\ cap\ is\ ([0-9]{1,3}) ]]; then
-      CAP_TXT="$CAP_TXT; ${BASH_REMATCH[2]} while any session on it runs ${BASH_REMATCH[1]} or earlier"
+      CAP_TXT="$CAP_TXT; ${BASH_REMATCH[2]} while any session on it runs the framework at ${BASH_REMATCH[1]} or earlier"
     fi
     if [[ $CAP_PARA == *'Every main session open on the machine beyond the first lowers the cap by one.'* ]]; then
       CAP_TXT="$CAP_TXT; one fewer for each main session beyond the first"
     fi
-    echo "  $CAP_TXT. At the cap, a dispatch waits and the Director is told ($CAP_SHOWN, Dispatch Rules)."
+    echo "  $CAP_TXT. At or above the cap, a dispatch waits and the Main Agent tells the Director what waits ($CAP_SHOWN, Step 4, Dispatch Rules)."
   else
-    echo "  Parallel-agent cap: read it in $CAP_SHOWN, Dispatch Rules, before any parallel dispatch."
+    echo "  Parallel-agent cap: read it in $CAP_SHOWN, Step 4, Dispatch Rules, before your first dispatch."
   fi
 fi
 echo
@@ -1085,7 +1085,7 @@ if [ "$SS_LIGHT" -eq 0 ] && [ -n "$DRIFT_SH" ] && [ -f "$DRIFT_SH" ] && ! [ "$RO
         d_result
         [ -z "$DRIFT_ONCE" ] && D_DONE=1 ;;
       124|137)
-        D_OVER="IA Engineering drift check: not finished within the 3 s session-start budget"
+        D_OVER="IA Engineering drift check: not finished within its 3 s bound"
         D_BGNOTE="$D_OVER; it goes on in the background (5 min at most) and keeps its result for the next session (said once). To see it now: $DRIFT_FILL"
         if [ -z "$DRIFT_BG" ]; then
           # No cache to keep a result in: running it again would keep nothing.
