@@ -960,12 +960,17 @@ acc_hash2() {
 # field of it.
 acc_load() {
   local l n=0 tabs p t f c r
+  local -a lines=()
   [ -e "$ACC_FILE" ] || [ -L "$ACC_FILE" ] || return 0
   if [ -L "$ACC_FILE" ] || [ ! -f "$ACC_FILE" ] || [ ! -r "$ACC_FILE" ]; then
     rec config indeterminate "$ACC_FILE" "not a regular file this check can read (a symbolic link is not followed): no acceptance in it was applied"
     return 0
   fi
+  # Read whole first, then judged: no record is made while the file is open.
   while IFS= read -r l || [ -n "$l" ]; do
+    lines+=("$l")
+  done < "$ACC_FILE"
+  for l in ${lines[@]+"${lines[@]}"}; do
     n=$((n + 1))
     l="${l%$'\r'}"
     case "$l" in ''|'#'*) continue ;; esac
@@ -984,7 +989,7 @@ acc_load() {
       continue
     fi
     ACC_P+=("$p"); ACC_T+=("$t"); ACC_F+=("$f"); ACC_C+=("$c"); ACC_L+=("$n")
-  done < "$ACC_FILE"
+  done
   return 0
 }
 
