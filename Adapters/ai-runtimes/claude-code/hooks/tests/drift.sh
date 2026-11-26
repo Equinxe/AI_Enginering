@@ -616,6 +616,19 @@ e456 1 "file${TAB}differs${TAB}$DP_456" "#420: ... the quick check too, --strict
 # The later edit reviewed in turn, as the remedy says: --accept records it
 # again, its entry replaced, never added to.
 cp "$ACC_456" "$T/acc-456-first.tsv"
+# First with mktemp failing for the new entries file alone (a stand-in first
+# on PATH; every other mktemp, the installers' among them, runs as it is):
+# nothing recorded, said for that reason, the entries file as it was.
+mkdir -p "$T/mkt-456"
+cat > "$T/mkt-456/mktemp" <<EOF
+#!/usr/bin/env bash
+case "\${1:-}" in *drift-accepted.tsv.XXXXXX) exit 1 ;; esac
+exec "$(command -v mktemp)" "\$@"
+EOF
+chmod +x "$T/mkt-456/mktemp"
+O456="$(env PATH="$T/mkt-456:$PATH" "${DRIFT_456[@]}" --accept "$DP_456" 2>&1 </dev/null)"; R456=$?
+e456 2 "could not make a new file beside $ACC_456: nothing recorded" "#420: --accept when mktemp cannot make the new file: nothing recorded, said so (exit 2)"
+if cmp -s "$ACC_456" "$T/acc-456-first.tsv"; then ok "#420: ... the entries file as it was"; else bad "#420: ... the entries file as it was" "$(diff "$T/acc-456-first.tsv" "$ACC_456")"; fi
 r456 --accept "$DP_456"
 e456 0 "accepted: $DP_456, a reviewed edit of $TPL_456" "#420: the later edit reviewed: --accept records it again (exit 0)"
 ENTRY2_456="$DP_456${TAB}Adapters/github-actions/data-policy.yml${TAB}$(h456 "$TPL_456")${TAB}$(h456 "$DP_456")"
@@ -707,6 +720,7 @@ echo "# the project's own line" >> "$CPG_456"
 echo "# the project's own line" >> "$PRV_456"
 W_HOOKS_456="it holds the Claude Code hook entries, the two PreToolUse guards among them"
 W_CPG_456="the Control Path Guard workflow, which holds every control path to the Director's label"
+W_PRV_456="the PR Validation workflow, the server-side half of the commit-msg hook among its required checks"
 # target TAB the reason its arm of the list gives
 REFUSED_456="core.hooksPath${TAB}core.hooksPath decides which git hooks run
 .git/hooks/pre-commit${TAB}inside .git, where the project's own git hooks are
@@ -722,7 +736,7 @@ ia-engineering/Adapters/ai-runtimes/claude-code/hooks/session-start.sh${TAB}a fr
 ia-engineering/Registry/work-units.yml${TAB}inside the framework's checkout: the framework's own file, not the project's
 $CPG_456${TAB}$W_CPG_456
 .GitHub/Workflows/Control-Path-Guard.yml${TAB}$W_CPG_456
-$PRV_456${TAB}the PR Validation workflow, the server-side half of the commit-msg hook among its required checks"
+$PRV_456${TAB}$W_PRV_456"
 while IFS="$TAB" read -r p456 w456; do
   r456 --accept "$p456"
   e456 1 "refused: $p456: $w456. An acceptance never covers" "#420: --accept $p456 is refused for its own reason (exit 1)"
@@ -735,16 +749,20 @@ if cmp -s "$ACC_456" "$T/acc-456.tsv"; then ok "#420: ... none of them recorded"
 # edits). None is applied: each is reported refused for its own reason, to
 # act on, and the two workflows still differ. The entries are read alike by
 # the full check and the quick one, which is read here per target; the full
-# check counts them below.
+# check counts them below. A trailing / and a trailing /. name a file only
+# once acc_canon drops them: without those two rules, the last two spellings
+# are not entries (indeterminate, exit 2) rather than refused.
 SPELL_456=".claude//settings.json${TAB}$W_HOOKS_456
 .claude/./hooks/guard.sh/${TAB}a Claude Code hook script
 .git/${TAB}inside .git, where the project's own git hooks are
-.github//workflows/control-path-guard.yml${TAB}$W_CPG_456"
+.github//workflows/control-path-guard.yml${TAB}$W_CPG_456
+.claude/settings.json/${TAB}$W_HOOKS_456
+$PRV_456/.${TAB}$W_PRV_456"
 N_456="$(printf '%s\n%s\n' "$REFUSED_456" "$SPELL_456" | grep -c .)"
 while IFS="$TAB" read -r p456 w456; do
   case "$p456" in
     *[Cc]ontrol-[Pp]ath-[Gg]uard.yml) printf '%s\t%s\t%s\t%s\n' "$p456" Adapters/github-actions/control-path-guard.yml "$(h456 ia-engineering/Adapters/github-actions/control-path-guard.yml)" "$(h456 "$CPG_456")" ;;
-    "$PRV_456") printf '%s\t%s\t%s\t%s\n' "$p456" Adapters/github-actions/pr-validation.yml "$(h456 ia-engineering/Adapters/github-actions/pr-validation.yml)" "$(h456 "$PRV_456")" ;;
+    "$PRV_456"|"$PRV_456"/.) printf '%s\t%s\t%s\t%s\n' "$p456" Adapters/github-actions/pr-validation.yml "$(h456 ia-engineering/Adapters/github-actions/pr-validation.yml)" "$(h456 "$PRV_456")" ;;
     *) printf '%s\t%s\t%s\t%s\n' "$p456" Adapters/github-actions/data-policy.yml "$(h456 "$TPL_456")" "$(h456 "$DP_456")" ;;
   esac
 done <<< "$REFUSED_456
