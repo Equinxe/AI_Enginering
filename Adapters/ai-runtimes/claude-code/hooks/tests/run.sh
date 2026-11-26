@@ -1962,6 +1962,36 @@ expect_reason "escape-hatch: the word after a line break is judged on its own" \
   "$(mkbash $'true\nbash -c "git push --force"')" "force-push or mirror-push"
 expect_reason "escape-hatch: a heredoc's first line ends a command" \
   "$(mkbash $'cat <<EOF --config-env\nx\nEOF\n"/opt/a=b c/git" push --force')" "force-push or mirror-push"
+# A line break in a quoted region's text does end the value of an option
+# before it: the shell that runs the text ends the command there, so the
+# region after it is no value of --config-env, and its command path keeps
+# its last component (QA and code reviews of PR #501, final round).
+expect_reason "escape-hatch: a value ends at a line break in eval's quoted text (push)" \
+  "$(mkbash $'eval "echo --config-env\n""X=1 /usr/bin/git" push --force')" "force-push or mirror-push"
+expect_reason "escape-hatch: a value ends at a line break in eval's quoted text (commit)" \
+  "$(mkbash $'eval "echo --config-env\n""X=1 /usr/bin/git" commit --no-verify -m x')" "--no-verify disables"
+expect_reason "escape-hatch: a value ends at a line break in eval's quoted text (config)" \
+  "$(mkbash $'eval "echo --config-env\n""X=1 /usr/bin/git" config core.hooksPath /dev/null')" "setting core.hooksPath disables"
+expect_reason "escape-hatch: a value ends at a line break in eval's quoted text (after git status)" \
+  "$(mkbash $'eval "git status --config-env\n""GIT_TRACE=1 /mingw64/bin/git" push --force origin main')" "force-push or mirror-push"
+expect_reason "escape-hatch: a value ends at a line break in eval's quoted text (+ refspec)" \
+  "$(mkbash $'eval "echo --config-env\n""X=1 /usr/bin/git" push origin +main')" "a + prefix on a push refspec"
+expect_reason "escape-hatch: a value ends at a line break in eval's quoted text (--config-env=)" \
+  "$(mkbash $'eval "echo --config-env=\n""X=1 /usr/bin/git" push --force')" "force-push or mirror-push"
+expect_reason "escape-hatch: a value ends at a line break in eval's quoted text (two arguments)" \
+  "$(mkbash $'eval "echo --config-env\n" "X=1 /usr/bin/git" push --force')" "force-push or mirror-push"
+expect_reason "escape-hatch: a value ends at a line break in eval's quoted text (single quotes after)" \
+  "$(mkbash $'eval "echo --config-env\n"\'X=1 /usr/bin/git\' push --force')" "force-push or mirror-push"
+expect_reason "escape-hatch: a value ends at a line break in eval's quoted text (rm)" \
+  "$(mkbash $'eval "echo --config-env\n""X=1 /bin/rm" -rf /')" "recursive removal of the repository metadata"
+expect_reason "escape-hatch: a value ends at a line break in eval's quoted text (dashed git-push)" \
+  "$(mkbash $'eval "echo --config-env\n""X=1 /usr/libexec/git-core/git-push" --force')" "force-push or mirror-push"
+expect_reason "escape-hatch: a value ends at a line break in eval's quoted text (escaped space, single quotes)" \
+  "$(mkbash $'eval "x --config-env\n"\'./a=b\\ c/git\' push --force')" "force-push or mirror-push"
+expect_reason "escape-hatch: a value ends at a line break in eval's quoted text (escaped space, double quotes)" \
+  "$(mkbash $'eval "x --config-env\n""./a=b\\\\ c/git" push --force')" "force-push or mirror-push"
+expect_reason "escape-hatch: a value ends at a line break in eval's quoted text (escaped space, commit)" \
+  "$(mkbash $'eval "echo --config-env\n"\'./a=b\\ c/git\' commit --no-verify -m x')" "--no-verify disables"
 # THE PROCESS BUDGET. Recording stand-ins first on PATH, as in the budgets
 # above: a dashed git and git.cmd start cat and one jq; a command read three
 # times starts one awk, as a command read once does; a gh api write in a

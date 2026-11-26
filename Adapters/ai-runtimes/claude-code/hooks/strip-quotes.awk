@@ -197,15 +197,23 @@ function is_value_context(w) {
 #   the end of a line made the next line's quoted command path a value of
 #   its own, and the path was not read as the command it names.
 # - A line break that a quoted region's text holds, printed in a command
-#   context or after printf, ends no command around it, so it clears
-#   nothing: `eval "a<line break>""b c"` passes eval one argument, and the
-#   second region is judged on eval. A region's text is
-#   printed after its opening called last_word, so it comes first among the
-#   bytes a call reads, before any line break lex() notes after it. The
-#   exception is the rest of a double-quoted region after a substitution
-#   that the first two readings print: a line break in that substitution
-#   still clears a word of the region's rest there, and the third reading,
-#   which mutes the substitution, judges it.
+#   context or after printf, ends no command around the region, so it
+#   clears no word and no command or decode context. A quote glued after
+#   the region is judged on the last word before it: the command word when
+#   the text is only whitespace, as in `eval "<line break>""b c"`, which
+#   passes eval one argument, and otherwise the text's own last word. A
+#   region's text is printed after its opening called last_word, so it
+#   comes first among the bytes a call reads, before any line break lex()
+#   notes after it. The exception is the rest of a double-quoted region
+#   after a substitution that the first two readings print: a line break in
+#   that substitution still clears a word of the region's rest there, and
+#   the third reading, which mutes the substitution, judges it.
+# - The value context (LWV) is cleared at any line break after the word,
+#   noted or not. A value is the next word of the same command, and the
+#   shell that runs a region's text ends the command at a line break in it.
+#   Kept, `eval "echo --config-env<line break>""X=1 /usr/bin/git" push`
+#   read the second region as the value of --config-env, which keeps only
+#   its key (dropped), and its command path was printed in no reading.
 #
 # The kept word belongs to the text it was found in. Every place that sets out
 # to another text sets the kept word too: lex() clears it (kept_clear), a
@@ -230,7 +238,10 @@ function last_word(   L, j, e) {
     LWD = is_decode_context(LWW)
     LWV = is_value_context(LWW)
   }
-  if (NLP && index(substr(out, e + 1, L - e), "\n")) { LWW = ""; LWC = 0; LWD = 0; LWV = 0 }
+  if (index(substr(out, e + 1, L - e), "\n")) {
+    LWV = 0
+    if (NLP) { LWW = ""; LWC = 0; LWD = 0 }
+  }
   LWL = L; NLP = 0
   return LWW
 }
