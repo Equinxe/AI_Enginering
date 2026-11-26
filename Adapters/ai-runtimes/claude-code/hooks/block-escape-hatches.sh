@@ -138,11 +138,16 @@ fi
 # quote left open drops the line break the hook added) reads as the mark too,
 # which can only withhold that removal, never grant it. KEEPQ mode makes no
 # third reading and is not asked.
+#
+# Mode 2 is mode 0 with DROPMARK set: each quoted region the readings drop
+# leaves \016 (strip-quotes.awk, dropped). Only the core.hooksPath rule reads
+# it (the marked view).
 LEX_NESTED=0
 run_lexer() {
   local _lx _kq=()
   [ "$2" = 1 ] && _kq=(-v KEEPQ=1)
   [ "$2" = 1 ] || _kq=(-v NESTMARK=$'\a')
+  if [ "$2" = 2 ]; then _kq+=(-v DROPMARK=$'\016'); fi
   _lx="$(printf '%s\n' "$CMD" | awk ${_kq[@]+"${_kq[@]}"} -v MARK=. -f "$LEXER")" || _lx=""
   case "$_lx" in
     *.) _lx="${_lx%.}" ;;
@@ -525,26 +530,40 @@ esac
 # names (hookspath_rest). READ_HOOKSPATH_AT is the read, after a word boundary
 # instead of at the start.
 #
-# THE READ IS REMOVED ONLY WHERE NOTHING CAN BE HIDDEN BY ITS REMOVAL (review
-# of PR #529). A word removed with the read is gone from the rest the rule
-# then judges, so a removed read must be one whose words are the arguments git
-# receives, and whose output is the value the setting holds. Four conditions
-# make it so; when one fails, the segment is judged whole, and refused:
+# A READ IS REMOVED ONLY WHERE ITS WORDS ARE THE WORDS GIT RECEIVES (reviews
+# of PR #529, rounds 1 and 2). A word removed with the read is gone from the
+# rest the rule then judges, so a removed read must be one whose words are
+# the arguments git receives, as the shell forms them, and whose output is
+# the value the setting holds. Five conditions are required; when one fails,
+# the segment is judged whole, and refused:
 #
 # - The command holds no substitution inside another (LEX_NESTED). The first
 #   two readings print a nested substitution's commands as words of the one
 #   around it: in `echo $(git config $(--get) core.hooksPath x)`, --get is a
 #   command whose output is empty, and git receives a write
-#   (SEC-IAENG-455-01). A redirection's target is no word either, which
-#   READ_VAL keeps out of an option's value.
+#   (SEC-IAENG-455-01). A redirection's target is no word either; no word of
+#   a removed read can hold a redirection, since each is fixed text (next).
 # - The read is a --get, --get-all or get read of the key, with only a scope
 #   option (--global, --system, --local, --worktree), --includes,
-#   --no-includes, --type, --null or -z around its keyword (READ_SAFE_OPT).
-#   --get-regexp, --list, list and --name-only print key names, and --default,
-#   --file and --blob print a value the command text chooses: `git config
-#   "$(git config --name-only --get-regexp core.hooksPath)" /dev/null` is a
-#   write whose key is the read's output. The anchored exemption keeps its own
-#   list, since a read that begins its segment prints to no command.
+#   --no-includes, --null, -z, or a --type whose value is one of git's type
+#   names, around its keyword (READ_SAFE_OPT). Every word from config to the
+#   key is then fixed text. --get-regexp, --list, list and --name-only print
+#   key names, and --default, --file and --blob print a value the command
+#   text chooses: `git config "$(git config --name-only --get-regexp
+#   core.hooksPath)" /dev/null` is a write whose key is the read's output.
+#   A --type value that the shell expands, a brace, a glob, a `$` or a `~`,
+#   may become several words, and one may take the keyword as its own value
+#   (SEC-IAENG-455-02), so only git's names are read (READ_TYPE). The
+#   anchored exemption keeps its own list, since a read that begins its
+#   segment prints to no command.
+# - No quoted region the lexer drops lies in the read (review of PR #529,
+#   round 2, B1). A dropped region prints nothing in the readings, yet it is
+#   a word git receives: before `get`, it is the key of a legacy set. When a
+#   removal allowed a segment, the command is lexed again with DROPMARK, where
+#   each dropped region leaves \016, and its segments are judged again
+#   (hookspath_judge). A mark is no whitespace and no part of a word the read
+#   is made of, so a read with a dropped region in it is not removed there,
+#   and the segment is refused.
 # - No word that begins with - follows the first removed read in the rest. A
 #   ) or a backtick that ends the substitution is printed as a space, so an
 #   option after the key may be the read's own (`--default=/` after it makes
@@ -565,7 +584,10 @@ esac
 # segment, so its cost stays linear in the segment's length; a segment with
 # more reads keeps the others and is refused. A pattern bash cannot compile
 # ends the removal, which leaves the key, and the segment is refused.
-READ_SAFE_OPT="(--(global|system|local|worktree|includes|no-includes|null)|-z|--type(=|${S}+)${READ_VAL})"
+# git's type names (git-config(1), --type). The pattern after a READ_SAFE_OPT
+# is whitespace, so a name glued to anything else is not one of them.
+READ_TYPE='(bool|int|bool-or-int|path|expiry-date|color)'
+READ_SAFE_OPT="(--(global|system|local|worktree|includes|no-includes|null)|-z|--type(=|${S}+)${READ_TYPE})"
 READ_HOOKSPATH_AT="(^|[[:space:](\`{])${GXP}config${S}+(${READ_SAFE_OPT}${S}+)*(--get(-all)?|get)${S}+(${READ_SAFE_OPT}${S}+)*core\.hooksPath"
 READ_HOOKSPATH_LEGACY_AT="(^|[[:space:](\`{])${GXP}config${S}+(${READ_OPT}${S}+)*core\.hooksPath${S}*\$"
 # A word that names git, as G reads it: git and its dashed and extension
@@ -574,8 +596,10 @@ HOOKSPATH_GIT_WORD='(^|[^[:alnum:]_.-])[Gg][Ii][Tt]([^[:alnum:]_]|$)'
 HOOKSPATH_CONFIG_WORD='(^|[^[:alnum:]_.-])[Cc][Oo][Nn][Ff][Ii][Gg]([^[:alnum:]_.-]|$)'
 HOOKSPATH_MAX_READS=16
 HOOKSPATH_REST=""
+HOOKSPATH_NREAD=0
 hookspath_rest() {
   local _todo="$1" _done="" _m _pre _n=0
+  HOOKSPATH_NREAD=0
   if [ "$LEX_NESTED" -eq 1 ]; then HOOKSPATH_REST="$1"; return 0; fi
   shopt -s nocasematch
   while [ "$_n" -lt "$HOOKSPATH_MAX_READS" ] && [[ $_todo =~ $READ_HOOKSPATH_AT ]]; do
@@ -589,6 +613,7 @@ hookspath_rest() {
   done
   shopt -u nocasematch
   HOOKSPATH_REST="${_done}${_todo}"
+  HOOKSPATH_NREAD=$_n
 }
 # hookspath_rest_names_more — true when HOOKSPATH_REST names git or config,
 # or holds a word that begins with - after its first removed read (above).
@@ -616,35 +641,69 @@ HOOKSPATH_REAL_WRITE=0
 # conditions above: the rest names git or config, or an option follows the
 # read. Its message says to run the read as a command of its own.
 HOOKSPATH_READ_ARG=0
+# A segment allowed only because a read was removed from it. The command is
+# then judged again on the marked view (below).
+HOOKSPATH_REMOVED=0
+# hookspath_judge SEG... — judges each segment that names the key, and sets the
+# flags above.
+hookspath_judge() {
+  local _seg
+  for _seg in "$@"; do
+    rx_any 1 "git[^|;&]*core\.hooksPath" "$_seg" || continue
+    if rx_any 1 "$READ_HOOKSPATH" "$_seg" \
+       || { [ "$LEGACY_OK" -eq 1 ] && rx_any 1 "$READ_HOOKSPATH_LEGACY" "$_seg"; }; then
+      :
+    else
+      hookspath_rest "$_seg"
+      if rx_any 1 "git[^|;&]*core\.hooksPath" "$HOOKSPATH_REST"; then
+        HOOKSPATH_WRITE=1
+        if rx_any 1 "$READ_HOOKSPATH_LEGACY_AT" "$HOOKSPATH_REST"; then
+          HOOKSPATH_READ_HINT=1
+        else
+          HOOKSPATH_REAL_WRITE=1
+        fi
+      elif hookspath_rest_names_more; then
+        HOOKSPATH_WRITE=1
+        HOOKSPATH_READ_ARG=1
+      elif [ "$HOOKSPATH_NREAD" -gt 0 ]; then
+        HOOKSPATH_REMOVED=1
+      fi
+    fi
+    if rx_any 1 "$WRITE_HOOKSPATH_VIA_C" "$_seg"; then
+      HOOKSPATH_WRITE=1
+      HOOKSPATH_REAL_WRITE=1
+    fi
+  done
+}
 # Gate: a command whose stripped text never contains the key (any case) cannot
 # trip the loop, so skip its forks. Judged on STRIPPED, where a split key is
 # already rejoined; bash 3.2 has no ${var,,}, so the case is folded by the pattern.
+#
+# THE MARKED VIEW (review of PR #529, round 2, B1). When a removal allowed a
+# segment and the command holds a quote, the command is lexed again with
+# DROPMARK (run_lexer, mode 2), where each quoted region the readings drop
+# leaves \016, and every segment of that view is judged again. The view can
+# only add a refusal: a mark breaks a read's words apart, and no rule allows a
+# segment for holding one. A read the first view removed whose words a
+# dropped region sits among is not removed in the marked view, and its
+# segment is refused there. The view has the segment cap of the first.
 case "$STRIPPED" in
   *[hH][oO][oO][kK][sS][pP][aA][tT][hH]*)
-    for SEG in ${SEGS[@]+"${SEGS[@]}"}; do
-      rx_any 1 "git[^|;&]*core\.hooksPath" "$SEG" || continue
-      if rx_any 1 "$READ_HOOKSPATH" "$SEG" \
-         || { [ "$LEGACY_OK" -eq 1 ] && rx_any 1 "$READ_HOOKSPATH_LEGACY" "$SEG"; }; then
-        :
-      else
-        hookspath_rest "$SEG"
-        if rx_any 1 "git[^|;&]*core\.hooksPath" "$HOOKSPATH_REST"; then
-          HOOKSPATH_WRITE=1
-          if rx_any 1 "$READ_HOOKSPATH_LEGACY_AT" "$HOOKSPATH_REST"; then
-            HOOKSPATH_READ_HINT=1
-          else
-            HOOKSPATH_REAL_WRITE=1
+    hookspath_judge ${SEGS[@]+"${SEGS[@]}"}
+    if [ "$HOOKSPATH_WRITE" -eq 0 ] && [ "$HOOKSPATH_REMOVED" -eq 1 ]; then
+      case "$CMD" in
+        *\'*|*\"*)
+          run_lexer HOOKSPATH_MARKED 2
+          ascii_map HOOKSPATH_MARKED
+          split_into $';&|\n' "$HOOKSPATH_MARKED"
+          if [ "${#SPLIT[@]}" -gt "$MAX_SEGMENTS" ]; then
+            iaeng_block "the marked view of this command, which the core.hooksPath rule reads, has more than $MAX_SEGMENTS segments, more than the hook will read" \
+              "Adapters/ai-runtimes/claude-code/hooks/README.md — unread input is refused rather than allowed. Split the command, or write it to a script file and run that."
           fi
-        elif hookspath_rest_names_more; then
-          HOOKSPATH_WRITE=1
-          HOOKSPATH_READ_ARG=1
-        fi
-      fi
-      if rx_any 1 "$WRITE_HOOKSPATH_VIA_C" "$SEG"; then
-        HOOKSPATH_WRITE=1
-        HOOKSPATH_REAL_WRITE=1
-      fi
-    done
+          hookspath_judge ${SPLIT[@]+"${SPLIT[@]}"}
+          ;;
+      esac
+    fi
     ;;
 esac
 if [ "$HOOKSPATH_WRITE" -eq 1 ]; then
@@ -871,7 +930,12 @@ fi
 # subcommand may be followed by a $, a quote or a backtick, and the rest of its
 # word. add--interactive is git add -i's own helper, where git still has it
 # (it was removed in 2.40), and is read as add is.
-INTERACTIVE_GLUED="([\$\`\"'][^[:space:]|;&]*)?"
+#
+# A REDIRECTION GLUED TO THE SUBCOMMAND ENDS ITS WORD (review of PR #529, round
+# 2, m1). The shell splits `<` and `>` off the word, so `git commit>/dev/null
+# -p` and `git rebase<x -i` pass the subcommand alone. A < or > may follow it
+# too. `git commit2>x -p` is not matched: its word is commit2.
+INTERACTIVE_GLUED="([\$\`\"'<>][^[:space:]|;&]*)?"
 if check "${G}(rebase|add|add--interactive|commit|checkout|reset)${GEXT}${INTERACTIVE_GLUED}${S}([^|;&]*${S})?(-i|--interactive|-p|--patch)$E"; then
   iaeng_block "interactive git command in a non-interactive session — it hangs or does nothing, and the session assumes a result" \
     "Standards/GIT_STANDARD.md, Escape Hatches. Use the non-interactive equivalent and verify with git log / git status."

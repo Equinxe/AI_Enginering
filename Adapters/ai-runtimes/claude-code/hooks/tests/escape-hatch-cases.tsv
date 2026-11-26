@@ -1311,3 +1311,37 @@ block	$'/c/x y/gi't push --force	force-push or mirror-push
 # recursive flag keeps the flag the rm's own (QA note 2, pinned).
 block	rm -f .git/index.lock -- -r	removing the repository metadata (.git)
 block	rm .git/a .git/b -r	recursive removal
+# Review of PR #529, round 2. Every block row in this group was allowed at
+# 17ca76d and is refused on develop.
+# A --type value the shell expands may become several words, and one may take
+# the read's keyword as its value: only git's type names are read
+# (SEC-IAENG-455-02). The allow rows name a type and were refused on develop.
+block	echo $(git config --type {path,--comment} --get core.hooksPath /dev/null)	setting core.hooksPath disables
+block	echo "$(git config --type {path,--comment} --get core.hooksPath /dev/null)"	setting core.hooksPath disables
+block	echo `git config --type {path,--comment} --get core.hooksPath /dev/null`	setting core.hooksPath disables
+block	echo $(git config --local --type {path,--comment} --get core.hooksPath /dev/null)	setting core.hooksPath disables
+block	echo $(git config --type {path,--comment} --get-all core.hooksPath /dev/null)	setting core.hooksPath disables
+block	X='path --comment'; echo $(git config --type $X --get core.hooksPath /dev/null)	setting core.hooksPath disables
+block	: > ./--comment; : > bool; echo $(git config --type * --get core.hooksPath true)	setting core.hooksPath disables
+block	echo $(git config --type ${T} --get core.hooksPath /dev/null)	setting core.hooksPath disables
+block	echo $(git config --type ~ --get core.hooksPath /dev/null)	setting core.hooksPath disables
+block	echo $(git config --type path{,} --get core.hooksPath /dev/null)	setting core.hooksPath disables
+block	echo $(git config --type ${x:+ --get core.hooksPath } path core.hooksPath /dev/null)	setting core.hooksPath disables
+allow	echo "$(git config --type path --get core.hooksPath)"
+allow	echo $(git config --type=bool-or-int --get core.hooksPath)
+# A quoted region the lexer drops is still a word git receives: before get, a
+# key that makes the read a set; before --get, a --default whose value the read
+# prints (code review of PR #529, round 2, B1). Judged in the marked view.
+block	echo $(git config "core.hooksPath${E:+ }" get core.hooksPath)	setting core.hooksPath disables
+block	echo "$(git config "core.hooksPath${E:+ }" get core.hooksPath)"	setting core.hooksPath disables
+block	echo `git config "core.hooksPath${E:+ }" get core.hooksPath`	setting core.hooksPath disables
+block	echo $(git config "--default=a b" --get core.hooksPath)	setting core.hooksPath disables
+block	echo $(git config 'core.hooksPath ' get core.hooksPath)	setting core.hooksPath disables
+# A redirection glued to the subcommand leaves it alone (code review of PR
+# #529, round 2, m1). A digit glued to it makes another word, commit2.
+block	git commit>/dev/null -p	interactive git command
+block	git commit</dev/null -p	interactive git command
+block	git add>x -p	interactive git command
+block	git rebase<x -i	interactive git command
+block	git reset>/dev/null --patch	interactive git command
+allow	git commit2>x -p

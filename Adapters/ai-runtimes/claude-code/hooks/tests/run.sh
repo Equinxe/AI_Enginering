@@ -2269,8 +2269,8 @@ w455_nest "lexer: a \$( in double quotes in a backtick pair is nested" "echo \`a
 w455_nest "lexer: two substitutions side by side are not nested" "echo \$(a) \`b\` \"\$(c)\"" 0
 w455_nest "lexer: a subshell in a substitution is not nested" "echo \$( (a))" 0
 # A heredoc body's substitutions are printed as written, a nested one with
-# them: a ( in an option's value ends the read there (READ_VAL), so the
-# second, whose --type value is glued to a substitution, is no read
+# them: a --type value glued to a substitution is not one of git's type names
+# (READ_TYPE; READ_VAL before review round 2), so the second is no read
 # (SEC-IAENG-455-01; allowed at 46ec516). A read beside another
 # substitution in a body passes.
 expect_reason "escape-hatch: a heredoc body's write behind a value glued to a substitution is refused" \
@@ -2314,6 +2314,35 @@ w440_lex "lexer: a quoted path glued to the text after it keeps its last compone
   '"/c/x y/gi"t push' $'t push\n/git push'
 w440_lex "lexer: a value's last component that names no command is not kept" \
   'git -C "/c/x y/repo" status' $'git -C \005 status'
+# THE DROP MARK (review of PR #529, round 2, B1). With DROPMARK set, a quoted
+# region the readings drop leaves the mark, in every reading; a value
+# context's region keeps \005, and a region printed as a word is not marked.
+# Unset, the output is as before (the w440_lex checks above).
+w455_drop() {
+  local label="$1" in="$2" want="$3" got
+  TOTAL=$((TOTAL + 1))
+  got="$(printf '%s' "$in" | awk -v DROPMARK=D -f "$HOOKS/strip-quotes.awk"; printf x)"
+  got="${got%x}"
+  if [ "$got" = "$want" ]; then
+    [ "$VERBOSE" -eq 1 ] && printf '   ok    %s\n' "$label"
+  else
+    FAILED=$((FAILED + 1))
+    printf '   FAIL  %s: got %q, want %q\n' "$label" "$got" "$want"
+  fi
+}
+w455_drop "lexer: a dropped region before get leaves the drop mark" \
+  "git config \"core.hooksPath\${E:+ }\" get core.hooksPath" 'git config D get core.hooksPath'
+w455_drop "lexer: a dropped single-quoted and an emptied region each leave the drop mark" \
+  "x 'a b' \"\$(c)\" y" $'x D  c D y\nx D D y'
+w455_drop "lexer: a value context's region keeps \\005, and a quoted word is printed" \
+  'git -C "/c/x y/repo" "status"' $'git -C \005 status'
+# The marked view refuses a read whose words hold a dropped region; a read
+# with none, in the same shape, still passes (exit 0).
+expect_reason "escape-hatch: a dropped region among a read's words is judged in the marked view" \
+  "$(mkbash "echo \"\$(git config \"core.hooksPath\${E:+ }\" get core.hooksPath)\"")" \
+  "setting core.hooksPath disables"
+expect_rc "escape-hatch: a read with a dropped region outside its words passes the marked view" 0 "$HOOK" \
+  "$(mkbash "echo \"\$(git config get core.hooksPath)\" \"a b\"")"
 # A segment of many reads is judged in time: 6,000 substitutions of a read
 # after an echo, 210 KB in one segment. The removal stops at 16, so the rest
 # is refused, and its cost stays linear in the segment's length.

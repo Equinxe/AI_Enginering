@@ -867,6 +867,14 @@ function lex(s,   n, i) {
 # key and its `=`, in every reading. The rest of its value, the name of a
 # variable, is not printed: the key and its `=` are already a word, and G and
 # GX read the word after the option as its value whatever follows the `=`.
+#
+# THE DROP MARK (`awk -v DROPMARK=...`, set by block-escape-hatches.sh for its
+# marked view; review of PR #529, round 2, B1). A region this function prints
+# nothing for is still a word the shell passes: in
+#   git config "core.hooksPath${E:+ }" get core.hooksPath
+# git receives the key before `get`. With DROPMARK set, such a region prints
+# DROPMARK in every reading, so the core.hooksPath rule sees that a word stood
+# there. Unset, nothing is printed, as before.
 function dropped(b, nx,   t) {
   if (valctx == 2 && !tainted && match(b, /^[^ \t\n=]+=/)) {
     out = out sepw(substr(b, 1, RLENGTH))
@@ -876,6 +884,7 @@ function dropped(b, nx,   t) {
   if (V2 && t != "") { out = out t; return }
   if (t != "") CHANGED = 1
   if (valctx && !tainted && (b ~ /[^ \t\n]/ || hadsub)) out = out WB
+  else if (DROPMARK != "") out = out DROPMARK
 }
 
 # TWO READINGS (WU-IAENG-440). The text is printed as this file read it before
