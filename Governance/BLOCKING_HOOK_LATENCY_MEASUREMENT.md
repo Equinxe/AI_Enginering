@@ -23,6 +23,7 @@ The measurement was taken on 28 October 2026 and the decision was made on 29 Oct
    - With 6 calls at a time, on a machine at 100 % CPU but a lighter process-creation load than the heaviest measured, the slowest guard call took 9.8 s, 8 % of the timeout.
    - The cap is decided again after the edit guard is re-measured (Usage plan W2.3) (The Parallel-Agent Cap).
 7. **19 and 24 November 2026, WU-IAENG-444:** `block-inline-suppression.sh` starts `cat`, one `jq` and one `grep` on a code edit, 14 processes per call instead of 52, and 18 when a path names `tests` or the pattern file. Interleaved with develop's at 6 calls at a time, on 200 real edits at the capped load, its p50 is 29.6 % of before, and its own cost above the no-op 22.8 %, against the third that W2.3 asks for. On 24 synthetic payloads at a light load, the same ratios were 23 % and 14 %. Every verdict is unchanged, but one: an edit of 65,536 to 65,663 bytes no longer waits for the 120 s timeout. Neither load reached the no-op p50 of 2 s that the cap decision needs, so this does not decide the cap (The Edit Guard Starts a Quarter of the Processes).
+8. **25 November 2026, WU-IAENG-452:** `session-start.sh` has a budget, floor-relative at 6 calls at a time, and a 120 s timeout where the 600 s default held. On `/clear` and compaction it no longer runs the generator, the drift check or the context-alert check again, and every event starts fewer processes: 25 instead of 98 on `clear` and `compact` in an adopting project, 59 instead of 98 on `startup` and `resume`. Interleaved with develop's at 6 at a time on a heavy load, its p50 is 33 to 34 % of before on `clear` and `compact` and 62 to 66 % on `startup` and `resume`. It prints the parallel-agent cap in one line, read from `Core/ORCHESTRATION.md` (The Session Start Hook Within a Budget).
 
 ---
 
@@ -399,7 +400,7 @@ The cap stays at 6 until the edit guard, now the binding one, is measured again 
 - **A Main Agent sees only its own subagents.** It counts the main sessions and subagents of other sessions only when the Director reports them. The cap holds machine-wide only as far as those reports do. A pole sees neither, which is why it counts against a fixed share of the cap.
 - **Nested subagents are counted as their brief declares them.** A dispatch counts as 1 plus the subagents its Employee Brief allows. An Employee that starts more than its brief allows breaks the cap without the Main Agent seeing it.
 - **The check at 6 was short.** It is one run of 82 s, at one load, on one machine, Windows only. Linux and macOS start processes far more cheaply (Limits, below).
-- **Session start does not print the cap.** The Director's review of `develop` at 67ad444 asked, in the second part of its finding 13, that `session-start.sh` print the cap where every session sees it. The triage deferred that part to a Platform Engineer Work Unit timed with W2.3, and WU-IAENG-444 does not take it: it changes no hook but the edit guard. It stays deferred, filed as issue #486. Until then the cap reaches a Main Agent through `Core/ORCHESTRATION.md` and the project's `CLAUDE.md`, which point to it.
+- **Session start prints the cap since WU-IAENG-452.** The Director's review of `develop` at 67ad444 asked, in the second part of its finding 13, that `session-start.sh` print the cap where every session sees it. The triage deferred that part to a Platform Engineer Work Unit timed with W2.3; WU-IAENG-444 did not take it, and it was filed as issue #486. `session-start.sh` now prints it in one line on every SessionStart event, its numbers read from `Core/ORCHESTRATION.md`'s own paragraph, with no process added (The Session Start Hook Within a Budget, The Cap Line, below). While Core keeps the v0.0.15 sentence, the line says the cap is 3 while any session on the machine runs v0.0.15 or earlier, so a session of this version tells its Main Agent the cap a v0.0.15 project's session on the same machine imposes. That v0.0.15 session itself is told nothing: its hook, its `Core/ORCHESTRATION.md` and its `Templates/PROJECT_CLAUDE.md` are those of v0.0.15, and none of them carries the cap (Why 3 With v0.0.15). Its cap reaches it only from the Director.
 
 ## The Edit Guard Starts a Quarter of the Processes (WU-IAENG-444)
 
@@ -527,6 +528,137 @@ Guard wait per dispatch, the escape-hatch guard at `k` 0.297 over 78 Bash calls 
 - **The production model is re-applied by the Performance Engineer's run only.** Its inputs are transcript-derived and were not in the author's session (Sources). The edit guard's `k` measured there is 0.42 (0.37 to 0.46); this section no longer estimates it from the synthetic run (P2 of the Performance review of PR #487).
 - **One run each, one machine, Windows only.** On Linux there is no `cygpath`, and the conversion starts no process either way.
 
+## The Session Start Hook Within a Budget (WU-IAENG-452)
+
+Usage plan item W2.6, issue #515, measured on 25 November 2026. `session-start.sh` runs on every SessionStart event (matcher `startup|resume|clear|compact`). It had no budget, and on every `/clear` and every compaction it did all of its work again: the read-first pointers and `SESSION_STATE.md`, a generator run for the tier map and the agents check, `git status`, the drift check in an adopting project, and the context-alert threshold check. The issue measured 7.5 to 16.9 s under load. In this session's own transcript, read on 25 November, 15 resumes took a p50 of 4.2 s and a p95 of 8.3 s, and 8 compactions a p50 of 4.2 s and a maximum of 32.5 s.
+
+### Measured First: the Hook Before This Work Unit, per Event
+
+- **Harness.** A Job Object harness of this document's method, written for this Work Unit: each call started suspended in its own Job Object, as Claude Code starts it on Windows (`Git\bin\bash.exe -c "bash \"<hook>\""`), the payload Claude Code sends for the event on stdin, stdout and stderr to files. The Job Object counts every process of the call and sums its CPU. A queue keeps N calls in flight, the order rotated per round.
+- **Projects.** Two throwaway projects in the session's scratch directory: an adopting project, its framework a clone of `develop` at 9a2ab86 under `ia-engineering/`, installed with `install.sh`, `install-hooks.sh` and `generate-agents.sh`, so the drift check runs; and a clone of the framework itself, where it does not. Each has a synthetic `SESSION_STATE.md` of 117 KB (the framework's own is 111 KB), and its agents generated. Each version of the hook has its own `XDG_CACHE_HOME`.
+- **Load.** The Director's workstation of Scope and Machine, with this repository's other agents at work. A sampler logged it every 10 s.
+
+Develop's hook (blob `f88c4d6`), one call at a time, 6 calls per event and project, from 11:46:20 to 12:04:50 UTC. Load: 74 samples, CPU at 69 % on average (26 to 100), a run queue of 23 on average (89 at most), about 528 processes, 45 bash, 9 node and 5 claude. The no-op's p50 was 835 ms and its p95 2,082 ms. With 6 runs, the p95 is the slowest.
+
+| One call at a time (ms) | adopting project p50 / p95 | processes | framework repository p50 / p95 | processes |
+|---|---|---:|---|---:|
+| `startup` | 25,032 / 35,747 | 102 | 20,277 / 23,221 | 74 |
+| `resume` | 28,381 / 41,133 | 105 | 15,023 / 24,806 | 74 |
+| `clear` | 28,045 / 30,944 | 105 | 16,896 / 21,720 | 74 |
+| `compact` | 24,970 / 31,500 | 103 | 18,917 / 23,724 | 74 |
+
+Every event cost the same: 25 to 28 s at the p50 in an adopting project, about 103 processes, of which a `/clear` or a compaction needed none of the generator's, the drift check's or the context-alert check's. A trace of one run (`bash -x`, a timestamp per line) put the time in the generator (about 5 s), the drift check (3 s to its cut, then about 2.5 s reading what an earlier run left in the background), and `SESSION_STATE.md`'s reading (about 4 s, some 30 processes for a `grep`, a `sed`, two `awk`, two `date`, `git` three times and the subshells around them). At this load the drift check never finished within its 2.8 s: every run reported what a background run had found.
+
+### What Each Event Runs Now
+
+`clear` and `compact` read again what those events need back: the pointers, `SESSION_STATE.md` (header, Next Step, Blocked On, freshness warnings), the parallel-agent cap and the repository state (#304, AC2). They print the tier map and agents block that the last full run kept, when nothing the generator reads has changed since, and run the generator otherwise. They run neither the drift check nor the context-alert threshold check: those read the framework's installation and the runtime's environment, which neither event changes, and the session's startup or resume already said what they found. `startup` and `resume` run every check, as before. `hooks/README.md`, Session Start Budget, gives the rule that keeps the block valid, its inputs and its declared limit.
+
+Every event also starts fewer processes. `SESSION_STATE.md` is read by one `awk` where a `grep`, a `sed` and two `awk` read it; its header's date, the month and the file's day are read in the shell where `grep`, `head`, `tr` and a second `date` ran; `git status` runs once and also answers whether the project is a work tree (`git rev-parse` only when it fails, as in `stop-gate.sh`); the tier map's values and the repository state's first 15 lines are cut in the shell where four `sed` and a `head` ran.
+
+### Measured, Before and After Interleaved, 6 Calls at a Time
+
+The same harness and projects, develop's hook and this one round-robin with the no-op, every event, 6 calls in flight, 12 rounds: 204 runs from 12:50:18 to 13:12:44 UTC. Load: 108 samples, CPU at 75 % on average (25 to 100, at 100 % in 6), a run queue of 25 on average (103 at most), about 570 processes, 76 bash (the bench's own included), 9 node and 5 claude; a run of `tests/session-start-budget.sh` and the framework validator ran beside it. The no-op's p50 was 3,542 ms and its p95 6,946 ms: a heavy load in the sense of The Condition for Raising or Lifting the Cap (2 s or more). `startup` and `resume` take the same path, and so do `clear` and `compact`, so each pair is pooled: 24 runs, the p95 the 23rd.
+
+| 6 at a time (ms) | develop p50 / p95 / max | WU-IAENG-452 p50 / p95 / max | ratio p50 / p95 | processes per call |
+|---|---|---|---|---|
+| adopting project, `startup` and `resume` | 62,722 / 86,631 / 96,484 | 41,096 / 56,480 / 58,538 | 66 % / 65 % | 98 → 59 |
+| adopting project, `clear` and `compact` | 58,365 / 75,636 / 90,373 | 19,235 / 26,745 / 27,172 | 33 % / 35 % | 98 → 25 |
+| framework repository, `startup` and `resume` | 46,869 / 67,757 / 73,508 | 29,058 / 38,703 / 39,530 | 62 % / 57 % | 74 → 33 |
+| framework repository, `clear` and `compact` | 53,438 / 67,038 / 68,511 | 18,324 / 25,498 / 27,423 | 34 % / 38 % | 74 → 21 |
+
+Per event, the p50 of the 12 runs: in the adopting project, `startup` 41.1 s and `resume` 39.8 s against develop's 64.2 s and 62.1 s, `clear` 18.8 s and `compact` 19.2 s against 58.4 s and 58.1 s; in the framework repository, 28.8 s, 29.6 s, 18.8 s and 17.1 s against 46.9 s, 44.9 s, 52.7 s and 53.4 s. Every run exited 0. The processes are the median: a `clear` that found no valid kept block (the first of the run, in a new cache) ran the generator and counted 47.
+
+An earlier round of 102 runs, 6 at a time, from 12:17:16 to 12:23:42 UTC (no-op p50 2,421 ms, a lighter load; 6 runs per event, 12 per pair), on the hook before its last change, which ran one `git` more per event, gave the same picture: `clear` and `compact` at 34 % of develop's p50 in the adopting project (10.9 s against 32.0 s) and 38 % in the framework repository, `startup` and `resume` at 71 % and 58 %.
+
+What `startup` and `resume` start beyond `clear` and `compact`, 34 processes in the adopting project and 12 in the framework repository, is the generator's run, the drift check (`timeout`, its `bash` and its own commands, and when it overruns the background run's bookkeeping) and the context-alert check, which they still run. A `clear` or a `compact` with a valid kept block starts the hook's own `bash`, lib.sh's `cat`, one `awk`, one `date`, `git` three or four times (the status, HEAD's time, the commit count when `SESSION_STATE.md` is behind, and in an adopting project the framework's commit) and one `find`.
+
+### The Budget
+
+The budget is for the whole hook, measured as above: 6 calls at a time, interleaved with the no-op, at the day's capped load, whatever its no-op p50. A fixed number of seconds would be passed or failed by the day's load (the no-op's p50 was 835 ms one at a time and 2.4 to 3.5 s six at a time on the same day), so the test is floor-relative, as The Condition for Raising or Lifting the Cap made it. On `startup` and `resume` in an adopting project it adds 3 s (Re-measured in Review, below). The 3 s is the drift check's cut, TERM at 2.8 s and KILL 0.2 s later: a fixed time that does not scale with the no-op, so at a light load it weighs more in the call (the p95 was 21.8 no-ops at a no-op p50 of 0.67 s). The framework repository has no drift check, and no 3 s. A process count stands beside it, one per path, counted until the hook exits:
+
+| Event, and the path it takes | p95, at most | Processes per call, at most (adopting project / framework repository) | This Work Unit (adopting project / framework repository) | Develop |
+|---|---|---|---|---|
+| `clear`, `compact`, printing the kept block | 12 × the no-op's p50 | 30 / 30 | 7.6 / 7.2 no-ops; 25 / 21 processes | 21.4 / 18.9 no-ops; 98 / 74 processes |
+| `clear`, `compact`, running the generator (no kept block, or one that is stale or not trusted) | 12 × the no-op's p50 | 60 / 50 | 49 / 41 processes; timed one call at a time only | as the row above: develop always runs the generator |
+| `startup`, `resume`, with or without a rewrite of the kept block, the first run with an empty cache included | 20 × the no-op's p50, plus 3 s in an adopting project | 200 / 50 | 15.9 / 10.9 no-ops; 59 / 33 processes (median); 84 / 41 at most with a filled cache, measured with a rewrite; 143 / 45 at most on the first run with an empty cache where the drift check is cut; 173 in an adopting project on that run where the drift check finishes within its cut | 24.5 / 19.1 no-ops; 98 / 74 processes |
+
+In the earlier, lighter round the hook was at 10.0 and 7.1 no-ops on `clear` and `compact`, and 14.6 and 8.1 on `startup` and `resume`; develop at 18.9 and 13.9, and 19.2 and 13.6.
+
+**What the process count counts.** Every process of the call, from its start until the hook exits and its output closes. On `clear` and `compact`, and in the framework repository on every event, the hook starts the same commands whatever the load, so the count does not move with it. On `startup` and `resume` in an adopting project it does: the drift check is cut by wall-clock time, so the load decides how far it gets before its cut and whether its rerun is started. That rerun is detached from the hook's output, runs on for up to 300 s after the hook exits (WU-IAENG-418), and is not counted here once the hook has exited: no hook budget covers it, and it belongs to the drift check. Counted until the Job Object empties, that rerun included, the Performance Engineer found a median of 81 and a maximum of 136.
+
+**Why these values.** `clear` and `compact` exist to give a session back its state, not to check the installation again: their budget is the work they need, about a quarter of develop's processes, with room for the commit count and an adopting project's commit. `startup` and `resume` still run every check, the generator and the drift check included. Their budget bounds them against the timeout: at the heaviest load measured in this document (a no-op p50 of 4.0 s, 17 November), 20 no-ops and 3 s are 83 s, about 70 % of the 120 s timeout below, and 12 no-ops are 48 s. Each process count is set above the highest count measured on its path, with stated headroom (Re-measured in Review, below). The first version of this table gave one count per event, 80 and 40 on `startup` and `resume`, from the author's median of 59 and a review maximum of 75 taken at loads where the drift check was cut early. The second review round measured the paths that count missed: on `startup` and `resume`, 76 to 80 with nothing written at a light load, where the drift check finishes within the call (the count is highest at the lightest load, not the heaviest), and 84 and 41 when the kept block is rewritten; on `clear` and `compact` that run the generator, 49 and 41, against 30. Those are budgeted paths, not faults. The rewrite (8 processes: the trust test of the cache directory, the `umask` subshell, `touch -d` and `mv`) happens on the first full run after any input of the kept block changes, on the first run with an empty cache, and after a run that gave no verdict; a `clear` or `compact` sends those same cases to the generator by design. The third review round counted what the second left uncounted, the first run with an empty cache, which also makes the cache directory and writes the memory of a drift line said once: up to 143 in an adopting project, above the 100 then set, and 45 in the framework repository. In an adopting project the drift check, with no result of its own to reuse, starts more before its cut than it does in a whole run on a filled cache; a filled cache that has lost the drift check's result does the same (84 to 111). That cost is `check-framework-drift.sh`'s, which this Work Unit does not change. The fourth review round counted the path the count is highest on, the first run with an empty cache where the cold drift check finishes within its cut and starts no rerun: 173 in an adopting project, above the 170 then set. 200 and 50 on `startup` and `resume` leave 27 and 5 above the highest counts measured, 173 and 45. 60 and 50 on the generator path leave 11 and 9.
+
+**The timeout.** `settings.example.json`, and through `install-hooks.sh` every installed `settings.json`, gives the SessionStart entry `"timeout": 120`. It had none, so Claude Code's default of 600 s applied: a hook that hung held the session's start for ten minutes. The slowest call measured here took 58.5 s for this hook and 96.5 s for develop's, both under load six times as harsh as a single session start meets. A hook cancelled at its timeout has its output discarded, so the session starts without the read-first context; the budget keeps the hook well under it. No `onFailure`: a SessionStart failure blocks nothing (The Timeout Actually in Force). One value with the guards: 120 s. `install-hooks.sh` adds the field in place to the framework's earlier entry, under either earlier matcher, as it added the guards' fields (The Guards Fail Closed, The upgrade does not double the guards): a second SessionStart group would run the whole hook twice on every event.
+
+**Held in CI.** `tests/session-start-budget.sh` counts, with recording stand-ins first on `PATH`, the commands each path starts: at most 10 on `clear` and `compact` with a valid kept block, the hook's own `bash` the only one, and at most 12 on `startup`, with no `grep`, `sed`, `head` or `tr` on either. Develop fails both.
+
+### Re-measured in Review (PR #520)
+
+The Performance Engineer re-measured the hook at 0417fcb with an independent Job Object harness of this document's method, interleaved with develop's and the no-op, 6 calls at a time, on two capped loads, neither of which reached a no-op p50 of 2 s:
+
+- **`clear` and `compact`.** The hook's p50 was 25 % of develop's in the adopting project and 33 % in the framework repository; its p95 9.2 and 7.3 no-ops, against 12; 24 and 21 processes in every run, against 30.
+- **`startup` and `resume`, framework repository.** 10.4 no-ops and 33 processes, against 20 and 40.
+- **`startup` and `resume`, adopting project.** A p95 of 19.5 no-ops at a no-op p50 of 1.58 s, and of 21.8 no-ops at 0.67 s: under 20 no-ops on the first load, over it on the second, where the drift check's fixed 2.8 s cut weighs most. With the 3 s the budget now adds, these are 30.8 s against 34.6 s and 14.6 s against 16.4 s. Processes counted at the hook's exit: a maximum of 75, 2 of 16 runs above 70.
+- **The slowest call** took 30.8 s, against develop's 52.4 s and the 120 s timeout.
+
+What the hook prints on `clear`, `compact` and `resume` matched its project's `startup` output in every run but for the drift lines, and develop's and the hook's `clear` differ only by the cap line, added, and the drift line, dropped. The fix of that review round (a run that gives no verdict keeps nothing) starts no process on a run that gives one, so these figures stand for it.
+
+The second round re-measured the head at 0e6a1fb the same way, interleaved with develop at 98f5e76, 360 runs 6 at a time at a no-op p50 of 594 ms, then the paths the capped load does not reach one call at a time:
+
+- **The time budget is met on every event at the capped load, on the paths that load reaches (the kept block printed; `startup` and `resume`).** The hook's p95 was 28 % to 46 % of the budget. Develop's adopting `clear` and `compact` failed it, at 142 %. The hook's p95 was 26 % (adopting project) and 36 % (framework repository) of develop's on `clear` and `compact`, and 68 % and 50 % on `startup` and `resume`.
+- **Processes at the hook's exit, per path** (adopting project / framework repository): 24 / 21 with the kept block printed, in every run; 76 to 80 / 33 on `startup` and `resume` with nothing written, the drift check finishing within the call in 40 of 40 runs; 84 / 41 when the kept block is rewritten, 10 of 10 runs; 49 / 41 on a `clear` whose kept block is stale, which runs the generator and writes the block, 6 of 6 runs. The single counts of the first version of the budget table did not hold on the last two paths; the per-path counts above replaced them.
+- **What the hook prints is unchanged** (#304, AC2): 120 of 120 `resume`, `clear` and `compact` outputs equal their project's `startup` output, drift lines aside, with stderr empty in every run.
+- **The drift check overran its cut** in 2 of 40 of develop's `startup` and `resume` runs, and in none of the hook's.
+
+The third round, at f69eb7c, counted the first run with an empty cache one call at a time, a new `XDG_CACHE_HOME` per call, in a throwaway adopting project: 101 to 143 processes at the hook's exit, 6 runs of 6 above 100 (CPU at 61 to 81 % and a run queue of 12 to 22 on average). With the drift check's rerun emptied in a throwaway copy, so that only the hook's own processes counted, 78 to 117 (CPU at 67 %, a run queue of 3). The framework repository counted 45 in 5 runs of 5. Develop's hook, on its own first run with an empty cache in that round, counted 140.
+
+The fix of that round measured the same paths with the same harness, one call at a time, each call with its own new `XDG_CACHE_HOME` unless said otherwise: 48 runs from 08:36:58 to 08:48:31 UTC on 26 November 2026, interleaved with the no-op (p50 1,988 ms). Load: 57 samples, CPU at 75 % on average (34 to 100), a run queue of 21 on average (111 at most), about 520 processes, 26 bash. Then 12 runs of the framework repository from 08:49:11 to 08:49:54 UTC. The hook was f69eb7c's: the fix changes two printed lines of it and no command. Every run exited 0.
+
+| One call at a time, processes at the hook's exit | Runs | Least to most | Median | Above 100 |
+|---|---:|---|---:|---:|
+| adopting project, `startup`, empty cache | 8 | 75 to 121 | 91.5 | 2 |
+| adopting project, `resume`, empty cache | 8 | 86 to 139 | 105 | 5 |
+| adopting project, `startup`, empty cache, the drift check's rerun emptied | 8 | 66 to 140 | 81.5 | 1 |
+| adopting project, `startup`, a filled cache whose drift result was removed | 8 | 84 to 111 | 94.5 | 2 |
+| adopting project, `startup`, a filled cache | 8 | 59 to 92 | 71 | 0 |
+| framework repository, `startup` and `resume`, empty cache | 12 | 45 | 45 | 0 |
+
+The ceiling of 100 held on neither path where the drift check has no result of its own to reuse, so that round set the ceiling of the `startup` and `resume` row to 170 in an adopting project. The slowest of these calls took 19.2 s, at a no-op p50 of 2.0 s.
+
+The fourth round, at 19ec12e, counted the same way, one call at a time, each call with its own new `XDG_CACHE_HOME`, interleaved with develop at 98f5e76 and the no-op, from 09:23:05 to 09:38:15 UTC on 26 November 2026 (CPU at 92 % on average, a run queue of 38, a no-op p50 of 1,140 ms over 5 runs). In an adopting project, 80 to 96 processes at the hook's exit in 12 runs of 12, against develop's 117 to 137; in the framework repository, 45 in 5 runs of 5. Each of those counts, like every empty-cache count before them, was taken at a load where the cold drift check was cut at 2.8 s. The Performance Engineer then counted the path the count is highest on, where the cold drift check finishes within its cut: the hook takes the drift check's exit-0 branch, prints its lines and starts no rerun, and since nothing is cut, the load does not move the count. To emulate a machine fast enough for it, the cut was raised from 2.8 s to 300 s in a throwaway copy of the hook:
+
+| One call at a time, processes at the hook's exit | Runs | Least to most | Median | Above 170 |
+|---|---:|---|---:|---:|
+| adopting project, `startup`, empty cache, the drift check finishing within its cut (Git for Windows, the cut raised in a throwaway copy to emulate a fast machine) | 3 | 173 | 173 | 3 |
+
+That row ran at CPU 99 % and a run queue of 66. The ceiling of 170 did not hold on that path, so the ceiling of the `startup` and `resume` row is 200 in an adopting project, 27 above it (The Budget, Why these values). That path is taken by every first run with an empty cache in an adopting project on a machine where a cold drift check finishes within 2.8 s; it was counted under Git for Windows only.
+
+### The Cap Line (#486)
+
+`session-start.sh` prints the parallel-agent cap in one line, after the Main Agent pointer, on every event. Its numbers are read from `Core/ORCHESTRATION.md`'s paragraph (Dispatch Rules, `**Parallel-agent cap.**`) by the shell, with no process: the cap, the cap of 3 while any session on the machine runs v0.0.15 or earlier, and the main-session rule, each said only while Core says it, and the pointer alone when the first number cannot be read. With Core as it stands it reads:
+
+```text
+  Parallel-agent cap: at most 6 subagents at once on this machine, Employees included, counting those of every Claude Code session on it; 3 while any session on it runs the framework at v0.0.15 or earlier; one fewer for each main session beyond the first. At or above the cap, a dispatch waits and the Main Agent tells the Director what waits (ia-engineering/Core/ORCHESTRATION.md, Step 4, Dispatch Rules).
+```
+
+The v0.0.15 clause is still true in Core, so it is said (Limits of the Cap, above). The wording is the Prompt Engineer's (PR #520 review).
+
+### What Is Unchanged
+
+- **What the hook prints**, but for the cap line and one header: a CRLF `SESSION_STATE.md`'s `_Last updated:` line, which Linux printed with its trailing `_` and a carriage return (its `grep` kept the CR, so the `sed` did not cut the `_`) and now prints as Git for Windows did. Compared on the bench projects, develop's hook and this one print the same lines on `startup`, the cap line aside, and on `clear` and `compact` the same lines without the drift and context-alert lines. The existing checks of `tests/run.sh` (SESSION_STATE freshness, every SessionStart source, the tier map) are unchanged; `tests/drift.sh`'s check that `/clear` printed the drift line (WU-IAENG-373) now requires none on `clear` and `compact`, and the line on `resume`.
+- **The SESSION_STATE recovery (#304, AC2).** `tests/session-start-budget.sh` requires the read-first part, a behind-the-repository warning and the repository state to be printed on `clear`, `compact` and `resume` exactly as on `startup`, and the tier map block word for word.
+
+### Limits of This Measurement
+
+- **Six SessionStart calls at a time is harsher than production**, where one session starts at a time beside the agents' other hooks. It is the capped load of this document's method, and the ratios are the result; the absolute values move with the load.
+- **The load was not controlled.** The final round met a heavier load than the earlier one (a no-op p50 of 3.5 s against 2.4 s), partly the test section and the validator of this Work Unit run beside it. Both rounds give the same ratios within a few points.
+- **One machine, Windows only, one day.** Linux and macOS were not measured; CI runs the tests on Linux.
+- **The production effect is not yet measured.** Claude Code records each SessionStart hook's duration in the session's transcript (`hook_success`, `durationMs`, with the source in `hookName`), so the next sessions will show it.
+- **The kept block can be one session behind a change its inputs do not show** (`hooks/README.md`, Session Start Budget, its declared limit): `startup` and `resume` always run the generator.
+- **The drift check's detached rerun is outside this budget.** After an overrun it runs on for up to 300 s after the hook exits; the process count stops at the hook's exit (What the process count counts, above).
+- **A `clear` or `compact` that runs the generator was timed one call at a time only:** 0.8 to 1.6 s, against 0.5 to 1.0 s with a valid kept block. Its time budget, 12 no-ops, was not checked at the capped load; its process count was.
+- **The first run with an empty cache, and a filled cache without the drift check's result, were counted and timed one call at a time only.** Their counts are within the ceiling of 200; their time was not checked against the budget at the capped load.
+
 ---
 
 # Mitigations Not Taken Here
@@ -535,7 +667,7 @@ Ranked by the cost they would remove. Each needs its own Work Unit.
 
 1. **`block-escape-hatches.sh`: 84 processes on every Bash call** (issue #385). Taken since, in WU-IAENG-431: see The Escape-Hatch Guard Matches in Bash, above.
 2. **`block-inline-suppression.sh`: 55 processes on every edit.** Taken since, in WU-IAENG-444: see The Edit Guard Starts a Quarter of the Processes, above.
-3. **`session-start.sh`: 102 processes**, once per session and per `/clear`. It runs rarely, so it is lower on the list.
+3. **`session-start.sh`: 102 processes**, once per session and per `/clear`. It runs rarely, so it is lower on the list. Taken since, in WU-IAENG-452: see The Session Start Hook Within a Budget, above.
 4. **The plugin hooks.** Four node hooks on Stop and one on PreToolUse, which times out 33 % of the time. They belong to the user's configuration, not the framework's. The Director has been told.
 5. **A machine-wide limit on parallel agents.** WU-IAENG-409 left this decision until after this measurement. The load table above is the input: the share of gate runs over 10 s is 4 to 6 % with up to 3 agents, 18 % with 4 to 7, and 38 % with 8 or more. Taken since, as Director decision D3: see The Parallel-Agent Cap, above.
 
@@ -560,6 +692,7 @@ Ranked by the cost they would remove. Each needs its own Work Unit.
 - The re-measurement of 4 November 2026 (WU-IAENG-431) used the same harness, the same 100 recorded Bash payloads and the same production Stop events, copied to that session's scratch directory, and is not committed for the same reason. Its differential and mutation scripts are there too; `tests/run.sh` holds what is committed of them.
 - The Performance Engineer's re-measurements of PR #463 are in its comments of 4, 16 and 17 November 2026. Their harness and raw data stay in that session's scratch directory, for the same reason.
 - The Performance Engineer's re-measurement of PR #487 (WU-IAENG-444) and the Security review of that PR are in their comments of 24 November 2026. Their harnesses, payloads, corpus and raw data stay in those sessions' scratch directories, for the same reason.
+- The measurement of `session-start.sh` of 25 November 2026 (WU-IAENG-452) used a Job Object harness of this document's method and two throwaway projects built for it, an adopting project and a clone of the framework, each with a synthetic `SESSION_STATE.md` of 117 KB. Its harness, payloads and raw data are in that session's scratch directory and are not committed. The production figures it quotes (15 resumes, 8 compactions) are durations read from that session's own transcript, numbers only.
 - Director decision D3 of 17 November 2026 is Usage plan item W1.5. The 6-at-a-time confirmation of 18 November 2026 (WU-IAENG-435) used synthetic payloads only. Its harness, payloads and runs are in that session's scratch directory and are not committed.
 - The Director's code review of `develop` at 67ad444 (18 November 2026) raised 15 findings on the cap. The Performance Engineer triaged them, and the Director chose the completed rule, which WU-IAENG-443 carries out. The triage is in that session's scratch directory.
 
@@ -569,7 +702,7 @@ Ranked by the cost they would remove. Each needs its own Work Unit.
 
 Owner: IA Engineering
 
-Version: 0.0.19
+Version: 0.0.20
 
 Status: Draft
 

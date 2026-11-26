@@ -92,12 +92,25 @@ iaeng_block() {
 # Framework root relative to the project: "." when this IS the framework
 # repository, "ia-engineering" when imported as a submodule at the path
 # Workflows/ONBOARDING.md assumes, or $IAENG_FRAMEWORK when set.
-iaeng_framework_root() {
-  local base="${CLAUDE_PROJECT_DIR:-.}" c
-  for c in "${IAENG_FRAMEWORK:-}" "$base" "$base/ia-engineering"; do
-    [ -n "$c" ] && [ -f "$c/Core/AGENT_CONDUCT.md" ] && { printf '%s' "$c"; return 0; }
+# iaeng_framework_root_to <var> sets the variable named <var> (empty, and
+# returns 1, when none is found); iaeng_framework_root prints it. The by-name
+# form starts no subshell (EACH HELPER HAS TWO FORMS, below).
+iaeng_framework_root_to() {
+  local _iaeng_base="${CLAUDE_PROJECT_DIR:-.}" _iaeng_c
+  printf -v "$1" '%s' ''
+  for _iaeng_c in "${IAENG_FRAMEWORK:-}" "$_iaeng_base" "$_iaeng_base/ia-engineering"; do
+    if [ -n "$_iaeng_c" ] && [ -f "$_iaeng_c/Core/AGENT_CONDUCT.md" ]; then
+      printf -v "$1" '%s' "$_iaeng_c"
+      return 0
+    fi
   done
   return 1
+}
+
+iaeng_framework_root() {
+  local _iaeng_out
+  iaeng_framework_root_to _iaeng_out || return 1
+  printf '%s' "$_iaeng_out"
 }
 
 # --- SESSION_STATE freshness helpers ----------------------------------------
@@ -127,8 +140,10 @@ iaeng_is_int() {
 # helper's own $(command), one more process per value on every call, and on
 # Windows a process is the hooks' latency under load
 # (Governance/BLOCKING_HOOK_LATENCY_MEASUREMENT.md). stop-gate.sh uses the
-# by-name forms; session-start.sh, run once per session, the printing ones.
-# Locals are named _iaeng_* so that no caller's <var> is shadowed.
+# by-name forms, and so does session-start.sh since WU-IAENG-452: it runs on
+# /clear and every compaction too, within a budget (hooks/README.md, Session
+# Start Budget). Locals are named _iaeng_* so that no caller's <var> is
+# shadowed.
 
 # iaeng_file_mtime_to <var> <path>  — epoch seconds of the file's last
 # modification, or empty (and non-zero) if the file is missing, `date -r` is
@@ -214,51 +229,65 @@ iaeng_now() {
 # `date -d` is not. These build "YYYY-MM-DD" out of a "DD Month YYYY" triple
 # with a plain month-name table instead.
 
-# iaeng_month_num <name>  — "01".."12" for an English month name, matched
-# case-insensitively by prefix (so "Sep" and "September" both work), or
-# nothing (and non-zero) if <name> is not one of the twelve.
-iaeng_month_num() {
-  case "$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')" in
-    jan*) printf '01' ;;
-    feb*) printf '02' ;;
-    mar*) printf '03' ;;
-    apr*) printf '04' ;;
-    may*) printf '05' ;;
-    jun*) printf '06' ;;
-    jul*) printf '07' ;;
-    aug*) printf '08' ;;
-    sep*) printf '09' ;;
-    oct*) printf '10' ;;
-    nov*) printf '11' ;;
-    dec*) printf '12' ;;
+# iaeng_month_num_to <var> <name>  — sets <var> to "01".."12" for an English
+# month name, matched case-insensitively by prefix (so "Sep" and "September"
+# both work), or to nothing (and returns non-zero) if <name> is not one of the
+# twelve. The case is folded by the patterns themselves, ASCII letters only,
+# as `tr '[:upper:]' '[:lower:]'` folded them under LC_ALL=C: no process
+# (WU-IAENG-452). iaeng_month_num <name> prints it.
+iaeng_month_num_to() {
+  local _iaeng_m
+  printf -v "$1" '%s' ''
+  case "$2" in
+    [Jj][Aa][Nn]*) _iaeng_m=01 ;;
+    [Ff][Ee][Bb]*) _iaeng_m=02 ;;
+    [Mm][Aa][Rr]*) _iaeng_m=03 ;;
+    [Aa][Pp][Rr]*) _iaeng_m=04 ;;
+    [Mm][Aa][Yy]*) _iaeng_m=05 ;;
+    [Jj][Uu][Nn]*) _iaeng_m=06 ;;
+    [Jj][Uu][Ll]*) _iaeng_m=07 ;;
+    [Aa][Uu][Gg]*) _iaeng_m=08 ;;
+    [Ss][Ee][Pp]*) _iaeng_m=09 ;;
+    [Oo][Cc][Tt]*) _iaeng_m=10 ;;
+    [Nn][Oo][Vv]*) _iaeng_m=11 ;;
+    [Dd][Ee][Cc]*) _iaeng_m=12 ;;
     *) return 1 ;;
   esac
+  printf -v "$1" '%s' "$_iaeng_m"
 }
 
-# iaeng_zeropad2 <n>  — <n> left-padded to two digits with a leading zero.
-# Not printf '%02d': bash's printf treats a leading-zero numeric argument as
-# octal ("09" is not a valid octal digit and errors), and a day-of-month is
-# exactly the kind of value that arrives un-padded ("9", not "09").
-iaeng_zeropad2() {
-  case "$1" in
-    ?) printf '0%s' "$1" ;;
-    *) printf '%s' "$1" ;;
-  esac
+iaeng_month_num() {
+  local _iaeng_out
+  iaeng_month_num_to _iaeng_out "$1" || return 1
+  printf '%s' "$_iaeng_out"
 }
 
-# iaeng_ymd_from_header_date <"D(D) Month YYYY">  — "YYYY-MM-DD", or nothing
-# (and non-zero) if the day, month name, or year cannot all be recognised.
-# `read` (not an unquoted `set -- $1`) does the whitespace split, so a
-# fourth stray token lands in $extra instead of being silently dropped.
+# iaeng_ymd_from_header_date_to <var> <"D(D) Month YYYY">  — sets <var> to
+# "YYYY-MM-DD", or to nothing (and returns non-zero) if the day, month name,
+# or year cannot all be recognised. `read` (not an unquoted `set -- $1`) does
+# the whitespace split, so a fourth stray token lands in $extra instead of
+# being silently dropped. The day is padded by a pattern, not printf '%02d':
+# bash's printf treats a leading-zero numeric argument as octal ("09" is not
+# a valid octal digit and errors), and a day-of-month is exactly the kind of
+# value that arrives un-padded ("9", not "09"). No process.
+# iaeng_ymd_from_header_date <"D(D) Month YYYY"> prints it.
+iaeng_ymd_from_header_date_to() {
+  local _iaeng_day _iaeng_mon _iaeng_year _iaeng_extra _iaeng_num
+  printf -v "$1" '%s' ''
+  read -r _iaeng_day _iaeng_mon _iaeng_year _iaeng_extra <<< "$2"
+  [ -n "$_iaeng_year" ] && [ -z "$_iaeng_extra" ] || return 1
+  iaeng_is_int "$_iaeng_day" || return 1
+  iaeng_is_int "$_iaeng_year" || return 1
+  [ "${#_iaeng_year}" -eq 4 ] || return 1
+  iaeng_month_num_to _iaeng_num "$_iaeng_mon" || return 1
+  case "$_iaeng_day" in ?) _iaeng_day="0$_iaeng_day" ;; esac
+  printf -v "$1" '%s-%s-%s' "$_iaeng_year" "$_iaeng_num" "$_iaeng_day"
+}
+
 iaeng_ymd_from_header_date() {
-  local day mon year extra monnum
-  read -r day mon year extra <<< "$1"
-  [ -n "$year" ] && [ -z "$extra" ] || return 1
-  iaeng_is_int "$day" || return 1
-  iaeng_is_int "$year" || return 1
-  [ "${#year}" -eq 4 ] || return 1
-  monnum="$(iaeng_month_num "$mon")" || return 1
-  printf '%s-%s-%s' "$year" "$monnum" "$(iaeng_zeropad2 "$day")"
+  local _iaeng_out
+  iaeng_ymd_from_header_date_to _iaeng_out "$1" || return 1
+  printf '%s' "$_iaeng_out"
 }
 
 # --- The drift cache directory (WU-IAENG-359) -------------------------------

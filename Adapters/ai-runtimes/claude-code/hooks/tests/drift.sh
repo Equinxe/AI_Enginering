@@ -322,12 +322,21 @@ hook "$AD"
 expect_lines 1 "an absent file alone: one line"
 expect_drift "1 of 14 framework-managed file(s) to act on (absent: Registry/work-units.yml)" "the absent file is named, with the count"
 expect_drift "$RUN_CMD, which tells a stale file (copy it) from a modified one (review it)" "the absent-file line names the full command"
-# /clear starts a new session (WU-IAENG-373): the same drift line as startup.
-HOOK_STDIN='{"hook_event_name":"SessionStart","source":"clear"}'
+# /clear starts a new session (WU-IAENG-373), and until WU-IAENG-452 it ran
+# the drift check again and printed the same line as startup. The check now
+# runs on startup and resume only: /clear and compaction do not change the
+# framework's installation, and the session's startup or resume said what it
+# found (hooks/README.md, Session Start Budget).
+for d_src in clear compact; do
+  HOOK_STDIN="{\"hook_event_name\":\"SessionStart\",\"source\":\"$d_src\"}"
+  hook "$AD"
+  expect_lines 0 "#452: source $d_src, an absent file: the drift check is not run, no line"
+done
+HOOK_STDIN='{"hook_event_name":"SessionStart","source":"resume"}'
 hook "$AD"
 HOOK_STDIN=""
-expect_lines 1 "#373: source clear, an absent file: the same one line"
-expect_drift "1 of 14 framework-managed file(s) to act on (absent: Registry/work-units.yml)" "#373: source clear: the absent file is named"
+expect_lines 1 "#452: source resume, an absent file: the same one line as startup"
+expect_drift "1 of 14 framework-managed file(s) to act on (absent: Registry/work-units.yml)" "#452: source resume: the absent file is named"
 # Put back with an OLD mtime: only the presence check can see it came back.
 mv "$T/work-units.yml" Registry/work-units.yml
 touch -t 202001010000 Registry/work-units.yml
@@ -832,7 +841,7 @@ printf '   info  session-start.sh with a check that never ends: %s ms\n' "$OVER_
 # never by the check finishing first.
 if [ "$RC" -eq 0 ] && [ "$MS" -lt 300000 ]; then ok "a check that never ends is cut by the real timeout: the hook exits 0 ($MS ms, not 600 s), and the run started again holds none of its output"; else bad "a check that never ends is cut by the real timeout: the hook exits 0 ($MS ms, not 600 s), and the run started again holds none of its output" "exit $RC"; fi
 expect_lines 1 "the overrun is said in one line"
-expect_drift "not finished within the 3 s session-start budget" "the overrun line says why"
+expect_drift "not finished within its 3 s bound" "the overrun line says why"
 expect_drift "it goes on in the background (5 min at most) and keeps its result for the next session (said once). To see it now: $FILL_CMD" "the overrun line says the run goes on, and names the command that keeps its result in the hook's own cache"
 # The cut run, line 1 of each file: gone.
 LEFT=""
@@ -884,7 +893,7 @@ for n in 1 2; do
   N0="$(lines_of "$T/pid1")"
   hook_real "$AD"
   expect_lines 1 "session $n after a background run with no result: said (every session)"
-  expect_drift "not finished within the 3 s session-start budget, and the background run an earlier session started did not finish (exit 143), so nothing is reported; it is started again. Run it by hand, which keeps its result for the next session: $FILL_CMD" "session $n: the line gives the exit status and the command that keeps a result"
+  expect_drift "not finished within its 3 s bound, and the background run an earlier session started did not finish (exit 143), so nothing is reported; it is started again. Run it by hand, which keeps its result for the next session: $FILL_CMD" "session $n: the line gives the exit status and the command that keeps a result"
   if pids_wait $((N0 + 2)); then kill_run $((N0 + 2)); else bad "session $n: the background run is started again" "pid1: $(cat "$T/pid1")"; fi
   bg_wait >/dev/null
 done
@@ -1119,7 +1128,7 @@ plan cut drift
 HOOK_ENV=(XDG_CACHE_HOME="$AD/.xc418" TMPDIR="$AD/.tmp418")
 hook "$AD"
 HOOK_ENV=()
-expect_drift "IA Engineering drift check: not finished within the 3 s session-start budget, so nothing is reported (said once). Run it by hand: bash ia-engineering/Adapters/scripts/check-framework-drift.sh" "no usable cache: the overrun is said, with the full check to run"
+expect_drift "IA Engineering drift check: not finished within its 3 s bound, so nothing is reported (said once). Run it by hand: bash ia-engineering/Adapters/scripts/check-framework-drift.sh" "no usable cache: the overrun is said, with the full check to run"
 case "$DRIFT" in *"goes on in the background"*) bad "no usable cache: no background run is claimed" "$DRIFT" ;; *) ok "no usable cache: no background run is claimed" ;; esac
 if [ ! -e "$AD/.xc418" ] && [ ! -e "$AD/.tmp418" ]; then ok "no usable cache: nothing is written in the project"; else bad "no usable cache: nothing is written in the project" "$(ls -a "$AD")"; fi
 rm -rf "$AD/.xc418" "$AD/.tmp418"
