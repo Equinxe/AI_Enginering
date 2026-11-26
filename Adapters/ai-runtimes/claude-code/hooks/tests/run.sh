@@ -1708,6 +1708,25 @@ agg_case "no counts written (exit 2): one failure" "" 2 "1 1" "reported no count
 agg_case "counts that are not two numbers: one failure" "38 two" 0 "1 1" "reported no counts (exit 0)"
 rm -rf "$AGG_DIR"
 
+# --- The installers and a .claude or .gitattributes that is a link (WU-IAENG-457)
+# Its own file too (tests/claude-link.sh), counted here the same way.
+LINK_COUNTS="$(mktemp "${TMPDIR:-/tmp}/iaeng-link-counts.XXXXXX")"
+IAENG_HOOK_TESTS_COUNTS="$LINK_COUNTS" bash "$HERE/claude-link.sh" ${DASH_ARGS[@]+"${DASH_ARGS[@]}"}
+LINK_RC=$?
+if read -r LINK_TOTAL LINK_FAILED < "$LINK_COUNTS" 2>/dev/null \
+    && [[ "$LINK_TOTAL" =~ ^[0-9]+$ ]] && [[ "$LINK_FAILED" =~ ^[0-9]+$ ]] && [ "$LINK_TOTAL" -gt 0 ]; then
+  TOTAL=$((TOTAL + LINK_TOTAL))
+  FAILED=$((FAILED + LINK_FAILED))
+  if [ "$LINK_RC" -ne 0 ] && [ "$LINK_FAILED" -eq 0 ]; then
+    TOTAL=$((TOTAL + 1)); FAILED=$((FAILED + 1))
+    echo "   FAIL  tests/claude-link.sh exited $LINK_RC with no failed check counted"
+  fi
+else
+  TOTAL=$((TOTAL + 1)); FAILED=$((FAILED + 1))
+  echo "   FAIL  tests/claude-link.sh reported no counts (exit $LINK_RC) — it could not run"
+fi
+rm -f "$LINK_COUNTS"
+
 # --- Escape-hatch hook: git recognition, quoted substitutions, the stash -------
 # --- exemption (WU-IAENG-440) --------------------------------------------------
 # What the case file cannot hold: a command on several lines, the lexer's exact
