@@ -114,7 +114,10 @@
 #                       E not evaluated
 #   --cache-dir DIR     --quick only, absolute: keep the --quick result there
 #   --accept PATH       record a reviewed edit of the file PATH as accepted
-#                       (ACCEPTED EDITS, below); takes no other option
+#                       (ACCEPTED EDITS, below); takes no other option. PATH
+#                       as this check prints it, from the project root; an
+#                       absolute PATH only as pwd spells the project (another
+#                       spelling of it, C:/ or C:\ for /c/, is refused)
 #   --help
 #
 # --QUICK (WU-IAENG-359, the adopter drift plan §3.2)
@@ -181,11 +184,19 @@
 # it, both files in one git process when neither holds a CR, and keeps the
 # result in its cache like any other (the entries file is watched).
 #
-# NEVER ACCEPTED (the refused list, proposed for the Security Engineer to
-# approve in the Pull Request of WU-IAENG-456): what decides whether the git
-# hooks and the Claude Code hooks run is never an edit the project can wave
-# through. Matched without regard to case, as a case-insensitive filesystem
-# opens the file:
+# The entries file decides what --strict passes, so it is a control path
+# (check-control-paths.sh): in a project whose Control Path Guard runs, a
+# Pull Request that changes it needs the Director's label. --accept writes it
+# only inside the project: a .ia-engineering/ that is a symbolic link, or an
+# entries file that is one, is refused (exit 2), and the new file is made by
+# mktemp beside it, never at a name a project could have placed a link at.
+#
+# NEVER ACCEPTED (the refused list, named and approved by the Security
+# Engineer in the Pull Request of WU-IAENG-456): what decides whether the git
+# hooks and the Claude Code hooks run, and the two workflows that hold every
+# control path and every commit's trailers server-side, are never an edit the
+# project can wave through. Matched without regard to case, as a
+# case-insensitive filesystem opens the file:
 #   core.hooksPath                     the git hooks' directory
 #   .git, .git/*                       the project's own git hooks among them
 #   */Adapters/git-hooks/*             the framework's git hooks
@@ -195,8 +206,15 @@
 #   .claude/hooks/*, hook: *           a Claude Code hook script, a hook entry
 #   */Adapters/ai-runtimes/*/hooks/*   the framework's Claude Code hooks
 #   <framework dir>, <framework dir>/* the framework's own files
+#   .github/workflows/control-path-guard.yml
+#                                      the guard over every control path
+#   .github/workflows/pr-validation.yml
+#                                      the server-side half of the commit-msg
+#                                      hook, among the required checks
 # --accept refuses them (exit 1), and an entry written by hand for one is
-# never applied: it is reported `refused`, to act on.
+# never applied: it is reported `refused`, to act on, in whatever spelling
+# names the same file (// or ./ components, a trailing /). An entry whose
+# path is spelled otherwise than this check prints one is not an entry.
 #
 # EXIT CODES
 #
@@ -916,9 +934,28 @@ acc_refused() {
     Adapters/ai-runtimes/*/hooks|Adapters/ai-runtimes/*/hooks/*|*/Adapters/ai-runtimes/*/hooks|*/Adapters/ai-runtimes/*/hooks/*)
       ACC_REFUSED="a framework Claude Code hook" ;;
     "$REL"|"$REL"/*) ACC_REFUSED="inside the framework's checkout: the framework's own file, not the project's" ;;
+    .github/workflows/control-path-guard.yml)
+      ACC_REFUSED="the Control Path Guard workflow, which holds every control path to the Director's label" ;;
+    .github/workflows/pr-validation.yml)
+      ACC_REFUSED="the PR Validation workflow, the server-side half of the commit-msg hook among its required checks" ;;
   esac
   [ "$nc" -eq 1 ] || shopt -u nocasematch
   [ -n "$ACC_REFUSED" ]
+}
+
+# acc_canon <path> — ACC_CANON: the same file as a filesystem opens it, //
+# and ./ components and a trailing / dropped, so that an entry written by
+# hand for a refused target is reported in any of those spellings. A ..
+# component is left as it is: such an entry is not an entry (acc_load).
+acc_canon() {
+  local s=/ d=// sd=/./
+  ACC_CANON="$1"
+  while [[ "$ACC_CANON" == *"$d"* ]]; do ACC_CANON="${ACC_CANON//"$d"/$s}"; done
+  while [[ "$ACC_CANON" == *"$sd"* ]]; do ACC_CANON="${ACC_CANON//"$sd"/$s}"; done
+  while [ "${ACC_CANON#./}" != "$ACC_CANON" ]; do ACC_CANON="${ACC_CANON#./}"; done
+  while [ "${ACC_CANON%/}" != "$ACC_CANON" ] && [ -n "${ACC_CANON%/}" ]; do ACC_CANON="${ACC_CANON%/}"; done
+  [ "${ACC_CANON%/.}" = "$ACC_CANON" ] || ACC_CANON="${ACC_CANON%/.}"
+  return 0
 }
 
 # acc_has_cr <file> — true when the file holds a CR, or cannot be read.
@@ -955,15 +992,17 @@ acc_hash2() {
 # acc_load — the entries of ACC_FILE, when it exists, into ACC_P, ACC_T,
 # ACC_F, ACC_C and ACC_L (the path, the framework file, the two hashes, the
 # line). A line that is not an entry makes the check indeterminate. An entry
-# for a target on the refused list is never applied: it is reported
-# `refused`, to act on. The file is the project's text: rec flattens every
-# field of it.
+# for a target on the refused list, in any spelling of it (acc_canon), is
+# never applied: it is reported `refused`, to act on. An entry whose path is
+# spelled otherwise than this check prints one could never match a file, so
+# it is not an entry either. The file is the project's text: rec flattens
+# every field of it, and no remedy repeats it.
 acc_load() {
   local l n=0 tabs p t f c r
   local -a lines=()
   [ -e "$ACC_FILE" ] || [ -L "$ACC_FILE" ] || return 0
-  if [ -L "$ACC_FILE" ] || [ ! -f "$ACC_FILE" ] || [ ! -r "$ACC_FILE" ]; then
-    rec config indeterminate "$ACC_FILE" "not a regular file this check can read (a symbolic link is not followed): no acceptance in it was applied"
+  if [ -L .ia-engineering ] || [ -L "$ACC_FILE" ] || [ ! -f "$ACC_FILE" ] || [ ! -r "$ACC_FILE" ]; then
+    rec config indeterminate "$ACC_FILE" "not a regular file of the project this check can read (a symbolic link, of it or of .ia-engineering/, is not followed): no acceptance in it was applied"
     return 0
   fi
   # Read whole first, then judged: no record is made while the file is open.
@@ -984,10 +1023,16 @@ acc_load() {
       rec config indeterminate "$ACC_FILE" "line $n is not an entry (four fields separated by a TAB: the path, the framework file, its hash, the project file's hash), so it was not applied: fix it, or record the file again with --accept"
       continue
     fi
-    if acc_refused "$p"; then
+    acc_canon "$p"
+    if acc_refused "$ACC_CANON"; then
       rec config refused "$p" "$ACC_REFUSED: never accepted, so line $n of $ACC_FILE is not applied. Remove that line"
       continue
     fi
+    case "/$p/" in
+      *//*|*/./*|*/../*)
+        rec config indeterminate "$ACC_FILE" "line $n names a path spelled otherwise than this check prints one (no leading or trailing /, no //, . or .. component), so it was not applied: fix it, or record the file again with --accept"
+        continue ;;
+    esac
     ACC_P+=("$p"); ACC_T+=("$t"); ACC_F+=("$f"); ACC_C+=("$c"); ACC_L+=("$n")
   done
   return 0
@@ -1039,18 +1084,35 @@ acc_fail() {
   exit "$1"
 }
 
+# acc_ignored — says so when git ignores ACC_FILE: no other clone, nor CI,
+# would see the acceptance. On every exit 0 of --accept, the one that finds
+# the entry already recorded included.
+acc_ignored() {
+  if git check-ignore -q -- "$ACC_FILE" 2>/dev/null; then
+    printf 'WARNING: git ignores %s here, so no other clone, nor CI, would see the acceptance: add an exception for it to .gitignore (git check-ignore -v %s names the rule).\n' "$ACC_FILE" "$ACC_FILE"
+  fi
+  return 0
+}
+
 # accept_run — --accept PATH. PATH must be a file the installers manage,
 # that differs from the framework's, and that the full classification calls
 # modified, and it must not be on the refused list; its entry then replaces
-# any entry for it, through a new file renamed into place. Exits.
+# any entry for it, through a new file made by mktemp and renamed into
+# place, never through a link. Exits.
 accept_run() {
-  local p fam st path detail found="" fdet="" tpl entry l body="" n_p=0 same=0 tmp
+  local p fam st path detail found="" fdet="" tpl entry l body="" n_p=0 same=0 tmp um
   acc_path "$ACCEPT"; flat "$ACC_PATH"; p="$FLAT"
   case "/$p/" in
     *//*|*/./*|*/../*) acc_fail 1 "refused: $p: not a path inside the project, as this check prints one" ;;
   esac
   if acc_refused "$p"; then
-    acc_fail 1 "refused: $p: $ACC_REFUSED. An acceptance never covers the git hooks or the Claude Code hook entries (Adapters/README.md, check-framework-drift.sh): restore the framework's version instead"
+    acc_fail 1 "refused: $p: $ACC_REFUSED. An acceptance never covers the git hooks, the Claude Code hook entries or the workflows that guard them server-side (Adapters/README.md, Accepted Drift): restore the framework's version instead"
+  fi
+  # Written only inside the project (create-session-state.sh refuses the
+  # same): a linked .ia-engineering/ would take the entries, and the lines
+  # the file holds, wherever the link points.
+  if [ -L .ia-engineering ] || { [ -e .ia-engineering ] && [ ! -d .ia-engineering ]; }; then
+    acc_fail 2 ".ia-engineering is a symbolic link or not a directory, so $ACC_FILE would not be the project's own file: make it a real directory. Nothing recorded"
   fi
   run_check setup-project-bootstrap.sh bash "$SCRIPT_DIR/setup-project-bootstrap.sh" --check
   while IFS=$'\t' read -r fam st path detail; do
@@ -1104,21 +1166,27 @@ accept_run() {
   fi
   if [ "$n_p" -eq 1 ] && [ "$same" -eq 1 ]; then
     printf 'accepted: %s, already recorded in %s, unchanged\n' "$p" "$ACC_FILE"
+    acc_ignored
     exit 0
   fi
-  [ -d .ia-engineering ] || mkdir -p .ia-engineering 2>/dev/null \
+  [ -d .ia-engineering ] || mkdir .ia-engineering 2>/dev/null \
     || acc_fail 2 "could not make .ia-engineering/: nothing recorded"
-  tmp="$ACC_FILE.$$.tmp"
-  if ! { printf '%s%s\n' "$body" "$entry" > "$tmp" && mv -f "$tmp" "$ACC_FILE"; } 2>/dev/null; then
+  # mktemp makes a new file, at a name no one chose, or fails: nothing a
+  # project placed there is ever written through. It makes it 0600; the
+  # entries file gets the mode the umask gives any other.
+  tmp="$(mktemp "$ACC_FILE.XXXXXX" 2>/dev/null)" && [ -n "$tmp" ] \
+    || acc_fail 2 "could not make a new file beside $ACC_FILE: nothing recorded"
+  um="$(umask)"
+  if ! { printf '%s%s\n' "$body" "$entry" > "$tmp" \
+         && chmod "$(printf '%o' $(( 0666 & ~8#${um#0} )))" "$tmp" \
+         && mv -f "$tmp" "$ACC_FILE"; } 2>/dev/null; then
     rm -f "$tmp" 2>/dev/null
     acc_fail 2 "could not write $ACC_FILE: nothing recorded"
   fi
   printf 'accepted: %s, a reviewed edit of %s\n' "$p" "$fdet"
   printf '  framework file  %s\n  project file    %s\n' "$ACC_HF" "$ACC_HP"
   printf '  recorded in %s. Commit it through a Pull Request: an acceptance is a reviewed decision. It lapses, and the file is drift again, when either file changes.\n' "$ACC_FILE"
-  if git check-ignore -q -- "$ACC_FILE" 2>/dev/null; then
-    printf 'WARNING: git ignores %s here, so no other clone, nor CI, would see the acceptance: add an exception for it to .gitignore (git check-ignore -v %s names the rule).\n' "$ACC_FILE" "$ACC_FILE"
-  fi
+  acc_ignored
   exit 0
 }
 

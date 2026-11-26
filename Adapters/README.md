@@ -151,7 +151,9 @@ A project may review an edit it made to a file the framework installs, one of it
 ./ia-engineering/Adapters/scripts/check-framework-drift.sh --accept .github/workflows/data-policy.yml
 ```
 
-It runs the installers' `--check` and the full classification, and records the file only when it is one the installers manage and the full check calls `modified`. A file that is current, absent, `stale` (an earlier copy of the framework's file: copy it instead), expected to differ, or not managed is refused, and so is a target on the refused list below. It writes `.ia-engineering/drift-accepted.tsv` and nothing else, replacing any entry for the same path, and says when git ignores that file. `--accept` takes no other option. Commit the file through a Pull Request: the acceptance is a reviewed decision, and the reviewers see the entry beside the edit it accepts.
+It runs the installers' `--check` and the full classification, and records the file only when it is one the installers manage and the full check calls `modified`. A file that is current, absent, `stale` (an earlier copy of the framework's file: copy it instead), expected to differ, or not managed is refused, and so is a target on the refused list below. It writes `.ia-engineering/drift-accepted.tsv` and nothing else, replacing any entry for the same path, and says when git ignores that file, on every run that exits `0`. `--accept` takes no other option. Give the path as the check prints it, from the project root; an absolute path works only spelled as `pwd` spells the project (`/c/work/app/...` under Git for Windows, not `C:/work/app/...` or `C:\work\app\...`), and any other spelling is refused as not a path inside the project, with nothing written. The file is written only inside the project: when `.ia-engineering/` or the entries file is a symbolic link, or `.ia-engineering` is not a directory, nothing is recorded (exit `2`), and the new file is made by `mktemp` beside the entries file, then renamed into place. Commit the file through a Pull Request: the acceptance is a reviewed decision, and the reviewers see the entry beside the edit it accepts.
+
+**A control path.** The entries file decides what `--strict` passes, so `check-control-paths.sh` lists it beside `.ia-engineering/*.allow` and the risk map: where the project's Control Path Guard runs, a Pull Request that adds, changes or removes an acceptance needs the Director's label `control-change/approved`.
 
 **The file.** `.ia-engineering/drift-accepted.tsv`, one entry per line, four fields separated by a TAB:
 
@@ -162,13 +164,13 @@ It runs the installers' `--check` and the full classification, and records the f
 | 3 | The framework file's hash |
 | 4 | The project file's hash |
 
-Each hash is the git blob id of the file's content with the carriage return that ends a line dropped, as the check's stale-or-modified classification takes it, so a clone with CRLF line endings and one with LF agree. Empty lines and lines beginning with `#` are comments. A line that is not an entry makes the check `indeterminate` (`--strict` exits `2`) until it is fixed. Writing an entry by hand is possible; `--accept` is the way that computes the hashes.
+Each hash is the git blob id of the file's content with the carriage return that ends a line dropped, as the check's stale-or-modified classification takes it, so a clone with CRLF line endings and one with LF agree. Empty lines and lines beginning with `#` are comments. A line that is not an entry makes the check `indeterminate` (`--strict` exits `2`) until it is fixed: one with other than four fields, a hash that is not one, or a path spelled otherwise than the check prints one (a leading or trailing `/`, a `//`, `.` or `..` component), which could never match a file. Writing an entry by hand is possible; `--accept` is the way that computes the hashes.
 
 **While it matches.** An entry applies when its path, its framework file and both hashes are those of the files now. The file is then `accepted`: not to act on, `--strict` exits `0` for it, the summary counts it (`0 to act on, 0 indeterminate, 1 accepted.`), and session start prints one line, `IA Engineering drift: 1 accepted (.github/workflows/data-policy.yml): ...`, where it printed a line to act on. The quick check of session start hashes a file only when it differs and an entry names it, both files in one git process when neither holds a carriage return, and keeps its result in its cache as before; the entries file is one of the files the cache watches.
 
 **The lapse rule.** When either file changes, by an upgrade of the framework or an edit of the project, the entry no longer matches and the file is drift again: `modified` (or `stale`), `differs` in the quick check, to act on, `--strict` exits `1`. Its remedy says which side changed, and session start names the file with `(its acceptance lapsed)`. Review the diff again, then run `--accept` again to record the new pair. A file restored to what was accepted is accepted again.
 
-**Never accepted.** Whatever decides whether the git hooks and the Claude Code hooks run is never an edit a project can wave through. `--accept` refuses these targets (exit `1`), without regard to case, and an entry written by hand for one is never applied: it is reported `refused`, to act on.
+**Never accepted.** Whatever decides whether the git hooks and the Claude Code hooks run, and the two workflows that guard them server-side, is never an edit a project can wave through. The Security Engineer named and approved this list in the Pull Request of WU-IAENG-456. `--accept` refuses these targets (exit `1`), without regard to case, with the reason for each, and an entry written by hand for one is never applied: it is reported `refused`, to act on, in any spelling that names the same file (a `//` or `./` component, a trailing `/`).
 
 | Target | Why |
 |---|---|
@@ -179,6 +181,10 @@ Each hash is the git blob id of the file's content with the carriage return that
 | `.claude/hooks/`, and a `hook: <entry>` item | A Claude Code hook script, a hook entry |
 | `Adapters/ai-runtimes/<runtime>/hooks/`, at any depth | The framework's Claude Code hooks |
 | The framework's directory and anything under it | The framework's own files, not the project's |
+| `.github/workflows/control-path-guard.yml` | The Control Path Guard, which holds every control path to the Director's label |
+| `.github/workflows/pr-validation.yml` | PR Validation, whose required checks include the server-side half of the `commit-msg` hook (`Employee Trailer`, `Work Unit Exists`) |
+
+The other workflows the installers manage, `data-policy.yml` and `framework-validation.yml`, can be accepted, as the Product Manager decided: in an adopting project any edit to them is already a control path, so it reaches the default branch only with the Director's label.
 
 ---
 
