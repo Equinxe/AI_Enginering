@@ -2260,14 +2260,14 @@ w455_nest() {
     printf '   FAIL  %s: nesting mark %s, want %s\n' "$label" "$got" "$want"
   fi
 }
-w455_nest "lexer: a \$( in a \$( is nested" 'echo $(a $(b))' 1
-w455_nest "lexer: a backtick pair in a \$( is nested" 'echo $(a `b`)' 1
-w455_nest "lexer: a \$( in double quotes in a \$( is nested" 'echo $(a "$(b)")' 1
-w455_nest "lexer: a backtick pair in double quotes in a \$( is nested" 'echo $(a "`b`")' 1
-w455_nest "lexer: a \$( in a backtick pair is nested" 'echo `a $(b)`' 1
-w455_nest "lexer: a \$( in double quotes in a backtick pair is nested" 'echo `a "$(b)"`' 1
-w455_nest "lexer: two substitutions side by side are not nested" 'echo $(a) `b` "$(c)"' 0
-w455_nest "lexer: a subshell in a substitution is not nested" 'echo $( (a))' 0
+w455_nest "lexer: a \$( in a \$( is nested" "echo \$(a \$(b))" 1
+w455_nest "lexer: a backtick pair in a \$( is nested" "echo \$(a \`b\`)" 1
+w455_nest "lexer: a \$( in double quotes in a \$( is nested" "echo \$(a \"\$(b)\")" 1
+w455_nest "lexer: a backtick pair in double quotes in a \$( is nested" "echo \$(a \"\`b\`\")" 1
+w455_nest "lexer: a \$( in a backtick pair is nested" "echo \`a \$(b)\`" 1
+w455_nest "lexer: a \$( in double quotes in a backtick pair is nested" "echo \`a \"\$(b)\"\`" 1
+w455_nest "lexer: two substitutions side by side are not nested" "echo \$(a) \`b\` \"\$(c)\"" 0
+w455_nest "lexer: a subshell in a substitution is not nested" "echo \$( (a))" 0
 # A heredoc body's substitutions are printed as written, a nested one with
 # them: a ( in an option's value ends the read there (READ_VAL), so the
 # second, whose --type value is glued to a substitution, is no read
@@ -2296,11 +2296,11 @@ w455_arg() {
   fi
 }
 w455_arg "hooksPath: a read in a git command's arguments is refused with the read to run" \
-  'git log "$(git config --get core.hooksPath)"' 1
+  "git log \"\$(git config --get core.hooksPath)\"" 1
 w455_arg "hooksPath: a read followed by an option is refused with the read to run" \
-  'echo $(git config --get core.hooksPath --default=x)' 1
+  "echo \$(git config --get core.hooksPath --default=x)" 1
 w455_arg "hooksPath: a read in a git command's arguments beside a write gets no read line" \
-  'git log "$(git config --get core.hooksPath)"; git config core.hooksPath x' 0
+  "git log \"\$(git config --get core.hooksPath)\"; git config core.hooksPath x" 0
 # A dropped region keeps its last path component only where it can be a
 # command a rule reads (code review of PR #485, F3): a message's last word is
 # dropped with it, so the command is read once; a git path, or a region glued
