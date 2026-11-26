@@ -1745,8 +1745,9 @@ w440_lex "lexer: a command the second reading would not change is read once" \
   'git commit -m "a b"' 'git commit -m '
 w440_lex "lexer: a backtick in double quotes opens a substitution in the second reading" \
   "x=\"\`git push --force\`\"" $'x=\nx= git push --force '
+# The third line is WU-IAENG-450's third reading: the substitution read as empty.
 w440_lex "lexer: the quoted text before a substitution is kept in a command context" \
-  "bash -c \"a \$(b) c\"" $'bash -c  b   c \nbash -c  a   b   c '
+  "bash -c \"a \$(b) c\"" $'bash -c  b   c \nbash -c  a   b   c \nbash -c  a  c '
 w440_lex "lexer: records are joined in the first reading as before, the second follows them all" \
   $'rm -rf "a b/c" /\001x' $'rm -rf  /x\nrm -rf /c /x'
 # THE CAP COUNTS BOTH READINGS. The 2,000-segment cap counts every segment the
@@ -1824,6 +1825,345 @@ else
   FAILED=$((FAILED + 1))
   printf '   FAIL  escape-hatch: a large command read twice is judged within 30 s, and refused: exit %s after %s s\n' "$W440_RC" "$W440_S"
 fi
+
+# --- Escape-hatch hook: command recognition (WU-IAENG-450) ---------------------
+# What the case file cannot hold: the lexer's exact third reading and its KEEPQ
+# mark, commands over several lines, the process budget, and the cap and the
+# time for a command read three times. The expected outputs are worked by hand
+# from the grammar in strip-quotes.awk: the third reading follows the others,
+# on a line of its own, when it differs from both; a substitution prints
+# nothing in it, so the words on either side join; a quoted or escaped ; & |
+# is \005 in it; a dropped quoted region after a git option that takes a
+# value, or after `stash`, is \005 in every reading, unless it holds only
+# whitespace; in KEEPQ mode a substitution leaves a `$` where it opens. No
+# command here starts with a /, which Git Bash would rewrite into a Windows
+# path before jq read it.
+echo "== escape-hatch: command recognition (WU-IAENG-450)"
+# w450_lex <label> <KEEPQ: 0 or 1> <input, given without a line break> <exact output>
+w450_lex() {
+  local label="$1" kq="$2" in="$3" want="$4" got
+  TOTAL=$((TOTAL + 1))
+  got="$(printf '%s' "$in" | awk -v KEEPQ="$kq" -f "$HOOKS/strip-quotes.awk"; printf x)"
+  got="${got%x}"
+  if [ "$got" = "$want" ]; then
+    [ "$VERBOSE" -eq 1 ] && printf '   ok    %s\n' "$label"
+  else
+    FAILED=$((FAILED + 1))
+    printf '   FAIL  %s: got %q, want %q\n' "$label" "$got" "$want"
+  fi
+}
+w450_lex "lexer: a substitution is empty in the third reading, so the flag glued to it is whole" 0 \
+  "git push \"--force\$(true)\"" $'git push  true \ngit push --force'
+w450_lex "lexer: the words on either side of an unquoted substitution join in the third reading" 0 \
+  "git push --fo\`true\`rce" $'git push --fo true rce\ngit push --force'
+w450_lex "lexer: a quoted ; is a word byte in the third reading" 0 \
+  'git -C "a;b" x' $'git -C a;b x\ngit -C a\005b x'
+w450_lex "lexer: an escaped | is a word byte in the third reading" 0 \
+  'git -C a\|b x' $'git -C a|b x\ngit -C a\005b x'
+w450_lex "lexer: a substitution the text never closes is printed after the text before it" 0 \
+  "git push --fo\$(true)rce \$(git stash" $'git push --fo true rce  git stash\ngit push --force  git stash'
+w450_lex "lexer: a dropped value after -C, and the word after stash, are \\005 in every reading" 0 \
+  'git -C "a b" stash "c d" list' $'git -C \005 stash \005 list'
+w450_lex "lexer: a value of whitespace alone leaves nothing" 0 \
+  'git -C " " x' 'git -C  x'
+w450_lex "lexer: a substitution that is a value, quoted or not, is \\005 in the third reading" 0 \
+  "git -C \"\$(pwd)\" x; git -C \$(pwd) y" $'git -C  pwd  x; git -C  pwd  y\ngit -C \005 x; git -C \005 y'
+w450_lex "lexer: in KEEPQ mode a substitution leaves a \$ glued to the quoted text before it, in the first reading too, and no third reading is made" 1 \
+  "gh pr edit 1 --add-label \"a/\$(echo b)\"" 'gh pr edit 1 --add-label a/$ echo b '
+w450_lex "lexer: in KEEPQ mode an escaped ; is a word byte in the first reading" 1 \
+  'gh -R o/r\;x pr' $'gh -R o/r\005x pr'
+# The second reading of a substitution in double quotes is made in a command
+# context and after printf, as in WU-IAENG-440 (QA review of PR #501, LK3 and
+# LK4): each is the only reading that prints the region's text before it. The
+# third reads the substitution as empty there too, so the region's text is
+# printed whole: `bash -c "git push --fo$(true)rce"` reads `git push --force`.
+w450_lex "lexer: a substitution in a quoted command string is read a second time" 0 \
+  "bash -c \"a \$(b) c\" \"x;y\"" $'bash -c  b   c  x;y\nbash -c  a   b   c  x;y\nbash -c  a  c  x\005y'
+w450_lex "lexer: a substitution in printf's quoted argument is read a second time" 0 \
+  "printf \"\\x2d\$(true)\\x2d\" \"a;b\"" $'printf  true  -  a;b\nprintf  -  true  -  a;b\nprintf  --  a\005b'
+# THE WORD KEPT FOR A QUOTE (last_word in strip-quotes.awk) belongs to the text
+# it was found in. A reading starts with none; a substitution the third
+# reading mutes starts its own text with none; the close that gives the text
+# back gives its word back. The inputs put 20 spaces where a kept word that
+# outlived its text would be taken for the last one.
+printf -v W450_SP '%20s' ''
+w450_lex "lexer: the word before a quote is not kept from one reading to the next" 0 \
+  "bash -c \"a b\" \"\$(true)\"; x \"a\"" $'bash -c  a b   true ; x a\nbash -c  a b  ; x a'
+w450_lex "lexer: after a muted \$( ), a quote is judged on the word before the substitution" 0 \
+  "bash -c${W450_SP}\$(echo abcdefgh \"q\")\"a b\"" "bash -c ${W450_SP}echo abcdefgh q "$'\n'"bash -c ${W450_SP}a b "
+w450_lex "lexer: after a muted backtick pair, a quote is judged on the word before it" 0 \
+  "bash -c${W450_SP}\`echo abcdefgh \"q\"\`\"a b\"" "bash -c ${W450_SP}echo abcdefgh q "$'\n'"bash -c ${W450_SP}a b "
+w450_lex "lexer: a quote in a muted \$( ) in double quotes is not judged on the word before it" 0 \
+  "git -C \"\$(${W450_SP}\"a b\"" "git -C  ${W450_SP}"$'\005\n'"git -C  ${W450_SP}"
+w450_lex "lexer: a quote in a muted \$( ) is not judged on the word before it" 0 \
+  "git -C \$(${W450_SP}\"a b\"" "git -C  ${W450_SP}"$'\005\n'"git -C  ${W450_SP}"
+w450_lex "lexer: a quote in a muted backtick pair is not judged on the word before it" 0 \
+  "git -C \`${W450_SP}\"a b\"" "git -C  ${W450_SP}"$'\005\n'"git -C  ${W450_SP}"
+# Each muted opening saves the word kept for the text it leaves, and the close
+# gives that word back, with its contexts (code and QA reviews of PR #501,
+# round 3). Two records in one awk, as the hook's cases are not: a save left
+# out would give back the word of the other record. A word that goes on after
+# the close is read whole: `bash -""$(true)c` is `bash -c`. A line break ends
+# a command: the quote on the next line is not a value of --config-env, and
+# its path keeps its last component (security review of PR #501).
+printf -v W450_A20 '%20s' ''
+W450_A20="${W450_A20// /a}"
+printf -v W450_A30 '%30s' ''
+W450_A30="${W450_A30// /a}"
+w450_lex "lexer: a muted substitution in double quotes saves the word kept for its text" 0 \
+  "echo $W450_A30; git -C \$(true) status"$'\001'"; echo X\"\$(true)\" \"a b\"" \
+  "echo $W450_A30; git -C  true  status; echo X true  "$'\n'"echo $W450_A30; git -C "$'\005'" status; echo X "
+w450_lex "lexer: a muted \$( ) saves the word kept for its text" 0 \
+  "echo $W450_A20 \"\$(true)\"; echo x"$'\001'"; bash -c \$(true) \"git push --force\"" \
+  "echo $W450_A20  true ; echo x; bash -c  true  "$'\n'"echo $W450_A20 ; echo x; bash -c   git push --force "
+w450_lex "lexer: a quote in a muted backtick pair keeps the word of the substitution before it" 0 \
+  "printf \$(a) \`\"\$(b)\" \"x y\"" $'printf  a    b  \nprintf    '
+w450_lex "lexer: a word that goes on after a muted substitution is read whole" 0 \
+  "bash -\"\"\$(true)c \"a b\"" $'bash - true c \nbash -c  a b '
+w450_lex "lexer: a word that begins after the whitespace before a dropped region is a word of its own" 0 \
+  "bash -l \"a b\"c \"x y\"" 'bash -l c '
+w450_lex "lexer: a line break ends a command, so the quote after it is no value of the option before it" 0 \
+  $'git --config-env\n"/x=y z/git" push' $'git --config-env\n push\ngit --config-env\n/git push'
+# Over several lines, which the case file cannot hold.
+expect_reason "escape-hatch: a flag glued to a substitution over several lines is read whole" \
+  "$(mkbash $'git push "--force$(\ntrue\n)"')" "force-push or mirror-push"
+expect_reason "escape-hatch: a label built by a substitution over several lines is refused" \
+  "$(mkbash $'gh pr edit 1 --add-label "control-change/$(\necho approved\n)"')" "a label built from a variable or a substitution"
+expect_reason "escape-hatch: a ; inside a substitution on another line does not cut the git command around it" \
+  "$(mkbash $'git -C "$(true\ntrue)" config core.hooksPath x')" "setting core.hooksPath disables"
+expect_reason "escape-hatch: a quoted git path after a --config-env line is read as git" \
+  "$(mkbash $'git --config-env\n"/opt/a=b c/git" push --force')" "force-push or mirror-push"
+expect_reason "escape-hatch: a quoted rm path after a --config-env line is read as rm" \
+  "$(mkbash $'echo --config-env\n"/opt/a=b c/rm" -rf /')" "recursive removal of the repository metadata"
+# A line break that a quoted region's text holds ends no command around it:
+# each command below passes one argument, or two that eval joins, so the
+# region after the line break is judged on the command word before the first
+# (review round 4). A line break read outside quotes still ends a command,
+# but not the word after it; so does the end of a heredoc's first line; and
+# one inside a muted substitution is left out with it.
+expect_reason "escape-hatch: a line break in a quoted region does not end eval's argument" \
+  "$(mkbash $'eval "\n""git push --force"')" "force-push or mirror-push"
+expect_reason "escape-hatch: a line break in a quoted region does not end bash -c's argument" \
+  "$(mkbash $'bash -c "\n""git push --force"')" "force-push or mirror-push"
+expect_reason "escape-hatch: a line break in a single-quoted region does not end eval's argument" \
+  "$(mkbash $'eval \'\n\'"git push --force"')" "force-push or mirror-push"
+expect_reason "escape-hatch: a line break in a quoted region does not end eval's argument (commit)" \
+  "$(mkbash $'eval "\n""git commit --no-verify -m x"')" "--no-verify disables"
+expect_reason "escape-hatch: a line break in a quoted region does not end sh -c's single-quoted argument" \
+  "$(mkbash $'sh -c "\n"\'git push --force\'')" "force-push or mirror-push"
+expect_reason "escape-hatch: a line break in a quoted region does not end eval's ANSI-C argument" \
+  "$(mkbash $'eval "\n"$\'git push --force\'')" "force-push or mirror-push"
+expect_reason "escape-hatch: a line break in a quoted region does not end eval's argument (config)" \
+  "$(mkbash $'eval "\n"\'git config core.hooksPath /dev/null\'')" "setting core.hooksPath disables"
+expect_reason "escape-hatch: a line break among blanks in a quoted region does not end eval's argument" \
+  "$(mkbash $'eval " \t\n ""git push --force"')" "force-push or mirror-push"
+expect_reason "escape-hatch: eval's second argument after a line break in its first is judged on eval" \
+  "$(mkbash $'eval "\n" "git push --force"')" "force-push or mirror-push"
+expect_reason "escape-hatch: a line break in a quoted region does not end eval's argument (label)" \
+  "$(mkbash $'eval "\n""gh pr edit 1 --add-label \\$L"')" "a label built from a variable or a substitution"
+expect_reason "escape-hatch: a line break in a muted substitution is left out with it" \
+  "$(mkbash $'eval "\n$(\n)""git push --force"')" "force-push or mirror-push"
+expect_reason "escape-hatch: the word after a line break is judged on its own" \
+  "$(mkbash $'true\nbash -c "git push --force"')" "force-push or mirror-push"
+expect_reason "escape-hatch: a heredoc's first line ends a command" \
+  "$(mkbash $'cat <<EOF --config-env\nx\nEOF\n"/opt/a=b c/git" push --force')" "force-push or mirror-push"
+# A line break in a quoted region's text does end the value of an option
+# before it: the shell that runs the text ends the command there, so the
+# region after it is no value of --config-env, and its command path keeps
+# its last component (QA and code reviews of PR #501, final round).
+expect_reason "escape-hatch: a value ends at a line break in eval's quoted text (push)" \
+  "$(mkbash $'eval "echo --config-env\n""X=1 /usr/bin/git" push --force')" "force-push or mirror-push"
+expect_reason "escape-hatch: a value ends at a line break in eval's quoted text (commit)" \
+  "$(mkbash $'eval "echo --config-env\n""X=1 /usr/bin/git" commit --no-verify -m x')" "--no-verify disables"
+expect_reason "escape-hatch: a value ends at a line break in eval's quoted text (config)" \
+  "$(mkbash $'eval "echo --config-env\n""X=1 /usr/bin/git" config core.hooksPath /dev/null')" "setting core.hooksPath disables"
+expect_reason "escape-hatch: a value ends at a line break in eval's quoted text (after git status)" \
+  "$(mkbash $'eval "git status --config-env\n""GIT_TRACE=1 /mingw64/bin/git" push --force origin main')" "force-push or mirror-push"
+expect_reason "escape-hatch: a value ends at a line break in eval's quoted text (+ refspec)" \
+  "$(mkbash $'eval "echo --config-env\n""X=1 /usr/bin/git" push origin +main')" "a + prefix on a push refspec"
+expect_reason "escape-hatch: a value ends at a line break in eval's quoted text (--config-env=)" \
+  "$(mkbash $'eval "echo --config-env=\n""X=1 /usr/bin/git" push --force')" "force-push or mirror-push"
+expect_reason "escape-hatch: a value ends at a line break in eval's quoted text (two arguments)" \
+  "$(mkbash $'eval "echo --config-env\n" "X=1 /usr/bin/git" push --force')" "force-push or mirror-push"
+expect_reason "escape-hatch: a value ends at a line break in eval's quoted text (single quotes after)" \
+  "$(mkbash $'eval "echo --config-env\n"\'X=1 /usr/bin/git\' push --force')" "force-push or mirror-push"
+expect_reason "escape-hatch: a value ends at a line break in eval's quoted text (rm)" \
+  "$(mkbash $'eval "echo --config-env\n""X=1 /bin/rm" -rf /')" "recursive removal of the repository metadata"
+expect_reason "escape-hatch: a value ends at a line break in eval's quoted text (dashed git-push)" \
+  "$(mkbash $'eval "echo --config-env\n""X=1 /usr/libexec/git-core/git-push" --force')" "force-push or mirror-push"
+expect_reason "escape-hatch: a value ends at a line break in eval's quoted text (escaped space, single quotes)" \
+  "$(mkbash $'eval "x --config-env\n"\'./a=b\\ c/git\' push --force')" "force-push or mirror-push"
+expect_reason "escape-hatch: a value ends at a line break in eval's quoted text (escaped space, double quotes)" \
+  "$(mkbash $'eval "x --config-env\n""./a=b\\\\ c/git" push --force')" "force-push or mirror-push"
+expect_reason "escape-hatch: a value ends at a line break in eval's quoted text (escaped space, commit)" \
+  "$(mkbash $'eval "echo --config-env\n"\'./a=b\\ c/git\' commit --no-verify -m x')" "--no-verify disables"
+# THE PROCESS BUDGET. Recording stand-ins first on PATH, as in the budgets
+# above: a dashed git and git.cmd start cat and one jq; a command read three
+# times starts one awk, as a command read once does; a gh api write in a
+# command that names a label starts the KEEPQ awk, and one that names none and
+# holds no $ or backtick does not.
+W450_BASE="$(mktemp -d)"
+W450_SHIMS="$W450_BASE/shims"
+W450_LOG="$W450_BASE/shims.log"
+W450_ON_PATH="$W450_SHIMS"
+command -v cygpath >/dev/null 2>&1 && W450_ON_PATH="$(cygpath -u "$W450_SHIMS")"
+mkdir -p "$W450_SHIMS"
+for w450_cmd in awk cat cut grep head jq sed sort tr wc; do
+  w450_real="$(command -v "$w450_cmd")" || continue
+  printf '#!/bin/sh\necho %s >> "%s"\nexec "%s" "$@"\n' "$w450_cmd" "$W450_LOG" "$w450_real" > "$W450_SHIMS/$w450_cmd"
+  chmod +x "$W450_SHIMS/$w450_cmd"
+done
+# w450_budget <label> <command> <awk wanted> <starts wanted>
+w450_budget() {
+  local label="$1" cmd="$2" want_awk="$3" want_all="$4" rc n_jq n_awk n_all
+  TOTAL=$((TOTAL + 1))
+  : > "$W450_LOG"
+  printf '%s' "$(mkbash "$cmd")" | PATH="$W450_ON_PATH:$PATH" bash "$HOOK" >/dev/null 2>&1
+  rc=$?
+  n_jq="$(grep -c '^jq$' "$W450_LOG")"
+  n_awk="$(grep -c '^awk$' "$W450_LOG")"
+  n_all="$(wc -l < "$W450_LOG" | tr -d ' ')"
+  if [ "$rc" -eq 0 ] && [ "$n_jq" -eq 1 ] && [ "$n_awk" -eq "$want_awk" ] && [ "$n_all" -eq "$want_all" ]; then
+    [ "$VERBOSE" -eq 1 ] && printf '   ok    %s\n' "$label"
+  else
+    FAILED=$((FAILED + 1))
+    printf '   FAIL  %s: exit %s, jq x%s, awk x%s, %s starts (want exit 0, jq x1, awk x%s, %s starts)\n' \
+      "$label" "$rc" "$n_jq" "$n_awk" "$n_all" "$want_awk" "$want_all"
+  fi
+}
+w450_budget "escape-hatch: budget — a dashed git starts cat and one jq" 'x/git-core/git-stash list' 0 2
+w450_budget "escape-hatch: budget — git.cmd starts cat and one jq" 'git.cmd log --oneline -3' 0 2
+w450_budget "escape-hatch: budget — a command read three times starts one awk" "echo \"a\$(date)b\" \"c d/e\"" 1 3
+w450_budget "escape-hatch: budget — a gh api write that names a label starts the KEEPQ awk" 'gh api repos/o/r/issues/1/labels -f labels[]=bug' 1 3
+w450_budget "escape-hatch: budget — a gh api write that names no label does not" 'gh api repos/o/r/issues/1/comments -f body=x' 0 2
+w450_budget "escape-hatch: budget — a gh label edit that holds a \$ starts the lexer and the KEEPQ awk" "gh label edit bug --description \"\$D\"" 2 4
+w450_budget "escape-hatch: budget — a gh label create that holds none starts neither" 'gh label create bug --color ff0000' 0 2
+rm -rf "$W450_BASE"
+# THE CAP COUNTS THE THIRD READING. A command the lexer reads three times is
+# read up to 666 segments (1,998 in all) and refused from 667 (2,001). A
+# quoted path and a flag glued to a substitution are enough.
+W450_SEGS=""
+for ((w450_i = 1; w450_i < 666; w450_i++)); do W450_SEGS+="true;"; done
+expect_rc "escape-hatch: 666 segments read three times are read" 0 "$HOOK" "$(mkbash "${W450_SEGS}true \"a b/c\" \"-x\$(true)\"")"
+expect_reason "escape-hatch: 667 segments read three times are refused at the cap" \
+  "$(mkbash "${W450_SEGS}true;true \"a b/c\" \"-x\$(true)\"")" "pipeline segments after expansion"
+# THE WORD BEFORE A QUOTE (last_word in strip-quotes.awk) is found by reading
+# back over the bytes added since the last word was found: the whitespace
+# before the quote, then the word, however long. Until review round 3 the walk
+# over the word stopped at 256 bytes and a longer word was found by splitting
+# the text before it, so these three shapes stay: a quote more than 256 bytes
+# into the command, a word before a quote longer than 256 bytes, and more than
+# 256 bytes of whitespace between the word and the quote.
+printf -v W450_X '%300s' ''
+W450_X="${W450_X// /x}"
+expect_reason "escape-hatch: a quote more than 256 bytes into a command is judged on the word before it" \
+  "$(mkbash "echo $W450_X && bash -c \"git push --force\"")" "force-push or mirror-push"
+expect_reason "escape-hatch: a word longer than 256 bytes before a quote is read whole" \
+  "$(mkbash "git config alias.$W450_X \"push --force\"")" "writing a git alias"
+expect_reason "escape-hatch: more than 256 bytes of whitespace before a quote are passed over" \
+  "$(mkbash "bash -c${W450_X//x/ }\"git push --force\"")" "force-push or mirror-push"
+# A LARGE COMMAND IS JUDGED IN TIME. w450_large <label> <file of the command>:
+# the command must be refused as a force-push within 30 s, the budget of the
+# large-input checks above.
+w450_large() {
+  local label="$1" t0 out rc s
+  jq -n --rawfile c "$2" '{tool_name:"Bash",tool_input:{command:$c}}' > "$2.pay"
+  t0=$SECONDS
+  if command -v timeout >/dev/null 2>&1; then
+    out="$(timeout 30 bash "$HOOK" < "$2.pay" 2>&1 >/dev/null)"
+    rc=$?
+  else
+    out="$(bash "$HOOK" < "$2.pay" 2>&1 >/dev/null)"
+    rc=$?
+  fi
+  s=$((SECONDS - t0))
+  TOTAL=$((TOTAL + 1))
+  if [ "$rc" -eq 2 ] && [ "$s" -le 30 ] && grep -qF "force-push or mirror-push" <<< "$out"; then
+    [ "$VERBOSE" -eq 1 ] && printf '   ok    %s (%s s)\n' "$label" "$s"
+  else
+    FAILED=$((FAILED + 1))
+    printf '   FAIL  %s: exit %s after %s s\n' "$label" "$rc" "$s"
+  fi
+}
+W450_DIR="$(mktemp -d)"
+# 5,000 substitutions, each glued to the word before it and to the one after
+# it, then a force-push: every reading runs. 50,000 bytes, short of the
+# 65,536-byte here-string window, which those checks cover.
+{
+  printf 'echo '
+  for ((w450_i = 0; w450_i < 5000; w450_i++)); do printf '%s' "a\$(true)b "; done
+  printf '; git push --force'
+} > "$W450_DIR/cmd"
+w450_large "escape-hatch: a large command read three times is judged within 30 s, and refused" "$W450_DIR/cmd"
+# One substitution, then 15,000 quoted words, then a force-push: 60,030
+# bytes, read twice. Each quote is judged on the word before it; that word was
+# found by splitting all the text before the quote, so a reading cost the
+# square of the command's length, and the PR head took 56 s of CPU on a third
+# of this (code review of PR #501, P1).
+{
+  printf '%s' "echo \$(true)"
+  for ((w450_i = 0; w450_i < 15000; w450_i++)); do printf '%s' ' "a"'; done
+  printf '; git push --force'
+} > "$W450_DIR/cmd2"
+w450_large "escape-hatch: a command of many quoted words after a substitution is judged within 30 s, and refused" "$W450_DIR/cmd2"
+# Two shapes in which the text before a quote or a substitution ends in a run
+# of whitespace that grows (performance review of PR #501, P5): 32,000
+# substitutions apart, 256 KB, where the third reading reads each as empty
+# and keeps only the space before it; and one substitution, then 20,000
+# quoted regions that hold a space, 120 KB, each dropped. The word before each
+# was found by walking back over that run, or by splitting all the text before
+# it, every time: on a loaded Windows machine the PR head took 49 s of CPU on
+# the first (develop 1.6 s) and its lexer 39 s on the second (develop 18.5 s).
+{
+  printf 'echo'
+  for ((w450_i = 0; w450_i < 32000; w450_i++)); do printf '%s' " \$(true)"; done
+  printf '; git push --force'
+} > "$W450_DIR/cmd3"
+w450_large "escape-hatch: 256 KB of substitutions apart is judged within 30 s, and refused" "$W450_DIR/cmd3"
+{
+  printf '%s' "echo \$(true)"
+  for ((w450_i = 0; w450_i < 20000; w450_i++)); do printf '%s' ' "a b"'; done
+  printf '; git push --force'
+} > "$W450_DIR/cmd4"
+w450_large "escape-hatch: 120 KB of quoted regions that hold a space, after a substitution, is judged within 30 s, and refused" "$W450_DIR/cmd4"
+# The same 256 KB shape with backtick pairs, and with substitutions in double
+# quotes: each muted opening saves the word kept for the text it leaves, and
+# one that did not would make the next word be found again from the start of
+# the text, at every substitution (code review of PR #501, round 3).
+{
+  printf 'echo'
+  for ((w450_i = 0; w450_i < 36500; w450_i++)); do printf '%s' " \`true\`"; done
+  printf '; git push --force'
+} > "$W450_DIR/cmd5"
+w450_large "escape-hatch: 256 KB of backtick substitutions apart is judged within 30 s, and refused" "$W450_DIR/cmd5"
+{
+  printf 'echo'
+  for ((w450_i = 0; w450_i < 25600; w450_i++)); do printf '%s' " \"\$(true)\""; done
+  printf '; git push --force'
+} > "$W450_DIR/cmd6"
+w450_large "escape-hatch: 256 KB of substitutions in double quotes apart is judged within 30 s, and refused" "$W450_DIR/cmd6"
+# Words longer than 256 bytes, each before a substitution or a quote, after
+# 128 KB of short words (performance review of PR #501, P6). The word was found
+# by splitting all the text before it, at every one: the round-2 head took 48 s
+# of CPU on the first, where develop takes 1.7 s, and 23 s of lexer time on
+# half of the second, where develop takes 12 s.
+printf -v W450_SHORT '%65536s' ''
+W450_SHORT="${W450_SHORT// / a}"
+printf -v W450_LONG '%257s' ''
+W450_LONG="${W450_LONG// /b}"
+{
+  printf 'echo%s' "$W450_SHORT"
+  for ((w450_i = 0; w450_i < 492; w450_i++)); do printf " %s \$(true)" "$W450_LONG"; done
+  printf '; git push --force'
+} > "$W450_DIR/cmd7"
+w450_large "escape-hatch: 256 KB of long words before substitutions is judged within 30 s, and refused" "$W450_DIR/cmd7"
+{
+  printf "echo \$(true)%s" "$W450_SHORT"
+  for ((w450_i = 0; w450_i < 500; w450_i++)); do printf ' %s "x"' "$W450_LONG"; done
+  printf '; git push --force'
+} > "$W450_DIR/cmd8"
+w450_large "escape-hatch: 256 KB of long words before quotes, after a substitution, is judged within 30 s, and refused" "$W450_DIR/cmd8"
+rm -rf "$W450_DIR"
 
 # --- session-start.sh within a budget (WU-IAENG-452) ---------------------------
 # Its own file too (tests/session-start-budget.sh), counted here the same way.
