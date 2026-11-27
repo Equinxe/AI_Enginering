@@ -1,0 +1,3 @@
+### Added
+
+- `Governance/DISPATCH_IN_PRACTICE.md` (0.0.15) records the adopter-worktree rehearsal: one Work Unit run end to end in a fabricated existing project, from adoption by README Getting Started to the main checkout back on `develop`, with a real headless Claude Code Main Agent that dispatched the Backend Engineer and the Code Reviewer in worktrees. Each step's time, the agent and process counts, plan items S3-27 and S2-07, the Stop gate after a pull of `develop`, the findings filed as `adoption-finding` issues (#533 to #536, #538, #540, #541, #544) and the rehearsal's limits are in it (WU-IAENG-459)
