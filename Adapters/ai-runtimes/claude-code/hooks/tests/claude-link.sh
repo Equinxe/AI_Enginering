@@ -466,7 +466,7 @@ case_skills_one() {
     snap "$C/userdir"
     run install-skills.sh --follow-claude-link --force
     [ "$RC" -eq 1 ] && same_as "$C/userdir" \
-      && said_re "^! [.]claude/skills/dashboard is a link to .*/userdir/skills/$u, $USER_SKILLS_PLACE[.] Not changed, with or without --follow-claude-link[.]\$"
+      && said_re "^! [.]claude/skills/dashboard is a link to .*/userdir/skills/$u, ${USER_SKILLS_PLACE}[.] Not changed, with or without --follow-claude-link[.]\$"
     v "$L to the user skills/$u: --follow-claude-link --force exits 1, the user directory byte-identical" $?
   done
 }
@@ -485,7 +485,7 @@ case_skills_home() {
   snap "$C/home/.claude"
   run install-skills.sh --follow-claude-link --force
   [ "$RC" -eq 1 ] && same_as "$C/home/.claude" \
-    && said_re "^! [.]claude/skills is a link to .*/home/[.]claude/skills, $USER_SKILLS_PLACE[.] Not changed, with or without --follow-claude-link[.]\$"
+    && said_re "^! [.]claude/skills is a link to .*/home/[.]claude/skills, ${USER_SKILLS_PLACE}[.] Not changed, with or without --follow-claude-link[.]\$"
   v "$L: .claude/skills a link to it — --follow-claude-link --force exits 1, the user directory byte-identical" $?
   run install-skills.sh --check
   [ "$RC" -eq 1 ] \
@@ -496,7 +496,7 @@ case_skills_home() {
   if ! dirlink "$k" "$C/home/.claude/skills/other" "$IP/.claude/skills/dashboard"; then na "$L: .claude/skills/dashboard a link to its skill other" "$WHY_NA"; return 0; fi
   run install-skills.sh --follow-claude-link --force
   [ "$RC" -eq 1 ] && same_as "$C/home/.claude" && [ ! -e "$IP/.claude/skills/create-project" ] \
-    && said_re "^! [.]claude/skills/dashboard is a link to .*/home/[.]claude/skills/other, $USER_SKILLS_PLACE[.] Not changed, with or without --follow-claude-link[.]\$"
+    && said_re "^! [.]claude/skills/dashboard is a link to .*/home/[.]claude/skills/other, ${USER_SKILLS_PLACE}[.] Not changed, with or without --follow-claude-link[.]\$"
   v "$L: .claude/skills/dashboard a link to its skill other — --follow-claude-link --force exits 1, nothing written" $?
 }
 
@@ -522,7 +522,7 @@ case_skills_kept() {
     if ! dirlink "$k" "$C/userdir/skills/$u" "$IP/.claude/skills/dashboard"; then na "$L: to the user skills/$u" "$WHY_NA"; continue; fi
     run install-skills.sh --follow-claude-link --force
     [ "$RC" -eq 1 ] && same_as "$C/dotfiles" && [ ! -e "$IP/.claude/skills/create-project" ] \
-      && said_re "^! [.]claude/skills/dashboard is a link to .*/dotfiles/$u, $USER_SKILLS_PLACE[.] Not changed, with or without --follow-claude-link[.]\$"
+      && said_re "^! [.]claude/skills/dashboard is a link to .*/dotfiles/$u, ${USER_SKILLS_PLACE}[.] Not changed, with or without --follow-claude-link[.]\$"
     v "$L: to the user skills/$u — --follow-claude-link --force exits 1, the dotfiles byte-identical" $?
     [ "$u" = other/sub ] || continue
     run install-skills.sh --check
