@@ -52,8 +52,13 @@
 # component. When the region holds a / or a \ and the text after the last one
 # is a word with no whitespace, that word is printed with a / before it. The
 # / keeps the word from reading as an option, a keyword or a name of its own.
-# A word that begins with - names no command, so it is not kept: the text of
-# `git commit -m "see docs/--no-verify"` stays dropped, as any message is.
+# The word is kept only where it can be a command a rule reads (WU-IAENG-455,
+# code review of PR #485, F3): when it names git, a dashed git-<subcommand>,
+# gh, rm or printf, in any case and with any extension Windows runs, or when
+# the region is glued to the text after it, which may complete such a name
+# (`"/c/x y/gi"t`). Any other tail is dropped with its region, as a message's
+# text is: `git commit -m "see docs/x--no-verify"` and `-m "see
+# Standards/core.hooksPath"` reach the rules as `git commit -m`.
 #
 # WORDS AS THE SHELL FORMS THEM (WU-IAENG-450). A quoted or escaped ; & | is a
 # character of a word, not the end of a command; a substitution's output may
@@ -351,8 +356,10 @@ function keepq(s) {
 # The last path component of a dropped quoted region, with a / before it, or
 # nothing (see the header, A DROPPED REGION KEEPS ITS LAST PATH COMPONENT). A
 # backslash counts as a separator, as it does in a Windows path. The search
-# runs once from the end of the region, so it is linear in its length.
-function path_tail(s,   k, ch) {
+# runs once from the end of the region, so it is linear in its length. nx is
+# the byte after the region's closing quote: a byte that does not end a word
+# (word_after) glues the region to the text after it.
+function path_tail(s, nx,   k, ch) {
   for (k = length(s); k > 0; k--) {
     ch = substr(s, k, 1)
     if (ch == "/" || ch == "\\") break
@@ -360,7 +367,14 @@ function path_tail(s,   k, ch) {
   if (k == 0) return ""
   s = substr(s, k + 1)
   if (s == "" || s ~ /[ \t\n]/ || s ~ /^-/) return ""
+  if (word_after(nx) && !is_rule_command(s)) return ""
   return "/" sepw(mark_literal_braces(s))
+}
+
+# A command name a rule reads (path_tail): git, a dashed git-<subcommand>, gh,
+# rm or printf, in any case, with any extension Windows runs a command by.
+function is_rule_command(s) {
+  return tolower(s) ~ /^(git(-[^\/\\]*)?|gh|rm|printf)(\.(exe|cmd|com|bat))?$/
 }
 
 # A SUBSTITUTION OPENED INSIDE DOUBLE QUOTES, by $( or by a backtick
@@ -379,6 +393,7 @@ function path_tail(s,   k, ch) {
 # commands.
 function open_dq_sub(kind) {
   mstack[depth] = V3
+  if (V3) note_nested(depth > 0 || obt[depth])
   if (mstack[depth]) {
     bstack[depth] = buf; tstack[depth] = tainted; ostack[depth] = out
     out = ""; kept_save(depth)
@@ -424,6 +439,23 @@ function close_sub(nextc) {
   } else if (mvs[depth] && word_after(nextc)) out = out WB
   mstack[depth] = 0
   return 1
+}
+
+# A SUBSTITUTION INSIDE ANOTHER (WU-IAENG-455, review of PR #529). The third
+# reading tracks every substitution it mutes: a $( and a substitution in
+# double quotes by depth, a backtick pair outside quotes by obt at its depth.
+# A substitution it opens while one of those is open, at a depth above 0 or
+# inside a backtick pair, is nested, and NESTED is set. The first two readings
+# print a nested substitution's commands as words of the one around it, so a
+# word there may be one the shell never passes: in `$(git config $(--get)
+# core.hooksPath x)`, --get is a command whose output is empty, and the outer
+# command is a write. The hook reads NESTED (NESTMARK, below) and grants no
+# exemption that reads a substitution's words as a command's arguments when
+# one is set. An escaped backtick inside a backtick pair is printed as a
+# backtick, not read as a substitution; the rule that reads the words keeps
+# that byte out of them.
+function note_nested(inside) {
+  if (inside) NESTED = 1
 }
 
 # Braces that came from a quoted or escaped source are literal to the shell.
@@ -605,6 +637,7 @@ function lex(s,   n, i) {
         if (!V2) CH3 = 1
         mstack[depth] = V3
         if (V3) {
+          note_nested(depth > 0 || obt[depth])
           mvs[depth] = word_before(); ostack[depth] = out; out = ""
           kept_save(depth)
         }
@@ -631,6 +664,7 @@ function lex(s,   n, i) {
             kept_restore("b" depth)
             if (obv[depth] && word_after(d)) out = out WB
           } else {
+            note_nested(depth > 0)
             obv[depth] = word_before(); obs[depth] = out; obt[depth] = 1; out = ""
             kept_save("b" depth)
           }
@@ -744,7 +778,7 @@ function lex(s,   n, i) {
         else if (cmdctx) out = out " " buf " "
         else if (KEEPQ == 1) out = out keepq(buf)
         else if (!tainted && is_bare_word(buf)) out = out sepw(mark_literal_braces(buf))
-        else dropped(buf)
+        else dropped(buf, d)
         mode = "out"; buf = ""; tainted = 0; cmdctx = 0; decodectx = 0; valctx = 0; hadsub = 0
         i++; continue
       }
@@ -761,7 +795,7 @@ function lex(s,   n, i) {
         if (cmdctx) out = out " " buf " "
         else if (KEEPQ == 1) out = out keepq(buf)
         else if (is_bare_word(buf)) out = out sepw(mark_literal_braces(buf))
-        else dropped(buf)
+        else dropped(buf, d)
         mode = "out"; buf = ""; tainted = 0; cmdctx = 0; decodectx = 0; valctx = 0; hadsub = 0
         i++; continue
       }
@@ -799,7 +833,7 @@ function lex(s,   n, i) {
       else if (cmdctx) out = out " " buf " "
       else if (KEEPQ == 1) out = out keepq(buf)
       else if (!tainted && is_bare_word(buf)) out = out sepw(mark_literal_braces(buf))
-      else dropped(buf)
+      else dropped(buf, d)
       mode = "out"; buf = ""; tainted = 0; cmdctx = 0; decodectx = 0; valctx = 0; hadsub = 0
       i++; continue
     }
@@ -822,7 +856,8 @@ function lex(s,   n, i) {
 }
 
 # A quoted region the reading drops: nothing in pass 1, its path_tail in the
-# second and third readings. Pass 1 notes that they differ. In a value context
+# second and third readings, judged with nx, the byte after its closing quote.
+# Pass 1 notes that they differ. In a value context
 # (is_value_context), a region with no path tail to print leaves WB, in every
 # reading, when it holds something other than whitespace or held a
 # substitution the third reading muted (hadsub), and held none whose commands
@@ -832,15 +867,24 @@ function lex(s,   n, i) {
 # key and its `=`, in every reading. The rest of its value, the name of a
 # variable, is not printed: the key and its `=` are already a word, and G and
 # GX read the word after the option as its value whatever follows the `=`.
-function dropped(b,   t) {
+#
+# THE DROP MARK (`awk -v DROPMARK=...`, set by block-escape-hatches.sh for its
+# marked view; review of PR #529, round 2, B1). A region this function prints
+# nothing for is still a word the shell passes: in
+#   git config "core.hooksPath${E:+ }" get core.hooksPath
+# git receives the key before `get`. With DROPMARK set, such a region prints
+# DROPMARK in every reading, so the core.hooksPath rule sees that a word stood
+# there. Unset, nothing is printed, as before.
+function dropped(b, nx,   t) {
   if (valctx == 2 && !tainted && match(b, /^[^ \t\n=]+=/)) {
     out = out sepw(substr(b, 1, RLENGTH))
     return
   }
-  t = path_tail(b)
+  t = path_tail(b, nx)
   if (V2 && t != "") { out = out t; return }
   if (t != "") CHANGED = 1
   if (valctx && !tainted && (b ~ /[^ \t\n]/ || hadsub)) out = out WB
+  else if (DROPMARK != "") out = out DROPMARK
 }
 
 # TWO READINGS (WU-IAENG-440). The text is printed as this file read it before
@@ -903,6 +947,11 @@ END {
   gsub(BR, "}", result)
   printf "%s", result
 }
+
+# THE NESTING MARK (`awk -v NESTMARK=...`, set by block-escape-hatches.sh).
+# Printed after the output, before the end mark, when the third reading found
+# a substitution inside another (note_nested). Unset, nothing is printed.
+END { if (NESTMARK != "" && NESTED) printf "%s", NESTMARK }
 
 # THE END MARK (`awk -v MARK=...`, set by block-escape-hatches.sh). Printed
 # once, after the whole output, so the hook can tell a command that lexes to
