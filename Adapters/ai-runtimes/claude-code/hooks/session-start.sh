@@ -715,7 +715,9 @@ fi
 # check-framework-drift.sh --quick (A version, B files by plain diff, D hook
 # command paths) is read as tsv, and at most three lines are printed, one per
 # family, only for what is actionable, each naming the command that explains
-# it. Its result is kept in a user-level cache, so an unchanged project costs
+# it, then one "N accepted" line when the project recorded reviewed edits as
+# accepted (WU-IAENG-456, issue #420), all of it read in the shell: no
+# process. Its result is kept in a user-level cache, so an unchanged project costs
 # a stat (the script's header, --QUICK). Never in the framework repository,
 # which validate-framework.sh covers. Bounded: TERM at 2.8 s, KILL 0.2 s later;
 # `timeout` ends the whole process group, so no process of that run outlives
@@ -904,8 +906,9 @@ if [ "$SS_LIGHT" -eq 0 ] && [ -n "$DRIFT_SH" ] && [ -f "$DRIFT_SH" ] && ! [ "$RO
     return 0
   }
 
-  # d_list <max> <items...> — "a, b, c and 2 more"; a name read from the
-  # project is cut at 160 bytes (d_cap), so no line floods the context.
+  # d_list <max> <items...> — D_LIST: "a, b, c and 2 more"; a name read from
+  # the project is cut at 160 bytes (d_cap), so no line floods the context.
+  # Set by name, so a caller starts no subshell for it (WU-IAENG-456).
   d_list() {
     local max="$1" out="" i=0 x; shift
     for x in "$@"; do
@@ -914,7 +917,8 @@ if [ "$SS_LIGHT" -eq 0 ] && [ -n "$DRIFT_SH" ] && [ -f "$DRIFT_SH" ] && ! [ "$RO
       [ "$i" -le "$max" ] && out="${out:+$out, }$D_CAPPED"
     done
     [ "$i" -gt "$max" ] && out="$out and $((i - max)) more"
-    printf '%s' "$out"
+    D_LIST="$out"
+    return 0
   }
   # d_broken — one broken path (family D) of d_result's record into D_BRK:
   # the path and why, each cut at 160 bytes, then the outcome that applies,
@@ -981,11 +985,15 @@ if [ "$SS_LIGHT" -eq 0 ] && [ -n "$DRIFT_SH" ] && [ -f "$DRIFT_SH" ] && ! [ "$RO
     D_BRK+=("$D_CAPPED ($out)")
   }
   # d_result — reads DRIFT_OUT, the tsv output of a run that exited 0, into
-  # DRIFT_LINES (one line per family, each begun with D_HEAD) or DRIFT_ONCE.
-  # Every field arrives flattened: the script turns each control character
-  # into a space (SEC-IAENG-357-01).
+  # DRIFT_LINES (one line per family, each begun with D_HEAD) or DRIFT_ONCE,
+  # and D_ACCLINE, the one "N accepted" line (WU-IAENG-456, issue #420): a
+  # reviewed edit the project recorded in .ia-engineering/drift-accepted.tsv
+  # is not to act on while neither file changes, and is said in that line
+  # instead of the line to act on. One whose acceptance lapsed is to act on
+  # again, and named so. Every field arrives flattened: the script turns each
+  # control character into a space (SEC-IAENG-357-01).
   d_result() {
-    D_VER=""; D_ABS=(); D_DIF=(); D_BRK=(); D_FILES=0; D_INDET=""; D_ACT=""; D_SUM=0; D_REFUSES=0
+    D_VER=""; D_ABS=(); D_DIF=(); D_BRK=(); D_ACC=(); D_FILES=0; D_INDET=""; D_ACT=""; D_SUM=0; D_REFUSES=0
     # The version line is built from fixed words, the tag and the count
     # alone: no text of the record (or of a cache) reaches it.
     D_RE_BEHIND='^last tag known locally: ([A-Za-z0-9._/+-]{1,64}), ([0-9]{1,4}) tag\(s\) behind'
@@ -1010,7 +1018,13 @@ if [ "$SS_LIGHT" -eq 0 ] && [ -n "$DRIFT_SH" ] && [ -f "$DRIFT_SH" ] && ! [ "$RO
             version:uninitialized)
               D_VER="${D_VER:+$D_VER; }the submodule is not initialized (gitlink -)" ;;
             file:absent) D_ABS+=("$d_p") ;;
-            file:differs|file:stale|file:modified) D_DIF+=("$d_p") ;;
+            file:differs|file:stale|file:modified)
+              # The record's remedy is matched, never printed.
+              case "$d_r" in
+                *'; its acceptance in '*' lapsed: '*) D_DIF+=("$d_p (its acceptance lapsed)") ;;
+                *) D_DIF+=("$d_p") ;;
+              esac ;;
+            file:accepted) D_ACC+=("$d_p") ;;
             path:broken) d_broken ;;
             *:indeterminate)
               if [ -z "$D_INDET" ]; then
@@ -1025,8 +1039,8 @@ if [ "$SS_LIGHT" -eq 0 ] && [ -n "$DRIFT_SH" ] && [ -f "$DRIFT_SH" ] && ! [ "$RO
     fi
     if [ "${#D_ABS[@]}" -gt 0 ] || [ "${#D_DIF[@]}" -gt 0 ]; then
       D_TXT=""
-      [ "${#D_ABS[@]}" -gt 0 ] && D_TXT="absent: $(d_list 3 "${D_ABS[@]}")"
-      [ "${#D_DIF[@]}" -gt 0 ] && D_TXT="${D_TXT:+$D_TXT; }differ from the framework: $(d_list 3 "${D_DIF[@]}")"
+      if [ "${#D_ABS[@]}" -gt 0 ]; then d_list 3 "${D_ABS[@]}"; D_TXT="absent: $D_LIST"; fi
+      if [ "${#D_DIF[@]}" -gt 0 ]; then d_list 3 "${D_DIF[@]}"; D_TXT="${D_TXT:+$D_TXT; }differ from the framework: $D_LIST"; fi
       DRIFT_LINES+=("$D_HEAD: $(( ${#D_ABS[@]} + ${#D_DIF[@]} )) of $D_FILES framework-managed file(s) to act on ($D_TXT). Run: $DRIFT_RUN, which tells a stale file (copy it) from a modified one (review it)")
     fi
     if [ "${#D_BRK[@]}" -gt 0 ]; then
@@ -1049,9 +1063,14 @@ if [ "$SS_LIGHT" -eq 0 ] && [ -n "$DRIFT_SH" ] && [ -f "$DRIFT_SH" ] && ! [ "$RO
       fi
       DRIFT_LINES+=("$D_HEAD: ${#D_BRK[@]} hook command(s) or core.hooksPath name a path that does not work: $D_TXT.$D_TERM Run: $DRIFT_RUN")
     fi
+    if [ "${#D_ACC[@]}" -gt 0 ]; then
+      d_list 3 "${D_ACC[@]}"
+      D_ACCLINE="$D_HEAD: ${#D_ACC[@]} accepted ($D_LIST): a reviewed project edit, recorded in .ia-engineering/drift-accepted.tsv, not to act on. It lapses, and is to act on again, when the framework's file or the project's changes."
+    fi
     if [ "$D_SUM" -eq 0 ]; then
       # Output cut short is not a result: nothing from it is shown.
       DRIFT_LINES=()
+      D_ACCLINE=""
       DRIFT_ONCE="IA Engineering drift check: it gave no summary line, so nothing is reported (said once). Run it by hand: $DRIFT_RUN"
     elif [ "${#DRIFT_LINES[@]}" -eq 0 ] && [ -n "$D_ACT" ] && [ "$D_ACT" != 0 ]; then
       # A status this hook does not render is still never silence.
@@ -1068,6 +1087,7 @@ if [ "$SS_LIGHT" -eq 0 ] && [ -n "$DRIFT_SH" ] && [ -f "$DRIFT_SH" ] && ! [ "$RO
   fi
   DRIFT_ONCE=""
   DRIFT_LINES=()
+  D_ACCLINE=""
   # 1 once this session's run completed with a result, 2 once an earlier
   # background run's result was reported instead: either ends an episode.
   D_DONE=0
@@ -1118,8 +1138,11 @@ if [ "$SS_LIGHT" -eq 0 ] && [ -n "$DRIFT_SH" ] && [ -f "$DRIFT_SH" ] && ! [ "$RO
         DRIFT_ONCE="IA Engineering drift check: it failed (exit $DRIFT_RC), so nothing is reported (said once). Run it by hand: $DRIFT_RUN" ;;
     esac
   fi
-  if [ "${#DRIFT_LINES[@]}" -gt 0 ]; then
-    printf '%s\n' "${DRIFT_LINES[@]:0:3}"
+  # At most three lines to act on, one per family, then the accepted line,
+  # never cut by them.
+  if [ "${#DRIFT_LINES[@]}" -gt 0 ] || [ -n "$D_ACCLINE" ]; then
+    [ "${#DRIFT_LINES[@]}" -gt 0 ] && printf '%s\n' "${DRIFT_LINES[@]:0:3}"
+    [ -n "$D_ACCLINE" ] && printf '%s\n' "$D_ACCLINE"
     echo
   fi
   if [ -n "$DRIFT_ONCE" ]; then
