@@ -4135,6 +4135,10 @@ expect 1 "the roster is a control path" -- "${CP_RUN[@]}" 'Registry/employees.ym
 expect 0 "another registry file is not" -- "${CP_RUN[@]}" 'Registry/work-units.yml\n'
 expect 1 "an allow file is a control path" -- "${CP_RUN[@]}" '.ia-engineering/suppression.allow\n'
 expect 1 "the risk map is a control path" -- "${CP_RUN[@]}" '.ia-engineering/risk-map.yml\n'
+expect 1 "the accepted drift entries are a control path (WU-IAENG-456)" -- "${CP_RUN[@]}" '.ia-engineering/drift-accepted.tsv\n'
+expect_output "control path touched: .ia-engineering/drift-accepted.tsv"
+expect 1 "... in any case spelling" -- "${CP_RUN[@]}" '.IA-Engineering/Drift-Accepted.TSV\n'
+expect 0 "... and a file merely named after them is not" -- "${CP_RUN[@]}" '.ia-engineering/drift-accepted.tsv.md\ndocs/drift-accepted.tsv\n'
 expect 1 "the root ignore file is a control path" -- "${CP_RUN[@]}" '.gitignore\n'
 expect 1 "the root attributes file is a control path" -- "${CP_RUN[@]}" '.gitattributes\n'
 expect 1 "an attributes file at depth is a control path" -- "${CP_RUN[@]}" 'vendor/lib/deep/.gitattributes\n'
