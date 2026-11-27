@@ -35,23 +35,34 @@
 #     with the fault record; --follow-claude-link exits 0, writes the template
 #     there, says so on stderr, and writes the project's .gitattributes rule.
 #   - install-hooks.sh, .claude a link to a directory that holds a project's
-#     own settings.json: a run and a --force run exit 1, that directory
-#     byte-identical; --check exits 1 with the fault record, not
-#     "customized"; --follow-claude-link merges there, the other keys kept.
+#     own settings.json and a settings.local.json: a run and a --force run
+#     exit 1, that directory byte-identical; --check exits 1 with the fault
+#     record, not "customized", and no "disabled" or "shadowed" record read
+#     behind the link; --follow-claude-link merges there, the other keys kept.
 #   - .claude a link to the user settings directory, named by a fake
-#     CLAUDE_CONFIG_DIR, and by a fake HOME with CLAUDE_CONFIG_DIR unset: a
-#     run exits 1 with and without the flag, the directory byte-identical;
-#     --check names it in its fault record.
+#     CLAUDE_CONFIG_DIR, and by a fake HOME with CLAUDE_CONFIG_DIR unset or
+#     naming another directory: a run exits 1 with and without the flag, the
+#     directory byte-identical; --check names it in its fault record.
 #   - install-skills.sh, .claude a link: a run exits 1, nothing written;
-#     --check exits 1 with a fault record for .claude; the flag installs the
-#     skills there. .claude/skills a link to the user skills directory: a run
-#     with the flag exits 1, that directory byte-identical.
+#     --check exits 1 with a fault record for .claude and no record for what
+#     lies behind the link; the flag installs the skills there.
+#     .claude/skills a link to the user skills directory: a run with the
+#     flag exits 1, that directory byte-identical. One skill's directory a
+#     link: a run and a --force run exit 1, nothing written; --check reports
+#     it; a link to the user skills directory's same skill, or another one,
+#     refused with the flag.
+#   - .claude a symbolic link to no directory: each installer refuses it with
+#     the flag, creating nothing, and --check says it leads nowhere.
+#   - --check with --follow-claude-link: exit 2 from each installer.
 #   - .gitattributes a symbolic link to a file (#255), for each installer: a
 #     run exits 1, the file byte-identical, the rule printed; --check exits 1
-#     with a gitattributes fault. A dangling one: no file appears where it
-#     points.
+#     with a gitattributes fault. The same when the file it leads to already
+#     holds both rules, which git does not read through the link (checked
+#     with git check-attr). A dangling one: no file appears where it points.
 #   - Controls: a plain .claude, and a project reached through a linked
 #     parent directory, install as before (exit 0).
+#   - The dir_link block, written out in both installers, is byte-identical
+#     in the two.
 #
 # ORACLES (Standards/TESTING_STANDARD.md, Independent Oracle). None is taken
 # from the installers' output:
@@ -147,6 +158,17 @@ fi
 HOOK_RULE="/.claude/settings.json text eol=lf"
 SKILL_RULE="/.claude/skills/** text eol=lf"
 
+# The dir_link block is written out in both installers, neither sourcing the
+# other: the two copies must stay byte-identical.
+sed -n '/^# >>> dir_link/,/^# <<< dir_link/p' "$CC/install-hooks.sh" > "$T/dir_link.hooks"
+sed -n '/^# >>> dir_link/,/^# <<< dir_link/p' "$CC/install-skills.sh" > "$T/dir_link.skills"
+if [ -s "$T/dir_link.hooks" ] && cmp -s "$T/dir_link.hooks" "$T/dir_link.skills"; then
+  ok "the dir_link block is byte-identical in install-hooks.sh and install-skills.sh"
+else
+  bad "the dir_link block is byte-identical in install-hooks.sh and install-skills.sh" \
+    "$(diff "$T/dir_link.hooks" "$T/dir_link.skills" 2>&1 | head -c 400)"
+fi
+
 # project <name> [<parent>] — an adopting project of its own for one case,
 # the framework under ia-engineering/; no .claude yet. Sets C (the case's
 # scratch), IP (the project, as the installers are run from it) and IFW.
@@ -224,6 +246,11 @@ record_is() {
 closing_faults() { tail -n 1 "$C/out" | grep -qF -- "; $1 fault(s)."; }
 settings_is_template() { [ -f "$1/settings.json" ] && [ "$(strip_eol_cr < "$1/settings.json")" = "$(cat "$TPL")" ]; }
 no_project_attr() { [ ! -e "$IP/.gitattributes" ] && [ ! -L "$IP/.gitattributes" ]; }
+# git_here <dir> <git args> — git in <dir>, reading no system, user or XDG
+# configuration or attributes file; stdout only.
+git_here() {
+  ( cd "$1" && shift && HOME="$C/home" XDG_CONFIG_HOME="$C/home/.config" GIT_CONFIG_NOSYSTEM=1 GIT_ATTR_NOSYSTEM=1 git "$@" ) 2>/dev/null
+}
 has_rule() { [ -f "$IP/.gitattributes" ] && strip_eol_cr < "$IP/.gitattributes" | grep -qxF -- "$1"; }
 
 # =============================================================================
@@ -267,6 +294,7 @@ case_hooks_merge() {
   project "hooks-merge-$k"
   tgt="$C/outside-hooks-merge-$k"; mkdir -p "$tgt"
   printf '{\n  "model": "opus",\n  "permissions": {"allow": ["Bash(ls)"]}\n}\n' > "$tgt/settings.json"
+  printf '{\n  "disableAllHooks": true,\n  "statusLine": {"type": "command", "command": "own-status-line.sh"}\n}\n' > "$tgt/settings.local.json"
   if ! dirlink "$k" "$tgt" "$IP/.claude"; then na "$L" "$WHY_NA"; return 0; fi
   snap "$tgt"
   run install-hooks.sh
@@ -281,6 +309,8 @@ case_hooks_merge() {
   [ "$RC" -eq 1 ] && closing_faults 1 && ! grep -q $'\tcustomized\t' "$C/out" \
     && record_is settings fault .claude "^it is a link to .*/outside-hooks-merge-$k; "
   v "$L: --check exits 1 with the link's fault record, never customized" $?
+  ! grep -qE $'^(settings\tdisabled|statusline\tshadowed)\t' "$C/out"
+  v "$L: --check reads nothing behind the link: no disabled or shadowed record from its settings.local.json" $?
   run install-hooks.sh --follow-claude-link
   [ "$RC" -eq 0 ] && [ "$(jq '[.hooks[][]] | length' "$tgt/settings.json" | strip_eol_cr)" = "$TPL_GROUPS" ] \
     && [ "$(jq -c '{model, permissions}' "$tgt/settings.json" | strip_eol_cr)" = '{"model":"opus","permissions":{"allow":["Bash(ls)"]}}' ]
@@ -311,10 +341,11 @@ case_hooks_user() {
   v "$L: --check exits 1 and names the user settings directory in its fault record" $?
 }
 
-# The same with CLAUDE_CONFIG_DIR unset: the fallback, $HOME/.claude, with a
-# fake HOME.
+# The same for $HOME/.claude, with a fake HOME: the fallback when
+# CLAUDE_CONFIG_DIR is unset, and still the user directory when that variable
+# names another one (a Claude Code started without it reads $HOME/.claude).
 case_hooks_home() {
-  local k="$1" tgt L="install-hooks.sh, .claude a $1 to \$HOME/.claude (CLAUDE_CONFIG_DIR unset)"
+  local k="$1" tgt L="install-hooks.sh, .claude a $1 to \$HOME/.claude"
   project "hooks-home-$k"
   tgt="$C/home/.claude"; mkdir -p "$tgt"
   printf '{}\n' > "$tgt/settings.json"
@@ -324,7 +355,10 @@ case_hooks_home() {
   run install-hooks.sh --follow-claude-link
   ENV_CFG=""
   [ "$RC" -eq 1 ] && same_as "$tgt" && said "Claude Code's user settings directory"
-  v "$L: --follow-claude-link exits 1, the directory byte-identical" $?
+  v "$L: CLAUDE_CONFIG_DIR unset, --follow-claude-link exits 1, the directory byte-identical" $?
+  run install-hooks.sh --follow-claude-link
+  [ "$RC" -eq 1 ] && same_as "$tgt" && said "Claude Code's user settings directory" && ! said "installing into"
+  v "$L: CLAUDE_CONFIG_DIR naming another directory, --follow-claude-link exits 1 too, the directory byte-identical" $?
 }
 
 # install-skills.sh: .claude a link to an empty directory.
@@ -345,6 +379,18 @@ case_skills_new() {
   [ "$RC" -eq 1 ] && closing_faults 1 \
     && record_is skill fault .claude "^it is a link to .*/outside-skills-new-$k; a run refuses to write through it [(]--follow-claude-link installs there[)]\$"
   v "$L: --check exits 1 with a fault record for .claude" $?
+  # Behind the link: a skill that differs from its source, and a skill's
+  # directory that is itself a link. --check reads neither.
+  mkdir -p "$tgt/skills/dashboard" "$C/elsewhere-skill"
+  printf 'edited\n' > "$tgt/skills/dashboard/SKILL.md"
+  if dirlink "$k" "$C/elsewhere-skill" "$tgt/skills/create-project"; then
+    run install-skills.sh --check
+    [ "$RC" -eq 1 ] && closing_faults 1 && [ "$(awk -F '\t' '$1 == "skill"' "$C/out" | wc -l | tr -d ' ')" = 1 ]
+    v "$L: --check reads nothing behind the link: no record for a skill there, nor for a link there" $?
+  else
+    na "$L: --check reads nothing behind the link" "$WHY_NA"
+  fi
+  rm -rf "$tgt/skills"
   run install-skills.sh --follow-claude-link
   for d in "$CC"/skills/*/; do
     diff -r "$d" "$tgt/skills/$(basename "$d")" >/dev/null 2>&1 || s=1
@@ -382,6 +428,70 @@ case_skills_user() {
   v "$L: .claude a link to the user settings directory — --follow-claude-link exits 1, nothing written" $?
 }
 
+# install-skills.sh: one skill's directory a link (the per-skill rule). To an
+# outside directory: refused with and without --force, a fault under --check.
+# Into the user skills directory, as the same skill or as another one:
+# refused with the flag too.
+case_skills_one() {
+  local k="$1" tgt u L="install-skills.sh, .claude/skills/dashboard a $1"
+  project "skills-one-$k"
+  mkdir -p "$IP/.claude/skills"
+  tgt="$C/outside-skills-one-$k"; mkdir -p "$tgt"
+  if ! dirlink "$k" "$tgt" "$IP/.claude/skills/dashboard"; then na "$L" "$WHY_NA"; return 0; fi
+  run install-skills.sh
+  [ "$RC" -eq 1 ] && empty_dir "$tgt" && [ ! -e "$IP/.claude/skills/create-project" ] \
+    && said_re "^! [.]claude/skills/dashboard is a link to .*/outside-skills-one-$k, not a directory of this project.s own[.] Not changed[.]\$"
+  v "$L to an empty directory: a run exits 1 and writes nothing, the link named" $?
+  run install-skills.sh --force
+  [ "$RC" -eq 1 ] && empty_dir "$tgt" && [ ! -e "$IP/.claude/skills/create-project" ]
+  v "$L to an empty directory: --force exits 1 too and writes nothing" $?
+  run install-skills.sh --check
+  [ "$RC" -eq 1 ] && closing_faults 1 \
+    && record_is skill fault .claude/skills/dashboard "^it is a link to .*/outside-skills-one-$k; a run refuses to write through it [(]--follow-claude-link installs there[)]\$"
+  v "$L to an empty directory: --check exits 1 with a fault record for it" $?
+  for u in dashboard other; do
+    rm -rf "$IP/.claude/skills/dashboard"
+    mkdir -p "$C/userdir/skills/$u"
+    printf 'the user own skill\n' > "$C/userdir/skills/$u/SKILL.md"
+    if ! dirlink "$k" "$C/userdir/skills/$u" "$IP/.claude/skills/dashboard"; then na "$L to the user skills/$u" "$WHY_NA"; continue; fi
+    snap "$C/userdir"
+    run install-skills.sh --follow-claude-link --force
+    [ "$RC" -eq 1 ] && same_as "$C/userdir" \
+      && said_re "^! [.]claude/skills/dashboard is a link to .*/userdir/skills/$u, which is Claude Code.s user skills directory or lies in it[.] Not changed, with or without --follow-claude-link[.]\$"
+    v "$L to the user skills/$u: --follow-claude-link --force exits 1, the user directory byte-identical" $?
+  done
+}
+
+# .claude a symbolic link that leads to no directory: each installer refuses
+# it with the flag and creates nothing; --check says it leads nowhere.
+case_dangling() {
+  local s fam L=".claude a symbolic link to no directory"
+  project dangling
+  if ! filelink "$C/nowhere" "$IP/.claude"; then na "$L" "$WHY_NA"; return 0; fi
+  for s in install-hooks.sh install-skills.sh; do
+    fam=settings; [ "$s" = install-skills.sh ] && fam=skill
+    run "$s" --follow-claude-link
+    [ "$RC" -eq 1 ] && [ ! -e "$C/nowhere" ] && no_project_attr && ! said "installing into" \
+      && said_re "^! [.]claude is a link to .*/nowhere, which leads to no directory[.] Not changed: "
+    v "$L: $s --follow-claude-link exits 1, creates nothing, and says the link leads to no directory" $?
+    run "$s" --check
+    [ "$RC" -eq 1 ] \
+      && record_is "$fam" fault .claude "^it is a link to .*/nowhere, which leads to no directory; a run refuses to write through it, with or without --follow-claude-link\$"
+    v "$L: $s --check exits 1 and says the link leads to no directory" $?
+  done
+}
+
+# --check with --follow-claude-link: a usage error in each installer.
+case_usage() {
+  local s L="usage: --check with --follow-claude-link"
+  project usage
+  for s in install-hooks.sh install-skills.sh; do
+    run "$s" --check --follow-claude-link
+    [ "$RC" -eq 2 ] && said "$s: --follow-claude-link applies to a run; --check reports" && [ ! -s "$C/out" ]
+    v "$L: $s exits 2 and says why" $?
+  done
+}
+
 # .gitattributes a symbolic link to a file outside the project (#255).
 case_attr() {
   local L=".gitattributes a symbolic link"
@@ -398,7 +508,7 @@ case_attr() {
   v "$L: install-hooks.sh prints the line to add" $?
   run install-hooks.sh --check
   [ "$RC" -eq 1 ] \
-    && record_is gitattributes fault .gitattributes "^it is a link to .*/elsewhere/attributes; a run refuses to append to it"
+    && record_is gitattributes fault .gitattributes "^it is a link to .*/elsewhere/attributes, and git does not read a [.]gitattributes that is a symbolic link; a run refuses to append to it"
   v "$L: install-hooks.sh --check exits 1 with a gitattributes fault" $?
   run install-skills.sh
   [ "$RC" -eq 1 ] && cmp -s "$C/elsewhere/attributes" "$C/attributes.orig" && [ -L "$IP/.gitattributes" ]
@@ -407,8 +517,52 @@ case_attr() {
   v "$L: install-skills.sh prints the line to add" $?
   run install-skills.sh --check
   [ "$RC" -eq 1 ] \
-    && record_is gitattributes fault .gitattributes "^it is a link to .*/elsewhere/attributes; a run refuses to append to it"
+    && record_is gitattributes fault .gitattributes "^it is a link to .*/elsewhere/attributes, and git does not read a [.]gitattributes that is a symbolic link; a run refuses to append to it"
   v "$L: install-skills.sh --check exits 1 with a gitattributes fault" $?
+}
+
+# .gitattributes a symbolic link to a file that already holds both rules
+# (#255 item 1): git reads no .gitattributes that is a link, so for git the
+# rule is not there, and neither installer may count it present.
+case_attr_holding() {
+  local L=".gitattributes a symbolic link to a file holding both rules"
+  project attr-holding
+  mkdir -p "$IP/.claude" "$C/elsewhere"
+  printf '* text=auto\n%s\n%s\n' "$HOOK_RULE" "$SKILL_RULE" > "$C/elsewhere/attributes"
+  cp "$C/elsewhere/attributes" "$C/attributes.orig"
+  if ! filelink "$C/elsewhere/attributes" "$IP/.gitattributes"; then na "$L" "$WHY_NA"; return 0; fi
+  # The premise, from git itself: no eol for the installed file through the
+  # link, and eol=lf from a plain copy of the same file, the control that
+  # shows the rule would apply if git read it. No system, user or XDG
+  # attributes file is read, so only the project's own decides. Git for
+  # Windows reads an MSYS sys link as a plain file whose text starts
+  # "!<symlink>", and warns of a negative pattern: no rule either way, and
+  # the warning is not this check's output.
+  local ctl="$C/attr-control"
+  mkdir -p "$ctl"; cp "$C/elsewhere/attributes" "$ctl/.gitattributes"
+  if command -v git >/dev/null 2>&1 && git_here "$IP" init -q . && git_here "$ctl" init -q .; then
+    [ "$(git_here "$IP" check-attr eol -- .claude/settings.json | strip_eol_cr)" = ".claude/settings.json: eol: unspecified" ] \
+      && [ "$(git_here "$ctl" check-attr eol -- .claude/settings.json | strip_eol_cr)" = ".claude/settings.json: eol: lf" ]
+    v "$L: fixture: git check-attr finds no eol through the link, and eol lf in a plain copy of the file" $?
+  else
+    na "$L: fixture: git check-attr finds no eol through the link" "no git, or git init failed here"
+  fi
+  run install-hooks.sh
+  [ "$RC" -eq 1 ] && settings_is_template "$IP/.claude" && cmp -s "$C/elsewhere/attributes" "$C/attributes.orig" \
+    && said "! .gitattributes is a link to " && said "$HOOK_RULE"
+  v "$L: install-hooks.sh installs settings.json, then exits 1, the file byte-identical, the line to add printed" $?
+  run install-hooks.sh --check
+  [ "$RC" -eq 1 ] && ! grep -q $'^gitattributes\tpresent\t' "$C/out" \
+    && record_is gitattributes fault .gitattributes "^it is a link to .*/elsewhere/attributes, and git does not read "
+  v "$L: install-hooks.sh --check exits 1 with a gitattributes fault, never present" $?
+  run install-skills.sh
+  [ "$RC" -eq 1 ] && cmp -s "$C/elsewhere/attributes" "$C/attributes.orig" \
+    && said "! .gitattributes is a link to " && said "$SKILL_RULE"
+  v "$L: install-skills.sh exits 1, the file byte-identical, the line to add printed" $?
+  run install-skills.sh --check
+  [ "$RC" -eq 1 ] && ! grep -q $'^gitattributes\tpresent\t' "$C/out" \
+    && record_is gitattributes fault .gitattributes "^it is a link to .*/elsewhere/attributes, and git does not read "
+  v "$L: install-skills.sh --check exits 1 with a gitattributes fault, never present" $?
 }
 
 # A dangling .gitattributes link: no file appears where it points.
@@ -468,9 +622,13 @@ for k in symlink junction; do
   CASES="$CASES hooks_home_$k";  ( enter "hooks_home_$k";  case_hooks_home "$k";  leave ) &
   CASES="$CASES skills_new_$k";  ( enter "skills_new_$k";  case_skills_new "$k";  leave ) &
   CASES="$CASES skills_user_$k"; ( enter "skills_user_$k"; case_skills_user "$k"; leave ) &
+  CASES="$CASES skills_one_$k";  ( enter "skills_one_$k";  case_skills_one "$k";  leave ) &
   CASES="$CASES via_$k";         ( enter "via_$k";         case_via_link "$k";    leave ) &
 done
+CASES="$CASES dangling";      ( enter dangling;      case_dangling;      leave ) &
+CASES="$CASES usage";         ( enter usage;         case_usage;         leave ) &
 CASES="$CASES attr";          ( enter attr;          case_attr;          leave ) &
+CASES="$CASES attr_holding";  ( enter attr_holding;  case_attr_holding;  leave ) &
 CASES="$CASES attr_dangling"; ( enter attr_dangling; case_attr_dangling; leave ) &
 CASES="$CASES plain";         ( enter plain;         case_plain;         leave ) &
 wait

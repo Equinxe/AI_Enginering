@@ -55,7 +55,8 @@
 #                  for projects, in the framework checkout itself; a fault on
 #                  path .claude, .claude/skills or a skill's: it is a link)
 #   gitattributes  present | missing | fault  (detail: the LF rule; fault:
-#                  .gitattributes is a symbolic link without the rule)
+#                  .gitattributes is a symbolic link, which git does not
+#                  read, whatever it holds)
 #
 # Actionable: absent, differs, missing, fault. A closing `#` line counts each
 # family and gives the remedies. Exit codes: 0 nothing to act on, 3 drift,
@@ -68,10 +69,12 @@
 # install-hooks.sh's rule for .claude, applied to .claude, .claude/skills and
 # each .claude/skills/<name> a run writes: a run writes nothing and exits 1,
 # naming where the link leads; --follow-claude-link installs there, with a
-# notice on stderr; a link to its counterpart in Claude Code's user settings
-# directory (${CLAUDE_CONFIG_DIR:-$HOME/.claude}, its skills/, its
-# skills/<name>) is refused with the flag too, since a skill there is offered
-# in every project. --check reports each such link as a fault.
+# notice on stderr. With the flag too, a run refuses a link from .claude to
+# Claude Code's user settings directory (${CLAUDE_CONFIG_DIR:-$HOME/.claude},
+# and $HOME/.claude too), a link from .claude/skills or a skill's directory
+# to its skills/ or anything under it, since a skill there is offered in
+# every project, and a link that leads to no directory. --check reports each
+# such link as a fault, and reads nothing behind it.
 #
 # An existing skill of the same name is NEVER overwritten without --force. A
 # project may have edited it, and silently replacing edited content is the
@@ -83,7 +86,9 @@
 # and a clone with core.autocrlf=true would otherwise check them out CRLF,
 # unlike the framework's own copies. Nothing else in .gitattributes is
 # touched; --list writes nothing. A .gitattributes that is a symbolic link is
-# not appended to: the run prints the line to add and exits 1 (issue #255).
+# not appended to, and does not count as holding the rule whatever it holds,
+# since git does not read it: the run prints the line to add and exits 1
+# (issue #255).
 
 set -uo pipefail
 export LC_ALL=C
@@ -238,8 +243,10 @@ lf_rule_present() {
 # A .gitattributes that is a symbolic link is never appended to (WU-IAENG-457,
 # issue #255), as in install-hooks.sh: >> would write into the file it leads
 # to, or create one where a dangling link points, and git 2.32 and newer does
-# not read an in-tree .gitattributes that is a symbolic link. attr_link_to
-# prints where the link leads, flattened.
+# not read an in-tree .gitattributes that is a symbolic link. So the link is
+# decided before lf_rule_present, which reads through it: a link to a file
+# that holds the rule holds it for no one. attr_link_to prints where the link
+# leads, flattened.
 attr_link_to() {
   local to
   to="$(readlink "$ATTR" 2>/dev/null)"
@@ -263,50 +270,76 @@ wanted() {
 # THE LINKS ON THE PATH THE SKILLS ARE WRITTEN TO (WU-IAENG-457), decided
 # before the first write: .claude, .claude/skills and each skill's directory.
 # The rule is install-hooks.sh's for .claude, written out here for the reason
-# the LF rule is (that script is a control path). A link is what -L reports
-# (Git Bash reports a junction so too), or a directory whose physical path is
-# not its parent's physical path followed by its own name, a junction or
-# mount form -L may miss. A missing directory is not a link.
+# the LF rule is (that script is a control path).
 #
-# dir_link <path> — 0 when <path> is a link by that rule, LINK_TO then set to
-# where it leads (its physical path, or the link's own text when it leads
-# nowhere), flattened for the terminal; 1 otherwise.
+# >>> dir_link — byte-identical in install-hooks.sh and install-skills.sh:
+# neither sources the other, and hooks/tests/claude-link.sh compares the two
+# (WU-IAENG-457).
+# dir_link <path> — 0 when <path> is a link as -L reports it (Git Bash
+# reports a junction so too), LINK_TO then set to where it leads, flattened
+# for the terminal: its physical path or, when it leads to no directory
+# (LINK_NOWHERE=1), the link's own text. 1 otherwise: a missing path is not
+# a link.
 dir_link() {
-  local phys up
   LINK_TO=""
-  if [ -L "$1" ]; then
-    LINK_TO="$(CDPATH='' cd -P -- "$1" 2>/dev/null && pwd -P)" || LINK_TO=""
-    [ -n "$LINK_TO" ] || LINK_TO="$(readlink "$1" 2>/dev/null)"
+  LINK_NOWHERE=0
+  [ -L "$1" ] || return 1
+  LINK_TO="$(CDPATH='' cd -P -- "$1" 2>/dev/null && pwd -P)" || LINK_TO=""
+  if [ -z "$LINK_TO" ]; then
+    LINK_NOWHERE=1
+    LINK_TO="$(readlink "$1" 2>/dev/null)"
     [ -n "$LINK_TO" ] || LINK_TO="a path that cannot be read"
-  else
-    [ -d "$1" ] || return 1
-    phys="$(CDPATH='' cd -P -- "$1" 2>/dev/null && pwd -P)" || return 1
-    up="$(CDPATH='' cd -P -- "$(dirname -- "$1")" 2>/dev/null && pwd -P)" || return 1
-    [ "$phys" = "${up%/}/${1##*/}" ] && return 1
-    LINK_TO="$phys"
   fi
   flat "$LINK_TO"; LINK_TO="$FLAT"
   return 0
 }
-CLAUDE_USER_DIR="${CLAUDE_CONFIG_DIR:-${HOME:-}/.claude}"
+# claude_user_dir <path> — 0 when <path> is Claude Code's user settings
+# directory by either of its names: ${CLAUDE_CONFIG_DIR:-$HOME/.claude}, the
+# one this shell gives, and $HOME/.claude, the one a Claude Code started
+# without CLAUDE_CONFIG_DIR reads.
+claude_user_dir() {
+  [ "$1" -ef "${CLAUDE_CONFIG_DIR:-${HOME:-}/.claude}" ] || [ "$1" -ef "${HOME:-}/.claude" ]
+}
+# <<< dir_link
+# in_user_skills <path> — 0 when <path>, followed, is the skills/ directory of
+# Claude Code's user settings directory, by either of its names, or lies
+# under it: every skill there is offered in every project, whatever its name.
+in_user_skills() {
+  local p up
+  p="$(CDPATH='' cd -P -- "$1" 2>/dev/null && pwd -P)" || return 1
+  while [ -n "$p" ]; do
+    if [ "$p" -ef "${CLAUDE_CONFIG_DIR:-${HOME:-}/.claude}/skills" ] || [ "$p" -ef "${HOME:-}/.claude/skills" ]; then
+      return 0
+    fi
+    up="${p%/*}"; [ -n "$up" ] || up=/
+    [ "$up" = "$p" ] && return 1
+    p="$up"
+  done
+  return 1
+}
 # LINKED: each linked path, relative to the project, one per line.
 LINKED=""
 REFUSE=0
 # link_rule <path relative to the project> — that path, decided: refused (a
 # run exits 1 once every path is decided), followed with a notice under
-# --follow-claude-link, or a fault record under --check. A link to the same
-# place in Claude Code's user settings directory is refused with the flag
-# too: a skill there is offered in every project.
+# --follow-claude-link, or a fault record under --check, which reads nothing
+# behind a link it has already recorded. A link from .claude to Claude Code's
+# user settings directory, or from .claude/skills or a skill's directory into
+# its skills/, is refused with the flag too: a skill there is offered in
+# every project. So is a link that leads to no directory.
 link_rule() {
-  local rel="$1" place
+  local rel="$1" place=""
+  if [ "$CHECK" -eq 1 ] && under_link "$rel"; then
+    return 0
+  fi
   dir_link "$PROJECT/$rel" || return 0
   LINKED="$LINKED$rel"$'\n'
-  if [ "$PROJECT/$rel" -ef "$CLAUDE_USER_DIR${rel#.claude}" ]; then
-    if [ "$rel" = .claude ]; then
-      place="Claude Code's user settings directory"
-    else
-      place="its counterpart in Claude Code's user settings directory"
-    fi
+  if [ "$rel" = .claude ]; then
+    claude_user_dir "$PROJECT/$rel" && place="Claude Code's user settings directory"
+  else
+    in_user_skills "$PROJECT/$rel" && place="which is Claude Code's user skills directory or lies in it"
+  fi
+  if [ -n "$place" ]; then
     if [ "$CHECK" -eq 1 ]; then
       record skill fault "$rel" "it is a link to $LINK_TO, $place; a run refuses to write through it, with or without --follow-claude-link"
       return 0
@@ -316,6 +349,8 @@ link_rule() {
       echo "  A skill there would be offered in every project, and the framework path it names exists in this one only."
     } >&2
     REFUSE=1
+  elif [ "$CHECK" -eq 1 ] && [ "$LINK_NOWHERE" -eq 1 ]; then
+    record skill fault "$rel" "it is a link to $LINK_TO, which leads to no directory; a run refuses to write through it, with or without --follow-claude-link"
   elif [ "$CHECK" -eq 1 ]; then
     record skill fault "$rel" "it is a link to $LINK_TO; a run refuses to write through it (--follow-claude-link installs there)"
   elif [ "$FOLLOW" -eq 0 ]; then
@@ -324,6 +359,12 @@ link_rule() {
       echo "  Writing the skills there would change the skills of everything that uses $LINK_TO."
       echo "  If this project shares $rel/ on purpose, re-run with --follow-claude-link."
       echo "  Otherwise replace the link with a directory of this project's own, and re-run."
+    } >&2
+    REFUSE=1
+  elif [ "$LINK_NOWHERE" -eq 1 ]; then
+    {
+      echo "! $rel is a link to $LINK_TO, which leads to no directory. Not changed: --follow-claude-link installs only into the directory a link leads to."
+      echo "  Make the link lead to the directory to share, or replace it with a directory of this project's own, and re-run."
     } >&2
     REFUSE=1
   else
@@ -418,10 +459,10 @@ if [ "$FOUND" -eq 0 ]; then
 fi
 
 if [ "$CHECK" -eq 1 ]; then
-  if lf_rule_present; then
+  if [ -L "$ATTR" ]; then
+    record gitattributes fault .gitattributes "it is a link to $(attr_link_to), and git does not read a .gitattributes that is a symbolic link; a run refuses to append to it: replace the link with a file of this project's own holding $LF_RULE"
+  elif lf_rule_present; then
     record gitattributes present .gitattributes "$LF_RULE"
-  elif [ -L "$ATTR" ]; then
-    record gitattributes fault .gitattributes "it is a link to $(attr_link_to); a run refuses to append to it: replace the link with a file of this project's own holding $LF_RULE"
   else
     record gitattributes missing .gitattributes "$LF_RULE"
   fi
@@ -444,12 +485,12 @@ echo "  $INSTALLED installed, $CURRENT already current, $SKIPPED left untouched,
 # Read before the append starts: a last line without its newline gets one.
 SEP=""
 if [ -s "$ATTR" ] && [ -n "$(tail -c 1 "$ATTR")" ]; then SEP=$'\n'; fi
-if lf_rule_present; then
-  :
-elif [ -L "$ATTR" ]; then
+if [ -L "$ATTR" ]; then
   echo "! .gitattributes is a link to $(attr_link_to). Not changed: git does not read a .gitattributes that is a symbolic link." >&2
   echo "  Replace the link with a file of this project's own, holding this line, and commit it: $LF_RULE" >&2
   exit 1
+elif lf_rule_present; then
+  :
 elif {
   printf '%s' "$SEP"
   echo "# IA Engineering — .claude/skills/ is written by install-skills.sh and holds"
