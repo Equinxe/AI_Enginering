@@ -80,16 +80,31 @@
 # The project's .gitattributes gets the line "/.claude/settings.json text
 # eol=lf" when it does not have it yet (issue #242), so a clone with
 # core.autocrlf=true checks the file out as it was written; nothing else in
-# .gitattributes is touched.
+# .gitattributes is touched. A .gitattributes that is a symbolic link is not
+# appended to, and does not count as holding the rule whatever it holds, since
+# git does not read it: the run prints the line to add and exits 1 (issue
+# #255).
+#
+# A .claude THAT IS A LINK IS REFUSED (WU-IAENG-457, issue #282). When the
+# project's .claude is a symbolic link or a junction, a run writes nothing
+# (no directory, no temporary file, no .gitattributes line) and exits 1,
+# naming where the link leads; --follow-claude-link installs there, with a
+# notice on stderr. A link to Claude Code's user settings directory
+# (${CLAUDE_CONFIG_DIR:-$HOME/.claude}, and $HOME/.claude too), or one that
+# leads to no directory, is refused with the flag too, and --check reports
+# any linked .claude as a fault. The rule is set out where it is decided.
 #
 # Usage, from the project root:
-#   ./ia-engineering/Adapters/ai-runtimes/claude-code/install-hooks.sh [--print] [--force]
+#   ./ia-engineering/Adapters/ai-runtimes/claude-code/install-hooks.sh [--print] [--force] [--follow-claude-link]
 #   ./ia-engineering/Adapters/ai-runtimes/claude-code/install-hooks.sh --check [--quiet]
 #
 #   --print  print the file this script would write for a new project, and
 #            change nothing
 #   --force  replace an existing settings.json with that file instead of
 #            merging (review its other settings first)
+#   --follow-claude-link
+#            when .claude is a link, install into the directory it leads
+#            to (for a project that shares .claude/ on purpose)
 #   --check  report what a run would find, and write nothing (below)
 #   --quiet  with --check: print nothing when there is nothing to act on
 #
@@ -102,7 +117,8 @@
 #                  (current: the template rendered for this project, line
 #                  endings aside; customized: the project's own settings
 #                  beside the framework's entries; disabled: that file sets
-#                  "disableAllHooks": true)
+#                  "disableAllHooks": true; a fault on path .claude: it is
+#                  a link, and nothing behind it is read)
 #   hook           present | absent | near-miss | unchecked   (detail: the
 #                  template entry, or the near-miss command; from the same jq
 #                  computation a merge uses, so "present" has one definition)
@@ -113,7 +129,9 @@
 #   permission     present | absent | near-miss   (detail: the template's
 #                  deny rule, or the project's allow or ask rule for a tool
 #                  the template denies; WU-IAENG-458)
-#   gitattributes  present | missing          (detail: the LF rule)
+#   gitattributes  present | missing | fault  (detail: the LF rule; fault:
+#                  .gitattributes is a symbolic link, which git does not
+#                  read, whatever it holds)
 #   framework      fault                      (the framework copy is unusable)
 #
 # Actionable: absent, missing, disabled, fault. A near miss is information:
@@ -122,8 +140,9 @@
 # 0 nothing to act on, 3 drift, 1 a fault (something could not be evaluated:
 # no jq for an existing file, a symbolic link to no file or to one that is not
 # current, a path that is not a regular file, a file that is not one strict
-# JSON object in that shape), 2 usage
-# (--check with --print or --force; --quiet without
+# JSON object in that shape, a .claude that is a link, a .gitattributes that
+# is a symbolic link), 2 usage
+# (--check with --print, --force or --follow-claude-link; --quiet without
 # --check). settings.json is parsed with jq and never evaluated; a run
 # under --check writes no file and runs no git command.
 #
@@ -139,12 +158,14 @@ PRINT=0
 FORCE=0
 CHECK=0
 QUIET=0
+FOLLOW=0
 for arg in "$@"; do
   case "$arg" in
     --print) PRINT=1 ;;
     --force) FORCE=1 ;;
     --check) CHECK=1 ;;
     --quiet) QUIET=1 ;;
+    --follow-claude-link) FOLLOW=1 ;;
     --help|-h) sed -n '2,$p' "$0" | awk '/^#/{print; next} /^$/{print; next} {exit}' | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "install-hooks.sh: unknown option '$arg'" >&2; exit 2 ;;
   esac
@@ -155,6 +176,10 @@ if [ "$CHECK" -eq 1 ] && { [ "$PRINT" -eq 1 ] || [ "$FORCE" -eq 1 ]; }; then
 fi
 if [ "$QUIET" -eq 1 ] && [ "$CHECK" -eq 0 ]; then
   echo "install-hooks.sh: --quiet only applies to --check." >&2
+  exit 2
+fi
+if [ "$CHECK" -eq 1 ] && [ "$FOLLOW" -eq 1 ]; then
+  echo "install-hooks.sh: --follow-claude-link applies to a run; --check reports a linked .claude as a fault either way." >&2
   exit 2
 fi
 
@@ -225,7 +250,7 @@ check_report() {
         line = line "; " part("hook", "hook entries", "present absent near-miss unchecked fault")
         line = line "; " part("statusline", "statusLine(s)", "present absent near-miss shadowed")
         line = line "; " part("permission", "permission rule(s)", "present absent near-miss")
-        line = line "; " part("gitattributes", ".gitattributes rule(s)", "present missing")
+        line = line "; " part("gitattributes", ".gitattributes rule(s)", "present missing fault")
         line = line "; " (f + 0) " fault(s)."
         if (s["settings" FS "absent"] || s["hook" FS "absent"] || s["statusline" FS "absent"] || s["permission" FS "absent"] || s["gitattributes" FS "missing"])
           line = line " absent/missing: re-run " ENVIRON["IAENG_ME"] " without --force; it adds them and keeps every entry already there, except an earlier framework entry, which it updates in place (its matcher, or the fields the framework added since)."
@@ -336,6 +361,80 @@ if [ "$PRINT" -eq 1 ]; then
   exit 0
 fi
 
+# A .claude THAT IS A LINK IS NOT WRITTEN THROUGH (WU-IAENG-457, issue #282).
+# mkdir -p, mktemp and mv all follow a link, so a project whose .claude is a
+# symbolic link or a junction would get settings.json in the directory the
+# link leads to, shared by whatever else uses it, and a committed relative
+# link can lead anywhere. Decided here, after --print and before --check and
+# every write (no mkdir, no temporary file, no .gitattributes line):
+#   - a run refuses, exit 1, naming where the link leads and the remedies;
+#   - --follow-claude-link installs there, saying so on stderr;
+#   - a link to Claude Code's user settings directory is refused with the
+#     flag too: the framework's hooks name $CLAUDE_PROJECT_DIR, so in user
+#     settings they would run, and block, in every project;
+#   - so is a link that leads to no directory, which has nowhere to install;
+#   - --check records a fault for it, so it exits 1.
+#
+# >>> dir_link — byte-identical in install-hooks.sh and install-skills.sh:
+# neither sources the other, and hooks/tests/claude-link.sh compares the two
+# (WU-IAENG-457).
+# dir_link <path> — 0 when <path> is a link as -L reports it (Git Bash
+# reports a junction so too), LINK_TO then set to where it leads, flattened
+# for the terminal: its physical path or, when it leads to no directory
+# (LINK_NOWHERE=1), the link's own text. 1 otherwise: a missing path is not
+# a link.
+dir_link() {
+  LINK_TO=""
+  LINK_NOWHERE=0
+  [ -L "$1" ] || return 1
+  LINK_TO="$(CDPATH='' cd -P -- "$1" 2>/dev/null && pwd -P)" || LINK_TO=""
+  if [ -z "$LINK_TO" ]; then
+    LINK_NOWHERE=1
+    LINK_TO="$(readlink "$1" 2>/dev/null)"
+    [ -n "$LINK_TO" ] || LINK_TO="a path that cannot be read"
+  fi
+  flat "$LINK_TO"; LINK_TO="$FLAT"
+  return 0
+}
+# claude_user_dir <path> — 0 when <path> is Claude Code's user settings
+# directory by either of its names: ${CLAUDE_CONFIG_DIR:-$HOME/.claude}, the
+# one this shell gives, and $HOME/.claude, the one a Claude Code started
+# without CLAUDE_CONFIG_DIR reads.
+claude_user_dir() {
+  [ "$1" -ef "${CLAUDE_CONFIG_DIR:-${HOME:-}/.claude}" ] || [ "$1" -ef "${HOME:-}/.claude" ]
+}
+# <<< dir_link
+CLAUDE_LINK=""
+if dir_link "$PROJECT/.claude"; then
+  if claude_user_dir "$PROJECT/.claude"; then CLAUDE_LINK='user'; else CLAUDE_LINK='link'; fi
+fi
+if [ "$CHECK" -eq 0 ] && [ "$CLAUDE_LINK" = user ]; then
+  {
+    echo "! .claude is a link to $LINK_TO, Claude Code's user settings directory. Not changed, with or without --follow-claude-link."
+    echo "  The framework's hooks name \$CLAUDE_PROJECT_DIR: in user settings they would run, and block, in every project."
+  } >&2
+  exit 1
+fi
+if [ "$CHECK" -eq 0 ] && [ "$CLAUDE_LINK" = link ]; then
+  if [ "$FOLLOW" -eq 0 ]; then
+    {
+      echo "! .claude is a link to $LINK_TO, not a directory of this project's own. Not changed."
+      echo "  Writing settings.json there would change the settings of everything that uses $LINK_TO."
+      echo "  If this project shares .claude/ on purpose, re-run with --follow-claude-link."
+      echo "  Otherwise replace the link with a directory of this project's own, and re-run."
+    } >&2
+    exit 1
+  fi
+  if [ "$LINK_NOWHERE" -eq 1 ]; then
+    {
+      echo "! .claude is a link to $LINK_TO, which leads to no directory. Not changed: --follow-claude-link installs only into the directory a link leads to."
+      echo "  Make the link lead to the directory to share, or replace it with a directory of this project's own, and re-run."
+    } >&2
+    exit 1
+  fi
+  echo "! .claude is a link: installing into $LINK_TO" >&2
+fi
+
 HOOK_LIST="SessionStart read-first, PreToolUse escape-hatch and inline-suppression blocks, PostToolUse lint, Stop gate, Stop usage-dashboard refresh (never blocks; opt-out in hooks/README.md), context alert on UserPromptSubmit and PostToolBatch (never blocks; hooks/README.md, Context Alert); statusLine recording the context % and running your own status line (hooks/README.md, Context Status Line); and permissions.deny \"PowerShell\", so every shell command goes through the Bash tool, where the guards read it (hooks/README.md, Shell Commands Go Through Bash)."
 
 DEST="$PROJECT/.claude/settings.json"
@@ -394,8 +493,27 @@ lf_rule_present() {
   content="$(sed $'s/\r$//' "$PROJECT/.gitattributes")"
   [[ $'\n'"$content"$'\n' == *$'\n'"$LF_RULE"$'\n'* ]]
 }
+# A .gitattributes that is a symbolic link is never appended to (WU-IAENG-457,
+# issue #255): >> would write the rule into the file it leads to, or create
+# one where a dangling link points, and git 2.32 and newer does not read an
+# in-tree .gitattributes that is a symbolic link anyway. So the link is
+# decided before lf_rule_present, which reads through it: a link to a file
+# that holds the rule holds it for no one. A run prints the line to add and
+# exits 1; --check records a fault. attr_link_to prints where the link
+# leads, flattened.
+attr_link_to() {
+  local to
+  to="$(readlink "$PROJECT/.gitattributes" 2>/dev/null)"
+  flat "${to:-a path that cannot be read}"
+  printf '%s' "$FLAT"
+}
 ensure_lf_rule() {
   local rule="$LF_RULE" attr="$PROJECT/.gitattributes" sep=""
+  if [ -L "$attr" ]; then
+    echo "! .gitattributes is a link to $(attr_link_to). Not changed: git does not read a .gitattributes that is a symbolic link." >&2
+    echo "  Replace the link with a file of this project's own, holding this line, and commit it: $rule" >&2
+    return 1
+  fi
   if lf_rule_present; then
     return 0
   fi
@@ -721,7 +839,15 @@ statusline_shadowed() {
 if [ "$CHECK" -eq 1 ]; then
   REL_DEST=".claude/settings.json"
   MERGED=""
-  if [ -L "$DEST" ] && [ ! -f "$DEST" ]; then
+  # A linked .claude (above) is the one record about it: what lies behind the
+  # link is not read, since a run writes nothing there.
+  if [ "$CLAUDE_LINK" = user ]; then
+    check_fault settings .claude "it is a link to $LINK_TO, Claude Code's user settings directory; a run refuses to write through it, with or without --follow-claude-link"
+  elif [ "$CLAUDE_LINK" = link ] && [ "$LINK_NOWHERE" -eq 1 ]; then
+    check_fault settings .claude "it is a link to $LINK_TO, which leads to no directory; a run refuses to write through it, with or without --follow-claude-link"
+  elif [ "$CLAUDE_LINK" = link ]; then
+    check_fault settings .claude "it is a link to $LINK_TO; a run refuses to write through it (--follow-claude-link installs there)"
+  elif [ -L "$DEST" ] && [ ! -f "$DEST" ]; then
     check_fault settings "$REL_DEST" "it is a symbolic link; a run refuses to write through it"
   elif [ -e "$DEST" ] && [ ! -f "$DEST" ]; then
     check_fault settings "$REL_DEST" "it exists and is not a regular file; a run refuses to replace it"
@@ -770,14 +896,18 @@ if [ "$CHECK" -eq 1 ]; then
                (.pw[]? | "near-miss\t" + flat)' 2>/dev/null \
       | sed $'s/\r$//')
   fi
-  while IFS= read -r _c; do
-    [ -n "$_c" ] && record statusline shadowed .claude/settings.local.json \
-      "$_c: Claude Code runs this one instead of the project statusLine, so the context % is not recorded for this developer"
-  done <<< "$(statusline_shadowed)"
-  while IFS= read -r _f; do
-    [ -n "$_f" ] && record settings disabled "$_f" '"disableAllHooks": true'
-  done <<< "$(hooks_disabled_in)"
-  if lf_rule_present; then
+  if [ -z "$CLAUDE_LINK" ]; then
+    while IFS= read -r _c; do
+      [ -n "$_c" ] && record statusline shadowed .claude/settings.local.json \
+        "$_c: Claude Code runs this one instead of the project statusLine, so the context % is not recorded for this developer"
+    done <<< "$(statusline_shadowed)"
+    while IFS= read -r _f; do
+      [ -n "$_f" ] && record settings disabled "$_f" '"disableAllHooks": true'
+    done <<< "$(hooks_disabled_in)"
+  fi
+  if [ -L "$PROJECT/.gitattributes" ]; then
+    check_fault gitattributes .gitattributes "it is a link to $(attr_link_to), and git does not read a .gitattributes that is a symbolic link; a run refuses to append to it: replace the link with a file of this project's own holding $LF_RULE"
+  elif lf_rule_present; then
     record gitattributes present .gitattributes "$LF_RULE"
   else
     record gitattributes missing .gitattributes "$LF_RULE"
