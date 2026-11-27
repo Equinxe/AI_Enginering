@@ -137,7 +137,7 @@ Its `origin` was a bare repository in the same temp directory, and nothing was p
 | 3–4 Dispatch, commit, push | Real: the Backend Engineer, `isolation: "worktree"` | 152 s + 198 s | First run BLOCKED by the rehearsal's own allow list, then resumed; 3928b72 pushed |
 | 5 Review | Real: the Code Reviewer, `isolation: "worktree"` | 259 s | `Decision: changes requested` on 3928b72: no test caught a change to the rounding |
 | 5 Fix round and re-review | Real: the same two agents, resumed | 378 s + 518 s | 1297118 pushed; `Decision: approved` on 1297118 |
-| QA (FEATURE_DEVELOPMENT Step 7) | By hand, by this Work Unit's QA Engineer | 1 min | 14 of 14 tests pass; a replayed mutant fails 2 |
+| QA (FEATURE_DEVELOPMENT Step 7) | By hand, by this Work Unit's QA Engineer | Not timed, about 60 s | 14 of 14 tests pass; a replayed mutant fails 2 |
 | 6 Merge | Emulated on the bare remote; the head was matched to 1297118 by hand, as `--match-head-commit` would | — | 4a2f7b6 |
 | 7 Cleanup | By hand, DAILY_USE Step 7's commands in order | 27 s for the pull and both removals | 2 worktrees, 3 local branches and 1 remote branch removed, with no refusal |
 | 8 Back on `develop` | Real: a headless Main Agent | 226 s | `## develop...origin/develop` and `?? .ia-engineering/reports/` (#540) |
@@ -158,15 +158,15 @@ The machine ran 530 to 656 processes throughout:
 - 10 to 20 `node.exe`;
 - 17 to 69 `bash.exe`.
 
-The Main Agent counted only its own subagents against the parallel-agent cap. Nothing told it the machine's count.
+The Main Agent counted only its own subagents against the parallel-agent cap. Nothing told it the machine's count, because the operator, playing the Director, did not report it (see Limits).
 
 **Plan items.**
 
 - **S3-27 passes.** S3-27 checks that a worktree subagent's own hooks run with `$CLAUDE_PROJECT_DIR` set to the main checkout. It was never evaluated in v0.0.15.
-  - The Employee's calls came from its worktree, where `ia-engineering/` is empty, and went through the framework's PreToolUse guard. The resumed run recorded 26 guard runs, its own and the Employee's. The one refusal answered a call from the worktree, an unreadable heredoc, with an `iaeng: BLOCKED` line, so the hook command resolved through the main checkout.
+  - The Employee's calls came from its worktree, where `ia-engineering/` is empty, and went through the framework's PreToolUse guard. The resumed run recorded 26 guard runs, its own and the Employee's. The one refusal answered a call from the worktree with `iaeng: BLOCKED — this command expands to more alternatives than the hook will enumerate, so it could not be read in full`, so the hook command resolved through the main checkout.
   - Its two commits ran the project's git hooks (`data-policy: clean`).
   - The worktree started on `worktree-agent-…`, at the remote's `main`. The Employee branched from `origin/develop`, and `git worktree list --porcelain` showed `locked claude agent <name> (pid <n>)`. All three match DAILY_USE Step 3.
-- **S2-07 is still refused at 2496a78.** S2-07 is the read `echo "…$(git config --get core.hooksPath)"` around the bootstrap, which was refused in v0.0.15. All three forms, `echo`, `printf` and backtick, exit 2, while `git config --get core.hooksPath` alone passes. #272 holds the evidence, and PR #529 targets it.
+- **S2-07 stays NOT_EVALUATED.** S2-07 belongs to scenario S2, the upgrade from v0.0.14 (#452, section 7), which this rehearsal did not run. Only its refused read was run again: `echo "…$(git config --get core.hooksPath)"` around the bootstrap. At 2496a78 all three forms, `echo`, `printf` and backtick, still exit 2, while `git config --get core.hooksPath` alone passes. The case stays blocked by #272, which holds the evidence and which PR #529 targets.
 
 **The gap "the Stop gate blocks after every pull of develop" is refuted as stated.** The gate blocks a stop when HEAD's last commit is newer than `.ia-engineering/SESSION_STATE.md` (`stop-gate.sh`, SESSION_STATE gate). A pull alone does not trigger it:
 
@@ -179,19 +179,21 @@ So it asks once for each merge that lands after the last save, as DAILY_USE Step
 **Findings.** Each is filed as an `adoption-finding` issue. None is fixed here.
 
 - #533: the project's own `code-reviewer.md` makes `generate-agents.sh` exit 1, leaving the Code Reviewer with no agent. The data-policy hook then refuses the rename that the generator asks for, until an allow rule exists. README's route mentions neither.
-- #534: the route's `git switch develop` checks out a pre-adoption commit that tracks that file, which overwrites the generated agent, and the pull then removes it. Session start catches it, and regenerating took another 395 s.
+- #534: the route's `git switch develop` checks out a pre-adoption commit that tracks that file, which overwrites the generated agent, and the pull then removes it. Session start catches it. Regenerating took 395 s, the third of the three runs in the adoption row's 1,644 s.
 - #535: the adoption documents give `git config core.hooksPath`, which the guard refuses next to a quoted path, and a path with spaces needs quotes.
 - #536: each `generate-agents.sh` run took 395 to 633 s, a commit's git hooks took 98 to 130 s, and the Stop gate took 8.9 to 35.2 s.
 - #538: nothing the adopter's Main Agent reads asks for the worktree dispatch of DAILY_USE Step 3. Its plan chose none until the Director asked.
 - #540: the brief sent the worktree Employee's report to the main checkout, which the Employee cannot write to, and the report directory is not ignored.
 - #541: Step 7 does not cover the reviewer's detached worktree, and nothing deletes the adoption branch.
+- #544: Claude Code denied the Backend Engineer's Bash `node -e`, and the Employee sent the same calculation through PowerShell. It reported BLOCKED only after that call was denied too, and its report said it had not tried to work around the denial. The Main Agent repeated that claim, and so did this record's first version. The issue also lists the rehearsal's seven other refusals and what followed each.
 
 **Limits.**
 
 - There was no forge, so there was no Pull Request, no CI check, no `size/approved` and no `gh pr merge`. Review decisions were in the Main Agent's reports, not in Pull Request comments.
 - This Work Unit's QA Engineer, not a dispatched Employee, ran the adoption and the Step 7 cleanup by hand, and made both merges in the emulated forge.
+- The same QA Engineer played the Director. It approved the plan, answered its two questions, and asked for the dispatch in a worktree "as Daily Use Step 3 describes" (#538). It also allowed `node`, `npm` and `git` before the first dispatch was resumed. It did not report the machine's other sessions, which the Main Agent adds to its own subagents for the cap (`Core/ORCHESTRATION.md`, Parallel-agent cap).
 - The headless runs loaded the project's settings only, not a Director's user settings. Claude Code also ignored the project's `permissions.allow`, because the workspace had never been trusted interactively.
-- The first dispatch stopped because the rehearsal's allow list did not include `node -e`. The Employee reported the refusal and did not route around it.
+- The first dispatch stopped because the rehearsal's allow list did not include `node -e`. The Employee did not stop at the first denial: it sent the same calculation through PowerShell, and reported only after that was denied too (#544).
 - The fabricated project's `npm test` script fails on Node 24. That is a defect of the fabrication, so the agents ran `node --test` instead.
 - The rehearsal's own adoption commits put a blank line between `Employee:` and the attribution line. The Employee copied that layout, and the Code Reviewer flagged it against `Standards/COMMIT_STANDARD.md`. This was an operator error, not a framework finding.
 - The timings come from one run on one loaded machine.
