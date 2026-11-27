@@ -17,8 +17,9 @@
 #     no temporary file, no .gitattributes line), naming where it leads and
 #     the remedy; --follow-claude-link installs there, with a notice on
 #     stderr;
-#   - a link to Claude Code's user settings directory,
-#     ${CLAUDE_CONFIG_DIR:-$HOME/.claude}, is refused with the flag too;
+#   - a link to Claude Code's user settings directory, by either of its
+#     names, ${CLAUDE_CONFIG_DIR:-$HOME/.claude} and $HOME/.claude, is
+#     refused with the flag too;
 #   - --check reports the link as a fault (exit 1), never "0 fault(s)";
 #   - install-skills.sh applies the same rule to .claude, .claude/skills and
 #     each .claude/skills/<name>;
@@ -50,7 +51,12 @@
 #     flag exits 1, that directory byte-identical. One skill's directory a
 #     link: a run and a --force run exit 1, nothing written; --check reports
 #     it; a link to the user skills directory's same skill, or another one,
-#     refused with the flag.
+#     refused with the flag. The same refusals for $HOME/.claude/skills
+#     while CLAUDE_CONFIG_DIR names another directory: .claude/skills a link
+#     to it, and a skill's directory a link to a skill in it. A user skill
+#     that is itself a link (a skill kept in dotfiles): a skill's directory
+#     a link to it, by the same name or another, or to a directory inside
+#     it, refused with the flag, the dotfiles byte-identical.
 #   - .claude a symbolic link to no directory: each installer refuses it with
 #     the flag, creating nothing, and --check says it leads nowhere.
 #   - --check with --follow-claude-link: exit 2 from each installer.
@@ -157,6 +163,9 @@ else
 fi
 HOOK_RULE="/.claude/settings.json text eol=lf"
 SKILL_RULE="/.claude/skills/** text eol=lf"
+# What install-skills.sh says of a link into the user skills directory (an
+# ERE, the apostrophe matched by "."), after where the link leads.
+USER_SKILLS_PLACE="which is, or lies in, Claude Code.s user skills directory or one of its skills"
 
 # The dir_link block is written out in both installers, neither sourcing the
 # other: the two copies must stay byte-identical.
@@ -457,8 +466,69 @@ case_skills_one() {
     snap "$C/userdir"
     run install-skills.sh --follow-claude-link --force
     [ "$RC" -eq 1 ] && same_as "$C/userdir" \
-      && said_re "^! [.]claude/skills/dashboard is a link to .*/userdir/skills/$u, which is Claude Code.s user skills directory or lies in it[.] Not changed, with or without --follow-claude-link[.]\$"
+      && said_re "^! [.]claude/skills/dashboard is a link to .*/userdir/skills/$u, $USER_SKILLS_PLACE[.] Not changed, with or without --follow-claude-link[.]\$"
     v "$L to the user skills/$u: --follow-claude-link --force exits 1, the user directory byte-identical" $?
+  done
+}
+
+# install-skills.sh: links into $HOME/.claude/skills while CLAUDE_CONFIG_DIR
+# names another directory (the fake one every run gets): $HOME/.claude is
+# still the user directory, the one a Claude Code started without that
+# variable reads. .claude/skills a link to its skills/, then one skill's
+# directory a link to a skill there: refused with the flag.
+case_skills_home() {
+  local k="$1" L="install-skills.sh, a $1 into \$HOME/.claude/skills, CLAUDE_CONFIG_DIR naming another directory"
+  project "skills-home-$k"
+  mkdir -p "$C/home/.claude/skills/other" "$IP/.claude"
+  printf 'the user own skill\n' > "$C/home/.claude/skills/other/SKILL.md"
+  if ! dirlink "$k" "$C/home/.claude/skills" "$IP/.claude/skills"; then na "$L" "$WHY_NA"; return 0; fi
+  snap "$C/home/.claude"
+  run install-skills.sh --follow-claude-link --force
+  [ "$RC" -eq 1 ] && same_as "$C/home/.claude" \
+    && said_re "^! [.]claude/skills is a link to .*/home/[.]claude/skills, $USER_SKILLS_PLACE[.] Not changed, with or without --follow-claude-link[.]\$"
+  v "$L: .claude/skills a link to it — --follow-claude-link --force exits 1, the user directory byte-identical" $?
+  run install-skills.sh --check
+  [ "$RC" -eq 1 ] \
+    && record_is skill fault .claude/skills "^it is a link to .*/home/[.]claude/skills, $USER_SKILLS_PLACE; a run refuses to write through it, with or without --follow-claude-link\$"
+  v "$L: .claude/skills a link to it — --check exits 1 with its fault record" $?
+  rm -rf "$IP/.claude/skills"
+  mkdir -p "$IP/.claude/skills"
+  if ! dirlink "$k" "$C/home/.claude/skills/other" "$IP/.claude/skills/dashboard"; then na "$L: .claude/skills/dashboard a link to its skill other" "$WHY_NA"; return 0; fi
+  run install-skills.sh --follow-claude-link --force
+  [ "$RC" -eq 1 ] && same_as "$C/home/.claude" && [ ! -e "$IP/.claude/skills/create-project" ] \
+    && said_re "^! [.]claude/skills/dashboard is a link to .*/home/[.]claude/skills/other, $USER_SKILLS_PLACE[.] Not changed, with or without --follow-claude-link[.]\$"
+  v "$L: .claude/skills/dashboard a link to its skill other — --follow-claude-link --force exits 1, nothing written" $?
+}
+
+# install-skills.sh: a skill in the user skills directory that is itself a
+# link, as a skill kept in a dotfiles checkout is. .claude/skills/dashboard a
+# link to that skill, by the same name or another, or to a directory inside
+# it: refused with the flag, the dotfiles byte-identical. The link's physical
+# path lies outside the user directory; only the user's own link to it makes
+# it a user skill.
+case_skills_kept() {
+  local k="$1" u L="install-skills.sh, .claude/skills/dashboard a $1 to a user skill that is itself a link"
+  project "skills-kept-$k"
+  mkdir -p "$IP/.claude/skills" "$C/userdir/skills" "$C/dotfiles/dashboard" "$C/dotfiles/other/sub"
+  printf 'the user own skill\n' > "$C/dotfiles/dashboard/SKILL.md"
+  printf 'the user own skill\n' > "$C/dotfiles/other/SKILL.md"
+  if ! dirlink "$k" "$C/dotfiles/dashboard" "$C/userdir/skills/dashboard" \
+    || ! dirlink "$k" "$C/dotfiles/other" "$C/userdir/skills/other"; then
+    na "$L" "$WHY_NA"; return 0
+  fi
+  snap "$C/dotfiles"
+  for u in dashboard other other/sub; do
+    rm -rf "$IP/.claude/skills/dashboard"
+    if ! dirlink "$k" "$C/userdir/skills/$u" "$IP/.claude/skills/dashboard"; then na "$L: to the user skills/$u" "$WHY_NA"; continue; fi
+    run install-skills.sh --follow-claude-link --force
+    [ "$RC" -eq 1 ] && same_as "$C/dotfiles" && [ ! -e "$IP/.claude/skills/create-project" ] \
+      && said_re "^! [.]claude/skills/dashboard is a link to .*/dotfiles/$u, $USER_SKILLS_PLACE[.] Not changed, with or without --follow-claude-link[.]\$"
+    v "$L: to the user skills/$u — --follow-claude-link --force exits 1, the dotfiles byte-identical" $?
+    [ "$u" = other/sub ] || continue
+    run install-skills.sh --check
+    [ "$RC" -eq 1 ] \
+      && record_is skill fault .claude/skills/dashboard "^it is a link to .*/dotfiles/other/sub, $USER_SKILLS_PLACE; a run refuses to write through it, with or without --follow-claude-link\$"
+    v "$L: to the user skills/$u — --check exits 1 with its fault record" $?
   done
 }
 
@@ -623,6 +693,8 @@ for k in symlink junction; do
   CASES="$CASES skills_new_$k";  ( enter "skills_new_$k";  case_skills_new "$k";  leave ) &
   CASES="$CASES skills_user_$k"; ( enter "skills_user_$k"; case_skills_user "$k"; leave ) &
   CASES="$CASES skills_one_$k";  ( enter "skills_one_$k";  case_skills_one "$k";  leave ) &
+  CASES="$CASES skills_home_$k"; ( enter "skills_home_$k"; case_skills_home "$k"; leave ) &
+  CASES="$CASES skills_kept_$k"; ( enter "skills_kept_$k"; case_skills_kept "$k"; leave ) &
   CASES="$CASES via_$k";         ( enter "via_$k";         case_via_link "$k";    leave ) &
 done
 CASES="$CASES dangling";      ( enter dangling;      case_dangling;      leave ) &

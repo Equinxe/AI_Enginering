@@ -72,8 +72,9 @@
 # notice on stderr. With the flag too, a run refuses a link from .claude to
 # Claude Code's user settings directory (${CLAUDE_CONFIG_DIR:-$HOME/.claude},
 # and $HOME/.claude too), a link from .claude/skills or a skill's directory
-# to its skills/ or anything under it, since a skill there is offered in
-# every project, and a link that leads to no directory. --check reports each
+# to its skills/, to one of the skills in it (wherever a skill kept there as
+# a link leads), or to anything under either, since a skill there is offered
+# in every project, and a link that leads to no directory. --check reports each
 # such link as a fault, and reads nothing behind it.
 #
 # An existing skill of the same name is NEVER overwritten without --force. A
@@ -302,15 +303,21 @@ claude_user_dir() {
 }
 # <<< dir_link
 # in_user_skills <path> — 0 when <path>, followed, is the skills/ directory of
-# Claude Code's user settings directory, by either of its names, or lies
-# under it: every skill there is offered in every project, whatever its name.
+# Claude Code's user settings directory, by either of its names, or one of
+# the skills in it, or lies under either: every skill there is offered in
+# every project, whatever its name. A skill is matched by where it leads, so
+# one kept there as a link (to a dotfiles checkout, say) is matched too; the
+# physical path of <path> alone never shows that link.
 in_user_skills() {
-  local p up
+  local p up u e
   p="$(CDPATH='' cd -P -- "$1" 2>/dev/null && pwd -P)" || return 1
   while [ -n "$p" ]; do
-    if [ "$p" -ef "${CLAUDE_CONFIG_DIR:-${HOME:-}/.claude}/skills" ] || [ "$p" -ef "${HOME:-}/.claude/skills" ]; then
-      return 0
-    fi
+    for u in "${CLAUDE_CONFIG_DIR:-${HOME:-}/.claude}/skills" "${HOME:-}/.claude/skills"; do
+      [ "$p" -ef "$u" ] && return 0
+      for e in "$u"/*; do
+        [ "$p" -ef "$e" ] && return 0
+      done
+    done
     up="${p%/*}"; [ -n "$up" ] || up=/
     [ "$up" = "$p" ] && return 1
     p="$up"
@@ -325,8 +332,9 @@ REFUSE=0
 # --follow-claude-link, or a fault record under --check, which reads nothing
 # behind a link it has already recorded. A link from .claude to Claude Code's
 # user settings directory, or from .claude/skills or a skill's directory into
-# its skills/, is refused with the flag too: a skill there is offered in
-# every project. So is a link that leads to no directory.
+# its skills/ or one of the skills in it, is refused with the flag too: a
+# skill there is offered in every project. So is a link that leads to no
+# directory.
 link_rule() {
   local rel="$1" place=""
   if [ "$CHECK" -eq 1 ] && under_link "$rel"; then
@@ -337,7 +345,7 @@ link_rule() {
   if [ "$rel" = .claude ]; then
     claude_user_dir "$PROJECT/$rel" && place="Claude Code's user settings directory"
   else
-    in_user_skills "$PROJECT/$rel" && place="which is Claude Code's user skills directory or lies in it"
+    in_user_skills "$PROJECT/$rel" && place="which is, or lies in, Claude Code's user skills directory or one of its skills"
   fi
   if [ -n "$place" ]; then
     if [ "$CHECK" -eq 1 ]; then
