@@ -27,6 +27,8 @@ Search this table for the start of the message you see, then go to its entry.
 | On Windows, a git command in a worktree under `.claude/worktrees/` fails with `Filename too long` | `Governance/TROUBLESHOOTING.md`, entry AE |
 | Compaction comes later than the window you set | A |
 | Your own status line no longer shows | B |
+| On Windows, Claude no longer runs PowerShell commands, `/permissions` lists `PowerShell` under Deny, or a PowerShell call is refused | F |
+| `install-hooks.sh` warns `these rules allow a tool, or ask before it, that the framework's settings deny`, or `--check` prints a `permission near-miss` record | F |
 
 Where a human runs a command that a guard refused, and why an Employee stops instead of rewording it, is in `DAILY_USE.md`, Where a Human Runs a Refused Command.
 
@@ -269,6 +271,31 @@ Audience: the operator, and the Main Agent reading an Employee's report. Pages c
 
 **Prevention.** None from the framework: these controls and their settings are Claude Code's. They come up less when an Employee does all its git work in its own worktree, on a branch made from `origin/develop` (`DAILY_USE.md`, Step 3).
 
+## F. On Windows, Claude no longer runs PowerShell commands
+
+Audience: the operator on Windows, with the settings `install-hooks.sh` writes since WU-IAENG-458 (Director decision, 26 November 2026). Pages checked on 26 November 2026.
+
+**Symptom.** Claude runs every shell command with the Bash tool, in Git Bash, where it used to run some in PowerShell. Variants:
+
+- `/permissions` lists `PowerShell` under Deny, from the project settings.
+- In a session that was already running when the rule arrived, a PowerShell call is refused, with no `iaeng:` line.
+- `install-hooks.sh` prints `! <path>: these rules allow a tool, or ask before it, that the framework's settings deny.` followed by the rules, or `--check` prints a `permission` record with the status `near-miss`.
+
+**Cause.** The framework's settings deny Claude Code's PowerShell tool: `"permissions": {"deny": ["PowerShell"]}`. The guards read Bash commands, so every shell command goes through the Bash tool, where they apply (`hooks/README.md`, Shell Commands Go Through Bash).
+
+- A bare tool name in `deny` "removes the tool from Claude's context entirely, so Claude never sees it" ([Configure permissions, Manage permissions](https://code.claude.com/docs/en/permissions.md#manage-permissions)). A session started with the rule therefore has no PowerShell tool, and refuses nothing.
+- A rule added while a session runs stops the tool from Claude's next call on ([Prompt caching, Denying an entire tool](https://code.claude.com/docs/en/prompt-caching.md#denying-an-entire-tool)). The pages do not quote the refusal's text for PowerShell. It comes from Claude Code, not from a framework guard, so it carries no `iaeng:` line (derived).
+- A deny rule wins over an allow or ask rule, from any settings scope: "if user settings allow a permission and project settings deny it, the deny rule blocks it" ([Configure permissions, Settings precedence](https://code.claude.com/docs/en/permissions.md#settings-precedence)). An allow or ask rule for PowerShell, in the project's settings, `settings.local.json` or your user settings, has no effect while the deny is there. `install-hooks.sh` names the ones in the project's `settings.json`, and keeps them.
+
+**Remedy.**
+
+1. Nothing is broken: this is the intended routing. A command written for PowerShell is written for Bash instead, or a human runs it in a terminal (`DAILY_USE.md`, Where a Human Runs a Refused Command).
+2. Restart a session that was running when the rule arrived, so it starts without the tool.
+3. If Claude has no shell tool at all, install Git for Windows. Without Git Bash, Claude Code on Windows enables the PowerShell tool automatically, and the Bash tool is the one that "remains available for POSIX scripts when Git Bash is installed" ([Tools reference, PowerShell tool](https://code.claude.com/docs/en/tools-reference.md#powershell-tool)); so the PowerShell tool was the only shell tool, and with the rule there is none (derived). The framework needs Git Bash in any case: every hook command runs under `bash`.
+4. For an allow or ask rule for PowerShell that `install-hooks.sh` named: remove it, or keep it knowingly. It has no effect either way.
+
+**Prevention.** Do not remove the rule to get the tool back: the guards read Bash commands only, and the next `install-hooks.sh` run adds the rule again. `install-hooks.sh --check` reports a `settings.json` without it as `permission absent` (exit 3). `check-framework-drift.sh`, without `--quick`, reports it as drift: `config absent permissions.deny: PowerShell`, with the remedy to re-run `install-hooks.sh`.
+
 ---
 
 # Adding an Entry
@@ -283,7 +310,7 @@ Follow `Governance/TROUBLESHOOTING.md`, "Adding an Entry", with one more rule. E
 - `Adapters/ai-runtimes/claude-code/DAILY_USE.md` — the daily loop, its cleanup, and where a human runs a refused command
 - `Core/AI_MANIFEST.md` — Principle X, why runtime-specific entries live here
 - `Adapters/ai-runtimes/claude-code/hooks/README.md` — what `session-start.sh` prints and when
-- `Adapters/ai-runtimes/claude-code/settings.example.json` — the `SessionStart` matcher the installer writes
+- `Adapters/ai-runtimes/claude-code/settings.example.json` — the `SessionStart` matcher the installer writes, and the PowerShell deny rule (entry F)
 - `Templates/SESSION_STATE.md` — the state the hook re-injects
 - `Governance/BLOCKING_HOOK_LATENCY_MEASUREMENT.md` — the guards' latency under load, why their timeout is 120 s, and the parallel-agent cap
 
@@ -293,7 +320,7 @@ Follow `Governance/TROUBLESHOOTING.md`, "Adding an Entry", with one more rule. E
 
 Owner: IA Engineering
 
-Version: 0.0.18
+Version: 0.0.19
 
 Status: Draft
 

@@ -9424,7 +9424,7 @@ SNAP_357A="$(snapshot_353)"
 expect 3 "install-hooks.sh --check without a settings.json is drift (exit 3)" -- bash "$HK_357" --check
 expect_output "settings${T}absent${T}.claude/settings.json${T}a run writes it from settings.example.json"
 expect_output "gitattributes${T}missing${T}.gitattributes${T}$HOOKS_RULE_357"
-expect_output "# install-hooks.sh --check: 2 to act on. 1 settings item(s): 1 absent; 0 hook entries; 0 statusLine(s); 1 .gitattributes rule(s): 1 missing; 0 fault(s). absent/missing: re-run $HK_357 without --force"
+expect_output "# install-hooks.sh --check: 2 to act on. 1 settings item(s): 1 absent; 0 hook entries; 0 statusLine(s); 0 permission rule(s); 1 .gitattributes rule(s): 1 missing; 0 fault(s). absent/missing: re-run $HK_357 without --force"
 expect 3 "install-skills.sh --check without skills is drift (exit 3)" -- bash "$SK_357" --check
 expect_output "skill${T}absent${T}.claude/skills/dashboard${T}ia-engineering/Adapters/ai-runtimes/claude-code/skills/dashboard"
 expect_output "skill${T}absent${T}.claude/skills/create-project${T}"
@@ -9450,7 +9450,7 @@ expect 0 "install-hooks.sh --check on an installed project exits 0" -- bash "$HK
 expect_output "settings${T}current${T}.claude/settings.json${T}the template, rendered for framework root ia-engineering"
 expect_output "hook${T}present${T}.claude/settings.json${T}PreToolUse [Bash]: block-escape-hatches.sh"
 expect_output "hook${T}present${T}.claude/settings.json${T}Stop: dashboard-refresh.sh"
-expect_output "# install-hooks.sh --check: 0 to act on. 1 settings item(s): 1 current; 8 hook entries: 8 present; 1 statusLine(s): 1 present; 1 .gitattributes rule(s): 1 present; 0 fault(s)."
+expect_output "# install-hooks.sh --check: 0 to act on. 1 settings item(s): 1 current; 8 hook entries: 8 present; 1 statusLine(s): 1 present; 1 permission rule(s): 1 present; 1 .gitattributes rule(s): 1 present; 0 fault(s)."
 expect_output "statusline${T}present${T}.claude/settings.json${T}context-statusline.sh"
 expect 0 "install-hooks.sh --check --quiet on an installed project exits 0" -- bash "$HK_357" --check --quiet
 expect_empty_357 "install-hooks.sh --check --quiet prints nothing when nothing needs acting on"
@@ -9507,7 +9507,7 @@ jq_edit_357 '.hooks.Stop |= map(select([.hooks[].command] | any(test("dashboard-
 expect 3 "a missing framework entry alone is drift (exit 3)" -- bash "$HK_357" --check
 expect_output "settings${T}customized${T}.claude/settings.json"
 expect_output "hook${T}absent${T}.claude/settings.json${T}Stop: dashboard-refresh.sh"
-expect_output "# install-hooks.sh --check: 1 to act on. 1 settings item(s): 1 customized; 8 hook entries: 7 present, 1 absent; 1 statusLine(s): 1 present; 1 .gitattributes rule(s): 1 present; 0 fault(s). absent/missing:"
+expect_output "# install-hooks.sh --check: 1 to act on. 1 settings item(s): 1 customized; 8 hook entries: 7 present, 1 absent; 1 statusLine(s): 1 present; 1 permission rule(s): 1 present; 1 .gitattributes rule(s): 1 present; 0 fault(s). absent/missing:"
 expect 3 "--check --quiet keeps the missing entry" -- bash "$HK_357" --check --quiet
 expect_output "hook${T}absent${T}.claude/settings.json${T}Stop: dashboard-refresh.sh"
 expect_no_output "${T}present${T}" "--check --quiet leaves out the present entries"
@@ -9825,6 +9825,27 @@ expect 1 "a statusLine in settings.local.json is information, not drift" -- bash
 expect_output "config${T}near-miss${T}.claude/settings.local.json: statusLine echo mine: Claude Code runs this one instead"
 expect_output "# check-framework-drift: 4 to act on, 0 indeterminate."
 rm -f .claude/settings.local.json
+
+# The permission records of install-hooks.sh --check (WU-IAENG-458): present
+# is named by its rule; absent is drift, with the re-run remedy, never the
+# subject a missing settings.json gets; an allow rule for the denied tool is
+# information and adds nothing to act on.
+jq '.permissions.deny -= ["PowerShell"]' .claude/settings.json | strip_eol_cr > st.tmp && mv st.tmp .claude/settings.json
+expect 1 "a settings.json without the PowerShell deny is drift" -- bash "$DRIFT_358" --format tsv --strict
+expect_output "config${T}absent${T}permissions.deny: PowerShell${T}re-run ia-engineering/Adapters/ai-runtimes/claude-code/install-hooks.sh: it adds the rule and keeps the project's other permissions"
+expect_no_output "config${T}absent${T}.claude/settings.json${T}" "a missing rule is not reported as a missing settings.json"
+expect_output "# check-framework-drift: 5 to act on, 0 indeterminate."
+expect 0 "the text format names the rule, with the re-run remedy" -- bash "$DRIFT_358"
+expect_output "  config  absent         permissions.deny: PowerShell"
+expect_output "          -> re-run ia-engineering/Adapters/ai-runtimes/claude-code/install-hooks.sh: it adds the rule"
+git checkout -q -- .claude/settings.json
+jq '.permissions.allow = ["PowerShell(Get-*)"]' .claude/settings.json | strip_eol_cr > st.tmp && mv st.tmp .claude/settings.json
+expect 1 "an allow rule for the denied PowerShell tool is information" -- bash "$DRIFT_358" --format tsv --strict
+expect_output "config${T}near-miss${T}permissions.allow: PowerShell(Get-*)  (the framework denies the PowerShell tool"
+expect_output "${T}information: the project's rule is kept, and has no effect while the deny is there"
+expect_output "config${T}present${T}permissions.deny: PowerShell${T}"
+expect_output "# check-framework-drift: 4 to act on, 0 indeterminate."
+git checkout -q -- .claude/settings.json
 
 # --- the framework off a tag ----------------------------------------------------------
 # On a side branch of the framework, so the adopters below still see v2 as

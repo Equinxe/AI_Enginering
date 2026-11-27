@@ -370,8 +370,8 @@ check "older file: dashboard-refresh.sh added exactly once" [ "$(count_cmd Stop 
 FIRST_STOP="$(jq -r '.hooks.Stop[0].hooks[0].command | contains("stop-gate.sh")' "$SET" | strip_eol_cr)"
 if [ "$(count_cmd Stop stop-gate.sh)" = 1 ] && [ "$FIRST_STOP" = true ]; then ok "older file: stop-gate.sh still exactly once, and still first under Stop"; else bad "older file: stop-gate.sh still exactly once, and still first under Stop"; fi
 if [ "$(count_cmd Stop my-stop.sh)" = 1 ] && [ "$(count_cmd PreToolUse my-own-hook.sh)" = 1 ]; then ok "older file: the project's own Stop and PreToolUse hooks are kept"; else bad "older file: the project's own Stop and PreToolUse hooks are kept"; fi
-check "older file: the project's env and permissions are kept" \
-  [ "$(jq -c '[.env, .permissions]' "$SET" | strip_eol_cr)" = '[{"FOO":"1"},{"allow":["Bash(ls)"]}]' ]
+check "older file: the project's env and permissions are kept, the template's deny rule added (WU-IAENG-458)" \
+  [ "$(jq -c '[.env, .permissions]' "$SET" | strip_eol_cr)" = '[{"FOO":"1"},{"allow":["Bash(ls)"],"deny":["PowerShell"]}]' ]
 check "older file: every other framework hook still exactly once" \
   [ "$(count_cmd SessionStart session-start.sh)$(count_cmd PreToolUse block-escape-hatches.sh)$(count_cmd PreToolUse block-inline-suppression.sh)$(count_cmd PostToolUse post-edit-lint.sh)" = 1111 ]
 if grep -q "^  Hooks: " "$T/inst.out"; then bad "older file: the report lists only what was added or found, not a fixed list"; else ok "older file: the report lists only what was added or found, not a fixed list"; fi
