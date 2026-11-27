@@ -88,7 +88,9 @@
 # temporary file of its own (what the installers' --check do is theirs, and
 # is covered by the same snapshot test), and writes nothing at all but the
 # --quick result in a --cache-dir outside the project. GIT_TERMINAL_PROMPT=0: --remote
-# never prompts.
+# never prompts. The one exception is --accept, a command a person types: it
+# writes .ia-engineering/drift-accepted.tsv and nothing else (ACCEPTED EDITS,
+# below; hooks/tests/drift.sh compares the project before and after).
 # settings.json is parsed with jq, never evaluated. No network unless
 # --remote. The records it prints carry text read from the project (a
 # command, a git config value): every control character in them becomes a
@@ -111,6 +113,11 @@
 #   --quick             the session-start form (below): A, B unclassified, D;
 #                       E not evaluated
 #   --cache-dir DIR     --quick only, absolute: keep the --quick result there
+#   --accept PATH       record a reviewed edit of the file PATH as accepted
+#                       (ACCEPTED EDITS, below); takes no other option. PATH
+#                       as this check prints it, from the project root; an
+#                       absolute PATH only as pwd spells the project (another
+#                       spelling of it, C:/ or C:\ for /c/, is refused)
 #   --help
 #
 # --QUICK (WU-IAENG-359, the adopter drift plan §3.2)
@@ -148,14 +155,79 @@
 # "14 file(s) compared: 11 current, 1 absent, 1 stale, 1 modified", and the
 # same for config items and command paths.
 #
+# ACCEPTED EDITS (WU-IAENG-456, issue #420)
+#
+# A project may review an edit it made to a framework-managed file and keep
+# it. Reported `modified` for good, it was one line to act on at every
+# session start, which teaches its reader to skip the drift line, and
+# --strict could never exit 0. The decision (the Product Manager's) is to
+# record it, in a committed file, so that it goes through a Pull Request:
+#
+#   .ia-engineering/drift-accepted.tsv, one entry per line, four fields
+#   separated by a TAB:
+#     <path in the project> <framework file, from the framework's root>
+#     <framework file's hash> <project file's hash>
+#   Each hash is the git blob id of the file with the CR that ends a line
+#   dropped, as classify takes it, so a CRLF and an LF clone agree. Lines
+#   that are empty or begin with # are comments.
+#
+# --accept PATH writes the entry, replacing any entry for PATH, after the
+# installers' --check and the full classification say the file is
+# `modified`: a file that is current, absent, stale (copy it instead),
+# expected to differ, or not managed is refused, and so is a target on the
+# refused list below. While an entry matches, both hashes included, the file
+# is `accepted`: not to act on, --strict exits 0 for it, counted in the
+# summary ("1 accepted"), and session start prints one "N accepted" line. It
+# LAPSES when either file changes: the file is `stale`, `modified` (or, in
+# --quick, `differs`) again, to act on, its remedy saying which side changed
+# and how to record it again. --quick hashes a file only when an entry names
+# it, both files in one git process when neither holds a CR, and keeps the
+# result in its cache like any other (the entries file is watched).
+#
+# The entries file decides what --strict passes, so it is a control path
+# (check-control-paths.sh): in a project whose Control Path Guard runs, a
+# Pull Request that changes it needs the Director's label. --accept writes it
+# only inside the project: a .ia-engineering/ that is a symbolic link, or an
+# entries file that is one, is refused (exit 2), and the new file is made by
+# mktemp beside it, never at a name a project could have placed a link at.
+#
+# NEVER ACCEPTED (the refused list, named and approved by the Security
+# Engineer in the Pull Request of WU-IAENG-456): what decides whether the git
+# hooks and the Claude Code hooks run, and the two workflows that hold every
+# control path and every commit's trailers server-side, are never an edit the
+# project can wave through. Matched without regard to case, as a
+# case-insensitive filesystem opens the file:
+#   core.hooksPath                     the git hooks' directory
+#   .git, .git/*                       the project's own git hooks among them
+#   */Adapters/git-hooks/*             the framework's git hooks
+#   .claude/settings.json, .claude/settings.local.json
+#                                      the Claude Code hook entries, the two
+#                                      PreToolUse guards among them
+#   .claude/hooks/*, hook: *           a Claude Code hook script, a hook entry
+#   */Adapters/ai-runtimes/*/hooks/*   the framework's Claude Code hooks
+#   <framework dir>, <framework dir>/* the framework's own files
+#   .github/workflows/control-path-guard.yml
+#                                      the guard over every control path
+#   .github/workflows/pr-validation.yml
+#                                      the server-side half of the commit-msg
+#                                      hook, among the required checks
+# --accept refuses them (exit 1), and an entry written by hand for one is
+# never applied: it is reported `refused`, to act on, in whatever spelling
+# names the same file (// or ./ components, a trailing /). An entry whose
+# path is spelled otherwise than this check prints one is not an entry.
+#
 # EXIT CODES
 #
 #   0   always without --strict: the check advises, and a check that blocks
 #       ends up bypassed
 #   1   --strict, drift found (absent, stale, modified, missing, differs,
-#       not-executable, shadowed, disabled, broken, behind, uncommitted)
+#       not-executable, shadowed, disabled, broken, behind, uncommitted,
+#       refused)
 #   2   --strict, something indeterminate
 #   64  usage error
+#
+#   --accept: 0 recorded (or already recorded, unchanged); 1 refused, with
+#   the reason; 2 could not be evaluated or written; 64 usage error.
 #
 # In the framework repository itself it says "not applicable" and exits 0:
 # validate-framework.sh §10 covers that checkout.
@@ -176,14 +248,19 @@ STRICT=0
 REMOTE=0
 QUICK=0
 CACHE_DIR=""
+ACCEPT=""
+ACCEPT_SET=0
+OTHER_OPT=0
 while [ $# -gt 0 ]; do
   case "$1" in
-    --format) FORMAT="${2:-}"; shift ;;
-    --format=*) FORMAT="${1#--format=}" ;;
-    --strict) STRICT=1 ;;
-    --remote) REMOTE=1 ;;
-    --quick) QUICK=1 ;;
-    --cache-dir) CACHE_DIR="${2:-}"; [ -n "$CACHE_DIR" ] || CACHE_DIR="(empty)"; shift ;;
+    --format) FORMAT="${2:-}"; OTHER_OPT=1; shift ;;
+    --format=*) FORMAT="${1#--format=}"; OTHER_OPT=1 ;;
+    --strict) STRICT=1; OTHER_OPT=1 ;;
+    --remote) REMOTE=1; OTHER_OPT=1 ;;
+    --quick) QUICK=1; OTHER_OPT=1 ;;
+    --cache-dir) CACHE_DIR="${2:-}"; [ -n "$CACHE_DIR" ] || CACHE_DIR="(empty)"; OTHER_OPT=1; shift ;;
+    --accept) ACCEPT="${2:-}"; ACCEPT_SET=$((ACCEPT_SET + 1)); shift ;;
+    --accept=*) ACCEPT="${1#--accept=}"; ACCEPT_SET=$((ACCEPT_SET + 1)) ;;
     --help|-h) sed -n '2,$p' "$0" | awk '/^#/{print; next} {exit}' | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "check-framework-drift.sh: unknown option '$1' (try --help)" >&2; exit 64 ;;
   esac
@@ -193,6 +270,14 @@ case "$FORMAT" in
   text|tsv) ;;
   *) echo "check-framework-drift.sh: --format takes text or tsv" >&2; exit 64 ;;
 esac
+# --accept is a command of its own: one path, no other option.
+if [ "$ACCEPT_SET" -gt 0 ]; then
+  if [ "$ACCEPT_SET" -ne 1 ] || [ "$OTHER_OPT" -ne 0 ]; then
+    echo "check-framework-drift.sh: --accept takes one path and no other option" >&2; exit 64
+  fi
+  [ -n "$ACCEPT" ] || { echo "check-framework-drift.sh: --accept takes the path of a file, as this check prints it" >&2; exit 64; }
+  ACCEPT_SET=1
+fi
 if [ -n "$CACHE_DIR" ]; then
   # A relative directory would be read against the project: the result
   # would be written inside it.
@@ -240,11 +325,19 @@ rec() {
   ROWS="$ROWS$1"$'\t'"$f2"$'\t'"$f3"$'\t'"$f4"$'\n'
 }
 
-# The statuses that need action. `indeterminate` is counted apart.
-DRIFT_RE='^(absent|stale|modified|missing|differs|not-executable|shadowed|disabled|broken|behind|behind-remote|uncommitted|uninitialized)$'
+# The statuses that need action. `indeterminate` is counted apart, and so is
+# `accepted`, which is not to act on (ACCEPTED EDITS).
+DRIFT_RE='^(absent|stale|modified|missing|differs|not-executable|shadowed|disabled|broken|behind|behind-remote|uncommitted|uninitialized|refused)$'
 
 finish() {
-  local fam st path rem summary drift=0 indet=0
+  local fam st path rem summary drift=0 indet=0 acc=0
+  # --accept stopped before it could evaluate anything: said, exit 2.
+  if [ "$ACCEPT_SET" -eq 1 ]; then
+    while IFS=$'\t' read -r fam st path rem; do
+      [ -n "$fam" ] && printf 'check-framework-drift.sh --accept: not recorded: %s\n' "$rem" >&2
+    done <<< "$ROWS"
+    exit 2
+  fi
   # A family with nothing in it was not evaluated (the Check Convention,
   # rule 3): an empty set is never a clean one.
   if [ "$NA" -eq 0 ] && [[ "$ROWS" != file$'\t'* && "$ROWS" != *$'\n'file$'\t'* ]]; then
@@ -254,9 +347,16 @@ finish() {
     [ -z "$fam" ] && continue
     if [[ "$st" =~ $DRIFT_RE ]]; then drift=$((drift + 1)); fi
     [ "$st" = indeterminate ] && indet=$((indet + 1))
+    [ "$st" = accepted ] && acc=$((acc + 1))
   done <<< "$ROWS"
 
-  summary="# check-framework-drift: $drift to act on, $indet indeterminate."
+  # The accepted count only when there is one: a caller reading the line as
+  # it stood before WU-IAENG-456 reads it unchanged.
+  if [ "$acc" -gt 0 ]; then
+    summary="# check-framework-drift: $drift to act on, $indet indeterminate, $acc accepted."
+  else
+    summary="# check-framework-drift: $drift to act on, $indet indeterminate."
+  fi
   if [ "$NA" -eq 0 ]; then
     # Each family: its total (the denominator), then each status found, in
     # a fixed order so the line is stable for a caller.
@@ -267,8 +367,8 @@ finish() {
         noun["config"] = "config item(s)"; noun["path"] = "command path(s)"
         noun["agent"] = "agent item(s)"
         order["version"] = "tagged untagged latest behind remote-same behind-remote recorded uncommitted uninitialized not-a-submodule indeterminate"
-        order["file"] = "current absent stale modified differs customized project-owned indeterminate"
-        order["config"] = "current present absent missing differs stale modified customized near-miss not-executable shadowed disabled placeholder todo not-applicable skipped not-evaluated indeterminate"
+        order["file"] = "current absent stale modified differs accepted customized project-owned indeterminate"
+        order["config"] = "current present absent missing differs stale modified customized near-miss not-executable shadowed disabled placeholder todo not-applicable skipped not-evaluated refused indeterminate"
         order["path"] = "ok broken unresolved indeterminate"
         order["agent"] = "current missing stale not-evaluated indeterminate"
       }
@@ -317,6 +417,10 @@ finish() {
 NA=0
 not_applicable() {
   NA=1
+  if [ "$ACCEPT_SET" -eq 1 ]; then
+    printf 'check-framework-drift.sh --accept: refused: %s\n' "$1" >&2
+    exit 1
+  fi
   rec version not-applicable "." "$1"
   finish
 }
@@ -530,7 +634,7 @@ if ! cd "$PROJECT"; then
 fi
 PROJECT="$(pwd)"
 
-[ "$FORMAT" = text ] && printf 'IA Engineering — framework drift (read-only): %s\n' "$PROJECT"
+[ "$FORMAT" = text ] && [ "$ACCEPT_SET" -eq 0 ] && printf 'IA Engineering — framework drift (read-only): %s\n' "$PROJECT"
 
 if [ "$FRAMEWORK" -ef "$PROJECT" ]; then
   not_applicable "this is the framework repository itself; validate-framework.sh covers it"
@@ -670,7 +774,10 @@ quick_version() {
 
 # ------------------------------------------------------- A. version ---
 
-if [ "$FW_GIT" -eq 0 ]; then
+if [ "$ACCEPT_SET" -eq 1 ]; then
+  # --accept reads no version: it records one file (accept_run, below).
+  :
+elif [ "$FW_GIT" -eq 0 ]; then
   rec version indeterminate "$REL" "the framework copy is not its own git checkout: no commit, tag or history to read"
 elif [ "$QUICK" -eq 1 ]; then
   quick_version
@@ -776,6 +883,318 @@ run_check() {
   esac
 }
 
+# ------------------------------------------------------ accepted edits ---
+#
+# ACCEPTED EDITS, in the header, says what an entry is, when it lapses and
+# what is never accepted. All of it runs in the shell but the hashes, which
+# are taken only for a file that differs and that an entry names.
+
+ACC_FILE=".ia-engineering/drift-accepted.tsv"
+ACC_HASH_RE='^[0-9a-f]{40}([0-9a-f]{24})?$'
+ACC_P=(); ACC_T=(); ACC_F=(); ACC_C=(); ACC_L=()
+ACC_HEAD="# IA Engineering — reviewed project edits of framework-managed files, accepted
+# (check-framework-drift.sh, ACCEPTED EDITS; Adapters/README.md). A file
+# listed here is reported accepted, not to act on, while the framework's
+# file and the project's still have the hashes recorded. When either one
+# changes, its entry lapses and the file is drift again. Commit this file
+# through a Pull Request: an acceptance is a reviewed decision. Write an
+# entry with check-framework-drift.sh --accept <path>.
+# Four fields separated by a TAB: the path in the project, the framework
+# file (from the framework's root), the framework file's hash, the project
+# file's hash (git blob ids of the content, the CR that ends a line dropped).
+"
+
+# acc_path <path> — ACC_PATH: the path as this check prints it, from the
+# project root, / as the separator, no leading ./.
+acc_path() {
+  local bs="\\"
+  ACC_PATH="${1//"$bs"//}"
+  case "$ACC_PATH" in "$PROJECT"/*) ACC_PATH="${ACC_PATH#"$PROJECT"/}" ;; esac
+  while [ "${ACC_PATH#./}" != "$ACC_PATH" ]; do ACC_PATH="${ACC_PATH#./}"; done
+  return 0
+}
+
+# acc_refused <path> — true when the path is on the refused list (ACCEPTED
+# EDITS, NEVER ACCEPTED); ACC_REFUSED says why. Matched without regard to
+# case, as a case-insensitive filesystem opens the file.
+acc_refused() {
+  local nc=0
+  ACC_REFUSED=""
+  shopt -q nocasematch && nc=1
+  shopt -s nocasematch
+  case "$1" in
+    core.hooksPath*) ACC_REFUSED="core.hooksPath decides which git hooks run" ;;
+    .git|.git/*) ACC_REFUSED="inside .git, where the project's own git hooks are" ;;
+    Adapters/git-hooks|Adapters/git-hooks/*|*/Adapters/git-hooks|*/Adapters/git-hooks/*)
+      ACC_REFUSED="a framework git hook" ;;
+    .claude/settings.json|.claude/settings.local.json)
+      ACC_REFUSED="it holds the Claude Code hook entries, the two PreToolUse guards among them" ;;
+    .claude/hooks|.claude/hooks/*) ACC_REFUSED="a Claude Code hook script" ;;
+    hook:*) ACC_REFUSED="a Claude Code hook entry" ;;
+    Adapters/ai-runtimes/*/hooks|Adapters/ai-runtimes/*/hooks/*|*/Adapters/ai-runtimes/*/hooks|*/Adapters/ai-runtimes/*/hooks/*)
+      ACC_REFUSED="a framework Claude Code hook" ;;
+    "$REL"|"$REL"/*) ACC_REFUSED="inside the framework's checkout: the framework's own file, not the project's" ;;
+    .github/workflows/control-path-guard.yml)
+      ACC_REFUSED="the Control Path Guard workflow, which holds every control path to the Director's label" ;;
+    .github/workflows/pr-validation.yml)
+      ACC_REFUSED="the PR Validation workflow, the server-side half of the commit-msg hook among its required checks" ;;
+  esac
+  [ "$nc" -eq 1 ] || shopt -u nocasematch
+  [ -n "$ACC_REFUSED" ]
+}
+
+# acc_canon <path> — ACC_CANON: the same file as a filesystem opens it, //
+# and ./ components and a trailing / dropped, so that an entry written by
+# hand for a refused target is reported in any of those spellings. A ..
+# component is left as it is: such an entry is not an entry (acc_load).
+acc_canon() {
+  local s=/ d=// sd=/./
+  ACC_CANON="$1"
+  while [[ "$ACC_CANON" == *"$d"* ]]; do ACC_CANON="${ACC_CANON//"$d"/$s}"; done
+  while [[ "$ACC_CANON" == *"$sd"* ]]; do ACC_CANON="${ACC_CANON//"$sd"/$s}"; done
+  while [ "${ACC_CANON#./}" != "$ACC_CANON" ]; do ACC_CANON="${ACC_CANON#./}"; done
+  while [ "${ACC_CANON%/}" != "$ACC_CANON" ] && [ -n "${ACC_CANON%/}" ]; do ACC_CANON="${ACC_CANON%/}"; done
+  [ "${ACC_CANON%/.}" = "$ACC_CANON" ] || ACC_CANON="${ACC_CANON%/.}"
+  return 0
+}
+
+# acc_has_cr <file> — true when the file holds a CR, or cannot be read.
+# Read by the shell, line by line: no process.
+acc_has_cr() {
+  local l
+  [ -f "$1" ] && [ -r "$1" ] || return 0
+  while IFS= read -r l || [ -n "$l" ]; do
+    case "$l" in *$'\r'*) return 0 ;; esac
+  done < "$1"
+  return 1
+}
+
+# acc_hash2 <copy> <framework file> — ACC_HP and ACC_HF, the hash of each as
+# classify takes one: the CR that ends a line dropped, then git hash-object,
+# never -w, so nothing is written, and no .gitattributes filter run. When
+# neither file holds a CR, dropping it changes nothing, and one git process
+# hashes both (the case of a file under the installers' LF rules); otherwise
+# a sed and a git for each.
+acc_hash2() {
+  local out
+  ACC_HP=""; ACC_HF=""
+  if ! acc_has_cr "$1" && ! acc_has_cr "$2"; then
+    out="$(git hash-object --no-filters -- "$1" "$2" 2>/dev/null)" || return 1
+    ACC_HP="${out%%$'\n'*}"
+    ACC_HF="${out#*$'\n'}"
+  else
+    ACC_HP="$(sed $'s/\r$//' "$1" | git hash-object --stdin 2>/dev/null)" || return 1
+    ACC_HF="$(sed $'s/\r$//' "$2" | git hash-object --stdin 2>/dev/null)" || return 1
+  fi
+  [[ "$ACC_HP" =~ $ACC_HASH_RE ]] && [[ "$ACC_HF" =~ $ACC_HASH_RE ]]
+}
+
+# acc_load — the entries of ACC_FILE, when it exists, into ACC_P, ACC_T,
+# ACC_F, ACC_C and ACC_L (the path, the framework file, the two hashes, the
+# line). A line that is not an entry makes the check indeterminate. An entry
+# for a target on the refused list, in any spelling of it (acc_canon), is
+# never applied: it is reported `refused`, to act on. An entry whose path is
+# spelled otherwise than this check prints one could never match a file, so
+# it is not an entry either. The file is the project's text: rec flattens
+# every field of it, and no remedy repeats it.
+acc_load() {
+  local l n=0 tabs p t f c r
+  local -a lines=()
+  [ -e "$ACC_FILE" ] || [ -L "$ACC_FILE" ] || return 0
+  if [ -L .ia-engineering ] || [ -L "$ACC_FILE" ] || [ ! -f "$ACC_FILE" ] || [ ! -r "$ACC_FILE" ]; then
+    rec config indeterminate "$ACC_FILE" "not a regular file of the project this check can read (a symbolic link, of it or of .ia-engineering/, is not followed): no acceptance in it was applied"
+    return 0
+  fi
+  # Read whole first, then judged: no record is made while the file is open.
+  while IFS= read -r l || [ -n "$l" ]; do
+    lines+=("$l")
+  done < "$ACC_FILE"
+  for l in ${lines[@]+"${lines[@]}"}; do
+    n=$((n + 1))
+    l="${l%$'\r'}"
+    case "$l" in ''|'#'*) continue ;; esac
+    tabs="${l//[!$'\t']/}"
+    p="${l%%$'\t'*}"; r="${l#*$'\t'}"
+    t="${r%%$'\t'*}"; r="${r#*$'\t'}"
+    f="${r%%$'\t'*}"; c="${r#*$'\t'}"
+    acc_path "$p"; p="$ACC_PATH"
+    if [ "${#tabs}" -ne 3 ] || [ -z "$p" ] || [ -z "$t" ] \
+       || ! [[ "$f" =~ $ACC_HASH_RE ]] || ! [[ "$c" =~ $ACC_HASH_RE ]]; then
+      rec config indeterminate "$ACC_FILE" "line $n is not an entry (four fields separated by a TAB: the path, the framework file, its hash, the project file's hash), so it was not applied: fix it, or record the file again with --accept"
+      continue
+    fi
+    acc_canon "$p"
+    if acc_refused "$ACC_CANON"; then
+      rec config refused "$p" "$ACC_REFUSED: never accepted, so line $n of $ACC_FILE is not applied. Remove that line"
+      continue
+    fi
+    case "/$p/" in
+      *//*|*/./*|*/../*)
+        rec config indeterminate "$ACC_FILE" "line $n names a path spelled otherwise than this check prints one (no leading or trailing /, no //, . or .. component), so it was not applied: fix it, or record the file again with --accept"
+        continue ;;
+    esac
+    ACC_P+=("$p"); ACC_T+=("$t"); ACC_F+=("$f"); ACC_C+=("$c"); ACC_L+=("$n")
+  done
+  return 0
+}
+
+# acc_match <copy> <framework file, from the framework root> <framework file,
+# from the project> — ACC_STATE: none (no entry names the copy), accepted (an
+# entry names it, this framework file and both hashes as they are now;
+# ACC_LINE is its line), lapsed (entries name it and none matches; ACC_WHY
+# says what changed), or indeterminate (a hash could not be taken; ACC_WHY).
+acc_match() {
+  local i found=0 why=""
+  ACC_STATE=none; ACC_WHY=""; ACC_LINE=""
+  [ "${#ACC_P[@]}" -gt 0 ] || return 0
+  for i in "${!ACC_P[@]}"; do
+    if [ "${ACC_P[i]}" = "$1" ]; then found=1; break; fi
+  done
+  [ "$found" -eq 1 ] || return 0
+  if ! acc_hash2 "$1" "$3"; then
+    ACC_STATE=indeterminate
+    ACC_WHY="could not hash $1 and $3 to compare them with their entry in $ACC_FILE"
+    return 0
+  fi
+  for i in "${!ACC_P[@]}"; do
+    [ "${ACC_P[i]}" = "$1" ] || continue
+    if [ "${ACC_T[i]}" = "$2" ] && [ "${ACC_F[i]}" = "$ACC_HF" ] && [ "${ACC_C[i]}" = "$ACC_HP" ]; then
+      ACC_STATE=accepted; ACC_LINE="${ACC_L[i]}"
+      return 0
+    fi
+    [ -z "$why" ] || continue
+    if [ "${ACC_T[i]}" != "$2" ]; then
+      why="its entry names another framework file, ${ACC_T[i]}"
+    elif [ "${ACC_F[i]}" != "$ACC_HF" ] && [ "${ACC_C[i]}" != "$ACC_HP" ]; then
+      why="both files changed since it was accepted"
+    elif [ "${ACC_F[i]}" != "$ACC_HF" ]; then
+      why="the framework's file changed since it was accepted"
+    else
+      why="the project's file changed since it was accepted"
+    fi
+  done
+  ACC_STATE=lapsed; ACC_WHY="$why"
+  return 0
+}
+
+# acc_fail <exit> <text> — --accept stops, the text flattened, on stderr.
+acc_fail() {
+  flat "$2"
+  printf 'check-framework-drift.sh --accept: %s\n' "$FLAT" >&2
+  exit "$1"
+}
+
+# acc_ignored — says so when git ignores ACC_FILE: no other clone, nor CI,
+# would see the acceptance. On every exit 0 of --accept, the one that finds
+# the entry already recorded included.
+acc_ignored() {
+  if git check-ignore -q -- "$ACC_FILE" 2>/dev/null; then
+    printf 'WARNING: git ignores %s here, so no other clone, nor CI, would see the acceptance: add an exception for it to .gitignore (git check-ignore -v %s names the rule).\n' "$ACC_FILE" "$ACC_FILE"
+  fi
+  return 0
+}
+
+# accept_run — --accept PATH. PATH must be a file the installers manage,
+# that differs from the framework's, and that the full classification calls
+# modified, and it must not be on the refused list; its entry then replaces
+# any entry for it, through a new file made by mktemp and renamed into
+# place, never through a link. Exits.
+accept_run() {
+  local p fam st path detail found="" fdet="" tpl entry l body="" n_p=0 same=0 tmp um
+  acc_path "$ACCEPT"; flat "$ACC_PATH"; p="$FLAT"
+  case "/$p/" in
+    *//*|*/./*|*/../*) acc_fail 1 "refused: $p: not a path inside the project, as this check prints one" ;;
+  esac
+  if acc_refused "$p"; then
+    acc_fail 1 "refused: $p: $ACC_REFUSED. An acceptance never covers the git hooks, the Claude Code hook entries or the workflows that guard them server-side (Adapters/README.md, Accepted Drift): restore the framework's version instead"
+  fi
+  # Written only inside the project (create-session-state.sh refuses the
+  # same): a linked .ia-engineering/ would take the entries, and the lines
+  # the file holds, wherever the link points.
+  if [ -L .ia-engineering ] || { [ -e .ia-engineering ] && [ ! -d .ia-engineering ]; }; then
+    acc_fail 2 ".ia-engineering is a symbolic link or not a directory, so $ACC_FILE would not be the project's own file: make it a real directory. Nothing recorded"
+  fi
+  run_check setup-project-bootstrap.sh bash "$SCRIPT_DIR/setup-project-bootstrap.sh" --check
+  while IFS=$'\t' read -r fam st path detail; do
+    case "$fam" in file|project-file) ;; *) continue ;; esac
+    [ "$path" = "$p" ] || continue
+    found="$fam:$st"; fdet="$detail"
+    break
+  done <<< "$CHECK_OUT"
+  case "$found" in
+    file:differs) ;;
+    file:current) acc_fail 1 "$p: identical to the framework's file, line endings aside: nothing to accept" ;;
+    file:absent|project-file:absent) acc_fail 1 "$p: absent: nothing to accept. Re-run $BOOTSTRAP_CMD without --force: it writes what is absent" ;;
+    file:customized|file:kept|project-file:present) acc_fail 1 "$p: a file the project is expected to edit, or owns: never drift, so nothing to accept" ;;
+    '')
+      case "$CHECK_RC" in
+        0|1|3) acc_fail 1 "refused: $p: not a file the framework installs. An acceptance covers a file of the drift check's file family that the project edited: run $REL/Adapters/scripts/check-framework-drift.sh to list them" ;;
+        *) acc_fail 2 "setup-project-bootstrap.sh --check exited $CHECK_RC, so the managed files are not known: nothing recorded" ;;
+      esac ;;
+    *) acc_fail 2 "$p: the installers' check reported it ${found#*:}${fdet:+ ($fdet)}: nothing recorded" ;;
+  esac
+  tpl="${fdet#"$REL"/}"
+  classify "$p" "$tpl"
+  case "$CLASS" in
+    modified) ;;
+    stale) acc_fail 1 "$p: never edited by the project, an earlier version of the framework's file: copy it (cp $fdet $p) rather than accept it. An acceptance records a reviewed edit" ;;
+    *) acc_fail 2 "$p: $WHY: nothing recorded" ;;
+  esac
+  acc_hash2 "$p" "$fdet" || acc_fail 2 "$p: could not hash it and $fdet: nothing recorded"
+  entry="$p"$'\t'"$tpl"$'\t'"$ACC_HF"$'\t'"$ACC_HP"
+  if [ -L "$ACC_FILE" ] || { [ -e "$ACC_FILE" ] && [ ! -f "$ACC_FILE" ]; }; then
+    acc_fail 2 "$ACC_FILE is not a regular file (a symbolic link is never written through): nothing recorded"
+  fi
+  if [ -f "$ACC_FILE" ]; then
+    # Every line kept but the entries for this path.
+    while IFS= read -r l || [ -n "$l" ]; do
+      l="${l%$'\r'}"
+      case "$l" in
+        ''|'#'*) ;;
+        *)
+          acc_path "${l%%$'\t'*}"
+          if [ "$ACC_PATH" = "$p" ]; then
+            n_p=$((n_p + 1))
+            [ "$l" = "$entry" ] && same=1
+            continue
+          fi ;;
+      esac
+      body="$body$l"$'\n'
+    done < "$ACC_FILE"
+  else
+    body="$ACC_HEAD"
+  fi
+  if [ "$n_p" -eq 1 ] && [ "$same" -eq 1 ]; then
+    printf 'accepted: %s, already recorded in %s, unchanged\n' "$p" "$ACC_FILE"
+    acc_ignored
+    exit 0
+  fi
+  [ -d .ia-engineering ] || mkdir .ia-engineering 2>/dev/null \
+    || acc_fail 2 "could not make .ia-engineering/: nothing recorded"
+  # mktemp makes a new file, at a name no one chose, or fails: nothing a
+  # project placed there is ever written through. It makes it 0600; the
+  # entries file gets the mode the umask gives any other.
+  tmp="$(mktemp "$ACC_FILE.XXXXXX" 2>/dev/null)" && [ -n "$tmp" ] \
+    || acc_fail 2 "could not make a new file beside $ACC_FILE: nothing recorded"
+  um="$(umask)"
+  if ! { printf '%s%s\n' "$body" "$entry" > "$tmp" \
+         && chmod "$(printf '%o' $(( 0666 & ~8#${um#0} )))" "$tmp" \
+         && mv -f "$tmp" "$ACC_FILE"; } 2>/dev/null; then
+    rm -f "$tmp" 2>/dev/null
+    acc_fail 2 "could not write $ACC_FILE: nothing recorded"
+  fi
+  printf 'accepted: %s, a reviewed edit of %s\n' "$p" "$fdet"
+  printf '  framework file  %s\n  project file    %s\n' "$ACC_HF" "$ACC_HP"
+  printf '  recorded in %s. Commit it through a Pull Request: an acceptance is a reviewed decision. It lapses, and the file is drift again, when either file changes.\n' "$ACC_FILE"
+  acc_ignored
+  exit 0
+}
+
+if [ "$ACCEPT_SET" -eq 1 ]; then
+  accept_run
+fi
+acc_load
+
 BOOT_FAULT=0
 B_DONE=0
 B_ROWS0=${#ROWS}
@@ -789,6 +1208,9 @@ else
   watch_add "$SCRIPT_DIR/setup-project-bootstrap.sh"
   watch_add "$SCRIPT_DIR/install.sh"
   watch_add .ia-engineering/stack
+  # The accepted edits decide what a file that differs is: an entry added,
+  # changed or removed sends the next --quick back here.
+  watch_add "$ACC_FILE"
   run_check setup-project-bootstrap.sh bash "$SCRIPT_DIR/setup-project-bootstrap.sh" --check
 fi
 while IFS=$'\t' read -r fam st path detail; do
@@ -822,14 +1244,28 @@ while IFS=$'\t' read -r fam st path detail; do
         *) rec file indeterminate "$path" "$WHY" ;;
       esac ;;
     file:differs)
+      # A reviewed edit, accepted while both files are as recorded
+      # (ACCEPTED EDITS); one whose entry lapsed says so in its remedy.
+      acc_match "$path" "${detail#"$REL"/}" "$detail"
+      ACC_NOTE=""
+      case "$ACC_STATE" in
+        accepted)
+          rec file accepted "$path" "a reviewed edit of $detail, accepted on line $ACC_LINE of $ACC_FILE: not to act on while neither file changes; it lapses when either does"
+          continue ;;
+        lapsed)
+          ACC_NOTE="; its acceptance in $ACC_FILE lapsed: $ACC_WHY. Review the diff again, then, to keep the file, record it again through a Pull Request: $REL/Adapters/scripts/check-framework-drift.sh --accept $path" ;;
+        indeterminate)
+          rec file indeterminate "$path" "$ACC_WHY"
+          continue ;;
+      esac
       if [ "$QUICK" -eq 1 ]; then
-        rec file differs "$path" "differs from $detail, line endings aside; --quick reads no history: run $REL/Adapters/scripts/check-framework-drift.sh to tell stale (copy it) from modified (review it)"
+        rec file differs "$path" "differs from $detail, line endings aside; --quick reads no history: run $REL/Adapters/scripts/check-framework-drift.sh to tell stale (copy it) from modified (review it)$ACC_NOTE"
         continue
       fi
       classify "$path" "${detail#"$REL"/}"
       case "$CLASS" in
-        stale) rec file stale "$path" "never edited, an earlier version of the template: cp $detail $path" ;;
-        modified) rec file modified "$path" "edited by the project, or the template was renamed: review diff $detail $path; never --force" ;;
+        stale) rec file stale "$path" "never edited, an earlier version of the template: cp $detail $path$ACC_NOTE" ;;
+        modified) rec file modified "$path" "edited by the project, or the template was renamed: review diff $detail $path; never --force$ACC_NOTE" ;;
         *) rec file indeterminate "$path" "$WHY" ;;
       esac ;;
     project-file:present) rec file project-owned "$path" "" ;;
@@ -938,7 +1374,7 @@ done <<< "$CHECK_OUT"
 # cause), and its command to regenerate is the remedy.
 #
 # Not in --quick: it generates every agent to compare it, seconds on Windows,
-# over the session-start budget. Session start checks, on its own, that each
+# over its 3 s bound. Session start checks, on its own, that each
 # agent exists and names this project's framework (--check --quick).
 if [ "$QUICK" -eq 1 ]; then
   rec agent not-evaluated ".claude/agents/" "--quick compares no agent with Employees/; session start checks each one exists and names this project's framework. A run without --quick compares them: $REL/Adapters/scripts/check-framework-drift.sh"
