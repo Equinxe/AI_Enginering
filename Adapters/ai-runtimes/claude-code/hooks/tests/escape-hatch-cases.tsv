@@ -1160,3 +1160,188 @@ block	printf `true` 'git push \x2d\x2dforce' | sh	force-push or mirror-push
 # Known over-refusal, pinned: the third reading reads a substitution as empty,
 # so a removal whose path starts with one reads as a removal of the root.
 block	rm -rf "$(pwd)"/*	recursive removal
+# --- False positives (WU-IAENG-455) ---------------------------------------------
+# A keyword read of core.hooksPath in another command's arguments, by $( ), a
+# backtick or printf, is a read (issue #272). Every allow row below was
+# refused on develop.
+allow	echo "hooksPath: $(git config --get core.hooksPath)"
+allow	echo $(git config --get core.hooksPath)
+allow	echo "$(git config --get core.hooksPath)"
+allow	echo `git config --get core.hooksPath`
+allow	echo "`git config --get core.hooksPath`"
+allow	printf '%s\n' "$(git config --get core.hooksPath)"
+allow	test -n "$(git config --local --get core.hooksPath)" && echo installed
+allow	echo "$(git config --get core.hooksPath) $(git config --get-all core.hooksPath)"
+allow	echo $(git config --get CORE.HOOKSPATH)
+allow	echo "$(git -C "/c/my repo" config --get core.hooksPath)"
+allow	echo "$("/c/x y/git.exe" config get core.hooksPath)"
+# A write stays refused: in a substitution, beside a read, joined across one,
+# in another substitution of the same command, or as a -c beside the read. A
+# legacy read in a substitution stays refused too.
+block	echo $(git config core.hooksPath /dev/null)	setting core.hooksPath disables
+block	echo "$(git config --unset core.hooksPath)"	setting core.hooksPath disables
+block	echo `git config --local core.hooksPath .githooks`	setting core.hooksPath disables
+block	git config core.hooksPath "$(git config --get core.hooksPath)"	setting core.hooksPath disables
+block	git config core.hooksPath $(git config --get core.hooksPath)	setting core.hooksPath disables
+block	git config core.hooks$(git config --get core.hooksPath)Path x	setting core.hooksPath disables
+block	echo $(git config --get core.hooksPath) $(git config core.hooksPath x)	setting core.hooksPath disables
+block	echo $(git config --get core.hooksPath; git config core.hooksPath x)	setting core.hooksPath disables
+block	env $(git config --get core.hooksPath) git config core.hooksPath x	setting core.hooksPath disables
+block	echo $(git -c core.hooksPath=/dev/null config --get core.hooksPath)	setting core.hooksPath disables
+block	echo `git config core.hooksPath`	setting core.hooksPath disables
+# Known over-refusal, pinned: a read is removed only where git begins a word,
+# as the anchored exemption reads it, so a read by an unquoted path to git is
+# refused, as on develop.
+block	echo $(/usr/bin/git config --get core.hooksPath)	setting core.hooksPath disables
+# git commit-tree -p names a parent, and log -p and show -p print a patch:
+# none is interactive (issue #261). The commit-tree rows were refused on
+# develop. The interactive forms stay refused, a dashed git's included.
+allow	git commit-tree -p HEAD -m x 4b825dc
+allow	git commit-tree -m "merge" -p main -p dev 4b825dc
+allow	git log -p -1
+allow	git show -p HEAD
+block	git commit -p	interactive git command
+block	git commit -m x -p	interactive git command
+block	git commit --patch	interactive git command
+block	git-commit.exe -p	interactive git command
+block	git checkout -p x	interactive git command
+block	git reset --patch	interactive git command
+block	git rebase --interactive main	interactive git command
+# An rm of a path under .git with no -r stays refused: the Director's decision
+# on allowing it is open (issue #235). Its reason does not call it recursive,
+# and names the remedy. These rows had the recursive reason on develop. A
+# recursive rm keeps that reason, with its flag before or after the path.
+block	rm .git/index.lock	removing the repository metadata (.git)
+block	rm -f .git/index.lock	removing the repository metadata (.git)
+block	rm .git/info/attributes	removing the repository metadata (.git)
+block	cd /tmp/lab && rm -f .git/index.lock	removing the repository metadata (.git)
+block	rm .git/index.lock; rm -rf build	removing the repository metadata (.git)
+block	rm -f .git/index.lock && rm -rf build	removing the repository metadata (.git)
+block	rm -fR .git	recursive removal
+block	rm .git -rf	recursive removal
+block	rm -f .git/index.lock -r	recursive removal
+block	rm --force --recursive .git	recursive removal
+# The last word of a quoted message is not a command, and is dropped with the
+# message (code review of PR #485, F3). Refused on develop.
+allow	git commit -m "see docs/x--no-verify"
+allow	git commit -m "see docs/'--no-verify'"
+allow	git commit -m "see docs/README.md#--no-verify"
+allow	git commit -m "docs: see Standards/core.hooksPath"
+allow	git commit -m 'fix(hooks): read Standards/core.hooksPath' -m "Refs: hooks/x--no-verify"
+# A quoted command path still names its command: git in any case and with any
+# extension, a dashed git, rm and printf.
+block	"/c/x y/GIT.CMD" push --force	force-push or mirror-push
+block	"/c/x y/git-push" --force	force-push or mirror-push
+block	"/c/x y/rm" -rf /	recursive removal
+block	git push $("/c/x y/printf" '\x2d\x2dforce')	force-push or mirror-push
+# Review of PR #529, round 1. A read in another command's arguments is
+# removed only where its removal hides nothing: no substitution inside another
+# in the command, no redirection, backtick or parenthesis in an option's
+# value, a --get, --get-all or get read with only a scope option, --includes,
+# --no-includes, --type, --null or -z around its keyword, no option after the
+# read, and no git or config word in the rest. Every block row in this group
+# was allowed at 46ec516 and is refused on develop.
+# An empty substitution or a backtick pair in the place of the keyword, glued
+# or not, nested in the substitution that holds the write (SEC-IAENG-455-01).
+block	echo $(git config $(--get) core.hooksPath /dev/null)	setting core.hooksPath disables
+block	echo "$(git config $(--get) core.hooksPath /dev/null)"	setting core.hooksPath disables
+block	echo $(git config `--get` core.hooksPath /dev/null)	setting core.hooksPath disables
+block	echo $(git config $(-l) core.hooksPath /dev/null)	setting core.hooksPath disables
+block	echo $(git config $(get) core.hooksPath /dev/null)	setting core.hooksPath disables
+block	echo $(git config --local"$(--get)" core.hooksPath /dev/null)	setting core.hooksPath disables
+block	echo `git config $(--get) core.hooksPath /dev/null`	setting core.hooksPath disables
+block	echo `git config --local"$(--get)" core.hooksPath /dev/null`	setting core.hooksPath disables
+block	echo $(git config --file=x$(--get)--global core.hooksPath /dev/null)	setting core.hooksPath disables
+# A redirection, or an escaped backtick pair, glued to an option's value: the
+# word after it is no argument git receives (SEC-IAENG-455-01).
+block	echo $(git config --type=path> --get core.hooksPath /dev/null)	setting core.hooksPath disables
+block	echo "$(git config --file=.git/config> --get core.hooksPath /dev/null)"	setting core.hooksPath disables
+block	echo $(git config --blob=x> --get core.hooksPath /dev/null)	setting core.hooksPath disables
+block	echo $(git config --default=x< --get core.hooksPath /dev/null)	setting core.hooksPath disables
+block	echo $(git config --type path> --get core.hooksPath /dev/null)	setting core.hooksPath disables
+block	echo `git config --file=.git/config\` --get --type=y\` core.hooksPath /dev/null`	setting core.hooksPath disables
+block	echo `git config --type=path\` --get --type=y\` core.hooksPath /dev/null`	setting core.hooksPath disables
+# A read whose output is a key name, or a value the command text chooses, by
+# an option before the key or after it, beside a git command or not (code
+# review of PR #529, B1).
+block	git config "$(git config --name-only --get-regexp core.hooksPath)" /dev/null	setting core.hooksPath disables
+block	git config $(git config --name-only --get-regexp core.hooksPath) /dev/null	setting core.hooksPath disables
+block	git config `git config --name-only --get-regexp core.hooksPath` /dev/null	setting core.hooksPath disables
+block	git config set "$(git config --name-only --get-regexp core.hooksPath)" /dev/null	setting core.hooksPath disables
+block	git config --replace-all "$(git config --name-only --get-regexp core.hooksPath)" /dev/null	setting core.hooksPath disables
+block	git-config "$(git config --name-only --get-regexp core.hooksPath)" /dev/null	setting core.hooksPath disables
+block	git config "$(git config --file /dev/null --get --default core.hooksPath core.hooksPath)" /dev/null	setting core.hooksPath disables
+block	env $(git config --file /dev/null --get --default=/usr/lib/git-core/git-config core.hooksPath) $(git config --file /dev/null --get --default=core.hooksPath core.hooksPath) /dev/null	setting core.hooksPath disables
+block	git push origin $(git config --file /dev/null --get --default=--force core.hooksPath)	setting core.hooksPath disables
+block	echo $(git config --get-regexp core.hooksPath)	setting core.hooksPath disables
+block	echo $(git config --name-only --get core.hooksPath)	setting core.hooksPath disables
+block	rm -rf $(git config --get core.hooksPath --file /dev/null --default=/)	a read of it in another command's arguments passes only
+block	echo $(git config --get core.hooksPath --default=x)	a read of it in another command's arguments passes only
+block	git log "$(git config --get core.hooksPath)"	a read of it in another command's arguments passes only
+block	$G config core.editor "$(git config --get core.hooksPath)"	a read of it in another command's arguments passes only
+# Known over-refusal, pinned: a read in a substitution inside another.
+block	echo "$(echo "$(git config --get core.hooksPath)")"	setting core.hooksPath disables
+# Pinned, allowed at 46ec516 as now: a read in a subshell in a substitution
+# (QA, round 1, note 1), a --type read, and a test of the read's value.
+allow	echo $( (git config --get core.hooksPath))
+allow	x=`(git config --get core.hooksPath)`
+allow	echo "$(git config --type=path --get core.hooksPath)"
+allow	[ "$(git config --get core.hooksPath)" = .framework-hooks ] || echo missing
+# An expansion glued to the subcommand may be empty, and leave the subcommand
+# alone (review of PR #529: SE M1, CR m1). add--interactive is git add -i's
+# helper where git still has it. Every block row here was allowed at 46ec516.
+block	git commit${X} -p	interactive git command
+block	git commit$X -p	interactive git command
+block	git rebase${U} -i	interactive git command
+block	git commit"$EMPTY" -p	interactive git command
+block	git add$x -p	interactive git command
+block	git checkout${x:-} -p	interactive git command
+block	git reset"$x" --patch	interactive git command
+block	git commit$1 -p	interactive git command
+block	git commit${x#y} -p	interactive git command
+block	git-commit.exe$X -p	interactive git command
+block	git add--interactive --patch	interactive git command
+allow	git commit-graph write -p
+# A single-quoted or ANSI-C path glued to the text after it keeps its last
+# component, as a double-quoted one does (QA, round 1, minor 1). Pinned.
+block	'/c/x y/gi't push --force	force-push or mirror-push
+block	$'/c/x y/gi't push --force	force-push or mirror-push
+# After --, a -r is a file name: not recursive (QA minor 2, CR note 1; refused
+# with the recursive reason at 46ec516). An operand between the path and its
+# recursive flag keeps the flag the rm's own (QA note 2, pinned).
+block	rm -f .git/index.lock -- -r	removing the repository metadata (.git)
+block	rm .git/a .git/b -r	recursive removal
+# Review of PR #529, round 2. Every block row in this group was allowed at
+# 17ca76d and is refused on develop.
+# A --type value the shell expands may become several words, and one may take
+# the read's keyword as its value: only git's type names are read
+# (SEC-IAENG-455-02). The allow rows name a type and were refused on develop.
+block	echo $(git config --type {path,--comment} --get core.hooksPath /dev/null)	setting core.hooksPath disables
+block	echo "$(git config --type {path,--comment} --get core.hooksPath /dev/null)"	setting core.hooksPath disables
+block	echo `git config --type {path,--comment} --get core.hooksPath /dev/null`	setting core.hooksPath disables
+block	echo $(git config --local --type {path,--comment} --get core.hooksPath /dev/null)	setting core.hooksPath disables
+block	echo $(git config --type {path,--comment} --get-all core.hooksPath /dev/null)	setting core.hooksPath disables
+block	X='path --comment'; echo $(git config --type $X --get core.hooksPath /dev/null)	setting core.hooksPath disables
+block	: > ./--comment; : > bool; echo $(git config --type * --get core.hooksPath true)	setting core.hooksPath disables
+block	echo $(git config --type ${T} --get core.hooksPath /dev/null)	setting core.hooksPath disables
+block	echo $(git config --type ~ --get core.hooksPath /dev/null)	setting core.hooksPath disables
+block	echo $(git config --type path{,} --get core.hooksPath /dev/null)	setting core.hooksPath disables
+block	echo $(git config --type ${x:+ --get core.hooksPath } path core.hooksPath /dev/null)	setting core.hooksPath disables
+allow	echo "$(git config --type path --get core.hooksPath)"
+allow	echo $(git config --type=bool-or-int --get core.hooksPath)
+# A quoted region the lexer drops is still a word git receives: before get, a
+# key that makes the read a set; before --get, a --default whose value the read
+# prints (code review of PR #529, round 2, B1). Judged in the marked view.
+block	echo $(git config "core.hooksPath${E:+ }" get core.hooksPath)	setting core.hooksPath disables
+block	echo "$(git config "core.hooksPath${E:+ }" get core.hooksPath)"	setting core.hooksPath disables
+block	echo `git config "core.hooksPath${E:+ }" get core.hooksPath`	setting core.hooksPath disables
+block	echo $(git config "--default=a b" --get core.hooksPath)	setting core.hooksPath disables
+block	echo $(git config 'core.hooksPath ' get core.hooksPath)	setting core.hooksPath disables
+# A redirection glued to the subcommand leaves it alone (code review of PR
+# #529, round 2, m1). A digit glued to it makes another word, commit2.
+block	git commit>/dev/null -p	interactive git command
+block	git commit</dev/null -p	interactive git command
+block	git add>x -p	interactive git command
+block	git rebase<x -i	interactive git command
+block	git reset>/dev/null --patch	interactive git command
+allow	git commit2>x -p
