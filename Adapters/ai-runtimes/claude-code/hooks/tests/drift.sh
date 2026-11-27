@@ -474,6 +474,379 @@ cp "$T/settings.json" .claude/settings.json
 git -C ia-engineering tag -d v2 >/dev/null
 hook "$AD"; expect_lines 0 "clean once more after every cause"
 
+# --- a reviewed edit, accepted (WU-IAENG-456, issue #420) -------------------------
+# A project that keeps a reviewed edit of a framework-managed file records it
+# with --accept in .ia-engineering/drift-accepted.tsv, a committed file, with
+# the hash of the framework's file and of the project's. While neither
+# changes, the file is not drift: not to act on, --strict exits 0, and session
+# start prints one "N accepted" line where it printed a line to act on at
+# every session. It lapses back to drift when either file changes. The git
+# hooks, the Claude Code hook entries and the two workflows that guard them
+# server-side are never accepted (the refused list the Security Engineer
+# named in PR #531).
+#
+# The full check compares the Employees' agents too, so the bench gets them
+# for this section alone: the framework's Employees/ beside its checkout's
+# files (untracked in the submodule), the agents generated from them. A full
+# --strict then says what the accepted file does to it, nothing else.
+DRIFT_456=(bash ./ia-engineering/Adapters/scripts/check-framework-drift.sh)
+ACC_456=.ia-engineering/drift-accepted.tsv
+DP_456=.github/workflows/data-policy.yml
+TPL_456=ia-engineering/Adapters/github-actions/data-policy.yml
+# r456 <args...> — the check from the adopter's root: R456 its exit, O456 its
+# output. Its stdin is /dev/null, so a loop reading a table can run it.
+r456() { O456="$("${DRIFT_456[@]}" "$@" 2>&1 </dev/null)"; R456=$?; }
+# e456 <exit> <text, or nothing> <label> — the last r456 exited so, its output
+# holding the text.
+e456() {
+  if [ "$R456" -eq "$1" ] && { [ -z "$2" ] || [[ "$O456" == *"$2"* ]]; }; then
+    ok "$3"
+  else
+    bad "$3" "exit $R456, want $1; want the text: $2
+$(printf '%s\n' "$O456" | grep -v "${TAB}current${TAB}\|${TAB}present${TAB}\|${TAB}ok${TAB}" | tail -n 12)"
+  fi
+}
+# h456 <file> — its hash as the check takes it: the CR that ends a line dropped.
+h456() { sed $'s/\r$//' "$1" | git hash-object --stdin; }
+cp -R "$SRC/Employees" ia-engineering/Employees
+bash ./ia-engineering/Adapters/ai-runtimes/generate-agents.sh --target claude-code --project . >/dev/null 2>&1
+r456 --strict --format tsv
+e456 0 "# check-framework-drift: 0 to act on, 0 indeterminate." "#420: the bench with its agents: the full check is clean, --strict exits 0"
+
+cp "$DP_456" "$T/dp-456.yml"
+echo "# the project's own line, reviewed and kept" >> "$DP_456"
+cp "$DP_456" "$T/dp-456-edit.yml"
+hook "$AD"
+expect_lines 1 "#420: a reviewed edit not yet accepted: one line to act on"
+r456 --strict --format tsv
+e456 1 "file${TAB}modified${TAB}$DP_456" "#420: ... the full check calls it modified, --strict exits 1"
+
+SNAP_456A="$(snapshot | grep -v 'drift-accepted')"
+r456 --accept "$DP_456"
+e456 0 "accepted: $DP_456" "#420: --accept records the modified file (exit 0)"
+case "$O456" in *WARNING*) bad "#420: ... with no warning while git does not ignore the entries file" "$O456" ;; *) ok "#420: ... with no warning while git does not ignore the entries file" ;; esac
+SNAP_456B="$(snapshot | grep -v 'drift-accepted')"
+if [ "$SNAP_456A" = "$SNAP_456B" ]; then ok "#420: --accept writes nothing but $ACC_456"; else bad "#420: --accept writes nothing but $ACC_456" "$(diff <(printf '%s\n' "$SNAP_456A") <(printf '%s\n' "$SNAP_456B"))"; fi
+ENTRY_456="$DP_456${TAB}Adapters/github-actions/data-policy.yml${TAB}$(h456 "$TPL_456")${TAB}$(h456 "$DP_456")"
+if [ -f "$ACC_456" ] && grep -qxF "$ENTRY_456" "$ACC_456"; then ok "#420: the entry holds the path, the framework file and both hashes"; else bad "#420: the entry holds the path, the framework file and both hashes" "want: $ENTRY_456
+got: $(cat "$ACC_456" 2>&1)"; fi
+if [ "$(grep -c "^$DP_456$TAB" "$ACC_456" 2>/dev/null)" = 1 ]; then ok "#420: one entry for the file"; else bad "#420: one entry for the file" "$(cat "$ACC_456" 2>&1)"; fi
+r456 --accept "$DP_456"
+e456 0 "" "#420: --accept again, nothing changed: exit 0"
+if [ "$(grep -c "^$DP_456$TAB" "$ACC_456" 2>/dev/null)" = 1 ]; then ok "#420: ... and still one entry for the file"; else bad "#420: ... and still one entry for the file" "$(cat "$ACC_456" 2>&1)"; fi
+# An absolute path names the same file when spelled as pwd spells the project.
+r456 --accept "$AD/$DP_456"
+e456 0 "accepted: $DP_456, already recorded in $ACC_456, unchanged" "#420: --accept of the absolute path, as pwd spells it: the same entry, unchanged"
+
+# An entries file git ignores reaches no other clone, nor CI: said on every
+# --accept that exits 0, the one that finds the entry already recorded too.
+cat .git/info/exclude > "$T/exclude-456" 2>/dev/null
+printf '%s\n' "$ACC_456" >> .git/info/exclude
+r456 --accept "$DP_456"
+e456 0 "already recorded in $ACC_456, unchanged
+WARNING: git ignores $ACC_456 here" "#420: git ignores the entries file: --accept, the entry already recorded, warns (exit 0)"
+mv "$ACC_456" "$T/acc-456-w.tsv"
+r456 --accept "$DP_456"
+e456 0 "WARNING: git ignores $ACC_456 here" "#420: ... and so does the --accept that writes it"
+mv "$T/acc-456-w.tsv" "$ACC_456"
+cat "$T/exclude-456" > .git/info/exclude
+
+r456 --strict --format tsv
+e456 0 "file${TAB}accepted${TAB}$DP_456" "#420: accepted: the full check records it accepted, --strict exits 0"
+e456 0 "# check-framework-drift: 0 to act on, 0 indeterminate, 1 accepted." "#420: ... the summary counts it accepted, not to act on"
+r456 --quick --strict --format tsv
+e456 0 "file${TAB}accepted${TAB}$DP_456" "#420: accepted: the quick check records it accepted too, --strict exits 0"
+hook "$AD"
+expect_lines 1 "#420: accepted: session start prints one line"
+expect_drift "IA Engineering drift: 1 accepted ($DP_456)" "#420: ... the line says 1 accepted and names the file"
+case "$DRIFT" in *"file(s) to act on"*|*"item(s) to act on"*) bad "#420: ... and no line to act on" "$DRIFT" ;; *) ok "#420: ... and no line to act on" ;; esac
+hook "$AD"
+expect_lines 1 "#420: accepted, warm (the cache replayed): the same one line"
+expect_drift "IA Engineering drift: 1 accepted ($DP_456)" "#420: ... saying 1 accepted"
+
+# What an acceptance costs the quick check, which session start runs within
+# its 3 s bound: counted with recording stand-ins for git and sed first on
+# PATH, the same project with no cache, with and without its entries file.
+# One git process hashes both files when neither holds a CR; no sed.
+mkdir -p "$T/rec-456"
+for c456 in git sed; do
+  cat > "$T/rec-456/$c456" <<EOF
+#!/usr/bin/env bash
+printf '%s\n' "$c456" >> "$T/rec-456/calls"
+exec "$(command -v "$c456")" "\$@"
+EOF
+  chmod +x "$T/rec-456/$c456"
+done
+# count456 — G456 and S456: the git and sed processes a quick check started.
+count456() {
+  : > "$T/rec-456/calls"
+  env PATH="$T/rec-456:$PATH" "${DRIFT_456[@]}" --quick --format tsv >/dev/null 2>&1
+  G456="$(grep -cx git "$T/rec-456/calls")"; S456="$(grep -cx sed "$T/rec-456/calls")"
+}
+mv "$ACC_456" "$T/acc-456-off.tsv"
+count456; G0_456="$G456"; S0_456="$S456"
+mv "$T/acc-456-off.tsv" "$ACC_456"
+count456
+printf '   info  #420: a quick check with no cache started %s git and %s sed without the entries file, %s and %s with the accepted entry\n' "$G0_456" "$S0_456" "$G456" "$S456"
+if [ "$((G456 - G0_456))" -eq 1 ] && [ "$S456" -eq "$S0_456" ]; then
+  ok "#420: an accepted file with no CR costs the quick check one git process and no sed"
+else
+  bad "#420: an accepted file with no CR costs the quick check one git process and no sed" "git $G0_456 -> $G456, sed $S0_456 -> $S456"
+fi
+
+# Line endings aside, as the installers compare: a CRLF copy of the accepted
+# edit is still the accepted edit, so a clone on another platform agrees.
+sed 's/$/\r/' "$T/dp-456-edit.yml" > "$DP_456"
+r456 --strict --format tsv
+e456 0 "file${TAB}accepted${TAB}$DP_456" "#420: a CRLF copy of the accepted edit is still accepted (full check)"
+r456 --quick --strict --format tsv
+e456 0 "file${TAB}accepted${TAB}$DP_456" "#420: ... and in the quick check"
+cp "$T/dp-456-edit.yml" "$DP_456"
+
+# Lapse, the project's side.
+echo "# a later line, not reviewed" >> "$DP_456"
+hook "$AD"
+expect_lines 1 "#420: the project's file changed: the acceptance lapses, one line to act on"
+expect_drift "1 of 14 framework-managed file(s) to act on (differ from the framework: $DP_456 (its acceptance lapsed))" "#420: ... the file is named, its acceptance said to have lapsed"
+r456 --strict --format tsv
+e456 1 "file${TAB}modified${TAB}$DP_456" "#420: ... the full check calls it modified again, --strict exits 1"
+e456 1 "the project's file changed since it was accepted" "#420: ... and says which side changed"
+r456 --quick --strict --format tsv
+e456 1 "file${TAB}differs${TAB}$DP_456" "#420: ... the quick check too, --strict exits 1"
+# The later edit reviewed in turn, as the remedy says: --accept records it
+# again, its entry replaced, never added to.
+cp "$ACC_456" "$T/acc-456-first.tsv"
+# First with mktemp failing for the new entries file alone (a stand-in first
+# on PATH; every other mktemp, the installers' among them, runs as it is):
+# nothing recorded, said for that reason, the entries file as it was.
+mkdir -p "$T/mkt-456"
+cat > "$T/mkt-456/mktemp" <<EOF
+#!/usr/bin/env bash
+case "\${1:-}" in *drift-accepted.tsv.XXXXXX) exit 1 ;; esac
+exec "$(command -v mktemp)" "\$@"
+EOF
+chmod +x "$T/mkt-456/mktemp"
+O456="$(env PATH="$T/mkt-456:$PATH" "${DRIFT_456[@]}" --accept "$DP_456" 2>&1 </dev/null)"; R456=$?
+e456 2 "could not make a new file beside $ACC_456: nothing recorded" "#420: --accept when mktemp cannot make the new file: nothing recorded, said so (exit 2)"
+if cmp -s "$ACC_456" "$T/acc-456-first.tsv"; then ok "#420: ... the entries file as it was"; else bad "#420: ... the entries file as it was" "$(diff "$T/acc-456-first.tsv" "$ACC_456")"; fi
+r456 --accept "$DP_456"
+e456 0 "accepted: $DP_456, a reviewed edit of $TPL_456" "#420: the later edit reviewed: --accept records it again (exit 0)"
+ENTRY2_456="$DP_456${TAB}Adapters/github-actions/data-policy.yml${TAB}$(h456 "$TPL_456")${TAB}$(h456 "$DP_456")"
+if [ "$(grep -c "^$DP_456$TAB" "$ACC_456" 2>/dev/null)" = 1 ] && grep -qxF "$ENTRY2_456" "$ACC_456"; then ok "#420: ... its one entry replaced, holding the later edit's hash"; else bad "#420: ... its one entry replaced, holding the later edit's hash" "want: $ENTRY2_456
+got: $(cat "$ACC_456" 2>&1)"; fi
+r456 --quick --strict --format tsv
+e456 0 "file${TAB}accepted${TAB}$DP_456" "#420: ... and the later edit is accepted, --strict exits 0"
+cp "$T/acc-456-first.tsv" "$ACC_456"
+cp "$T/dp-456-edit.yml" "$DP_456"
+hook "$AD"
+expect_drift "IA Engineering drift: 1 accepted ($DP_456)" "#420: the project's file back as accepted: accepted again"
+
+# Lapse, the framework's side: its file changed, as an upgrade changes it.
+cp "$TPL_456" "$T/tpl-456.yml"
+echo "# the framework's later line" >> "$TPL_456"
+hook "$AD"
+expect_lines 1 "#420: the framework's file changed: the acceptance lapses, one line to act on"
+expect_drift "differ from the framework: $DP_456 (its acceptance lapsed)" "#420: ... the file is named, its acceptance said to have lapsed"
+r456 --strict --format tsv
+e456 1 "the framework's file changed since it was accepted" "#420: ... the full check says the framework's side changed, --strict exits 1"
+echo "# and a later line of the project's" >> "$DP_456"
+r456 --quick --strict --format tsv
+e456 1 "its acceptance in $ACC_456 lapsed: both files changed since it was accepted" "#420: both files changed: the remedy says both, --strict exits 1"
+cp "$T/dp-456-edit.yml" "$DP_456"
+cp "$T/tpl-456.yml" "$TPL_456"
+hook "$AD"
+expect_drift "IA Engineering drift: 1 accepted ($DP_456)" "#420: the framework's file back: accepted again"
+# An entry that names another framework file than the one the installers
+# copy to the path never applies, and the remedy says so.
+cp "$ACC_456" "$T/acc-456-first.tsv"
+{ grep -v "^$DP_456$TAB" "$T/acc-456-first.tsv"; printf '%s\t%s\t%s\t%s\n' "$DP_456" Adapters/github-actions/framework-validation.yml "$(h456 "$TPL_456")" "$(h456 "$DP_456")"; } > "$ACC_456"
+r456 --quick --strict --format tsv
+e456 1 "its acceptance in $ACC_456 lapsed: its entry names another framework file, Adapters/github-actions/framework-validation.yml" "#420: an entry naming another framework file does not apply, and the remedy says so"
+cp "$T/acc-456-first.tsv" "$ACC_456"
+
+# Not a reviewed edit, so nothing to accept: a file that is current, absent,
+# an earlier copy of the framework's file (stale: copy it), expected to be
+# edited (customized), owned by the project, or managed by no installer, and
+# a path not spelled as the check prints one. Each is refused for its own
+# reason, and the entries file is left as it was.
+cp "$ACC_456" "$T/acc-456.tsv"
+FV_456=.github/workflows/framework-validation.yml
+FVT_456=ia-engineering/Adapters/github-actions/framework-validation.yml
+r456 --accept "$FV_456"
+e456 1 "$FV_456: identical to the framework's file, line endings aside: nothing to accept" "#420: --accept of a current file: nothing to accept (exit 1)"
+mv "$FV_456" "$T/fv-456.yml"
+r456 --accept "$FV_456"
+e456 1 "$FV_456: absent: nothing to accept" "#420: --accept of an absent file: nothing to accept (exit 1)"
+mv "$T/fv-456.yml" "$FV_456"
+cp "$FVT_456" "$T/fvt-456.yml"
+echo "# the framework's later line" >> "$FVT_456"
+r456 --accept "$FV_456"
+e456 1 "$FV_456: never edited by the project, an earlier version of the framework's file: copy it (cp $FVT_456 $FV_456) rather than accept it" "#420: --accept of a stale file: refused, with the cp to run (exit 1)"
+cp "$T/fvt-456.yml" "$FVT_456"
+echo "<!-- the project's own line -->" >> .github/PULL_REQUEST_TEMPLATE.md
+r456 --accept .github/PULL_REQUEST_TEMPLATE.md
+e456 1 ".github/PULL_REQUEST_TEMPLATE.md: a file the project is expected to edit, or owns: never drift" "#420: --accept of a customized file: never drift, nothing to accept (exit 1)"
+git -C ia-engineering show HEAD:Adapters/github/PULL_REQUEST_TEMPLATE.md > .github/PULL_REQUEST_TEMPLATE.md
+r456 --accept Registry/work-units.yml
+e456 1 "Registry/work-units.yml: a file the project is expected to edit, or owns: never drift" "#420: --accept of a project-owned file: never drift, nothing to accept (exit 1)"
+r456 --accept src/main.c
+e456 1 "refused: src/main.c: not a file the framework installs" "#420: --accept of a file no installer manages: refused (exit 1)"
+for p456 in "../ad/$DP_456" .github//workflows/data-policy.yml .github/./workflows/data-policy.yml; do
+  r456 --accept "$p456"
+  e456 1 "refused: $p456: not a path inside the project, as this check prints one" "#420: --accept $p456: not spelled as the check prints a path, refused (exit 1)"
+done
+r456 --accept "$DP_456" --strict
+e456 64 "" "#420: --accept with another option is a usage error (64)"
+if cmp -s "$ACC_456" "$T/acc-456.tsv"; then ok "#420: no refused --accept changed the entries file"; else bad "#420: no refused --accept changed the entries file" "$(diff "$T/acc-456.tsv" "$ACC_456")"; fi
+# In the framework repository the check is not applicable: --accept refuses,
+# and writes nothing there.
+O456="$(cd "$FW" && bash ./Adapters/scripts/check-framework-drift.sh --accept "$DP_456" 2>&1 </dev/null)"; R456=$?
+e456 1 "refused: this is the framework repository itself" "#420: --accept in the framework repository: refused (exit 1)"
+if [ ! -e "$FW/$ACC_456" ]; then ok "#420: ... and nothing written there"; else bad "#420: ... and nothing written there" "$(cat "$FW/$ACC_456" 2>&1)"; fi
+
+# Never accepted (the refused list the Security Engineer named): the git
+# hooks, the Claude Code hook entries and their scripts, anything inside .git
+# or the framework's checkout, and the two workflows that guard them
+# server-side. Of these only the two workflows are files the installers
+# manage, and a file no installer manages is refused too (above), so each
+# refusal is asserted on the reason its own arm of the list gives: deleting
+# an arm, or matching with regard to case, turns its lines red. The two
+# workflows are edited first, as a project could edit them, so that --accept
+# would record them were they not on the list.
+CPG_456=.github/workflows/control-path-guard.yml
+PRV_456=.github/workflows/pr-validation.yml
+cp "$CPG_456" "$T/cpg-456.yml"; cp "$PRV_456" "$T/prv-456.yml"
+echo "# the project's own line" >> "$CPG_456"
+echo "# the project's own line" >> "$PRV_456"
+W_HOOKS_456="it holds the Claude Code hook entries, the two PreToolUse guards among them"
+W_CPG_456="the Control Path Guard workflow, which holds every control path to the Director's label"
+W_PRV_456="the PR Validation workflow, the server-side half of the commit-msg hook among its required checks"
+# target TAB the reason its arm of the list gives
+REFUSED_456="core.hooksPath${TAB}core.hooksPath decides which git hooks run
+.git/hooks/pre-commit${TAB}inside .git, where the project's own git hooks are
+.GIT/config${TAB}inside .git, where the project's own git hooks are
+Adapters/git-hooks/pre-commit${TAB}a framework git hook
+ia-engineering/Adapters/git-hooks/commit-msg${TAB}a framework git hook
+.claude/settings.json${TAB}$W_HOOKS_456
+.claude/settings.local.json${TAB}$W_HOOKS_456
+.Claude/Settings.JSON${TAB}$W_HOOKS_456
+.claude/hooks/guard.sh${TAB}a Claude Code hook script
+hook: PreToolUse Bash block-escape-hatches.sh${TAB}a Claude Code hook entry
+ia-engineering/Adapters/ai-runtimes/claude-code/hooks/session-start.sh${TAB}a framework Claude Code hook
+ia-engineering/Registry/work-units.yml${TAB}inside the framework's checkout: the framework's own file, not the project's
+$CPG_456${TAB}$W_CPG_456
+.GitHub/Workflows/Control-Path-Guard.yml${TAB}$W_CPG_456
+$PRV_456${TAB}$W_PRV_456"
+while IFS="$TAB" read -r p456 w456; do
+  r456 --accept "$p456"
+  e456 1 "refused: $p456: $w456. An acceptance never covers" "#420: --accept $p456 is refused for its own reason (exit 1)"
+done <<< "$REFUSED_456"
+if cmp -s "$ACC_456" "$T/acc-456.tsv"; then ok "#420: ... none of them recorded"; else bad "#420: ... none of them recorded" "$(diff "$T/acc-456.tsv" "$ACC_456")"; fi
+
+# The same targets written by hand into the entries file, and other spellings
+# of the same files, each with the hashes an entry would hold (the two
+# workflows' are their real ones: applied, those entries would accept the
+# edits). None is applied: each is reported refused for its own reason, to
+# act on, and the two workflows still differ. The entries are read alike by
+# the full check and the quick one, which is read here per target; the full
+# check counts them below. A trailing / and a trailing /. name a file only
+# once acc_canon drops them: without those two rules, the last two spellings
+# are not entries (indeterminate, exit 2) rather than refused.
+SPELL_456=".claude//settings.json${TAB}$W_HOOKS_456
+.claude/./hooks/guard.sh/${TAB}a Claude Code hook script
+.git/${TAB}inside .git, where the project's own git hooks are
+.github//workflows/control-path-guard.yml${TAB}$W_CPG_456
+.claude/settings.json/${TAB}$W_HOOKS_456
+$PRV_456/.${TAB}$W_PRV_456"
+N_456="$(printf '%s\n%s\n' "$REFUSED_456" "$SPELL_456" | grep -c .)"
+while IFS="$TAB" read -r p456 w456; do
+  case "$p456" in
+    *[Cc]ontrol-[Pp]ath-[Gg]uard.yml) printf '%s\t%s\t%s\t%s\n' "$p456" Adapters/github-actions/control-path-guard.yml "$(h456 ia-engineering/Adapters/github-actions/control-path-guard.yml)" "$(h456 "$CPG_456")" ;;
+    "$PRV_456"|"$PRV_456"/.) printf '%s\t%s\t%s\t%s\n' "$p456" Adapters/github-actions/pr-validation.yml "$(h456 ia-engineering/Adapters/github-actions/pr-validation.yml)" "$(h456 "$PRV_456")" ;;
+    *) printf '%s\t%s\t%s\t%s\n' "$p456" Adapters/github-actions/data-policy.yml "$(h456 "$TPL_456")" "$(h456 "$DP_456")" ;;
+  esac
+done <<< "$REFUSED_456
+$SPELL_456" >> "$ACC_456"
+r456 --quick --strict --format tsv
+while IFS="$TAB" read -r p456 w456; do
+  e456 1 "config${TAB}refused${TAB}$p456${TAB}$w456: never accepted" "#420: an entry written by hand for $p456 is reported refused, for its own reason"
+done <<< "$REFUSED_456
+$SPELL_456"
+e456 1 "file${TAB}differs${TAB}$CPG_456" "#420: ... the edited Control Path Guard workflow still differs, never accepted"
+e456 1 "file${TAB}differs${TAB}$PRV_456" "#420: ... and so does the edited PR Validation workflow"
+# The workflows restored: the refused entries alone are to act on.
+cp "$T/cpg-456.yml" "$CPG_456"; cp "$T/prv-456.yml" "$PRV_456"
+r456 --strict --format tsv
+e456 1 "# check-framework-drift: $N_456 to act on, 0 indeterminate, 1 accepted." "#420: the $N_456 refused entries alone are to act on: --strict exits 1"
+hook "$AD"
+expect_drift "IA Engineering drift: $N_456 item(s) to act on" "#420: ... session start says they are to act on"
+expect_drift "IA Engineering drift: 1 accepted ($DP_456)" "#420: ... beside the file still accepted"
+
+# A line that is not an entry is indeterminate (--strict exits 2), each said
+# with its line: words, three fields (the path, the framework file, one
+# hash), a path spelled otherwise than the check prints one. The entry beside
+# them still applies.
+cp "$T/acc-456.tsv" "$ACC_456"
+L_456="$(wc -l < "$ACC_456" | tr -d ' ')"
+{
+  printf 'not an entry\n'
+  printf '%s\t%s\t%s\n' "$DP_456" Adapters/github-actions/data-policy.yml "$(h456 "$DP_456")"
+  printf '%s\t%s\t%s\t%s\n' .github//workflows/data-policy.yml Adapters/github-actions/data-policy.yml "$(h456 "$TPL_456")" "$(h456 "$DP_456")"
+} >> "$ACC_456"
+r456 --strict --format tsv
+e456 2 "config${TAB}indeterminate${TAB}$ACC_456${TAB}line $((L_456 + 1)) is not an entry" "#420: a line that is not an entry is indeterminate, --strict exits 2"
+e456 2 "config${TAB}indeterminate${TAB}$ACC_456${TAB}line $((L_456 + 2)) is not an entry" "#420: ... and so is a line of three fields"
+e456 2 "config${TAB}indeterminate${TAB}$ACC_456${TAB}line $((L_456 + 3)) names a path spelled otherwise than this check prints one" "#420: ... and an entry whose path is spelled otherwise"
+e456 2 "file${TAB}accepted${TAB}$DP_456" "#420: ... while the well-formed entry still applies"
+cp "$T/acc-456.tsv" "$ACC_456"
+
+# An entries file that is not a regular file is neither read nor written
+# through, and --accept writes only inside the project: never through a
+# .ia-engineering that is not a directory, or (where ln -s makes links) is a
+# link, nor through a linked entries file.
+rm -f "$ACC_456"; mkdir "$ACC_456"
+r456 --quick --strict --format tsv
+e456 2 "config${TAB}indeterminate${TAB}$ACC_456${TAB}not a regular file of the project" "#420: an entries file that is a directory is not read: indeterminate, --strict exits 2"
+r456 --accept "$DP_456"
+e456 2 "$ACC_456 is not a regular file (a symbolic link is never written through): nothing recorded" "#420: ... nor written by --accept (exit 2)"
+rmdir "$ACC_456"
+mv .ia-engineering "$T/iae-456"
+: > .ia-engineering
+r456 --accept "$DP_456"
+e456 2 ".ia-engineering is a symbolic link or not a directory" "#420: --accept with a .ia-engineering that is not a directory: nothing recorded (exit 2)"
+rm -f .ia-engineering
+LN_456=0
+ln -s "$T/acc-456.tsv" "$T/ln-456" 2>/dev/null && [ -L "$T/ln-456" ] && LN_456=1
+rm -f "$T/ln-456"
+if [ "$LN_456" -eq 1 ]; then
+  ln -s "$T/iae-456" .ia-engineering
+  r456 --accept "$DP_456"
+  e456 2 ".ia-engineering is a symbolic link or not a directory" "#420: --accept through a linked .ia-engineering: nothing recorded (exit 2)"
+  if [ ! -e "$T/iae-456/drift-accepted.tsv" ]; then ok "#420: ... nothing written where the link points"; else bad "#420: ... nothing written where the link points" "$(cat "$T/iae-456/drift-accepted.tsv")"; fi
+  cp "$T/acc-456.tsv" "$T/iae-456/drift-accepted.tsv"
+  r456 --quick --strict --format tsv
+  e456 2 "config${TAB}indeterminate${TAB}$ACC_456${TAB}not a regular file of the project" "#420: ... and entries read through it are not applied: indeterminate"
+  rm -f .ia-engineering "$T/iae-456/drift-accepted.tsv"
+  mv "$T/iae-456" .ia-engineering
+  printf '# an entries file elsewhere\n' > "$T/acc-456-ln.tsv"
+  ln -s "$T/acc-456-ln.tsv" "$ACC_456"
+  r456 --quick --strict --format tsv
+  e456 2 "config${TAB}indeterminate${TAB}$ACC_456${TAB}not a regular file of the project" "#420: a linked entries file is not followed: indeterminate"
+  r456 --accept "$DP_456"
+  e456 2 "is not a regular file (a symbolic link is never written through)" "#420: ... nor written through by --accept (exit 2)"
+  if [ "$(cat "$T/acc-456-ln.tsv")" = "# an entries file elsewhere" ]; then ok "#420: ... the file it points to unchanged"; else bad "#420: ... the file it points to unchanged" "$(cat "$T/acc-456-ln.tsv")"; fi
+  rm -f "$ACC_456"
+else
+  mv "$T/iae-456" .ia-engineering
+  printf '   info  %s\n' "#420: ln -s makes a copy here: the linked .ia-engineering and entries file are built on Linux CI"
+fi
+cp "$T/acc-456.tsv" "$ACC_456"
+
+rm -f "$ACC_456"
+cp "$T/dp-456.yml" "$DP_456"
+rm -rf ia-engineering/Employees .claude/agents
+hook "$AD"; expect_lines 0 "clean after the accepted edits"
+
 # --- an escape sequence never reaches the session --------------------------------
 ESC=$'\033'
 jq --arg c "bash .claude/hooks/x${ESC}[31mRED.sh" '.hooks.Stop[0].hooks += [{"type":"command","command":$c}]' "$T/settings.json" | sed $'s/\r$//' > .claude/settings.json
@@ -1175,10 +1548,19 @@ expect_lines 0 "the next session: the hit, clean"
 rm -f "${DRIFT_SH%.sh}.real.sh" "$T/plan"
 cp "$T/check-framework-drift.sh" "$DRIFT_SH"
 
-printf '#!/usr/bin/env bash\nprintf "file\\tabsent\\tx\\tr\\n"\n' > "$DRIFT_SH"
+# An accepted record in it is not shown either (WU-IAENG-456).
+printf '#!/usr/bin/env bash\nprintf "file\\tabsent\\tx\\tr\\nfile\\taccepted\\ty\\tr\\n"\n' > "$DRIFT_SH"
 hook "$AD"
 expect_lines 1 "output with no summary line: one line, nothing from it shown"
 expect_drift "it gave no summary line" "a cut-short output is said, not trusted"
+case "$DRIFT" in *accepted*) bad "#420: ... not even its accepted record" "$DRIFT" ;; *) ok "#420: ... not even its accepted record" ;; esac
+
+# More than three accepted files: one line, naming three and counting the
+# rest, as the lines to act on do (WU-IAENG-456).
+printf '#!/usr/bin/env bash\nprintf "file\\taccepted\\ta1\\tr\\nfile\\taccepted\\ta2\\tr\\nfile\\taccepted\\ta3\\tr\\nfile\\taccepted\\ta4\\tr\\nfile\\taccepted\\ta5\\tr\\n# check-framework-drift: 0 to act on, 0 indeterminate, 5 accepted.\\n"\n' > "$DRIFT_SH"
+hook "$AD"
+expect_lines 1 "#420: five accepted files: one line"
+expect_drift "IA Engineering drift: 5 accepted (a1, a2, a3 and 2 more): a reviewed project edit" "#420: ... naming three and counting the rest"
 
 # A drift status this hook has no line for is still never silence.
 printf '#!/usr/bin/env bash\nprintf "config\\tmissing\\tx\\tr\\n# check-framework-drift: 1 to act on, 0 indeterminate.\\n"\n' > "$DRIFT_SH"

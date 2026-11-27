@@ -78,7 +78,9 @@ is_control() {
     package.json | package-lock.json | node_modules/*) return 0 ;;
     .claude/settings.json | .claude/settings.local.json | .claude/hooks/*) return 0 ;;
     Registry/employees.yml) return 0 ;;
-    .ia-engineering/*.allow | .ia-engineering/risk-map.yml) return 0 ;;
+    # drift-accepted.tsv decides what check-framework-drift.sh --strict passes
+    # (WU-IAENG-456).
+    .ia-engineering/*.allow | .ia-engineering/risk-map.yml | .ia-engineering/drift-accepted.tsv) return 0 ;;
     .gitignore | .gitattributes | */.gitattributes | .gitmodules) return 0 ;;
     ia-engineering) return 0 ;;
   esac
