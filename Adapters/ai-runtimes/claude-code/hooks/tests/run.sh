@@ -1671,41 +1671,53 @@ rm -f "$SHAPES_COUNTS"
 # against a stub settings-shapes.sh whose counts file and exit status each
 # case chooses. The expected totals are the block's contract: a suite's two
 # counts are added; a non-zero exit with no failed check counted is one
-# failure more; no counts, or counts that are not two numbers, is one
-# failure. A block that cannot be copied out (its header renamed) fails
-# every case, never passes one.
+# failure more; no counts, counts that are not two numbers, or a total of
+# zero (a suite that ran no check), is one failure. A block that cannot be
+# copied out (its header renamed) fails every case, never passes one.
+# agg_cases holds that contract once, for any block counted this way: the
+# powershell-deny.sh block below is checked by it too (WU-IAENG-458, PR #537
+# review Major 1; the total of zero, round 2 Major 1).
 echo "== the settings-shapes.sh counts reach the total"
 AGG_DIR="$(mktemp -d "${TMPDIR:-/tmp}/iaeng-shapes-agg.XXXXXX")"
-AGG_BLOCK="$(sed -n '/^# --- install-hooks\.sh, a settings\.json without "hooks" (WU-IAENG-437)/,/^rm -f "[$]SHAPES_COUNTS"$/p' "$HERE/run.sh")"
-# agg_case <label> <the stub's counts line, empty for none> <its exit> <"TOTAL FAILED" the block must leave> [a line it must print]
+# agg_block <its header line, as a sed pattern> <its counts variable>: the
+# block, copied out of this file from that header to its rm -f line.
+agg_block() { sed -n "/^$1/,/^rm -f \"[\$]$2\"\$/p" "$HERE/run.sh"; }
+# agg_case <suite file> <its block> <label> <the stub's counts line, empty for none> <its exit> <"TOTAL FAILED" the block must leave> [a line it must print]
 agg_case() {
-  local label="$1" counts="$2" rc="$3" want="$4" say="${5:-}" out got
+  local suite="$1" block="$2" label="$3" counts="$4" rc="$5" want="$6" say="${7:-}" out got
   TOTAL=$((TOTAL + 1))
   {
     echo '#!/usr/bin/env bash'
     [ -z "$counts" ] || echo "echo \"$counts\" > \"\$IAENG_HOOK_TESTS_COUNTS\""
     echo "exit $rc"
-  } > "$AGG_DIR/settings-shapes.sh"
+  } > "$AGG_DIR/$suite"
   {
     echo '#!/usr/bin/env bash'
     printf 'HERE=%q; DASH_ARGS=(); TOTAL=0; FAILED=0\n' "$AGG_DIR"
-    printf '%s\n' "$AGG_BLOCK"
+    printf '%s\n' "$block"
     echo "echo \"totals: \$TOTAL \$FAILED\""
   } > "$AGG_DIR/block.sh"
   out="$(bash "$AGG_DIR/block.sh" 2>&1)"
   got="$(printf '%s\n' "$out" | sed -n 's/^totals: //p')"
-  if [ -n "$AGG_BLOCK" ] && [ "$got" = "$want" ] && { [ -z "$say" ] || grep -qF -- "$say" <<< "$out"; }; then
+  if [ -n "$block" ] && [ "$got" = "$want" ] && { [ -z "$say" ] || grep -qF -- "$say" <<< "$out"; }; then
     [ "$VERBOSE" -eq 1 ] && printf '   ok    %s\n' "$label"
   else
     FAILED=$((FAILED + 1))
     printf '   FAIL  %s\n         totals [%s], want [%s]; output: %s\n' "$label" "$got" "$want" "$(printf '%s' "$out" | tr '\n' ' ' | head -c 300)"
   fi
 }
-agg_case "a failing settings-shapes.sh (38 run, 2 failed, exit 1): both counts reach the total" "38 2" 1 "38 2"
-agg_case "a passing settings-shapes.sh (38 run, exit 0): 38 counted, none failed" "38 0" 0 "38 0"
-agg_case "exit 1 with no failed check counted: one failure more" "38 0" 1 "39 1" "exited 1 with no failed check counted"
-agg_case "no counts written (exit 2): one failure" "" 2 "1 1" "reported no counts (exit 2)"
-agg_case "counts that are not two numbers: one failure" "38 two" 0 "1 1" "reported no counts (exit 0)"
+# agg_cases <suite file> <its block> <the checks the stub reports run>: the
+# contract above, six cases. Each line the block must print names the suite.
+agg_cases() {
+  local suite="$1" block="$2" n="$3"
+  agg_case "$suite" "$block" "a failing $suite ($n run, 2 failed, exit 1): both counts reach the total" "$n 2" 1 "$n 2"
+  agg_case "$suite" "$block" "a passing $suite ($n run, exit 0): $n counted, none failed" "$n 0" 0 "$n 0"
+  agg_case "$suite" "$block" "$suite exits 1 with no failed check counted: one failure more" "$n 0" 1 "$((n + 1)) 1" "tests/$suite exited 1 with no failed check counted"
+  agg_case "$suite" "$block" "$suite writes no counts (exit 2): one failure" "" 2 "1 1" "tests/$suite reported no counts (exit 2)"
+  agg_case "$suite" "$block" "$suite writes counts that are not two numbers: one failure" "$n two" 0 "1 1" "tests/$suite reported no counts (exit 0)"
+  agg_case "$suite" "$block" "$suite writes a total of zero (0 0, exit 0), having run no check: one failure" "0 0" 0 "1 1" "tests/$suite reported no counts (exit 0)"
+}
+agg_cases settings-shapes.sh "$(agg_block '# --- install-hooks\.sh, a settings\.json without "hooks" (WU-IAENG-437)' SHAPES_COUNTS)" 38
 rm -rf "$AGG_DIR"
 
 # --- The installers and a .claude or .gitattributes that is a link (WU-IAENG-457)
@@ -2388,6 +2400,35 @@ else
   printf '   FAIL  escape-hatch: 210 KB of reads in one segment: exit %s after %s s\n' "$W455_RC" "$W455_S"
 fi
 rm -rf "$W455_DIR"
+
+# --- The template denies the PowerShell tool, installed in place (WU-IAENG-458)
+# Its own file too (tests/powershell-deny.sh), counted here the same way.
+PSD_COUNTS="$(mktemp "${TMPDIR:-/tmp}/iaeng-psd-counts.XXXXXX")"
+IAENG_HOOK_TESTS_COUNTS="$PSD_COUNTS" bash "$HERE/powershell-deny.sh" ${DASH_ARGS[@]+"${DASH_ARGS[@]}"}
+PSD_RC=$?
+if read -r PSD_TOTAL PSD_FAILED < "$PSD_COUNTS" 2>/dev/null \
+    && [[ "$PSD_TOTAL" =~ ^[0-9]+$ ]] && [[ "$PSD_FAILED" =~ ^[0-9]+$ ]] && [ "$PSD_TOTAL" -gt 0 ]; then
+  TOTAL=$((TOTAL + PSD_TOTAL))
+  FAILED=$((FAILED + PSD_FAILED))
+  if [ "$PSD_RC" -ne 0 ] && [ "$PSD_FAILED" -eq 0 ]; then
+    TOTAL=$((TOTAL + 1)); FAILED=$((FAILED + 1))
+    echo "   FAIL  tests/powershell-deny.sh exited $PSD_RC with no failed check counted"
+  fi
+else
+  TOTAL=$((TOTAL + 1)); FAILED=$((FAILED + 1))
+  echo "   FAIL  tests/powershell-deny.sh reported no counts (exit $PSD_RC) — it could not run"
+fi
+rm -f "$PSD_COUNTS"
+
+# --- ... and those counts reach the verdict (WU-IAENG-458, PR #537 review) ----
+# The block above is the only path by which a failing powershell-deny.sh
+# makes this run fail: with its FAILED addition deleted, a stub reporting
+# "21 2" left the totals at "21 0" and the run green. It is checked as the
+# settings-shapes.sh block is, by the same six cases (agg_cases, above).
+echo "== the powershell-deny.sh counts reach the total"
+AGG_DIR="$(mktemp -d "${TMPDIR:-/tmp}/iaeng-psd-agg.XXXXXX")"
+agg_cases powershell-deny.sh "$(agg_block '# --- The template denies the PowerShell tool, installed in place (WU-IAENG-458)' PSD_COUNTS)" 21
+rm -rf "$AGG_DIR"
 
 # --- Verdict ----------------------------------------------------------------
 

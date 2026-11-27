@@ -1317,6 +1317,9 @@ while IFS=$'\t' read -r fam st path detail; do
     statusline:absent) rec config absent "statusLine: $detail" "re-run $REL/Adapters/ai-runtimes/claude-code/install-hooks.sh: it installs the context statusLine, wrapping the project's own" ;;
     statusline:near-miss) rec config near-miss "statusLine: $detail" "information: the project's own statusLine is kept; the context % is not recorded" ;;
     statusline:shadowed) rec config near-miss "$path: statusLine $detail" "information: this developer's own statusLine runs instead; the installer never changes settings.local.json" ;;
+    permission:present) rec config present "$detail" "" ;;
+    permission:absent) rec config absent "$detail" "re-run $REL/Adapters/ai-runtimes/claude-code/install-hooks.sh: it adds the rule and keeps the project's other permissions" ;;
+    permission:near-miss) rec config near-miss "$detail" "information: the project's rule is kept, and has no effect while the deny is there" ;;
     gitattributes:present) rec config present "$path: $detail" "" ;;
     gitattributes:missing) rec config missing "$path: $detail" "re-run $REL/Adapters/ai-runtimes/claude-code/install-hooks.sh" ;;
     *:fault) rec config indeterminate "$path" "$detail" ;;

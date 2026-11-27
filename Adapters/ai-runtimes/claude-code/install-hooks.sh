@@ -64,6 +64,19 @@
 # the context % is then not recorded. A statusLine in settings.local.json,
 # which wins over the project's, is reported and never changed.
 #
+# THE TEMPLATE'S PERMISSION RULES ARE ADDED, NEVER TAKEN AWAY (WU-IAENG-458,
+# Director decision of 26 Nov 2026). The guards read Bash commands, so the
+# template's "permissions" denies Claude Code's PowerShell tool: every shell
+# command goes through the Bash tool, where they apply. Each rule of the
+# template's permissions.deny that the project's deny list does not hold,
+# exactly, is appended to that list, which is created, with "permissions",
+# when absent or null; every other rule and key is kept. An allow or ask
+# rule of the project's for a tool the template denies (the tool's name
+# alone, or followed by "(") is kept and reported, on stderr and as a near
+# miss: Claude Code evaluates deny rules first, so the deny wins over it. A
+# "permissions" that is not an object, or a "deny" that is not a list, is
+# refused as a "hooks" out of shape is.
+#
 # The project's .gitattributes gets the line "/.claude/settings.json text
 # eol=lf" when it does not have it yet (issue #242), so a clone with
 # core.autocrlf=true checks the file out as it was written; nothing else in
@@ -113,6 +126,9 @@
 #                  framework's, chaining the project's own or not; absent: a
 #                  run installs or wraps it; near-miss: the project's own
 #                  kept unwrapped; shadowed: settings.local.json sets one)
+#   permission     present | absent | near-miss   (detail: the template's
+#                  deny rule, or the project's allow or ask rule for a tool
+#                  the template denies; WU-IAENG-458)
 #   gitattributes  present | missing | fault  (detail: the LF rule; fault:
 #                  .gitattributes is a symbolic link, which git does not
 #                  read, whatever it holds)
@@ -233,14 +249,17 @@ check_report() {
         line = "# install-hooks.sh --check: " (act + 0) " to act on. " part("settings", "settings item(s)", "current absent customized disabled fault")
         line = line "; " part("hook", "hook entries", "present absent near-miss unchecked fault")
         line = line "; " part("statusline", "statusLine(s)", "present absent near-miss shadowed")
+        line = line "; " part("permission", "permission rule(s)", "present absent near-miss")
         line = line "; " part("gitattributes", ".gitattributes rule(s)", "present missing fault")
         line = line "; " (f + 0) " fault(s)."
-        if (s["settings" FS "absent"] || s["hook" FS "absent"] || s["statusline" FS "absent"] || s["gitattributes" FS "missing"])
+        if (s["settings" FS "absent"] || s["hook" FS "absent"] || s["statusline" FS "absent"] || s["permission" FS "absent"] || s["gitattributes" FS "missing"])
           line = line " absent/missing: re-run " ENVIRON["IAENG_ME"] " without --force; it adds them and keeps every entry already there, except an earlier framework entry, which it updates in place (its matcher, or the fields the framework added since)."
         if (s["hook" FS "near-miss"])
           line = line " near-miss: check each is not a weakened copy; the framework entry runs beside it."
         if (s["statusline" FS "near-miss"] || s["statusline" FS "shadowed"])
           line = line " statusLine near-miss/shadowed: another status line runs and the context % is not recorded (hooks/README.md, Context Status Line)."
+        if (s["permission" FS "near-miss"])
+          line = line " permission near-miss: an allow or ask rule for a tool the framework denies; the deny wins, so it has no effect (hooks/README.md, Shell Commands Go Through Bash)."
         if (s["settings" FS "disabled"])
           line = line " disabled: \"disableAllHooks\": true switches off every hook, the guards included; remove it there for them to run."
         if (f) line = line " fault: read the fault record(s); nothing is current until they are fixed."
@@ -416,7 +435,7 @@ if [ "$CHECK" -eq 0 ] && [ "$CLAUDE_LINK" = link ]; then
   echo "! .claude is a link: installing into $LINK_TO" >&2
 fi
 
-HOOK_LIST="SessionStart read-first, PreToolUse escape-hatch and inline-suppression blocks, PostToolUse lint, Stop gate, Stop usage-dashboard refresh (never blocks; opt-out in hooks/README.md), context alert on UserPromptSubmit and PostToolBatch (never blocks; hooks/README.md, Context Alert); statusLine recording the context % and running your own status line (hooks/README.md, Context Status Line)."
+HOOK_LIST="SessionStart read-first, PreToolUse escape-hatch and inline-suppression blocks, PostToolUse lint, Stop gate, Stop usage-dashboard refresh (never blocks; opt-out in hooks/README.md), context alert on UserPromptSubmit and PostToolBatch (never blocks; hooks/README.md, Context Alert); statusLine recording the context % and running your own status line (hooks/README.md, Context Status Line); and permissions.deny \"PowerShell\", so every shell command goes through the Bash tool, where the guards read it (hooks/README.md, Shell Commands Go Through Bash)."
 
 DEST="$PROJECT/.claude/settings.json"
 
@@ -558,6 +577,10 @@ BOM=$'\xef\xbb\xbf'
 # The event's name is printed as JSON (tojson), so a control character in it
 # is an escape, never the character. No jq variable is used: the definition
 # is a shell string, and a $name in single quotes reads as a shell mistake.
+# perm_fault, a jq definition beside it: on the settings object, one phrase
+# when "permissions" is not an object, absent or null, or its "deny" is not a
+# list, absent or null, the shape the schema gives them and the one the
+# merge of the template's deny rules reads (WU-IAENG-458).
 SHAPE_DEFS='def shape_fault:
   if type != "object" then empty
   else to_entries[]
@@ -569,6 +592,14 @@ SHAPE_DEFS='def shape_fault:
         | select((.g.value | type) != "object" or (.g.value.hooks | type) != "array")
         | "group \(.g.key + 1) of \"hooks\" > \(.ev | tojson) is not an object whose \"hooks\" is a list (JSON array), which the Claude Code settings schema requires: correct it and re-run"
       end
+  end;
+def perm_fault:
+  if type != "object" or (.permissions | type) == "null" then empty
+  elif (.permissions | type) != "object" then
+    "\"permissions\" is a JSON \(.permissions | type), not an object, which the Claude Code settings schema requires: make it an object and re-run"
+  elif (.permissions.deny | type) == "null" or (.permissions.deny | type) == "array" then empty
+  else
+    "\"permissions\" > \"deny\" is a JSON \(.permissions.deny | type), not a list (JSON array) of rules, which the Claude Code settings schema requires: make it a list and re-run"
   end;'
 # settings_bad_token — "<line>:<token>" for the first token outside a string
 # that is not JSON: not a structural character, true, false, null or a number
@@ -612,7 +643,7 @@ visible() {
 settings_mergeable() {
   [ -z "$(settings_bad_token)" ] || return 1
   jq -es "$SHAPE_DEFS"' length == 1 and (.[0] | type == "object") and (.[0].hooks | type == "object" or type == "null")
-    and ([.[0].hooks | shape_fault] | length == 0)' "$DEST" >/dev/null 2>&1
+    and ([.[0].hooks | shape_fault] | length == 0) and ([.[0] | perm_fault] | length == 0)' "$DEST" >/dev/null 2>&1
 }
 # settings_refusal — why settings_mergeable refused the file, as one phrase
 # that carries its remedy; the write path's "Not changed" line and --check's
@@ -644,7 +675,7 @@ settings_refusal() {
     printf '%s' "line ${tok%%:*} holds $VIS, which is not a JSON value: write a JSON number, true, false or null there and re-run"
     return 0
   fi
-  shape="$(jq -rs "$SHAPE_DEFS"' if length == 1 and (.[0] | type == "object") then first(.[0].hooks | shape_fault) else empty end' "$DEST" 2>/dev/null | sed $'s/\r$//')"
+  shape="$(jq -rs "$SHAPE_DEFS"' if length == 1 and (.[0] | type == "object") then first((.[0].hooks | shape_fault), (.[0] | perm_fault)) else empty end' "$DEST" 2>/dev/null | sed $'s/\r$//')"
   if [ -n "$shape" ]; then
     visible "$shape"
     printf '%s' "$VIS"
@@ -653,7 +684,10 @@ settings_refusal() {
   printf '%s' "it is not one JSON object whose 'hooks' is an object, absent or null"
 }
 # merge_settings: the settings on stdin, merged with the template; prints
-# {m: merged settings, a: added, p: present, w: near misses}. sed: jq on
+# {m: merged settings, a: added, p: present, w: near misses}, and for the
+# template's permissions.deny (WU-IAENG-458) pa: its rules added, pp: its
+# rules present, pw: the project's allow or ask rules for a tool it denies,
+# each a label. sed: jq on
 # Windows writes CRLF; its JSON escapes a CR inside a string, so the only raw
 # CR is the one that ends a line, and only that one is removed (Check
 # Convention, Shell Scripts, rule 3).
@@ -741,6 +775,17 @@ merge_settings() {
                + (if $same == null then ""
                   else "  (the framework command; differs in: " + (differ($same; $hn) | join(", ")) + ")"
                   end) ]
+    | ([$tpl.permissions.deny[]? | strings]) as $tdeny
+    | ([($cur.permissions // {}).deny[]?]) as $cdeny
+    | ([$tdeny[] | select(test("^[A-Za-z0-9_]+$"))]) as $tools
+    | .pa = [$tdeny[] | . as $r | select(any($cdeny[]; . == $r) | not)]
+    | .pp = [$tdeny[] | . as $r | select(any($cdeny[]; . == $r))]
+    | .pw = [("allow", "ask") as $k | ($cur.permissions // {})[$k][]? | strings | . as $r
+             | ([$tools[] | . as $tool | select($r == $tool or ($r | startswith($tool + "(")))] | first) as $t
+             | select($t != null)
+             | "permissions." + $k + ": " + $r + "  (the framework denies the " + $t
+               + " tool, and Claude Code evaluates deny rules first: the deny wins over this rule)"]
+    | (if (.pa | length) > 0 then .m.permissions.deny = ($cdeny + .pa) else . end)
     | ($tpl.statusLine // null) as $tsl
     | ($cur.statusLine // null) as $csl
     | ($tsl.command // "" | norm) as $ours
@@ -843,6 +888,13 @@ if [ "$CHECK" -eq 1 ]; then
     done < <(printf '%s\n' "$MERGED" \
       | jq -r '.sl | select(. != null) | .st + "\t" + (.d | gsub("[\t\n\r]"; " "))' 2>/dev/null \
       | sed $'s/\r$//')
+    while IFS=$'\t' read -r _st _d; do
+      [ -n "$_st" ] && record permission "$_st" "$REL_DEST" "$_d"
+    done < <(printf '%s\n' "$MERGED" \
+      | jq -r 'def flat: gsub("[\t\n\r]"; " ");
+               (.pp[]? | "present\tpermissions.deny: " + flat), (.pa[]? | "absent\tpermissions.deny: " + flat),
+               (.pw[]? | "near-miss\t" + flat)' 2>/dev/null \
+      | sed $'s/\r$//')
   fi
   if [ -z "$CLAUDE_LINK" ]; then
     while IFS= read -r _c; do
@@ -920,6 +972,28 @@ if [ -f "$DEST" ] && [ "$FORCE" -eq 0 ]; then
     present) PRESENT="${PRESENT:+$PRESENT$'\n'}statusLine: $SL_D" ;;
     near-miss) echo "! $DEST: statusLine: $SL_D (hooks/README.md, Context Status Line)." >&2 ;;
   esac
+  # The template's deny rules (WU-IAENG-458) are listed with the hook
+  # entries, added or present. An allow or ask rule of the project's for a
+  # tool the template denies is kept and named on stderr below, flattened as
+  # the statusLine is: it is read from the project's settings.
+  PERM_NEAR=""
+  while IFS=$'\t' read -r _st _d; do
+    case "$_st" in
+      a) ADDED="${ADDED:+$ADDED$'\n'}permissions.deny: $_d" ;;
+      p) PRESENT="${PRESENT:+$PRESENT$'\n'}permissions.deny: $_d" ;;
+      w) flat "$_d"; PERM_NEAR="${PERM_NEAR:+$PERM_NEAR$'\n'}$FLAT" ;;
+    esac
+  done < <(printf '%s\n' "$MERGED" | jq -r '(.pa[]? | "a\t" + .), (.pp[]? | "p\t" + .), (.pw[]? | "w\t" + gsub("[\t\n\r]"; " "))' | sed $'s/\r$//')
+  if [ -n "$PERM_NEAR" ]; then
+    {
+      echo "! $DEST: these rules allow a tool, or ask before it, that the framework's settings deny."
+      echo "  Claude Code evaluates deny rules first, so the deny wins and they have no effect while it"
+      echo "  is there. They are kept as they are: remove them, or keep them knowingly. Shell commands"
+      echo "  go through the Bash tool, where the guards read them (hooks/README.md, Shell Commands Go"
+      echo "  Through Bash):"
+      printf '%s\n' "$PERM_NEAR" | sed 's/^/    /'
+    } >&2
+  fi
   if [ -n "$NEAR" ]; then
     {
       echo "! $DEST: these commands name a framework hook script but are not the framework's entry"
