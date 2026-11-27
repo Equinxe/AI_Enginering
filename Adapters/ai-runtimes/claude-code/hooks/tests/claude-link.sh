@@ -321,8 +321,12 @@ case_hooks_merge() {
   ! grep -qE $'^(settings\tdisabled|statusline\tshadowed)\t' "$C/out"
   v "$L: --check reads nothing behind the link: no disabled or shadowed record from its settings.local.json" $?
   run install-hooks.sh --follow-claude-link
+  # The other keys kept: the model and the project's allow rule. The
+  # template's deny rule (WU-IAENG-458) is added beside them, as the rendered
+  # template gives it.
   [ "$RC" -eq 0 ] && [ "$(jq '[.hooks[][]] | length' "$tgt/settings.json" | strip_eol_cr)" = "$TPL_GROUPS" ] \
-    && [ "$(jq -c '{model, permissions}' "$tgt/settings.json" | strip_eol_cr)" = '{"model":"opus","permissions":{"allow":["Bash(ls)"]}}' ]
+    && [ "$(jq -c '{model, allow: .permissions.allow}' "$tgt/settings.json" | strip_eol_cr)" = '{"model":"opus","allow":["Bash(ls)"]}' ] \
+    && [ "$(jq -c '.permissions.deny' "$tgt/settings.json" | strip_eol_cr)" = "$(jq -c '.permissions.deny' "$TPL" | strip_eol_cr)" ]
   v "$L: --follow-claude-link merges there (exit 0), every group added, the other keys kept" $?
 }
 
